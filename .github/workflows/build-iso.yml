@@ -65,22 +65,12 @@ jobs:
                 apt-get install -y qemu-user-static
               fi
 
-              # Override architecture in config files
-              sed -i "s/LB_ARCHITECTURE=\"amd64\"/LB_ARCHITECTURE=\"${ARCH}\"/" config/bootstrap
-              sed -i "s/LB_LINUX_FLAVOURS_WITH_ARCH=\"amd64\"/LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\"/" config/chroot
-
-              if [ "$ARCH" = "arm64" ]; then
-                # ARM64: UEFI only (no BIOS/syslinux)
-                sed -i "s/LB_BOOTLOADER_BIOS=\"syslinux\"/LB_BOOTLOADER_BIOS=\"\"/" config/binary
-
-                # Set up QEMU for foreign bootstrap
-                sed -i "s/LB_BOOTSTRAP_QEMU_ARCHITECTURE=\"\"/LB_BOOTSTRAP_QEMU_ARCHITECTURE=\"arm64\"/" config/bootstrap
-                sed -i "s|LB_BOOTSTRAP_QEMU_STATIC=\"\"|LB_BOOTSTRAP_QEMU_STATIC=\"/usr/bin/qemu-aarch64-static\"|" config/bootstrap
-              fi
-
-              echo "=== Building $ARCH ISO ==="
-              mkdir -p .build && touch .build/config
-              lb build
+              # Use build.sh which handles all arch-specific config:
+              # - ARM64 boot params (clk_ignore_unused, pd_ignore_unused)
+              # - ARM64 firmware packages (Qualcomm, Mesa Freedreno)
+              # - ARM64 bootloader (grub-efi only, no syslinux)
+              # - Snapdragon X Elite hooks and firmware extractor
+              bash build.sh --arch "$ARCH"
             '
 
       - name: Prepare artifacts

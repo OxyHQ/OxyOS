@@ -1,0 +1,25 @@
+# Qualcomm / Snapdragon X Elite firmware and drivers for ARM64
+# NOTE: This file is added/removed by build.sh based on target architecture.
+# Do not rename this file -- the build script manages it.
+
+# Core firmware (Qualcomm blobs are in firmware-misc-nonfree and linux-firmware)
+firmware-linux-free
+firmware-linux-nonfree
+firmware-misc-nonfree
+
+# GPU - Mesa with Freedreno (Adreno GPU) and Vulkan support
+mesa-vulkan-drivers
+mesa-va-drivers
+libgl1-mesa-dri
+
+# Device tree compiler (for Snapdragon device trees)
+device-tree-compiler
+
+# Power management for ARM64
+acpid
+
+# EFI tools
+efibootmgr
+
+# NTFS read support (needed to extract firmware from Windows partition)
+ntfs-3g

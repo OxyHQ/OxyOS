@@ -1,0 +1,182 @@
+#!/bin/sh
+# ARM64 / Snapdragon X Elite specific setup
+# This hook only runs during arm64 builds
+
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" != "arm64" ]; then
+    echo "Skipping ARM64 hook on ${ARCH} build"
+    exit 0
+fi
+
+set -e
+echo "=== Configuring ARM64 / Snapdragon X Elite support ==="
+
+# --- Qualcomm firmware extraction helper ---
+# Most Snapdragon X Elite devices need firmware extracted from Windows.
+# Only Lenovo ThinkPad T14s Gen 6 has firmware in upstream linux-firmware.
+# We provide a helper script for users to extract firmware after booting.
+cat > /usr/local/bin/oxyos-qcom-firmware << 'FWEOF'
+#!/bin/bash
+# OxyOS Qualcomm Firmware Extractor
+# Extracts firmware from a mounted Windows partition for Snapdragon X Elite devices
+
+set -e
+
+echo "========================================"
+echo "  OxyOS Qualcomm Firmware Extractor"
+echo "========================================"
+echo ""
+
+# Find Windows partition
+WIN_PART=""
+for part in /dev/nvme0n1p3 /dev/nvme0n1p4 /dev/nvme0n1p5; do
+    if [ -b "$part" ]; then
+        FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || true)
+        if [ "$FSTYPE" = "ntfs" ]; then
+            WIN_PART="$part"
+            break
+        fi
+    fi
+done
+
+if [ -z "$WIN_PART" ]; then
+    echo "Scanning all partitions for Windows (NTFS)..."
+    for part in $(lsblk -rno NAME,FSTYPE | grep ntfs | awk '{print "/dev/"$1}'); do
+        WIN_PART="$part"
+        break
+    done
+fi
+
+if [ -z "$WIN_PART" ]; then
+    echo "Error: No Windows (NTFS) partition found."
+    echo "You can manually specify: $0 /dev/sdXN"
+    exit 1
+fi
+
+echo "Found Windows partition: $WIN_PART"
+
+# Mount Windows partition
+MOUNT_DIR=$(mktemp -d)
+mount -t ntfs3 -o ro "$WIN_PART" "$MOUNT_DIR" 2>/dev/null || \
+    mount -t ntfs-3g -o ro "$WIN_PART" "$MOUNT_DIR"
+
+echo "Mounted Windows at $MOUNT_DIR"
+
+# Search for Qualcomm firmware
+FW_FOUND=false
+FW_DEST="/lib/firmware/qcom"
+mkdir -p "$FW_DEST"
+
+# Qualcomm firmware locations on Windows
+for fw_dir in \
+    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/qc*" \
+    "$MOUNT_DIR/Windows/System32/drivers/qc*"; do
+
+    for dir in $fw_dir; do
+        if [ -d "$dir" ]; then
+            echo "Extracting firmware from: $dir"
+            find "$dir" -type f \( -name "*.mbn" -o -name "*.bin" -o -name "*.elf" \
+                -o -name "*.mdt" -o -name "*.b00" -o -name "*.b01" -o -name "*.b02" \
+                -o -name "*.b03" -o -name "*.b04" -o -name "*.b05" -o -name "*.b06" \
+                -o -name "*.jsn" -o -name "*.pfw" \) \
+                -exec cp -n {} "$FW_DEST/" \;
+            FW_FOUND=true
+        fi
+    done
+done
+
+# Also look for GPU firmware specifically
+for gpu_dir in \
+    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/qcgpu*" \
+    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/u_gpu*"; do
+
+    for dir in $gpu_dir; do
+        if [ -d "$dir" ]; then
+            echo "Extracting GPU firmware from: $dir"
+            mkdir -p "$FW_DEST/x1e80100"
+            find "$dir" -type f -exec cp -n {} "$FW_DEST/x1e80100/" \;
+            FW_FOUND=true
+        fi
+    done
+done
+
+umount "$MOUNT_DIR"
+rmdir "$MOUNT_DIR"
+
+if $FW_FOUND; then
+    echo ""
+    echo "Firmware extracted to $FW_DEST"
+    echo "Reloading GPU driver..."
+    modprobe -r msm 2>/dev/null || true
+    modprobe msm 2>/dev/null || true
+    echo ""
+    echo "Done! If the display doesn't update, try: sudo systemctl restart display-manager"
+else
+    echo ""
+    echo "Warning: No Qualcomm firmware found on the Windows partition."
+    echo "Your device may need firmware from a different location."
+fi
+FWEOF
+chmod +x /usr/local/bin/oxyos-qcom-firmware
+
+# --- GPU configuration ---
+# Ensure simpledrm/efifb is loaded early for basic display before Adreno firmware
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/snapdragon-gpu.conf << 'GPUEOF'
+# Load simpledrm early for basic EFI framebuffer on Snapdragon X
+# This provides a working display even without Qualcomm firmware
+softdep msm pre: simpledrm
+# Prevent GPU driver from failing hard if firmware is missing
+options msm modeset=1
+GPUEOF
+
+# --- Kernel modules for Snapdragon X ---
+mkdir -p /etc/modules-load.d
+cat > /etc/modules-load.d/snapdragon.conf << 'MODEOF'
+# Snapdragon X Elite hardware support
+simpledrm
+i2c-hid-of
+i2c-qcom-geni
+phy-qcom-qmp-pcie
+pcie-qcom
+nvme
+MODEOF
+
+# --- Power management for ARM64 ---
+mkdir -p /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/snapdragon-power.conf << 'PWREOF'
+# Prevent aggressive power gating that can cause hangs on Snapdragon X
+w /sys/module/pcie_aspm/parameters/policy - - - - performance
+PWREOF
+
+# --- Autorun firmware extraction hint on first login ---
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/oxyos-firmware-hint.desktop << 'DSKEOF'
+[Desktop Entry]
+Type=Application
+Name=OxyOS Firmware Setup
+Comment=Check if Qualcomm firmware needs to be extracted
+Exec=/usr/local/bin/oxyos-firmware-check
+Terminal=false
+Hidden=false
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=OPENBOX;
+DSKEOF
+
+cat > /usr/local/bin/oxyos-firmware-check << 'CHKEOF'
+#!/bin/bash
+# Check if Qualcomm firmware is present, show notification if not
+ARCH=$(uname -m)
+if [ "$ARCH" != "aarch64" ]; then
+    exit 0
+fi
+
+if [ ! -d /lib/firmware/qcom ] || [ -z "$(ls -A /lib/firmware/qcom/ 2>/dev/null)" ]; then
+    zenity --info --title="OxyOS - Snapdragon Firmware" \
+        --text="Your Snapdragon device needs firmware from Windows for full GPU support.\n\nOpen a terminal and run:\n\nsudo oxyos-qcom-firmware\n\nThis will extract firmware from your Windows partition." \
+        --width=400 2>/dev/null || true
+fi
+CHKEOF
+chmod +x /usr/local/bin/oxyos-firmware-check
+
+echo "=== ARM64 / Snapdragon X Elite setup complete ==="

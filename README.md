@@ -29,17 +29,36 @@ Build internals use `oxyos` identifiers throughout.
 
 ### Building
 
-While you can certainly build the ISO natively, it's easiest and very tidy to use Docker, as below.
+OxyOS supports building for both **amd64** (x86-64) and **arm64** (AArch64/Snapdragon X) architectures using the `build.sh` script.
+
+#### Build with Docker (recommended)
+
+**amd64 (default):**
+```
+$ docker run --privileged --cap-add=ALL -v /proc:/proc -v /sys:/sys -v $PWD:/build -w /build -it --rm debian:trixie /bin/sh -c 'apt-get update && apt-get install -y live-build && mkdir -p .build && touch .build/config && bash build.sh --arch amd64'
+```
+
+**arm64 (Snapdragon X / ARM laptops):**
+```
+$ docker run --privileged --cap-add=ALL -v /proc:/proc -v /sys:/sys -v $PWD:/build -w /build -it --rm debian:trixie /bin/sh -c 'apt-get update && apt-get install -y live-build qemu-user-static && mkdir -p .build && touch .build/config && bash build.sh --arch arm64'
+```
+
+#### Build without Docker
 
 ```
-$ docker run --privileged --cap-add=ALL -v /proc:/proc -v /sys:/sys -v $PWD:/build -w /build -it --rm debian:trixie /bin/sh -c 'apt-get update && apt-get install -y live-build && mkdir -p .build && touch .build/config && lb build'
+# apt-get update && apt-get install -y live-build && bash build.sh --arch amd64
+# apt-get update && apt-get install -y live-build qemu-user-static && bash build.sh --arch arm64
 ```
 
-If you don't want to run Docker, you can run the same commands that get passed to the shell (as root, or with sudo):
+#### ARM64 / Snapdragon X Notes
+
+The ARM64 build includes Qualcomm firmware support for Snapdragon X Elite/Plus devices. After booting the live USB, most devices require firmware extraction from the Windows partition:
 
 ```
-# apt-get update && apt-get install -y live-build && mkdir .build && touch .build/config && lb build
+$ sudo oxyos-qcom-firmware
 ```
+
+This extracts GPU and other firmware from the Windows NTFS partition. A notification will remind you on first boot.
 
 ### OxyOS Project Sources
 
