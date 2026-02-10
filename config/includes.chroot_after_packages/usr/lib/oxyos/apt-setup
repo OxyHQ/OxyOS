@@ -19,6 +19,6 @@ rm /etc/apt/sources.list
 rm /etc/apt/sources.list~
 fi
 
-systemctl disable cbpp-apt-setup
-rm /usr/lib/systemd/system/cbpp-apt-setup.service
-rm -rf /usr/lib/cbpp
+systemctl disable oxyos-apt-setup
+rm /usr/lib/systemd/system/oxyos-apt-setup.service
+rm -rf /usr/lib/oxyos

@@ -7,4 +7,4 @@ apt-transport-https
 psmisc
 cryptsetup
 lxdm
-cbpp-metapackage
+oxyos-metapackage

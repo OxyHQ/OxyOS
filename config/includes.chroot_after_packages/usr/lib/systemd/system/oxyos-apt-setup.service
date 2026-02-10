@@ -1,9 +1,9 @@
 [Unit]
-Description=cbpp apt setup service
+Description=oxyos apt setup service
 After=getty@%i.service
 
 [Service]
-ExecStart=/usr/lib/cbpp/apt-setup
+ExecStart=/usr/lib/oxyos/apt-setup
 Type=oneshot
 
 [Install]

@@ -2,7 +2,7 @@ desktop-image: "../splash.png"
 title-color: "#ffffff"
 title-font: "DejaVu Sans Bold 16"
 title-text: "Live Boot Menu with GRUB"
-#title-text: "Crunchbang Plus Plus -- @PROJECT@ 11 (@DISTRIBUTION@) @ARCHITECTURE@"
+#title-text: "OxyOS -- @PROJECT@ 11 (@DISTRIBUTION@) @ARCHITECTURE@"
 message-font: "Unifont Regular 16"
 terminal-font: "Unifont Regular 16"
 
