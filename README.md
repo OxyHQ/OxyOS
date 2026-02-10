@@ -45,7 +45,7 @@ If you don't want to run Docker, you can run the same commands that get passed t
 
 The OxyOS project is split across several repositories. The current public source list is:
 
-- [OxyOS-website](https://github.com/OxyHQ/OxyOS-website) - Source code for the website available at https://os.oxy.so/ (CSS, WTFPL, updated Oct 29, 2025)
+- [OxyOS-website](https://github.com/OxyHQ/OxyOS-website) - Source code for the website available at https://os.oxy.so/ (CSS, updated Oct 29, 2025)
 - [OxyOS-menu](https://github.com/OxyHQ/OxyOS-menu) - Menu tooling for OxyOS (Python, updated Aug 22, 2025)
 - [OxyOS-apps](https://github.com/OxyHQ/OxyOS-apps) - OxyOS apps package sources (Python, MIT License, updated Aug 22, 2025)
 - [OxyOS-welcome](https://github.com/OxyHQ/OxyOS-welcome) - Optional post-installation script for OxyOS (Shell, updated Aug 22, 2025)
