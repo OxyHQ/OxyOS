@@ -27,75 +27,73 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.architectures == 'amd64' && fromJSON('["amd64"]') || github.event.inputs.architectures == 'arm64' && fromJSON('["arm64"]') || fromJSON('["amd64", "arm64"]')) || fromJSON('["amd64", "arm64"]') }}
-    container:
-      image: debian:trixie
-      options: --privileged
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y live-build git awscli
-          # Install QEMU for cross-architecture builds
-          if [ "${{ matrix.arch }}" != "amd64" ]; then
-            apt-get install -y qemu-user-static binfmt-support
-            update-binfmts --enable
-          fi
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure architecture
+      - name: Set up QEMU
+        if: matrix.arch != 'amd64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Determine version
         run: |
-          ARCH="${{ matrix.arch }}"
-
-          # Override architecture in config files
-          sed -i "s/LB_ARCHITECTURE=\"amd64\"/LB_ARCHITECTURE=\"${ARCH}\"/" config/bootstrap
-          sed -i "s/LB_LINUX_FLAVOURS_WITH_ARCH=\"amd64\"/LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\"/" config/chroot
-
-          if [ "$ARCH" = "arm64" ]; then
-            # ARM64: UEFI only (no BIOS/syslinux)
-            sed -i 's/LB_BOOTLOADER_BIOS="syslinux"/LB_BOOTLOADER_BIOS=""/' config/binary
-            # Disable win32 loader and memtest on ARM
-            sed -i 's/LB_WIN32_LOADER="false"/LB_WIN32_LOADER="false"/' config/binary
-            sed -i 's/LB_MEMTEST="none"/LB_MEMTEST="none"/' config/binary
-
-            # Set up QEMU for foreign bootstrap
-            sed -i 's/LB_BOOTSTRAP_QEMU_ARCHITECTURE=""/LB_BOOTSTRAP_QEMU_ARCHITECTURE="arm64"/' config/bootstrap
-            sed -i 's|LB_BOOTSTRAP_QEMU_STATIC=""|LB_BOOTSTRAP_QEMU_STATIC="/usr/bin/qemu-aarch64-static"|' config/bootstrap
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
+          else
+            TAG_NAME="${GITHUB_REF_NAME}"
+            echo "VERSION=${TAG_NAME#v}" >> $GITHUB_ENV
           fi
+          echo "ARCH=${{ matrix.arch }}" >> $GITHUB_ENV
 
-          echo "=== bootstrap config ==="
-          cat config/bootstrap
-          echo "=== chroot config ==="
-          cat config/chroot
-          echo "=== binary config ==="
-          cat config/binary
-
-      - name: Build ISO
+      - name: Build ISO in container
         run: |
-          mkdir -p .build && touch .build/config
-          lb build
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}:/build" \
+            -w /build \
+            debian:trixie \
+            bash -c '
+              set -e
+              ARCH="${{ matrix.arch }}"
+
+              apt-get update
+              apt-get install -y live-build
+
+              # For cross-arch: install QEMU static binary
+              if [ "$ARCH" != "amd64" ]; then
+                apt-get install -y qemu-user-static
+              fi
+
+              # Override architecture in config files
+              sed -i "s/LB_ARCHITECTURE=\"amd64\"/LB_ARCHITECTURE=\"${ARCH}\"/" config/bootstrap
+              sed -i "s/LB_LINUX_FLAVOURS_WITH_ARCH=\"amd64\"/LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\"/" config/chroot
+
+              if [ "$ARCH" = "arm64" ]; then
+                # ARM64: UEFI only (no BIOS/syslinux)
+                sed -i "s/LB_BOOTLOADER_BIOS=\"syslinux\"/LB_BOOTLOADER_BIOS=\"\"/" config/binary
+
+                # Set up QEMU for foreign bootstrap
+                sed -i "s/LB_BOOTSTRAP_QEMU_ARCHITECTURE=\"\"/LB_BOOTSTRAP_QEMU_ARCHITECTURE=\"arm64\"/" config/bootstrap
+                sed -i "s|LB_BOOTSTRAP_QEMU_STATIC=\"\"|LB_BOOTSTRAP_QEMU_STATIC=\"/usr/bin/qemu-aarch64-static\"|" config/bootstrap
+              fi
+
+              echo "=== Building $ARCH ISO ==="
+              mkdir -p .build && touch .build/config
+              lb build
+            '
 
       - name: Prepare artifacts
         run: |
-          ARCH="${{ matrix.arch }}"
           ISO_FILE=$(ls *.iso 2>/dev/null | head -1)
           if [ -z "$ISO_FILE" ]; then
             echo "No ISO file found"
             exit 1
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            TAG_NAME="${GITHUB_REF_NAME}"
-            VERSION="${TAG_NAME#v}"
-          fi
-
-          NEW_NAME="oxyos-${VERSION}-${ARCH}.iso"
+          NEW_NAME="oxyos-${{ env.VERSION }}-${{ env.ARCH }}.iso"
           mv "$ISO_FILE" "$NEW_NAME"
           echo "ISO_FILE=$NEW_NAME" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
           md5sum "$NEW_NAME" | awk '{print $1}' > "${NEW_NAME}.md5"
           echo "MD5_FILE=${NEW_NAME}.md5" >> $GITHUB_ENV
@@ -113,6 +111,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
         run: |
+          pip install awscli --quiet
           aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/${{ env.ISO_FILE }}" \
             --endpoint-url https://ams3.digitaloceanspaces.com \
             --acl public-read
