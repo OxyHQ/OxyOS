@@ -1,11 +1,9 @@
 ## OxyOS
-# OxyOS, a CrunchBang-inspired desktop Linux project.
+# OxyOS - A lightweight desktop Linux project.
 
-OxyOS is a modern continuation of the lightweight, elegant desktop approach popularized by CrunchBang.
+OxyOS is a lightweight, elegant desktop Linux distribution built on Debian.
 
-In 2015, Philip Newborough (Corenominal) officially discontinued CrunchBang. OxyOS carries that design philosophy forward while adapting for current Debian tooling and dependencies.
-
-Over the years, under-the-hood updates have included systemd transitions, display/login stack changes, and GTK updates while keeping the original fast-and-minimal experience as intact as possible.
+Over the years, under-the-hood updates have included systemd transitions, display/login stack changes, and GTK updates while keeping a fast-and-minimal experience as intact as possible.
 
 Official website: https://os.oxy.so/
 
@@ -27,7 +25,7 @@ This repository is the live-build configuration for assembling OxyOS installatio
 - `config/preseed/` - Debian installer automation defaults.
 - `config/archives/` - apt source list fragments used during build/install stages.
 
-Build internals have been migrated from legacy `cbpp` naming to use `oxyos` identifiers throughout.
+Build internals use `oxyos` identifiers throughout.
 
 ### Building
 
