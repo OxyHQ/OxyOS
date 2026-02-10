@@ -82,7 +82,9 @@ jobs:
           fi
 
           NEW_NAME="oxyos-${{ env.VERSION }}-${{ env.ARCH }}.iso"
-          mv "$ISO_FILE" "$NEW_NAME"
+          if [ "$ISO_FILE" != "$NEW_NAME" ]; then
+            mv "$ISO_FILE" "$NEW_NAME"
+          fi
           echo "ISO_FILE=$NEW_NAME" >> $GITHUB_ENV
 
           md5sum "$NEW_NAME" | awk '{print $1}' > "${NEW_NAME}.md5"
