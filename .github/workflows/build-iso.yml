@@ -14,16 +14,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+      options: --privileged
     steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y live-build git awscli
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build ISO
         run: |
-          sudo apt-get update
-          sudo apt-get install -y live-build
           mkdir -p .build && touch .build/config
-          sudo lb build
+          lb build
 
       - name: Prepare artifacts
         run: |
@@ -61,7 +67,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
         run: |
-          sudo apt-get install -y awscli
           aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/${{ env.ISO_FILE }}" \
             --endpoint-url https://ams3.digitaloceanspaces.com \
             --acl public-read
