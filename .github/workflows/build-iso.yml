@@ -7,6 +7,15 @@ on:
         description: 'Version number (e.g. 1.0)'
         required: true
         default: '1.0'
+      architectures:
+        description: 'Architectures to build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - amd64
+          - arm64
   push:
     tags:
       - 'v*'
@@ -14,6 +23,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.architectures == 'amd64' && fromJSON('["amd64"]') || github.event.inputs.architectures == 'arm64' && fromJSON('["arm64"]') || fromJSON('["amd64", "arm64"]')) || fromJSON('["amd64", "arm64"]') }}
     container:
       image: debian:trixie
       options: --privileged
@@ -22,9 +35,41 @@ jobs:
         run: |
           apt-get update
           apt-get install -y live-build git awscli
+          # Install QEMU for cross-architecture builds
+          if [ "${{ matrix.arch }}" != "amd64" ]; then
+            apt-get install -y qemu-user-static binfmt-support
+            update-binfmts --enable
+          fi
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure architecture
+        run: |
+          ARCH="${{ matrix.arch }}"
+
+          # Override architecture in config files
+          sed -i "s/LB_ARCHITECTURE=\"amd64\"/LB_ARCHITECTURE=\"${ARCH}\"/" config/bootstrap
+          sed -i "s/LB_LINUX_FLAVOURS_WITH_ARCH=\"amd64\"/LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\"/" config/chroot
+
+          if [ "$ARCH" = "arm64" ]; then
+            # ARM64: UEFI only (no BIOS/syslinux)
+            sed -i 's/LB_BOOTLOADER_BIOS="syslinux"/LB_BOOTLOADER_BIOS=""/' config/binary
+            # Disable win32 loader and memtest on ARM
+            sed -i 's/LB_WIN32_LOADER="false"/LB_WIN32_LOADER="false"/' config/binary
+            sed -i 's/LB_MEMTEST="none"/LB_MEMTEST="none"/' config/binary
+
+            # Set up QEMU for foreign bootstrap
+            sed -i 's/LB_BOOTSTRAP_QEMU_ARCHITECTURE=""/LB_BOOTSTRAP_QEMU_ARCHITECTURE="arm64"/' config/bootstrap
+            sed -i 's|LB_BOOTSTRAP_QEMU_STATIC=""|LB_BOOTSTRAP_QEMU_STATIC="/usr/bin/qemu-aarch64-static"|' config/bootstrap
+          fi
+
+          echo "=== bootstrap config ==="
+          cat config/bootstrap
+          echo "=== chroot config ==="
+          cat config/chroot
+          echo "=== binary config ==="
+          cat config/binary
 
       - name: Build ISO
         run: |
@@ -33,6 +78,7 @@ jobs:
 
       - name: Prepare artifacts
         run: |
+          ARCH="${{ matrix.arch }}"
           ISO_FILE=$(ls *.iso 2>/dev/null | head -1)
           if [ -z "$ISO_FILE" ]; then
             echo "No ISO file found"
@@ -46,7 +92,7 @@ jobs:
             VERSION="${TAG_NAME#v}"
           fi
 
-          NEW_NAME="oxyos-${VERSION}-amd64.iso"
+          NEW_NAME="oxyos-${VERSION}-${ARCH}.iso"
           mv "$ISO_FILE" "$NEW_NAME"
           echo "ISO_FILE=$NEW_NAME" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
