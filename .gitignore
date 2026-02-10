@@ -12,3 +12,4 @@
 /*/live-image-*.hybrid.iso.zsync
 /*/live-image-*.packages
 
+node_modules/
