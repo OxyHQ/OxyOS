@@ -5,6 +5,7 @@ set -e
 # Usage: ./build.sh [--arch amd64|arm64] [--clean]
 
 ARCH="amd64"
+VERSION="1.0"
 CLEAN=false
 
 while [[ $# -gt 0 ]]; do
@@ -13,16 +14,21 @@ while [[ $# -gt 0 ]]; do
             ARCH="$2"
             shift 2
             ;;
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
         --clean)
             CLEAN=true
             shift
             ;;
         -h|--help)
-            echo "Usage: ./build.sh [--arch amd64|arm64] [--clean]"
+            echo "Usage: ./build.sh [--arch amd64|arm64] [--version X.Y] [--clean]"
             echo ""
             echo "Options:"
-            echo "  --arch   Target architecture: amd64 (default) or arm64"
-            echo "  --clean  Run lb clean before building"
+            echo "  --arch      Target architecture: amd64 (default) or arm64"
+            echo "  --version   Version number (default: 1.0)"
+            echo "  --clean     Run lb clean before building"
             exit 0
             ;;
         *)
@@ -108,7 +114,7 @@ lb build
 # Rename output ISO with architecture suffix
 OUTPUT_ISO=$(ls -1 live-image-${ARCH}.hybrid.iso 2>/dev/null || true)
 if [ -n "$OUTPUT_ISO" ]; then
-    FINAL_NAME="oxyos-1.0-${ARCH}.iso"
+    FINAL_NAME="oxyos-${VERSION}-${ARCH}.iso"
     mv "$OUTPUT_ISO" "$FINAL_NAME"
     echo "Output: ${FINAL_NAME}"
 fi
