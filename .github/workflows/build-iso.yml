@@ -84,6 +84,7 @@ jobs:
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -91,6 +92,7 @@ jobs:
             ${{ env.MD5_FILE }}
 
       - name: Upload to DigitalOcean Spaces
+        if: always()
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
