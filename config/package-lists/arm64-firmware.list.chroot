@@ -2,11 +2,10 @@
 # NOTE: This file is added/removed by build.sh based on target architecture.
 # Do not rename this file -- the build script manages it.
 
-# Core firmware (Qualcomm blobs are in firmware-misc-nonfree and linux-firmware)
+# Core firmware (Qualcomm blobs are in firmware-misc-nonfree)
 firmware-linux-free
 firmware-linux-nonfree
 firmware-misc-nonfree
-linux-firmware
 
 # WiFi regulatory database
 wireless-regdb
