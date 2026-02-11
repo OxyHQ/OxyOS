@@ -57,6 +57,13 @@ rm -f /etc/apt/sources.list.d/sid-kernel.list
 rm -f /etc/apt/preferences.d/sid-kernel.pref
 apt-get update
 
+# --- Remove device tree blobs ---
+# Snapdragon X Elite boots via UEFI with ACPI tables, not device trees.
+# If DTBs are present, live-build adds "devicetree" directives to GRUB,
+# which overrides ACPI and breaks boot on ACPI-based ARM64 systems.
+echo "Removing device tree blobs (ACPI-only build)..."
+rm -rf /usr/lib/linux-image-*/
+
 # --- Ensure initramfs is up to date ---
 if command -v update-initramfs > /dev/null 2>&1; then
     update-initramfs -u

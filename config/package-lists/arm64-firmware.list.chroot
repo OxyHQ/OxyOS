@@ -15,9 +15,6 @@ mesa-vulkan-drivers
 mesa-va-drivers
 libgl1-mesa-dri
 
-# Device tree compiler (for Snapdragon device trees)
-device-tree-compiler
-
 # Power management for ARM64
 acpid
 
