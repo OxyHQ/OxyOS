@@ -1,0 +1,66 @@
+#!/bin/sh
+# Install a newer kernel with Snapdragon X Elite/Plus (X1E80100) support.
+# Debian Trixie ships kernel ~6.12 which lacks the ACPI/driver support
+# needed for Snapdragon X laptops. This hook pulls a newer kernel from
+# Debian Sid (unstable) using APT pinning so only kernel packages come
+# from Sid -- everything else stays on Trixie.
+
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" != "arm64" ]; then
+    echo "Skipping ARM64 kernel hook on ${ARCH} build"
+    exit 0
+fi
+
+set -e
+echo "=== Installing newer ARM64 kernel from Debian Sid ==="
+
+# Record the currently installed kernel so we can remove it later
+OLD_KERNEL=$(dpkg -l 'linux-image-[0-9]*' 2>/dev/null | awk '/^ii/{print $2}' | head -1 || true)
+echo "Current kernel: ${OLD_KERNEL:-none}"
+
+# --- Add Debian Sid as a temporary APT source ---
+cat > /etc/apt/sources.list.d/sid-kernel.list << 'EOF'
+deb http://deb.debian.org/debian sid main contrib non-free non-free-firmware
+EOF
+
+# Pin everything from Sid low (100 = not auto-installed), but pull
+# kernel packages at priority 900 so they win over Trixie's.
+cat > /etc/apt/preferences.d/sid-kernel.pref << 'EOF'
+Package: *
+Pin: release a=unstable
+Pin-Priority: 100
+
+Package: linux-image-* linux-headers-* linux-kbuild-* linux-compiler-*
+Pin: release a=unstable
+Pin-Priority: 900
+EOF
+
+apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/sid-kernel.list \
+               -o Dir::Etc::sourceparts=/dev/null \
+               -o APT::Get::List-Cleanup=0
+
+# --- Install the newer kernel ---
+DEBIAN_FRONTEND=noninteractive apt-get install -y linux-image-arm64
+
+# Identify the newly installed kernel
+NEW_KERNEL=$(dpkg -l 'linux-image-[0-9]*' 2>/dev/null | awk '/^ii/{print $2}' | sort -V | tail -1 || true)
+echo "New kernel: ${NEW_KERNEL:-unknown}"
+
+# --- Remove the old Trixie kernel to save space in the ISO ---
+if [ -n "$OLD_KERNEL" ] && [ -n "$NEW_KERNEL" ] && [ "$OLD_KERNEL" != "$NEW_KERNEL" ]; then
+    echo "Removing old kernel: $OLD_KERNEL"
+    DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge "$OLD_KERNEL" || true
+fi
+
+# --- Clean up temporary Sid sources ---
+rm -f /etc/apt/sources.list.d/sid-kernel.list
+rm -f /etc/apt/preferences.d/sid-kernel.pref
+apt-get update
+
+# --- Ensure initramfs is up to date ---
+if command -v update-initramfs > /dev/null 2>&1; then
+    update-initramfs -u
+fi
+
+echo "=== ARM64 kernel upgrade complete ==="
+echo "Installed: $(dpkg -l 'linux-image-[0-9]*' 2>/dev/null | awk '/^ii/{print $2, $3}' || echo 'unknown')"

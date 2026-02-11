@@ -6,6 +6,10 @@
 firmware-linux-free
 firmware-linux-nonfree
 firmware-misc-nonfree
+linux-firmware
+
+# WiFi regulatory database
+wireless-regdb
 
 # GPU - Mesa with Freedreno (Adreno GPU) and Vulkan support
 mesa-vulkan-drivers

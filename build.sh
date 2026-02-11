@@ -75,6 +75,7 @@ if [[ "$ARCH" == "arm64" ]]; then
     echo "[ARM64] Bootloader: grub-efi only (no syslinux)"
     echo "[ARM64] Boot params: clk_ignore_unused pd_ignore_unused"
     echo "[ARM64] Firmware packages: enabled"
+    echo "[ARM64] Kernel: will be upgraded from Debian Sid via 0905-arm64-kernel hook"
 else
     # AMD64: restore defaults
     sed -i 's|^LB_BOOTLOADER_BIOS=.*|LB_BOOTLOADER_BIOS="syslinux"|' config/binary
