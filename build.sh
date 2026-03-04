@@ -61,8 +61,8 @@ sed -i "s|^LB_LINUX_FLAVOURS_WITH_ARCH=.*|LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\
 if [[ "$ARCH" == "arm64" ]]; then
     # ARM64: EFI-only boot (no BIOS/syslinux)
     sed -i 's|^LB_BOOTLOADER_BIOS=.*|LB_BOOTLOADER_BIOS=""|' config/binary
-    sed -i 's|^LB_BOOTAPPEND_LIVE=.*|LB_BOOTAPPEND_LIVE="boot=live components quiet splash username=live clk_ignore_unused pd_ignore_unused"|' config/binary
-    sed -i 's|^LB_BOOTAPPEND_LIVE_FAILSAFE=.*|LB_BOOTAPPEND_LIVE_FAILSAFE="boot=live components memtest nomodeset nosplash clk_ignore_unused pd_ignore_unused"|' config/binary
+    sed -i 's|^LB_BOOTAPPEND_LIVE=.*|LB_BOOTAPPEND_LIVE="boot=live components username=live clk_ignore_unused pd_ignore_unused efi=runtime panic=30"|' config/binary
+    sed -i 's|^LB_BOOTAPPEND_LIVE_FAILSAFE=.*|LB_BOOTAPPEND_LIVE_FAILSAFE="boot=live components nomodeset nosplash clk_ignore_unused pd_ignore_unused efi=runtime panic=30"|' config/binary
 
     # Enable ARM64 firmware package list
     if [ -f "$ARM64_PKGLIST_DISABLED" ]; then

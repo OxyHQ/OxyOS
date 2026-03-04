@@ -119,6 +119,42 @@ fi
 FWEOF
 chmod +x /usr/local/bin/oxyos-qcom-firmware
 
+# --- Initramfs modules for early boot ---
+# modules-load.d only works after systemd starts. For the live USB to be
+# accessible during initramfs (before root is mounted), we need the
+# Qualcomm USB/PCIe/platform modules in the initramfs itself.
+mkdir -p /etc/initramfs-tools
+cat >> /etc/initramfs-tools/modules << 'INITEOF'
+# Snapdragon X Elite - needed for USB live boot
+# Platform
+qcom_scm
+# Clocks and interconnects (required before any peripheral works)
+clk-x1e80100
+gcc-x1e80100
+dispcc-x1e80100
+qnoc-x1e80100
+# USB controller chain
+phy-qcom-qmp-usb
+phy-qcom-snps-femto-v2
+dwc3
+dwc3-qcom
+xhci-hcd
+xhci-pci
+xhci-plat-hcd
+usb-storage
+uas
+# PCIe (for NVMe after boot)
+phy-qcom-qmp-pcie
+pcie-qcom
+nvme
+nvme-core
+# Display (EFI framebuffer so screen isn't black)
+simpledrm
+# I2C (keyboard/touchpad)
+i2c-hid-of
+i2c-qcom-geni
+INITEOF
+
 # --- GPU configuration ---
 # Ensure simpledrm/efifb is loaded early for basic display before Adreno firmware
 mkdir -p /etc/modprobe.d
@@ -184,5 +220,13 @@ if [ ! -d /lib/firmware/qcom ] || [ -z "$(ls -A /lib/firmware/qcom/ 2>/dev/null)
 fi
 CHKEOF
 chmod +x /usr/local/bin/oxyos-firmware-check
+
+# --- Rebuild initramfs with Snapdragon modules ---
+# The kernel hook (0905) already built an initramfs, but it didn't have
+# our Snapdragon modules yet. Rebuild now that they're configured.
+echo "Rebuilding initramfs with Snapdragon X modules..."
+if command -v update-initramfs > /dev/null 2>&1; then
+    update-initramfs -u
+fi
 
 echo "=== ARM64 / Snapdragon X Elite setup complete ==="
