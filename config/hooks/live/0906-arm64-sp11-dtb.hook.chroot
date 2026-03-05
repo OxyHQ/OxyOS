@@ -1,0 +1,67 @@
+#!/bin/sh
+# Compile Surface Pro 11 (Denali) DTB from dwhinham's kernel fork.
+# The SP11 DTB is not upstream yet (expected in Linux 7.0).
+# We sparse-checkout only the DTS source files and compile locally.
+
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" != "arm64" ]; then
+    echo "Skipping SP11 DTB hook on ${ARCH} build"
+    exit 0
+fi
+
+set -e
+echo "=== Compiling Surface Pro 11 DTB ==="
+
+# Find the kernel DTB directory (where stock DTBs are installed)
+DTB_DIR=$(find /usr/lib/linux-image-* -name "qcom" -type d 2>/dev/null | head -1)
+if [ -z "$DTB_DIR" ]; then
+    echo "Warning: No kernel DTB directory found, skipping SP11 DTB"
+    exit 0
+fi
+
+# Install build tools
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    device-tree-compiler cpp git ca-certificates
+
+# Sparse checkout: only DTS source files and dt-bindings headers
+REPO_URL="https://github.com/dwhinham/kernel-surface-pro-11.git"
+BRANCH="wip/x1e80100-6.17-sp11"
+WORK_DIR="/tmp/sp11-kernel"
+
+echo "Cloning DTS source from $REPO_URL ($BRANCH)..."
+git clone --depth=1 --sparse --filter=blob:none \
+    "$REPO_URL" -b "$BRANCH" "$WORK_DIR" 2>&1 || {
+    echo "Warning: Failed to clone SP11 kernel repo, skipping DTB compilation"
+    exit 0
+}
+
+cd "$WORK_DIR"
+git sparse-checkout set \
+    arch/arm64/boot/dts/qcom \
+    include/dt-bindings
+
+# Compile each denali DTS file to DTB
+COMPILED=0
+for dts in arch/arm64/boot/dts/qcom/*microsoft-denali*.dts; do
+    [ -f "$dts" ] || continue
+    dtb_name=$(basename "${dts%.dts}.dtb")
+    echo "Compiling: $dtb_name"
+    if cpp -nostdinc \
+        -Iinclude \
+        -Iarch/arm64/boot/dts \
+        -undef -D__DTS__ -x assembler-with-cpp \
+        "$dts" 2>/dev/null | \
+    dtc -I dts -O dtb -o "$DTB_DIR/$dtb_name" - 2>/dev/null; then
+        echo "  -> Installed: $DTB_DIR/$dtb_name"
+        COMPILED=$((COMPILED + 1))
+    else
+        echo "  -> Warning: Failed to compile $dtb_name"
+    fi
+done
+
+# Cleanup
+cd /
+rm -rf "$WORK_DIR"
+
+echo "=== Surface Pro 11 DTB compilation complete ($COMPILED DTBs) ==="
+ls -la "$DTB_DIR"/*denali* 2>/dev/null || echo "  (no denali DTBs compiled)"
