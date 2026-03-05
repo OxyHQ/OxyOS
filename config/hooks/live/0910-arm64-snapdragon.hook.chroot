@@ -125,16 +125,20 @@ chmod +x /usr/local/bin/oxyos-qcom-firmware
 # Qualcomm USB/PCIe/platform modules in the initramfs itself.
 mkdir -p /etc/initramfs-tools
 cat >> /etc/initramfs-tools/modules << 'INITEOF'
-# Snapdragon X Elite - needed for USB live boot
-# Platform
+# Snapdragon X Elite/Plus - needed for USB live boot
+# Platform & clocks
 qcom_scm
-# Clocks and interconnects (required before any peripheral works)
 clk-x1e80100
+tcsrcc-x1e80100
 gcc-x1e80100
 dispcc-x1e80100
 qnoc-x1e80100
-# USB controller chain
+# USB (full chain for live USB boot)
 phy-qcom-qmp-usb
+phy-qcom-qmp-usbc
+phy-qcom-qmp-combo
+phy-qcom-eusb2-repeater
+phy-snps-eusb2
 phy-qcom-snps-femto-v2
 dwc3
 dwc3-qcom
@@ -143,16 +147,21 @@ xhci-pci
 xhci-plat-hcd
 usb-storage
 uas
-# PCIe (for NVMe after boot)
+# PCIe / NVMe
 phy-qcom-qmp-pcie
 pcie-qcom
 nvme
 nvme-core
-# Display (EFI framebuffer so screen isn't black)
+# Display
 simpledrm
-# I2C (keyboard/touchpad)
+# Input (keyboard/touchpad)
 i2c-hid-of
 i2c-qcom-geni
+# Surface devices (keyboard, SAM)
+surface-hid
+surface-aggregator
+surface-aggregator-registry
+surface-aggregator-hub
 INITEOF
 
 # --- GPU configuration ---
