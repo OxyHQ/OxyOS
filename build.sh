@@ -95,7 +95,7 @@ if [[ "$ARCH" == "arm64" ]]; then
     git clone --depth=1 --sparse --filter=blob:none \
         "$REPO_URL" -b "$DTB_BRANCH" "$WORK_DIR"
     cd "$WORK_DIR"
-    git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings include/linux
+    git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings
 
     COMPILED=0
     FAILED=0
@@ -103,12 +103,12 @@ if [[ "$ARCH" == "arm64" ]]; then
         [ -f "$dts" ] || continue
         dtb_name=$(basename "${dts%.dts}.dtb")
         echo "  Compiling: $dtb_name"
-        if cpp -nostdinc \
+        if cpp -nostdinc -P \
             -Iinclude \
             -Iarch/arm64/boot/dts \
             -Iarch/arm64/boot/dts/qcom \
             -undef -D__DTS__ -x assembler-with-cpp \
-            "$dts" | \
+            "$dts" 2>/dev/null | \
         dtc -I dts -O dtb -o "$DTB_OUT/$dtb_name" -; then
             COMPILED=$((COMPILED + 1))
         else
