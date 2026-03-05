@@ -108,8 +108,8 @@ if [[ "$ARCH" == "arm64" ]]; then
             -Iarch/arm64/boot/dts \
             -Iarch/arm64/boot/dts/qcom \
             -undef -D__DTS__ -x assembler-with-cpp \
-            "$dts" 2>&1 | \
-        dtc -I dts -O dtb -o "$DTB_OUT/$dtb_name" - 2>&1; then
+            "$dts" | \
+        dtc -I dts -O dtb -o "$DTB_OUT/$dtb_name" -; then
             COMPILED=$((COMPILED + 1))
         else
             echo "  FAILED: $dtb_name"
@@ -120,7 +120,11 @@ if [[ "$ARCH" == "arm64" ]]; then
     cd "$OLDPWD"
     rm -rf "$WORK_DIR"
     echo "[ARM64] DTBs: $COMPILED compiled, $FAILED failed"
-    ls "$DTB_OUT"/*.dtb 2>/dev/null
+    ls "$DTB_OUT"/*.dtb 2>/dev/null || true
+    if [ "$COMPILED" -eq 0 ]; then
+        echo "Error: No DTBs compiled successfully"
+        exit 1
+    fi
 
     echo "[ARM64] Bootloader: grub-efi only (no syslinux)"
     echo "[ARM64] Boot params: clk_ignore_unused pd_ignore_unused"
