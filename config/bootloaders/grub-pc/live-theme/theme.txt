@@ -1,52 +1,56 @@
-desktop-image: "../splash.png"
-title-color: "#ffffff"
-title-font: "DejaVu Sans Bold 16"
-title-text: "Live Boot Menu with GRUB"
-#title-text: "OxyOS -- @PROJECT@ 11 (@DISTRIBUTION@) @ARCHITECTURE@"
-message-font: "Unifont Regular 16"
-terminal-font: "Unifont Regular 16"
+# GRUB2 gfxmenu Linux theme
+# Based on Solara by vinceliuice, adapted for OxyOS
 
-#help bar at the bottom
-+ label {
-        top = 100%-50
-        left = 0
-        width = 100%
-        height = 20
-        text = "@KEYMAP_SHORT@"
-        align = "center"
-        color = "#ffffff"
-	font = "DejaVu Sans Bold 14"
-}
+# Global Property
+title-text: ""
+desktop-image: "background.jpg"
+desktop-color: "#242424"
+terminal-font: "Terminus Regular 14"
+terminal-box: "terminal_box_*.png"
+terminal-left: "0"
+terminal-top: "0"
+terminal-width: "100%"
+terminal-height: "100%"
+terminal-border: "0"
 
-#boot menu
+# Show the boot menu
 + boot_menu {
-        left = 10%
-        width = 80%
-        top = 52%
-        height = 48%-80
-        item_color = "#a8a8a8"
-	item_font = "DejaVu Sans Bold 14"
-        selected_item_color= "#ffffff"
-	selected_item_font = "DejaVu Sans Bold 14"
-        item_height = 16
-        item_padding = 0
-        item_spacing = 4
-	icon_width = 0
-	icon_heigh = 0
-	item_icon_space = 0
+  left = 55%
+  top = 24%
+  width = 34%
+  height = 52%
+  item_font = "Unifont Regular 16"
+  item_color = "#efefef"
+  selected_item_color = "#ffffff"
+  icon_width = 32
+  icon_height = 32
+  item_icon_space = 6
+  item_height = 48
+  item_padding = 3
+  item_spacing = 6
+  selected_item_pixmap_style = "select_*.png"
 }
 
-#progress bar
-+ progress_bar {
-        id = "__timeout__"
-        left = 15%
-        top = 100%-80
-        height = 16
-        width = 70%
-        font = "DejaVu Sans Regular 14"
-        text_color = "#000000"
-        fg_color = "#ffffff"
-        bg_color = "#a8a8a8"
-        border_color = "#ffffff"
-        text = "@TIMEOUT_NOTIFICATION_LONG@"
++ image {
+  top = 0%
+  left = 0%
+  file = "info.png"
+}
+
++ image {
+  top = 29%
+  left = 12%
+  file = "logo.png"
+}
+
+# Show a countdown message using the label component
++ label {
+  top = 83%
+  left = 55%
+  width = 34%
+  align = "center"
+  id = "__timeout__"
+  text = "Booting in %d seconds"
+  color = "#ffffff"
+  font = "Unifont Regular 16"
 }
