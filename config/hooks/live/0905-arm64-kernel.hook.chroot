@@ -30,7 +30,7 @@ Package: *
 Pin: release a=experimental
 Pin-Priority: 1
 
-Package: linux-image-* linux-headers-* linux-kbuild-* linux-compiler-*
+Package: linux-image-* linux-base-* linux-headers-* linux-kbuild-* linux-compiler-*
 Pin: release a=experimental
 Pin-Priority: 900
 EOF
