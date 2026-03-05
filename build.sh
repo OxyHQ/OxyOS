@@ -82,6 +82,9 @@ if [[ "$ARCH" == "arm64" ]]; then
     # DTBs must be compiled before lb build so they go into config/includes.binary/
     # which live-build copies to the ISO automatically. Compiling inside a chroot hook
     # doesn't work because binary_rootfs (squashfs) runs before binary_hooks.
+    # Uses two-stage compilation (matching Linux kernel's scripts/Makefile.lib):
+    # Stage 1: cpp preprocesses DTS → temp file (resolves #include, macros)
+    # Stage 2: dtc compiles temp file → binary DTB
     echo "[ARM64] Compiling Snapdragon X DTBs..."
     apt-get install -y --no-install-recommends device-tree-compiler cpp git ca-certificates
 
@@ -95,26 +98,39 @@ if [[ "$ARCH" == "arm64" ]]; then
     git clone --depth=1 --sparse --filter=blob:none \
         "$REPO_URL" -b "$DTB_BRANCH" "$WORK_DIR"
     cd "$WORK_DIR"
-    git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings
+    git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings include/linux include/uapi
 
     COMPILED=0
     FAILED=0
     for dts in arch/arm64/boot/dts/qcom/x1e*.dts arch/arm64/boot/dts/qcom/x1p*.dts; do
         [ -f "$dts" ] || continue
         dtb_name=$(basename "${dts%.dts}.dtb")
+        tmp_file="/tmp/${dtb_name%.dtb}.dts.tmp"
         echo "  Compiling: $dtb_name"
+
+        # Stage 1: Preprocess — resolves #include and macros, writes to temp file
         if cpp -nostdinc -P \
             -Iinclude \
             -Iarch/arm64/boot/dts \
             -Iarch/arm64/boot/dts/qcom \
             -undef -D__DTS__ -x assembler-with-cpp \
-            "$dts" 2>/dev/null | \
-        dtc -I dts -O dtb -o "$DTB_OUT/$dtb_name" -; then
-            COMPILED=$((COMPILED + 1))
+            "$dts" -o "$tmp_file"; then
+
+            # Stage 2: Compile preprocessed DTS → binary DTB
+            if dtc -I dts -O dtb -b 0 \
+                -i arch/arm64/boot/dts/qcom \
+                -o "$DTB_OUT/$dtb_name" \
+                "$tmp_file"; then
+                COMPILED=$((COMPILED + 1))
+            else
+                echo "  FAILED (dtc): $dtb_name"
+                FAILED=$((FAILED + 1))
+            fi
         else
-            echo "  FAILED: $dtb_name"
+            echo "  FAILED (cpp): $dtb_name"
             FAILED=$((FAILED + 1))
         fi
+        rm -f "$tmp_file"
     done
 
     cd "$OLDPWD"
