@@ -78,10 +78,54 @@ if [[ "$ARCH" == "arm64" ]]; then
         sed -i 's|^LB_BOOTSTRAP_QEMU_STATIC=.*|LB_BOOTSTRAP_QEMU_STATIC="/usr/bin/qemu-aarch64-static"|' config/bootstrap
     fi
 
+    # --- Compile Snapdragon X Device Tree Blobs ---
+    # DTBs must be compiled before lb build so they go into config/includes.binary/
+    # which live-build copies to the ISO automatically. Compiling inside a chroot hook
+    # doesn't work because binary_rootfs (squashfs) runs before binary_hooks.
+    echo "[ARM64] Compiling Snapdragon X DTBs..."
+    apt-get install -y --no-install-recommends device-tree-compiler cpp git ca-certificates
+
+    DTB_OUT="config/includes.binary/live/dtbs/qcom"
+    mkdir -p "$DTB_OUT"
+
+    REPO_URL="https://github.com/dwhinham/kernel-surface-pro-11.git"
+    DTB_BRANCH="wip/x1e80100-6.17-sp11"
+    WORK_DIR="/tmp/dts-source"
+
+    git clone --depth=1 --sparse --filter=blob:none \
+        "$REPO_URL" -b "$DTB_BRANCH" "$WORK_DIR"
+    cd "$WORK_DIR"
+    git sparse-checkout set arch/arm64/boot/dts/qcom include/dt-bindings include/linux
+
+    COMPILED=0
+    FAILED=0
+    for dts in arch/arm64/boot/dts/qcom/x1e*.dts arch/arm64/boot/dts/qcom/x1p*.dts; do
+        [ -f "$dts" ] || continue
+        dtb_name=$(basename "${dts%.dts}.dtb")
+        echo "  Compiling: $dtb_name"
+        if cpp -nostdinc \
+            -Iinclude \
+            -Iarch/arm64/boot/dts \
+            -Iarch/arm64/boot/dts/qcom \
+            -undef -D__DTS__ -x assembler-with-cpp \
+            "$dts" 2>&1 | \
+        dtc -I dts -O dtb -o "$DTB_OUT/$dtb_name" - 2>&1; then
+            COMPILED=$((COMPILED + 1))
+        else
+            echo "  FAILED: $dtb_name"
+            FAILED=$((FAILED + 1))
+        fi
+    done
+
+    cd "$OLDPWD"
+    rm -rf "$WORK_DIR"
+    echo "[ARM64] DTBs: $COMPILED compiled, $FAILED failed"
+    ls "$DTB_OUT"/*.dtb 2>/dev/null
+
     echo "[ARM64] Bootloader: grub-efi only (no syslinux)"
     echo "[ARM64] Boot params: clk_ignore_unused pd_ignore_unused"
     echo "[ARM64] Firmware packages: enabled"
-    echo "[ARM64] Kernel: will be upgraded from Debian Sid via 0905-arm64-kernel hook"
+    echo "[ARM64] Kernel: will be upgraded from Experimental via 0905-arm64-kernel hook"
 else
     # AMD64: restore defaults
     sed -i 's|^LB_BOOTLOADER_BIOS=.*|LB_BOOTLOADER_BIOS="syslinux"|' config/binary
