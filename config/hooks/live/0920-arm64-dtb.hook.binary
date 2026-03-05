@@ -5,11 +5,12 @@
 
 set -e
 
-# Find DTB directory from the installed kernel
+# Find DTBs from kernel package OR our compiled DTBs
 DTB_SRC=""
-for dir in chroot/usr/lib/linux-image-*; do
+for dir in chroot/usr/lib/linux-image-* chroot/usr/lib/oxyos-dtbs; do
     if [ -d "$dir" ]; then
         DTB_SRC="$dir"
+        break
     fi
 done
 
@@ -25,6 +26,6 @@ cp -a "$DTB_SRC"/* binary/live/dtbs/
 
 # Show what Snapdragon X DTBs are available
 echo "Available X1E80100 DTBs:"
-find binary/live/dtbs -name "x1e*" -type f 2>/dev/null || echo "  (none)"
+find binary/live/dtbs -name "x1e*" -o -name "x1p*" -type f 2>/dev/null || echo "  (none)"
 
 echo "=== DTB copy complete ==="
