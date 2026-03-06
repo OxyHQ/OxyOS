@@ -88,7 +88,7 @@ if [[ "$ARCH" == "arm64" ]]; then
     echo "[ARM64] Compiling Snapdragon X DTBs..."
     apt-get install -y --no-install-recommends device-tree-compiler cpp git ca-certificates
 
-    DTB_OUT="config/includes.binary/live/dtbs/qcom"
+    DTB_OUT="$(pwd)/config/includes.binary/live/dtbs/qcom"
     mkdir -p "$DTB_OUT"
 
     REPO_URL="https://github.com/dwhinham/kernel-surface-pro-11.git"
