@@ -1,6 +1,6 @@
 #!/bin/sh
 # ARM64 / Snapdragon X Elite specific setup
-# This hook only runs during arm64 builds
+# This hook only runs during arm64 builds.
 
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" != "arm64" ]; then
@@ -12,224 +12,291 @@ set -e
 echo "=== Configuring ARM64 / Snapdragon X Elite support ==="
 
 # --- Qualcomm firmware extraction helper ---
-# Most Snapdragon X Elite devices need firmware extracted from Windows.
-# Only Lenovo ThinkPad T14s Gen 6 has firmware in upstream linux-firmware.
-# We provide a helper script for users to extract firmware after booting.
+# Inspired by Ubuntu Concept's qcom-firmware-extract workflow:
+# - prefer model-specific firmware paths under /lib/firmware/qcom/x1e80100
+# - support BitLocker with dislocker when available
 cat > /usr/local/bin/oxyos-qcom-firmware << 'FWEOF'
 #!/bin/bash
-# OxyOS Qualcomm Firmware Extractor
-# Extracts firmware from a mounted Windows partition for Snapdragon X Elite devices
-
 set -euo pipefail
 
-echo "========================================"
-echo "  OxyOS Qualcomm Firmware Extractor"
-echo "========================================"
-echo ""
-
-# Optional manual partition override: sudo oxyos-qcom-firmware /dev/nvme0n1p3
+WIN_FW_PATH="Windows/System32/DriverStore/FileRepository"
 WIN_PART="${1:-}"
+TMP_DIR=""
 MOUNT_DIR=""
+DISLOCKER_DIR=""
+
+device_model=""
+if [ -r /proc/device-tree/model ]; then
+    device_model="$(tr -d '\0' </proc/device-tree/model)"
+fi
+
+device_path=""
+case "$device_model" in
+    "Acer Swift 14 AI (SF14-11)")
+        device_path="ACER/SF14-11"
+        ;;
+    "ASUS Vivobook S 15")
+        device_path="ASUSTeK/vivobook-s15"
+        ;;
+    "Dell XPS 13 9345")
+        device_path="dell/xps13-9345"
+        ;;
+    "HP Omnibook X 14")
+        device_path="hp/omnibook-x14"
+        ;;
+    "Lenovo ThinkPad T14s Gen 6")
+        device_path="LENOVO/21N1"
+        ;;
+    "Lenovo Yoga Slim 7x")
+        device_path="LENOVO/83ED"
+        ;;
+    "Microsoft Surface Laptop 7 (13.8 inch)")
+        device_path="microsoft/Romulus"
+        ;;
+    "Microsoft Surface Laptop 7 (15 inch)")
+        device_path="microsoft/Romulus"
+        ;;
+    "Samsung Galaxy Book4 Edge")
+        device_path="SAMSUNG/galaxy-book4-edge"
+        ;;
+esac
 
 cleanup() {
-    if [ -n "${MOUNT_DIR}" ] && [ -d "${MOUNT_DIR}" ]; then
-        if grep -qs " ${MOUNT_DIR} " /proc/mounts; then
-            umount "${MOUNT_DIR}" 2>/dev/null || true
-        fi
-        rmdir "${MOUNT_DIR}" 2>/dev/null || true
+    if [ -n "${MOUNT_DIR}" ] && grep -qs " ${MOUNT_DIR} " /proc/mounts; then
+        umount -Rf "${MOUNT_DIR}" 2>/dev/null || true
+    fi
+    if [ -n "${DISLOCKER_DIR}" ] && grep -qs " ${DISLOCKER_DIR} " /proc/mounts; then
+        umount -Rf "${DISLOCKER_DIR}" 2>/dev/null || true
+    fi
+    if [ -n "${TMP_DIR}" ] && [ -d "${TMP_DIR}" ]; then
+        rm -rf "${TMP_DIR}"
     fi
 }
 trap cleanup EXIT
 
+normalize_part() {
+    local part="$1"
+    case "$part" in
+        /dev/*) printf "%s" "$part" ;;
+        *) printf "/dev/%s" "$part" ;;
+    esac
+}
+
+prepare_mount_dirs() {
+    if [ -n "${TMP_DIR}" ]; then
+        return 0
+    fi
+    TMP_DIR="$(mktemp -d /tmp/oxyos-fw.XXXXXXXX)"
+    MOUNT_DIR="${TMP_DIR}/mnt"
+    DISLOCKER_DIR="${TMP_DIR}/dislocker"
+    mkdir -p "${MOUNT_DIR}" "${DISLOCKER_DIR}"
+}
+
 mount_windows_partition() {
     local part="$1"
-    MOUNT_DIR=$(mktemp -d)
-    if mount -t ntfs3 -o ro "$part" "$MOUNT_DIR" 2>/dev/null || \
-        mount -t ntfs-3g -o ro "$part" "$MOUNT_DIR" 2>/dev/null; then
-        if [ -d "$MOUNT_DIR/Windows/System32" ]; then
+    prepare_mount_dirs
+
+    umount -Rf "${MOUNT_DIR}" 2>/dev/null || true
+    umount -Rf "${DISLOCKER_DIR}" 2>/dev/null || true
+
+    if mount -t ntfs3 -o ro "$part" "${MOUNT_DIR}" 2>/dev/null || \
+       mount -t ntfs-3g -o ro "$part" "${MOUNT_DIR}" 2>/dev/null; then
+        if [ -d "${MOUNT_DIR}/Windows/System32" ]; then
             return 0
         fi
-        umount "$MOUNT_DIR" 2>/dev/null || true
+        umount -Rf "${MOUNT_DIR}" 2>/dev/null || true
     fi
-    rmdir "$MOUNT_DIR" 2>/dev/null || true
-    MOUNT_DIR=""
+
+    if command -v dislocker >/dev/null 2>&1; then
+        if dislocker --readonly "$part" -- "${DISLOCKER_DIR}" >/dev/null 2>&1; then
+            if mount -t ntfs-3g -o loop,ro "${DISLOCKER_DIR}/dislocker-file" "${MOUNT_DIR}" 2>/dev/null; then
+                if [ -d "${MOUNT_DIR}/Windows/System32" ]; then
+                    return 0
+                fi
+            fi
+        fi
+        umount -Rf "${MOUNT_DIR}" 2>/dev/null || true
+        umount -Rf "${DISLOCKER_DIR}" 2>/dev/null || true
+    fi
+
     return 1
 }
 
-if [ -n "$WIN_PART" ]; then
-    if [ ! -b "$WIN_PART" ]; then
-        echo "Error: $WIN_PART is not a valid block device."
+if [ -n "${WIN_PART}" ]; then
+    WIN_PART="$(normalize_part "${WIN_PART}")"
+    if [ ! -b "${WIN_PART}" ]; then
+        echo "Error: ${WIN_PART} is not a valid block device."
         exit 1
     fi
-    if ! mount_windows_partition "$WIN_PART"; then
-        echo "Error: Could not mount $WIN_PART as a Windows partition."
-        echo "Use a partition containing Windows/System32."
+    if ! mount_windows_partition "${WIN_PART}"; then
+        echo "Error: Could not mount ${WIN_PART} as a Windows partition."
         exit 1
     fi
 else
-    for part in /dev/nvme0n1p3 /dev/nvme0n1p4 /dev/nvme0n1p5; do
-        if [ -b "$part" ]; then
-            FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || true)
-            if [ "$FSTYPE" = "ntfs" ] && mount_windows_partition "$part"; then
-                WIN_PART="$part"
-                break
-            fi
-        fi
-    done
+    while read -r part fstype _label; do
+        [ -n "${part}" ] || continue
+        case "${fstype}" in
+            ntfs|ntfs3|BitLocker|bitlocker)
+                if mount_windows_partition "${part}"; then
+                    WIN_PART="${part}"
+                    break
+                fi
+                ;;
+        esac
+    done < <(lsblk -rno PATH,FSTYPE,LABEL)
 
-    if [ -z "$WIN_PART" ]; then
-        echo "Scanning all partitions for Windows (NTFS)..."
-        while read -r part fstype; do
-            [ "$fstype" = "ntfs" ] || continue
-            if mount_windows_partition "$part"; then
-                WIN_PART="$part"
-                break
-            fi
-        done < <(lsblk -rno PATH,FSTYPE)
-    fi
-
-    if [ -z "$WIN_PART" ]; then
-        echo "Error: No Windows (NTFS) partition found."
-        echo "You can manually specify: $0 /dev/sdXN"
+    if [ -z "${WIN_PART}" ]; then
+        echo "Error: No Windows partition found (NTFS/BitLocker)."
+        echo "Hint: run with an explicit partition, for example:"
+        echo "  sudo oxyos-qcom-firmware /dev/nvme0n1p3"
         exit 1
     fi
 fi
 
-echo "Found Windows partition: $WIN_PART"
-echo "Mounted Windows at $MOUNT_DIR"
+echo "Detected Windows partition: ${WIN_PART}"
+echo "Windows mount point: ${MOUNT_DIR}"
 
-# Search for Qualcomm firmware
-FW_FOUND=false
-FW_DEST="/lib/firmware/qcom"
-mkdir -p "$FW_DEST"
+SOC_BASE="/lib/firmware/qcom/x1e80100"
+FW_DEST="${SOC_BASE}"
+if [ -n "${device_path}" ]; then
+    FW_DEST="${SOC_BASE}/${device_path}"
+fi
+mkdir -p "${FW_DEST}"
 
-# Qualcomm firmware locations on Windows
+echo "Device model: ${device_model:-unknown}"
+echo "Firmware destination: ${FW_DEST}"
+
+fw_files=(
+    adsp_dtbs.elf
+    adspr.jsn
+    adsps.jsn
+    adspua.jsn
+    battmgr.jsn
+    cdsp_dtbs.elf
+    cdspr.jsn
+    qcadsp8380.mbn
+    qccdsp8380.mbn
+    qcdxkmsuc8380.mbn
+)
+
+fw_found=0
+for fw_name in "${fw_files[@]}"; do
+    fw_src="$(find "${MOUNT_DIR}/${WIN_FW_PATH}" -type f -name "${fw_name}" 2>/dev/null | head -n 1 || true)"
+    if [ -n "${fw_src}" ]; then
+        cp -n "${fw_src}" "${FW_DEST}/"
+        fw_found=1
+    fi
+done
+
+# Fallback: copy additional Qualcomm blobs if present.
 for fw_dir in \
-    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/qc*" \
-    "$MOUNT_DIR/Windows/System32/drivers/qc*"; do
-
-    for dir in $fw_dir; do
-        if [ -d "$dir" ]; then
-            echo "Extracting firmware from: $dir"
-            find "$dir" -type f \( -name "*.mbn" -o -name "*.bin" -o -name "*.elf" \
-                -o -name "*.mdt" -o -name "*.b00" -o -name "*.b01" -o -name "*.b02" \
-                -o -name "*.b03" -o -name "*.b04" -o -name "*.b05" -o -name "*.b06" \
-                -o -name "*.jsn" -o -name "*.pfw" \) \
-                -exec cp -n {} "$FW_DEST/" \;
-            FW_FOUND=true
-        fi
-    done
+    "${MOUNT_DIR}/${WIN_FW_PATH}"/qc* \
+    "${MOUNT_DIR}/${WIN_FW_PATH}"/u_gpu* \
+    "${MOUNT_DIR}/Windows/System32/drivers"/qc*; do
+    [ -d "${fw_dir}" ] || continue
+    while read -r src; do
+        [ -n "${src}" ] || continue
+        cp -n "${src}" "${FW_DEST}/"
+        fw_found=1
+    done < <(find "${fw_dir}" -type f \
+        \( -name "*.mbn" -o -name "*.bin" -o -name "*.elf" -o -name "*.mdt" \
+           -o -name "*.b00" -o -name "*.b01" -o -name "*.b02" -o -name "*.b03" \
+           -o -name "*.b04" -o -name "*.b05" -o -name "*.b06" -o -name "*.jsn" \
+           -o -name "*.pfw" \) 2>/dev/null)
 done
 
-# Also look for GPU firmware specifically
-for gpu_dir in \
-    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/qcgpu*" \
-    "$MOUNT_DIR/Windows/System32/DriverStore/FileRepository/u_gpu*"; do
-
-    for dir in $gpu_dir; do
-        if [ -d "$dir" ]; then
-            echo "Extracting GPU firmware from: $dir"
-            mkdir -p "$FW_DEST/x1e80100"
-            find "$dir" -type f -exec cp -n {} "$FW_DEST/x1e80100/" \;
-            FW_FOUND=true
-        fi
-    done
-done
-
-# Mount cleanup is handled by trap.
-
-if $FW_FOUND; then
-    echo ""
-    echo "Firmware extracted to $FW_DEST"
-    echo "Reloading GPU driver..."
+if [ "${fw_found}" -eq 1 ]; then
+    chmod -R a+rX "${SOC_BASE}" 2>/dev/null || true
+    echo "Firmware extracted under ${SOC_BASE}."
+    if command -v update-initramfs >/dev/null 2>&1; then
+        update-initramfs -u || true
+    fi
     modprobe -r msm 2>/dev/null || true
     modprobe msm 2>/dev/null || true
-    echo ""
-    echo "Done! If the display doesn't update, try: sudo systemctl restart display-manager"
+    echo "Done. Reboot if graphics are still unavailable."
 else
-    echo ""
-    echo "Warning: No Qualcomm firmware found on the Windows partition."
-    echo "Your device may need firmware from a different location."
+    echo "Warning: No Qualcomm firmware files found in Windows DriverStore."
+    echo "You may need a newer Windows driver set on the host installation."
 fi
 FWEOF
 chmod +x /usr/local/bin/oxyos-qcom-firmware
 
-# --- Initramfs modules for early boot ---
-# modules-load.d only works after systemd starts. For the live USB to be
-# accessible during initramfs (before root is mounted), we need the
-# Qualcomm USB/PCIe/platform modules in the initramfs itself.
+# --- Initramfs modules for Snapdragon X ---
+# Keep the module list small and aligned with current Ubuntu Concept bring-up.
 mkdir -p /etc/initramfs-tools
 MODULES_FILE="/etc/initramfs-tools/modules"
 touch "$MODULES_FILE"
 sed -i '/^# OXYOS SNAPDRAGON MODULES BEGIN$/,/^# OXYOS SNAPDRAGON MODULES END$/d' "$MODULES_FILE"
 cat >> "$MODULES_FILE" << 'INITEOF'
 # OXYOS SNAPDRAGON MODULES BEGIN
-# Keep initramfs module set minimal and conservative.
-# This avoids early boot hangs/reboots on some Surface Snapdragon devices.
-qcom_scm
-# USB chain for live USB boot
-phy-qcom-qmp-usb
-phy-qcom-qmp-usbc
-phy-qcom-qmp-combo
-phy-qcom-eusb2-repeater
-phy-snps-eusb2
-phy-qcom-snps-femto-v2
-dwc3
-dwc3-qcom
-xhci-hcd
-xhci-pci
-xhci-plat-hcd
-usb-storage
-uas
-# PCIe / NVMe for root media
-phy-qcom-qmp-pcie
-pcie-qcom
-nvme
-nvme-core
-# Basic early framebuffer
-simpledrm
+# Early display support modules for Snapdragon X.
+drm_exec
+ps883x
+qrtr
+tcsrcc_x1e80100
+gpucc_x1e80100
+# Do not force-load msm in initramfs on Surface devices with unknown firmware.
+# oxyos-qcom-firmware will load msm after firmware extraction.
 # OXYOS SNAPDRAGON MODULES END
 INITEOF
 
+# Include Qualcomm firmware blobs in generated initramfs.
+mkdir -p /etc/initramfs-tools/hooks
+cat > /etc/initramfs-tools/hooks/oxyos-qcom-firmware << 'HOOKEOF'
+#!/bin/sh
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+prereqs)
+    prereqs
+    exit 0
+    ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+for root in \
+    /lib/firmware/qcom/x1e80100 \
+    /lib/firmware/updates/qcom/x1e80100 \
+    /lib/firmware/qcom/x1p42100 \
+    /lib/firmware/updates/qcom/x1p42100; do
+    [ -d "$root" ] || continue
+    for f in $(find "$root" -type f); do
+        case "$root" in
+            /lib/firmware/updates/*)
+                add_firmware "${f#/lib/firmware/updates/}"
+                ;;
+            /lib/firmware/*)
+                add_firmware "${f#/lib/firmware/}"
+                ;;
+        esac
+    done
+done
+HOOKEOF
+chmod +x /etc/initramfs-tools/hooks/oxyos-qcom-firmware
+
 # --- GPU configuration ---
-# Ensure simpledrm/efifb is loaded early for basic display before Adreno firmware
 mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/snapdragon-gpu.conf << 'GPUEOF'
-# Load simpledrm early for basic EFI framebuffer on Snapdragon X
-# This provides a working display even without Qualcomm firmware
+# Prefer simpledrm before msm to keep a fallback console.
 softdep msm pre: simpledrm
-# Prevent GPU driver from failing hard if firmware is missing
 options msm modeset=1
 GPUEOF
 
-# --- Kernel modules for Snapdragon X ---
+# --- Runtime module loading (post-boot) ---
 mkdir -p /etc/modules-load.d
 cat > /etc/modules-load.d/snapdragon.conf << 'MODEOF'
-# Snapdragon X Elite hardware support
-simpledrm
+# Keep runtime load conservative to reduce early boot regressions.
+qcom_scm
 i2c-hid-of
 i2c-qcom-geni
-phy-qcom-qmp-pcie
-phy-qcom-qmp-usb
-pcie-qcom
-nvme
-# Qualcomm platform drivers
-qcom_scm
-# NOTE: Do not force-load msm here. On some Snapdragon laptops this can
-# cause black screen/reboot before firmware has been imported from Windows.
-# oxyos-qcom-firmware will load msm after extraction.
-qnoc-x1e80100
-clk-x1e80100
 MODEOF
 
-# --- Power management for ARM64 ---
-mkdir -p /etc/tmpfiles.d
-cat > /etc/tmpfiles.d/snapdragon-power.conf << 'PWREOF'
-# Prevent aggressive power gating that can cause hangs on Snapdragon X
-w /sys/module/pcie_aspm/parameters/policy - - - - performance
-PWREOF
-
-# --- Autorun firmware extraction hint on first login ---
+# --- Firmware extraction hint on first login ---
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/oxyos-firmware-hint.desktop << 'DSKEOF'
 [Desktop Entry]
@@ -245,25 +312,23 @@ DSKEOF
 
 cat > /usr/local/bin/oxyos-firmware-check << 'CHKEOF'
 #!/bin/bash
-# Check if Qualcomm firmware is present, show notification if not
 ARCH=$(uname -m)
 if [ "$ARCH" != "aarch64" ]; then
     exit 0
 fi
 
-if [ ! -d /lib/firmware/qcom ] || [ -z "$(ls -A /lib/firmware/qcom/ 2>/dev/null)" ]; then
+fw_root="/lib/firmware/qcom/x1e80100"
+if [ ! -d "$fw_root" ] || [ -z "$(find "$fw_root" -type f -print -quit 2>/dev/null)" ]; then
     zenity --info --title="OxyOS - Snapdragon Firmware" \
-        --text="Your Snapdragon device needs firmware from Windows for full GPU support.\n\nOpen a terminal and run:\n\nsudo oxyos-qcom-firmware\n\nThis will extract firmware from your Windows partition." \
-        --width=400 2>/dev/null || true
+        --text="Your Snapdragon device may need firmware from Windows for full GPU support.\n\nRun:\n\nsudo oxyos-qcom-firmware\n\nThen reboot." \
+        --width=420 2>/dev/null || true
 fi
 CHKEOF
 chmod +x /usr/local/bin/oxyos-firmware-check
 
-# --- Rebuild initramfs with Snapdragon modules ---
-# The kernel hook (0905) already built an initramfs, but it didn't have
-# our Snapdragon modules yet. Rebuild now that they're configured.
-echo "Rebuilding initramfs with Snapdragon X modules..."
-if command -v update-initramfs > /dev/null 2>&1; then
+# --- Rebuild initramfs with Snapdragon settings ---
+echo "Rebuilding initramfs with Snapdragon X settings..."
+if command -v update-initramfs >/dev/null 2>&1; then
     update-initramfs -u
 fi
 

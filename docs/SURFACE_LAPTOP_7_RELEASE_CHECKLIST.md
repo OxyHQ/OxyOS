@@ -15,7 +15,12 @@ Pre-boot checks:
 2. Confirm `config/bootloaders/grub-pc/grub.cfg` contains:
    - `OxyOS Live (Surface Laptop 7 15")`
    - `OxyOS Live (Surface Laptop 7 15" safe graphics)`
-3. Confirm `config/hooks/live/0910-arm64-snapdragon.hook.chroot` does not force-load `msm` in `snapdragon.conf`.
+3. Confirm `build.sh` sets ARM64 cmdline with `clk_ignore_unused pd_ignore_unused cma=128M`.
+4. Confirm `config/hooks/live/0910-arm64-snapdragon.hook.chroot` is executable (`100755`) and does not force-load `msm` in initramfs or `snapdragon.conf`.
+5. Confirm `config/package-lists/arm64-firmware.list.chroot` includes:
+   - `dislocker`
+   - `flash-kernel`
+   - `protection-domain-mapper`
 
 Boot validation on device:
 1. Boot USB and select `OxyOS Live (Surface Laptop 7 15")`.

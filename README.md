@@ -58,13 +58,15 @@ The ARM64 build includes Qualcomm firmware support for Snapdragon X Elite/Plus d
 $ sudo oxyos-qcom-firmware
 ```
 
-This extracts GPU and other firmware from the Windows NTFS partition. A notification will remind you on first boot.
+This extracts GPU and other firmware from Windows NTFS/BitLocker partitions into model-specific paths under `/lib/firmware/qcom/x1e80100/` and rebuilds initramfs. A notification will remind you on first boot.
+
+ARM64 boot parameters are tuned to current Snapdragon X bring-up practice:
+`clk_ignore_unused pd_ignore_unused cma=128M`.
 
 ##### Microsoft Surface Laptop 7 (15", Snapdragon X Elite)
 
 For this model, use the ARM64 ISO and choose `OxyOS Live (Surface Laptop 7 15")` from the GRUB menu.
-This entry now starts in a conservative mode that blacklists `msm`/Surface SAM
-modules during early boot to reduce reboot loops.
+This entry uses the Surface 15 DTB and conservative early-boot module blacklists to reduce reboot loops.
 
 If you see a black screen or reboot loop, use
 `OxyOS Live (Surface Laptop 7 15" safe graphics)` once, then run

@@ -154,8 +154,8 @@ sed -i "s|^LB_LINUX_FLAVOURS_WITH_ARCH=.*|LB_LINUX_FLAVOURS_WITH_ARCH=\"${ARCH}\
 if [[ "$ARCH" == "arm64" ]]; then
     # ARM64: EFI-only boot (no BIOS/syslinux)
     sed -i 's|^LB_BOOTLOADER_BIOS=.*|LB_BOOTLOADER_BIOS=""|' config/binary
-    sed -i 's|^LB_BOOTAPPEND_LIVE=.*|LB_BOOTAPPEND_LIVE="boot=live components username=live clk_ignore_unused pd_ignore_unused earlycon=efifb console=tty0 loglevel=7"|' config/binary
-    sed -i 's|^LB_BOOTAPPEND_LIVE_FAILSAFE=.*|LB_BOOTAPPEND_LIVE_FAILSAFE="boot=live components nomodeset nosplash clk_ignore_unused pd_ignore_unused earlycon=efifb console=tty0 loglevel=7"|' config/binary
+    sed -i 's|^LB_BOOTAPPEND_LIVE=.*|LB_BOOTAPPEND_LIVE="boot=live components quiet splash username=live clk_ignore_unused pd_ignore_unused cma=128M"|' config/binary
+    sed -i 's|^LB_BOOTAPPEND_LIVE_FAILSAFE=.*|LB_BOOTAPPEND_LIVE_FAILSAFE="boot=live components nomodeset nosplash clk_ignore_unused pd_ignore_unused cma=128M"|' config/binary
 
     # Enable ARM64 firmware package list
     if [ -f "$ARM64_PKGLIST_DISABLED" ]; then
@@ -266,7 +266,7 @@ if [[ "$ARCH" == "arm64" ]]; then
     fi
 
     echo "[ARM64] Bootloader: grub-efi only (no syslinux)"
-    echo "[ARM64] Boot params: clk_ignore_unused pd_ignore_unused"
+    echo "[ARM64] Boot params: clk_ignore_unused pd_ignore_unused cma=128M"
     echo "[ARM64] Firmware packages: enabled"
     echo "[ARM64] Kernel: upgraded via 0905-arm64-kernel hook"
 else

@@ -20,6 +20,9 @@ acpid
 
 # EFI tools
 efibootmgr
+flash-kernel
+protection-domain-mapper
 
 # NTFS read support (needed to extract firmware from Windows partition)
 ntfs-3g
+dislocker
