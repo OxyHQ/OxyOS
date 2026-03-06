@@ -164,15 +164,10 @@ touch "$MODULES_FILE"
 sed -i '/^# OXYOS SNAPDRAGON MODULES BEGIN$/,/^# OXYOS SNAPDRAGON MODULES END$/d' "$MODULES_FILE"
 cat >> "$MODULES_FILE" << 'INITEOF'
 # OXYOS SNAPDRAGON MODULES BEGIN
-# Snapdragon X Elite/Plus - needed for USB live boot
-# Platform & clocks
+# Keep initramfs module set minimal and conservative.
+# This avoids early boot hangs/reboots on some Surface Snapdragon devices.
 qcom_scm
-clk-x1e80100
-tcsrcc-x1e80100
-gcc-x1e80100
-dispcc-x1e80100
-qnoc-x1e80100
-# USB (full chain for live USB boot)
+# USB chain for live USB boot
 phy-qcom-qmp-usb
 phy-qcom-qmp-usbc
 phy-qcom-qmp-combo
@@ -186,21 +181,13 @@ xhci-pci
 xhci-plat-hcd
 usb-storage
 uas
-# PCIe / NVMe
+# PCIe / NVMe for root media
 phy-qcom-qmp-pcie
 pcie-qcom
 nvme
 nvme-core
-# Display
+# Basic early framebuffer
 simpledrm
-# Input (keyboard/touchpad)
-i2c-hid-of
-i2c-qcom-geni
-# Surface devices (keyboard, SAM)
-surface-hid
-surface-aggregator
-surface-aggregator-registry
-surface-aggregator-hub
 # OXYOS SNAPDRAGON MODULES END
 INITEOF
 

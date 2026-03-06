@@ -63,6 +63,8 @@ This extracts GPU and other firmware from the Windows NTFS partition. A notifica
 ##### Microsoft Surface Laptop 7 (15", Snapdragon X Elite)
 
 For this model, use the ARM64 ISO and choose `OxyOS Live (Surface Laptop 7 15")` from the GRUB menu.
+This entry now starts in a conservative mode that blacklists `msm`/Surface SAM
+modules during early boot to reduce reboot loops.
 
 If you see a black screen or reboot loop, use
 `OxyOS Live (Surface Laptop 7 15" safe graphics)` once, then run
