@@ -20,8 +20,40 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install QA tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck grub-common
+
+      - name: Shell syntax checks
+        run: |
+          bash -n build.sh
+          sh -n config/hooks/live/0905-arm64-kernel.hook.chroot
+          sh -n config/hooks/live/0910-arm64-snapdragon.hook.chroot
+
+      - name: Shell lint
+        run: |
+          shellcheck -x \
+            build.sh \
+            config/hooks/live/0905-arm64-kernel.hook.chroot \
+            config/hooks/live/0910-arm64-snapdragon.hook.chroot
+
+      - name: GRUB syntax check
+        run: |
+          grub-script-check config/bootloaders/grub-pc/grub.cfg
+
   build:
+    needs: quality
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -59,14 +91,14 @@ jobs:
               VERSION="${{ env.VERSION }}"
 
               apt-get update
-              apt-get install -y live-build
+              apt-get install -y live-build git ca-certificates device-tree-compiler cpp
 
               # For cross-arch: install QEMU static binary
               if [ "$ARCH" != "amd64" ]; then
                 apt-get install -y qemu-user-static
               fi
 
-              bash build.sh --arch "$ARCH" --version "$VERSION"
+              bash build.sh --arch "$ARCH" --version "$VERSION" --clean
             '
 
       - name: Prepare artifacts
@@ -79,8 +111,20 @@ jobs:
           fi
           echo "ISO_FILE=$ISO_NAME" >> $GITHUB_ENV
 
+          sha256sum "$ISO_NAME" | awk '{print $1}' > "${ISO_NAME}.sha256"
+          echo "SHA256_FILE=${ISO_NAME}.sha256" >> $GITHUB_ENV
+
           md5sum "$ISO_NAME" | awk '{print $1}' > "${ISO_NAME}.md5"
           echo "MD5_FILE=${ISO_NAME}.md5" >> $GITHUB_ENV
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxyos-${{ env.VERSION }}-${{ env.ARCH }}
+          path: |
+            ${{ env.ISO_FILE }}
+            ${{ env.SHA256_FILE }}
+            ${{ env.MD5_FILE }}
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -89,16 +133,20 @@ jobs:
         with:
           files: |
             ${{ env.ISO_FILE }}
+            ${{ env.SHA256_FILE }}
             ${{ env.MD5_FILE }}
 
       - name: Upload to DigitalOcean Spaces
-        if: always()
+        if: success()
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
         run: |
           pip install awscli --quiet
           aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/${{ env.ISO_FILE }}" \
+            --endpoint-url https://ams3.digitaloceanspaces.com \
+            --acl public-read
+          aws s3 cp "${{ env.SHA256_FILE }}" "s3://oxyos/${{ env.SHA256_FILE }}" \
             --endpoint-url https://ams3.digitaloceanspaces.com \
             --acl public-read
           aws s3 cp "${{ env.MD5_FILE }}" "s3://oxyos/${{ env.MD5_FILE }}" \

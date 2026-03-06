@@ -60,6 +60,19 @@ $ sudo oxyos-qcom-firmware
 
 This extracts GPU and other firmware from the Windows NTFS partition. A notification will remind you on first boot.
 
+##### Microsoft Surface Laptop 7 (15", Snapdragon X Elite)
+
+For this model, use the ARM64 ISO and choose `OxyOS Live (Surface Laptop 7 15")` from the GRUB menu.
+
+If you see a black screen or reboot loop, use
+`OxyOS Live (Surface Laptop 7 15" safe graphics)` once, then run
+`sudo oxyos-qcom-firmware`.
+
+If you already booted with the default entry, you can still select:
+`Advanced options...` -> `Select device...` -> `Microsoft Surface Laptop 7 15"`.
+
+After the live session starts, run `sudo oxyos-qcom-firmware` so GPU/Wi-Fi firmware is imported from your Windows 11 partition.
+
 ### OxyOS Project Sources
 
 The OxyOS project is split across several repositories. The current public source list is:

@@ -20,46 +20,82 @@ cat > /usr/local/bin/oxyos-qcom-firmware << 'FWEOF'
 # OxyOS Qualcomm Firmware Extractor
 # Extracts firmware from a mounted Windows partition for Snapdragon X Elite devices
 
-set -e
+set -euo pipefail
 
 echo "========================================"
 echo "  OxyOS Qualcomm Firmware Extractor"
 echo "========================================"
 echo ""
 
-# Find Windows partition
-WIN_PART=""
-for part in /dev/nvme0n1p3 /dev/nvme0n1p4 /dev/nvme0n1p5; do
-    if [ -b "$part" ]; then
-        FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || true)
-        if [ "$FSTYPE" = "ntfs" ]; then
-            WIN_PART="$part"
-            break
+# Optional manual partition override: sudo oxyos-qcom-firmware /dev/nvme0n1p3
+WIN_PART="${1:-}"
+MOUNT_DIR=""
+
+cleanup() {
+    if [ -n "${MOUNT_DIR}" ] && [ -d "${MOUNT_DIR}" ]; then
+        if grep -qs " ${MOUNT_DIR} " /proc/mounts; then
+            umount "${MOUNT_DIR}" 2>/dev/null || true
         fi
+        rmdir "${MOUNT_DIR}" 2>/dev/null || true
     fi
-done
+}
+trap cleanup EXIT
 
-if [ -z "$WIN_PART" ]; then
-    echo "Scanning all partitions for Windows (NTFS)..."
-    for part in $(lsblk -rno NAME,FSTYPE | grep ntfs | awk '{print "/dev/"$1}'); do
-        WIN_PART="$part"
-        break
+mount_windows_partition() {
+    local part="$1"
+    MOUNT_DIR=$(mktemp -d)
+    if mount -t ntfs3 -o ro "$part" "$MOUNT_DIR" 2>/dev/null || \
+        mount -t ntfs-3g -o ro "$part" "$MOUNT_DIR" 2>/dev/null; then
+        if [ -d "$MOUNT_DIR/Windows/System32" ]; then
+            return 0
+        fi
+        umount "$MOUNT_DIR" 2>/dev/null || true
+    fi
+    rmdir "$MOUNT_DIR" 2>/dev/null || true
+    MOUNT_DIR=""
+    return 1
+}
+
+if [ -n "$WIN_PART" ]; then
+    if [ ! -b "$WIN_PART" ]; then
+        echo "Error: $WIN_PART is not a valid block device."
+        exit 1
+    fi
+    if ! mount_windows_partition "$WIN_PART"; then
+        echo "Error: Could not mount $WIN_PART as a Windows partition."
+        echo "Use a partition containing Windows/System32."
+        exit 1
+    fi
+else
+    for part in /dev/nvme0n1p3 /dev/nvme0n1p4 /dev/nvme0n1p5; do
+        if [ -b "$part" ]; then
+            FSTYPE=$(blkid -s TYPE -o value "$part" 2>/dev/null || true)
+            if [ "$FSTYPE" = "ntfs" ] && mount_windows_partition "$part"; then
+                WIN_PART="$part"
+                break
+            fi
+        fi
     done
-fi
 
-if [ -z "$WIN_PART" ]; then
-    echo "Error: No Windows (NTFS) partition found."
-    echo "You can manually specify: $0 /dev/sdXN"
-    exit 1
+    if [ -z "$WIN_PART" ]; then
+        echo "Scanning all partitions for Windows (NTFS)..."
+        while read -r part fstype; do
+            [ "$fstype" = "ntfs" ] || continue
+            if mount_windows_partition "$part"; then
+                WIN_PART="$part"
+                break
+            fi
+        done < <(lsblk -rno PATH,FSTYPE)
+    fi
+
+    if [ -z "$WIN_PART" ]; then
+        echo "Error: No Windows (NTFS) partition found."
+        echo "You can manually specify: $0 /dev/sdXN"
+        exit 1
+    fi
 fi
 
 echo "Found Windows partition: $WIN_PART"
-
-# Mount Windows partition
-MOUNT_DIR=$(mktemp -d)
-mount -t ntfs3 -o ro "$WIN_PART" "$MOUNT_DIR" 2>/dev/null || \
-    mount -t ntfs-3g -o ro "$WIN_PART" "$MOUNT_DIR"
-
 echo "Mounted Windows at $MOUNT_DIR"
 
 # Search for Qualcomm firmware
@@ -100,8 +136,7 @@ for gpu_dir in \
     done
 done
 
-umount "$MOUNT_DIR"
-rmdir "$MOUNT_DIR"
+# Mount cleanup is handled by trap.
 
 if $FW_FOUND; then
     echo ""
@@ -124,7 +159,11 @@ chmod +x /usr/local/bin/oxyos-qcom-firmware
 # accessible during initramfs (before root is mounted), we need the
 # Qualcomm USB/PCIe/platform modules in the initramfs itself.
 mkdir -p /etc/initramfs-tools
-cat >> /etc/initramfs-tools/modules << 'INITEOF'
+MODULES_FILE="/etc/initramfs-tools/modules"
+touch "$MODULES_FILE"
+sed -i '/^# OXYOS SNAPDRAGON MODULES BEGIN$/,/^# OXYOS SNAPDRAGON MODULES END$/d' "$MODULES_FILE"
+cat >> "$MODULES_FILE" << 'INITEOF'
+# OXYOS SNAPDRAGON MODULES BEGIN
 # Snapdragon X Elite/Plus - needed for USB live boot
 # Platform & clocks
 qcom_scm
@@ -162,6 +201,7 @@ surface-hid
 surface-aggregator
 surface-aggregator-registry
 surface-aggregator-hub
+# OXYOS SNAPDRAGON MODULES END
 INITEOF
 
 # --- GPU configuration ---
@@ -188,7 +228,9 @@ pcie-qcom
 nvme
 # Qualcomm platform drivers
 qcom_scm
-msm
+# NOTE: Do not force-load msm here. On some Snapdragon laptops this can
+# cause black screen/reboot before firmware has been imported from Windows.
+# oxyos-qcom-firmware will load msm after extraction.
 qnoc-x1e80100
 clk-x1e80100
 MODEOF
