@@ -115,7 +115,7 @@
          x="349.67337"
          sodipodi:role="line"
          style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:16px;line-height:1;font-family:'Liberation Mono';-inkscape-font-specification:'Liberation Mono Bold';stroke-width:1"
-         id="tspan3902">@PROJECT@ 13 (@DISTRIBUTION@)</tspan><tspan
+         id="tspan3902">os.oxy.so</tspan><tspan
          y="631.08344"
          x="349.67337"
          sodipodi:role="line"
@@ -135,7 +135,7 @@
          x="349.67337"
          sodipodi:role="line"
          style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:16px;line-height:1;font-family:'Liberation Mono';-inkscape-font-specification:'Liberation Mono Bold';stroke-width:1"
-         id="tspan3928">Version: 13 @ARCHITECTURE@</tspan><tspan
+         id="tspan3928">@ARCHITECTURE@</tspan><tspan
          y="671.28973"
          x="349.67337"
          sodipodi:role="line"
