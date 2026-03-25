@@ -89,9 +89,6 @@ export default function Shelf() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
               <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
             </svg>
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
-              <path d="M7 10l5 5 5-5z" />
-            </svg>
             {/* Battery icon — themed fill + lightning bolt when charging */}
             <div className="relative flex items-center">
               <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
