@@ -99,14 +99,18 @@ export default function Shelf() {
                 <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={fillColor} opacity="0.9" />
                 <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center gap-px pl-1 text-white mix-blend-difference">
-                {isCharging && (
-                  <svg width="6" height="9" viewBox="0 0 12 16" fill="white" className="rotate-180">
-                    <path d="M7 0L3 9h3l-1 7 5-10H7V0z" />
+              {isCharging ? (
+                <span className="absolute inset-0 flex items-center justify-center pl-1">
+                  {/* Lightning bolt */}
+                  <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
+                    <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
                   </svg>
-                )}
-                <span className="text-[7px] font-bold leading-none">{batteryLevel}</span>
-              </span>
+                </span>
+              ) : (
+                <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
+                  {batteryLevel}
+                </span>
+              )}
             </div>
           </button>
 
