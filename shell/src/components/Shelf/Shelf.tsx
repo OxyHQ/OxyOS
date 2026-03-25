@@ -83,7 +83,7 @@ export default function Shelf() {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[48px_1fr_auto] items-center rounded-t-2xl bg-[rgba(32,33,36,0.82)] px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
+      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[48px_1fr_auto] items-center rounded-t-2xl bg-black/75 px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
         {/* Left: Launcher button */}
         <button
           className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
