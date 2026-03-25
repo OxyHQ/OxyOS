@@ -83,10 +83,10 @@ export default function Shelf() {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[48px_1fr_auto] items-center rounded-t-3xl bg-black/75 px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
+      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[40px_1fr_auto] items-center rounded-t-3xl bg-black/75 px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
         {/* Left: Launcher button */}
         <button
-          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
+          className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
           onClick={toggleLauncher}
           aria-label="App launcher"
         >
@@ -108,7 +108,7 @@ export default function Shelf() {
           {pinnedApps.map((app) => (
             <motion.button
               key={app.name}
-              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
+              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
               whileTap={{ scale: 0.92 }}
               aria-label={app.name}
             >
@@ -136,18 +136,17 @@ export default function Shelf() {
             <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
               <path d="M7 10l5 5 5-5z" />
             </svg>
-            {/* iPhone-style battery with percentage inside — tip on left */}
+            {/* Battery icon — flat filled, rounded, percentage inside */}
             <div className="relative flex items-center">
-              <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
-                {/* Battery body */}
-                <rect x="0.5" y="0.5" width="25" height="13" rx="4" stroke="white" strokeWidth="1" opacity="0.45" />
-                {/* Fill */}
-                <rect x="1.5" y="1.5" width={fillWidth} height="11" rx="3" fill={batteryColor} opacity="0.8" />
+              <svg width="30" height="14" viewBox="0 0 30 14" fill="none">
+                {/* Body fill */}
+                <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.2" />
+                {/* Level fill */}
+                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={batteryColor} opacity="0.75" />
                 {/* Tip */}
-                <path d="M27 4.5c1 0 2 1 2 2.5s-1 2.5-2 2.5" fill="white" opacity="0.45" />
+                <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
               </svg>
-              {/* Percentage overlaid on top */}
-              <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold leading-none text-white">
+              <span className="absolute inset-0 flex items-center justify-center pr-1.5 text-[8px] font-bold leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
                 {batteryLevel}
               </span>
             </div>
