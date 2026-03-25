@@ -1,44 +1,13 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-    <!-- Generator: Sketch 63.1 (92452) - https://sketch.com -->
-    <title>App Icon / Apple / Files /@SVG</title>
-    <desc>Created with Sketch.</desc>
-    <defs>
-        <linearGradient x1="49.4430285%" y1="20.7855773%" x2="49.9999977%" y2="79.8096525%" id="linearGradient-1">
-            <stop stop-color="#13B0F8" offset="0%"></stop>
-            <stop stop-color="#008CEE" offset="18.5448368%"></stop>
-            <stop stop-color="#336699" offset="100%"></stop>
-        </linearGradient>
-        <path d="M52,96 L716,96 C727.045695,96 736,104.954305 736,116 L736,190 C736,201.045695 727.045695,210 716,210 L52,210 C40.954305,210 32,201.045695 32,190 L32,116 C32,104.954305 40.954305,96 52,96 Z" id="path-2"></path>
-        <filter x="-1.8%" y="-11.8%" width="103.6%" height="121.9%" filterUnits="objectBoundingBox" id="filter-3">
-            <feOffset dx="0" dy="-1" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
-            <feGaussianBlur stdDeviation="4" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
-            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.25 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
-        </filter>
-        <linearGradient x1="50.0000015%" y1="9.75236306e-06%" x2="50.0000015%" y2="100.000016%" id="linearGradient-4">
-            <stop stop-color="#2ABBFB" offset="0%"></stop>
-            <stop stop-color="#2675F6" offset="100%"></stop>
-        </linearGradient>
-        <path d="M20,124 L748,124 C759.045695,124 768,132.954305 768,144 L768,542 C768,570.166522 745.166522,593 717,593 L51,593 C22.8334778,593 3.44940413e-15,570.166522 0,542 L0,144 C-1.3527075e-15,132.954305 8.954305,124 20,124 Z" id="path-5"></path>
-        <filter x="-2.0%" y="-3.8%" width="103.9%" height="106.4%" filterUnits="objectBoundingBox" id="filter-6">
-            <feMorphology radius="0.5" operator="erode" in="SourceAlpha" result="shadowSpreadOuter1"></feMorphology>
-            <feOffset dx="0" dy="-3" in="shadowSpreadOuter1" result="shadowOffsetOuter1"></feOffset>
-            <feGaussianBlur stdDeviation="5" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
-            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0.478431373   0 0 0 0 1  0 0 0 0.5 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
-        </filter>
-    </defs>
-    <g id="App-Icon-/-Apple-/-Files-/" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
-        <rect id="Origin-Color" fill="#FFFFFF" x="0" y="0" width="1024" height="1024"></rect>
-        <g id="Folder" transform="translate(128.000000, 215.000000)">
-            <path d="M0.913983448,541.992185 C0.961489078,570.163023 23.8246262,593 51.99347,593 L717.00653,593 C745.169446,593 768,570.163264 768,542.000566 L768,103.999434 C768,75.8332244 745.175468,53 716.993182,53 L287.659807,53 C245,53 234,0 196,0 L51.0010035,0 C22.833927,0 0.0385121623,22.8377123 0.086016552,51.0078153 L0.913983448,541.992185 Z" id="path4873" fill="url(#linearGradient-1)"></path>
-            <g id="Rectangle-2">
-                <use fill="black" fill-opacity="1" filter="url(#filter-3)" xlink:href="#path-2"></use>
-                <use fill="#FAFEFD" fill-rule="evenodd" xlink:href="#path-2"></use>
-            </g>
-            <g id="rect4869">
-                <use fill="black" fill-opacity="1" filter="url(#filter-6)" xlink:href="#path-5"></use>
-                <use fill="url(#linearGradient-4)" fill-rule="evenodd" xlink:href="#path-5"></use>
-            </g>
-        </g>
-    </g>
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g clip-path="url(#clip0_3_664)">
+<rect width="24" height="24" fill="#0A66C2"/>
+<path d="M1 12C1 4 4 1 12 1C20 1 23 4 23 12C23 20 20 23 12 23C4 23 1 20 1 12Z" fill="#0A66C2"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M7.64 8.63H12.29L12.08 7.9C12.0158 7.68742 11.8827 7.50226 11.7016 7.3737C11.5206 7.24515 11.3019 7.18052 11.08 7.19H7C6.73478 7.19 6.48043 7.29536 6.29289 7.48289C6.10536 7.67043 6 7.92478 6 8.19V10.26C6 10.0451 6.04249 9.83232 6.12503 9.63391C6.20757 9.43549 6.32853 9.25536 6.48095 9.10386C6.63337 8.95237 6.81424 8.83252 7.01315 8.75119C7.21207 8.66987 7.42511 8.62868 7.64 8.63Z" fill="#FFBEB9"/>
+<path fill-rule="evenodd" clip-rule="evenodd" d="M17 16.81H7C6.73478 16.81 6.48043 16.7046 6.29289 16.5171C6.10536 16.3296 6 16.0752 6 15.81V9.63C6 9.36479 6.10536 9.11043 6.29289 8.9229C6.48043 8.73536 6.73478 8.63 7 8.63H17C17.2652 8.63 17.5196 8.73536 17.7071 8.9229C17.8946 9.11043 18 9.36479 18 9.63V15.81C18 16.0752 17.8946 16.3296 17.7071 16.5171C17.5196 16.7046 17.2652 16.81 17 16.81Z" fill="white"/>
+</g>
+<defs>
+<clipPath id="clip0_3_664">
+<rect width="24" height="24" fill="white"/>
+</clipPath>
+</defs>
 </svg>
