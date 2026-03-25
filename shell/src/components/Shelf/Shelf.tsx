@@ -26,6 +26,7 @@ export default function Shelf() {
   const time = useSystemStore((s) => s.time);
   const wifiEnabled = useSystemStore((s) => s.wifiEnabled);
   const batteryLevel = useSystemStore((s) => s.batteryLevel);
+  const isCharging = useSystemStore((s) => s.isCharging);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const toggleLauncher = useLauncherStore((s) => s.toggle);
 
@@ -39,6 +40,7 @@ export default function Shelf() {
   });
 
   const fillWidth = Math.round((batteryLevel / 100) * 18);
+  const fillColor = isCharging ? "#30d158" : batteryLevel <= 20 ? "#ff453a" : "white";
 
   return (
     <>
@@ -90,16 +92,25 @@ export default function Shelf() {
             <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
               <path d="M7 10l5 5 5-5z" />
             </svg>
-            {/* Battery icon — all white, percentage inside */}
+            {/* Battery icon — themed fill + lightning bolt when charging */}
             <div className="relative flex items-center">
               <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
                 <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
-                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill="white" opacity="0.85" />
+                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={fillColor} opacity="0.9" />
                 <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
-                {batteryLevel}
-              </span>
+              {isCharging ? (
+                <span className="absolute inset-0 flex items-center justify-center pl-1">
+                  {/* Lightning bolt */}
+                  <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
+                    <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
+                  </svg>
+                </span>
+              ) : (
+                <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
+                  {batteryLevel}
+                </span>
+              )}
             </div>
           </button>
 
