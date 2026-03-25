@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
 import QuickSettings from "../SystemTray/QuickSettings";
-import browserIcon from "../../assets/icons/browser.png";
-import filesIcon from "../../assets/icons/files.png";
-import settingsIcon from "../../assets/icons/settings.png";
-import terminalIcon from "../../assets/icons/terminal.png";
-import storeIcon from "../../assets/icons/store.png";
+import browserIcon from "../../assets/icons/browser.svg";
+import filesIcon from "../../assets/icons/files.svg";
+import settingsIcon from "../../assets/icons/settings.svg";
+import terminalIcon from "../../assets/icons/terminal.svg";
+import storeIcon from "../../assets/icons/store.svg";
 
 interface PinnedApp {
   name: string;

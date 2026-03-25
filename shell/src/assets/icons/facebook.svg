@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="fbBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1877F2"/>
+      <stop offset="100%" stop-color="#0C5DC7"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#fbBg)"/>
+  <path d="M640,512 L640,512 L556,512 L556,720 L444,720 L444,512 L384,512 L384,420 L444,420 L444,352 C444,288 484,240 564,240 L640,240 L640,332 L588,332 C560,332 556,344 556,364 L556,420 L640,420 Z" fill="#FFF"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ytBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FF0000"/>
+      <stop offset="100%" stop-color="#CC0000"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#ytBg)"/>
+  <rect x="192" y="312" width="640" height="400" rx="64" fill="#FFF" opacity="0"/>
+  <polygon points="430,360 430,664 680,512" fill="#FFF"/>
+</svg>

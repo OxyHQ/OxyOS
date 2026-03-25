@@ -1,23 +1,23 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 
-import browserIcon from "../../assets/icons/browser.png";
-import discordIcon from "../../assets/icons/discord.png";
-import spotifyIcon from "../../assets/icons/spotify.png";
-import youtubeIcon from "../../assets/icons/youtube.png";
-import mailIcon from "../../assets/icons/mail.png";
-import filesIcon from "../../assets/icons/files.png";
-import mapsIcon from "../../assets/icons/maps.png";
-import twitterIcon from "../../assets/icons/twitter.png";
-import facebookIcon from "../../assets/icons/facebook.png";
-import calendarIcon from "../../assets/icons/calendar.png";
-import photosIcon from "../../assets/icons/photos.png";
-import cameraIcon from "../../assets/icons/camera.png";
-import settingsIcon from "../../assets/icons/settings.png";
-import figmaIcon from "../../assets/icons/figma.png";
-import storeIcon from "../../assets/icons/store.png";
-import terminalIcon from "../../assets/icons/terminal.png";
-import messagesIcon from "../../assets/icons/messages.png";
+import browserIcon from "../../assets/icons/browser.svg";
+import discordIcon from "../../assets/icons/discord.svg";
+import spotifyIcon from "../../assets/icons/spotify.svg";
+import youtubeIcon from "../../assets/icons/youtube.svg";
+import mailIcon from "../../assets/icons/mail.svg";
+import filesIcon from "../../assets/icons/files.svg";
+import mapsIcon from "../../assets/icons/maps.svg";
+import twitterIcon from "../../assets/icons/twitter.svg";
+import facebookIcon from "../../assets/icons/facebook.svg";
+import calendarIcon from "../../assets/icons/calendar.svg";
+import photosIcon from "../../assets/icons/photos.svg";
+import cameraIcon from "../../assets/icons/camera.svg";
+import settingsIcon from "../../assets/icons/settings.svg";
+import figmaIcon from "../../assets/icons/figma.svg";
+import storeIcon from "../../assets/icons/store.svg";
+import terminalIcon from "../../assets/icons/terminal.svg";
+import messagesIcon from "../../assets/icons/messages.svg";
 
 interface AppEntry {
   name: string;
