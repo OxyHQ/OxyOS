@@ -83,10 +83,10 @@ export default function Shelf() {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[auto_1fr_auto] items-center rounded-t-3xl bg-black/75 px-3 backdrop-blur-[60px] backdrop-saturate-[180%]">
+      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl bg-black/75 px-3 backdrop-blur-[60px] backdrop-saturate-[180%]">
         {/* Left: Launcher button */}
         <button
-          className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
+          className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
           onClick={toggleLauncher}
           aria-label="App launcher"
         >
@@ -115,7 +115,7 @@ export default function Shelf() {
         </div>
 
         {/* Right: System tray — joined pills (rounded outside only) */}
-        <div className="flex items-center gap-[3px]">
+        <div className="flex items-center gap-[3px] justify-self-end">
           {/* Icons pill — rounded left only */}
           <button
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
