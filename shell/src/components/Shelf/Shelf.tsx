@@ -122,11 +122,11 @@ export default function Shelf() {
           ))}
         </div>
 
-        {/* Right: System tray — joined pill group (flat between, rounded ends) */}
+        {/* Right: System tray — joined pills (rounded outside only) */}
         <div className="mr-2 flex items-center">
-          {/* Icons pill — rounded left side only */}
+          {/* Icons pill — rounded left only */}
           <button
-            className="flex cursor-pointer items-center gap-2 rounded-l-full bg-white/10 py-2 pr-3 pl-3.5 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 py-2 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="System status"
           >
@@ -153,12 +153,9 @@ export default function Shelf() {
             </div>
           </button>
 
-          {/* Visual separator */}
-          <div className="h-5 w-px bg-white/15" />
-
-          {/* Date + time pill — rounded right side only */}
+          {/* Date + time pill — rounded right only */}
           <button
-            className="flex cursor-pointer items-center rounded-r-full bg-white/10 py-2 pr-3.5 pl-3 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center rounded-r-full bg-white/10 px-3 py-2 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="Date and time"
           >
