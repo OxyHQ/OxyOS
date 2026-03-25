@@ -18,6 +18,7 @@ import figmaIcon from "../../assets/icons/figma.svg";
 import storeIcon from "../../assets/icons/store.svg";
 import terminalIcon from "../../assets/icons/terminal.svg";
 import messagesIcon from "../../assets/icons/messages.svg";
+import calculatorIcon from "../../assets/icons/calculator.svg";
 
 interface AppEntry {
   name: string;
@@ -42,6 +43,7 @@ const apps: AppEntry[] = [
   { name: "Store", icon: storeIcon },
   { name: "Terminal", icon: terminalIcon },
   { name: "Messages", icon: messagesIcon },
+  { name: "Calculator", icon: calculatorIcon },
 ];
 
 export default function AppLauncher() {
