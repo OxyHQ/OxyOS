@@ -27,7 +27,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.97 }}
         transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-        className="fixed bottom-[56px] right-2 z-50 w-[360px] origin-bottom-right rounded-2xl bg-white p-0 shadow-[0_8px_28px_rgba(0,0,0,0.16),0_2px_6px_rgba(0,0,0,0.06)]"
+        className="fixed bottom-[64px] right-2 z-50 w-[360px] origin-bottom-right rounded-2xl bg-white p-0 shadow-[0_8px_28px_rgba(0,0,0,0.16),0_2px_6px_rgba(0,0,0,0.06)]"
       >
         {/* Toggle pills grid */}
         <div className="grid grid-cols-2 gap-2 p-4 pb-3">

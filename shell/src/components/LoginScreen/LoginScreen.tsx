@@ -46,103 +46,86 @@ export default function LoginScreen() {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Top-right system tray */}
-      <div className="absolute top-3 right-5 flex items-center gap-1 text-white/70">
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
-        >
+      {/* ── Top-right system tray ── */}
+      <div className="absolute top-2.5 right-4 flex items-center gap-0.5 text-white/75">
+        <span className="px-1.5 text-[12px] font-medium">U.S.</span>
+        <button type="button" className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-white/10">
           <svg width="15" height="15" viewBox="0 0 24 24" fill={wifiEnabled ? "currentColor" : "#9aa0a6"}>
             <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 0 0-6 0zm-4-4l2 2a7.074 7.074 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
           </svg>
         </button>
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
-        >
-          <svg width="20" height="11" viewBox="0 0 22 12" fill="none">
-            <rect x="0.5" y="0.5" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="1" />
-            <rect x="2" y="2" width={Math.round((batteryLevel / 100) * 14)} height="8" rx="1" fill="currentColor" />
-            <rect x="19" y="3" width="2.5" height="6" rx="1" fill="currentColor" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="22" height="11" viewBox="0 0 24 13" fill="none" className="ml-0.5">
+          <rect x="0.5" y="0.5" width="20" height="12" rx="2.5" stroke="currentColor" strokeWidth="1" />
+          <rect x="2" y="2" width={Math.round((batteryLevel / 100) * 16)} height="9" rx="1.5" fill="currentColor" />
+          <path d="M22 4.5c.83 0 1.5.9 1.5 2s-.67 2-1.5 2" stroke="currentColor" strokeWidth="1" />
+        </svg>
+        <button type="button" className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-full hover:bg-white/10">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
             <line x1="12" y1="2" x2="12" y2="12" />
           </svg>
         </button>
       </div>
 
-      {/* Main content — centered */}
-      <div className="flex flex-1 flex-col items-center justify-center">
-        {/* Clock */}
-        <div className="-mt-[6vh] mb-10 flex flex-col items-center">
-          <p className="text-[15px] font-medium tracking-wide text-white/50">
-            {formattedDate}
-          </p>
-          <p className="mt-1 text-[min(96px,11vw)] font-bold leading-[0.85] tracking-[-2px] text-white">
-            {time || "0:00"}
-          </p>
+      {/* ── Clock — upper area ── */}
+      <div className="mt-[18vh] flex flex-col items-center">
+        <p className="text-[17px] font-normal tracking-[0.02em] text-white/65">
+          {formattedDate}
+        </p>
+        <p className="mt-1.5 text-[min(128px,14vw)] font-bold leading-[0.88] tracking-[-1px] text-white/80">
+          {time || "0:00"}
+        </p>
+      </div>
+
+      {/* ── Spacer ── */}
+      <div className="flex-1" />
+
+      {/* ── Login area — lower-center ── */}
+      <div className="flex flex-col items-center pb-[12vh]">
+        {/* Avatar */}
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 ring-[1.5px] ring-white/30 backdrop-blur-sm">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="rgba(255,255,255,0.75)">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+          </svg>
         </div>
 
-        {/* Circular login form */}
-        <form onSubmit={handleSubmit} className="relative">
-          {/* Circle outline */}
-          <div className="flex h-[280px] w-[280px] flex-col items-center justify-between rounded-full border border-white/20 px-10 py-8">
-            {/* Avatar pill */}
-            <div className="flex h-10 w-20 items-center justify-center rounded-full bg-white/15">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-              </svg>
-            </div>
+        {/* Username */}
+        <p className="mt-2.5 text-[15px] font-medium text-white">{username}</p>
 
-            {/* Username pill */}
-            <div className="flex h-11 w-full items-center justify-center rounded-full bg-white/12">
-              <span className="text-[14px] font-medium text-white/80">{username}</span>
-            </div>
-
-            {/* Password input */}
-            <motion.div animate={shakeControls} className="w-full">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setShowError(false);
-                }}
-                placeholder="Password"
-                autoFocus
-                className="h-11 w-full rounded-full border-none bg-white/12 px-5 text-center text-[14px] text-white placeholder-white/30 outline-none transition-all duration-200 focus:bg-white/18"
-              />
-            </motion.div>
-
-            {/* Submit button */}
-            <motion.button
-              type="submit"
-              className="flex h-12 w-full cursor-pointer items-center justify-center rounded-full bg-[rgba(32,33,36,0.85)] text-white transition-colors duration-150 hover:bg-[rgba(32,33,36,0.95)]"
-              whileTap={{ scale: 0.97 }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </motion.button>
-          </div>
+        {/* Password row */}
+        <form onSubmit={handleSubmit} className="mt-4 flex items-center gap-2">
+          <motion.div animate={shakeControls}>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setShowError(false);
+              }}
+              placeholder="Enter Password"
+              autoFocus
+              className="h-[34px] w-[200px] rounded-full bg-white/20 px-4 text-[13px] text-white placeholder-white/45 outline-none backdrop-blur-sm transition-colors duration-200 focus:bg-white/25"
+            />
+          </motion.div>
+          <button
+            type="button"
+            className="flex h-[28px] w-[28px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/30 text-white/50 transition-colors duration-150 hover:bg-white/10 hover:text-white/70"
+            aria-label="Password hint"
+          >
+            <span className="text-[13px] font-medium leading-none">?</span>
+          </button>
         </form>
 
-        {/* Status text below circle */}
+        {/* Hint / error text */}
         <AnimatePresence mode="wait">
           {showError ? (
             <motion.p
               key="error"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mt-5 text-[12px] text-white/50"
+              className="mt-3.5 text-center text-[12px] leading-snug text-white/50"
             >
               Incorrect password. Try again.
             </motion.p>
@@ -152,9 +135,11 @@ export default function LoginScreen() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mt-5 text-[12px] text-white/35"
+              className="mt-3.5 text-center text-[12px] leading-snug text-white/45"
             >
-              Enter password to sign in
+              Your password is required to
+              <br />
+              log in
             </motion.p>
           )}
         </AnimatePresence>
