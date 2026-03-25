@@ -99,11 +99,11 @@ export default function AppLauncher() {
                   type="button"
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0 transition-transform duration-100 active:scale-90"
                 >
-                  <div className="flex h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-full">
+                  <div className="h-[56px] w-[56px] overflow-hidden rounded-full">
                     <img
                       src={app.icon}
                       alt={app.name}
-                      className="h-[72px] w-[72px] object-contain"
+                      className="h-full w-full object-cover"
                       draggable={false}
                     />
                   </div>
