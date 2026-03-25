@@ -113,7 +113,7 @@ export default function Shelf() {
               aria-label={app.name}
             >
               <div
-                className="flex h-[36px] w-[36px] items-center justify-center rounded-full"
+                className="flex h-[30px] w-[30px] items-center justify-center rounded-full"
                 style={{ backgroundColor: app.color }}
               >
                 {app.icon}
@@ -138,7 +138,7 @@ export default function Shelf() {
             </svg>
             {/* Battery icon — flat filled, rounded, percentage inside */}
             <div className="relative flex items-center">
-              <svg width="30" height="14" viewBox="0 0 30 14" fill="none">
+              <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
                 {/* Body fill */}
                 <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.2" />
                 {/* Level fill */}
@@ -146,7 +146,7 @@ export default function Shelf() {
                 {/* Tip */}
                 <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center pr-1.5 text-[8px] font-bold leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
+              <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
                 {batteryLevel}
               </span>
             </div>
