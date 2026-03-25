@@ -7,8 +7,18 @@ interface AppEntry {
   icon: React.ReactNode;
 }
 
-const apps: AppEntry[] = [
-  // Row 1
+const pinnedApps: AppEntry[] = [
+  {
+    name: "Chrome",
+    color: "#4285f4",
+    icon: (
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
+        <ellipse cx="12" cy="12" rx="4" ry="10" stroke="white" strokeWidth="1.5" />
+        <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="1.5" />
+      </svg>
+    ),
+  },
   {
     name: "Discord",
     color: "#5865f2",
@@ -19,20 +29,38 @@ const apps: AppEntry[] = [
     ),
   },
   {
-    name: "GeForce Now",
-    color: "#76b900",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <polygon points="8,5 8,19 19,12" />
-      </svg>
-    ),
-  },
-  {
     name: "Spotify",
     color: "#1db954",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 14.36c-.2.2-.51.2-.71 0-1.95-1.19-4.41-1.46-7.31-.8-.28.07-.55-.1-.62-.38-.07-.28.1-.55.38-.62 3.17-.72 5.89-.41 8.07.93.2.13.26.4.13.6l.06.27zm1.23-2.71c-.25.25-.62.25-.87 0-2.23-1.37-5.63-1.77-8.27-.97-.33.1-.68-.09-.78-.42-.1-.33.09-.68.42-.78 3.01-.91 6.75-.47 9.29 1.1.25.16.32.5.16.75l.05.32zm.11-2.82c-2.68-1.59-7.1-1.74-9.66-.96-.41.13-.84-.1-.97-.51-.13-.41.1-.84.51-.97 2.93-.89 7.81-.72 10.9 1.11.37.22.49.69.27 1.06-.22.37-.69.49-1.05.27z" />
+      </svg>
+    ),
+  },
+  {
+    name: "YouTube",
+    color: "#ff0000",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+        <path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Gmail",
+    color: "#ea4335",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
+      </svg>
+    ),
+  },
+  {
+    name: "Files",
+    color: "#4285f4",
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+        <path d="M4 4h6l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
       </svg>
     ),
   },
@@ -54,16 +82,6 @@ const apps: AppEntry[] = [
       </svg>
     ),
   },
-  // Row 2
-  {
-    name: "Keep",
-    color: "#fbbc04",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z" />
-      </svg>
-    ),
-  },
   {
     name: "Facebook",
     color: "#1877f2",
@@ -74,11 +92,16 @@ const apps: AppEntry[] = [
     ),
   },
   {
-    name: "YouTube",
-    color: "#ff0000",
+    name: "Reddit",
+    color: "#ff4500",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z" />
+        <circle cx="12" cy="12" r="10" />
+        <circle cx="8.5" cy="12.5" r="1.5" fill="currentColor" />
+        <circle cx="15.5" cy="12.5" r="1.5" fill="currentColor" />
+        <path d="M8.5 16c1 1.5 5.5 1.5 7 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <circle cx="18" cy="5" r="1.5" />
+        <line x1="15" y1="3" x2="18" y2="5" stroke="white" strokeWidth="1.5" />
       </svg>
     ),
   },
@@ -92,57 +115,11 @@ const apps: AppEntry[] = [
     ),
   },
   {
-    name: "Gmail",
-    color: "#ea4335",
+    name: "Settings",
+    color: "#5f6368",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" />
-      </svg>
-    ),
-  },
-  // Row 3
-  {
-    name: "Figma",
-    color: "#a259ff",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M15.852 8.981h-4.588V0h4.588c2.476 0 4.49 2.014 4.49 4.49s-2.014 4.491-4.49 4.491zM12.735 7.51h3.117c1.665 0 3.019-1.355 3.019-3.019s-1.354-3.019-3.019-3.019h-3.117V7.51zm0 8.962h-4.588c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h4.588v8.98zM9.618 8.962c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.019 3.019 3.019h3.117V8.962H9.618zm3.117 8.962H9.618c-2.476 0-4.49-2.014-4.49-4.49s2.014-4.49 4.49-4.49h3.117v8.98zm0-7.51c-1.665 0-3.019 1.355-3.019 3.019s1.354 3.019 3.019 3.019 3.019-1.354 3.019-3.019-1.354-3.019-3.019-3.019z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Reddit",
-    color: "#ff4500",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M12 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm5.01 4.744c.688 0 1.25.561 1.25 1.249a1.25 1.25 0 0 1-2.498.056l-2.597-.547-.8 3.747c1.824.07 3.48.632 4.674 1.488.308-.309.73-.491 1.207-.491.968 0 1.754.786 1.754 1.754 0 .716-.435 1.333-1.01 1.614a3.111 3.111 0 0 1 .042.52c0 2.694-3.13 4.87-7.004 4.87-3.874 0-7.004-2.176-7.004-4.87 0-.183.015-.366.043-.534A1.748 1.748 0 0 1 4.028 12c0-.968.786-1.754 1.754-1.754.463 0 .898.196 1.207.49 1.207-.883 2.878-1.43 4.744-1.487l.885-4.182a.342.342 0 0 1 .14-.197.35.35 0 0 1 .238-.042l2.906.617a1.214 1.214 0 0 1 1.108-.701zM9.25 12C8.561 12 8 12.562 8 13.25c0 .687.561 1.248 1.25 1.248.687 0 1.248-.561 1.248-1.249 0-.688-.561-1.249-1.249-1.249zm5.5 0c-.687 0-1.248.561-1.248 1.25 0 .687.561 1.248 1.249 1.248.688 0 1.249-.561 1.249-1.249 0-.687-.562-1.249-1.25-1.249zm-5.466 3.99a.327.327 0 0 0-.231.094.33.33 0 0 0 0 .463c.842.842 2.484.913 2.961.913.477 0 2.105-.056 2.961-.913a.361.361 0 0 0 .029-.463.33.33 0 0 0-.464 0c-.547.533-1.684.73-2.512.73-.828 0-1.979-.196-2.512-.73a.326.326 0 0 0-.232-.095z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Google Bard",
-    color: "#886ffc",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M12 2l2.4 7.2H22l-6 4.8 2.4 7.2L12 16.4l-6.4 4.8L8 14 2 9.2h7.6L12 2z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Rewards",
-    color: "#4285f4",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Messages",
-    color: "#1a73e8",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-        <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
+        <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54A.48.48 0 0013.93 2h-3.86a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.71 8.81a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.86c.22 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z" />
       </svg>
     ),
   },
@@ -150,8 +127,8 @@ const apps: AppEntry[] = [
 
 const panelSpring = {
   type: "spring" as const,
-  stiffness: 300,
-  damping: 30,
+  stiffness: 260,
+  damping: 28,
 };
 
 export default function AppLauncher() {
@@ -162,67 +139,76 @@ export default function AppLauncher() {
       {isOpen && (
         <motion.div
           key="app-launcher"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 60, opacity: 0 }}
+          initial={{ y: 40, opacity: 0, scale: 0.97 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: 40, opacity: 0, scale: 0.97 }}
           transition={panelSpring}
-          className="fixed bottom-[64px] left-1/2 z-40 flex w-[460px] -translate-x-1/2 flex-col overflow-hidden rounded-[20px] border border-white/10 bg-[rgba(20,21,24,0.92)] shadow-[0_8px_32px_rgba(0,0,0,0.5)] backdrop-blur-[40px] backdrop-saturate-[180%] select-none"
+          className="fixed bottom-[56px] left-1/2 z-40 w-[560px] -translate-x-1/2 overflow-hidden rounded-[16px] border border-white/[0.08] bg-[rgba(24,24,28,0.94)] shadow-[0_12px_48px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.04)] backdrop-blur-[48px] backdrop-saturate-[180%] select-none"
         >
           {/* Search bar */}
-          <div className="px-4 pt-4 pb-3">
-            <div className="flex h-[44px] items-center gap-3 rounded-full bg-white/[0.07] px-4">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                className="shrink-0"
-              >
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
-                  fill="#4285f4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34a853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                  fill="#fbbc05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#ea4335"
-                />
+          <div className="px-6 pt-6 pb-4">
+            <div className="flex h-10 items-center gap-3 rounded-[10px] bg-white/[0.06] px-4">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-40">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M21 21l-4.35-4.35" />
               </svg>
               <input
                 type="text"
-                placeholder="Search your device, apps, settings, web..."
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-white placeholder-white/40 outline-none"
+                placeholder="Type to search"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-white placeholder-white/30 outline-none"
               />
-              <span className="shrink-0 text-[16px] text-white/40">✦</span>
             </div>
           </div>
 
-          {/* App grid */}
-          <div className="grid grid-cols-5 px-5 pt-2 pb-5">
-            {apps.map((app) => (
+          {/* Section header */}
+          <div className="flex items-center justify-between px-6 pb-3">
+            <span className="text-[13px] font-semibold text-white/90">Pinned</span>
+            <button className="flex items-center gap-1 rounded-[8px] bg-white/[0.06] px-2.5 py-1 text-[11px] font-medium text-white/60 transition-colors duration-150 hover:bg-white/10">
+              All apps
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+
+          {/* App grid — 6 columns like Windows 11 */}
+          <div className="grid grid-cols-6 gap-y-1 px-4 pb-6">
+            {pinnedApps.map((app) => (
               <button
                 key={app.name}
                 type="button"
-                className="flex cursor-pointer flex-col items-center gap-2 rounded-[16px] border-none bg-transparent py-3 transition-colors duration-150 hover:bg-white/[0.06]"
+                className="flex cursor-pointer flex-col items-center gap-1.5 rounded-[10px] border-none bg-transparent px-1 py-3 transition-colors duration-150 hover:bg-white/[0.06]"
               >
                 <div
-                  className="flex h-[48px] w-[48px] items-center justify-center rounded-full"
+                  className="flex h-11 w-11 items-center justify-center rounded-[12px]"
                   style={{ backgroundColor: app.color }}
                 >
                   {app.icon}
                 </div>
-                <span className="max-w-[64px] truncate text-center text-[11px] leading-tight text-white/75">
+                <span className="max-w-[60px] truncate text-center text-[11px] leading-tight text-white/70">
                   {app.name}
                 </span>
               </button>
             ))}
+          </div>
+
+          {/* Bottom section — user profile */}
+          <div className="flex items-center justify-between border-t border-white/[0.06] px-6 py-3">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+                </svg>
+              </div>
+              <span className="text-[12px] font-medium text-white/70">User</span>
+            </div>
+            <button className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-[8px] transition-colors duration-150 hover:bg-white/[0.06]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                <line x1="12" y1="2" x2="12" y2="12" />
+              </svg>
+            </button>
           </div>
         </motion.div>
       )}
