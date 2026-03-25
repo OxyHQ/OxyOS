@@ -21,8 +21,7 @@
   }
 
   .wallpaper-bg {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    background-size: cover;
-    background-position: center;
+    background: url("./assets/wallpaper-default.png") center / cover no-repeat,
+      linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   }
 }
