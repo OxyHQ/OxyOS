@@ -11,6 +11,14 @@ if [ -f /etc/lxdm/oxyos.lxdm.conf ]; then
     cp /etc/lxdm/oxyos.lxdm.conf /etc/lxdm/lxdm.conf
 fi
 
+# Clean up the autologin line so live-config's 0110-lxdm can patch it.
+# live-config uses: sed -r "s|^#.*autologin=.*$|autologin=USERNAME|"
+# which also matches comment lines like "## uncomment and set autologin..."
+# Remove the comment line to prevent double-matching, leave only the value line.
+if [ -f /etc/lxdm/lxdm.conf ]; then
+    sed -i '/^## uncomment and set autologin/d' /etc/lxdm/lxdm.conf
+fi
+
 # Ensure LXDM is enabled
 if command -v systemctl >/dev/null 2>&1; then
     systemctl enable lxdm.service 2>/dev/null || true
