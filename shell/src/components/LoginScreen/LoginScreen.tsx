@@ -77,61 +77,64 @@ export default function LoginScreen() {
         </button>
       </div>
 
-      {/* Centered content — clock on top third, login in lower center */}
-      <div className="flex flex-1 flex-col items-center">
-        {/* Clock area — upper portion */}
-        <div className="flex flex-col items-center pt-[10vh]">
-          <p className="text-[16px] font-medium tracking-wide text-white/55">
+      {/* Main content — centered */}
+      <div className="flex flex-1 flex-col items-center justify-center">
+        {/* Clock */}
+        <div className="-mt-[6vh] mb-10 flex flex-col items-center">
+          <p className="text-[15px] font-medium tracking-wide text-white/50">
             {formattedDate}
           </p>
-          <p className="mt-1 text-[min(120px,12vw)] font-bold leading-[0.85] tracking-[-2px] text-white">
+          <p className="mt-1 text-[min(96px,11vw)] font-bold leading-[0.85] tracking-[-2px] text-white">
             {time || "0:00"}
           </p>
         </div>
 
-        {/* Spacer between clock and login — generous breathing room */}
-        <div className="flex-1 min-h-[8vh] max-h-[14vh]" />
+        {/* Circular login form */}
+        <form onSubmit={handleSubmit} className="relative">
+          {/* Circle outline */}
+          <div className="flex h-[280px] w-[280px] flex-col items-center justify-between rounded-full border border-white/20 px-10 py-8">
+            {/* Avatar pill */}
+            <div className="flex h-10 w-20 items-center justify-center rounded-full bg-white/15">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,0.7)">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
+              </svg>
+            </div>
 
-        {/* Avatar */}
-        <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white/15 ring-[2px] ring-white/20 backdrop-blur-xl">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="rgba(255,255,255,0.8)">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-          </svg>
-        </div>
+            {/* Username pill */}
+            <div className="flex h-11 w-full items-center justify-center rounded-full bg-white/12">
+              <span className="text-[14px] font-medium text-white/80">{username}</span>
+            </div>
 
-        {/* Username */}
-        <p className="mt-3 text-[16px] font-medium text-white">{username}</p>
+            {/* Password input */}
+            <motion.div animate={shakeControls} className="w-full">
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setShowError(false);
+                }}
+                placeholder="Password"
+                autoFocus
+                className="h-11 w-full rounded-full border-none bg-white/12 px-5 text-center text-[14px] text-white placeholder-white/30 outline-none transition-all duration-200 focus:bg-white/18"
+              />
+            </motion.div>
 
-        {/* Password form */}
-        <form onSubmit={handleSubmit} className="mt-4 flex items-center gap-2.5">
-          <motion.div animate={shakeControls}>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setShowError(false);
-              }}
-              placeholder="Enter Password"
-              autoFocus
-              className="h-[38px] w-[220px] rounded-full border border-white/20 bg-white/10 px-5 text-[13px] text-white placeholder-white/35 outline-none backdrop-blur-xl transition-all duration-200 focus:border-white/40 focus:bg-white/[0.14]"
-            />
-          </motion.div>
-          <button
-            type="button"
-            className="flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-full text-white/35 transition-all duration-150 hover:bg-white/10 hover:text-white/60"
-            aria-label="Help"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <circle cx="12" cy="17" r="0.5" fill="currentColor" />
-            </svg>
-          </button>
+            {/* Submit button */}
+            <motion.button
+              type="submit"
+              className="flex h-12 w-full cursor-pointer items-center justify-center rounded-full bg-[rgba(32,33,36,0.85)] text-white transition-colors duration-150 hover:bg-[rgba(32,33,36,0.95)]"
+              whileTap={{ scale: 0.97 }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </motion.button>
+          </div>
         </form>
 
-        {/* Status text */}
+        {/* Status text below circle */}
         <AnimatePresence mode="wait">
           {showError ? (
             <motion.p
@@ -139,7 +142,7 @@ export default function LoginScreen() {
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mt-3 text-[12px] text-white/45"
+              className="mt-5 text-[12px] text-white/50"
             >
               Incorrect password. Try again.
             </motion.p>
@@ -149,15 +152,12 @@ export default function LoginScreen() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="mt-3 text-[12px] text-white/40"
+              className="mt-5 text-[12px] text-white/35"
             >
-              Your password is required to log in
+              Enter password to sign in
             </motion.p>
           )}
         </AnimatePresence>
-
-        {/* Bottom spacer to push login area up from absolute bottom */}
-        <div className="flex-1 min-h-[10vh]" />
       </div>
     </motion.div>
   );
