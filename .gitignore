@@ -13,3 +13,5 @@
 /*/live-image-*.packages
 
 node_modules/
+shell/build/
+shell/src-tauri/target/

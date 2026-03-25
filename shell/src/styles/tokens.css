@@ -1,0 +1,60 @@
+:root {
+  /* ChromeOS Jelly — Primary */
+  --cros-sys-primary: #1a73e8;
+  --cros-sys-primary-container: #d3e3fd;
+  --cros-sys-on-primary: #ffffff;
+  --cros-sys-on-primary-container: #041e49;
+
+  /* Surface & Background */
+  --cros-sys-surface: #ffffff;
+  --cros-sys-surface-variant: #e1e3e1;
+  --cros-sys-on-surface: #202124;
+  --cros-sys-on-surface-variant: #444746;
+  --cros-sys-bg: #f1f3f4;
+
+  /* Secondary */
+  --cros-sys-secondary: #5f6368;
+  --cros-sys-secondary-container: #e8eaed;
+
+  /* Error / Warning */
+  --cros-sys-error: #d93025;
+  --cros-sys-on-error: #ffffff;
+
+  /* Separator */
+  --cros-sys-separator: rgba(0, 0, 0, 0.08);
+
+  /* Shelf & overlay glass */
+  --cros-sys-shelf-bg: rgba(32, 33, 36, 0.72);
+  --cros-sys-shelf-bg-light: rgba(255, 255, 255, 0.08);
+  --cros-sys-scrim: rgba(0, 0, 0, 0.6);
+
+  /* Effects */
+  --cros-blur: blur(64px) saturate(180%);
+  --cros-blur-light: blur(40px);
+
+  /* Radii */
+  --cros-radius-s: 8px;
+  --cros-radius-m: 12px;
+  --cros-radius-l: 20px;
+  --cros-radius-xl: 28px;
+  --cros-radius-pill: 9999px;
+
+  /* Typography */
+  --cros-font-family: "Google Sans", "Google Sans Text", "Roboto", system-ui,
+    sans-serif;
+  --cros-font-family-text: "Google Sans Text", "Google Sans", "Roboto",
+    system-ui, sans-serif;
+
+  /* Shadows */
+  --cros-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+  --cros-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12),
+    0 2px 4px rgba(0, 0, 0, 0.08);
+  --cros-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16),
+    0 4px 8px rgba(0, 0, 0, 0.08);
+
+  /* Transitions */
+  --cros-transition-fast: 150ms cubic-bezier(0.2, 0, 0, 1);
+  --cros-transition-normal: 250ms cubic-bezier(0.2, 0, 0, 1);
+  --cros-transition-slow: 400ms cubic-bezier(0.2, 0, 0, 1);
+}
