@@ -108,8 +108,8 @@ export default function Shelf() {
           {pinnedApps.map((app) => (
             <motion.button
               key={app.name}
-              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:scale-110"
-              whileTap={{ scale: [1, 1.15, 0.95, 1], transition: { duration: 0.35 } }}
+              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
+              whileTap={{ scale: 0.92 }}
               aria-label={app.name}
             >
               <div
@@ -122,11 +122,11 @@ export default function Shelf() {
           ))}
         </div>
 
-        {/* Right: System tray — joined pill group */}
-        <div className="mr-1.5 flex items-center">
-          {/* Icons pill (left half — rounded left only) */}
+        {/* Right: System tray — grouped pills with small gap */}
+        <div className="mr-1.5 flex items-center gap-0.5">
+          {/* Icons pill */}
           <button
-            className="flex cursor-pointer items-center gap-1.5 rounded-l-full bg-white/10 px-2.5 py-1.5 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="System status"
           >
@@ -143,12 +143,9 @@ export default function Shelf() {
             </svg>
           </button>
 
-          {/* Separator line */}
-          <div className="h-[28px] w-px bg-white/20" />
-
-          {/* Date + time pill (right half — rounded right only) */}
+          {/* Date + time pill */}
           <button
-            className="flex cursor-pointer items-center rounded-r-full bg-white/10 px-2.5 py-1.5 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center rounded-full bg-white/10 px-3 py-1.5 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="Date and time"
           >
