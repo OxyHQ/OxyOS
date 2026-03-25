@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { motion, useAnimation, AnimatePresence } from "framer-motion";
 import { useSessionStore } from "../../stores/sessionStore";
 import { useSystemStore } from "../../stores/systemStore";
+import avatarDefault from "../../assets/avatar-default.png";
 
 const CORRECT_PASSWORD = "1234";
 
@@ -83,12 +84,11 @@ export default function LoginScreen() {
       {/* ── Login area — lower-center ── */}
       <div className="flex flex-col items-center pb-[12vh]">
         {/* Avatar */}
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/20 ring-[1.5px] ring-white/30 backdrop-blur-sm">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="rgba(255,255,255,0.75)">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-          </svg>
-        </div>
+        <img
+          src={avatarDefault}
+          alt="User avatar"
+          className="h-12 w-12 rounded-full object-cover ring-[1.5px] ring-white/30"
+        />
 
         {/* Username */}
         <p className="mt-2.5 text-[15px] font-medium text-white">{username}</p>
