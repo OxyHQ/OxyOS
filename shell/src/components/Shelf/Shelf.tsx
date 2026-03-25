@@ -136,20 +136,20 @@ export default function Shelf() {
             <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
               <path d="M7 10l5 5 5-5z" />
             </svg>
-            {/* iPhone-style battery with percentage inside */}
+            {/* iPhone-style battery with percentage inside — tip on left */}
             <div className="relative flex items-center">
-              <svg width="28" height="13" viewBox="0 0 28 13" fill="none">
+              <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
                 {/* Battery body */}
-                <rect x="0.5" y="0.5" width="23" height="12" rx="2.5" stroke="white" strokeWidth="1" opacity="0.5" />
+                <rect x="0.5" y="0.5" width="25" height="13" rx="4" stroke="white" strokeWidth="1" opacity="0.45" />
                 {/* Fill */}
-                <rect x="1.5" y="1.5" width={fillWidth} height="10" rx="1.5" fill={batteryColor} opacity="0.85" />
+                <rect x="1.5" y="1.5" width={fillWidth} height="11" rx="3" fill={batteryColor} opacity="0.8" />
                 {/* Tip */}
-                <path d="M25 4.5a1.5 1.5 0 0 1 0 4" fill="white" opacity="0.5" />
-                {/* Percentage text */}
-                <text x="12" y="9.5" textAnchor="middle" fill="white" fontSize="7.5" fontWeight="600" fontFamily="system-ui, sans-serif">
-                  {batteryLevel}
-                </text>
+                <path d="M27 4.5c1 0 2 1 2 2.5s-1 2.5-2 2.5" fill="white" opacity="0.45" />
               </svg>
+              {/* Percentage overlaid on top */}
+              <span className="absolute inset-0 flex items-center justify-center text-[8px] font-bold leading-none text-white">
+                {batteryLevel}
+              </span>
             </div>
           </button>
 
