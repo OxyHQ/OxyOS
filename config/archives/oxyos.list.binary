@@ -1,2 +1,2 @@
-deb [trusted=yes] https://os.oxy.so/downloads/packages/ozone ozone main
+deb https://os.oxy.so/downloads/packages/ozone ozone main
 deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
