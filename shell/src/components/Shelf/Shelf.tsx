@@ -144,7 +144,7 @@ export default function Shelf() {
           </button>
 
           {/* Separator line */}
-          <div className="h-5 w-px bg-white/20" />
+          <div className="h-[28px] w-px bg-white/20" />
 
           {/* Date + time pill (right half — rounded right only) */}
           <button
