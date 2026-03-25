@@ -39,7 +39,6 @@ export default function Shelf() {
   });
 
   const fillWidth = Math.round((batteryLevel / 100) * 18);
-  const batteryColor = batteryLevel <= 20 ? "#ea4335" : batteryLevel <= 50 ? "#fbbc04" : "white";
 
   return (
     <>
@@ -91,15 +90,12 @@ export default function Shelf() {
             <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
               <path d="M7 10l5 5 5-5z" />
             </svg>
-            {/* Battery icon — flat filled, rounded, percentage inside */}
+            {/* Battery icon — all white, percentage inside */}
             <div className="relative flex items-center">
               <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
-                {/* Body fill */}
-                <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.2" />
-                {/* Level fill */}
-                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={batteryColor} opacity="0.75" />
-                {/* Tip */}
-                <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
+                <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
+                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill="white" opacity="0.85" />
+                <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
               </svg>
               <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
                 {batteryLevel}
