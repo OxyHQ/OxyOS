@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+# Apply OxyOS LXDM config over the default lxdm.conf.
+# LXDM reads /etc/lxdm/lxdm.conf, and live-config's 0110-lxdm patches that
+# file at boot to enable autologin. The oxyos-lxdm-theme package installs its
+# config via update-alternatives at /etc/lxdm/default.conf, which LXDM ignores.
+# Copy the OxyOS config into lxdm.conf so both theming and autologin work.
+
+if [ -f /etc/lxdm/oxyos.lxdm.conf ]; then
+    cp /etc/lxdm/oxyos.lxdm.conf /etc/lxdm/lxdm.conf
+fi
+
+# Ensure LXDM is enabled
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable lxdm.service 2>/dev/null || true
+fi
+
+echo "P: LXDM config hook applied"
