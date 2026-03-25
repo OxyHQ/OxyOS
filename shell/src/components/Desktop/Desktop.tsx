@@ -9,7 +9,7 @@ export default function Desktop() {
 
   return (
     <motion.div
-      className="wallpaper-bg relative h-screen w-screen overflow-hidden"
+      className="wallpaper-bg relative h-screen w-screen select-none overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -19,8 +19,7 @@ export default function Desktop() {
       <AnimatePresence>
         {isLauncherOpen && (
           <motion.div
-            className="absolute inset-0 z-30"
-            style={{ backgroundColor: "rgba(0, 0, 0, 0.4)" }}
+            className="absolute inset-0 z-30 bg-black/40"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -33,7 +32,7 @@ export default function Desktop() {
       {/* App Launcher */}
       <AppLauncher />
 
-      {/* Shelf (taskbar) */}
+      {/* Shelf */}
       <Shelf />
     </motion.div>
   );
