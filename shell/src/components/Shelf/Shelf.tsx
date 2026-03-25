@@ -3,62 +3,23 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
 import QuickSettings from "../SystemTray/QuickSettings";
+import browserIcon from "../../assets/icons/browser.png";
+import filesIcon from "../../assets/icons/files.png";
+import settingsIcon from "../../assets/icons/settings.png";
+import terminalIcon from "../../assets/icons/terminal.png";
+import storeIcon from "../../assets/icons/store.png";
 
 interface PinnedApp {
   name: string;
-  color: string;
-  icon: React.ReactNode;
+  icon: string;
 }
 
 const pinnedApps: PinnedApp[] = [
-  {
-    name: "Browser",
-    color: "#4285f4",
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
-        <ellipse cx="12" cy="12" rx="4" ry="10" stroke="white" strokeWidth="1.5" />
-        <line x1="2" y1="12" x2="22" y2="12" stroke="white" strokeWidth="1.5" />
-      </svg>
-    ),
-  },
-  {
-    name: "Files",
-    color: "#4285f4",
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
-        <path d="M3 7V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V9C21 7.9 20.1 7 19 7H11L9 5H5C3.9 5 3 5.9 3 7Z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Settings",
-    color: "#5f6368",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-        <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54A.48.48 0 0013.93 2h-3.86a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.71 8.81a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.86c.22 0 .43-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 00-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z" />
-      </svg>
-    ),
-  },
-  {
-    name: "Terminal",
-    color: "#202124",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-        <path d="M7 8l4 4-4 4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <line x1="13" y1="16" x2="17" y2="16" stroke="white" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
-    name: "Store",
-    color: "#34a853",
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-        <path d="M18 6h-2c0-2.21-1.79-4-4-4S8 3.79 8 6H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6-2c1.1 0 2 .9 2 2h-4c0-1.1.9-2 2-2z" />
-      </svg>
-    ),
-  },
+  { name: "Browser", icon: browserIcon },
+  { name: "Files", icon: filesIcon },
+  { name: "Settings", icon: settingsIcon },
+  { name: "Terminal", icon: terminalIcon },
+  { name: "Store", icon: storeIcon },
 ];
 
 export default function Shelf() {
@@ -104,11 +65,13 @@ export default function Shelf() {
               whileTap={{ scale: 0.92 }}
               aria-label={app.name}
             >
-              <div
-                className="flex h-[36px] w-[36px] items-center justify-center rounded-full"
-                style={{ backgroundColor: app.color }}
-              >
-                {app.icon}
+              <div className="flex h-[36px] w-[36px] items-center justify-center">
+                <img
+                  src={app.icon}
+                  alt={app.name}
+                  className="h-[36px] w-[36px] rounded-full object-cover"
+                  draggable={false}
+                />
               </div>
             </motion.button>
           ))}
