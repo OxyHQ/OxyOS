@@ -83,7 +83,7 @@ export default function Shelf() {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl bg-black/50 px-3 backdrop-blur-[60px] backdrop-saturate-[180%]">
+      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[52px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl bg-black/50 px-3 backdrop-blur-[60px] backdrop-saturate-[180%]">
         {/* Left: Launcher button */}
         <button
           className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
@@ -100,12 +100,12 @@ export default function Shelf() {
           {pinnedApps.map((app) => (
             <motion.button
               key={app.name}
-              className="flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
+              className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
               whileTap={{ scale: 0.92 }}
               aria-label={app.name}
             >
               <div
-                className="flex h-[30px] w-[30px] items-center justify-center rounded-full"
+                className="flex h-[36px] w-[36px] items-center justify-center rounded-full"
                 style={{ backgroundColor: app.color }}
               >
                 {app.icon}
