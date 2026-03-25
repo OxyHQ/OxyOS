@@ -6,14 +6,14 @@ import QuickSettings from "../SystemTray/QuickSettings";
 
 interface PinnedApp {
   name: string;
-  color: string;
+  colorClass: string;
   icon: React.ReactNode;
 }
 
 const pinnedApps: PinnedApp[] = [
   {
     name: "Browser",
-    color: "#4285f4",
+    colorClass: "bg-[#4285f4]",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" />
@@ -24,7 +24,7 @@ const pinnedApps: PinnedApp[] = [
   },
   {
     name: "Files",
-    color: "#4285f4",
+    colorClass: "bg-[#4285f4]",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
@@ -36,7 +36,7 @@ const pinnedApps: PinnedApp[] = [
   },
   {
     name: "Settings",
-    color: "#5f6368",
+    colorClass: "bg-[#5f6368]",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
@@ -48,7 +48,7 @@ const pinnedApps: PinnedApp[] = [
   },
   {
     name: "Terminal",
-    color: "#202124",
+    colorClass: "bg-[#202124]",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <text x="4" y="17" fill="white" fontSize="14" fontFamily="monospace" fontWeight="bold">
@@ -59,7 +59,7 @@ const pinnedApps: PinnedApp[] = [
   },
   {
     name: "Store",
-    color: "#34a853",
+    colorClass: "bg-[#34a853]",
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path
@@ -75,29 +75,26 @@ function LauncherButton() {
   const toggle = useLauncherStore((s) => s.toggle);
 
   return (
-    <motion.button
-      className="flex h-10 w-10 items-center justify-center rounded-full hover:bg-white/10"
+    <button
+      className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
       onClick={toggle}
-      whileHover={{ scale: 1.1 }}
-      whileTap={{ scale: 0.95 }}
       aria-label="App launcher"
     >
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-        {[0, 7, 14].map((x) =>
-          [0, 7, 14].map((y) => (
-            <circle key={`${x}-${y}`} cx={x + 3} cy={y + 3} r="2" fill="white" />
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        {[3, 9, 15].map((cx) =>
+          [3, 9, 15].map((cy) => (
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="2" fill="white" />
           )),
         )}
       </svg>
-    </motion.button>
+    </button>
   );
 }
 
 function AppIcon({ app }: { app: PinnedApp }) {
   return (
     <motion.button
-      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110"
-      style={{ backgroundColor: app.color }}
+      className={`flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-[12px] transition-transform duration-150 hover:scale-110 ${app.colorClass}`}
       whileTap={{ scale: [1, 1.2, 0.95, 1], transition: { duration: 0.4 } }}
       aria-label={app.name}
     >
@@ -129,10 +126,10 @@ function BatteryIcon({ level }: { level: number }) {
   const color = level <= 20 ? "#ea4335" : level <= 50 ? "#fbbc04" : "white";
 
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <rect x="2" y="6" width="18" height="12" rx="2" stroke="white" strokeWidth="2" />
-      <rect x="4" y="8" width={fillWidth} height="8" rx="1" fill={color} />
-      <rect x="20" y="9" width="3" height="6" rx="1" fill="white" />
+    <svg width="18" height="10" viewBox="0 0 18 10" fill="none">
+      <rect x="0.5" y="0.5" width="15" height="9" rx="1.5" stroke="white" strokeWidth="1" />
+      <rect x="2" y="2" width={fillWidth} height="6" rx="1" fill={color} />
+      <rect x="16" y="2.5" width="2" height="5" rx="1" fill="white" />
     </svg>
   );
 }
@@ -149,21 +146,14 @@ export default function Shelf() {
 
   return (
     <>
-      <div
-        className="fixed right-0 bottom-0 left-0 z-50 flex h-14 items-center px-3"
-        style={{
-          backgroundColor: "rgba(32, 33, 36, 0.72)",
-          backdropFilter: "blur(64px) saturate(180%)",
-          WebkitBackdropFilter: "blur(64px) saturate(180%)",
-        }}
-      >
-        {/* Left: Launcher button */}
-        <div className="flex items-center">
+      <div className="fixed right-0 bottom-0 left-0 z-40 flex h-[48px] items-center bg-[rgba(32,33,36,0.72)] px-2 backdrop-blur-[64px] backdrop-saturate-[180%]">
+        {/* Left: Launcher */}
+        <div className="pl-1">
           <LauncherButton />
         </div>
 
         {/* Center: Pinned apps */}
-        <div className="flex flex-1 items-center justify-center gap-2">
+        <div className="flex flex-1 items-center justify-center gap-1.5">
           {pinnedApps.map((app) => (
             <AppIcon key={app.name} app={app} />
           ))}
@@ -171,13 +161,15 @@ export default function Shelf() {
 
         {/* Right: System tray */}
         <button
-          className="flex cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 hover:bg-white/10"
+          className="flex cursor-pointer items-center gap-2.5 rounded-full px-3 py-1.5 transition-colors duration-150 hover:bg-white/10"
           onClick={toggleQuickSettings}
           aria-label="System tray"
         >
           <WifiIcon enabled={wifiEnabled} />
           <BatteryIcon level={batteryLevel} />
-          <span className="text-[13px] font-medium text-white">{time || "--:--"}</span>
+          <span className="text-[13px] font-medium leading-none text-white">
+            {time || "--:--"}
+          </span>
         </button>
       </div>
 
