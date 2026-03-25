@@ -5,6 +5,7 @@ set -e
 . /etc/oxyos/oxyos.conf 2>/dev/null || {
     OS_NAME="OxyOS"
     OS_VERSION="1.0"
+    OS_VERSION_CODENAME="ozone"
     OS_ID="oxyos"
     OS_ID_LIKE="debian"
     OS_HOME_URL="https://os.oxy.so"
@@ -14,10 +15,11 @@ set -e
 
 # Write /etc/os-release
 cat > /etc/os-release << EOF
-PRETTY_NAME="${OS_NAME} ${OS_VERSION}"
+PRETTY_NAME="${OS_NAME} ${OS_VERSION} (${OS_VERSION_CODENAME})"
 NAME="${OS_NAME}"
 VERSION_ID="${OS_VERSION}"
-VERSION="${OS_VERSION}"
+VERSION="${OS_VERSION} (${OS_VERSION_CODENAME})"
+VERSION_CODENAME=${OS_VERSION_CODENAME}
 ID=${OS_ID}
 ID_LIKE=${OS_ID_LIKE}
 HOME_URL="${OS_HOME_URL}"
@@ -29,7 +31,8 @@ EOF
 cat > /etc/lsb-release << EOF
 DISTRIB_ID=${OS_NAME}
 DISTRIB_RELEASE=${OS_VERSION}
-DISTRIB_DESCRIPTION="${OS_NAME} ${OS_VERSION}"
+DISTRIB_CODENAME=${OS_VERSION_CODENAME}
+DISTRIB_DESCRIPTION="${OS_NAME} ${OS_VERSION} (${OS_VERSION_CODENAME})"
 EOF
 
 # Write /etc/issue (shown at TTY login prompt)
