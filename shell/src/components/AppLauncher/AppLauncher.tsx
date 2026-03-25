@@ -19,6 +19,7 @@ import storeIcon from "../../assets/icons/store.svg";
 import terminalIcon from "../../assets/icons/terminal.svg";
 import messagesIcon from "../../assets/icons/messages.svg";
 import calculatorIcon from "../../assets/icons/calculator.svg";
+import clockIcon from "../../assets/icons/clock.svg";
 
 interface AppEntry {
   name: string;
@@ -44,6 +45,7 @@ const apps: AppEntry[] = [
   { name: "Terminal", icon: terminalIcon },
   { name: "Messages", icon: messagesIcon },
   { name: "Calculator", icon: calculatorIcon },
+  { name: "Clock", icon: clockIcon },
 ];
 
 export default function AppLauncher() {
@@ -97,12 +99,14 @@ export default function AppLauncher() {
                   type="button"
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0 transition-transform duration-100 active:scale-90"
                 >
-                  <img
-                    src={app.icon}
-                    alt={app.name}
-                    className="h-[56px] w-[56px] rounded-full object-cover shadow-[0_2px_8px_rgba(0,0,0,0.3)]"
-                    draggable={false}
-                  />
+                  <div className="flex h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-[14px]">
+                    <img
+                      src={app.icon}
+                      alt={app.name}
+                      className="h-[72px] w-[72px] object-contain"
+                      draggable={false}
+                    />
+                  </div>
                   <span className="max-w-[72px] truncate text-center text-[11px] font-medium leading-tight text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
                     {app.name}
                   </span>

@@ -65,11 +65,11 @@ export default function Shelf() {
               whileTap={{ scale: 0.92 }}
               aria-label={app.name}
             >
-              <div className="flex h-[36px] w-[36px] items-center justify-center">
+              <div className="flex h-[36px] w-[36px] items-center justify-center overflow-hidden rounded-[10px]">
                 <img
                   src={app.icon}
                   alt={app.name}
-                  className="h-[36px] w-[36px] rounded-full object-cover"
+                  className="h-[46px] w-[46px] object-contain"
                   draggable={false}
                 />
               </div>
