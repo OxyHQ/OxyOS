@@ -99,7 +99,7 @@ export default function AppLauncher() {
                   type="button"
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0 transition-transform duration-100 active:scale-90"
                 >
-                  <div className="flex h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-[14px]">
+                  <div className="flex h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-full">
                     <img
                       src={app.icon}
                       alt={app.name}
