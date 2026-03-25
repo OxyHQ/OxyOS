@@ -6,7 +6,7 @@ import browserIcon from "../../assets/icons/browser.svg";
 import mailIcon from "../../assets/icons/mail.svg";
 import filesIcon from "../../assets/icons/files.svg";
 import mapsIcon from "../../assets/icons/maps.svg";
-import twitterIcon from "../../assets/icons/twitter.svg";
+
 import facebookIcon from "../../assets/icons/facebook.svg";
 import calendarIcon from "../../assets/icons/calendar.svg";
 import photosIcon from "../../assets/icons/photos.svg";
@@ -33,7 +33,7 @@ const apps: AppEntry[] = [
   { name: "Email", icon: mailIcon },
   { name: "Files", icon: filesIcon },
   { name: "Maps", icon: mapsIcon },
-  { name: "Twitter", icon: twitterIcon },
+
   { name: "Facebook", icon: facebookIcon },
   { name: "Calendar", icon: calendarIcon },
   { name: "Photos", icon: photosIcon },

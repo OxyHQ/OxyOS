@@ -101,7 +101,13 @@ export default function Shelf() {
                 {/* Tip */}
                 <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.4)]">
+              <span
+                className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none"
+                style={{
+                  color: batteryLevel > 50 ? "#000" : "#fff",
+                  textShadow: batteryLevel > 50 ? "0 0 2px rgba(255,255,255,0.5)" : "0 0 2px rgba(0,0,0,0.5)",
+                }}
+              >
                 {batteryLevel}
               </span>
             </div>
