@@ -83,7 +83,7 @@ export default function Shelf() {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[48px_1fr_auto] items-center rounded-t-2xl bg-black/75 px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
+      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[48px_1fr_auto] items-center rounded-t-3xl bg-black/75 px-1 backdrop-blur-[60px] backdrop-saturate-[180%]">
         {/* Left: Launcher button */}
         <button
           className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
@@ -123,10 +123,10 @@ export default function Shelf() {
         </div>
 
         {/* Right: System tray — joined pills (rounded outside only) */}
-        <div className="mr-2 flex items-center">
+        <div className="mr-2 flex items-center gap-[3px]">
           {/* Icons pill — rounded left only */}
           <button
-            className="flex cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 py-2 transition-colors duration-150 hover:bg-white/15"
+            className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="System status"
           >
@@ -155,7 +155,7 @@ export default function Shelf() {
 
           {/* Date + time pill — rounded right only */}
           <button
-            className="flex cursor-pointer items-center rounded-r-full bg-white/10 px-3 py-2 transition-colors duration-150 hover:bg-white/15"
+            className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="Date and time"
           >
