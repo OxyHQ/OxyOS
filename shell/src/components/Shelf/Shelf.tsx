@@ -77,7 +77,7 @@ export default function Shelf() {
     day: "numeric",
   });
 
-  const fillWidth = Math.round((batteryLevel / 100) * 12);
+  const fillWidth = Math.round((batteryLevel / 100) * 18);
   const batteryColor = batteryLevel <= 20 ? "#ea4335" : batteryLevel <= 50 ? "#fbbc04" : "white";
 
   return (
@@ -136,11 +136,21 @@ export default function Shelf() {
             <svg width="8" height="8" viewBox="0 0 24 24" fill="white" className="opacity-60">
               <path d="M7 10l5 5 5-5z" />
             </svg>
-            <svg width="18" height="10" viewBox="0 0 20 12" fill="none">
-              <rect x="0.75" y="0.75" width="15.5" height="10.5" rx="2" stroke="white" strokeWidth="1.5" />
-              <rect x="2.5" y="2.5" width={fillWidth} height="7" rx="1" fill={batteryColor} />
-              <path d="M17.5 4c.83 0 1.5.9 1.5 2s-.67 2-1.5 2" stroke="white" strokeWidth="1.5" />
-            </svg>
+            {/* iPhone-style battery with percentage inside */}
+            <div className="relative flex items-center">
+              <svg width="28" height="13" viewBox="0 0 28 13" fill="none">
+                {/* Battery body */}
+                <rect x="0.5" y="0.5" width="23" height="12" rx="2.5" stroke="white" strokeWidth="1" opacity="0.5" />
+                {/* Fill */}
+                <rect x="1.5" y="1.5" width={fillWidth} height="10" rx="1.5" fill={batteryColor} opacity="0.85" />
+                {/* Tip */}
+                <path d="M25 4.5a1.5 1.5 0 0 1 0 4" fill="white" opacity="0.5" />
+                {/* Percentage text */}
+                <text x="12" y="9.5" textAnchor="middle" fill="white" fontSize="7.5" fontWeight="600" fontFamily="system-ui, sans-serif">
+                  {batteryLevel}
+                </text>
+              </svg>
+            </div>
           </button>
 
           {/* Visual separator */}
