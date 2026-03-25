@@ -30,11 +30,11 @@ interface AppEntry {
 }
 
 const apps: AppEntry[] = [
-  { name: "Chrome", icon: browserIcon },
+  { name: "Browser", icon: browserIcon },
   { name: "Discord", icon: discordIcon },
   { name: "Spotify", icon: spotifyIcon },
   { name: "YouTube", icon: youtubeIcon },
-  { name: "Gmail", icon: mailIcon },
+  { name: "Email", icon: mailIcon },
   { name: "Files", icon: filesIcon },
   { name: "Maps", icon: mapsIcon },
   { name: "Twitter", icon: twitterIcon },
