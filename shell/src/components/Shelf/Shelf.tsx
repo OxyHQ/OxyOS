@@ -122,18 +122,18 @@ export default function Shelf() {
           ))}
         </div>
 
-        {/* Right: System tray — two pill groups */}
-        <div className="mr-1.5 flex items-center gap-1">
-          {/* Icons pill */}
+        {/* Right: System tray — joined pill group */}
+        <div className="mr-1.5 flex items-center">
+          {/* Icons pill (left half — rounded left only) */}
           <button
-            className="flex cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center gap-1.5 rounded-l-full bg-white/10 px-2.5 py-1.5 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="System status"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
               <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
             </svg>
-            <svg width="8" height="8" viewBox="0 0 24 24" fill="white/70">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="white">
               <path d="M7 10l5 5 5-5z" />
             </svg>
             <svg width="18" height="10" viewBox="0 0 20 12" fill="none">
@@ -143,9 +143,12 @@ export default function Shelf() {
             </svg>
           </button>
 
-          {/* Date + time pill */}
+          {/* Separator line */}
+          <div className="h-5 w-px bg-white/20" />
+
+          {/* Date + time pill (right half — rounded right only) */}
           <button
-            className="flex cursor-pointer items-center rounded-full bg-white/10 px-2.5 py-1 transition-colors duration-150 hover:bg-white/15"
+            className="flex cursor-pointer items-center rounded-r-full bg-white/10 px-2.5 py-1.5 transition-colors duration-150 hover:bg-white/15"
             onClick={toggleQuickSettings}
             aria-label="Date and time"
           >
