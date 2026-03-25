@@ -22,6 +22,7 @@ import calculatorIcon from "../../assets/icons/calculator.svg";
 import clockIcon from "../../assets/icons/clock.svg";
 import radioIcon from "../../assets/icons/radio.svg";
 import notesIcon from "../../assets/icons/notes.svg";
+import docsIcon from "../../assets/icons/docs.svg";
 
 interface AppEntry {
   name: string;
@@ -50,6 +51,7 @@ const apps: AppEntry[] = [
   { name: "Clock", icon: clockIcon },
   { name: "Radio", icon: radioIcon },
   { name: "Notes", icon: notesIcon },
+  { name: "Docs", icon: docsIcon },
 ];
 
 export default function AppLauncher() {
