@@ -63,7 +63,7 @@ const pinnedApps: PinnedApp[] = [
 
 function WifiIcon({ enabled }: { enabled: boolean }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill={enabled ? "white" : "#9aa0a6"}>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill={enabled ? "white" : "#9aa0a6"}>
       <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
     </svg>
   );
@@ -74,7 +74,7 @@ function BatteryIcon({ level }: { level: number }) {
   const color = level <= 20 ? "#ea4335" : level <= 50 ? "#fbbc04" : "white";
 
   return (
-    <svg width="18" height="10" viewBox="0 0 20 12" fill="none">
+    <svg width="16" height="10" viewBox="0 0 20 12" fill="none">
       <rect x="0.75" y="0.75" width="15.5" height="10.5" rx="2" stroke="white" strokeWidth="1.5" />
       <rect x="2.5" y="2.5" width={fillWidth} height="7" rx="1" fill={color} />
       <path d="M17.5 4.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5" stroke="white" strokeWidth="1.5" />
@@ -100,9 +100,9 @@ export default function Shelf() {
 
   return (
     <>
-      {/* Full-width shelf bar — rounded top only like ChromeOS */}
-      <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[48px] grid-cols-[auto_1fr_auto] items-center rounded-t-[16px] bg-[rgba(32,33,36,0.82)] px-3 backdrop-blur-[64px] backdrop-saturate-[180%]">
-        {/* Left: Launcher button */}
+      {/* Shelf pill — centered floating capsule */}
+      <div className="fixed bottom-2 left-1/2 z-40 flex h-[44px] -translate-x-1/2 items-center gap-0.5 rounded-full bg-[rgba(32,33,36,0.8)] px-1.5 backdrop-blur-[40px] backdrop-saturate-[180%]">
+        {/* Launcher button */}
         <button
           className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
           onClick={toggleLauncher}
@@ -121,41 +121,39 @@ export default function Shelf() {
           </svg>
         </button>
 
-        {/* Center: Pinned apps */}
-        <div className="flex items-center justify-center gap-1">
-          {pinnedApps.map((app) => (
-            <motion.button
-              key={app.name}
-              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all duration-150 hover:scale-110 hover:bg-white/10"
-              whileTap={{ scale: [1, 1.2, 0.95, 1], transition: { duration: 0.4 } }}
-              aria-label={app.name}
+        {/* Pinned apps */}
+        {pinnedApps.map((app) => (
+          <motion.button
+            key={app.name}
+            className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:scale-110"
+            whileTap={{ scale: [1, 1.2, 0.95, 1], transition: { duration: 0.4 } }}
+            aria-label={app.name}
+          >
+            <div
+              className="flex h-10 w-10 items-center justify-center rounded-full"
+              style={{ backgroundColor: app.color }}
             >
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-full"
-                style={{ backgroundColor: app.color }}
-              >
-                {app.icon}
-              </div>
-            </motion.button>
-          ))}
-        </div>
-
-        {/* Right: System tray */}
-        <button
-          className="flex shrink-0 cursor-pointer items-center gap-2.5 rounded-full px-3 py-1.5 transition-colors duration-150 hover:bg-white/10"
-          onClick={toggleQuickSettings}
-          aria-label="System tray"
-        >
-          <span className="text-[12px] font-medium leading-none text-white">
-            {shortDate}
-          </span>
-          <span className="text-[12px] font-medium leading-none text-white">
-            {time || "--:--"}
-          </span>
-          <WifiIcon enabled={wifiEnabled} />
-          <BatteryIcon level={batteryLevel} />
-        </button>
+              {app.icon}
+            </div>
+          </motion.button>
+        ))}
       </div>
+
+      {/* System tray — separate element anchored bottom-right */}
+      <button
+        className="fixed bottom-2 right-3 z-40 flex h-[44px] cursor-pointer items-center gap-2.5 rounded-full bg-[rgba(32,33,36,0.8)] px-4 backdrop-blur-[40px] backdrop-saturate-[180%] transition-colors duration-150 hover:bg-[rgba(32,33,36,0.9)]"
+        onClick={toggleQuickSettings}
+        aria-label="System tray"
+      >
+        <span className="text-[12px] font-medium text-white">
+          {shortDate}
+        </span>
+        <span className="text-[12px] font-medium text-white">
+          {time || "--:--"}
+        </span>
+        <WifiIcon enabled={wifiEnabled} />
+        <BatteryIcon level={batteryLevel} />
+      </button>
 
       {quickSettingsOpen && (
         <QuickSettings onClose={() => setQuickSettingsOpen(false)} />
