@@ -2,9 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 
 import browserIcon from "../../assets/icons/browser.svg";
-import discordIcon from "../../assets/icons/discord.svg";
-import spotifyIcon from "../../assets/icons/spotify.svg";
-import youtubeIcon from "../../assets/icons/youtube.svg";
+
 import mailIcon from "../../assets/icons/mail.svg";
 import filesIcon from "../../assets/icons/files.svg";
 import mapsIcon from "../../assets/icons/maps.svg";
@@ -14,7 +12,7 @@ import calendarIcon from "../../assets/icons/calendar.svg";
 import photosIcon from "../../assets/icons/photos.svg";
 import cameraIcon from "../../assets/icons/camera.svg";
 import settingsIcon from "../../assets/icons/settings.svg";
-import figmaIcon from "../../assets/icons/figma.svg";
+
 import storeIcon from "../../assets/icons/store.svg";
 import terminalIcon from "../../assets/icons/terminal.svg";
 import messagesIcon from "../../assets/icons/messages.svg";
@@ -31,9 +29,7 @@ interface AppEntry {
 
 const apps: AppEntry[] = [
   { name: "Browser", icon: browserIcon },
-  { name: "Discord", icon: discordIcon },
-  { name: "Spotify", icon: spotifyIcon },
-  { name: "YouTube", icon: youtubeIcon },
+
   { name: "Email", icon: mailIcon },
   { name: "Files", icon: filesIcon },
   { name: "Maps", icon: mapsIcon },
@@ -43,7 +39,7 @@ const apps: AppEntry[] = [
   { name: "Photos", icon: photosIcon },
   { name: "Camera", icon: cameraIcon },
   { name: "Settings", icon: settingsIcon },
-  { name: "Figma", icon: figmaIcon },
+
   { name: "Store", icon: storeIcon },
   { name: "Terminal", icon: terminalIcon },
   { name: "Messages", icon: messagesIcon },
