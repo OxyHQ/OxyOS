@@ -1,57 +1,45 @@
 import { useEffect } from "react";
 import { useSystemStore } from "../stores/systemStore";
-import { invoke } from "../lib/tauri";
 
-interface BatteryInfo {
-  level: number;
-  charging: boolean;
-}
-
-interface WifiInfo {
-  enabled: boolean;
-  ssid: string | null;
-  strength: number;
-}
-
-interface VolumeInfo {
-  level: number;
-  muted: boolean;
+interface SystemUpdate {
+  battery: { level: number; charging: boolean };
+  wifi: { enabled: boolean; ssid: string | null; strength: number };
+  volume: { level: number; muted: boolean };
+  brightness: number;
 }
 
 /**
- * Polls the Tauri backend for real system data every 5 seconds
- * and pushes updates into the Zustand system store.
- * No-ops gracefully when running in a browser (demo mode).
+ * Listens for "system-update" events pushed from the Tauri Rust backend.
+ * The backend runs a background thread that monitors system state and
+ * only emits when something actually changes — no frontend polling.
+ * In browser mode this is a no-op.
  */
 export function useSystemInfo() {
   useEffect(() => {
-    async function poll() {
-      const battery = await invoke<BatteryInfo>("get_battery_info");
-      if (battery) {
-        useSystemStore.getState().setBatteryLevel(battery.level);
-        useSystemStore.getState().setCharging(battery.charging);
-      }
+    let unlisten: (() => void) | undefined;
 
-      const wifi = await invoke<WifiInfo>("get_wifi_info");
-      if (wifi) {
-        if (wifi.enabled !== useSystemStore.getState().wifiEnabled) {
-          useSystemStore.getState().toggleWifi();
-        }
-      }
+    async function setup() {
+      try {
+        if (!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
+        const { listen } = await import("@tauri-apps/api/event");
 
-      const vol = await invoke<VolumeInfo>("get_volume");
-      if (vol) {
-        useSystemStore.getState().setVolume(vol.level);
-      }
-
-      const brightness = await invoke<number>("get_brightness");
-      if (brightness !== null) {
-        useSystemStore.getState().setBrightness(brightness);
+        unlisten = await listen<SystemUpdate>("system-update", (event) => {
+          const { battery, wifi, volume, brightness } = event.payload;
+          const s = useSystemStore.getState();
+          s.setBatteryLevel(battery.level);
+          s.setCharging(battery.charging);
+          s.setVolume(volume.level);
+          s.setBrightness(brightness);
+          if (wifi.enabled !== s.wifiEnabled) {
+            s.toggleWifi();
+          }
+        });
+      } catch {
+        // Browser mode — silent fallback
       }
     }
 
-    poll();
-    const id = setInterval(poll, 5000);
-    return () => clearInterval(id);
+    setup();
+    return () => { unlisten?.(); };
   }, []);
 }

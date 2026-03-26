@@ -1,24 +1,38 @@
 use serde::Serialize;
 use std::fs;
 use std::process::Command;
+use std::thread;
+use std::time::Duration;
+use tauri::Emitter;
+use tauri::Manager;
 
-#[derive(Serialize)]
+// ── Data types ──
+
+#[derive(Serialize, Clone)]
 pub struct BatteryInfo {
     level: u8,
     charging: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct WifiInfo {
     enabled: bool,
     ssid: Option<String>,
     strength: u8,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct VolumeInfo {
     level: u8,
     muted: bool,
+}
+
+#[derive(Serialize, Clone)]
+pub struct SystemUpdate {
+    battery: BatteryInfo,
+    wifi: WifiInfo,
+    volume: VolumeInfo,
+    brightness: u8,
 }
 
 #[derive(Serialize)]
@@ -29,29 +43,9 @@ pub struct DesktopApp {
     categories: String,
 }
 
-#[tauri::command]
-async fn launch_app(exec: String) -> Result<(), String> {
-    let parts: Vec<&str> = exec.split_whitespace().collect();
-    if parts.is_empty() {
-        return Err("Empty command".to_string());
-    }
+// ── System readers ──
 
-    let program = parts[0];
-    let args = &parts[1..];
-
-    Command::new(program)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to launch '{}': {}", exec, e))?;
-
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_battery_info() -> BatteryInfo {
+fn read_battery() -> BatteryInfo {
     let level = fs::read_to_string("/sys/class/power_supply/BAT0/capacity")
         .ok()
         .and_then(|s| s.trim().parse::<u8>().ok())
@@ -65,8 +59,7 @@ async fn get_battery_info() -> BatteryInfo {
     BatteryInfo { level, charging }
 }
 
-#[tauri::command]
-async fn get_wifi_info() -> WifiInfo {
+fn read_wifi() -> WifiInfo {
     let output = Command::new("nmcli")
         .args(["-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"])
         .output();
@@ -77,46 +70,27 @@ async fn get_wifi_info() -> WifiInfo {
             for line in stdout.lines() {
                 let fields: Vec<&str> = line.split(':').collect();
                 if fields.len() >= 3 && fields[0] == "yes" {
-                    let ssid = if fields[1].is_empty() {
-                        None
-                    } else {
-                        Some(fields[1].to_string())
-                    };
-                    let strength = fields[2].parse::<u8>().unwrap_or(0);
                     return WifiInfo {
                         enabled: true,
-                        ssid,
-                        strength,
+                        ssid: if fields[1].is_empty() { None } else { Some(fields[1].to_string()) },
+                        strength: fields[2].parse::<u8>().unwrap_or(0),
                     };
                 }
             }
-            WifiInfo {
-                enabled: true,
-                ssid: None,
-                strength: 0,
-            }
+            WifiInfo { enabled: true, ssid: None, strength: 0 }
         }
-        Err(_) => WifiInfo {
-            enabled: true,
-            ssid: None,
-            strength: 0,
-        },
+        Err(_) => WifiInfo { enabled: true, ssid: None, strength: 0 },
     }
 }
 
-#[tauri::command]
-async fn get_volume() -> VolumeInfo {
+fn read_volume() -> VolumeInfo {
     let level = Command::new("pactl")
         .args(["get-sink-volume", "@DEFAULT_SINK@"])
         .output()
         .ok()
         .and_then(|out| {
             let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            // Output format: "Volume: front-left: 42345 /  65% / -11.22 dB, ..."
-            stdout
-                .split('/')
-                .nth(1)
-                .and_then(|s| s.trim().trim_end_matches('%').parse::<u8>().ok())
+            stdout.split('/').nth(1).and_then(|s| s.trim().trim_end_matches('%').parse::<u8>().ok())
         })
         .unwrap_or(70);
 
@@ -124,20 +98,105 @@ async fn get_volume() -> VolumeInfo {
         .args(["get-sink-mute", "@DEFAULT_SINK@"])
         .output()
         .ok()
-        .map(|out| {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            stdout.contains("yes")
-        })
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains("yes"))
         .unwrap_or(false);
 
     VolumeInfo { level, muted }
 }
 
+fn read_brightness() -> u8 {
+    if let Ok(mut entries) = fs::read_dir("/sys/class/backlight/") {
+        if let Some(Ok(entry)) = entries.next() {
+            let path = entry.path();
+            let cur = fs::read_to_string(path.join("brightness"))
+                .ok().and_then(|s| s.trim().parse::<f64>().ok());
+            let max = fs::read_to_string(path.join("max_brightness"))
+                .ok().and_then(|s| s.trim().parse::<f64>().ok());
+            if let (Some(c), Some(m)) = (cur, max) {
+                if m > 0.0 { return ((c / m) * 100.0).round() as u8; }
+            }
+        }
+    }
+    80
+}
+
+// ── Background system monitor (event-driven) ──
+
+fn start_system_monitor(app_handle: tauri::AppHandle) {
+    thread::spawn(move || {
+        let mut prev = SystemUpdate {
+            battery: BatteryInfo { level: 255, charging: false },
+            wifi: WifiInfo { enabled: false, ssid: None, strength: 255 },
+            volume: VolumeInfo { level: 255, muted: false },
+            brightness: 255,
+        };
+
+        loop {
+            let current = SystemUpdate {
+                battery: read_battery(),
+                wifi: read_wifi(),
+                volume: read_volume(),
+                brightness: read_brightness(),
+            };
+
+            // Only emit if something changed
+            let changed = current.battery.level != prev.battery.level
+                || current.battery.charging != prev.battery.charging
+                || current.wifi.enabled != prev.wifi.enabled
+                || current.wifi.ssid != prev.wifi.ssid
+                || current.wifi.strength != prev.wifi.strength
+                || current.volume.level != prev.volume.level
+                || current.volume.muted != prev.volume.muted
+                || current.brightness != prev.brightness;
+
+            if changed {
+                let _ = app_handle.emit("system-update", &current);
+                prev = current;
+            }
+
+            // Check every 2 seconds — but only emit on change
+            thread::sleep(Duration::from_secs(2));
+        }
+    });
+}
+
+// ── Tauri commands ──
+
+#[tauri::command]
+async fn launch_app(exec: String) -> Result<(), String> {
+    let parts: Vec<&str> = exec.split_whitespace().collect();
+    if parts.is_empty() {
+        return Err("Empty command".to_string());
+    }
+    Command::new(parts[0])
+        .args(&parts[1..])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to launch '{}': {}", exec, e))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_battery_info() -> BatteryInfo {
+    read_battery()
+}
+
+#[tauri::command]
+async fn get_wifi_info() -> WifiInfo {
+    read_wifi()
+}
+
+#[tauri::command]
+async fn get_volume() -> VolumeInfo {
+    read_volume()
+}
+
 #[tauri::command]
 async fn set_volume(level: u8) -> Result<(), String> {
-    let vol = format!("{}%", level.min(100));
     Command::new("pactl")
-        .args(["set-sink-volume", "@DEFAULT_SINK@", &vol])
+        .args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{}%", level.min(100))])
         .output()
         .map_err(|e| format!("Failed to set volume: {}", e))?;
     Ok(())
@@ -145,77 +204,34 @@ async fn set_volume(level: u8) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_brightness() -> u8 {
-    let backlight_dir = fs::read_dir("/sys/class/backlight/").ok();
-
-    if let Some(mut entries) = backlight_dir {
-        if let Some(Ok(entry)) = entries.next() {
-            let path = entry.path();
-            let brightness = fs::read_to_string(path.join("brightness"))
-                .ok()
-                .and_then(|s| s.trim().parse::<f64>().ok());
-            let max_brightness = fs::read_to_string(path.join("max_brightness"))
-                .ok()
-                .and_then(|s| s.trim().parse::<f64>().ok());
-
-            if let (Some(cur), Some(max)) = (brightness, max_brightness) {
-                if max > 0.0 {
-                    return ((cur / max) * 100.0).round() as u8;
-                }
-            }
-        }
-    }
-
-    80
+    read_brightness()
 }
 
 #[tauri::command]
 async fn set_brightness(level: u8) -> Result<(), String> {
-    let backlight_dir =
-        fs::read_dir("/sys/class/backlight/").map_err(|e| format!("No backlight found: {}", e))?;
-
-    for entry in backlight_dir.flatten() {
+    let dir = fs::read_dir("/sys/class/backlight/")
+        .map_err(|e| format!("No backlight found: {}", e))?;
+    for entry in dir.flatten() {
         let path = entry.path();
-        let max_brightness = fs::read_to_string(path.join("max_brightness"))
-            .map_err(|e| format!("Failed to read max_brightness: {}", e))?
-            .trim()
-            .parse::<f64>()
-            .map_err(|e| format!("Failed to parse max_brightness: {}", e))?;
-
-        let target = ((level.min(100) as f64 / 100.0) * max_brightness).round() as u64;
+        let max: f64 = fs::read_to_string(path.join("max_brightness"))
+            .map_err(|e| e.to_string())?
+            .trim().parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+        let target = ((level.min(100) as f64 / 100.0) * max).round() as u64;
         fs::write(path.join("brightness"), target.to_string())
             .map_err(|e| format!("Failed to write brightness: {}", e))?;
-
         return Ok(());
     }
-
     Err("No backlight device found".to_string())
 }
 
 #[tauri::command]
 async fn power_action(action: String) -> Result<(), String> {
     match action.as_str() {
-        "shutdown" => {
-            Command::new("systemctl")
-                .arg("poweroff")
-                .spawn()
-                .map_err(|e| format!("Failed to shutdown: {}", e))?;
-        }
-        "restart" => {
-            Command::new("systemctl")
-                .arg("reboot")
-                .spawn()
-                .map_err(|e| format!("Failed to restart: {}", e))?;
-        }
-        "lock" => {
-            // Shell handles lock screen in the frontend
-        }
-        "logout" => {
-            Command::new("loginctl")
-                .args(["terminate-session", "self"])
-                .spawn()
-                .map_err(|e| format!("Failed to logout: {}", e))?;
-        }
-        _ => return Err(format!("Unknown power action: {}", action)),
+        "shutdown" => { Command::new("systemctl").arg("poweroff").spawn().map_err(|e| e.to_string())?; }
+        "restart" => { Command::new("systemctl").arg("reboot").spawn().map_err(|e| e.to_string())?; }
+        "lock" => {} // Frontend handles lock screen
+        "logout" => { Command::new("loginctl").args(["terminate-session", "self"]).spawn().map_err(|e| e.to_string())?; }
+        _ => return Err(format!("Unknown action: {}", action)),
     }
     Ok(())
 }
@@ -223,92 +239,52 @@ async fn power_action(action: String) -> Result<(), String> {
 #[tauri::command]
 async fn list_desktop_apps() -> Vec<DesktopApp> {
     let mut apps = Vec::new();
-
     let entries = match fs::read_dir("/usr/share/applications") {
-        Ok(entries) => entries,
+        Ok(e) => e,
         Err(_) => return apps,
     };
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
-            continue;
-        }
-
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
+        if path.extension().and_then(|e| e.to_str()) != Some("desktop") { continue; }
+        let content = match fs::read_to_string(&path) { Ok(c) => c, Err(_) => continue };
 
         let mut name = String::new();
         let mut exec = String::new();
         let mut icon = String::new();
         let mut categories = String::new();
         let mut no_display = false;
-        let mut in_desktop_entry = false;
+        let mut in_section = false;
 
         for line in content.lines() {
-            let trimmed = line.trim();
+            let t = line.trim();
+            if t == "[Desktop Entry]" { in_section = true; continue; }
+            if t.starts_with('[') { if in_section { break; } continue; }
+            if !in_section { continue; }
 
-            if trimmed == "[Desktop Entry]" {
-                in_desktop_entry = true;
-                continue;
-            }
-            if trimmed.starts_with('[') && trimmed != "[Desktop Entry]" {
-                if in_desktop_entry {
-                    break;
-                }
-                continue;
-            }
-
-            if !in_desktop_entry {
-                continue;
-            }
-
-            if let Some(val) = trimmed.strip_prefix("Name=") {
-                if name.is_empty() {
-                    name = val.to_string();
-                }
-            } else if let Some(val) = trimmed.strip_prefix("Exec=") {
-                exec = clean_exec_field(val);
-            } else if let Some(val) = trimmed.strip_prefix("Icon=") {
-                icon = val.to_string();
-            } else if let Some(val) = trimmed.strip_prefix("Categories=") {
-                categories = val.to_string();
-            } else if trimmed == "NoDisplay=true" {
-                no_display = true;
-            }
+            if let Some(v) = t.strip_prefix("Name=") { if name.is_empty() { name = v.to_string(); } }
+            else if let Some(v) = t.strip_prefix("Exec=") { exec = clean_exec(v); }
+            else if let Some(v) = t.strip_prefix("Icon=") { icon = v.to_string(); }
+            else if let Some(v) = t.strip_prefix("Categories=") { categories = v.to_string(); }
+            else if t == "NoDisplay=true" { no_display = true; }
         }
 
-        if no_display || name.is_empty() || exec.is_empty() {
-            continue;
-        }
-
-        apps.push(DesktopApp {
-            name,
-            exec,
-            icon,
-            categories,
-        });
+        if no_display || name.is_empty() || exec.is_empty() { continue; }
+        apps.push(DesktopApp { name, exec, icon, categories });
     }
 
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     apps
 }
 
-/// Remove field codes (%u, %U, %f, %F, %d, %D, %n, %N, %i, %c, %k, %v, %m) from Exec values.
-fn clean_exec_field(exec: &str) -> String {
+fn clean_exec(exec: &str) -> String {
     exec.split_whitespace()
-        .filter(|token| {
-            !matches!(
-                *token,
-                "%u" | "%U" | "%f" | "%F" | "%d" | "%D" | "%n" | "%N" | "%i" | "%c" | "%k"
-                    | "%v" | "%m"
-            )
-        })
+        .filter(|t| !matches!(*t, "%u"|"%U"|"%f"|"%F"|"%d"|"%D"|"%n"|"%N"|"%i"|"%c"|"%k"|"%v"|"%m"))
         .collect::<Vec<&str>>()
         .join(" ")
 }
+
+// ── App entry point ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -322,6 +298,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // Start background system monitor — emits "system-update" events
+            start_system_monitor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

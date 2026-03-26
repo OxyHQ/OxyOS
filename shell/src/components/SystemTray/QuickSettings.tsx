@@ -69,10 +69,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 10 }}
-        transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
+        exit={{ opacity: 0, y: 14 }}
+        transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
         className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
         {/* ── Connectivity ── */}
