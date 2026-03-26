@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 
-const glass =
-  "rounded-[14px] border border-white/15 bg-white/12 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[70px] backdrop-saturate-[200%]";
+import { glass } from "../../lib/styles";
 
 interface MenuPos {
   x: number;
@@ -46,7 +45,7 @@ export default function ContextMenu() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.12 }}
-          className={`${glass} fixed z-[100] w-[200px] py-1.5`}
+          className={`${glass.menu} fixed z-[100] w-[200px] py-1.5`}
           style={{ left: pos.x, top: pos.y }}
         >
           <MenuItem label="Change Wallpaper" onClick={() => setPos(null)} />

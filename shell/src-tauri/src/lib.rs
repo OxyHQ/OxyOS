@@ -144,8 +144,7 @@ fn start_system_monitor(app_handle: tauri::AppHandle) {
                 prev = current;
             }
 
-            // Check every 2 seconds — but only emit on change
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(5));
         }
     });
 }

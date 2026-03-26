@@ -5,8 +5,7 @@ interface CalendarPopupProps {
   onClose: () => void;
 }
 
-const glass =
-  "rounded-[18px] border border-white/15 bg-white/12 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[70px] backdrop-saturate-[200%]";
+import { glass } from "../../lib/styles";
 
 const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -36,7 +35,7 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
         transition={{ duration: 0.18, ease: [0.2, 0, 0, 1] }}
-        className={`${glass} fixed right-2 bottom-[64px] z-50 w-[280px] origin-bottom-right p-4`}
+        className={`${glass.panel} fixed right-2 bottom-[64px] z-50 w-[280px] origin-bottom-right p-4`}
       >
         {/* Month header */}
         <p className="mb-3 text-center text-[13px] font-semibold text-white/90">

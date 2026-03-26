@@ -11,28 +11,30 @@ export default function OSD() {
   const prevBrightness = useRef(brightness);
   const mounted = useRef(false);
 
+  // Single effect for both volume and brightness — show OSD on change
   useEffect(() => {
     if (!mounted.current) {
       mounted.current = true;
       return;
     }
+
+    let type: "volume" | "brightness" | null = null;
     if (volume !== prevVolume.current) {
       prevVolume.current = volume;
-      setVisible("volume");
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setVisible(null), 1500);
-    }
-  }, [volume]);
-
-  useEffect(() => {
-    if (!mounted.current) return;
-    if (brightness !== prevBrightness.current) {
+      type = "volume";
+    } else if (brightness !== prevBrightness.current) {
       prevBrightness.current = brightness;
-      setVisible("brightness");
+      type = "brightness";
+    }
+
+    if (type) {
+      setVisible(type);
       clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setVisible(null), 1500);
     }
-  }, [brightness]);
+
+    return () => clearTimeout(timerRef.current);
+  }, [volume, brightness]);
 
   const value = visible === "volume" ? volume : brightness;
 

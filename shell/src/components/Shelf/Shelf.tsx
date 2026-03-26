@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
 import { invoke } from "../../lib/tauri";
+import { getBatteryVisuals } from "../../lib/styles";
 import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
 import NotificationPanel from "../NotificationPanel/NotificationPanel";
@@ -66,8 +67,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
     day: "numeric",
   });
 
-  const fillWidth = Math.round((batteryLevel / 100) * 18);
-  const fillColor = isCharging ? "#30d158" : batteryLevel <= 20 ? "#ff453a" : "white";
+  const { fillWidth, fillColor } = getBatteryVisuals(batteryLevel, isCharging);
 
   return (
     <>
