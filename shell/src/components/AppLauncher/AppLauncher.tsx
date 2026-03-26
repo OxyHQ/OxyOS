@@ -1,12 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
-import { invoke, assetUrl } from "../../lib/tauri";
+import { invoke } from "../../lib/tauri";
 import { appExecMap } from "../../lib/appRegistry";
 import { useInstalledApps } from "../../hooks/useInstalledApps";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { oxGlassPresets } from "../../lib/styles";
-import OxGlass from "../shared/OxGlass";
 
 import browserIcon from "../../assets/icons/browser.svg";
 import mailIcon from "../../assets/icons/mail.svg";
@@ -24,15 +22,6 @@ import clockIcon from "../../assets/icons/clock.svg";
 import radioIcon from "../../assets/icons/radio.svg";
 import notesIcon from "../../assets/icons/notes.svg";
 import docsIcon from "../../assets/icons/docs.svg";
-
-/** Bundled icons for our own apps — preferred over system icons */
-const bundledIcons: Record<string, string> = {
-  Browser: browserIcon, Email: mailIcon, Files: filesIcon, Maps: mapsIcon,
-  Calendar: calendarIcon, Photos: photosIcon, Camera: cameraIcon,
-  Settings: settingsIcon, Store: storeIcon, Terminal: terminalIcon,
-  Messages: messagesIcon, Calculator: calculatorIcon, Clock: clockIcon,
-  Radio: radioIcon, Notes: notesIcon, Docs: docsIcon,
-};
 
 interface AppEntry {
   name: string;
@@ -90,14 +79,9 @@ export default function AppLauncher() {
     return displayApps.filter((a) => a.name.toLowerCase().includes(q));
   }, [displayApps, query]);
 
-  const getIconSrc = useCallback((appName: string, icon: string) => {
-    // Prefer our bundled icon if this app has one
-    if (bundledIcons[appName]) return bundledIcons[appName];
-    // Resolved absolute path from Rust backend — convert to asset URL
-    if (icon.startsWith("/")) return assetUrl(icon);
-    // Already a URL (data:, http:, blob:, or Vite-resolved asset)
-    if (icon.startsWith("data:") || icon.startsWith("http") || icon.startsWith("blob:")) return icon;
-    // Vite-bundled asset (starts with / in dev mode)
+  const getIconSrc = useCallback((icon: string) => {
+    if (icon.startsWith("/") || icon.startsWith("data:") || icon.startsWith("http")) return icon;
+    if (!icon.includes(".")) return `/usr/share/icons/hicolor/256x256/apps/${icon}.png`;
     return icon;
   }, []);
 
@@ -141,7 +125,7 @@ export default function AppLauncher() {
           >
             {/* Search bar — Liquid Glass */}
             <div className="mt-[6vh] w-[420px]">
-              <OxGlass {...oxGlassPresets.pill} className="flex h-[42px] items-center gap-2.5 rounded-full border border-white/15 px-4 shadow-[0_2px_12px_rgba(0,0,0,0.15),inset_0_0.5px_0_rgba(255,255,255,0.1)]" bgOpacity={0.10}>
+              <div className="flex h-[42px] items-center gap-2.5 rounded-full border border-white/15 bg-white/10 px-4 shadow-[0_2px_12px_rgba(0,0,0,0.15),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[40px]">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-40">
                   <circle cx="11" cy="11" r="7" />
                   <path d="M21 21l-4.35-4.35" />
@@ -164,7 +148,7 @@ export default function AppLauncher() {
                     </svg>
                   </button>
                 )}
-              </OxGlass>
+              </div>
             </div>
 
             {/* Apps grid */}
@@ -184,7 +168,7 @@ export default function AppLauncher() {
                     >
                       <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
                         <img
-                          src={getIconSrc(app.name, app.icon)}
+                          src={getIconSrc(app.icon)}
                           alt={app.name}
                           className="h-full w-full object-cover"
                           draggable={false}

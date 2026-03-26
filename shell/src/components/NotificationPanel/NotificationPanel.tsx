@@ -2,10 +2,7 @@ import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useNotificationStore } from "../../stores/notificationStore";
 import { appIcons, settingsIcon } from "./appIcons";
-import { useOxGlass } from "../../hooks/useOxGlass";
-import OxGlassFilter from "../shared/OxGlassFilter";
-import GradientBlur from "../shared/GradientBlur";
-import { oxGlassPresets } from "../../lib/styles";
+import { glass } from "../../lib/styles";
 
 interface NotificationPanelProps {
   onClose: () => void;
@@ -39,20 +36,9 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
   }, [notifications]);
 
   const hasNotifications = grouped.length > 0;
-  const oxglass = useOxGlass(oxGlassPresets.floatingPanel);
 
   return (
     <>
-      {oxglass.filterData && (
-        <OxGlassFilter
-          filterId={oxglass.filterId}
-          filterData={oxglass.filterData}
-          blur={oxglass.blur}
-          specularOpacity={oxglass.specularOpacity}
-          specularSaturation={oxglass.specularSaturation}
-        />
-      )}
-
       {/* Click-away backdrop */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
@@ -61,14 +47,9 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-        className="fixed right-2 bottom-[64px] z-50 w-[380px] origin-bottom-right"
+        className={`${glass.floatingPanel} fixed right-2 bottom-[64px] z-50 flex w-[380px] origin-bottom-right flex-col`}
         style={{ maxHeight: "calc(100vh - 100px)" }}
       >
-      <div ref={oxglass.ref} className="flex flex-col rounded-[20px] border border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.15)]" style={{ ...oxglass.glassStyle, overflow: "hidden", position: "relative" }}>
-        <GradientBlur direction="top" size={30} />
-        <GradientBlur direction="bottom" size={30} />
-        <GradientBlur direction="left" size={30} />
-        <GradientBlur direction="right" size={30} />
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <h2 className="text-[13px] font-semibold tracking-wide text-white/90 uppercase">
@@ -183,7 +164,6 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
             </div>
           )}
         </div>
-      </div>
       </motion.div>
     </>
   );

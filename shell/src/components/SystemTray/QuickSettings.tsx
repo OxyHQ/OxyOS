@@ -9,8 +9,7 @@ interface QuickSettingsProps {
   onClose: () => void;
 }
 
-import { glass, getBatteryVisuals } from "../../lib/styles";
-import OxGlassSlider from "../shared/OxGlassSlider";
+import { glass, getBatteryVisuals, sliderThumb } from "../../lib/styles";
 
 function ConnectivityPill({
   active,
@@ -26,7 +25,7 @@ function ConnectivityPill({
   return (
     <button
       onClick={onClick}
-      className={`${glass.quickSettings} flex cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
+      className={`${glass.quickSettings} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
         active
           ? "!bg-white/20 text-white"
           : "text-white/55 hover:bg-white/16"
@@ -151,39 +150,35 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
         {/* ── Focus + Stage Manager ── */}
         <Row delay={0.03} className="grid grid-cols-2 gap-2">
-          <div className={`${glass.quickSettings}`}>
-            <button
-              onClick={toggleDnd}
-              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
-            >
-              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${dndEnabled ? "bg-[#bf5af2]" : "bg-white/12"}`}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </div>
-              <div className="min-w-0 text-left">
-                <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Focus</p>
-                <p className="truncate text-[9px] leading-tight text-white/40">{dndEnabled ? "DND" : "Off"}</p>
-              </div>
-            </button>
-          </div>
-          <div className={`${glass.quickSettings}`}>
-            <button
-              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
-            >
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="6" width="8" height="12" rx="1" />
-                  <rect x="14" y="2" width="8" height="8" rx="1" />
-                  <rect x="14" y="14" width="8" height="8" rx="1" />
-                </svg>
-              </div>
-              <div className="min-w-0 text-left">
-                <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Stage Manager</p>
-                <p className="truncate text-[9px] leading-tight text-white/40">Off</p>
-              </div>
-            </button>
-          </div>
+          <button
+            onClick={toggleDnd}
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+          >
+            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${dndEnabled ? "bg-[#bf5af2]" : "bg-white/12"}`}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Focus</p>
+              <p className="truncate text-[9px] leading-tight text-white/40">{dndEnabled ? "DND" : "Off"}</p>
+            </div>
+          </button>
+          <button
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+          >
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="6" width="8" height="12" rx="1" />
+                <rect x="14" y="2" width="8" height="8" rx="1" />
+                <rect x="14" y="14" width="8" height="8" rx="1" />
+              </svg>
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Stage Manager</p>
+              <p className="truncate text-[9px] leading-tight text-white/40">Off</p>
+            </div>
+          </button>
         </Row>
 
         {/* ── Now Playing ── */}
@@ -216,59 +211,91 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
         {/* ── Night Light + Display row ── */}
         <Row delay={0.09} className="grid grid-cols-2 gap-2">
-          <div className={`${glass.quickSettings}`}>
-            <button
-              onClick={toggleNightLight}
-              className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
-            >
-              <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nightLightEnabled ? "bg-[#ff9f0a]" : "bg-white/12"}`}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
-                  <circle cx="12" cy="12" r="5" />
-                </svg>
-              </div>
-              <div className="min-w-0 text-left">
-                <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Night Light</p>
-                <p className="truncate text-[9px] leading-tight text-white/40">{nightLightEnabled ? "On" : "Off"}</p>
-              </div>
-            </button>
-          </div>
-          <div className={`${glass.quickSettings}`}>
-            <button className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="2" y="3" width="20" height="14" rx="2" />
-                  <line x1="8" y1="21" x2="16" y2="21" />
-                  <line x1="12" y1="17" x2="12" y2="21" />
-                </svg>
-              </div>
-              <div className="min-w-0 text-left">
-                <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Display</p>
-                <p className="truncate text-[9px] leading-tight text-white/40">Built-in</p>
-              </div>
-            </button>
-          </div>
+          <button
+            onClick={toggleNightLight}
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+          >
+            <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nightLightEnabled ? "bg-[#ff9f0a]" : "bg-white/12"}`}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+                <circle cx="12" cy="12" r="5" />
+              </svg>
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Night Light</p>
+              <p className="truncate text-[9px] leading-tight text-white/40">{nightLightEnabled ? "On" : "Off"}</p>
+            </div>
+          </button>
+          <button className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}>
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="truncate text-[11px] font-semibold leading-tight text-white/90">Display</p>
+              <p className="truncate text-[9px] leading-tight text-white/40">Built-in</p>
+            </div>
+          </button>
         </Row>
 
         {/* ── Brightness ── */}
         <Row delay={0.12}>
-          <OxGlassSlider
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
+            <circle cx="12" cy="12" r="5" />
+          </svg>
+          <input
+            type="range"
+            min={0}
+            max={100}
             value={brightness}
-            onChange={(val) => {
+            onChange={(e) => {
+              const val = Number(e.target.value);
               setBrightness(val);
               invoke("set_brightness", { level: val });
             }}
+            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
+            style={{ background: `linear-gradient(to right, white ${brightness}%, rgba(255,255,255,0.1) ${brightness}%)` }}
           />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="12" y1="21" x2="12" y2="23" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="1" y1="12" x2="3" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="21" y1="12" x2="23" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
         </Row>
 
         {/* ── Volume ── */}
         <Row delay={0.15}>
-          <OxGlassSlider
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
+            <path d="M7 9v6h4l5 5V4l-5 5H7z" />
+          </svg>
+          <input
+            type="range"
+            min={0}
+            max={100}
             value={volume}
-            onChange={(val) => {
+            onChange={(e) => {
+              const val = Number(e.target.value);
               setVolume(val);
               invoke("set_volume", { level: val });
             }}
+            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
+            style={{ background: `linear-gradient(to right, white ${volume}%, rgba(255,255,255,0.1) ${volume}%)` }}
           />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
+          </svg>
+        </div>
         </Row>
 
         {/* ── Bottom bar ── */}

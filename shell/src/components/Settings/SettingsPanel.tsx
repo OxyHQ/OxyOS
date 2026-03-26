@@ -2,12 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettingsStore, type SettingsSection } from "../../stores/settingsStore";
 import { useSystemStore } from "../../stores/systemStore";
-import { useOxGlass } from "../../hooks/useOxGlass";
-import OxGlassFilter from "../shared/OxGlassFilter";
-import GradientBlur from "../shared/GradientBlur";
-import OxGlassSlider from "../shared/OxGlassSlider";
-import OxGlassSwitch from "../shared/OxGlassSwitch";
-import { oxGlassPresets } from "../../lib/styles";
+import { glass, sliderThumb } from "../../lib/styles";
 
 const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
@@ -89,7 +84,20 @@ function SignalIcon({ strength }: { strength: number }) {
 }
 
 function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
-  return <OxGlassSwitch checked={enabled} onChange={onToggle} />;
+  return (
+    <button
+      onClick={onToggle}
+      className={`relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 ${
+        enabled ? "bg-[#30d158]" : "bg-white/20"
+      }`}
+    >
+      <div
+        className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.3)] transition-transform duration-200 ${
+          enabled ? "left-[23px]" : "left-[3px]"
+        }`}
+      />
+    </button>
+  );
 }
 
 function WifiSection() {
@@ -192,7 +200,33 @@ function DisplaySection() {
           <span className="text-[12px] font-medium text-white/60">Brightness</span>
           <span className="text-[12px] text-white/40">{brightness}%</span>
         </div>
-        <OxGlassSlider value={brightness} onChange={setBrightness} />
+        <div className="flex items-center gap-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
+            <circle cx="12" cy="12" r="5" />
+          </svg>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={brightness}
+            onChange={(e) => setBrightness(Number(e.target.value))}
+            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
+            style={{
+              background: `linear-gradient(to right, white ${brightness}%, rgba(255,255,255,0.1) ${brightness}%)`,
+            }}
+          />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
+            <circle cx="12" cy="12" r="5" />
+            <line x1="12" y1="1" x2="12" y2="3" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="12" y1="21" x2="12" y2="23" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="1" y1="12" x2="3" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="21" y1="12" x2="23" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
       </div>
 
       <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
@@ -239,7 +273,25 @@ function SoundSection() {
           <span className="text-[12px] font-medium text-white/60">Volume</span>
           <span className="text-[12px] text-white/40">{volume}%</span>
         </div>
-        <OxGlassSlider value={volume} onChange={setVolume} />
+        <div className="flex items-center gap-3">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
+            <path d="M7 9v6h4l5 5V4l-5 5H7z" />
+          </svg>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={volume}
+            onChange={(e) => setVolume(Number(e.target.value))}
+            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
+            style={{
+              background: `linear-gradient(to right, white ${volume}%, rgba(255,255,255,0.1) ${volume}%)`,
+            }}
+          />
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
+            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
+          </svg>
+        </div>
       </div>
 
       <div className="flex flex-col gap-1">
@@ -402,19 +454,8 @@ const sectionComponents: Record<SettingsSection, React.FC> = {
 export default function SettingsPanel() {
   const { isOpen, close, activeSection, setActiveSection } = useSettingsStore();
   const ActiveComponent = sectionComponents[activeSection] ?? WifiSection;
-  const oxglass = useOxGlass(oxGlassPresets.panel);
 
   return (
-    <>
-    {oxglass.filterData && (
-      <OxGlassFilter
-        filterId={oxglass.filterId}
-        filterData={oxglass.filterData}
-        blur={oxglass.blur}
-        specularOpacity={oxglass.specularOpacity}
-        specularSaturation={oxglass.specularSaturation}
-      />
-    )}
     <AnimatePresence>
       {isOpen && (
         <>
@@ -432,13 +473,8 @@ export default function SettingsPanel() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
-            className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
+            className={`${glass.panel} fixed top-1/2 left-1/2 z-50 flex h-[500px] w-[700px] -translate-x-1/2 -translate-y-1/2 overflow-hidden`}
           >
-          <div ref={oxglass.ref} className="flex h-[500px] w-[700px] overflow-hidden rounded-[18px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)]" style={{ ...oxglass.glassStyle, overflow: "hidden", position: "relative" }}>
-            <GradientBlur direction="top" size={40} />
-            <GradientBlur direction="bottom" size={40} />
-            <GradientBlur direction="left" size={40} />
-            <GradientBlur direction="right" size={40} />
             {/* Sidebar */}
             <div className="flex w-[200px] shrink-0 flex-col border-r border-white/10 py-3">
               <div className="mb-3 px-5">
@@ -478,11 +514,9 @@ export default function SettingsPanel() {
 
               <ActiveComponent />
             </div>
-          </div>
           </motion.div>
         </>
       )}
     </AnimatePresence>
-    </>
   );
 }

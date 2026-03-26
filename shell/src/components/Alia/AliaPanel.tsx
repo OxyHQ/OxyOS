@@ -5,10 +5,7 @@ import { streamChat } from "../../lib/alia";
 import AliaFace from "./AliaFace";
 import type { AliaExpression } from "./AliaFace";
 import AliaWelcome from "./AliaWelcome";
-import { oxGlassPresets } from "../../lib/styles";
-import { useOxGlass } from "../../hooks/useOxGlass";
-import OxGlassFilter from "../shared/OxGlassFilter";
-import GradientBlur from "../shared/GradientBlur";
+import { glass } from "../../lib/styles";
 
 function buildHistory(messages: { id: string; role: string; content: string }[]) {
   return messages
@@ -90,32 +87,16 @@ export default function AliaPanel() {
 
   const hasText = input.trim().length > 0;
   const showWelcome = messages.length <= 1 && messages[0]?.id === "greeting";
-  const oxglass = useOxGlass(oxGlassPresets.floatingPanel);
 
   return (
-    <>
-    {oxglass.filterData && (
-      <OxGlassFilter
-        filterId={oxglass.filterId}
-        filterData={oxglass.filterData}
-        blur={oxglass.blur}
-        specularOpacity={oxglass.specularOpacity}
-        specularSaturation={oxglass.specularSaturation}
-      />
-    )}
     <motion.div
       initial={{ opacity: 0, y: -8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-      className="fixed top-4 right-4 z-50 w-[420px] origin-top-right"
+      className={`${glass.floatingPanel} fixed top-4 right-4 z-50 flex w-[420px] origin-top-right flex-col overflow-hidden`}
       style={{ maxHeight: "calc(100vh - 80px)" }}
     >
-    <div ref={oxglass.ref} className="flex flex-col overflow-hidden rounded-[20px] border border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.15)]" style={{ ...oxglass.glassStyle, overflow: "hidden", position: "relative", maxHeight: "calc(100vh - 80px)" }}>
-      <GradientBlur direction="top" size={30} />
-      <GradientBlur direction="bottom" size={30} />
-      <GradientBlur direction="left" size={30} />
-      <GradientBlur direction="right" size={30} />
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
@@ -258,8 +239,6 @@ export default function AliaPanel() {
           )}
         </div>
       </div>
-    </div>
     </motion.div>
-    </>
   );
 }
