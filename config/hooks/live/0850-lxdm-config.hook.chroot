@@ -28,7 +28,7 @@ done
 
 # Pre-create the "user" account (live-config will reuse it)
 if ! id -u user >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -G sudo,video,audio,input,render user 2>/dev/null || true
+    useradd -m -s /bin/bash -G sudo,video,audio,input,render,seat user 2>/dev/null || true
     echo "user:live" | chpasswd 2>/dev/null || true
 fi
 
