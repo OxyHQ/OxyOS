@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
+import { useRunningAppsStore } from "../../stores/runningAppsStore";
 import { invoke } from "../../lib/tauri";
 import { getBatteryVisuals } from "../../lib/styles";
 import { appExecMap } from "../../lib/appRegistry";
@@ -42,6 +43,8 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const toggleLauncher = useLauncherStore((s) => s.toggle);
   const notificationCount = useNotificationStore((s) => s.notifications.length);
+  const running = useRunningAppsStore((s) => s.running);
+  const [bouncingApp, setBouncingApp] = useState<string | null>(null);
   const isLogin = variant === "login";
 
   const toggleQuickSettings = useCallback(() => {
@@ -94,9 +97,18 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
                   <motion.button
                     className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
                     whileTap={{ scale: 0.92 }}
+                    animate={bouncingApp === app.name ? { y: [0, -12, 0] } : { y: 0 }}
+                    transition={bouncingApp === app.name ? { duration: 0.4, ease: "easeInOut" } : undefined}
+                    onAnimationComplete={() => {
+                      if (bouncingApp === app.name) setBouncingApp(null);
+                    }}
                     onClick={() => {
                       const exec = appExecMap[app.name];
-                      if (exec) invoke("launch_app", { exec });
+                      if (exec) {
+                        invoke("launch_app", { exec });
+                        useRunningAppsStore.getState().launch(app.name);
+                        setBouncingApp(app.name);
+                      }
                     }}
                     aria-label={app.name}
                   >
@@ -109,6 +121,10 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
                       />
                     </div>
                   </motion.button>
+                  {/* Running indicator dot */}
+                  <div
+                    className={`absolute -bottom-1 left-1/2 h-[3px] w-[3px] -translate-x-1/2 rounded-full bg-white transition-opacity duration-200 ${running.has(app.name) ? "opacity-100" : "opacity-0"}`}
+                  />
                   {/* Tooltip */}
                   <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100">
                     {app.name}
