@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useNotificationStore } from "../../stores/notificationStore";
 import mailIcon from "../../assets/icons/mail.svg";
@@ -25,10 +26,24 @@ function timeAgo(timestamp: number): string {
 }
 
 export default function NotificationPanel({ onClose }: NotificationPanelProps) {
-  const grouped = useNotificationStore((s) => s.grouped());
+  const notifications = useNotificationStore((s) => s.notifications);
   const dismiss = useNotificationStore((s) => s.dismiss);
   const clearApp = useNotificationStore((s) => s.clearApp);
   const clearAll = useNotificationStore((s) => s.clearAll);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, { app: string; notifications: typeof notifications }>();
+    for (const n of notifications) {
+      const existing = map.get(n.app);
+      if (existing) {
+        existing.notifications.push(n);
+      } else {
+        map.set(n.app, { app: n.app, notifications: [n] });
+      }
+    }
+    return Array.from(map.values());
+  }, [notifications]);
+
   const hasNotifications = grouped.length > 0;
 
   return (
