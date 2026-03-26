@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+# Build OxyOS shell from source if the pre-built binary wasn't placed
+# by CI. During CI, the binary is pre-built and copied in.
+if [ ! -f /usr/bin/oxyos-shell ]; then
+    echo "oxyos-shell binary not found — skipping (should be placed by CI)"
+fi

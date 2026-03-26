@@ -6,5 +6,25 @@ sudo
 apt-transport-https
 psmisc
 cryptsetup
-lxdm
 oxyos-metapackage
+
+# Wayland compositor
+labwc
+seatd
+xwayland
+
+# OxyOS shell dependencies (Tauri/WebKitGTK)
+libwebkit2gtk-4.1-0
+libgtk-3-0
+libayatana-appindicator3-1
+librsvg2-common
+gstreamer1.0-plugins-base
+gstreamer1.0-plugins-good
+
+# Display manager
+greetd
+
+# System utilities for shell
+network-manager
+pulseaudio
+upower

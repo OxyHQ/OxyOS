@@ -12,11 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "shell",
-        "width": 800,
-        "height": 600,
-        "resizable": true,
-        "fullscreen": false
+        "title": "OxyOS",
+        "fullscreen": true,
+        "decorations": false,
+        "resizable": false,
+        "transparent": false
       }
     ],
     "security": {

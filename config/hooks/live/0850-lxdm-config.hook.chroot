@@ -1,20 +1,10 @@
 #!/bin/sh
 set -e
 
-# Apply OxyOS LXDM config over the default lxdm.conf.
-if [ -f /etc/lxdm/oxyos.lxdm.conf ]; then
-    cp /etc/lxdm/oxyos.lxdm.conf /etc/lxdm/lxdm.conf
-fi
+# Enable greetd as the login manager (replaces LXDM).
+# greetd auto-starts labwc + oxyos-shell via /etc/greetd/config.toml
+ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service 2>/dev/null || true
+systemctl enable greetd.service 2>/dev/null || true
 
-# Remove all "## comment" lines from lxdm.conf so live-config's
-# 0110-lxdm regex doesn't match descriptive comments.
-if [ -f /etc/lxdm/lxdm.conf ]; then
-    sed -i '/^##/d' /etc/lxdm/lxdm.conf
-fi
-
-# Ensure LXDM is the default display manager and is enabled.
-# systemctl enable may not work in chroot, so also create the symlink directly.
-echo "/usr/sbin/lxdm" > /etc/X11/default-display-manager 2>/dev/null || true
-mkdir -p /etc/systemd/system/display-manager.service.d
-ln -sf /usr/lib/systemd/system/lxdm.service /etc/systemd/system/display-manager.service 2>/dev/null || true
-systemctl enable lxdm.service 2>/dev/null || true
+# Enable seatd for Wayland seat management
+systemctl enable seatd.service 2>/dev/null || true

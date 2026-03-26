@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<labwc_config>
+  <core>
+    <decoration>server</decoration>
+    <gap>0</gap>
+  </core>
+  <theme>
+    <name></name>
+    <cornerRadius>0</cornerRadius>
+    <font name="Google Sans" size="12" />
+  </theme>
+  <!-- No decorations or borders for the shell window -->
+  <windowRules>
+    <windowRule identifier="oxyos-shell">
+      <action name="Maximize" />
+      <skipTaskbar>yes</skipTaskbar>
+      <skipWindowSwitcher>yes</skipWindowSwitcher>
+    </windowRule>
+  </windowRules>
+</labwc_config>
