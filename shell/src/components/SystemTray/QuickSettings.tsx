@@ -11,9 +11,8 @@ interface QuickSettingsProps {
 const sliderThumb =
   "[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)] [&::-moz-range-thumb]:h-[18px] [&::-moz-range-thumb]:w-[18px] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)]";
 
-/* Glass card styling — blur is on the shared container, not per-card */
 const glass =
-  "rounded-[18px] border border-white/15 bg-white/12 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]";
+  "rounded-[18px] border border-white/15 bg-white/12 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[40px] backdrop-saturate-[180%]";
 
 function ConnectivityPill({
   active,
@@ -29,10 +28,10 @@ function ConnectivityPill({
   return (
     <button
       onClick={onClick}
-      className={`${glass} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
+      className={`flex flex-col items-center justify-center gap-1 rounded-[18px] border border-white/15 px-2 py-2.5 transition-all duration-150 ${
         active
-          ? "!bg-white/20 text-white"
-          : "text-white/55 hover:bg-white/16"
+          ? "bg-white/20 text-white shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]"
+          : "bg-white/8 text-white/55 hover:bg-white/14"
       }`}
     >
       {icon}
@@ -69,15 +68,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
-        className="fixed right-2 bottom-[64px] z-50 w-[320px] origin-bottom-right"
+        initial={{ opacity: 0, y: 8, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.97 }}
+        transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+        className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
-        {/* Single blur layer behind all cards */}
-        <div className="absolute inset-[-8px] -z-10 rounded-[26px] bg-black/20 backdrop-blur-[50px] backdrop-saturate-[180%]" />
-        <div className="flex flex-col gap-2">
         {/* ── Connectivity ── */}
         <div className="grid grid-cols-4 gap-2">
           <ConnectivityPill
@@ -314,7 +310,6 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             </button>
           </div>
-        </div>
         </div>
       </motion.div>
     </>
