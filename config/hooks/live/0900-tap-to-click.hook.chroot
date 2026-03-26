@@ -1,6 +1,22 @@
 #!/bin/sh
+set -e
 
-cp -r /usr/share/X11/xorg.conf.d /etc/X11/
+# Enable tap-to-click for touchpads (Wayland + X11 compat)
 
-sed -i 's|        Identifier "libinput touchpad catchall"|        Identifier "libinput touchpad catchall"\n        Option "Tapping" "true"|g' \
-	/etc/X11/xorg.conf.d/40-libinput.conf
+if [ -d /usr/share/X11/xorg.conf.d ]; then
+    mkdir -p /etc/X11/xorg.conf.d
+    cp -r /usr/share/X11/xorg.conf.d/* /etc/X11/xorg.conf.d/ 2>/dev/null || true
+    if [ -f /etc/X11/xorg.conf.d/40-libinput.conf ]; then
+        sed -i 's|Identifier "libinput touchpad catchall"|Identifier "libinput touchpad catchall"\n        Option "Tapping" "true"|g' \
+            /etc/X11/xorg.conf.d/40-libinput.conf
+    fi
+fi
+
+mkdir -p /etc/libinput
+cat > /etc/libinput/local-overrides.quirks << 'QUIRKS'
+[Touchpad Tap to Click]
+MatchUdevType=touchpad
+AttrLibinputTappingDefault=true
+QUIRKS
+
+echo "P: Tap-to-click configured"
