@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { playNotification } from "../lib/sounds";
 
 export interface Notification {
   id: string;
@@ -63,7 +64,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     },
   ],
 
-  add: (notification) =>
+  add: (notification) => {
+    playNotification();
     set((state) => ({
       notifications: [
         {
@@ -73,7 +75,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         },
         ...state.notifications,
       ],
-    })),
+    }));
+  },
 
   dismiss: (id) =>
     set((state) => ({

@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { playLock, playUnlock } from "../lib/sounds";
 
 interface SessionState {
   isLoggedIn: boolean;
@@ -16,8 +17,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   isLocked: false,
   username: "User",
   avatarUrl: null,
-  login: () => set({ isLoggedIn: true, isLocked: false }),
+  login: () => { playUnlock(); set({ isLoggedIn: true, isLocked: false }); },
   logout: () => set({ isLoggedIn: false, isLocked: false }),
-  lock: () => set({ isLocked: true }),
-  unlock: () => set({ isLocked: false }),
+  lock: () => { playLock(); set({ isLocked: true }); },
+  unlock: () => { playUnlock(); set({ isLocked: false }); },
 }));

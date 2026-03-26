@@ -3,7 +3,6 @@ import { useLauncherStore } from "../../stores/launcherStore";
 import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
-import Widgets from "./Widgets";
 import AppLauncher from "../AppLauncher/AppLauncher";
 import ContextMenu from "./ContextMenu";
 import OSD from "./OSD";
@@ -67,9 +66,6 @@ export default function Desktop() {
 
       {/* Settings panel */}
       <SettingsPanel />
-
-      {/* Desktop widgets */}
-      <Widgets />
 
       {/* Shelf */}
       <Shelf />
