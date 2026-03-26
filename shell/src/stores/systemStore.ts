@@ -3,7 +3,7 @@ import { create } from "zustand";
 interface SystemState {
   wifiEnabled: boolean;
   bluetoothEnabled: boolean;
-  airdropEnabled: boolean;
+  quickShareEnabled: boolean;
   dndEnabled: boolean;
   nightLightEnabled: boolean;
   focusMode: string | null;
@@ -14,7 +14,7 @@ interface SystemState {
   time: string;
   toggleWifi: () => void;
   toggleBluetooth: () => void;
-  toggleAirdrop: () => void;
+  toggleQuickShare: () => void;
   toggleDnd: () => void;
   toggleNightLight: () => void;
   setFocusMode: (mode: string | null) => void;
@@ -28,7 +28,7 @@ interface SystemState {
 export const useSystemStore = create<SystemState>((set) => ({
   wifiEnabled: true,
   bluetoothEnabled: true,
-  airdropEnabled: false,
+  quickShareEnabled: false,
   dndEnabled: false,
   nightLightEnabled: false,
   focusMode: null,
@@ -39,7 +39,7 @@ export const useSystemStore = create<SystemState>((set) => ({
   time: "",
   toggleWifi: () => set((s) => ({ wifiEnabled: !s.wifiEnabled })),
   toggleBluetooth: () => set((s) => ({ bluetoothEnabled: !s.bluetoothEnabled })),
-  toggleAirdrop: () => set((s) => ({ airdropEnabled: !s.airdropEnabled })),
+  toggleQuickShare: () => set((s) => ({ quickShareEnabled: !s.quickShareEnabled })),
   toggleDnd: () => set((s) => ({ dndEnabled: !s.dndEnabled })),
   toggleNightLight: () => set((s) => ({ nightLightEnabled: !s.nightLightEnabled })),
   setFocusMode: (focusMode) => set({ focusMode }),

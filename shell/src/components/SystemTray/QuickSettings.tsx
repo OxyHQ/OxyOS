@@ -49,7 +49,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
   const {
     wifiEnabled,
     bluetoothEnabled,
-    airdropEnabled,
+    quickShareEnabled,
     dndEnabled,
     nightLightEnabled,
     volume,
@@ -58,7 +58,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
     isCharging,
     toggleWifi,
     toggleBluetooth,
-    toggleAirdrop,
+    toggleQuickShare,
     toggleDnd,
     toggleNightLight,
     setVolume,
@@ -102,10 +102,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             }
           />
           <ToggleTile
-            active={airdropEnabled}
-            onClick={toggleAirdrop}
-            label="AirDrop"
-            subtitle={airdropEnabled ? "Everyone" : "Off"}
+            active={quickShareEnabled}
+            onClick={toggleQuickShare}
+            label="Quick Share"
+            subtitle={quickShareEnabled ? "Everyone" : "Off"}
             icon={
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
