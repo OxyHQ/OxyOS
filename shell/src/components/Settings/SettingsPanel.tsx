@@ -2,7 +2,9 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettingsStore, type SettingsSection } from "../../stores/settingsStore";
 import { useSystemStore } from "../../stores/systemStore";
-import OxGlass from "../shared/OxGlass";
+import { useOxGlass } from "../../hooks/useOxGlass";
+import OxGlassFilter from "../shared/OxGlassFilter";
+import GradientBlur from "../shared/GradientBlur";
 import OxGlassSlider from "../shared/OxGlassSlider";
 import OxGlassSwitch from "../shared/OxGlassSwitch";
 import { oxGlassPresets } from "../../lib/styles";
@@ -400,8 +402,19 @@ const sectionComponents: Record<SettingsSection, React.FC> = {
 export default function SettingsPanel() {
   const { isOpen, close, activeSection, setActiveSection } = useSettingsStore();
   const ActiveComponent = sectionComponents[activeSection] ?? WifiSection;
+  const oxglass = useOxGlass(oxGlassPresets.panel);
 
   return (
+    <>
+    {oxglass.filterData && (
+      <OxGlassFilter
+        filterId={oxglass.filterId}
+        filterData={oxglass.filterData}
+        blur={oxglass.blur}
+        specularOpacity={oxglass.specularOpacity}
+        specularSaturation={oxglass.specularSaturation}
+      />
+    )}
     <AnimatePresence>
       {isOpen && (
         <>
@@ -421,7 +434,11 @@ export default function SettingsPanel() {
             transition={{ duration: 0.25, ease: [0.2, 0, 0, 1] }}
             className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2"
           >
-          <OxGlass {...oxGlassPresets.panel} className="flex h-[500px] w-[700px] overflow-hidden rounded-[18px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+          <div ref={oxglass.ref} className="flex h-[500px] w-[700px] overflow-hidden rounded-[18px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)]" style={{ ...oxglass.glassStyle, overflow: "hidden", position: "relative" }}>
+            <GradientBlur direction="top" size={40} />
+            <GradientBlur direction="bottom" size={40} />
+            <GradientBlur direction="left" size={40} />
+            <GradientBlur direction="right" size={40} />
             {/* Sidebar */}
             <div className="flex w-[200px] shrink-0 flex-col border-r border-white/10 py-3">
               <div className="mb-3 px-5">
@@ -461,10 +478,11 @@ export default function SettingsPanel() {
 
               <ActiveComponent />
             </div>
-          </OxGlass>
+          </div>
           </motion.div>
         </>
       )}
     </AnimatePresence>
+    </>
   );
 }
