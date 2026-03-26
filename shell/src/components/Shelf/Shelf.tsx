@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
 import { useRunningAppsStore } from "../../stores/runningAppsStore";
-import { invoke } from "../../lib/tauri";
+import { launchApp } from "../../lib/launchApp";
 import { getBatteryVisuals } from "../../lib/styles";
 import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
@@ -90,8 +90,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
                     onClick={() => {
                       const exec = appExecMap[app.name];
                       if (exec) {
-                        invoke("launch_app", { exec });
-                        useRunningAppsStore.getState().launch(app.name);
+                        launchApp(app.name, exec);
                         setBouncingApp(app.name);
                       }
                     }}

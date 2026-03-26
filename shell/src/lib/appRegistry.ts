@@ -3,7 +3,7 @@ export const appExecMap: Record<string, string> = {
   Browser: "firefox-esr",
   Files: "thunar",
   Settings: "__internal:settings",
-  Terminal: "oxterm",
+  Terminal: "__builtin:terminal",
   Email: "firefox-esr https://mail.google.com",
   Maps: "firefox-esr https://maps.google.com",
   Calendar: "__internal:calendar",

@@ -1,22 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
-  try {
-    if (window.__TAURI_INTERNALS__) {
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-      return await tauriInvoke<T>(cmd, args);
-    }
-  } catch {
-    // Browser mode
-  }
-  return null;
-}
-
-function isNative(): boolean {
-  return !!window.__TAURI_INTERNALS__;
-}
+import { invoke, isNative } from "../../lib/tauri";
 
 interface TerminalViewProps {
   ptyId: string;
@@ -24,7 +9,6 @@ interface TerminalViewProps {
 
 export default function TerminalView({ ptyId }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<Terminal | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -36,7 +20,6 @@ export default function TerminalView({ ptyId }: TerminalViewProps) {
       fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', monospace",
       fontSize: 13,
       lineHeight: 1.3,
-      letterSpacing: 0,
       allowTransparency: true,
       theme: {
         background: "rgba(0, 0, 0, 0.01)",
@@ -76,16 +59,10 @@ export default function TerminalView({ ptyId }: TerminalViewProps) {
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
       if (isNative()) {
-        invoke("pty_resize", {
-          id: ptyId,
-          cols: term.cols,
-          rows: term.rows,
-        });
+        invoke("pty_resize", { id: ptyId, cols: term.cols, rows: term.rows });
       }
     });
     resizeObserver.observe(container);
-
-    termRef.current = term;
 
     return () => {
       resizeObserver.disconnect();
@@ -96,23 +73,14 @@ export default function TerminalView({ ptyId }: TerminalViewProps) {
     };
   }, [ptyId]);
 
-  return (
-    <div
-      ref={containerRef}
-      className="h-full w-full px-1 pb-1"
-    />
-  );
+  return <div ref={containerRef} className="h-full w-full px-1 pb-1" />;
 }
 
 async function setupPty(term: Terminal, ptyId: string) {
   if (isNative()) {
     const { listen } = await import("@tauri-apps/api/event");
 
-    await invoke("pty_spawn", {
-      id: ptyId,
-      cols: term.cols,
-      rows: term.rows,
-    });
+    await invoke("pty_spawn", { id: ptyId, cols: term.cols, rows: term.rows });
 
     const unlistenData = await listen<string>(`pty-data-${ptyId}`, (event) => {
       term.write(event.payload);
@@ -152,43 +120,20 @@ function setupMockShell(term: Terminal) {
     const args = parts.slice(1);
 
     switch (command) {
-      case "":
-        break;
+      case "": break;
       case "help":
         term.write("Available commands: help, echo, clear, whoami, hostname,\r\n");
-        term.write("  pwd, date, uname, ls, cat, neofetch\r\n");
+        term.write("  pwd, date, uname, ls, neofetch\r\n");
         break;
-      case "echo":
-        term.write(args.join(" ") + "\r\n");
-        break;
-      case "clear":
-        term.clear();
-        term.write("\x1b[H\x1b[2J");
-        break;
-      case "whoami":
-        term.write(user + "\r\n");
-        break;
-      case "hostname":
-        term.write(hostname + "\r\n");
-        break;
-      case "pwd":
-        term.write((currentDir === "~" ? `/home/${user}` : currentDir) + "\r\n");
-        break;
-      case "date":
-        term.write(new Date().toString() + "\r\n");
-        break;
-      case "uname":
-        term.write("OxyOS 2.1.0 x86_64 GNU/Linux\r\n");
-        break;
+      case "echo": term.write(args.join(" ") + "\r\n"); break;
+      case "clear": term.clear(); term.write("\x1b[H\x1b[2J"); break;
+      case "whoami": term.write(user + "\r\n"); break;
+      case "hostname": term.write(hostname + "\r\n"); break;
+      case "pwd": term.write((currentDir === "~" ? `/home/${user}` : currentDir) + "\r\n"); break;
+      case "date": term.write(new Date().toString() + "\r\n"); break;
+      case "uname": term.write("OxyOS 2.1.0 x86_64 GNU/Linux\r\n"); break;
       case "ls":
         term.write("\x1b[1;34mDesktop\x1b[0m  \x1b[1;34mDocuments\x1b[0m  \x1b[1;34mDownloads\x1b[0m  \x1b[1;34mMusic\x1b[0m  \x1b[1;34mPictures\x1b[0m\r\n");
-        break;
-      case "cat":
-        if (args.length === 0) {
-          term.write("cat: missing file operand\r\n");
-        } else {
-          term.write(`cat: ${args[0]}: No such file or directory\r\n`);
-        }
         break;
       case "neofetch":
         term.write(`\x1b[1;36m       ___       \x1b[0m  ${user}@${hostname}\r\n`);
@@ -201,11 +146,8 @@ function setupMockShell(term: Terminal) {
         term.write("\r\n");
         break;
       case "cd":
-        if (args.length === 0 || args[0] === "~") {
-          currentDir = "~";
-        } else {
-          currentDir = args[0] ?? currentDir;
-        }
+        if (args.length === 0 || args[0] === "~") currentDir = "~";
+        else currentDir = args[0] ?? currentDir;
         break;
       case "exit":
         term.write("\x1b[90m[Process exited]\x1b[0m\r\n");
@@ -213,29 +155,14 @@ function setupMockShell(term: Terminal) {
       default:
         term.write(`${command}: command not found\r\n`);
     }
-
     printPrompt();
   }
 
   term.onData((data) => {
     const code = data.charCodeAt(0);
-
-    if (code === 13) {
-      term.write("\r\n");
-      handleCommand(inputBuffer);
-      inputBuffer = "";
-    } else if (code === 127) {
-      if (inputBuffer.length > 0) {
-        inputBuffer = inputBuffer.slice(0, -1);
-        term.write("\b \b");
-      }
-    } else if (code === 3) {
-      term.write("^C\r\n");
-      inputBuffer = "";
-      printPrompt();
-    } else if (code >= 32) {
-      inputBuffer += data;
-      term.write(data);
-    }
+    if (code === 13) { term.write("\r\n"); handleCommand(inputBuffer); inputBuffer = ""; }
+    else if (code === 127) { if (inputBuffer.length > 0) { inputBuffer = inputBuffer.slice(0, -1); term.write("\b \b"); } }
+    else if (code === 3) { term.write("^C\r\n"); inputBuffer = ""; printPrompt(); }
+    else if (code >= 32) { inputBuffer += data; term.write(data); }
   });
 }

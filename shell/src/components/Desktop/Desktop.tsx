@@ -5,6 +5,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
 import AppLauncher from "../AppLauncher/AppLauncher";
 
+import WindowLayer from "../Window/WindowLayer";
 import OSD from "./OSD";
 import ScreenshotOverlay from "./ScreenshotOverlay";
 import AliaBubble from "../Alia/AliaBubble";
@@ -40,6 +41,9 @@ export default function Desktop() {
           />
         )}
       </AnimatePresence>
+
+      {/* App windows */}
+      <WindowLayer />
 
       {/* App Launcher */}
       <AppLauncher />

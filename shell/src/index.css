@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
 
 @layer base {
   html,
@@ -29,4 +30,9 @@
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+.xterm-viewport,
+.xterm-screen {
+  background-color: transparent !important;
 }

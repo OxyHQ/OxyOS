@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
-import { invoke, assetUrl } from "../../lib/tauri";
+import { assetUrl } from "../../lib/tauri";
+import { launchApp } from "../../lib/launchApp";
 import { appExecMap } from "../../lib/appRegistry";
 import { useInstalledApps } from "../../hooks/useInstalledApps";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -100,7 +101,7 @@ export default function AppLauncher() {
 
   const openSettings = useSettingsStore((s) => s.open);
 
-  const handleLaunch = (exec: string) => {
+  const handleLaunch = (name: string, exec: string) => {
     if (!exec) return;
     if (exec.startsWith("__internal:")) {
       const panel = exec.replace("__internal:", "");
@@ -108,7 +109,7 @@ export default function AppLauncher() {
       if (panel === "settings") openSettings();
       return;
     }
-    invoke("launch_app", { exec });
+    launchApp(name, exec);
     close();
   };
 
@@ -176,7 +177,7 @@ export default function AppLauncher() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.3), ease: [0.2, 0, 0, 1] }}
                       whileTap={{ scale: 0.85 }}
-                      onClick={() => handleLaunch(app.exec)}
+                      onClick={() => handleLaunch(app.name, app.exec)}
                       className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0"
                     >
                       <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
