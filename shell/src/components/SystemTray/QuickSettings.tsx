@@ -66,7 +66,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2 animate-[fadeIn_0.15s_ease-out]"
+      <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2 animate-[fadeIn_0.1s_ease]"
       >
         {/* ── Connectivity ── */}
         <div className="grid grid-cols-4 gap-2">
