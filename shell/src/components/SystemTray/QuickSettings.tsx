@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { invoke } from "../../lib/tauri";
@@ -67,13 +66,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      <motion.div
-        initial={{ opacity: 0, y: 8, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 8, scale: 0.97 }}
-        transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-        style={{ willChange: "opacity, transform" }}
-        className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
+      <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2 animate-[fadeIn_0.15s_ease-out]"
       >
         {/* ── Connectivity ── */}
         <div className="grid grid-cols-4 gap-2">
@@ -312,7 +305,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             </button>
           </div>
         </div>
-      </motion.div>
+      </div>
     </>
   );
 }
