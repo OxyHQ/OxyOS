@@ -151,7 +151,7 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
   }, [expression]);
 
   // Blink loop
-  const blinkRef = useRef<ReturnType<typeof setInterval>>();
+  const blinkRef = useRef<ReturnType<typeof setInterval>>(undefined);
   useEffect(() => {
     const doBlink = () => {
       animate(blinkScale, 0.1, { duration: 0.08 }).then(() =>
@@ -161,8 +161,6 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
     blinkRef.current = setInterval(doBlink, 3500);
     return () => clearInterval(blinkRef.current);
   }, []);
-
-  const scale = size / 300; // viewBox is 300×300 (35..285)
 
   return (
     <motion.div
