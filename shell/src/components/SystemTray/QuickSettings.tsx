@@ -28,10 +28,10 @@ function ConnectivityPill({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-1 rounded-[14px] px-2 py-2.5 transition-all duration-150 ${
+      className={`${glass} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
         active
-          ? "bg-white/20 text-white"
-          : "bg-white/0 text-white/55 hover:bg-white/8"
+          ? "!bg-white/20 text-white"
+          : "text-white/55 hover:bg-white/16"
       }`}
     >
       {icon}
@@ -75,7 +75,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
         {/* ── Connectivity ── */}
-        <div className={`${glass} grid grid-cols-4 gap-0 p-1.5`}>
+        <div className="grid grid-cols-4 gap-2">
           <ConnectivityPill
             active={wifiEnabled}
             onClick={toggleWifi}
