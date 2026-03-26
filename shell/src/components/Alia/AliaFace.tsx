@@ -1,104 +1,229 @@
-import { motion } from "framer-motion";
+import { useEffect, useRef } from "react";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 
-export type AliaExpression = "idle" | "thinking" | "speaking" | "listening";
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type AliaExpression =
+  | "Idle A"
+  | "Interesting"
+  | "Top Left"
+  | "Greeting"
+  | "Searching A"
+  | "Thinking"
+  | "Error"
+  | "Writing E"
+  | "Searching F"
+  | "Looking Down";
 
 interface AliaFaceProps {
-  size?: number;
   expression?: AliaExpression;
+  size?: number;
 }
 
-export default function AliaFace({ size = 28, expression = "idle" }: AliaFaceProps) {
-  const r = size / 2;
-  const eyeY = r * 0.42;
-  const eyeSpacing = r * 0.32;
-  const eyeRx = r * 0.09;
-  const eyeRy = expression === "thinking" ? r * 0.04 : r * 0.1;
+// ─── Expression data (ported from @alia.onl/sdk AliaFace.tsx) ───────────────
+//
+// leftEye:  [cx, cy, r]
+// rightEye: [cx, cy, r]
+// leftBrow: [sx, sy, cx, cy, ex, ey]           M sx sy Q cx cy ex ey
+// noseBrow: [sx, sy, c1x, c1y, c2x, c2y,       M sx sy C c1x c1y, c2x c2y, ex ey
+//            ex, ey, lx1, ly1, lx2, ly2]         L lx1 ly1 L lx2 ly2
+
+interface ExpressionData {
+  leftEye: [number, number, number];
+  rightEye: [number, number, number];
+  leftBrow: [number, number, number, number, number, number];
+  noseBrow: [number, number, number, number, number, number, number, number, number, number, number, number];
+}
+
+const EXPRESSIONS: Record<AliaExpression, ExpressionData> = {
+  "Idle A": {
+    leftEye: [123, 118, 11],
+    rightEye: [182, 126, 11],
+    leftBrow: [91, 90, 127, 53, 154, 85],
+    noseBrow: [224, 98, 195, 57, 177, 79, 160, 110, 98, 225, 149, 230],
+  },
+  Interesting: {
+    leftEye: [127, 104, 11],
+    rightEye: [191, 107, 11],
+    leftBrow: [97, 91, 122, 68, 141, 76],
+    noseBrow: [233, 79, 208, 54, 166, 59, 143, 104, 89, 192, 133, 212],
+  },
+  "Top Left": {
+    leftEye: [135, 74, 11],
+    rightEye: [181, 101, 11],
+    leftBrow: [114, 56, 145, 28, 169, 52],
+    noseBrow: [227, 104, 209, 66, 180, 68, 162, 87, 94, 174, 137, 195],
+  },
+  Greeting: {
+    leftEye: [123, 120, 11],
+    rightEye: [182, 126, 11],
+    leftBrow: [91, 70, 127, 33, 154, 65],
+    noseBrow: [224, 75, 195, 30, 177, 79, 160, 110, 98, 225, 149, 230],
+  },
+  "Searching A": {
+    leftEye: [103, 98, 11],
+    rightEye: [162, 106, 11],
+    leftBrow: [71, 70, 107, 33, 134, 65],
+    noseBrow: [204, 78, 175, 37, 157, 59, 140, 90, 78, 205, 129, 210],
+  },
+  Thinking: {
+    leftEye: [123, 118, 11],
+    rightEye: [182, 126, 11],
+    leftBrow: [91, 85, 127, 48, 154, 80],
+    noseBrow: [235, 85, 205, 65, 177, 79, 160, 110, 98, 225, 149, 230],
+  },
+  Error: {
+    leftEye: [110, 240, 11],
+    rightEye: [170, 250, 9],
+    leftBrow: [80, 210, 110, 200, 140, 220],
+    noseBrow: [250, 250, 230, 180, 203, 203, 180, 220, 120, 280, 160, 280],
+  },
+  "Writing E": {
+    leftEye: [148, 118, 11],
+    rightEye: [207, 126, 11],
+    leftBrow: [116, 90, 152, 53, 179, 85],
+    noseBrow: [249, 98, 220, 57, 202, 79, 185, 110, 123, 225, 174, 230],
+  },
+  "Searching F": {
+    leftEye: [143, 98, 11],
+    rightEye: [202, 106, 11],
+    leftBrow: [111, 70, 147, 33, 174, 65],
+    noseBrow: [244, 78, 215, 37, 197, 59, 180, 90, 118, 205, 169, 210],
+  },
+  "Looking Down": {
+    leftEye: [106, 146, 11],
+    rightEye: [168, 146, 11],
+    leftBrow: [62, 107, 96, 61, 124, 84],
+    noseBrow: [203, 90, 182, 65, 140, 85, 133, 130, 119, 238, 159, 222],
+  },
+};
+
+const DEFAULT_EXPRESSION: AliaExpression = "Idle A";
+const MORPH_MS = 600;
+
+function makeBrowD(b: number[]): string {
+  return `M ${b[0]} ${b[1]} Q ${b[2]} ${b[3]} ${b[4]} ${b[5]}`;
+}
+function makeNoseD(n: number[]): string {
+  return `M ${n[0]} ${n[1]} C ${n[2]} ${n[3]}, ${n[4]} ${n[5]}, ${n[6]} ${n[7]} L ${n[8]} ${n[9]} L ${n[10]} ${n[11]}`;
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
+
+export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }: AliaFaceProps) {
+  const data = EXPRESSIONS[expression] ?? EXPRESSIONS[DEFAULT_EXPRESSION];
+
+  // Animated motion values for morphing
+  const leCx = useMotionValue(data.leftEye[0]);
+  const leCy = useMotionValue(data.leftEye[1]);
+  const leR = useMotionValue(data.leftEye[2]);
+  const reCx = useMotionValue(data.rightEye[0]);
+  const reCy = useMotionValue(data.rightEye[1]);
+  const reR = useMotionValue(data.rightEye[2]);
+
+  const browD = useMotionValue(makeBrowD(data.leftBrow));
+  const noseD = useMotionValue(makeNoseD(data.noseBrow));
+
+  // Blink
+  const blinkScale = useMotionValue(1);
+
+  // Derived transforms for eye ry (blink)
+  const leRy = useTransform(() => leR.get() * blinkScale.get());
+  const reRy = useTransform(() => reR.get() * blinkScale.get());
+
+  // Morph on expression change
+  useEffect(() => {
+    const t = EXPRESSIONS[expression] ?? EXPRESSIONS[DEFAULT_EXPRESSION];
+    const opts = { duration: MORPH_MS / 1000, ease: [0.4, 0, 0.2, 1] as [number, number, number, number] };
+    animate(leCx, t.leftEye[0], opts);
+    animate(leCy, t.leftEye[1], opts);
+    animate(leR, t.leftEye[2], opts);
+    animate(reCx, t.rightEye[0], opts);
+    animate(reCy, t.rightEye[1], opts);
+    animate(reR, t.rightEye[2], opts);
+
+    // Path morph — snap (CSS can't tween SVG d between different structures)
+    const timer = setTimeout(() => {
+      browD.set(makeBrowD(t.leftBrow));
+      noseD.set(makeNoseD(t.noseBrow));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [expression]);
+
+  // Blink loop
+  const blinkRef = useRef<ReturnType<typeof setInterval>>();
+  useEffect(() => {
+    const doBlink = () => {
+      animate(blinkScale, 0.1, { duration: 0.08 }).then(() =>
+        animate(blinkScale, 1, { duration: 0.12 })
+      );
+    };
+    blinkRef.current = setInterval(doBlink, 3500);
+    return () => clearInterval(blinkRef.current);
+  }, []);
+
+  const scale = size / 300; // viewBox is 300×300 (35..285)
 
   return (
-    <motion.svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      animate={
-        expression === "speaking"
-          ? { scale: [1, 1.04, 1] }
-          : expression === "listening"
-            ? { scale: [1, 1.06, 1] }
-            : undefined
-      }
-      transition={
-        expression === "speaking" || expression === "listening"
-          ? { duration: expression === "speaking" ? 0.6 : 1.2, repeat: Infinity, ease: "easeInOut" }
-          : undefined
-      }
+    <motion.div
+      animate={{ y: [0, -2, 0, 2, 0] }}
+      transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+      style={{ width: size, height: size }}
     >
-      {/* Face circle — gradient */}
-      <defs>
-        <linearGradient id="alia-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#0a84ff" stopOpacity="0.5" />
-          <stop offset="100%" stopColor="#bf5af2" stopOpacity="0.5" />
-        </linearGradient>
-      </defs>
-      <circle cx={r} cy={r} r={r - 0.5} fill="url(#alia-grad)" stroke="white" strokeOpacity="0.15" strokeWidth="0.5" />
-
-      {/* Eyes */}
-      <motion.ellipse
-        cx={r - eyeSpacing}
-        cy={eyeY}
-        rx={eyeRx}
-        ry={eyeRy}
-        fill="white"
-        fillOpacity="0.9"
-        animate={
-          expression === "thinking"
-            ? { cy: [eyeY, eyeY - 1, eyeY] }
-            : expression === "listening"
-              ? { ry: [eyeRy, eyeRy * 1.4, eyeRy] }
-              : undefined
-        }
-        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.ellipse
-        cx={r + eyeSpacing}
-        cy={eyeY}
-        rx={eyeRx}
-        ry={eyeRy}
-        fill="white"
-        fillOpacity="0.9"
-        animate={
-          expression === "thinking"
-            ? { cy: [eyeY, eyeY - 1, eyeY] }
-            : expression === "listening"
-              ? { ry: [eyeRy, eyeRy * 1.4, eyeRy] }
-              : undefined
-        }
-        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
-      />
-
-      {/* Mouth — changes by expression */}
-      {expression === "speaking" ? (
-        <motion.ellipse
-          cx={r}
-          cy={r * 1.2}
-          rx={r * 0.15}
-          ry={r * 0.08}
-          fill="white"
-          fillOpacity="0.6"
-          animate={{ ry: [r * 0.06, r * 0.12, r * 0.06] }}
-          transition={{ duration: 0.4, repeat: Infinity, ease: "easeInOut" }}
-        />
-      ) : expression === "listening" ? (
-        <circle cx={r} cy={r * 1.2} r={r * 0.06} fill="white" fillOpacity="0.5" />
-      ) : (
-        <path
-          d={`M ${r - r * 0.18} ${r * 1.15} Q ${r} ${r * 1.3} ${r + r * 0.18} ${r * 1.15}`}
+      <svg
+        width={size}
+        height={size}
+        viewBox="35 35 250 250"
+        style={{ overflow: "visible" }}
+      >
+        {/* Background circle */}
+        <circle
+          cx="160"
+          cy="160"
+          r="125"
           fill="none"
           stroke="white"
-          strokeOpacity="0.5"
-          strokeWidth="0.8"
-          strokeLinecap="round"
+          strokeOpacity="0.12"
+          strokeWidth="1"
         />
-      )}
-    </motion.svg>
+
+        {/* Left brow */}
+        <motion.path
+          d={browD}
+          stroke="white"
+          strokeWidth="15"
+          strokeLinecap="round"
+          fill="none"
+        />
+
+        {/* Left eye */}
+        <motion.ellipse
+          cx={leCx}
+          cy={leCy}
+          rx={leR}
+          ry={leRy}
+          fill="white"
+        />
+
+        {/* Right eye */}
+        <motion.ellipse
+          cx={reCx}
+          cy={reCy}
+          rx={reR}
+          ry={reRy}
+          fill="white"
+        />
+
+        {/* Nose + right brow */}
+        <motion.path
+          d={noseD}
+          stroke="white"
+          strokeWidth="15"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </svg>
+    </motion.div>
   );
 }

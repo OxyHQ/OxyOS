@@ -12,10 +12,10 @@ export default function AliaBubble() {
   if (isOpen) return null;
 
   const expression: AliaExpression = isListening
-    ? "listening"
+    ? "Interesting"
     : isStreaming
-      ? "thinking"
-      : "idle";
+      ? "Writing E"
+      : "Idle A";
 
   return (
     <motion.button
@@ -27,16 +27,12 @@ export default function AliaBubble() {
       className="fixed top-4 right-4 z-50 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-white/20 bg-white/12 shadow-[0_4px_20px_rgba(0,0,0,0.3),inset_0_0.5px_0_rgba(255,255,255,0.12)] backdrop-blur-[60px] backdrop-saturate-[180%] transition-transform duration-150 hover:scale-110"
       aria-label="Open Alia"
     >
-      {/* Pulse ring when listening */}
       {isListening && (
         <span className="absolute inset-0 animate-ping rounded-full bg-[#0a84ff]/30" />
       )}
-
-      {/* Shimmer ring when streaming */}
       {isStreaming && (
         <span className="absolute inset-[-2px] animate-spin rounded-full border-2 border-transparent border-t-[#0a84ff]/50" style={{ animationDuration: "1.5s" }} />
       )}
-
       <AliaFace size={28} expression={expression} />
     </motion.button>
   );
