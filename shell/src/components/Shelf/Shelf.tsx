@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
+import { invoke } from "../../lib/tauri";
+import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
 import NotificationPanel from "../NotificationPanel/NotificationPanel";
 import { useNotificationStore } from "../../stores/notificationStore";
@@ -81,6 +83,10 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
                   key={app.name}
                   className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
                   whileTap={{ scale: 0.92 }}
+                  onClick={() => {
+                    const exec = appExecMap[app.name];
+                    if (exec) invoke("launch_app", { exec });
+                  }}
                   aria-label={app.name}
                 >
                   <div className="h-[36px] w-[36px] overflow-hidden rounded-full">
