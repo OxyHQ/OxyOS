@@ -10,8 +10,7 @@ interface QuickSettingsProps {
 const sliderThumb =
   "[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)] [&::-moz-range-thumb]:h-[18px] [&::-moz-range-thumb]:w-[18px] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)]";
 
-const glass =
-  "rounded-[18px] border border-white/15 bg-white/12 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[60px] backdrop-saturate-[180%]";
+import { glass, getBatteryVisuals } from "../../lib/styles";
 
 function ConnectivityPill({
   active,
@@ -27,7 +26,7 @@ function ConnectivityPill({
   return (
     <button
       onClick={onClick}
-      className={`${glass} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
+      className={`${glass.quickSettings} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
         active
           ? "!bg-white/20 text-white"
           : "text-white/55 hover:bg-white/16"
@@ -59,14 +58,13 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
     setBrightness,
   } = useSystemStore();
 
-  const batteryFill = Math.round((batteryLevel / 100) * 18);
-  const batteryColor = isCharging ? "#30d158" : batteryLevel <= 20 ? "#ff453a" : "white";
+  const { fillWidth: batteryFill, fillColor: batteryColor } = getBatteryVisuals(batteryLevel, isCharging);
 
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2 animate-[fadeIn_0.1s_ease]"
+      <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
         {/* ── Connectivity ── */}
         <div className="grid grid-cols-4 gap-2">
@@ -126,7 +124,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={toggleDnd}
-            className={`${glass} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
           >
             <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${dndEnabled ? "bg-[#bf5af2]" : "bg-white/12"}`}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
@@ -139,7 +137,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             </div>
           </button>
           <button
-            className={`${glass} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -156,7 +154,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         </div>
 
         {/* ── Now Playing ── */}
-        <div className={`${glass} p-3.5`}>
+        <div className={`${glass.quickSettings} p-3.5`}>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/8">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white" fillOpacity="0.35">
@@ -185,7 +183,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={toggleNightLight}
-            className={`${glass} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
+            className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
           >
             <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nightLightEnabled ? "bg-[#ff9f0a]" : "bg-white/12"}`}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
@@ -197,7 +195,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               <p className="truncate text-[9px] leading-tight text-white/40">{nightLightEnabled ? "On" : "Off"}</p>
             </div>
           </button>
-          <button className={`${glass} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}>
+          <button className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}>
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -213,7 +211,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         </div>
 
         {/* ── Brightness ── */}
-        <div className={`${glass} flex items-center gap-3 px-4 py-3`}>
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <circle cx="12" cy="12" r="5" />
           </svg>
@@ -244,7 +242,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         </div>
 
         {/* ── Volume ── */}
-        <div className={`${glass} flex items-center gap-3 px-4 py-3`}>
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <path d="M7 9v6h4l5 5V4l-5 5H7z" />
           </svg>
@@ -267,7 +265,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         </div>
 
         {/* ── Bottom bar ── */}
-        <div className={`${glass} flex items-center justify-between px-3.5 py-2`}>
+        <div className={`${glass.quickSettings} flex items-center justify-between px-3.5 py-2`}>
           <div className="flex items-center gap-2.5">
             <img src={avatarDefault} alt="User" className="h-6 w-6 rounded-full object-cover ring-1 ring-white/20" draggable={false} />
             <div className="flex items-center gap-1.5">
