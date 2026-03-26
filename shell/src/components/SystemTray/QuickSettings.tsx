@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 import { useSessionStore } from "../../stores/sessionStore";
+import { invoke } from "../../lib/tauri";
 
 interface QuickSettingsProps {
   onClose: () => void;
@@ -100,7 +101,11 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               min={0}
               max={100}
               value={brightness}
-              onChange={(e) => setBrightness(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setBrightness(val);
+                invoke("set_brightness", { level: val });
+              }}
               className="h-2 flex-1 cursor-pointer appearance-none rounded-full outline-none [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[#1a73e8] [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#1a73e8] [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)]"
               style={{ background: `linear-gradient(to right, #1a73e8 ${brightness}%, #dadce0 ${brightness}%)` }}
             />
@@ -116,7 +121,11 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               min={0}
               max={100}
               value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setVolume(val);
+                invoke("set_volume", { level: val });
+              }}
               className="h-2 flex-1 cursor-pointer appearance-none rounded-full outline-none [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-[#1a73e8] [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)] [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#1a73e8] [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(0,0,0,0.2)]"
               style={{ background: `linear-gradient(to right, #1a73e8 ${volume}%, #dadce0 ${volume}%)` }}
             />
@@ -139,6 +148,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             </button>
             <button
+              onClick={() => {
+                invoke("power_action", { action: "lock" });
+                useSessionStore.getState().logout();
+              }}
               className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[#e8eaed]"
               aria-label="Lock"
             >
@@ -148,7 +161,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             </button>
             <button
-              onClick={() => useSessionStore.getState().logout()}
+              onClick={() => invoke("power_action", { action: "shutdown" })}
               className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-[#fce8e6]"
               aria-label="Power off"
             >

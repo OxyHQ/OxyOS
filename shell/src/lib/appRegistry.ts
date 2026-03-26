@@ -1,0 +1,21 @@
+/** Maps app display names to Linux executables (or executable + args). */
+export const appExecMap: Record<string, string> = {
+  Browser: "firefox",
+  Files: "nautilus",
+  Settings: "gnome-control-center",
+  Terminal: "foot",
+  Store: "gnome-software",
+  Email: "thunderbird",
+  Maps: "gnome-maps",
+  Calendar: "gnome-calendar",
+  Photos: "eog",
+  Camera: "cheese",
+  Calculator: "gnome-calculator",
+  Clock: "gnome-clocks",
+  Radio: "shortwave",
+  Notes: "gnome-text-editor",
+  Docs: "libreoffice --writer",
+  Messages: "polari",
+  Facebook: "firefox https://facebook.com",
+  Twitter: "firefox https://twitter.com",
+};

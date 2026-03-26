@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
+import { invoke } from "../../lib/tauri";
+import { appExecMap } from "../../lib/appRegistry";
 
 import browserIcon from "../../assets/icons/browser.svg";
 
@@ -99,6 +101,10 @@ export default function AppLauncher() {
                 <button
                   key={app.name}
                   type="button"
+                  onClick={() => {
+                    const exec = appExecMap[app.name];
+                    if (exec) invoke("launch_app", { exec });
+                  }}
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0 transition-transform duration-100 active:scale-90"
                 >
                   <div className="h-[56px] w-[56px] overflow-hidden rounded-full">
