@@ -4,7 +4,7 @@ import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
 import AppLauncher from "../AppLauncher/AppLauncher";
-import ContextMenu from "./ContextMenu";
+
 import OSD from "./OSD";
 import ScreenshotOverlay from "./ScreenshotOverlay";
 import AliaBubble from "../Alia/AliaBubble";
@@ -43,9 +43,6 @@ export default function Desktop() {
 
       {/* App Launcher */}
       <AppLauncher />
-
-      {/* Desktop right-click menu */}
-      <ContextMenu />
 
       {/* Volume/brightness OSD */}
       <OSD />

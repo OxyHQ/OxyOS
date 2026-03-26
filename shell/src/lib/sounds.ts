@@ -1,6 +1,9 @@
-/** Lightweight sound effect system using Web Audio API — no external files needed */
+/** Sound effect system — uses signIn.mp3 for unlock, Web Audio API for others */
+
+import signInAudio from "../assets/signIn.mp3";
 
 const audioCtx = new AudioContext();
+const signInSound = new Audio(signInAudio);
 
 function playTone(frequency: number, duration: number, type: OscillatorType = "sine", volume = 0.08) {
   const osc = audioCtx.createOscillator();
@@ -30,8 +33,8 @@ export function playLock() {
 }
 
 export function playUnlock() {
-  playTone(330, 0.1, "sine", 0.05);
-  setTimeout(() => playTone(520, 0.15, "sine", 0.06), 80);
+  signInSound.currentTime = 0;
+  signInSound.play().catch(() => {});
 }
 
 export function playScreenshot() {
