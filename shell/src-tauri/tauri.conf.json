@@ -13,9 +13,10 @@
     "windows": [
       {
         "title": "OxyOS",
-        "fullscreen": true,
+        "maximized": true,
+        "fullscreen": false,
         "decorations": false,
-        "resizable": false,
+        "resizable": true,
         "transparent": false
       }
     ],

@@ -4,17 +4,56 @@
     <decoration>server</decoration>
     <gap>0</gap>
   </core>
+
   <theme>
-    <name></name>
-    <cornerRadius>0</cornerRadius>
-    <font name="Google Sans" size="12" />
+    <name>Adwaita</name>
+    <cornerRadius>8</cornerRadius>
+    <font name="sans-serif" size="11" />
   </theme>
-  <!-- No decorations or borders for the shell window -->
+
+  <!-- Shell window: fullscreen, no decorations, stays below other windows -->
   <windowRules>
-    <windowRule identifier="oxyos-shell">
+    <windowRule identifier="oxyos-shell" title="OxyOS">
       <action name="Maximize" />
+      <serverDecoration>no</serverDecoration>
       <skipTaskbar>yes</skipTaskbar>
       <skipWindowSwitcher>yes</skipWindowSwitcher>
     </windowRule>
   </windowRules>
+
+  <!-- Keyboard shortcuts -->
+  <keyboard>
+    <!-- Close window -->
+    <keybind key="A-F4">
+      <action name="Close" />
+    </keybind>
+    <!-- Alt+Tab window switching -->
+    <keybind key="A-Tab">
+      <action name="NextWindow" />
+    </keybind>
+    <!-- Super key opens launcher (handled by shell, but reserve it) -->
+    <keybind key="Super_L">
+      <action name="None" />
+    </keybind>
+  </keyboard>
+
+  <!-- Mouse bindings for window management -->
+  <mouse>
+    <context name="TitleBar">
+      <mousebind button="Left" action="Drag">
+        <action name="Move" />
+      </mousebind>
+      <mousebind button="Left" action="DoubleClick">
+        <action name="ToggleMaximize" />
+      </mousebind>
+    </context>
+    <context name="Frame">
+      <mousebind button="A-Left" action="Drag">
+        <action name="Move" />
+      </mousebind>
+      <mousebind button="A-Right" action="Drag">
+        <action name="Resize" />
+      </mousebind>
+    </context>
+  </mouse>
 </labwc_config>

@@ -1,2 +1,9 @@
-# OxyOS Shell — launched by labwc as the desktop shell
+# Wayland environment
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=OxyOS
+export MOZ_ENABLE_WAYLAND=1
+export GDK_BACKEND=wayland,x11
+export QT_QPA_PLATFORM=wayland
+
+# OxyOS Shell
 /usr/bin/oxyos-shell &

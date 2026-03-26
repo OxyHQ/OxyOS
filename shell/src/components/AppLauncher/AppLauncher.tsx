@@ -4,6 +4,7 @@ import { useLauncherStore } from "../../stores/launcherStore";
 import { invoke } from "../../lib/tauri";
 import { appExecMap } from "../../lib/appRegistry";
 import { useInstalledApps } from "../../hooks/useInstalledApps";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 import browserIcon from "../../assets/icons/browser.svg";
 import mailIcon from "../../assets/icons/mail.svg";
@@ -84,13 +85,14 @@ export default function AppLauncher() {
     return icon;
   }, []);
 
+  const openSettings = useSettingsStore((s) => s.open);
+
   const handleLaunch = (exec: string) => {
     if (!exec) return;
     if (exec.startsWith("__internal:")) {
-      // Handle built-in shell panels
       const panel = exec.replace("__internal:", "");
-      // For now, just close the launcher — panels will be connected later
       close();
+      if (panel === "settings") openSettings();
       return;
     }
     invoke("launch_app", { exec });
