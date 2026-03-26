@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
@@ -38,37 +38,22 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const wifiEnabled = useSystemStore((s) => s.wifiEnabled);
   const batteryLevel = useSystemStore((s) => s.batteryLevel);
   const isCharging = useSystemStore((s) => s.isCharging);
-  const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [calendarOpen, setCalendarOpen] = useState(false);
+  type TrayPanel = "quickSettings" | "notifications" | "calendar" | null;
+  const [openPanel, setOpenPanel] = useState<TrayPanel>(null);
   const toggleLauncher = useLauncherStore((s) => s.toggle);
   const notificationCount = useNotificationStore((s) => s.notifications.length);
   const running = useRunningAppsStore((s) => s.running);
   const [bouncingApp, setBouncingApp] = useState<string | null>(null);
   const isLogin = variant === "login";
 
-  const toggleQuickSettings = useCallback(() => {
-    setQuickSettingsOpen((prev) => !prev);
-    setNotificationsOpen(false);
-    setCalendarOpen(false);
+  const togglePanel = useCallback((panel: TrayPanel) => {
+    setOpenPanel((prev) => (prev === panel ? null : panel));
   }, []);
 
-  const toggleNotifications = useCallback(() => {
-    setNotificationsOpen((prev) => !prev);
-    setQuickSettingsOpen(false);
-    setCalendarOpen(false);
-  }, []);
-
-  const toggleCalendar = useCallback(() => {
-    setCalendarOpen((prev) => !prev);
-    setQuickSettingsOpen(false);
-    setNotificationsOpen(false);
-  }, []);
-
-  const shortDate = new Date().toLocaleDateString("en-US", {
+  const shortDate = useMemo(() => new Date().toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-  });
+  }), [time]);
 
   const { fillWidth, fillColor } = getBatteryVisuals(batteryLevel, isCharging);
 
@@ -144,7 +129,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
           {!isLogin && (
             <button
               className="relative flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
-              onClick={toggleNotifications}
+              onClick={() => togglePanel("notifications")}
               aria-label="Notifications"
               title="Notifications"
             >
@@ -175,7 +160,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
           {/* Icons pill — rounded left only */}
           <button
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
-            onClick={toggleQuickSettings}
+            onClick={() => togglePanel("quickSettings")}
             aria-label="System status"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
@@ -205,7 +190,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
           {/* Date + time pill — rounded right only */}
           <button
             className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
-            onClick={toggleCalendar}
+            onClick={() => togglePanel("calendar")}
             aria-label="Date and time"
           >
             <span className="text-[11px] font-medium text-white">{shortDate}&ensp;{time || "--:--"}</span>
@@ -214,19 +199,18 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
       </div>
 
       <AnimatePresence>
-        {quickSettingsOpen && (
-          <QuickSettings key="qs" onClose={() => setQuickSettingsOpen(false)} />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {notificationsOpen && (
-          <NotificationPanel key="notif" onClose={() => setNotificationsOpen(false)} />
+        {openPanel === "quickSettings" && (
+          <QuickSettings key="qs" onClose={() => setOpenPanel(null)} />
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {calendarOpen && (
-          <CalendarPopup key="cal" onClose={() => setCalendarOpen(false)} />
+        {openPanel === "notifications" && (
+          <NotificationPanel key="notif" onClose={() => setOpenPanel(null)} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {openPanel === "calendar" && (
+          <CalendarPopup key="cal" onClose={() => setOpenPanel(null)} />
         )}
       </AnimatePresence>
     </>

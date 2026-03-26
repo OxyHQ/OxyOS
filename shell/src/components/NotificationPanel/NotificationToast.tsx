@@ -2,17 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotificationStore, type Notification } from "../../stores/notificationStore";
 import { glass } from "../../lib/styles";
-import mailIcon from "../../assets/icons/mail.svg";
-import calendarIcon from "../../assets/icons/calendar.svg";
-import messagesIcon from "../../assets/icons/messages.svg";
-import settingsIcon from "../../assets/icons/settings.svg";
-
-const appIcons: Record<string, string> = {
-  Mail: mailIcon,
-  Calendar: calendarIcon,
-  Messages: messagesIcon,
-  System: settingsIcon,
-};
+import { appIcons, settingsIcon } from "./appIcons";
 
 const AUTO_DISMISS_MS = 4000;
 

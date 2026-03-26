@@ -1,21 +1,11 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useNotificationStore } from "../../stores/notificationStore";
-import mailIcon from "../../assets/icons/mail.svg";
-import calendarIcon from "../../assets/icons/calendar.svg";
-import messagesIcon from "../../assets/icons/messages.svg";
-import settingsIcon from "../../assets/icons/settings.svg";
+import { appIcons, settingsIcon } from "./appIcons";
 
 interface NotificationPanelProps {
   onClose: () => void;
 }
-
-const appIcons: Record<string, string> = {
-  Mail: mailIcon,
-  Calendar: calendarIcon,
-  Messages: messagesIcon,
-  System: settingsIcon,
-};
 
 function timeAgo(timestamp: number): string {
   const diff = Math.floor((Date.now() - timestamp) / 1000);

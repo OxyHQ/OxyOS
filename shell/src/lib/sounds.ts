@@ -1,23 +1,29 @@
-/** Sound effect system — uses signIn.mp3 for unlock, Web Audio API for others */
+/** Sound effect system — lazily initialized to avoid autoplay policy issues */
 
 import signInAudio from "../assets/signIn.mp3";
 import sosumiAudio from "../assets/Sosumi.wav";
 
-const audioCtx = new AudioContext();
-const signInSound = new Audio(signInAudio);
-const errorSound = new Audio(sosumiAudio);
+let audioCtx: AudioContext | undefined;
+let signInSound: HTMLAudioElement | undefined;
+let errorSound: HTMLAudioElement | undefined;
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new AudioContext();
+  return audioCtx;
+}
 
 function playTone(frequency: number, duration: number, type: OscillatorType = "sine", volume = 0.08) {
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
   osc.type = type;
   osc.frequency.value = frequency;
   gain.gain.value = volume;
-  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
   osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(ctx.destination);
   osc.start();
-  osc.stop(audioCtx.currentTime + duration);
+  osc.stop(ctx.currentTime + duration);
 }
 
 export function playClick() {
@@ -35,11 +41,13 @@ export function playLock() {
 }
 
 export function playUnlock() {
+  if (!signInSound) signInSound = new Audio(signInAudio);
   signInSound.currentTime = 0;
   signInSound.play().catch(() => {});
 }
 
 export function playError() {
+  if (!errorSound) errorSound = new Audio(sosumiAudio);
   errorSound.currentTime = 0;
   errorSound.play().catch(() => {});
 }

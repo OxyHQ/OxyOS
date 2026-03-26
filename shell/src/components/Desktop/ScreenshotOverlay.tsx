@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useScreenshotStore } from "../../stores/screenshotStore";
 import { glass } from "../../lib/styles";
+import { playScreenshot } from "../../lib/sounds";
 
 function captureScreen(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -95,6 +96,7 @@ export default function ScreenshotOverlay() {
       setCapturedUrl(dataUrl);
       await writeToClipboard(dataUrl);
       setShowFlash(true);
+      playScreenshot();
       setTimeout(() => setShowFlash(false), 150);
       setToastMessage("Screenshot copied to clipboard");
     } catch {

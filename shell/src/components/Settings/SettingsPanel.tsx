@@ -1,15 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useSettingsStore } from "../../stores/settingsStore";
+import { useSettingsStore, type SettingsSection } from "../../stores/settingsStore";
 import { useSystemStore } from "../../stores/systemStore";
-import { glass } from "../../lib/styles";
+import { glass, sliderThumb } from "../../lib/styles";
 
-const sliderThumb =
-  "[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)] [&::-moz-range-thumb]:h-[18px] [&::-moz-range-thumb]:w-[18px] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)]";
-
-type Section = "Wi-Fi" | "Bluetooth" | "Display" | "Sound" | "Wallpaper" | "About";
-
-const sections: { name: Section; icon: React.ReactNode }[] = [
+const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
     name: "Wi-Fi",
     icon: (
@@ -447,7 +442,7 @@ function AboutSection() {
   );
 }
 
-const sectionComponents: Record<Section, React.FC> = {
+const sectionComponents: Record<SettingsSection, React.FC> = {
   "Wi-Fi": WifiSection,
   Bluetooth: BluetoothSection,
   Display: DisplaySection,
@@ -458,7 +453,7 @@ const sectionComponents: Record<Section, React.FC> = {
 
 export default function SettingsPanel() {
   const { isOpen, close, activeSection, setActiveSection } = useSettingsStore();
-  const ActiveComponent = sectionComponents[activeSection as Section] ?? WifiSection;
+  const ActiveComponent = sectionComponents[activeSection] ?? WifiSection;
 
   return (
     <AnimatePresence>

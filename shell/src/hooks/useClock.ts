@@ -5,11 +5,14 @@ export function useClock() {
   const setTime = useSystemStore((s) => s.setTime);
 
   useEffect(() => {
+    let prevTime = "";
     function update() {
       const now = new Date();
-      setTime(
-        now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
-      );
+      const formatted = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+      if (formatted !== prevTime) {
+        prevTime = formatted;
+        setTime(formatted);
+      }
     }
     update();
     const id = setInterval(update, 1000);
