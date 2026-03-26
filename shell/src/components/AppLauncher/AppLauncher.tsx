@@ -85,10 +85,16 @@ export default function AppLauncher() {
   }, []);
 
   const handleLaunch = (exec: string) => {
-    if (exec) {
-      invoke("launch_app", { exec });
+    if (!exec) return;
+    if (exec.startsWith("__internal:")) {
+      // Handle built-in shell panels
+      const panel = exec.replace("__internal:", "");
+      // For now, just close the launcher — panels will be connected later
       close();
+      return;
     }
+    invoke("launch_app", { exec });
+    close();
   };
 
   return (
