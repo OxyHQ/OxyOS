@@ -159,7 +159,7 @@ export default function AppLauncher() {
                       onClick={() => handleLaunch(app.exec)}
                       className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0"
                     >
-                      <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-[18px] border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
+                      <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
                         <img
                           src={getIconSrc(app)}
                           alt={app.name}

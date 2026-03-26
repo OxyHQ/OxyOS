@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { invoke } from "../../lib/tauri";
+import avatarDefault from "../../assets/avatar-default.png";
 
 interface QuickSettingsProps {
   onClose: () => void;
@@ -274,15 +275,18 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
         {/* ── Bottom bar ── */}
         <div className={`${glass} flex items-center justify-between px-3.5 py-2`}>
-          <div className="flex items-center gap-2">
-            <svg width="26" height="11" viewBox="0 0 30 14" fill="none" className="rotate-180">
-              <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.2" />
-              <rect x="0" y="0" width={batteryFill} height="14" rx="5" fill={batteryColor} opacity="0.85" />
-              <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
-            </svg>
-            <span className="text-[11px] font-medium text-white/40">
-              {batteryLevel}%{isCharging ? " Charging" : ""}
-            </span>
+          <div className="flex items-center gap-2.5">
+            <img src={avatarDefault} alt="User" className="h-6 w-6 rounded-full object-cover ring-1 ring-white/20" draggable={false} />
+            <div className="flex items-center gap-1.5">
+              <svg width="22" height="10" viewBox="0 0 30 14" fill="none" className="rotate-180">
+                <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.2" />
+                <rect x="0" y="0" width={batteryFill} height="14" rx="5" fill={batteryColor} opacity="0.85" />
+                <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.3" />
+              </svg>
+              <span className="text-[10px] font-medium text-white/40">
+                {batteryLevel}%
+              </span>
+            </div>
           </div>
           <div className="flex items-center gap-0.5">
             <button className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-white/10" aria-label="Settings">
@@ -291,7 +295,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             </button>
             <button
-              onClick={() => { invoke("power_action", { action: "lock" }); useSessionStore.getState().logout(); }}
+              onClick={() => { invoke("power_action", { action: "lock" }); useSessionStore.getState().lock(); }}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-white/10" aria-label="Lock"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" strokeOpacity="0.5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

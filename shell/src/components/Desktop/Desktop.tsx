@@ -1,14 +1,19 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
 import AppLauncher from "../AppLauncher/AppLauncher";
+import ContextMenu from "./ContextMenu";
+import OSD from "./OSD";
 
 export default function Desktop() {
   const isLauncherOpen = useLauncherStore((s) => s.isOpen);
   const closeLauncher = useLauncherStore((s) => s.close);
+  useKeyboardShortcuts();
 
   return (
     <motion.div
+      data-desktop-bg
       className="wallpaper-bg relative h-screen w-screen select-none overflow-hidden"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -31,6 +36,12 @@ export default function Desktop() {
 
       {/* App Launcher */}
       <AppLauncher />
+
+      {/* Desktop right-click menu */}
+      <ContextMenu />
+
+      {/* Volume/brightness OSD */}
+      <OSD />
 
       {/* Shelf */}
       <Shelf />

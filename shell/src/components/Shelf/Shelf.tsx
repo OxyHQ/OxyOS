@@ -6,6 +6,7 @@ import { invoke } from "../../lib/tauri";
 import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
 import NotificationPanel from "../NotificationPanel/NotificationPanel";
+import CalendarPopup from "../Desktop/CalendarPopup";
 import { useNotificationStore } from "../../stores/notificationStore";
 import browserIcon from "../../assets/icons/browser.svg";
 import filesIcon from "../../assets/icons/files.svg";
@@ -37,6 +38,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const isCharging = useSystemStore((s) => s.isCharging);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const toggleLauncher = useLauncherStore((s) => s.toggle);
   const notificationCount = useNotificationStore((s) => s.notifications.length);
   const isLogin = variant === "login";
@@ -44,11 +46,19 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const toggleQuickSettings = useCallback(() => {
     setQuickSettingsOpen((prev) => !prev);
     setNotificationsOpen(false);
+    setCalendarOpen(false);
   }, []);
 
   const toggleNotifications = useCallback(() => {
     setNotificationsOpen((prev) => !prev);
     setQuickSettingsOpen(false);
+    setCalendarOpen(false);
+  }, []);
+
+  const toggleCalendar = useCallback(() => {
+    setCalendarOpen((prev) => !prev);
+    setQuickSettingsOpen(false);
+    setNotificationsOpen(false);
   }, []);
 
   const shortDate = new Date().toLocaleDateString("en-US", {
@@ -61,7 +71,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
 
   return (
     <>
-      {/* Full-width shelf — rounded top, blurred backdrop */}
+      {/* Full-width shelf */}
       <div className={`fixed right-0 bottom-0 left-0 z-40 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
         {!isLogin && (
           <>
@@ -70,6 +80,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
               onClick={toggleLauncher}
               aria-label="App launcher"
+              title="App Launcher"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
                 <path d="M12 5C15.87 5 19 8.13 19 12C19 15.87 15.87 19 12 19C8.13 19 5 15.87 5 12C5 8.13 8.13 5 12 5M12 2C17.5 2 22 6.5 22 12C22 17.5 17.5 22 12 22C6.5 22 2 17.5 2 12C2 6.5 6.5 2 12 2M12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z" />
@@ -79,34 +90,39 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
             {/* Center: Pinned apps */}
             <div className="flex items-center justify-center gap-1">
               {pinnedApps.map((app) => (
-                <motion.button
-                  key={app.name}
-                  className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
-                  whileTap={{ scale: 0.92 }}
-                  onClick={() => {
-                    const exec = appExecMap[app.name];
-                    if (exec) invoke("launch_app", { exec });
-                  }}
-                  aria-label={app.name}
-                >
-                  <div className="h-[36px] w-[36px] overflow-hidden rounded-full">
-                    <img
-                      src={app.icon}
-                      alt={app.name}
-                      className="h-full w-full object-cover"
-                      draggable={false}
-                    />
+                <div key={app.name} className="group relative flex flex-col items-center">
+                  <motion.button
+                    className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => {
+                      const exec = appExecMap[app.name];
+                      if (exec) invoke("launch_app", { exec });
+                    }}
+                    aria-label={app.name}
+                  >
+                    <div className="h-[36px] w-[36px] overflow-hidden rounded-full">
+                      <img
+                        src={app.icon}
+                        alt={app.name}
+                        className="h-full w-full object-cover"
+                        draggable={false}
+                      />
+                    </div>
+                  </motion.button>
+                  {/* Tooltip */}
+                  <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100">
+                    {app.name}
                   </div>
-                </motion.button>
+                </div>
               ))}
             </div>
           </>
         )}
 
-        {/* Spacer for login variant to push system tray right */}
+        {/* Spacer for login variant */}
         {isLogin && <div />}
 
-        {/* Right: Power + System tray */}
+        {/* Right: System tray */}
         <div className="flex h-[32px] items-center gap-[3px] justify-self-end">
           {/* Notifications button — desktop only */}
           {!isLogin && (
@@ -114,6 +130,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
               className="relative flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               onClick={toggleNotifications}
               aria-label="Notifications"
+              title="Notifications"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="white">
                 <path d="M19.993 9.042C19.48 5.017 16.054 2 11.996 2s-7.49 3.021-7.999 7.051L2.866 18H7.1c.463 2.282 2.481 4 4.9 4s4.437-1.718 4.9-4h4.236l-1.143-8.958zM12 20c-1.306 0-2.417-.835-2.829-2h5.658c-.412 1.165-1.523 2-2.829 2zm-6.866-4l.847-6.698C6.364 6.272 8.941 4 11.996 4s5.627 2.268 6.013 5.295L18.864 16H5.134z" />
@@ -148,7 +165,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
               <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
             </svg>
-            {/* Battery icon — themed fill + lightning bolt when charging */}
+            {/* Battery icon */}
             <div className="relative flex items-center">
               <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
                 <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
@@ -157,7 +174,6 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
               </svg>
               {isCharging ? (
                 <span className="absolute inset-0 flex items-center justify-center pl-1">
-                  {/* Lightning bolt */}
                   <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
                     <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
                   </svg>
@@ -173,15 +189,15 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
           {/* Date + time pill — rounded right only */}
           <button
             className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
-            onClick={toggleQuickSettings}
+            onClick={toggleCalendar}
             aria-label="Date and time"
           >
             <span className="text-[11px] font-medium text-white">{shortDate}&ensp;{time || "--:--"}</span>
           </button>
-
         </div>
       </div>
 
+      {/* Panels */}
       <AnimatePresence>
         {quickSettingsOpen && (
           <QuickSettings onClose={() => setQuickSettingsOpen(false)} />
@@ -191,6 +207,12 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
       <AnimatePresence>
         {notificationsOpen && (
           <NotificationPanel onClose={() => setNotificationsOpen(false)} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {calendarOpen && (
+          <CalendarPopup onClose={() => setCalendarOpen(false)} />
         )}
       </AnimatePresence>
     </>

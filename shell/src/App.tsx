@@ -7,15 +7,18 @@ import Desktop from "./components/Desktop/Desktop";
 
 export default function App() {
   const isLoggedIn = useSessionStore((s) => s.isLoggedIn);
+  const isLocked = useSessionStore((s) => s.isLocked);
   useClock();
   useSystemInfo();
 
+  const showLogin = !isLoggedIn || isLocked;
+
   return (
     <AnimatePresence mode="wait">
-      {isLoggedIn ? (
-        <Desktop key="desktop" />
-      ) : (
+      {showLogin ? (
         <LoginScreen key="login" />
+      ) : (
+        <Desktop key="desktop" />
       )}
     </AnimatePresence>
   );
