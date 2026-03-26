@@ -4,6 +4,7 @@ import { useSessionStore } from "../../stores/sessionStore";
 import { useSystemStore } from "../../stores/systemStore";
 import avatarDefault from "../../assets/avatar-default.png";
 import Shelf from "../Shelf/Shelf";
+import { playError } from "../../lib/sounds";
 
 const CORRECT_PASSWORD = "1234";
 
@@ -33,6 +34,7 @@ export default function LoginScreen() {
         });
         setPassword("");
         setShowError(true);
+        playError();
       }
     },
     [password, shakeControls],

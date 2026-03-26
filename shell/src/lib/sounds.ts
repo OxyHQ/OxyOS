@@ -1,9 +1,11 @@
 /** Sound effect system — uses signIn.mp3 for unlock, Web Audio API for others */
 
 import signInAudio from "../assets/signIn.mp3";
+import sosumiAudio from "../assets/Sosumi.wav";
 
 const audioCtx = new AudioContext();
 const signInSound = new Audio(signInAudio);
+const errorSound = new Audio(sosumiAudio);
 
 function playTone(frequency: number, duration: number, type: OscillatorType = "sine", volume = 0.08) {
   const osc = audioCtx.createOscillator();
@@ -35,6 +37,11 @@ export function playLock() {
 export function playUnlock() {
   signInSound.currentTime = 0;
   signInSound.play().catch(() => {});
+}
+
+export function playError() {
+  errorSound.currentTime = 0;
+  errorSound.play().catch(() => {});
 }
 
 export function playScreenshot() {
