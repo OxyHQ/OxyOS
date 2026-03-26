@@ -77,7 +77,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                       <img
                         src={appIcons[group.app] ?? settingsIcon}
                         alt={group.app}
-                        className="h-4 w-4 rounded-[4px] object-cover"
+                        className="h-4 w-4 rounded-full object-cover"
                         draggable={false}
                       />
                       <span className="text-[11px] font-semibold tracking-wide text-white/60 uppercase">
@@ -125,7 +125,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                         <img
                           src={appIcons[notification.app] ?? settingsIcon}
                           alt={notification.app}
-                          className="mt-0.5 h-8 w-8 shrink-0 rounded-lg object-cover"
+                          className="mt-0.5 h-8 w-8 shrink-0 rounded-full object-cover"
                           draggable={false}
                         />
 
