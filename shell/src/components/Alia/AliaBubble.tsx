@@ -1,5 +1,7 @@
 import { motion } from "framer-motion";
 import { useAliaStore } from "../../stores/aliaStore";
+import AliaFace from "./AliaFace";
+import type { AliaExpression } from "./AliaFace";
 
 export default function AliaBubble() {
   const isOpen = useAliaStore((s) => s.isOpen);
@@ -8,6 +10,12 @@ export default function AliaBubble() {
   const toggle = useAliaStore((s) => s.toggle);
 
   if (isOpen) return null;
+
+  const expression: AliaExpression = isListening
+    ? "listening"
+    : isStreaming
+      ? "thinking"
+      : "idle";
 
   return (
     <motion.button
@@ -29,17 +37,7 @@ export default function AliaBubble() {
         <span className="absolute inset-[-2px] animate-spin rounded-full border-2 border-transparent border-t-[#0a84ff]/50" style={{ animationDuration: "1.5s" }} />
       )}
 
-      {/* Sparkle icon */}
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="relative">
-        <path
-          d="M12 2L13.5 8.5L20 7L14.5 11L18 17L12 13.5L6 17L9.5 11L4 7L10.5 8.5L12 2Z"
-          fill="white"
-          fillOpacity={isListening ? "1" : "0.75"}
-          stroke="white"
-          strokeOpacity="0.3"
-          strokeWidth="0.5"
-        />
-      </svg>
+      <AliaFace size={28} expression={expression} />
     </motion.button>
   );
 }
