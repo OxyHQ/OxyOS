@@ -3,11 +3,14 @@ import { useLauncherStore } from "../../stores/launcherStore";
 import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
+import Widgets from "./Widgets";
 import AppLauncher from "../AppLauncher/AppLauncher";
 import ContextMenu from "./ContextMenu";
 import OSD from "./OSD";
+import ScreenshotOverlay from "./ScreenshotOverlay";
 import AliaBubble from "../Alia/AliaBubble";
 import AliaPanel from "../Alia/AliaPanel";
+import NotificationToast from "../NotificationPanel/NotificationToast";
 
 export default function Desktop() {
   const isLauncherOpen = useLauncherStore((s) => s.isOpen);
@@ -54,6 +57,15 @@ export default function Desktop() {
       <AnimatePresence>
         {aliaOpen && <AliaPanel key="alia-panel" />}
       </AnimatePresence>
+
+      {/* Screenshot tool */}
+      <ScreenshotOverlay />
+
+      {/* Notification toasts */}
+      <NotificationToast />
+
+      {/* Desktop widgets */}
+      <Widgets />
 
       {/* Shelf */}
       <Shelf />
