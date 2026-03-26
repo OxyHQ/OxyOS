@@ -129,9 +129,9 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
         run: |
-          aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/${{ env.ISO_FILE }}" \
+          aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/downloads/${{ env.ISO_FILE }}" \
             --endpoint-url https://ams3.digitaloceanspaces.com \
             --acl public-read
-          aws s3 cp "${{ env.MD5_FILE }}" "s3://oxyos/${{ env.MD5_FILE }}" \
+          aws s3 cp "${{ env.MD5_FILE }}" "s3://oxyos/downloads/${{ env.MD5_FILE }}" \
             --endpoint-url https://ams3.digitaloceanspaces.com \
             --acl public-read
