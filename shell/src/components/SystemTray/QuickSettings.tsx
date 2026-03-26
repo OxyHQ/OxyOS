@@ -42,9 +42,9 @@ function ConnectivityPill({
 function Row({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0.01, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, delay, ease: [0.2, 0, 0, 1] }}
+      transition={{ duration: 0.2, delay, ease: [0.2, 0, 0, 1] }}
       className={className}
     >
       {children}
