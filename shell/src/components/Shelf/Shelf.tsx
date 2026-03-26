@@ -60,7 +60,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   return (
     <>
       {/* Full-width shelf — rounded top, blurred backdrop */}
-      <div className={`fixed right-0 bottom-0 left-0 z-40 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl bg-black/50 backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
+      <div className={`fixed right-0 bottom-0 left-0 z-40 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
         {!isLogin && (
           <>
             {/* Left: Launcher button */}
