@@ -1,14 +1,18 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
+import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import Shelf from "../Shelf/Shelf";
 import AppLauncher from "../AppLauncher/AppLauncher";
 import ContextMenu from "./ContextMenu";
 import OSD from "./OSD";
+import AliaBubble from "../Alia/AliaBubble";
+import AliaPanel from "../Alia/AliaPanel";
 
 export default function Desktop() {
   const isLauncherOpen = useLauncherStore((s) => s.isOpen);
   const closeLauncher = useLauncherStore((s) => s.close);
+  const aliaOpen = useAliaStore((s) => s.isOpen);
   useKeyboardShortcuts();
 
   return (
@@ -42,6 +46,14 @@ export default function Desktop() {
 
       {/* Volume/brightness OSD */}
       <OSD />
+
+      {/* Alia AI assistant */}
+      <AnimatePresence>
+        {!aliaOpen && <AliaBubble key="alia-bubble" />}
+      </AnimatePresence>
+      <AnimatePresence>
+        {aliaOpen && <AliaPanel key="alia-panel" />}
+      </AnimatePresence>
 
       {/* Shelf */}
       <Shelf />
