@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { invoke } from "../../lib/tauri";
@@ -38,6 +39,19 @@ function ConnectivityPill({
   );
 }
 
+function Row({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, delay, ease: [0.2, 0, 0, 1] }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 function QuickSettings({ onClose }: QuickSettingsProps) {
   const {
     wifiEnabled,
@@ -67,7 +81,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
       <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
         {/* ── Connectivity ── */}
-        <div className="grid grid-cols-4 gap-2">
+        <Row delay={0} className="grid grid-cols-4 gap-2">
           <ConnectivityPill
             active={wifiEnabled}
             onClick={toggleWifi}
@@ -118,10 +132,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             }
           />
-        </div>
+        </Row>
 
         {/* ── Focus + Stage Manager ── */}
-        <div className="grid grid-cols-2 gap-2">
+        <Row delay={0.03} className="grid grid-cols-2 gap-2">
           <button
             onClick={toggleDnd}
             className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
@@ -151,9 +165,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               <p className="truncate text-[9px] leading-tight text-white/40">Off</p>
             </div>
           </button>
-        </div>
+        </Row>
 
         {/* ── Now Playing ── */}
+        <Row delay={0.06}>
         <div className={`${glass.quickSettings} p-3.5`}>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/8">
@@ -178,9 +193,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             </div>
           </div>
         </div>
+        </Row>
 
         {/* ── Night Light + Display row ── */}
-        <div className="grid grid-cols-2 gap-2">
+        <Row delay={0.09} className="grid grid-cols-2 gap-2">
           <button
             onClick={toggleNightLight}
             className={`${glass.quickSettings} flex items-center gap-2.5 px-3.5 py-3 transition-colors`}
@@ -208,9 +224,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               <p className="truncate text-[9px] leading-tight text-white/40">Built-in</p>
             </div>
           </button>
-        </div>
+        </Row>
 
         {/* ── Brightness ── */}
+        <Row delay={0.12}>
         <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <circle cx="12" cy="12" r="5" />
@@ -240,8 +257,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </div>
+        </Row>
 
         {/* ── Volume ── */}
+        <Row delay={0.15}>
         <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <path d="M7 9v6h4l5 5V4l-5 5H7z" />
@@ -263,8 +282,10 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
           </svg>
         </div>
+        </Row>
 
         {/* ── Bottom bar ── */}
+        <Row delay={0.18}>
         <div className={`${glass.quickSettings} flex items-center justify-between px-3.5 py-2`}>
           <div className="flex items-center gap-2.5">
             <img src={avatarDefault} alt="User" className="h-6 w-6 rounded-full object-cover ring-1 ring-white/20" draggable={false} />
@@ -303,6 +324,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             </button>
           </div>
         </div>
+        </Row>
       </div>
     </>
   );
