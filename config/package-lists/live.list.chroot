@@ -2,18 +2,20 @@ live-boot
 live-config
 live-config-systemd
 
+# Core system
 sudo
 apt-transport-https
 psmisc
 cryptsetup
 oxyos-metapackage
 
-# Wayland compositor
+# Display manager + Wayland compositor
+greetd
 labwc
 seatd
 xwayland
 
-# OxyOS shell dependencies (Tauri/WebKitGTK)
+# OxyOS shell runtime dependencies (Tauri/WebKitGTK)
 libwebkit2gtk-4.1-0
 libgtk-3-0
 libayatana-appindicator3-1
@@ -21,10 +23,15 @@ librsvg2-common
 gstreamer1.0-plugins-base
 gstreamer1.0-plugins-good
 
-# Display manager
-greetd
-
-# System utilities for shell
+# System services
 network-manager
 pulseaudio
 upower
+dbus-x11
+
+# Fonts
+fonts-freefont-ttf
+fonts-liberation
+
+# Hardware
+firmware-linux-free
