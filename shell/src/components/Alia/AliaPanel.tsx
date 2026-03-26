@@ -1,10 +1,17 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAliaStore } from "../../stores/aliaStore";
 import { streamChat } from "../../lib/alia";
 import AliaFace from "./AliaFace";
 import type { AliaExpression } from "./AliaFace";
 import AliaWelcome from "./AliaWelcome";
+import { glass } from "../../lib/styles";
+
+function buildHistory(messages: { id: string; role: string; content: string }[]) {
+  return messages
+    .filter((m) => m.id !== "greeting")
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+}
 
 export default function AliaPanel() {
   const messages = useAliaStore((s) => s.messages);
@@ -29,30 +36,19 @@ export default function AliaPanel() {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
-  // Face expression — matches original SDK logic
-  const faceExpression = useMemo<AliaExpression>(() => {
-    if (!isStreaming) return "Idle A";
-    const last = messages[messages.length - 1];
-    if (last?.role === "assistant" && !last.content) return "Thinking";
-    if (last?.role === "assistant" && last.content) return "Writing E";
-    return "Idle A";
-  }, [messages, isStreaming]);
+  // Face expression derived from state
+  const lastMessage = messages[messages.length - 1];
+  const faceExpression: AliaExpression = !isStreaming
+    ? "Idle A"
+    : lastMessage?.role === "assistant" && lastMessage.content
+      ? "Writing E"
+      : lastMessage?.role === "assistant"
+        ? "Thinking"
+        : "Idle A";
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim();
-    if (!text || isStreaming) return;
-
-    setInput("");
-    addMessage("user", text);
-
-    const store = useAliaStore.getState();
-    const chatHistory = [...store.messages, { id: "", role: "user" as const, content: text, timestamp: 0 }]
-      .filter((m) => m.id !== "greeting")
-      .map((m) => ({ role: m.role, content: m.content }));
-
+  const runStream = useCallback(async (chatHistory: { role: "user" | "assistant"; content: string }[]) => {
     addMessage("assistant", "");
     setStreaming(true);
-
     try {
       for await (const delta of streamChat(chatHistory)) {
         appendToLastMessage(delta);
@@ -64,7 +60,23 @@ export default function AliaPanel() {
     } finally {
       setStreaming(false);
     }
-  }, [input, isStreaming, addMessage, appendToLastMessage, setStreaming]);
+  }, [addMessage, appendToLastMessage, setStreaming]);
+
+  const sendMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
+    setInput("");
+    addMessage("user", text);
+    const history = buildHistory([...useAliaStore.getState().messages, { id: "", role: "user", content: text }]);
+    await runStream(history);
+  }, [input, isStreaming, addMessage, runStream]);
+
+  const handleSuggestion = useCallback((text: string) => {
+    setInput("");
+    addMessage("user", text);
+    const history = buildHistory([...useAliaStore.getState().messages, { id: "", role: "user", content: text }]);
+    runStream(history);
+  }, [addMessage, runStream]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -76,45 +88,16 @@ export default function AliaPanel() {
   const hasText = input.trim().length > 0;
   const showWelcome = messages.length <= 1 && messages[0]?.id === "greeting";
 
-  const handleSuggestion = useCallback((text: string) => {
-    setInput(text);
-    // Auto-send after a tick so the input renders first
-    requestAnimationFrame(() => {
-      addMessage("user", text);
-      const store = useAliaStore.getState();
-      const chatHistory = store.messages
-        .filter((m) => m.id !== "greeting")
-        .map((m) => ({ role: m.role, content: m.content }));
-      chatHistory.push({ role: "user", content: text });
-      addMessage("assistant", "");
-      setStreaming(true);
-      setInput("");
-      (async () => {
-        try {
-          for await (const delta of streamChat(chatHistory)) {
-            useAliaStore.getState().appendToLastMessage(delta);
-          }
-        } catch (err) {
-          useAliaStore.getState().appendToLastMessage(
-            err instanceof Error ? `\n\n_Error: ${err.message}_` : "\n\n_Something went wrong._"
-          );
-        } finally {
-          useAliaStore.getState().setStreaming(false);
-        }
-      })();
-    });
-  }, [addMessage, setStreaming]);
-
   return (
     <motion.div
       initial={{ opacity: 0, y: -8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-      className="fixed top-4 right-4 z-50 flex w-[420px] origin-top-right flex-col overflow-hidden rounded-[20px] border border-white/20 bg-white/12 shadow-[0_8px_40px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"
+      className={`${glass.floatingPanel} fixed top-4 right-4 z-50 flex w-[420px] origin-top-right flex-col overflow-hidden`}
       style={{ maxHeight: "calc(100vh - 80px)" }}
     >
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <AliaFace size={28} expression={faceExpression} />
@@ -143,7 +126,7 @@ export default function AliaPanel() {
         </div>
       </div>
 
-      {/* ── Messages — matches SDK AliaChatMessageList layout ── */}
+      {/* Messages */}
       <div
         className="flex-1 overflow-y-auto px-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ maxHeight: "calc(100vh - 220px)" }}
@@ -153,7 +136,6 @@ export default function AliaPanel() {
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => {
               const isLast = i === messages.length - 1;
-
               return (
                 <motion.div
                   key={msg.id}
@@ -162,31 +144,22 @@ export default function AliaPanel() {
                   transition={{ duration: 0.2 }}
                 >
                   {msg.role === "user" ? (
-                    /* ── User bubble: rounded-[24px] border blur (from SDK UserBubble) ── */
-                    <div className="flex flex-col items-end gap-0.5">
-                      <div className="max-w-[85%] overflow-hidden rounded-[24px] border border-white/15 bg-white/8 backdrop-blur-sm">
-                        <div className="px-4 py-2">
-                          <p className="text-[15px] leading-7 text-white/90">
-                            {msg.content}
-                          </p>
-                        </div>
-                      </div>
+                    <div className="flex flex-col items-end">
+                      <p className="max-w-[85%] rounded-[24px] border border-white/15 bg-white/8 px-4 py-2 text-[15px] leading-7 text-white/90 backdrop-blur-sm">
+                        {msg.content}
+                      </p>
                     </div>
                   ) : (
-                    /* ── Assistant message: plain text, full width (from SDK AssistantMessage) ── */
                     <div className="w-full">
                       {msg.content ? (
                         <p className="whitespace-pre-wrap text-[15px] leading-7 text-white/80">
                           {msg.content}
                         </p>
                       ) : isStreaming && isLast ? (
-                        /* ThinkingIndicator — matches SDK ThinkingIndicator */
-                        <div className="flex items-center gap-2 py-2">
-                          <div className="flex gap-1">
-                            <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "0ms" }} />
-                            <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "150ms" }} />
-                            <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "300ms" }} />
-                          </div>
+                        <div className="flex gap-1 py-2">
+                          <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "0ms" }} />
+                          <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "150ms" }} />
+                          <span className="h-2 w-2 animate-bounce rounded-full bg-white/25" style={{ animationDelay: "300ms" }} />
                         </div>
                       ) : null}
                     </div>
@@ -199,10 +172,9 @@ export default function AliaPanel() {
         </div>
       </div>
 
-      {/* ── Input bar — matches SDK AliaChatInput layout ── */}
+      {/* Input */}
       <div className="border-t border-white/8 px-3 py-2.5">
         <div className="flex items-end gap-2">
-          {/* STT mic button */}
           <button
             onClick={toggleListening}
             className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all ${
@@ -220,7 +192,6 @@ export default function AliaPanel() {
             </svg>
           </button>
 
-          {/* Text input */}
           <div className="flex min-h-[40px] flex-1 items-center overflow-hidden rounded-[20px] bg-white/6 transition-colors focus-within:bg-white/10">
             <textarea
               ref={inputRef}
@@ -233,7 +204,6 @@ export default function AliaPanel() {
             />
           </div>
 
-          {/* Three-state action button (matches SDK: stop / send / voice) */}
           {isStreaming ? (
             <button
               onClick={() => setStreaming(false)}

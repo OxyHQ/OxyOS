@@ -22,18 +22,18 @@ interface AliaState {
   clearMessages: () => void;
 }
 
+const makeGreeting = (): AliaMessage => ({
+  id: "greeting",
+  role: "assistant",
+  content: "Hi, I'm Alia. How can I help you today?",
+  timestamp: Date.now(),
+});
+
 export const useAliaStore = create<AliaState>((set) => ({
   isOpen: false,
   isListening: false,
   isStreaming: false,
-  messages: [
-    {
-      id: "greeting",
-      role: "assistant",
-      content: "Hi, I'm Alia. How can I help you today?",
-      timestamp: Date.now(),
-    },
-  ],
+  messages: [makeGreeting()],
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
@@ -59,15 +59,5 @@ export const useAliaStore = create<AliaState>((set) => ({
       return { messages: msgs };
     }),
 
-  clearMessages: () =>
-    set({
-      messages: [
-        {
-          id: "greeting",
-          role: "assistant",
-          content: "Hi, I'm Alia. How can I help you today?",
-          timestamp: Date.now(),
-        },
-      ],
-    }),
+  clearMessages: () => set({ messages: [makeGreeting()] }),
 }));

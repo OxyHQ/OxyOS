@@ -9,15 +9,8 @@ export default function OSD() {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const prevVolume = useRef(volume);
   const prevBrightness = useRef(brightness);
-  const mounted = useRef(false);
 
-  // Single effect for both volume and brightness — show OSD on change
   useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true;
-      return;
-    }
-
     let type: "volume" | "brightness" | null = null;
     if (volume !== prevVolume.current) {
       prevVolume.current = volume;
@@ -26,13 +19,11 @@ export default function OSD() {
       prevBrightness.current = brightness;
       type = "brightness";
     }
+    if (!type) return;
 
-    if (type) {
-      setVisible(type);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setVisible(null), 1500);
-    }
-
+    setVisible(type);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setVisible(null), 1500);
     return () => clearTimeout(timerRef.current);
   }, [volume, brightness]);
 
