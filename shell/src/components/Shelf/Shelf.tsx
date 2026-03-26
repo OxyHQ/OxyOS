@@ -197,12 +197,12 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
         </div>
       </div>
 
-      {/* Control Center — CSS animation, no framer-motion wrapper */}
-      {quickSettingsOpen && (
-        <QuickSettings onClose={() => setQuickSettingsOpen(false)} />
-      )}
+      <AnimatePresence>
+        {quickSettingsOpen && (
+          <QuickSettings key="qs" onClose={() => setQuickSettingsOpen(false)} />
+        )}
+      </AnimatePresence>
 
-      {/* Notifications + Calendar — framer-motion animated */}
       <AnimatePresence>
         {notificationsOpen && (
           <NotificationPanel key="notif" onClose={() => setNotificationsOpen(false)} />
