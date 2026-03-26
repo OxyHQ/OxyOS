@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { useNotificationStore } from "../../stores/notificationStore";
 import { appIcons, settingsIcon } from "./appIcons";
-import { glass } from "../../lib/styles";
+
 
 interface NotificationPanelProps {
   onClose: () => void;
@@ -47,7 +47,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-        className={`${glass.floatingPanel} fixed right-2 bottom-[64px] z-50 flex w-[380px] origin-bottom-right flex-col`}
+        className="liquid-glass rounded-[20px] border border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.15)] fixed right-2 bottom-[64px] z-50 flex w-[380px] origin-bottom-right flex-col"
         style={{ maxHeight: "calc(100vh - 100px)" }}
       >
         {/* Header */}

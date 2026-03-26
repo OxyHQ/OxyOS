@@ -38,7 +38,7 @@ export default function OSD() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
-          className="fixed top-6 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/15 bg-white/12 px-5 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] backdrop-blur-[60px]"
+          className="fixed top-6 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/15 px-5 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] liquid-glass"
         >
           {visible === "volume" ? (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="white" fillOpacity="0.7">
