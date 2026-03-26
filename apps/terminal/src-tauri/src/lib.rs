@@ -12,5 +12,5 @@ pub fn run() {
             pty::pty_kill,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running oxy-terminal");
+        .expect("error while running oxterm");
 }

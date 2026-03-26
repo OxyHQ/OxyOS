@@ -2,8 +2,6 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 
-const TERM_ID = "main";
-
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   try {
     if (window.__TAURI_INTERNALS__) {
@@ -20,7 +18,11 @@ function isNative(): boolean {
   return !!window.__TAURI_INTERNALS__;
 }
 
-export default function TerminalView() {
+interface TerminalViewProps {
+  ptyId: string;
+}
+
+export default function TerminalView({ ptyId }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
 
@@ -66,18 +68,16 @@ export default function TerminalView() {
     term.loadAddon(fitAddon);
     term.open(container);
 
-    // Initial fit after a frame so the container has dimensions
     requestAnimationFrame(() => {
       fitAddon.fit();
-      setupPty(term, fitAddon);
+      setupPty(term, ptyId);
     });
 
-    // Resize observer
     const resizeObserver = new ResizeObserver(() => {
       fitAddon.fit();
       if (isNative()) {
         invoke("pty_resize", {
-          id: TERM_ID,
+          id: ptyId,
           cols: term.cols,
           rows: term.rows,
         });
@@ -90,49 +90,44 @@ export default function TerminalView() {
     return () => {
       resizeObserver.disconnect();
       if (isNative()) {
-        invoke("pty_kill", { id: TERM_ID });
+        invoke("pty_kill", { id: ptyId });
       }
       term.dispose();
     };
-  }, []);
+  }, [ptyId]);
 
   return (
     <div
       ref={containerRef}
-      className="h-full w-full px-2 pb-2"
+      className="h-full w-full px-1 pb-1"
     />
   );
 }
 
-async function setupPty(term: Terminal, _fitAddon: FitAddon) {
+async function setupPty(term: Terminal, ptyId: string) {
   if (isNative()) {
-    // Native mode — real PTY
     const { listen } = await import("@tauri-apps/api/event");
 
     await invoke("pty_spawn", {
-      id: TERM_ID,
+      id: ptyId,
       cols: term.cols,
       rows: term.rows,
     });
 
-    // PTY output → xterm
-    const unlistenData = await listen<string>(`pty-data-${TERM_ID}`, (event) => {
+    const unlistenData = await listen<string>(`pty-data-${ptyId}`, (event) => {
       term.write(event.payload);
     });
 
-    // PTY exit
-    const unlistenExit = await listen(`pty-exit-${TERM_ID}`, () => {
+    const unlistenExit = await listen(`pty-exit-${ptyId}`, () => {
       term.write("\r\n\x1b[90m[Process exited]\x1b[0m\r\n");
       unlistenData();
       unlistenExit();
     });
 
-    // xterm input → PTY
     term.onData((data) => {
-      invoke("pty_write", { id: TERM_ID, data });
+      invoke("pty_write", { id: ptyId, data });
     });
   } else {
-    // Browser demo mode — mock shell
     setupMockShell(term);
   }
 }
@@ -143,7 +138,7 @@ function setupMockShell(term: Terminal) {
   let currentDir = "~";
   let inputBuffer = "";
 
-  term.write(`\x1b[1;36mOxyOS Terminal\x1b[0m \x1b[90m(Demo Mode)\x1b[0m\r\n`);
+  term.write(`\x1b[1;36mOxTerm\x1b[0m \x1b[90m(Demo Mode)\x1b[0m\r\n`);
   term.write(`\x1b[90mType 'help' for available commands.\x1b[0m\r\n\r\n`);
   printPrompt();
 
@@ -202,7 +197,7 @@ function setupMockShell(term: Terminal) {
         term.write(`\x1b[1;36m     |  ^  |     \x1b[0m  \x1b[1mKernel:\x1b[0m 6.6.x\r\n`);
         term.write(`\x1b[1;36m      \\___/      \x1b[0m  \x1b[1mShell:\x1b[0m bash\r\n`);
         term.write(`\x1b[1;36m     /     \\     \x1b[0m  \x1b[1mDE:\x1b[0m OxyShell\r\n`);
-        term.write(`\x1b[1;36m    /_______\\    \x1b[0m  \x1b[1mTerminal:\x1b[0m oxy-terminal\r\n`);
+        term.write(`\x1b[1;36m    /_______\\    \x1b[0m  \x1b[1mTerminal:\x1b[0m oxterm\r\n`);
         term.write("\r\n");
         break;
       case "cd":
@@ -226,23 +221,19 @@ function setupMockShell(term: Terminal) {
     const code = data.charCodeAt(0);
 
     if (code === 13) {
-      // Enter
       term.write("\r\n");
       handleCommand(inputBuffer);
       inputBuffer = "";
     } else if (code === 127) {
-      // Backspace
       if (inputBuffer.length > 0) {
         inputBuffer = inputBuffer.slice(0, -1);
         term.write("\b \b");
       }
     } else if (code === 3) {
-      // Ctrl+C
       term.write("^C\r\n");
       inputBuffer = "";
       printPrompt();
     } else if (code >= 32) {
-      // Printable character
       inputBuffer += data;
       term.write(data);
     }

@@ -1,5 +1,5 @@
 {
-  "name": "oxy-terminal",
+  "name": "oxterm",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -14,11 +14,12 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.5.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@tauri-apps/cli": "^2.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

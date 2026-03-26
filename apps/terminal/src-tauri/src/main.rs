@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    oxy_terminal_lib::run()
+    oxterm_lib::run()
 }

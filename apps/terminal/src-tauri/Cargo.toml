@@ -1,11 +1,11 @@
 [package]
-name = "oxy-terminal"
+name = "oxterm"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "oxy_terminal_lib"
+name = "oxterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

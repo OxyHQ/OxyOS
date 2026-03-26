@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLauncherStore } from "../stores/launcherStore";
+import { useScreenshotStore } from "../stores/screenshotStore";
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -8,6 +9,12 @@ export function useKeyboardShortcuts() {
       if (e.key === "Meta" && !e.repeat) {
         e.preventDefault();
         useLauncherStore.getState().toggle();
+      }
+
+      // Ctrl+Shift+S to activate screenshot tool
+      if (e.ctrlKey && e.shiftKey && e.key === "S") {
+        e.preventDefault();
+        useScreenshotStore.getState().activate();
       }
 
       // Escape to close launcher and any open panels

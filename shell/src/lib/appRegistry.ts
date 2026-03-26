@@ -3,7 +3,7 @@ export const appExecMap: Record<string, string> = {
   Browser: "firefox",
   Files: "nautilus",
   Settings: "gnome-control-center",
-  Terminal: "oxy-terminal",
+  Terminal: "oxterm",
   Store: "gnome-software",
   Email: "thunderbird",
   Maps: "gnome-maps",
