@@ -28,10 +28,10 @@ function ConnectivityPill({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-1 rounded-[18px] border border-white/15 px-2 py-2.5 transition-all duration-150 ${
+      className={`${glass} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
         active
-          ? "bg-white/20 text-white shadow-[inset_0_0.5px_0_rgba(255,255,255,0.1)]"
-          : "bg-white/8 text-white/55 hover:bg-white/14"
+          ? "!bg-white/20 text-white"
+          : "text-white/55 hover:bg-white/16"
       }`}
     >
       {icon}
@@ -72,6 +72,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+        style={{ willChange: "opacity, transform" }}
         className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2"
       >
         {/* ── Connectivity ── */}

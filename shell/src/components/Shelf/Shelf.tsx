@@ -197,22 +197,16 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
         </div>
       </div>
 
-      {/* Panels */}
-      <AnimatePresence>
+      {/* Panels — single AnimatePresence so exits complete before enters */}
+      <AnimatePresence mode="wait">
         {quickSettingsOpen && (
-          <QuickSettings onClose={() => setQuickSettingsOpen(false)} />
+          <QuickSettings key="qs" onClose={() => setQuickSettingsOpen(false)} />
         )}
-      </AnimatePresence>
-
-      <AnimatePresence>
         {notificationsOpen && (
-          <NotificationPanel onClose={() => setNotificationsOpen(false)} />
+          <NotificationPanel key="notif" onClose={() => setNotificationsOpen(false)} />
         )}
-      </AnimatePresence>
-
-      <AnimatePresence>
         {calendarOpen && (
-          <CalendarPopup onClose={() => setCalendarOpen(false)} />
+          <CalendarPopup key="cal" onClose={() => setCalendarOpen(false)} />
         )}
       </AnimatePresence>
     </>
