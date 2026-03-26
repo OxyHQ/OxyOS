@@ -90,8 +90,19 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
         {/* Spacer for login variant to push system tray right */}
         {isLogin && <div />}
 
-        {/* Right: System tray — joined pills (rounded outside only) */}
-        <div className="flex items-center gap-[3px] justify-self-end">
+        {/* Right: Power + System tray */}
+        <div className="flex h-[32px] items-center gap-[3px] justify-self-end">
+          {/* Power button */}
+          <button
+            className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
+            aria-label="Power"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+          </button>
+
           {/* Icons pill — rounded left only */}
           <button
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
@@ -132,16 +143,6 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
             <span className="text-[11px] font-medium text-white">{shortDate}&ensp;{time || "--:--"}</span>
           </button>
 
-          {/* Power button */}
-          <button
-            className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
-            aria-label="Power"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-              <line x1="12" y1="2" x2="12" y2="12" />
-            </svg>
-          </button>
         </div>
       </div>
 
