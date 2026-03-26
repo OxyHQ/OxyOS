@@ -24,31 +24,7 @@ export function useSystemInfo() {
 
     async function setup() {
       try {
-        // Fire username fetch in parallel but don't block system metrics on it
-        const usernamePromise = invoke<string>("get_username");
-
-        const [battery, wifi, vol, bright] = await Promise.all([
-          invoke<{ level: number; charging: boolean }>("get_battery_info"),
-          invoke<{ enabled: boolean; ssid: string | null; strength: number }>("get_wifi_info"),
-          invoke<{ level: number; muted: boolean }>("get_volume"),
-          invoke<number>("get_brightness"),
-        ]);
-
-        if (cancelled) return;
-
-        const update: Partial<ReturnType<typeof useSystemStore.getState>> = {};
-        if (battery != null) { update.batteryLevel = battery.level; update.isCharging = battery.charging; }
-        if (wifi != null) { update.wifiEnabled = wifi.enabled; }
-        if (vol != null) { update.volume = vol.level; }
-        if (bright != null) { update.brightness = bright; }
-        useSystemStore.setState(update);
-
-        const username = await usernamePromise;
-        if (!cancelled && username != null) {
-          useSessionStore.getState().setUsername(username);
-        }
-
-        // Listen for ongoing changes (backend polls every 5s)
+        // Register listener first to avoid missing events during initial fetch
         const { listen } = await import("@tauri-apps/api/event");
 
         const unlistenFn = await listen<SystemUpdate>("system-update", (event) => {
@@ -62,10 +38,30 @@ export function useSystemInfo() {
           });
         });
 
-        if (cancelled) {
-          unlistenFn();
-        } else {
-          unlisten = unlistenFn;
+        if (cancelled) { unlistenFn(); return; }
+        unlisten = unlistenFn;
+
+        // Fetch initial values so the UI doesn't show stale defaults
+        const [battery, wifi, vol, bright, username] = await Promise.all([
+          invoke<{ level: number; charging: boolean }>("get_battery_info"),
+          invoke<{ enabled: boolean; ssid: string | null; strength: number }>("get_wifi_info"),
+          invoke<{ level: number; muted: boolean }>("get_volume"),
+          invoke<number>("get_brightness"),
+          invoke<string>("get_username"),
+        ]);
+
+        if (cancelled) return;
+
+        useSystemStore.setState({
+          batteryLevel: battery.level,
+          isCharging: battery.charging,
+          wifiEnabled: wifi.enabled,
+          volume: vol.level,
+          brightness: bright,
+        });
+
+        if (username) {
+          useSessionStore.getState().setUsername(username);
         }
       } catch {
         // Tauri API not available
