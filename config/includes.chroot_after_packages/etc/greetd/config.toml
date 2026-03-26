@@ -3,4 +3,4 @@ vt = 7
 
 [default_session]
 command = "labwc -s /usr/bin/oxyos-shell"
-user = "oxyos"
+user = "user"

@@ -18,12 +18,18 @@ systemctl enable greetd.service 2>/dev/null || true
 # Enable seatd for Wayland seat management
 systemctl enable seatd.service 2>/dev/null || true
 
-# Ensure the oxyos user exists and is in the right groups
-if ! id -u oxyos >/dev/null 2>&1; then
-    useradd -m -s /bin/bash -G sudo,video,audio,input,render oxyos 2>/dev/null || true
-fi
+# Ensure the default live user has the right groups for Wayland
+# live-config creates "user" by default during boot
+for u in user oxyos; do
+    if id -u "$u" >/dev/null 2>&1; then
+        usermod -aG video,audio,input,render,seat "$u" 2>/dev/null || true
+    fi
+done
 
-# Add oxyos to video/input groups (needed for Wayland)
-usermod -aG video,audio,input,render oxyos 2>/dev/null || true
+# Pre-create the "user" account (live-config will reuse it)
+if ! id -u user >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -G sudo,video,audio,input,render user 2>/dev/null || true
+    echo "user:live" | chpasswd 2>/dev/null || true
+fi
 
 echo "P: OxyOS session configured (greetd + labwc + oxyos-shell)"
