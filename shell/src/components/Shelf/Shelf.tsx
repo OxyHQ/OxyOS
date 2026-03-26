@@ -94,7 +94,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
         <div className="flex h-[32px] items-center gap-[3px] justify-self-end">
           {/* Power button */}
           <button
-            className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full transition-colors duration-150 hover:bg-white/10"
+            className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
             aria-label="Power"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
