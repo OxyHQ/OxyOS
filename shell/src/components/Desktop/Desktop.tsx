@@ -11,6 +11,7 @@ import ScreenshotOverlay from "./ScreenshotOverlay";
 import AliaBubble from "../Alia/AliaBubble";
 import AliaPanel from "../Alia/AliaPanel";
 import NotificationToast from "../NotificationPanel/NotificationToast";
+import SettingsPanel from "../Settings/SettingsPanel";
 
 export default function Desktop() {
   const isLauncherOpen = useLauncherStore((s) => s.isOpen);
@@ -63,6 +64,9 @@ export default function Desktop() {
 
       {/* Notification toasts */}
       <NotificationToast />
+
+      {/* Settings panel */}
+      <SettingsPanel />
 
       {/* Desktop widgets */}
       <Widgets />
