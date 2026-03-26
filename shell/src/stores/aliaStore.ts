@@ -42,12 +42,13 @@ export const useAliaStore = create<AliaState>((set) => ({
   setStreaming: (isStreaming) => set({ isStreaming }),
 
   addMessage: (role, content) =>
-    set((s) => ({
-      messages: [
+    set((s) => {
+      const next = [
         ...s.messages,
         { id: crypto.randomUUID(), role, content, timestamp: Date.now() },
-      ],
-    })),
+      ];
+      return { messages: next.length > 200 ? next.slice(-200) : next };
+    }),
 
   appendToLastMessage: (delta) =>
     set((s) => {

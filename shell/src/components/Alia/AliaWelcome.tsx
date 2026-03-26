@@ -25,6 +25,8 @@ function getGreeting(): string {
   return "Good evening";
 }
 
+const GREETING = getGreeting();
+
 export default function AliaWelcome({ onSuggestionPress }: AliaWelcomeProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4">
@@ -36,7 +38,7 @@ export default function AliaWelcome({ onSuggestionPress }: AliaWelcomeProps) {
           </div>
           <div className="flex flex-col gap-1">
             <h1 className="text-[26px] font-bold tracking-tight text-white/90">
-              {getGreeting()}
+              {GREETING}
             </h1>
             <p className="text-[16px] font-medium text-white/45">
               How can I help you today?

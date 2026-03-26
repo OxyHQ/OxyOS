@@ -10,22 +10,15 @@ export interface Notification {
   timestamp: number;
 }
 
-interface NotificationGroup {
-  app: string;
-  appIcon?: string;
-  notifications: Notification[];
-}
-
 interface NotificationState {
   notifications: Notification[];
   add: (notification: Omit<Notification, "id" | "timestamp">) => void;
   dismiss: (id: string) => void;
   clearApp: (app: string) => void;
   clearAll: () => void;
-  grouped: () => NotificationGroup[];
 }
 
-export const useNotificationStore = create<NotificationState>((set, get) => ({
+export const useNotificationStore = create<NotificationState>((set) => ({
   notifications: [
     {
       id: "1",
@@ -89,22 +82,4 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     })),
 
   clearAll: () => set({ notifications: [] }),
-
-  grouped: () => {
-    const { notifications } = get();
-    const map = new Map<string, NotificationGroup>();
-    for (const n of notifications) {
-      const existing = map.get(n.app);
-      if (existing) {
-        existing.notifications.push(n);
-      } else {
-        map.set(n.app, {
-          app: n.app,
-          appIcon: n.appIcon,
-          notifications: [n],
-        });
-      }
-    }
-    return Array.from(map.values());
-  },
 }));

@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useShallow } from "zustand/react/shallow";
 import { useSystemStore } from "../../stores/systemStore";
 import { useSessionStore } from "../../stores/sessionStore";
 import { invoke } from "../../lib/tauri";
@@ -67,7 +68,24 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
     toggleNightLight,
     setVolume,
     setBrightness,
-  } = useSystemStore();
+  } = useSystemStore(useShallow((s) => ({
+    wifiEnabled: s.wifiEnabled,
+    bluetoothEnabled: s.bluetoothEnabled,
+    quickShareEnabled: s.quickShareEnabled,
+    dndEnabled: s.dndEnabled,
+    nightLightEnabled: s.nightLightEnabled,
+    volume: s.volume,
+    brightness: s.brightness,
+    batteryLevel: s.batteryLevel,
+    isCharging: s.isCharging,
+    toggleWifi: s.toggleWifi,
+    toggleBluetooth: s.toggleBluetooth,
+    toggleQuickShare: s.toggleQuickShare,
+    toggleDnd: s.toggleDnd,
+    toggleNightLight: s.toggleNightLight,
+    setVolume: s.setVolume,
+    setBrightness: s.setBrightness,
+  })));
 
   const { fillWidth: batteryFill, fillColor: batteryColor } = getBatteryVisuals(batteryLevel, isCharging);
 

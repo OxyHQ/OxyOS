@@ -108,7 +108,8 @@ function makeNoseD(n: number[]): string {
   return `M ${n[0]} ${n[1]} C ${n[2]} ${n[3]}, ${n[4]} ${n[5]}, ${n[6]} ${n[7]} L ${n[8]} ${n[9]} L ${n[10]} ${n[11]}`;
 }
 
-// ─── Component ──────────────────────────────────────────────────────────────
+const FLOAT_ANIMATE = { y: [0, -2, 0, 2, 0] } as const;
+const FLOAT_TRANSITION = { duration: 5, repeat: Infinity, ease: "easeInOut" } as const;
 
 export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }: AliaFaceProps) {
   const data = EXPRESSIONS[expression] ?? EXPRESSIONS[DEFAULT_EXPRESSION];
@@ -164,8 +165,8 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
 
   return (
     <motion.div
-      animate={{ y: [0, -2, 0, 2, 0] }}
-      transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+      animate={FLOAT_ANIMATE}
+      transition={FLOAT_TRANSITION}
       style={{ width: size, height: size }}
     >
       <svg
