@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNotificationStore, type Notification } from "../../stores/notificationStore";
-import { glass } from "../../lib/styles";
+import OxGlass from "../shared/OxGlass";
+import { oxGlassPresets } from "../../lib/styles";
 import { appIcons, settingsIcon } from "./appIcons";
 
 const AUTO_DISMISS_MS = 4000;
@@ -65,8 +66,9 @@ export default function NotificationToast() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -60, opacity: 0 }}
           transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
-          className={`fixed top-3 left-1/2 z-[100] w-[380px] -translate-x-1/2 ${glass.panel} px-4 py-3`}
+          className="fixed top-3 left-1/2 z-[100] w-[380px] -translate-x-1/2"
         >
+        <OxGlass {...oxGlassPresets.toast} className="rounded-[18px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] px-4 py-3">
           <div className="flex items-start gap-3">
             {/* App icon */}
             <img
@@ -105,6 +107,7 @@ export default function NotificationToast() {
               </svg>
             </button>
           </div>
+        </OxGlass>
         </motion.div>
       )}
     </AnimatePresence>

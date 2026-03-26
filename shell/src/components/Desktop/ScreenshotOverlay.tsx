@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useScreenshotStore } from "../../stores/screenshotStore";
-import { glass } from "../../lib/styles";
+import OxGlass from "../shared/OxGlass";
+import { oxGlassPresets } from "../../lib/styles";
 import { playScreenshot } from "../../lib/sounds";
 
 function captureScreen(): Promise<string> {
@@ -65,13 +66,15 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 
   return (
     <motion.div
-      className={`fixed bottom-6 right-6 z-[9999] px-4 py-2 text-sm font-medium text-white ${glass.menu}`}
+      className="fixed bottom-6 right-6 z-[9999]"
       initial={{ opacity: 0, y: 20, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 10, scale: 0.95 }}
       transition={{ duration: 0.25 }}
     >
-      {message}
+      <OxGlass {...oxGlassPresets.pill} className="rounded-[14px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] px-4 py-2 text-sm font-medium text-white">
+        {message}
+      </OxGlass>
     </motion.div>
   );
 }
@@ -136,12 +139,13 @@ export default function ScreenshotOverlay() {
           >
             <div className="flex h-full w-full items-center justify-center">
               <motion.div
-                className={`px-5 py-2.5 text-sm font-medium text-white ${glass.menu}`}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.05, duration: 0.2 }}
               >
-                Click anywhere to capture &middot; Press Esc to cancel
+                <OxGlass {...oxGlassPresets.pill} className="rounded-[14px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] px-5 py-2.5 text-sm font-medium text-white">
+                  Click anywhere to capture &middot; Press Esc to cancel
+                </OxGlass>
               </motion.div>
             </div>
           </motion.div>
