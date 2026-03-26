@@ -22,3 +22,13 @@ export async function invoke<T>(
 export function isNative(): boolean {
   return !!window.__TAURI_INTERNALS__;
 }
+
+/** Convert an absolute file path to a Tauri asset protocol URL */
+export function assetUrl(filePath: string): string {
+  if (!filePath || !filePath.startsWith("/")) return filePath;
+  if (!isNative()) return filePath;
+  // Tauri v2 asset protocol
+  return window.__TAURI_INTERNALS__
+    ? `http://asset.localhost/${filePath}`
+    : filePath;
+}

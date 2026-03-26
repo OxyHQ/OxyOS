@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -232,6 +233,33 @@ async fn get_username() -> String {
         .unwrap_or_else(|_| "User".to_string())
 }
 
+fn resolve_icon_path(icon: &str) -> String {
+    if icon.is_empty() { return String::new(); }
+    // Already an absolute path
+    if icon.starts_with('/') {
+        if Path::new(icon).exists() { return icon.to_string(); }
+        return String::new();
+    }
+    // Search common icon directories in preference order
+    let search_paths = [
+        format!("/usr/share/icons/hicolor/256x256/apps/{icon}.png"),
+        format!("/usr/share/icons/hicolor/256x256/apps/{icon}.svg"),
+        format!("/usr/share/icons/hicolor/128x128/apps/{icon}.png"),
+        format!("/usr/share/icons/hicolor/scalable/apps/{icon}.svg"),
+        format!("/usr/share/icons/hicolor/96x96/apps/{icon}.png"),
+        format!("/usr/share/icons/hicolor/64x64/apps/{icon}.png"),
+        format!("/usr/share/icons/hicolor/48x48/apps/{icon}.png"),
+        format!("/usr/share/pixmaps/{icon}.png"),
+        format!("/usr/share/pixmaps/{icon}.svg"),
+        format!("/usr/share/pixmaps/{icon}.xpm"),
+    ];
+    for p in &search_paths {
+        if Path::new(p).exists() { return p.clone(); }
+    }
+    // Return original name as fallback (frontend handles it)
+    icon.to_string()
+}
+
 #[tauri::command]
 async fn list_desktop_apps() -> Vec<DesktopApp> {
     let mut apps = Vec::new();
@@ -266,7 +294,8 @@ async fn list_desktop_apps() -> Vec<DesktopApp> {
         }
 
         if no_display || name.is_empty() || exec.is_empty() { continue; }
-        apps.push(DesktopApp { name, exec, icon, categories });
+        let resolved_icon = resolve_icon_path(&icon);
+        apps.push(DesktopApp { name, exec, icon: resolved_icon, categories });
     }
 
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
