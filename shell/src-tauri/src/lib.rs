@@ -227,7 +227,9 @@ async fn power_action(action: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn get_username() -> String {
-    std::env::var("USER").unwrap_or_else(|_| "User".to_string())
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_else(|_| "User".to_string())
 }
 
 #[tauri::command]
