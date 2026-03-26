@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { invoke } from "../../lib/tauri";
 import { appExecMap } from "../../lib/appRegistry";
+import { useInstalledApps } from "../../hooks/useInstalledApps";
 
 import browserIcon from "../../assets/icons/browser.svg";
 
@@ -55,6 +56,25 @@ const apps: AppEntry[] = [
 export default function AppLauncher() {
   const isOpen = useLauncherStore((s) => s.isOpen);
   const close = useLauncherStore((s) => s.close);
+  const { apps: installedApps } = useInstalledApps();
+
+  // In native mode, show real installed apps. In browser, show hardcoded list.
+  const displayApps = installedApps.length > 0
+    ? installedApps.map((a) => ({ name: a.name, icon: a.icon, exec: a.exec }))
+    : apps.map((a) => ({ name: a.name, icon: a.icon, exec: appExecMap[a.name] || "" }));
+
+  // For installed apps, icon is a freedesktop icon name — resolve to a path
+  const getIconSrc = (app: { icon: string; name: string }) => {
+    // If it's an imported asset (starts with / or data:), use directly
+    if (app.icon.startsWith("/") || app.icon.startsWith("data:") || app.icon.startsWith("http")) {
+      return app.icon;
+    }
+    // Installed app icon — try common hicolor paths
+    if (app.icon.startsWith("/") === false && app.icon.includes(".") === false) {
+      return `/usr/share/icons/hicolor/256x256/apps/${app.icon}.png`;
+    }
+    return app.icon;
+  };
 
   return (
     <AnimatePresence>
@@ -97,22 +117,26 @@ export default function AppLauncher() {
 
             {/* Apps — centered grid */}
             <div className="mt-[5vh] grid grid-cols-6 gap-x-10 gap-y-6">
-              {apps.map((app) => (
+              {displayApps.map((app) => (
                 <button
                   key={app.name}
                   type="button"
                   onClick={() => {
-                    const exec = appExecMap[app.name];
-                    if (exec) invoke("launch_app", { exec });
+                    if (app.exec) invoke("launch_app", { exec: app.exec });
                   }}
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0 transition-transform duration-100 active:scale-90"
                 >
-                  <div className="h-[56px] w-[56px] overflow-hidden rounded-full">
+                  <div className="flex h-[56px] w-[56px] items-center justify-center overflow-hidden rounded-full bg-white/10">
                     <img
-                      src={app.icon}
+                      src={getIconSrc(app)}
                       alt={app.name}
                       className="h-full w-full object-cover"
                       draggable={false}
+                      onError={(e) => {
+                        // Fallback: show first letter on colored circle
+                        e.currentTarget.style.display = "none";
+                        e.currentTarget.parentElement!.innerHTML = `<span class="text-[20px] font-bold text-white">${app.name.charAt(0)}</span>`;
+                      }}
                     />
                   </div>
                   <span className="max-w-[72px] truncate text-center text-[11px] font-medium leading-tight text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
