@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useSystemStore } from "../stores/systemStore";
+import { isNative } from "../lib/tauri";
 
 interface SystemUpdate {
   battery: { level: number; charging: boolean };
@@ -10,32 +11,32 @@ interface SystemUpdate {
 
 /**
  * Listens for "system-update" events pushed from the Tauri Rust backend.
- * The backend runs a background thread that monitors system state and
- * only emits when something actually changes — no frontend polling.
+ * The backend only emits when values actually change — no frontend polling.
  * In browser mode this is a no-op.
  */
 export function useSystemInfo() {
   useEffect(() => {
+    if (!isNative()) return;
+
     let unlisten: (() => void) | undefined;
 
     async function setup() {
       try {
-        if (!(window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return;
         const { listen } = await import("@tauri-apps/api/event");
 
         unlisten = await listen<SystemUpdate>("system-update", (event) => {
           const { battery, wifi, volume, brightness } = event.payload;
-          const s = useSystemStore.getState();
-          s.setBatteryLevel(battery.level);
-          s.setCharging(battery.charging);
-          s.setVolume(volume.level);
-          s.setBrightness(brightness);
-          if (wifi.enabled !== s.wifiEnabled) {
-            s.toggleWifi();
-          }
+          // Single batched state update instead of multiple individual sets
+          useSystemStore.setState({
+            batteryLevel: battery.level,
+            isCharging: battery.charging,
+            wifiEnabled: wifi.enabled,
+            volume: volume.level,
+            brightness,
+          });
         });
       } catch {
-        // Browser mode — silent fallback
+        // Tauri API not available
       }
     }
 

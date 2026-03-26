@@ -13,14 +13,14 @@ export function useInstalledApps() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    async function fetch() {
+    async function loadApps() {
       const result = await invoke<InstalledApp[]>("list_desktop_apps");
       if (result && result.length > 0) {
         setApps(result);
       }
       setLoaded(true);
     }
-    fetch();
+    loadApps();
   }, []);
 
   return { apps, loaded };

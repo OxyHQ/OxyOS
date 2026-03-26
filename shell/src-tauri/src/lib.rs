@@ -8,26 +8,26 @@ use tauri::Manager;
 
 // ── Data types ──
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub struct BatteryInfo {
     level: u8,
     charging: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub struct WifiInfo {
     enabled: bool,
     ssid: Option<String>,
     strength: u8,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub struct VolumeInfo {
     level: u8,
     muted: bool,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq)]
 pub struct SystemUpdate {
     battery: BatteryInfo,
     wifi: WifiInfo,
@@ -79,7 +79,7 @@ fn read_wifi() -> WifiInfo {
             }
             WifiInfo { enabled: true, ssid: None, strength: 0 }
         }
-        Err(_) => WifiInfo { enabled: true, ssid: None, strength: 0 },
+        Err(_) => WifiInfo { enabled: false, ssid: None, strength: 0 },
     }
 }
 
@@ -139,17 +139,7 @@ fn start_system_monitor(app_handle: tauri::AppHandle) {
                 brightness: read_brightness(),
             };
 
-            // Only emit if something changed
-            let changed = current.battery.level != prev.battery.level
-                || current.battery.charging != prev.battery.charging
-                || current.wifi.enabled != prev.wifi.enabled
-                || current.wifi.ssid != prev.wifi.ssid
-                || current.wifi.strength != prev.wifi.strength
-                || current.volume.level != prev.volume.level
-                || current.volume.muted != prev.volume.muted
-                || current.brightness != prev.brightness;
-
-            if changed {
+            if current != prev {
                 let _ = app_handle.emit("system-update", &current);
                 prev = current;
             }

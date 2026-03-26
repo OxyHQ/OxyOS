@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLauncherStore } from "../../stores/launcherStore";
 import { invoke } from "../../lib/tauri";
@@ -65,9 +65,12 @@ export default function AppLauncher() {
     }
   }, [isOpen]);
 
-  const displayApps = installedApps.length > 0
-    ? installedApps.map((a) => ({ name: a.name, icon: a.icon, exec: a.exec }))
-    : apps.map((a) => ({ name: a.name, icon: a.icon, exec: appExecMap[a.name] || "" }));
+  const displayApps = useMemo(() =>
+    installedApps.length > 0
+      ? installedApps.map((a) => ({ name: a.name, icon: a.icon, exec: a.exec }))
+      : apps.map((a) => ({ name: a.name, icon: a.icon, exec: appExecMap[a.name] || "" })),
+    [installedApps],
+  );
 
   const filtered = useMemo(() => {
     if (!query.trim()) return displayApps;
@@ -75,15 +78,11 @@ export default function AppLauncher() {
     return displayApps.filter((a) => a.name.toLowerCase().includes(q));
   }, [displayApps, query]);
 
-  const getIconSrc = (app: { icon: string; name: string }) => {
-    if (app.icon.startsWith("/") || app.icon.startsWith("data:") || app.icon.startsWith("http")) {
-      return app.icon;
-    }
-    if (!app.icon.startsWith("/") && !app.icon.includes(".")) {
-      return `/usr/share/icons/hicolor/256x256/apps/${app.icon}.png`;
-    }
-    return app.icon;
-  };
+  const getIconSrc = useCallback((icon: string) => {
+    if (icon.startsWith("/") || icon.startsWith("data:") || icon.startsWith("http")) return icon;
+    if (!icon.includes(".")) return `/usr/share/icons/hicolor/256x256/apps/${icon}.png`;
+    return icon;
+  }, []);
 
   const handleLaunch = (exec: string) => {
     if (exec) {
@@ -154,20 +153,27 @@ export default function AppLauncher() {
                       type="button"
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.15, delay: i * 0.02, ease: [0.2, 0, 0, 1] }}
+                      transition={{ duration: 0.15, delay: Math.min(i * 0.02, 0.3), ease: [0.2, 0, 0, 1] }}
                       whileTap={{ scale: 0.85 }}
                       onClick={() => handleLaunch(app.exec)}
                       className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0"
                     >
                       <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
                         <img
-                          src={getIconSrc(app)}
+                          src={getIconSrc(app.icon)}
                           alt={app.name}
                           className="h-full w-full object-cover"
                           draggable={false}
                           onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                            e.currentTarget.parentElement!.innerHTML = `<span class="text-[22px] font-bold text-white/80">${app.name.charAt(0)}</span>`;
+                            const img = e.currentTarget;
+                            img.style.display = "none";
+                            const parent = img.parentElement;
+                            if (parent && !parent.querySelector("span")) {
+                              const span = document.createElement("span");
+                              span.className = "text-[22px] font-bold text-white/80";
+                              span.textContent = app.name.charAt(0);
+                              parent.appendChild(span);
+                            }
                           }}
                         />
                       </div>
