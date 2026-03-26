@@ -7,6 +7,7 @@ import { invoke } from "../../lib/tauri";
 import { getBatteryVisuals, oxGlassPresets } from "../../lib/styles";
 import { useOxGlass } from "../../hooks/useOxGlass";
 import OxGlassFilter from "../shared/OxGlassFilter";
+import GradientBlur from "../shared/GradientBlur";
 import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
 import NotificationPanel from "../NotificationPanel/NotificationPanel";
@@ -128,8 +129,10 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
         <div
           ref={oxglass.ref}
           className="fixed right-0 bottom-0 left-0 z-40 grid h-[52px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl border-t border-white/20 px-3 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)]"
-          style={oxglass.glassStyle}
+          style={{ ...oxglass.glassStyle, overflow: "hidden" }}
         >
+          <GradientBlur direction="top" size={52} />
+
           {/* Left: Launcher button */}
           <button
             className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
