@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSettingsStore, type SettingsSection } from "../../stores/settingsStore";
 import { useSystemStore } from "../../stores/systemStore";
 import OxGlass from "../shared/OxGlass";
-import { oxGlassPresets, sliderThumb } from "../../lib/styles";
+import OxGlassSlider from "../shared/OxGlassSlider";
+import OxGlassSwitch from "../shared/OxGlassSwitch";
+import { oxGlassPresets } from "../../lib/styles";
 
 const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
@@ -85,20 +87,7 @@ function SignalIcon({ strength }: { strength: number }) {
 }
 
 function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
-  return (
-    <button
-      onClick={onToggle}
-      className={`relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 ${
-        enabled ? "bg-[#30d158]" : "bg-white/20"
-      }`}
-    >
-      <div
-        className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.3)] transition-transform duration-200 ${
-          enabled ? "left-[23px]" : "left-[3px]"
-        }`}
-      />
-    </button>
-  );
+  return <OxGlassSwitch checked={enabled} onChange={onToggle} />;
 }
 
 function WifiSection() {
@@ -201,33 +190,7 @@ function DisplaySection() {
           <span className="text-[12px] font-medium text-white/60">Brightness</span>
           <span className="text-[12px] text-white/40">{brightness}%</span>
         </div>
-        <div className="flex items-center gap-3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
-            <circle cx="12" cy="12" r="5" />
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={brightness}
-            onChange={(e) => setBrightness(Number(e.target.value))}
-            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
-            style={{
-              background: `linear-gradient(to right, white ${brightness}%, rgba(255,255,255,0.1) ${brightness}%)`,
-            }}
-          />
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
-            <circle cx="12" cy="12" r="5" />
-            <line x1="12" y1="1" x2="12" y2="3" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="21" x2="12" y2="23" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="1" y1="12" x2="3" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="21" y1="12" x2="23" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
+        <OxGlassSlider value={brightness} onChange={setBrightness} />
       </div>
 
       <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
@@ -274,25 +237,7 @@ function SoundSection() {
           <span className="text-[12px] font-medium text-white/60">Volume</span>
           <span className="text-[12px] text-white/40">{volume}%</span>
         </div>
-        <div className="flex items-center gap-3">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
-            <path d="M7 9v6h4l5 5V4l-5 5H7z" />
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
-            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
-            style={{
-              background: `linear-gradient(to right, white ${volume}%, rgba(255,255,255,0.1) ${volume}%)`,
-            }}
-          />
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
-          </svg>
-        </div>
+        <OxGlassSlider value={volume} onChange={setVolume} />
       </div>
 
       <div className="flex flex-col gap-1">

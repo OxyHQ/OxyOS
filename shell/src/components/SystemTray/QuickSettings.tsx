@@ -9,7 +9,8 @@ interface QuickSettingsProps {
   onClose: () => void;
 }
 
-import { glass, getBatteryVisuals, sliderThumb } from "../../lib/styles";
+import { glass, getBatteryVisuals } from "../../lib/styles";
+import OxGlassSlider from "../shared/OxGlassSlider";
 
 function ConnectivityPill({
   active,
@@ -250,60 +251,24 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
         {/* ── Brightness ── */}
         <Row delay={0.12}>
-        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
-            <circle cx="12" cy="12" r="5" />
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={100}
+          <OxGlassSlider
             value={brightness}
-            onChange={(e) => {
-              const val = Number(e.target.value);
+            onChange={(val) => {
               setBrightness(val);
               invoke("set_brightness", { level: val });
             }}
-            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
-            style={{ background: `linear-gradient(to right, white ${brightness}%, rgba(255,255,255,0.1) ${brightness}%)` }}
           />
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
-            <circle cx="12" cy="12" r="5" />
-            <line x1="12" y1="1" x2="12" y2="3" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="21" x2="12" y2="23" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="1" y1="12" x2="3" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="21" y1="12" x2="23" y2="12" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
         </Row>
 
         {/* ── Volume ── */}
         <Row delay={0.15}>
-        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
-            <path d="M7 9v6h4l5 5V4l-5 5H7z" />
-          </svg>
-          <input
-            type="range"
-            min={0}
-            max={100}
+          <OxGlassSlider
             value={volume}
-            onChange={(e) => {
-              const val = Number(e.target.value);
+            onChange={(val) => {
               setVolume(val);
               invoke("set_volume", { level: val });
             }}
-            className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
-            style={{ background: `linear-gradient(to right, white ${volume}%, rgba(255,255,255,0.1) ${volume}%)` }}
           />
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
-            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
-          </svg>
-        </div>
         </Row>
 
         {/* ── Bottom bar ── */}
