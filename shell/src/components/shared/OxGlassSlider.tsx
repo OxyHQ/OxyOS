@@ -1,5 +1,6 @@
-import { useRef, useState, useEffect, useCallback, useId } from "react";
-import OxGlass from "./OxGlass";
+import { useRef, useState, useEffect, useCallback } from "react";
+import { useOxGlass } from "../../hooks/useOxGlass";
+import OxGlassFilter from "./OxGlassFilter";
 
 interface OxGlassSliderProps {
   value: number;
@@ -38,8 +39,19 @@ export default function OxGlassSlider({
   const thumbX = normalized * (containerWidth - dims.thumbWidth);
 
   const scale = isDragging ? SCALE_DRAG : SCALE_REST;
-  const bgOpacity = isDragging ? 0.1 : 1;
-  const scaleRatio = isDragging ? 0.9 : 0.4;
+
+  const thumbGlass = useOxGlass({
+    surface: "convex",
+    shape: "pill",
+    bezel: dims.bezel,
+    glassThickness: dims.glassThickness,
+    refraction: 1.45,
+    blur: 0,
+    scaleRatio: isDragging ? 0.9 : 0.4,
+    specularOpacity: 0.4,
+    specularSaturation: 7,
+    bgOpacity: isDragging ? 0.1 : 1,
+  });
 
   // Track container width
   useEffect(() => {
@@ -113,20 +125,21 @@ export default function OxGlassSlider({
         </div>
       </div>
 
-      {/* Thumb */}
-      <OxGlass
-        surface="convex"
-        shape="pill"
-        bezel={dims.bezel}
-        glassThickness={dims.glassThickness}
-        refraction={1.45}
-        blur={0}
-        scaleRatio={scaleRatio}
-        specularOpacity={0.4}
-        specularSaturation={7}
-        bgOpacity={bgOpacity}
+      {/* Thumb — glass applied directly */}
+      {thumbGlass.filterData && (
+        <OxGlassFilter
+          filterId={thumbGlass.filterId}
+          filterData={thumbGlass.filterData}
+          blur={thumbGlass.blur}
+          specularOpacity={thumbGlass.specularOpacity}
+          specularSaturation={thumbGlass.specularSaturation}
+        />
+      )}
+      <div
+        ref={thumbGlass.ref}
         className={`absolute transition-transform duration-150 ease-out ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
         style={{
+          ...thumbGlass.glassStyle,
           height: dims.thumbHeight,
           width: dims.thumbWidth,
           top: "50%",
@@ -139,9 +152,7 @@ export default function OxGlassSlider({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-      >
-        <div style={{ width: "100%", height: "100%" }} />
-      </OxGlass>
+      />
     </div>
   );
 }

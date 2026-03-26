@@ -5,7 +5,8 @@ import { useSystemStore } from "../../stores/systemStore";
 import { useRunningAppsStore } from "../../stores/runningAppsStore";
 import { invoke } from "../../lib/tauri";
 import { getBatteryVisuals, oxGlassPresets } from "../../lib/styles";
-import OxGlass from "../shared/OxGlass";
+import { useOxGlass } from "../../hooks/useOxGlass";
+import OxGlassFilter from "../shared/OxGlassFilter";
 import { appExecMap } from "../../lib/appRegistry";
 import QuickSettings from "../SystemTray/QuickSettings";
 import NotificationPanel from "../NotificationPanel/NotificationPanel";
@@ -57,9 +58,21 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   }), [time]);
 
   const { fillWidth, fillColor } = getBatteryVisuals(batteryLevel, isCharging);
+  const oxglass = useOxGlass(oxGlassPresets.shelf);
 
   return (
     <>
+      {/* SVG filter portaled to body */}
+      {!isLogin && oxglass.filterData && (
+        <OxGlassFilter
+          filterId={oxglass.filterId}
+          filterData={oxglass.filterData}
+          blur={oxglass.blur}
+          specularOpacity={oxglass.specularOpacity}
+          specularSaturation={oxglass.specularSaturation}
+        />
+      )}
+
       {/* Full-width shelf */}
       {isLogin ? (
         <div className="fixed right-0 bottom-0 left-0 z-40 grid h-[52px] grid-cols-[1fr_auto] items-center bg-transparent px-3">
@@ -112,7 +125,11 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
           </div>
         </div>
       ) : (
-        <OxGlass {...oxGlassPresets.shelf} className="fixed right-0 bottom-0 left-0 z-40 grid h-[52px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl border-t border-white/20 px-3 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)]">
+        <div
+          ref={oxglass.ref}
+          className="fixed right-0 bottom-0 left-0 z-40 grid h-[52px] grid-cols-[1fr_auto_1fr] items-center rounded-t-3xl border-t border-white/20 px-3 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)]"
+          style={oxglass.glassStyle}
+        >
           {/* Left: Launcher button */}
           <button
             className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
@@ -225,7 +242,7 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
               <span className="text-[11px] font-medium text-white">{shortDate}&ensp;{time || "--:--"}</span>
             </button>
           </div>
-        </OxGlass>
+        </div>
       )}
 
       <AnimatePresence>

@@ -1,5 +1,6 @@
-import { useRef, useState, useEffect, useCallback } from "react";
-import OxGlass from "./OxGlass";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useOxGlass } from "../../hooks/useOxGlass";
+import OxGlassFilter from "./OxGlassFilter";
 
 interface OxGlassSwitchProps {
   checked: boolean;
@@ -37,8 +38,19 @@ export default function OxGlassSwitch({
   const travel = dims.sliderWidth - dims.sliderHeight - (dims.thumbWidth - dims.thumbHeight) * THUMB_REST_SCALE;
 
   const thumbScale = isPressed ? THUMB_ACTIVE_SCALE : THUMB_REST_SCALE;
-  const bgOpacity = isPressed ? 0.1 : 1;
-  const scaleRatio = isPressed ? 0.9 : 0.4;
+
+  const thumbGlass = useOxGlass({
+    surface: "lip",
+    shape: "pill",
+    bezel: dims.bezel,
+    glassThickness: dims.glassThickness,
+    refraction: 1.5,
+    blur: 0.2,
+    scaleRatio: isPressed ? 0.9 : 0.4,
+    specularOpacity: 0.5,
+    specularSaturation: 6,
+    bgOpacity: isPressed ? 0.1 : 1,
+  });
   const thumbX = dragRatio * travel;
   const thumbMarginLeft = -restOffset + (dims.sliderHeight - dims.thumbHeight * THUMB_REST_SCALE) / 2;
 
@@ -108,20 +120,21 @@ export default function OxGlassSwitch({
           borderRadius: dims.sliderHeight / 2,
         }}
       >
-        {/* Thumb */}
-        <OxGlass
-          surface="lip"
-          shape="pill"
-          bezel={dims.bezel}
-          glassThickness={dims.glassThickness}
-          refraction={1.5}
-          blur={0.2}
-          scaleRatio={scaleRatio}
-          specularOpacity={0.5}
-          specularSaturation={6}
-          bgOpacity={bgOpacity}
+        {/* Thumb — glass applied directly */}
+        {thumbGlass.filterData && (
+          <OxGlassFilter
+            filterId={thumbGlass.filterId}
+            filterData={thumbGlass.filterData}
+            blur={thumbGlass.blur}
+            specularOpacity={thumbGlass.specularOpacity}
+            specularSaturation={thumbGlass.specularSaturation}
+          />
+        )}
+        <div
+          ref={thumbGlass.ref}
           className="absolute cursor-pointer transition-transform duration-100 ease-out"
           style={{
+            ...thumbGlass.glassStyle,
             height: dims.thumbHeight,
             width: dims.thumbWidth,
             marginLeft: thumbMarginLeft,
@@ -134,9 +147,7 @@ export default function OxGlassSwitch({
           }}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-        >
-          <div style={{ width: "100%", height: "100%" }} />
-        </OxGlass>
+        />
       </div>
     </div>
   );
