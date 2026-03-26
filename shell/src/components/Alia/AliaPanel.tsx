@@ -5,7 +5,8 @@ import { streamChat } from "../../lib/alia";
 import AliaFace from "./AliaFace";
 import type { AliaExpression } from "./AliaFace";
 import AliaWelcome from "./AliaWelcome";
-import { glass } from "../../lib/styles";
+import { oxGlassPresets } from "../../lib/styles";
+import OxGlass from "../shared/OxGlass";
 
 function buildHistory(messages: { id: string; role: string; content: string }[]) {
   return messages
@@ -94,9 +95,10 @@ export default function AliaPanel() {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
-      className={`${glass.floatingPanel} fixed top-4 right-4 z-50 flex w-[420px] origin-top-right flex-col overflow-hidden`}
+      className="fixed top-4 right-4 z-50 w-[420px] origin-top-right"
       style={{ maxHeight: "calc(100vh - 80px)" }}
     >
+    <OxGlass {...oxGlassPresets.floatingPanel} className="flex flex-col overflow-hidden rounded-[20px] border border-white/20 shadow-[0_8px_40px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.15)]" style={{ maxHeight: "calc(100vh - 80px)" }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
@@ -239,6 +241,7 @@ export default function AliaPanel() {
           )}
         </div>
       </div>
+    </OxGlass>
     </motion.div>
   );
 }

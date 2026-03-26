@@ -10,6 +10,17 @@ export const glass = {
 export const sliderThumb =
   "[&::-webkit-slider-thumb]:h-[18px] [&::-webkit-slider-thumb]:w-[18px] [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-0 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)] [&::-moz-range-thumb]:h-[18px] [&::-moz-range-thumb]:w-[18px] [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:shadow-[0_0_6px_rgba(0,0,0,0.3)]";
 
+/** OxGlass presets for different UI elements */
+export const oxGlassPresets = {
+  panel: { surface: "convex" as const, bezel: 20, radius: 18, refraction: 1.3, blur: 3, specular: 0.4 },
+  floatingPanel: { surface: "convex" as const, bezel: 24, radius: 20, refraction: 1.35, blur: 4, specular: 0.5 },
+  quickSettings: { surface: "convex" as const, bezel: 16, radius: 18, refraction: 1.25, blur: 3, specular: 0.35 },
+  menu: { surface: "convex" as const, bezel: 12, radius: 14, refraction: 1.2, blur: 2, specular: 0.3 },
+  shelf: { surface: "lip" as const, bezel: 8, radius: 24, refraction: 1.15, blur: 2, specular: 0.25 },
+  pill: { surface: "circle" as const, bezel: 10, radius: 999, refraction: 1.3, blur: 2, specular: 0.4 },
+  toast: { surface: "convex" as const, bezel: 14, radius: 999, refraction: 1.2, blur: 3, specular: 0.3 },
+};
+
 /** Battery fill computation shared between Shelf and QuickSettings */
 export function getBatteryVisuals(level: number, isCharging: boolean) {
   return {
