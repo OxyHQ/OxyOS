@@ -117,8 +117,8 @@ export default function OxGlass({
       dispUrl: imageDataToUrl(dispData),
       specUrl: imageDataToUrl(specData),
       scale: maxDisp * scaleRatio,
-      w: dispData.width,
-      h: dispData.height,
+      w: size.w,
+      h: size.h,
     };
   }, [size.w, size.h, bezel, refraction, surface, shape, cornerRadius,
       squircleExponent, glassThickness, scaleRatio, effectiveRadius]);
