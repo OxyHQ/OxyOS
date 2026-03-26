@@ -53,11 +53,10 @@ export function useSystemInfo() {
         if (cancelled) return;
 
         useSystemStore.setState({
-          batteryLevel: battery.level,
-          isCharging: battery.charging,
-          wifiEnabled: wifi.enabled,
-          volume: vol.level,
-          brightness: bright,
+          ...(battery != null && { batteryLevel: battery.level, isCharging: battery.charging }),
+          ...(wifi != null && { wifiEnabled: wifi.enabled }),
+          ...(vol != null && { volume: vol.level }),
+          ...(bright != null && { brightness: bright }),
         });
 
         if (username) {
