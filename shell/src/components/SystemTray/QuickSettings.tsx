@@ -9,8 +9,7 @@ interface QuickSettingsProps {
   onClose: () => void;
 }
 
-import { getBatteryVisuals, sliderThumb, oxGlassPresets } from "../../lib/styles";
-import OxGlass from "../shared/OxGlass";
+import { glass, getBatteryVisuals, sliderThumb } from "../../lib/styles";
 
 function ConnectivityPill({
   active,
@@ -24,21 +23,17 @@ function ConnectivityPill({
   label: string;
 }) {
   return (
-    <OxGlass
-      {...oxGlassPresets.quickSettings}
-      bgOpacity={active ? 0.2 : 0.12}
-      className={`rounded-[18px] border border-white/15 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)] transition-all duration-150 ${
-        active ? "text-white" : "text-white/55"
+    <button
+      onClick={onClick}
+      className={`${glass.quickSettings} flex cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
+        active
+          ? "!bg-white/20 text-white"
+          : "text-white/55 hover:bg-white/16"
       }`}
     >
-      <button
-        onClick={onClick}
-        className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1 px-2 py-2.5"
-      >
-        {icon}
-        <span className="text-[9px] font-medium leading-none">{label}</span>
-      </button>
-    </OxGlass>
+      {icon}
+      <span className="text-[9px] font-medium leading-none">{label}</span>
+    </button>
   );
 }
 
@@ -155,7 +150,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
         {/* ── Focus + Stage Manager ── */}
         <Row delay={0.03} className="grid grid-cols-2 gap-2">
-          <OxGlass {...oxGlassPresets.quickSettings} className="rounded-[18px] border border-white/15 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+          <div className={`${glass.quickSettings}`}>
             <button
               onClick={toggleDnd}
               className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
@@ -170,8 +165,8 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 <p className="truncate text-[9px] leading-tight text-white/40">{dndEnabled ? "DND" : "Off"}</p>
               </div>
             </button>
-          </OxGlass>
-          <OxGlass {...oxGlassPresets.quickSettings} className="rounded-[18px] border border-white/15 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+          </div>
+          <div className={`${glass.quickSettings}`}>
             <button
               className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
             >
@@ -187,12 +182,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 <p className="truncate text-[9px] leading-tight text-white/40">Off</p>
               </div>
             </button>
-          </OxGlass>
+          </div>
         </Row>
 
         {/* ── Now Playing ── */}
         <Row delay={0.06}>
-        <OxGlass {...oxGlassPresets.quickSettings} className="rounded-[18px] border border-white/15 p-3.5 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+        <div className={`${glass.quickSettings} p-3.5`}>
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/8">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="white" fillOpacity="0.35">
@@ -215,12 +210,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </button>
             </div>
           </div>
-        </OxGlass>
+        </div>
         </Row>
 
         {/* ── Night Light + Display row ── */}
         <Row delay={0.09} className="grid grid-cols-2 gap-2">
-          <OxGlass {...oxGlassPresets.quickSettings} className="rounded-[18px] border border-white/15 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+          <div className={`${glass.quickSettings}`}>
             <button
               onClick={toggleNightLight}
               className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors"
@@ -235,8 +230,8 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 <p className="truncate text-[9px] leading-tight text-white/40">{nightLightEnabled ? "On" : "Off"}</p>
               </div>
             </button>
-          </OxGlass>
-          <OxGlass {...oxGlassPresets.quickSettings} className="rounded-[18px] border border-white/15 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+          </div>
+          <div className={`${glass.quickSettings}`}>
             <button className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 py-3 transition-colors">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/12">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -250,12 +245,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 <p className="truncate text-[9px] leading-tight text-white/40">Built-in</p>
               </div>
             </button>
-          </OxGlass>
+          </div>
         </Row>
 
         {/* ── Brightness ── */}
         <Row delay={0.12}>
-        <OxGlass {...oxGlassPresets.quickSettings} className="flex items-center gap-3 rounded-[18px] border border-white/15 px-4 py-3 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <circle cx="12" cy="12" r="5" />
           </svg>
@@ -283,12 +278,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
             <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" stroke="white" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" />
           </svg>
-        </OxGlass>
+        </div>
         </Row>
 
         {/* ── Volume ── */}
         <Row delay={0.15}>
-        <OxGlass {...oxGlassPresets.quickSettings} className="flex items-center gap-3 rounded-[18px] border border-white/15 px-4 py-3 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+        <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.3" className="shrink-0">
             <path d="M7 9v6h4l5 5V4l-5 5H7z" />
           </svg>
@@ -308,12 +303,12 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
           <svg width="14" height="14" viewBox="0 0 24 24" fill="white" fillOpacity="0.55" className="shrink-0">
             <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
           </svg>
-        </OxGlass>
+        </div>
         </Row>
 
         {/* ── Bottom bar ── */}
         <Row delay={0.18}>
-        <OxGlass {...oxGlassPresets.quickSettings} className="flex items-center justify-between rounded-[18px] border border-white/15 px-3.5 py-2 shadow-[0_4px_24px_rgba(0,0,0,0.25),inset_0_0.5px_0_rgba(255,255,255,0.1)]">
+        <div className={`${glass.quickSettings} flex items-center justify-between px-3.5 py-2`}>
           <div className="flex items-center gap-2.5">
             <img src={avatarDefault} alt="User" className="h-6 w-6 rounded-full object-cover ring-1 ring-white/20" draggable={false} />
             <div className="flex items-center gap-1.5">
@@ -350,7 +345,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               </svg>
             </button>
           </div>
-        </OxGlass>
+        </div>
         </Row>
       </div>
     </>
