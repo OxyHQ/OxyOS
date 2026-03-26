@@ -10,6 +10,7 @@ interface SessionState {
   logout: () => void;
   lock: () => void;
   unlock: () => void;
+  setUsername: (name: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -21,4 +22,5 @@ export const useSessionStore = create<SessionState>((set) => ({
   logout: () => set({ isLoggedIn: false, isLocked: false }),
   lock: () => { playLock(); set({ isLocked: true }); },
   unlock: () => { playUnlock(); set({ isLocked: false }); },
+  setUsername: (username) => set({ username }),
 }));

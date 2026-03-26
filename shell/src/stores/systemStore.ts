@@ -35,7 +35,7 @@ export const useSystemStore = create<SystemState>((set) => ({
   nightLightEnabled: false,
   focusMode: null,
   batteryLevel: 85,
-  isCharging: true,
+  isCharging: false,
   volume: 70,
   brightness: 80,
   time: "",

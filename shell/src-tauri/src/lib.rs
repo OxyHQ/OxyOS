@@ -226,6 +226,11 @@ async fn power_action(action: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn get_username() -> String {
+    std::env::var("USER").unwrap_or_else(|_| "User".to_string())
+}
+
+#[tauri::command]
 async fn list_desktop_apps() -> Vec<DesktopApp> {
     let mut apps = Vec::new();
     let entries = match fs::read_dir("/usr/share/applications") {
@@ -300,6 +305,7 @@ pub fn run() {
             get_brightness,
             set_brightness,
             power_action,
+            get_username,
             list_desktop_apps,
         ])
         .run(tauri::generate_context!())
