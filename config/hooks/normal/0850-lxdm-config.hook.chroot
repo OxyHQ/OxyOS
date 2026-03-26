@@ -1,9 +1,11 @@
 #!/bin/sh
 set -e
 
-# Enable greetd as the login manager (replaces LXDM).
+# ── OxyOS Session Setup (installed system) ──
+
+rm -f /etc/X11/default-display-manager
+systemctl disable lxdm.service 2>/dev/null || true
+systemctl mask lxdm.service 2>/dev/null || true
 ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service 2>/dev/null || true
 systemctl enable greetd.service 2>/dev/null || true
-
-# Enable seatd for Wayland seat management
 systemctl enable seatd.service 2>/dev/null || true

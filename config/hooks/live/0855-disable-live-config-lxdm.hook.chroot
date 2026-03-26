@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# Prevent live-config's 0110-lxdm component from running during live boot.
+# live-config checks for marker files in /var/lib/live/config/ — if the
+# marker exists, it skips that component.
+mkdir -p /var/lib/live/config
+touch /var/lib/live/config/lxdm
+
+# Also remove any lxdm config that may have been pulled in
+rm -f /etc/lxdm/lxdm.conf 2>/dev/null || true
+
+echo "P: Disabled live-config LXDM auto-setup"

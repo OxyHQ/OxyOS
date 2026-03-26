@@ -7,9 +7,8 @@ sudo
 apt-transport-https
 psmisc
 cryptsetup
-oxyos-metapackage
 
-# Display manager + Wayland compositor
+# Display manager + Wayland compositor (replaces lxdm + openbox)
 greetd
 labwc
 seatd
@@ -29,9 +28,40 @@ pulseaudio
 upower
 dbus-x11
 
-# Fonts
+# Desktop apps
+firefox-esr
+thunar
+thunar-archive-plugin
+thunar-volman
+foot
+vlc
+gnome-calculator
+gnome-text-editor
+eog
+file-roller
+gparted
+transmission-gtk
+gvfs-fuse
+
+# Fonts & themes
 fonts-freefont-ttf
 fonts-liberation
+gnome-icon-theme
+dmz-cursor-theme
+adwaita-icon-theme
+
+# Utilities
+bash-completion
+htop
+curl
+unzip
+zip
+rsync
+openssh-client
+wireless-tools
+ntfs-3g
+dosfstools
+user-setup
 
 # Hardware
 firmware-linux-free

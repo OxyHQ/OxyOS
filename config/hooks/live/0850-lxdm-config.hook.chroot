@@ -1,10 +1,29 @@
 #!/bin/sh
 set -e
 
-# Enable greetd as the login manager (replaces LXDM).
-# greetd auto-starts labwc + oxyos-shell via /etc/greetd/config.toml
+# ── OxyOS Session Setup ──
+# Replace any LXDM/X11 session with greetd + labwc + oxyos-shell
+
+# Remove LXDM as default display manager if it snuck in
+rm -f /etc/X11/default-display-manager
+
+# Disable LXDM service if present
+systemctl disable lxdm.service 2>/dev/null || true
+systemctl mask lxdm.service 2>/dev/null || true
+
+# Enable greetd as the display manager
 ln -sf /usr/lib/systemd/system/greetd.service /etc/systemd/system/display-manager.service 2>/dev/null || true
 systemctl enable greetd.service 2>/dev/null || true
 
 # Enable seatd for Wayland seat management
 systemctl enable seatd.service 2>/dev/null || true
+
+# Ensure the oxyos user exists and is in the right groups
+if ! id -u oxyos >/dev/null 2>&1; then
+    useradd -m -s /bin/bash -G sudo,video,audio,input,render oxyos 2>/dev/null || true
+fi
+
+# Add oxyos to video/input groups (needed for Wayland)
+usermod -aG video,audio,input,render oxyos 2>/dev/null || true
+
+echo "P: OxyOS session configured (greetd + labwc + oxyos-shell)"
