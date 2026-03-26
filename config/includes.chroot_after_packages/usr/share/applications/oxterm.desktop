@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=OxTerm
+Comment=OxyOS Terminal
+Exec=oxterm
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;

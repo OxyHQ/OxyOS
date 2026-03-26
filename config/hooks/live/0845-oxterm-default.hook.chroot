@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+# Register oxterm as the default x-terminal-emulator
+if [ -x /usr/bin/oxterm ]; then
+  update-alternatives --install /usr/bin/x-terminal-emulator x-terminal-emulator /usr/bin/oxterm 90
+  update-alternatives --set x-terminal-emulator /usr/bin/oxterm
+fi
