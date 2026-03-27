@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLauncherStore } from "../../stores/launcherStore";
 import { useSystemStore } from "../../stores/systemStore";
 import { useRunningAppsStore } from "../../stores/runningAppsStore";
+import { invoke } from "../../lib/tauri";
 import { launchApp } from "../../lib/launchApp";
 import { getBatteryVisuals } from "../../lib/styles";
 import { appExecMap } from "../../lib/appRegistry";
@@ -40,11 +40,14 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const isCharging = useSystemStore((s) => s.isCharging);
   type TrayPanel = "quickSettings" | "notifications" | "calendar" | null;
   const [openPanel, setOpenPanel] = useState<TrayPanel>(null);
-  const toggleLauncher = useLauncherStore((s) => s.toggle);
   const notificationCount = useNotificationStore((s) => s.notifications.length);
   const running = useRunningAppsStore((s) => s.running);
   const [bouncingApp, setBouncingApp] = useState<string | null>(null);
   const isLogin = variant === "login";
+
+  const handleToggleLauncher = useCallback(() => {
+    invoke("toggle_launcher");
+  }, []);
 
   const togglePanel = useCallback((panel: TrayPanel) => {
     setOpenPanel((prev) => (prev === panel ? null : panel));
@@ -60,13 +63,13 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   return (
     <>
       {/* Full-width shelf */}
-      <div className={`fixed right-0 bottom-0 left-0 z-40 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
+      <div className={`fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
         {!isLogin && (
           <>
             {/* Left: Launcher button */}
             <button
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
-              onClick={toggleLauncher}
+              onClick={handleToggleLauncher}
               aria-label="App launcher"
               title="App Launcher"
             >

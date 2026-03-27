@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useLauncherStore } from "../stores/launcherStore";
+import { invoke } from "../lib/tauri";
 import { useScreenshotStore } from "../stores/screenshotStore";
 
 export function useKeyboardShortcuts() {
@@ -8,7 +8,7 @@ export function useKeyboardShortcuts() {
       // Super/Meta key to toggle launcher
       if (e.key === "Meta" && !e.repeat) {
         e.preventDefault();
-        useLauncherStore.getState().toggle();
+        invoke("toggle_launcher");
       }
 
       // Ctrl+Shift+S to activate screenshot tool
@@ -17,9 +17,9 @@ export function useKeyboardShortcuts() {
         useScreenshotStore.getState().activate();
       }
 
-      // Escape to close launcher and any open panels
+      // Escape to close launcher
       if (e.key === "Escape") {
-        useLauncherStore.getState().close();
+        invoke("hide_launcher");
       }
     }
 

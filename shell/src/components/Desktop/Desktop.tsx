@@ -1,11 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { useLauncherStore } from "../../stores/launcherStore";
 import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import Shelf from "../Shelf/Shelf";
-import AppLauncher from "../AppLauncher/AppLauncher";
 
-import WindowLayer from "../Window/WindowLayer";
 import OSD from "./OSD";
 import ScreenshotOverlay from "./ScreenshotOverlay";
 import AliaBubble from "../Alia/AliaBubble";
@@ -14,8 +10,6 @@ import NotificationToast from "../NotificationPanel/NotificationToast";
 import SettingsPanel from "../Settings/SettingsPanel";
 
 export default function Desktop() {
-  const isLauncherOpen = useLauncherStore((s) => s.isOpen);
-  const closeLauncher = useLauncherStore((s) => s.close);
   const aliaOpen = useAliaStore((s) => s.isOpen);
   useKeyboardShortcuts();
 
@@ -28,26 +22,6 @@ export default function Desktop() {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Scrim overlay when launcher is open */}
-      <AnimatePresence>
-        {isLauncherOpen && (
-          <motion.div
-            className="absolute inset-0 z-30 bg-black/40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={closeLauncher}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* App windows */}
-      <WindowLayer />
-
-      {/* App Launcher */}
-      <AppLauncher />
-
       {/* Volume/brightness OSD */}
       <OSD />
 
@@ -67,9 +41,6 @@ export default function Desktop() {
 
       {/* Settings panel */}
       <SettingsPanel />
-
-      {/* Shelf */}
-      <Shelf />
     </motion.div>
   );
 }

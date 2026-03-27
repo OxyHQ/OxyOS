@@ -10,16 +10,7 @@
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
-    "windows": [
-      {
-        "title": "OxyOS",
-        "maximized": true,
-        "fullscreen": false,
-        "decorations": false,
-        "resizable": true,
-        "transparent": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }

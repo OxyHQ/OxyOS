@@ -13,6 +13,7 @@
     -moz-osx-font-smoothing: grayscale;
     cursor: default;
     user-select: none;
+    background: transparent;
   }
 
   input,

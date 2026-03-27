@@ -3,10 +3,19 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "desktop",
+    "shelf",
+    "launcher",
+    "terminal-*"
   ],
   "permissions": [
     "core:default",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-create",
+    "core:window:allow-start-dragging",
     "shell:allow-open"
   ]
 }

@@ -2,10 +2,13 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::WebviewUrl;
+use tauri::WebviewWindowBuilder;
 
 // ── Data types ──
 
@@ -150,6 +153,73 @@ fn start_system_monitor(app_handle: tauri::AppHandle) {
     });
 }
 
+// ── Multi-window setup ──
+
+const SHELF_HEIGHT: f64 = 52.0;
+
+fn create_shell_windows(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let (screen_w, screen_h) = if let Some(monitor) = app.primary_monitor()? {
+        let scale = monitor.scale_factor();
+        let size = monitor.size();
+        (size.width as f64 / scale, size.height as f64 / scale)
+    } else {
+        (1920.0, 1080.0)
+    };
+
+    // Desktop window — fullscreen background, always behind
+    let _desktop = WebviewWindowBuilder::new(
+        app,
+        "desktop",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("OxyOS Desktop")
+    .decorations(false)
+    .resizable(false)
+    .maximized(true)
+    .transparent(false)
+    .build()?;
+
+    // Shelf window — dock at bottom, always on top
+    let shelf = WebviewWindowBuilder::new(
+        app,
+        "shelf",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("OxyOS Shelf")
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .transparent(true)
+    .inner_size(screen_w, SHELF_HEIGHT)
+    .position(0.0, screen_h - SHELF_HEIGHT)
+    .skip_taskbar(true)
+    .build()?;
+
+    // Prevent shelf from being focused when clicked — keep focus on active app
+    shelf.set_ignore_cursor_events(false)?;
+
+    // Launcher window — fullscreen overlay, hidden by default
+    let launcher = WebviewWindowBuilder::new(
+        app,
+        "launcher",
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("OxyOS Launcher")
+    .decorations(false)
+    .resizable(false)
+    .always_on_top(true)
+    .transparent(true)
+    .maximized(true)
+    .visible(false)
+    .skip_taskbar(true)
+    .build()?;
+
+    // Hide launcher initially
+    launcher.hide()?;
+
+    Ok(())
+}
+
 // ── Tauri commands ──
 
 #[tauri::command]
@@ -166,6 +236,61 @@ async fn launch_app(exec: String) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("Failed to launch '{}': {}", exec, e))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn show_launcher(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("launcher") {
+        win.show().map_err(|e| e.to_string())?;
+        win.set_focus().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_launcher(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("launcher") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn toggle_launcher(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("launcher") {
+        if win.is_visible().unwrap_or(false) {
+            win.hide().map_err(|e| e.to_string())?;
+        } else {
+            win.show().map_err(|e| e.to_string())?;
+            win.set_focus().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+static TERMINAL_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+#[tauri::command]
+async fn open_terminal(app: tauri::AppHandle) -> Result<String, String> {
+    let id = TERMINAL_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let label = format!("terminal-{}", id);
+
+    let win = WebviewWindowBuilder::new(
+        &app,
+        &label,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Terminal")
+    .decorations(false)
+    .inner_size(780.0, 500.0)
+    .min_inner_size(400.0, 280.0)
+    .transparent(true)
+    .build()
+    .map_err(|e| format!("Failed to create terminal window: {}", e))?;
+
+    win.set_focus().map_err(|e| e.to_string())?;
+
+    Ok(label)
 }
 
 #[tauri::command]
@@ -323,12 +448,20 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            // Create the three shell windows
+            create_shell_windows(app)?;
+
             // Start background system monitor — emits "system-update" events
             start_system_monitor(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             launch_app,
+            show_launcher,
+            hide_launcher,
+            toggle_launcher,
+            open_terminal,
             get_battery_info,
             get_wifi_info,
             get_volume,
