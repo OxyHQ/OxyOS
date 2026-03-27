@@ -5,7 +5,7 @@ The OxyOS desktop shell — a ChromeOS-inspired UI built with React, TypeScript,
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
-- [pnpm](https://pnpm.io/) 9+
+- [Bun](https://bun.sh/) 1.0+
 - [Rust](https://www.rust-lang.org/tools/install) (stable)
 - Tauri v2 CLI: `cargo install tauri-cli --version "^2"`
 - System dependencies (Debian/Ubuntu):
@@ -17,8 +17,8 @@ The OxyOS desktop shell — a ChromeOS-inspired UI built with React, TypeScript,
 
 ```bash
 cd shell
-pnpm install
-pnpm dev          # Runs Vite dev server
+bun install
+bun dev           # Runs Vite dev server
 ```
 
 - Open `http://localhost:5173/web.html` for the full interactive web demo
@@ -27,8 +27,8 @@ pnpm dev          # Runs Vite dev server
 ## Building
 
 ```bash
-pnpm build                # Native frontend bundle → build/
-pnpm build:web            # Web demo bundle → web-build/ (base: /demo/)
+bun run build             # Native frontend bundle → build/
+bun run build:web         # Web demo bundle → web-build/ (base: /demo/)
 cargo tauri build          # Full native binary
 ```
 

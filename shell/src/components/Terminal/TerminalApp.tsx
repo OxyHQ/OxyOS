@@ -307,12 +307,12 @@ function SplitDivider({ direction, onResize }: { direction: "h" | "v"; onResize:
       };
 
       const handleUp = () => {
-        el.removeEventListener("pointermove", handleMove);
-        el.removeEventListener("pointerup", handleUp);
+        el.removeEventListener("pointermove", handleMove as EventListener);
+        el.removeEventListener("pointerup", handleUp as EventListener);
       };
 
-      el.addEventListener("pointermove", handleMove);
-      el.addEventListener("pointerup", handleUp);
+      el.addEventListener("pointermove", handleMove as EventListener);
+      el.addEventListener("pointerup", handleUp as EventListener);
     },
     [direction, onResize],
   );
