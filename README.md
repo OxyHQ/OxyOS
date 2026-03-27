@@ -17,7 +17,7 @@ In this repository, you'll find the sources used to generate the actual system i
 
 This repository is the live-build configuration for assembling OxyOS installation media, plus the desktop shell.
 
-- `shell/` - OxyOS desktop shell (React + Tauri v2). See [shell/README.md](shell/README.md).
+- `shell/` - OxyOS desktop shell (React + Tauri v2, native multi-window architecture). See [shell/README.md](shell/README.md).
 - `config/package-lists/` - package selections installed into the live system.
 - `config/includes.chroot_after_packages/` - files copied into the target root filesystem after package installation.
 - `config/includes.installer/` - installer-time assets and configuration.
