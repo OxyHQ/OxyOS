@@ -2,13 +2,24 @@ import { useEffect } from "react";
 import { invoke } from "../lib/tauri";
 import { useScreenshotStore } from "../stores/screenshotStore";
 
-export function useKeyboardShortcuts() {
+interface KeyboardShortcutOptions {
+  onToggleLauncher?: () => void;
+  onCloseLauncher?: () => void;
+}
+
+export function useKeyboardShortcuts(options?: KeyboardShortcutOptions) {
+  const { onToggleLauncher, onCloseLauncher } = options ?? {};
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Super/Meta key to toggle launcher
       if (e.key === "Meta" && !e.repeat) {
         e.preventDefault();
-        invoke("toggle_launcher");
+        if (onToggleLauncher) {
+          onToggleLauncher();
+        } else {
+          invoke("toggle_launcher");
+        }
       }
 
       // Ctrl+Shift+S to activate screenshot tool
@@ -19,11 +30,15 @@ export function useKeyboardShortcuts() {
 
       // Escape to close launcher
       if (e.key === "Escape") {
-        invoke("hide_launcher");
+        if (onCloseLauncher) {
+          onCloseLauncher();
+        } else {
+          invoke("hide_launcher");
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [onToggleLauncher, onCloseLauncher]);
 }

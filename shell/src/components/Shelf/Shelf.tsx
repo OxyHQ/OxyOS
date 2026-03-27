@@ -31,9 +31,10 @@ const pinnedApps: PinnedApp[] = [
 
 interface ShelfProps {
   variant?: "desktop" | "login";
+  onToggleLauncher?: () => void;
 }
 
-export default function Shelf({ variant = "desktop" }: ShelfProps) {
+export default function Shelf({ variant = "desktop", onToggleLauncher }: ShelfProps) {
   const time = useSystemStore((s) => s.time);
   const wifiEnabled = useSystemStore((s) => s.wifiEnabled);
   const batteryLevel = useSystemStore((s) => s.batteryLevel);
@@ -46,8 +47,12 @@ export default function Shelf({ variant = "desktop" }: ShelfProps) {
   const isLogin = variant === "login";
 
   const handleToggleLauncher = useCallback(() => {
-    invoke("toggle_launcher");
-  }, []);
+    if (onToggleLauncher) {
+      onToggleLauncher();
+    } else {
+      invoke("toggle_launcher");
+    }
+  }, [onToggleLauncher]);
 
   const togglePanel = useCallback((panel: TrayPanel) => {
     setOpenPanel((prev) => (prev === panel ? null : panel));

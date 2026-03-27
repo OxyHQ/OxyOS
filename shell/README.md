@@ -18,21 +18,25 @@ The OxyOS desktop shell — a ChromeOS-inspired UI built with React, TypeScript,
 ```bash
 cd shell
 pnpm install
-pnpm dev          # Runs Vite dev server (browser-only mode)
+pnpm dev          # Runs Vite dev server
 ```
 
-To run inside the Tauri native windows:
+- Open `http://localhost:5173/web.html` for the full interactive web demo
+- Run `cargo tauri dev` for native multi-window mode
+
+## Building
 
 ```bash
-cargo tauri dev
-```
-
-## Building for Production
-
-```bash
-pnpm build                # Frontend bundle → build/
+pnpm build                # Native frontend bundle → build/
+pnpm build:web            # Web demo bundle → web-build/ (base: /demo/)
 cargo tauri build          # Full native binary
 ```
+
+## Web Demo
+
+The shell has a separate web entry point (`web.html` → `src/web.tsx` → `WebApp.tsx`) that renders the full interactive desktop in a single browser page — no Tauri required. This is deployed to `os.oxy.so/demo`.
+
+The web demo and native app share all components, stores, hooks, and utilities. Components accept optional callback props (e.g. `onClose`, `onToggleLauncher`) so the web demo can manage launcher visibility via React state instead of Tauri IPC.
 
 ## Multi-Window Architecture
 
@@ -82,7 +86,15 @@ All windows load the same `index.html` entry point. The frontend detects the cur
 
 ```
 shell/
+├── index.html                 # Native Tauri entry
+├── web.html                   # Web demo entry
+├── vite.config.ts             # Vite config (native build)
+├── vite.web.config.ts         # Vite config (web demo build, base: /demo/)
 ├── src/
+│   ├── main.tsx               # Native entry point
+│   ├── web.tsx                # Web demo entry point
+│   ├── App.tsx                # Window router (native)
+│   ├── WebApp.tsx             # Single-page shell (web demo)
 │   ├── components/
 │   │   ├── Alia/              # AI assistant bubble + panel
 │   │   ├── AppLauncher/       # Full-screen app grid + LauncherWindow root
@@ -96,9 +108,7 @@ shell/
 │   ├── stores/                # Zustand state (session, system, settings, etc.)
 │   ├── hooks/                 # useClock, useSystemInfo, useKeyboardShortcuts
 │   ├── lib/                   # Tauri IPC, app registry, launch helpers
-│   ├── styles/                # Design tokens (ChromeOS Jelly)
-│   ├── App.tsx                # Window router
-│   └── main.tsx               # Entry point
+│   └── styles/                # Design tokens (ChromeOS Jelly)
 └── src-tauri/                 # Tauri v2 Rust backend
     ├── src/lib.rs             # Commands, system monitor, multi-window setup
     ├── Cargo.toml

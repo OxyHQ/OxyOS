@@ -57,7 +57,11 @@ const apps: AppEntry[] = [
   { name: "Docs", icon: docsIcon },
 ];
 
-export default function AppLauncher() {
+interface AppLauncherProps {
+  onClose?: () => void;
+}
+
+export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
   const { apps: installedApps } = useInstalledApps();
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,8 +73,12 @@ export default function AppLauncher() {
 
   const close = useCallback(() => {
     setQuery("");
-    invoke("hide_launcher");
-  }, []);
+    if (onClose) {
+      onClose();
+    } else {
+      invoke("hide_launcher");
+    }
+  }, [onClose]);
 
   const displayApps = useMemo(() =>
     installedApps.length > 0
