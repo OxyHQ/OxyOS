@@ -11,25 +11,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 10
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: shell/pnpm-lock.yaml
+          bun-version: latest
 
       - name: Install and build
         working-directory: shell
         run: |
-          pnpm install --frozen-lockfile
-          pnpm build
+          bun install --frozen-lockfile
+          bun run build:web
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy shell/build --project-name=oxyos-demo
+          command: pages deploy shell/web-build --project-name=oxyos-demo
