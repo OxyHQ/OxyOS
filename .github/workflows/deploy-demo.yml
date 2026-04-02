@@ -1,9 +1,10 @@
 name: Deploy Shell Demo
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
-    paths: [shell/**]
+    paths: [shell/**, .github/workflows/deploy-demo.yml]
 
 jobs:
   deploy:
