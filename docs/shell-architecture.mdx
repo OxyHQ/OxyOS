@@ -1,0 +1,222 @@
+---
+title: Shell architecture
+description: Native multi-window layout, IPC contract, Tauri command surface, and Wayland integration for the OxyOS desktop shell.
+order: 1
+---
+
+# Shell architecture
+
+The OxyOS shell (`oxyos-shell`) is a Tauri v2 application written in Rust + React + TypeScript + Tailwind. The frontend lives in `shell/src/`; the native backend lives in `shell/src-tauri/`. It targets a Linux Wayland session under `labwc` but also runs as a standalone desktop app and as a pure browser demo.
+
+## Three runtime modes
+
+The same source tree runs in three contexts. Each entry point selects the right root.
+
+| Mode | Entry HTML | Entry TS | Root component | Driven by |
+|------|-----------|----------|----------------|-----------|
+| Production (session shell) | `index.html` | `src/main.tsx` | `App` → `NativeRoot` by window label | `labwc -s /usr/bin/oxyos-shell` |
+| Test (single Tauri window) | `index.html` | `src/main.tsx` | `App` → `NativeRoot('desktop')` → `WebApp` | `cargo tauri dev` |
+| Web demo | `web.html` | `src/web.tsx` | `WebApp` directly | `bun dev`, deployed to `os.oxy.so/demo` |
+
+`App.tsx` reads `window.__TAURI_INTERNALS__.metadata.currentWebview.label` once at mount and dispatches:
+
+```ts
+if (!isNative() || windowLabel === null) return <WebApp />;
+if (windowLabel === "desktop")            return <WebApp />;
+if (windowLabel === "shelf")              return <ShelfWindow />;
+if (windowLabel === "launcher")           return <LauncherWindow />;
+if (windowLabel === "quicksettings")      return <QuickSettings />;
+if (windowLabel === "notifications")      return <NotificationPanel />;
+if (windowLabel === "calendar")           return <CalendarPopup />;
+if (windowLabel.startsWith("terminal-"))  return <TerminalWindow />;
+```
+
+The web demo and native app share **all** components, stores, hooks, and utilities. Components accept optional callback props (e.g. `onClose`, `onToggleLauncher`) so the web demo can manage panels via React state instead of Tauri IPC.
+
+## Window layout
+
+In production mode the Rust backend creates a fixed set of windows at startup. The shell itself owns the screen — there is no host desktop environment.
+
+| Window | Label | Always-on-top | Decorations | Transparent | Visible at boot |
+|--------|-------|---------------|-------------|-------------|-----------------|
+| Desktop | `desktop` | no | none | no | yes (fullscreen) |
+| Shelf | `shelf` | yes | none | yes | yes (bottom, 52px tall) |
+| Launcher | `launcher` | yes | none | yes | no (toggle on demand) |
+| Quick settings | `quicksettings` | yes | none | yes | no (toggle on demand) |
+| Notifications | `notifications` | yes | none | yes | no (toggle on demand) |
+| Calendar | `calendar` | yes | none | yes | no (toggle on demand) |
+| Terminal | `terminal-N` | no | custom title bar | yes | created on demand |
+
+The shelf is anchored at `(0, screen_height - 52)`. On Linux the backend uses GTK directly to set `set_skip_taskbar_hint`, `set_skip_pager_hint`, `stick`, and on the GDK window `set_override_redirect(true)` so the shelf reliably stays above other native windows.
+
+Tray panels (quick settings, notifications, calendar) are pre-created hidden, anchored to the lower-right above the shelf. Opening one hides its siblings; each panel calls `hide()` on focus loss so clicking elsewhere dismisses it.
+
+## Cross-window IPC
+
+There are three communication channels:
+
+### 1. Tauri commands (frontend → backend)
+
+The frontend calls `invoke("<command>", args?)` from `src/lib/tauri.ts`. The helper short-circuits in browser mode so demo builds never throw on missing IPC:
+
+```ts
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
+  try {
+    if (window.__TAURI_INTERNALS__) {
+      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+      return await tauriInvoke<T>(cmd, args);
+    }
+  } catch {
+    // Browser mode — silent fallback
+  }
+  return null;
+}
+```
+
+The full command surface (from `shell/src-tauri/src/lib.rs`):
+
+| Command | Description |
+|---------|-------------|
+| `launch_app(exec)` | Spawn an external Linux process (detached stdio). |
+| `open_terminal()` | Create a new native terminal window, returns its label. |
+| `toggle_launcher()` | Emit a `launcher-toggle` event for the launcher window. |
+| `show_launcher()` / `hide_launcher()` | Emit `launcher-show` / `launcher-hide`. |
+| `toggle_quicksettings()` / `toggle_notifications()` / `toggle_calendar()` | Show/hide tray panels (hides siblings). |
+| `get_battery_info()` / `get_wifi_info()` / `get_bluetooth_info()` / `get_night_light_info()` | One-shot system reads. |
+| `set_wifi(enabled)` | `nmcli radio wifi on/off`. |
+| `set_bluetooth(enabled)` | `bluetoothctl power on/off`. |
+| `set_night_light(enabled)` | `gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled`. |
+| `get_volume()` / `set_volume(level)` | PulseAudio via `pactl set-sink-volume @DEFAULT_SINK@`. |
+| `get_brightness()` / `set_brightness(level)` | Direct write to `/sys/class/backlight/*/brightness`. |
+| `power_action(action)` | `systemctl poweroff/reboot`, `loginctl terminate-session self`. `lock` is a no-op (the lock screen is a frontend overlay). |
+| `get_username()` / `get_user_avatar()` | Read from `$USER`, `/etc/passwd` GECOS, and `/var/lib/AccountsService/icons/<user>`, `~/.face`. |
+| `list_desktop_apps()` | Parse `/usr/share/applications/*.desktop`, resolve icons via the hicolor / pixmaps search path, return name+exec+icon+categories. |
+| `verify_password(password)` | PAM check (`pam::Client::with_password("login")`) for the unlock screen. |
+| `pty_spawn` / `pty_write` / `pty_resize` / `pty_kill` | Backend for the built-in terminal (xterm.js front, `portable-pty` back). |
+
+### 2. Tauri events (backend → frontend)
+
+The Rust backend periodically polls system state and emits a `system-update` event payload (`SystemUpdate` struct: battery, wifi, bluetooth, night_light, volume, brightness). All windows listen via `@tauri-apps/api/event`.
+
+PTY traffic is bridged through per-instance events: each terminal subscribes to `pty-data-<id>` (output) and `pty-exit-<id>` (process exit).
+
+Launcher visibility is also event-driven: `toggle_launcher` emits `launcher-toggle` which the launcher root subscribes to, so the React tree owns the visibility animation while the OS-level window state matches.
+
+### 3. Shared Zustand stores
+
+State that needs to live in a single window is held in Zustand stores under `src/stores/`:
+
+| Store | Owns |
+|-------|------|
+| `sessionStore` | Login / lock state, current user. |
+| `systemStore` | Battery, wifi, bluetooth, volume, brightness, night light (driven by the `system-update` event). |
+| `settingsStore` | Persisted user settings (theme, wallpaper, etc.). |
+| `runningAppsStore` | Active app pins in the shelf. |
+| `notificationStore` | Active notifications + history. |
+| `screenshotStore` | Pending screenshot overlay state. |
+| `aliaStore` | Alia assistant chat state. |
+
+In production each window has its own store instance; cross-window state synchronisation is driven by Tauri events (`system-update`, `launcher-toggle`, `pty-*`).
+
+## Capabilities
+
+`src-tauri/capabilities/default.json` grants the same minimal capability set to every window:
+
+```json
+{
+  "windows": ["desktop", "shelf", "launcher", "quicksettings", "notifications", "calendar", "terminal-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-create",
+    "core:window:allow-start-dragging",
+    "shell:allow-open"
+  ]
+}
+```
+
+No filesystem or HTTP plugins are exposed; all OS access goes through typed Tauri commands.
+
+## Built-in terminal
+
+`TerminalWindow` renders an [xterm.js](https://xtermjs.org/) terminal with `@xterm/addon-fit`. The lifecycle:
+
+1. The shelf or launcher calls `invoke("open_terminal")`, which creates a new `terminal-N` window and returns its label.
+2. The new window mounts `TerminalWindow`, which calls `invoke("pty_spawn", { id, cols, rows })`.
+3. The backend opens a PTY via `portable-pty`, spawns `$SHELL` (default `/bin/bash`) with `TERM=xterm-256color`, and starts a reader thread that emits `pty-data-<id>` for each chunk.
+4. Keystrokes go back via `invoke("pty_write", { id, data })`. Resize via `pty_resize`. Kill via `pty_kill`.
+
+Multiple terminals coexist; the manager is a `Mutex<HashMap<String, PtyEntry>>` keyed by the window label.
+
+## Wayland integration
+
+The shell is Wayland-first. `labwc` is the supported compositor because of its `wlr-layer-shell` support; the shelf and launcher rely on layer-shell-aware behaviour for always-on-top + skip-taskbar semantics.
+
+The labwc autostart script (`/etc/xdg/labwc/autostart`) exports the standard Wayland env and launches the shell:
+
+```sh
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=OxyOS
+export MOZ_ENABLE_WAYLAND=1
+export GDK_BACKEND=wayland,x11
+export QT_QPA_PLATFORM=wayland
+
+/usr/bin/oxyos-shell &
+```
+
+Tap-to-click is enabled at build time via the `0900-tap-to-click.hook.chroot` hook, which writes `/etc/libinput/local-overrides.quirks` with `AttrLibinputTappingDefault=true` plus an X11 fallback in `/etc/X11/xorg.conf.d/40-libinput.conf`.
+
+### Running the shell under a different compositor
+
+For development on a host that already runs GNOME or another DE, just run `cargo tauri dev` — Tauri creates its own decorated window. For a full-shell experience under another `wlr-layer-shell` compositor (Sway, Hyprland):
+
+```sh
+# Sway: disable the default bar and launch the shell
+bar { mode invisible }
+exec /path/to/oxyos-shell
+```
+
+The shell does not assume `labwc`-specific protocols beyond layer-shell, so any compatible compositor works for testing.
+
+## Lock screen
+
+Login and lock-screen authentication go through the Rust `verify_password` command, which calls PAM (`pam::Client::with_password("login")`). The current Linux session user is taken from `$USER` / `$LOGNAME`. The lock screen UI is a React overlay rendered inside the `desktop` window; the `power_action("lock")` IPC is a no-op because no OS-level locking is needed — the overlay simply blocks the desktop until PAM accepts a password.
+
+During development, the lock screen accepts `1234` as a PIN to skip PAM.
+
+## Directory map
+
+```
+shell/
+├── index.html                 # Native Tauri entry
+├── web.html                   # Web demo entry
+├── vite.config.ts             # Native build
+├── vite.web.config.ts         # Web demo build (base: /demo/)
+├── src/
+│   ├── main.tsx               # Native entry point
+│   ├── web.tsx                # Web demo entry point
+│   ├── App.tsx                # Window router (native)
+│   ├── WebApp.tsx             # Single-page shell (web demo + test mode)
+│   ├── components/
+│   │   ├── Alia/              # AI assistant bubble + panel
+│   │   ├── AppLauncher/       # Full-screen app grid + LauncherWindow root
+│   │   ├── Desktop/           # Wallpaper, OSD, calendar, screenshot
+│   │   ├── LoginScreen/       # Lock screen with PIN/PAM auth
+│   │   ├── NotificationPanel/ # Notification panel + toast
+│   │   ├── Settings/          # Settings panel
+│   │   ├── Shelf/             # Bottom taskbar + ShelfWindow root
+│   │   ├── SystemTray/        # Quick settings panel
+│   │   └── Terminal/          # Terminal app + TerminalWindow root
+│   ├── stores/                # Zustand state
+│   ├── hooks/                 # useClock, useSystemInfo, useKeyboardShortcuts, useInstalledApps
+│   ├── lib/                   # tauri.ts, appRegistry.ts, launchApp.ts, alia.ts, sounds.ts
+│   └── styles/                # tokens.css (design tokens)
+└── src-tauri/
+    ├── src/lib.rs             # Commands, system monitor, multi-window setup
+    ├── Cargo.toml
+    ├── tauri.conf.json        # App config (no default windows — created in setup)
+    └── capabilities/          # Permission grants per window
+```

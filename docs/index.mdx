@@ -1,0 +1,202 @@
+---
+title: OxyOS
+description: Lightweight, elegant desktop Linux distribution built on Debian — live-build ISO plus a React + Tauri v2 desktop shell.
+order: 0
+---
+
+# OxyOS
+
+OxyOS is a lightweight desktop Linux distribution built on Debian Trixie, with a custom ChromeOS-inspired shell written in React, TypeScript, and Tauri v2. The project ships the live-build configuration that assembles the installation ISO, plus the desktop shell source.
+
+<Badge variant="success">App</Badge> <Badge>Debian Trixie</Badge> <Badge>Wayland</Badge>
+
+## What it is
+
+A single repository with two halves:
+
+- `config/` — `live-build(7)` configuration that produces a hybrid ISO (`iso-hybrid`, fat32) including the Debian Installer, the OxyOS package set, branding, hooks, and preseed defaults.
+- `shell/` — the OxyOS desktop shell: a Tauri v2 native app with a React + Tailwind frontend that renders the desktop, shelf (taskbar), app launcher, login screen, system tray, notification panel, and a Wayland-aware terminal.
+
+The official website is [os.oxy.so](https://os.oxy.so/), and there is a fully interactive web demo of the shell deployed at `os.oxy.so/demo`.
+
+## Architecture
+
+OxyOS is composed of three layers:
+
+1. **Base system** — Debian Trixie (`amd64`), bootstrapped via `debootstrap`, with `main contrib non-free non-free-firmware` enabled. Kernel: `linux-image` (Debian stock). Init: `systemd`.
+2. **Session stack** — `greetd` display manager (`agreety` text greeter on VT 7) auto-launching a `labwc` Wayland compositor as the `user` account. `labwc`'s `autostart` exports the Wayland environment and spawns `/usr/bin/oxyos-shell`.
+3. **Shell** — Tauri v2 binary (`oxyos-shell`) that owns the screen via a native multi-window layout (desktop, shelf, launcher, terminals, quick settings, notifications, calendar). Each window loads the same `index.html` and routes to a root component based on its window label.
+
+```
+greetd (VT 7)
+  └── labwc (Wayland compositor, wlr-layer-shell)
+        └── /usr/bin/oxyos-shell  (Tauri v2)
+              ├── desktop  window (wallpaper, Alia, OSD)
+              ├── shelf    window (bottom taskbar, always-on-top)
+              ├── launcher window (full-screen app grid)
+              ├── quicksettings / notifications / calendar (tray panels)
+              └── terminal-N    (spawned on demand)
+```
+
+### Codebase layout
+
+| Path | Purpose |
+|------|---------|
+| `shell/` | OxyOS desktop shell (React + Tauri v2). |
+| `config/package-lists/live.list.chroot` | Package selections installed into the live system. |
+| `config/includes.chroot_after_packages/` | Files copied into the target root filesystem after package install (greetd config, labwc autostart, branding, apt-setup). |
+| `config/includes.installer/` | Installer-time assets and configuration. |
+| `config/bootloaders/` | Boot splash and bootloader-specific resources (`syslinux` BIOS, `grub-efi` UEFI). |
+| `config/hooks/live/` | Live-build hooks that run during image creation (branding, shell binary placement, grub init tune, source list fix). |
+| `config/hooks/normal/` | Normal-stage hooks (lxdm legacy, tap-to-click, source fix). |
+| `config/preseed/` | Debian Installer automation defaults (`preseed.cfg.chroot`, `preseed.cfg.binary`). |
+| `config/archives/` | Apt source list fragments and signing key for OxyOS additions. |
+| `config/oxyos.conf` | Single source of truth for OS identity: `OS_NAME`, `OS_VERSION`, `OS_VERSION_CODENAME`, URLs. |
+
+Internal build identifiers all use `oxyos`. The ISO label is `OXYOS_LIVE`, the image name is `oxyos-${OS_VERSION}`, the codename for `1.0` is `ozone`.
+
+## Build the ISO
+
+The simplest path is a privileged Debian Trixie container:
+
+```sh
+docker run --privileged --cap-add=ALL \
+  -v /proc:/proc -v /sys:/sys \
+  -v $PWD:/build -w /build \
+  -it --rm debian:trixie /bin/sh -c '
+    apt-get update && apt-get install -y live-build &&
+    mkdir -p .build && touch .build/config && lb build
+  '
+```
+
+Or natively on a Trixie host (as root or via sudo):
+
+```sh
+apt-get update && apt-get install -y live-build
+mkdir .build && touch .build/config
+lb build
+```
+
+`lb build` runs the bootstrap → chroot → binary stages defined under `config/`. Output is an `iso-hybrid` image suitable for both BIOS and UEFI, bootable from USB. Secure Boot is `auto` (handled by `grub-efi` when the host shim is available).
+
+The boot command-line for the live system is:
+
+```
+boot=live components quiet splash username=user hostname=oxyos
+```
+
+A failsafe variant disables ACPI/APM/DMA/MCE/SMP and forces `vga=788`.
+
+## Boot, install, and first run
+
+1. **Live boot** — flash the ISO to a USB stick (`dd if=oxyos-1.0.iso of=/dev/sdX bs=4M status=progress conv=fsync`) and boot. The `live` user is created automatically.
+2. **Install** — pick the GUI Debian Installer entry from the boot menu. `preseed.cfg.binary` and `preseed.cfg.chroot` set sensible defaults; `config/oxyos.conf` drives the install-time branding.
+3. **First login** — `greetd` lands on VT 7 with `agreety` (text greeter). Log in as the `user` account you created during install; `greetd` launches `labwc -s /usr/bin/oxyos-shell`, which starts the shell.
+
+The shell expects a Wayland session with `wlr-layer-shell` support. `labwc` is the supported default; other compatible compositors (Sway, Hyprland) work but are not packaged.
+
+## Quick start (shell development)
+
+Develop the shell against a regular desktop (no need to install OxyOS itself).
+
+**Prerequisites:**
+
+- Node.js 20+
+- Bun 1.0+
+- Rust stable + Tauri v2 CLI (`cargo install tauri-cli --version "^2"`)
+- Debian/Ubuntu system libs: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`
+
+```sh
+cd shell
+bun install
+bun dev                     # Vite dev server, http://localhost:5173/web.html
+cargo tauri dev             # Native multi-window mode
+bun run build               # Native frontend bundle → build/
+bun run build:web           # Web demo bundle → web-build/ (base: /demo/)
+cargo tauri build           # Full native binary
+```
+
+Default lock-screen PIN during development is `1234`.
+
+## Core concepts
+
+### Native multi-window shell
+
+Instead of one webview rendering everything, the shell splits into separate Tauri windows with distinct roles and native hints. This is what makes the shelf reliably stay on top of native app windows and the launcher properly overlay everything.
+
+| Window | Label | Role | Native hints |
+|--------|-------|------|--------------|
+| Desktop | `desktop` | Wallpaper, Alia assistant, OSD, notifications, settings | Maximized, no decorations |
+| Shelf | `shelf` | Bottom taskbar — launcher button, pinned apps, system tray, clock | Always-on-top, 52px tall, anchored bottom, skip taskbar |
+| Launcher | `launcher` | Full-screen app grid with search | Always-on-top, fullscreen, hidden by default, skip taskbar |
+| Quick settings | `quicksettings` | Tray panel — wifi, bluetooth, volume, brightness | Transparent, always-on-top, hide on focus loss |
+| Notifications | `notifications` | Tray panel — notification list | Transparent, always-on-top, hide on focus loss |
+| Calendar | `calendar` | Tray panel — month view | Transparent, always-on-top, hide on focus loss |
+| Terminal | `terminal-N` | Native terminal windows (spawned on demand) | Decorated by custom title bar, resizable |
+
+All windows load `index.html`; the frontend reads `window.__TAURI_INTERNALS__.metadata.currentWebview.label` and dispatches to the appropriate root component.
+
+### Cross-window IPC
+
+- **Launcher toggle** — the shelf calls `invoke("toggle_launcher")` which emits a `launcher-toggle` event and shows/hides the launcher window natively.
+- **App launch** — both shelf and launcher call `invoke("launch_app", { exec })` for external `.desktop` apps, or `invoke("open_terminal")` for the built-in terminal.
+- **System events** — the Rust backend emits `system-update` events (battery, wifi, volume, brightness) on a poll; all windows receive them via Tauri's event system.
+- **Tray panels** — opening a panel (quick settings, notifications, calendar) hides its siblings, so only one tray panel is visible at a time. Panels hide on focus loss.
+
+See [Shell architecture](./shell-architecture) for the full window routing, IPC contract, and gesture model.
+
+### Live-build ISO assembly
+
+Image creation is plain `live-build`:
+
+- **Bootstrap** — Debian Trixie via `debootstrap` from `deb.debian.org`. `non-free-firmware` is included in both the live image and the installer.
+- **Chroot** — packages from `config/package-lists/live.list.chroot` are installed; hooks under `config/hooks/live/` apply branding, place the shell binary (from CI), tune the grub init sound, and patch `/etc/apt/sources.list` to use the modern deb822 format.
+- **Binary** — `syslinux` (BIOS) and `grub-efi` (UEFI) bootloaders are written, with `LB_ISO_VOLUME="oxyos-1.0"` and `LB_HDD_LABEL="OXYOS_LIVE"`.
+- **Security** — `LB_SECURITY="false"` because live-build's default security URL format doesn't match Trixie. The security repo is injected manually via `config/archives/oxyos.list.chroot` and the deb822 sources file written by the apt-setup hook.
+
+See [ISO build pipeline](./iso-build) for stage-by-stage detail and per-hook responsibilities.
+
+### Branding as data
+
+Everything that names the OS comes from a single shell config file, `config/oxyos.conf`:
+
+```sh
+OS_NAME="OxyOS"
+OS_VERSION="1.0"
+OS_VERSION_CODENAME="ozone"
+OS_ID="oxyos"
+OS_ID_LIKE="debian"
+OS_HOME_URL="https://os.oxy.so"
+OS_SUPPORT_URL="https://os.oxy.so/support"
+OS_BUG_REPORT_URL="https://github.com/OxyHQ/OxyOS/issues"
+```
+
+The `0800-oxyos-branding.hook.chroot` live-build hook sources this file and regenerates `/etc/os-release`, `/etc/lsb-release`, `/etc/issue`, and `/etc/issue.net`. The same file is installed to `/etc/oxyos/oxyos.conf` so user-facing tooling can read identity information at runtime.
+
+`config/common` also sources the file so `LB_IMAGE_NAME` follows `OS_VERSION`.
+
+### Project sources
+
+OxyOS spans multiple repositories. The current public list:
+
+| Repo | Description |
+|------|-------------|
+| [`OxyOS`](https://github.com/OxyHQ/OxyOS) | This repo — live-build configuration and desktop shell. |
+| [`OxyOS-website`](https://github.com/OxyHQ/OxyOS-website) | Source for [os.oxy.so](https://os.oxy.so/). |
+| [`OxyOS-menu`](https://github.com/OxyHQ/OxyOS-menu) | Menu tooling. |
+| [`OxyOS-apps`](https://github.com/OxyHQ/OxyOS-apps) | Apps package sources. |
+| [`OxyOS-welcome`](https://github.com/OxyHQ/OxyOS-welcome) | Optional post-installation script. |
+| [`OxyOS-wallpapers`](https://github.com/OxyHQ/OxyOS-wallpapers) | Wallpaper selection. |
+| [`OxyOS-ui-theme`](https://github.com/OxyHQ/OxyOS-ui-theme) | UI theme assets. |
+| [`OxyOS-pipemenus`](https://github.com/OxyHQ/OxyOS-pipemenus) | Openbox pipemenus (legacy). |
+| [`OxyOS-metapackage`](https://github.com/OxyHQ/OxyOS-metapackage) | Basic metapackage. |
+| [`OxyOS-lxdm-theme`](https://github.com/OxyHQ/OxyOS-lxdm-theme) | LXDM theme resources (legacy). |
+| [`OxyOS-icon-theme`](https://github.com/OxyHQ/OxyOS-icon-theme) | Default icon themes. |
+| [`OxyOS-exit`](https://github.com/OxyHQ/OxyOS-exit) | Power-state prompt. |
+| [`OxyOS-configs`](https://github.com/OxyHQ/OxyOS-configs) | Miscellaneous configuration files. |
+
+## Reading order
+
+- [Shell architecture](./shell-architecture) — windows, IPC, Tauri command surface, Wayland integration.
+- [ISO build pipeline](./iso-build) — what each `lb` stage does, hook ordering, branding flow, signing.
+- [Customizing OxyOS](./customizing) — adding packages, changing the shell binary location, replacing branding, rebuilding hooks.

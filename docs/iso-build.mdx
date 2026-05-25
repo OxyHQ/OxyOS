@@ -1,0 +1,211 @@
+---
+title: ISO build pipeline
+description: How live-build assembles the OxyOS ISO — stages, hooks, branding, archive sources, and installer integration.
+order: 2
+---
+
+# ISO build pipeline
+
+OxyOS uses Debian's [`live-build(7)`](https://manpages.debian.org/testing/live-build/live-build.7.en.html) (`lb`) to produce a hybrid ISO that boots both BIOS and UEFI systems and includes the Debian Installer for permanent installs. This page documents what each stage does, the order of hooks, the branding flow, and the bits that intentionally diverge from upstream defaults.
+
+## Pipeline at a glance
+
+```
+lb build
+ ├── bootstrap   (debootstrap Debian Trixie + apt-transport-https + ca-certificates)
+ ├── chroot      (apt install package-lists, run hooks, place shell binary, brand the OS)
+ └── binary      (write bootloaders, ISO filesystem, ISO label, hybrid MBR/GPT)
+```
+
+Output: `oxyos-${OS_VERSION}.iso` (`iso-hybrid`, fat32). The image name and version come from `config/oxyos.conf` (sourced by `config/common`).
+
+## Configuration files
+
+The `config/` directory is the `lb` configuration. Each top-level file is a shell snippet sourced by `lb` to set its `LB_*` variables.
+
+| File | Role |
+|------|------|
+| `common` | Shared across all stages — package manager (`apt`), debconf priority (`critical`/`noninteractive`), init system (`systemd`), image base name. Sources `oxyos.conf` for `LB_IMAGE_NAME`. |
+| `bootstrap` | Bootstrap stage — `amd64`, Debian `trixie`, `main contrib non-free non-free-firmware`, official `deb.debian.org` mirrors. |
+| `chroot` | Chroot stage — `squashfs` chroot filesystem, `overlay` union, `linux-image` kernel package, `LB_SECURITY="false"` (security repo added manually — see below), backports off. |
+| `binary` | Binary stage — `iso-hybrid` image, `fat32`, `LB_HDD_LABEL="OXYOS_LIVE"`, `LB_ISO_VOLUME="oxyos-1.0"`, `syslinux` BIOS + `grub-efi` UEFI, Debian Installer (`live` variant, GUI on), Secure Boot `auto`. |
+| `build` | Build-level settings. |
+| `source` | Source-tarball settings. |
+| `oxyos.conf` | Single source of truth for OS identity (name, version, codename, URLs). |
+
+`LB_BOOTAPPEND_LIVE` is:
+
+```
+boot=live components quiet splash username=user hostname=oxyos
+```
+
+A failsafe variant disables ACPI/APM/DMA/MCE/SMP and forces `vga=788`.
+
+## Package set
+
+The full live system package list lives in `config/package-lists/live.list.chroot`:
+
+- **Live runtime** — `live-boot`, `live-config`, `live-config-systemd`.
+- **Core** — `sudo`, `apt-transport-https`, `psmisc`, `cryptsetup`.
+- **Session stack** — `greetd` (display manager), `labwc` (Wayland compositor), `seatd`, `xwayland` (X11 fallback for legacy apps).
+- **Shell runtime** — `libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libayatana-appindicator3-1`, `librsvg2-common`, GStreamer base/good. These are what the `oxyos-shell` Tauri binary links against.
+- **System services** — `network-manager`, `pulseaudio`, `upower`, `dbus-x11`.
+- **Desktop apps** — `firefox-esr`, `thunar` (+ archive plugin, volman), `foot` (Wayland terminal), `vlc`, `gnome-calculator`, `gnome-text-editor`, `eog`, `file-roller`, `gparted`, `transmission-gtk`, `gvfs-fuse`.
+- **Fonts & themes** — `fonts-freefont-ttf`, `fonts-liberation`, `gnome-icon-theme`, `dmz-cursor-theme`, `adwaita-icon-theme`.
+- **Utilities** — `bash-completion`, `htop`, `curl`, `unzip`, `zip`, `rsync`, `openssh-client`, `wireless-tools`, `ntfs-3g`, `dosfstools`, `user-setup`.
+- **Hardware** — `firmware-linux-free`.
+
+`non-free-firmware` is enabled in both bootstrap and the Debian Installer, so most laptop wifi/graphics blobs are available without extra steps.
+
+## File overlays
+
+`config/includes.chroot_after_packages/` is copied into the target root filesystem after package installation. Current contents:
+
+| Path | What it does |
+|------|--------------|
+| `etc/oxyos/oxyos.conf` | Installed copy of the branding config — read by user-facing tools at runtime. |
+| `etc/default/grub` | GRUB defaults (including `GRUB_INIT_TUNE`). |
+| `etc/greetd/config.toml` | greetd display manager config. Text greeter on VT 7; auto-launches `labwc -s /usr/bin/oxyos-shell` as the `user` account. |
+| `etc/xdg/labwc/rc.xml` | labwc keybindings / config. |
+| `etc/xdg/labwc/autostart` | Wayland env exports + spawns the OxyOS shell. |
+| `usr/lib/oxyos/apt-setup` | First-boot script that writes deb822 sources to `/etc/apt/sources.list.d/debian.sources` and disables itself. |
+| `usr/lib/systemd/system/oxyos-apt-setup.service` | systemd unit that runs the apt-setup script once. |
+
+The apt-setup unit exists because live-build's default `LB_SECURITY` URL format is incompatible with Trixie, so the live image ships with `LB_SECURITY="false"` and the installed system writes a clean deb822 sources file on first boot.
+
+## Hooks
+
+Hooks are shell scripts run during the chroot stage. They're under `config/hooks/`:
+
+```
+config/hooks/
+├── live/    # Hooks that run only when building the live image
+│   ├── 0800-rm-log.hook.chroot              Truncate /var/log/* before squashing
+│   ├── 0800-oxyos-branding.hook.chroot      Generate /etc/os-release, /etc/lsb-release, /etc/issue from oxyos.conf
+│   ├── 0840-build-shell.hook.chroot         Verify /usr/bin/oxyos-shell exists (placed by CI), warn otherwise
+│   ├── 0850-lxdm-config.hook.chroot         (legacy LXDM bits — kept for compatibility)
+│   ├── 0855-disable-live-config-lxdm.hook.chroot  Skip live-config's LXDM setup (greetd is used instead)
+│   ├── 0860-grub-init-tune.hook.chroot      update-grub to pick up GRUB_INIT_TUNE
+│   ├── 0900-tap-to-click.hook.chroot        Enable touchpad tap-to-click for libinput + X11 compat
+│   └── 0990-sources-fix.hook.chroot         Last-pass sources cleanup
+└── normal/  # Hooks that run for normal (installed) builds
+    ├── 0850-lxdm-config.hook.chroot
+    ├── 0900-tap-to-click.hook.chroot
+    └── 0990-sources-fix.hook.chroot
+```
+
+Numeric prefixes set the execution order. The `0800-` hooks run before the `0850-` group, etc.
+
+### Hook detail: branding
+
+`0800-oxyos-branding.hook.chroot` is the canonical source for system-identifying files. It sources `/etc/oxyos/oxyos.conf` (or falls back to compiled-in defaults) and writes:
+
+- `/etc/os-release` — `PRETTY_NAME`, `NAME`, `VERSION_ID`, `VERSION_CODENAME`, `ID`, `ID_LIKE`, `HOME_URL`, `SUPPORT_URL`, `BUG_REPORT_URL`.
+- `/etc/lsb-release` — `DISTRIB_ID`, `DISTRIB_RELEASE`, `DISTRIB_CODENAME`, `DISTRIB_DESCRIPTION`.
+- `/etc/issue` — TTY login banner.
+- `/etc/issue.net` — Remote login banner.
+
+Anything that consumes these files (Plymouth themes, package installers, ID tooling) sees the same values; bumping the version is a single edit to `config/oxyos.conf`.
+
+### Hook detail: shell binary
+
+`0840-build-shell.hook.chroot` is intentionally minimal:
+
+```sh
+if [ ! -f /usr/bin/oxyos-shell ]; then
+    echo "oxyos-shell binary not found — skipping (should be placed by CI)"
+fi
+```
+
+CI builds the shell separately (`shell/` directory, `cargo tauri build`) and places the resulting binary into `/usr/bin/oxyos-shell` of the chroot before this hook runs. The hook is a safety check, not a build step — building Rust inside a Debian chroot is slower and harder to cache than building it as a separate CI job.
+
+### Hook detail: deb822 sources
+
+`0990-sources-fix.hook.chroot` (currently mostly no-op comments) is the cleanup pass for any sources-list issues. The actual deb822 conversion happens at first boot via `oxyos-apt-setup.service`:
+
+```sh
+cat << EOF > /etc/apt/sources.list.d/debian.sources
+Types: deb
+URIs: http://deb.debian.org/debian/
+Suites: trixie trixie-updates trixie-backports
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.debian.org/debian-security/
+Suites: trixie-security
+Components: main contrib non-free non-free-firmware
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+```
+
+This replaces the legacy single-line `sources.list` with the modern format, then deactivates and removes itself.
+
+## Archive sources
+
+`config/archives/` contains the OxyOS apt signing key and source list fragments for both the chroot stage (`*.chroot`) and the final binary (`*.binary`):
+
+- `oxyos.key.chroot`, `oxyos.key.binary` — PGP public key (`OxyOS <hello@oxy.so>`).
+- `oxyos.list.chroot`, `oxyos.list.binary` — Currently only inject the Debian security repo (`deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware`) because `LB_SECURITY="false"`.
+
+The OxyOS key is set up to sign forthcoming OxyOS-native package repositories.
+
+## Bootloaders
+
+| Bootloader | Architecture | Path |
+|------------|--------------|------|
+| `syslinux` | BIOS | `config/bootloaders/isolinux/`, `config/bootloaders/syslinux/`, `config/bootloaders/extlinux/`, `config/bootloaders/pxelinux/` |
+| `grub-efi` | UEFI | `config/bootloaders/grub-pc/`, `config/bootloaders/grub-legacy/` |
+
+`LB_UEFI_SECURE_BOOT="auto"` lets live-build use the host's `grub-efi-amd64-signed` and shim when available.
+
+## Preseed
+
+The Debian Installer is preseeded from `config/preseed/`:
+
+- `preseed.cfg.binary` — applied to the GUI installer offered from the live ISO.
+- `preseed.cfg.chroot` — applied during the chroot stage to set sensible defaults inside the live system itself.
+
+The default install creates a `user` account (matching the live-boot `username=user`), so first login on either the live system or an installed system goes through the same greetd flow.
+
+## Building
+
+Inside a privileged Trixie container:
+
+```sh
+docker run --privileged --cap-add=ALL \
+  -v /proc:/proc -v /sys:/sys \
+  -v $PWD:/build -w /build \
+  -it --rm debian:trixie /bin/sh -c '
+    apt-get update && apt-get install -y live-build &&
+    mkdir -p .build && touch .build/config && lb build
+  '
+```
+
+Or natively (as root):
+
+```sh
+apt-get update && apt-get install -y live-build
+mkdir .build && touch .build/config
+lb build
+```
+
+`lb build` is idempotent — re-running picks up where it left off via the cache (`LB_CACHE="true"`, `LB_CACHE_STAGES="bootstrap"`). To force a clean rebuild:
+
+```sh
+lb clean && lb build
+# or, for a deeper clean:
+lb clean --all && lb build
+```
+
+The resulting ISO can be written to USB with `dd`:
+
+```sh
+dd if=oxyos-1.0.iso of=/dev/sdX bs=4M status=progress conv=fsync
+```
+
+Or used directly with QEMU:
+
+```sh
+qemu-system-x86_64 -m 4096 -enable-kvm -cdrom oxyos-1.0.iso
+```

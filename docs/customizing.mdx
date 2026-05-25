@@ -1,0 +1,186 @@
+---
+title: Customizing OxyOS
+description: Add packages, change the shell binary, replace branding, add a hook, or rebuild from a fork.
+order: 3
+---
+
+# Customizing OxyOS
+
+OxyOS is configuration plus a shell binary. Almost every change you'll want to make is a single-file edit somewhere under `config/` or `shell/`. This page collects the common ones.
+
+## Add or remove a package
+
+Edit `config/package-lists/live.list.chroot`. One package per line; `#` starts a comment. Example — add `neovim` and `git`, remove `transmission-gtk`:
+
+```diff
+ # Utilities
+ bash-completion
+ htop
++neovim
++git
+ curl
+ unzip
+ zip
+ ...
+- # Removed:
+- transmission-gtk
+```
+
+Then rebuild:
+
+```sh
+lb clean && lb build
+```
+
+For packages that need a non-default apt source, add a list fragment under `config/archives/` (with the matching signing key) and they'll be available in both chroot and the final image.
+
+## Change the live username or hostname
+
+Both live in `config/binary`:
+
+```sh
+LB_BOOTAPPEND_LIVE="boot=live components quiet splash username=user hostname=oxyos"
+```
+
+Change `username=user` and/or `hostname=oxyos`. If you change the username, also update `config/includes.chroot_after_packages/etc/greetd/config.toml` so the `initial_session` runs as the right user:
+
+```toml
+[initial_session]
+command = "labwc -s /usr/bin/oxyos-shell"
+user = "user"  # ← change here too
+```
+
+## Update branding
+
+`config/oxyos.conf` is the single source of truth for OS identity. The `0800-oxyos-branding.hook.chroot` regenerates `/etc/os-release`, `/etc/lsb-release`, `/etc/issue`, and `/etc/issue.net` from it. To bump the version or change the codename:
+
+```sh
+OS_NAME="OxyOS"
+OS_VERSION="1.1"             # ← bump
+OS_VERSION_CODENAME="argon"  # ← new codename
+OS_ID="oxyos"
+OS_ID_LIKE="debian"
+OS_HOME_URL="https://os.oxy.so"
+OS_SUPPORT_URL="https://os.oxy.so/support"
+OS_BUG_REPORT_URL="https://github.com/OxyHQ/OxyOS/issues"
+```
+
+`config/common` sources this file and sets `LB_IMAGE_NAME="oxyos-${OS_VERSION}"`, so the next `lb build` produces `oxyos-1.1.iso` and an OS that self-identifies as `OxyOS 1.1 (argon)`.
+
+For visual branding (wallpapers, splash, icons), the assets are intentionally in separate repos so the ISO stays small and forks can swap them independently:
+
+- [`OxyOS-wallpapers`](https://github.com/OxyHQ/OxyOS-wallpapers)
+- [`OxyOS-ui-theme`](https://github.com/OxyHQ/OxyOS-ui-theme)
+- [`OxyOS-icon-theme`](https://github.com/OxyHQ/OxyOS-icon-theme)
+
+## Replace the shell binary
+
+The shell is built separately (the `shell/` directory) and the binary is expected at `/usr/bin/oxyos-shell` in the chroot. CI places it there before the `0840-build-shell.hook.chroot` runs.
+
+For local iteration without rebuilding the ISO:
+
+```sh
+cd shell
+bun install
+cargo tauri build
+# Resulting binary: shell/src-tauri/target/release/oxyos-shell
+sudo cp shell/src-tauri/target/release/oxyos-shell /usr/bin/oxyos-shell
+```
+
+If you're rebuilding the ISO from a fork that needs a different binary location, edit the labwc autostart script:
+
+```sh
+# config/includes.chroot_after_packages/etc/xdg/labwc/autostart
+/usr/local/bin/my-fork-shell &
+```
+
+And update the greetd config to match if needed.
+
+## Add a hook
+
+Hooks are plain shell scripts under `config/hooks/`. Drop a script named `NNNN-name.hook.chroot` into `config/hooks/live/` (or `config/hooks/normal/`) and make it executable:
+
+```sh
+chmod +x config/hooks/live/0950-my-customization.hook.chroot
+```
+
+The numeric prefix controls ordering — keep your hook in the same range as existing ones doing similar work (8xx for system files, 9xx for runtime tweaks).
+
+Hook conventions:
+
+```sh
+#!/bin/sh
+set -e
+
+# Your customization here. The script runs inside the chroot.
+
+echo "P: My customization applied"
+```
+
+The `P:` prefix on stdout is the live-build convention for "progress" output.
+
+## Change the default compositor
+
+OxyOS uses `labwc` because of its `wlr-layer-shell` support, which the shelf and launcher rely on. To swap it for another `wlr-layer-shell`-aware compositor (Sway, Hyprland), do all of:
+
+1. Replace `labwc` in `config/package-lists/live.list.chroot` with the new compositor's package.
+2. Update `config/includes.chroot_after_packages/etc/greetd/config.toml`:
+   ```toml
+   [initial_session]
+   command = "sway"   # or hyprland, or whatever
+   user = "user"
+   ```
+3. Move or rewrite `config/includes.chroot_after_packages/etc/xdg/labwc/autostart` to the new compositor's config location and launch the shell from there.
+
+Compositors without layer-shell support will not work correctly — the shelf needs always-on-top + skip-taskbar semantics to stay above app windows.
+
+## Build from a fork
+
+The repo is self-contained — fork on GitHub, clone, edit, rebuild:
+
+```sh
+git clone https://github.com/<you>/OxyOS.git
+cd OxyOS
+# Make your changes under config/ and/or shell/
+lb build
+```
+
+If your fork also rebuilds the shell, the GitHub Actions workflow (`.github/workflows/`) shows the CI pattern: build the Tauri binary first, copy it into the chroot, then run `lb build`.
+
+To publish your own ISO, change `LB_ISO_PUBLISHER` and `LB_ISO_APPLICATION` in `config/binary`:
+
+```sh
+LB_ISO_APPLICATION="MyOS"
+LB_ISO_PREPARER="live-build @LB_VERSION@; https://salsa.debian.org/live-team/live-build"
+LB_ISO_PUBLISHER="MyOrg; https://example.com; team@example.com"
+LB_ISO_VOLUME="myos-1.0"
+```
+
+And of course `config/oxyos.conf` controls the on-disk identity. A rename is a global find-replace on `oxyos`/`OxyOS` plus updates to:
+
+- `config/oxyos.conf` (the file itself — also rename it if you like)
+- `config/binary` (`LB_ISO_*`, `LB_HDD_LABEL`)
+- `config/includes.chroot_after_packages/etc/oxyos/` (rename the directory and update the apt-setup unit)
+- `config/hooks/live/0800-oxyos-branding.hook.chroot` (path to the config)
+- `usr/lib/systemd/system/oxyos-apt-setup.service` (rename + adjust)
+
+## Iterate fast
+
+For ISO changes, the bootstrap stage is the slow part. `lb` caches it (`LB_CACHE_STAGES="bootstrap"`), so partial rebuilds reuse it:
+
+```sh
+lb clean --binary    # Only rebuild the binary stage
+lb build
+```
+
+For shell-only changes, skip the ISO entirely — run the shell in a Tauri dev window:
+
+```sh
+cd shell
+bun install
+cargo tauri dev      # Multi-window native mode
+# or
+bun dev              # Browser-only web demo at http://localhost:5173/web.html
+```
+
+The web demo and native modes share the same components and stores, so most UI work can happen in the browser without spinning up a VM.
