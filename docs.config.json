@@ -4,8 +4,8 @@
   "shortName": "oxyos",
   "repo": "https://github.com/OxyHQ/OxyOS",
   "category": "app",
-  "versions": ["main"],
-  "defaultVersion": "main",
+  "versions": ["master"],
+  "defaultVersion": "master",
   "docsPath": "docs/",
   "description": "Lightweight, elegant desktop Linux distribution built on Debian — live-build ISO plus a React + Tauri v2 desktop shell."
 }
