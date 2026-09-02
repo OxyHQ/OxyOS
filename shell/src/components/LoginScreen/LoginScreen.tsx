@@ -29,7 +29,7 @@ export default function LoginScreen() {
 
       setIsVerifying(true);
 
-      let ok = false;
+      let ok: boolean;
       if (isNative()) {
         ok = (await invoke<boolean>("verify_password", { password })) ?? false;
       } else {
