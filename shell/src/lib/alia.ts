@@ -1,9 +1,31 @@
-const ALIA_API = "https://api.alia.onl/v1/chat/completions";
-const ALIA_MODEL = "alia-lite";
+import { oxyClient } from "@oxyhq/core";
+
+const alia = oxyClient.createLinkedClient({ baseURL: "https://api.alia.onl" });
+const ALIA_PROFILE = "profile:lite";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+}
+
+function readContentDelta(data: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (!parsed || typeof parsed !== "object" || !("choices" in parsed)) return null;
+
+    const choices = parsed.choices;
+    if (!Array.isArray(choices)) return null;
+
+    const firstChoice: unknown = choices[0];
+    if (!firstChoice || typeof firstChoice !== "object" || !("delta" in firstChoice)) return null;
+
+    const delta = firstChoice.delta;
+    if (!delta || typeof delta !== "object" || !("content" in delta)) return null;
+    return typeof delta.content === "string" ? delta.content : null;
+  } catch (error: unknown) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return null;
+  }
 }
 
 /**
@@ -12,22 +34,15 @@ interface ChatMessage {
  */
 export async function* streamChat(
   messages: ChatMessage[],
-  apiKey?: string,
 ): AsyncGenerator<string> {
-  const key = apiKey || import.meta.env.VITE_ALIA_API_KEY;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (key) {
-    headers["Authorization"] = `Bearer ${key}`;
-  }
-
-  const res = await fetch(ALIA_API, {
+  const res = await alia.client.requestAuthenticatedResponse({
     method: "POST",
-    headers,
+    url: "/alia/chat",
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
-      model: ALIA_MODEL,
+      model: ALIA_PROFILE,
       messages: [
         {
           role: "system",
@@ -64,13 +79,8 @@ export async function* streamChat(
       const data = trimmed.slice(6);
       if (data === "[DONE]") return;
 
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) yield delta;
-      } catch {
-        // Skip malformed chunks
-      }
+      const delta = readContentDelta(data);
+      if (delta) yield delta;
     }
   }
 }
