@@ -4,6 +4,15 @@ import { streamChat } from "../src/lib/alia";
 
 const originalFetch = globalThis.fetch;
 
+function createJwt(payload: Record<string, unknown>): string {
+  const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(payload)}.signature`;
+}
+
+function readHeaders(init: RequestInit | undefined): Headers {
+  return new Headers(init?.headers);
+}
+
 async function collect(stream: AsyncGenerator<string>): Promise<string> {
   let output = "";
   for await (const chunk of stream) output += chunk;
@@ -22,13 +31,17 @@ describe("OxyOS Alia transport", () => {
     globalThis.fetch = fetchMock as typeof fetch;
 
     await expect(collect(streamChat([{ role: "user", content: "hello" }]))).rejects.toThrow(
-      "Sign in with your Oxy account to use Alia.",
+      "An active Oxy session is required",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("calls the product runtime with the live Oxy bearer and exact profile id", async () => {
-    oxyClient.setTokens("test-oxy-session-token");
+    const accessToken = createJwt({
+      userId: "user_1",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    oxyClient.setTokens(accessToken);
     const fetchMock = mock(async () =>
       new Response('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n', {
         status: 200,
@@ -42,10 +55,9 @@ describe("OxyOS Alia transport", () => {
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe("https://api.alia.onl/alia/chat");
-    expect(init?.headers).toEqual({
-      "Content-Type": "application/json",
-      Authorization: "Bearer test-oxy-session-token",
-    });
+    const headers = readHeaders(init);
+    expect(headers.get("Content-Type")).toBe("application/json");
+    expect(headers.get("Authorization")).toBe(`Bearer ${accessToken}`);
 
     const body = JSON.parse(String(init?.body)) as { model: string; stream: boolean };
     expect(body.model).toBe("profile:lite");
@@ -57,5 +69,7 @@ describe("OxyOS Alia transport", () => {
     expect(source).not.toContain("VITE_ALIA_API_KEY");
     expect(source).not.toContain("/v1/chat/completions");
     expect(source).not.toContain('"alia-lite"');
+    expect(source).not.toContain("getAccessToken");
+    expect(source).not.toContain("Authorization");
   });
 });
