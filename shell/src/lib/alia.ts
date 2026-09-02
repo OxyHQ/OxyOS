@@ -1,5 +1,7 @@
-const ALIA_API = "https://api.alia.onl/v1/chat/completions";
-const ALIA_MODEL = "alia-lite";
+import { oxyClient } from "@oxyhq/core";
+
+const ALIA_API = "https://api.alia.onl/alia/chat";
+const ALIA_PROFILE = "profile:lite";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -12,22 +14,20 @@ interface ChatMessage {
  */
 export async function* streamChat(
   messages: ChatMessage[],
-  apiKey?: string,
 ): AsyncGenerator<string> {
-  const key = apiKey || import.meta.env.VITE_ALIA_API_KEY;
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (key) {
-    headers["Authorization"] = `Bearer ${key}`;
+  const accessToken = oxyClient.getAccessToken();
+  if (!accessToken) {
+    throw new Error("Sign in with your Oxy account to use Alia.");
   }
 
   const res = await fetch(ALIA_API, {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({
-      model: ALIA_MODEL,
+      model: ALIA_PROFILE,
       messages: [
         {
           role: "system",

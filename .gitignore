@@ -14,6 +14,7 @@ live-image-*
 # Shell build artifacts
 node_modules/
 shell/build/
+shell/web-build/
 shell/src-tauri/target/
 
 # Built binary copied into ISO chroot (generated, not source)
