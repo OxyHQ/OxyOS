@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useAliaStore } from "../../stores/aliaStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { invoke } from "../../lib/tauri";
 
 import OSD from "./OSD";
 import ScreenshotOverlay from "./ScreenshotOverlay";
@@ -11,7 +12,11 @@ import SettingsPanel from "../Settings/SettingsPanel";
 
 export default function Desktop() {
   const aliaOpen = useAliaStore((s) => s.isOpen);
-  useKeyboardShortcuts();
+
+  useKeyboardShortcuts({
+    onToggleLauncher: () => { invoke("toggle_launcher"); },
+    onCloseLauncher: () => { invoke("hide_launcher"); },
+  });
 
   return (
     <motion.div
@@ -22,24 +27,11 @@ export default function Desktop() {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Volume/brightness OSD */}
       <OSD />
-
-      {/* Alia AI assistant */}
-      <AnimatePresence>
-        {!aliaOpen && <AliaBubble key="alia-bubble" />}
-      </AnimatePresence>
-      <AnimatePresence>
-        {aliaOpen && <AliaPanel key="alia-panel" />}
-      </AnimatePresence>
-
-      {/* Screenshot tool */}
+      <AnimatePresence>{!aliaOpen && <AliaBubble key="alia-bubble" />}</AnimatePresence>
+      <AnimatePresence>{aliaOpen && <AliaPanel key="alia-panel" />}</AnimatePresence>
       <ScreenshotOverlay />
-
-      {/* Notification toasts */}
       <NotificationToast />
-
-      {/* Settings panel */}
       <SettingsPanel />
     </motion.div>
   );

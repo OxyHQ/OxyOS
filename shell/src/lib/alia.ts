@@ -1,7 +1,16 @@
-import { oxyClient } from "@oxyhq/core";
-
-const alia = oxyClient.createLinkedClient({ baseURL: "https://api.alia.onl" });
 const ALIA_PROFILE = "profile:lite";
+
+async function createAliaClient() {
+  const { oxyClient } = await import("@oxyhq/core");
+  return oxyClient.createLinkedClient({ baseURL: "https://api.alia.onl" }).client;
+}
+
+let aliaClientPromise: ReturnType<typeof createAliaClient> | undefined;
+
+function getAliaClient(): ReturnType<typeof createAliaClient> {
+  aliaClientPromise ??= createAliaClient();
+  return aliaClientPromise;
+}
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -35,7 +44,8 @@ function readContentDelta(data: string): string | null {
 export async function* streamChat(
   messages: ChatMessage[],
 ): AsyncGenerator<string> {
-  const res = await alia.client.requestAuthenticatedResponse({
+  const alia = await getAliaClient();
+  const res = await alia.requestAuthenticatedResponse({
     method: "POST",
     url: "/alia/chat",
     headers: {

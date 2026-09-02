@@ -78,7 +78,8 @@ All windows load the same `index.html` entry point. The frontend detects the cur
 | `get_battery_info` | Read battery level and charging state |
 | `get_wifi_info` | Read wifi status via `nmcli` |
 | `get_volume` / `set_volume` | Read/write PulseAudio volume |
-| `get_brightness` / `set_brightness` | Read/write backlight brightness |
+| `get_brightness` / `set_brightness` | Read backlight state and write it through `brightnessctl` |
+| `get_night_light_info` / `set_night_light` | Read/apply the current `gammastep` night-light state |
 | `power_action` | Shutdown, restart, lock, or logout |
 | `list_desktop_apps` | Scan `/usr/share/applications` for `.desktop` entries |
 

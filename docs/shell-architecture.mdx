@@ -62,12 +62,11 @@ The frontend calls `invoke("<command>", args?)` from `src/lib/tauri.ts`. The hel
 ```ts
 export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   try {
-    if (window.__TAURI_INTERNALS__) {
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
-      return await tauriInvoke<T>(cmd, args);
-    }
-  } catch {
-    // Browser mode — silent fallback
+    if (!window.__TAURI_INTERNALS__) return null;
+    const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+    return await tauriInvoke<T>(cmd, args);
+  } catch (error: unknown) {
+    console.error(`Tauri command failed: ${cmd}`, error);
   }
   return null;
 }
@@ -79,16 +78,16 @@ The full command surface (from `shell/src-tauri/src/lib.rs`):
 |---------|-------------|
 | `launch_app(exec)` | Spawn an external Linux process (detached stdio). |
 | `open_terminal()` | Create a new native terminal window, returns its label. |
-| `toggle_launcher()` | Emit a `launcher-toggle` event for the launcher window. |
-| `show_launcher()` / `hide_launcher()` | Emit `launcher-show` / `launcher-hide`. |
+| `toggle_launcher()` | Show, focus, or hide the dedicated launcher window; use an event only in single-window preview mode. |
+| `show_launcher()` / `hide_launcher()` | Show/focus or hide the launcher, with the same preview fallback. |
 | `toggle_quicksettings()` / `toggle_notifications()` / `toggle_calendar()` | Show/hide tray panels (hides siblings). |
 | `get_battery_info()` / `get_wifi_info()` / `get_bluetooth_info()` / `get_night_light_info()` | One-shot system reads. |
 | `set_wifi(enabled)` | `nmcli radio wifi on/off`. |
 | `set_bluetooth(enabled)` | `bluetoothctl power on/off`. |
-| `set_night_light(enabled)` | `gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled`. |
+| `set_night_light(enabled)` | Apply or reset the compositor gamma through `gammastep`. |
 | `get_volume()` / `set_volume(level)` | PulseAudio via `pactl set-sink-volume @DEFAULT_SINK@`. |
-| `get_brightness()` / `set_brightness(level)` | Direct write to `/sys/class/backlight/*/brightness`. |
-| `power_action(action)` | `systemctl poweroff/reboot`, `loginctl terminate-session self`. `lock` is a no-op (the lock screen is a frontend overlay). |
+| `get_brightness()` / `set_brightness(level)` | Read `/sys/class/backlight` and apply changes through `brightnessctl`. |
+| `power_action(action)` | `systemctl poweroff/reboot` and `loginctl` lock/logout actions. |
 | `get_username()` / `get_user_avatar()` | Read from `$USER`, `/etc/passwd` GECOS, and `/var/lib/AccountsService/icons/<user>`, `~/.face`. |
 | `list_desktop_apps()` | Parse `/usr/share/applications/*.desktop`, resolve icons via the hicolor / pixmaps search path, return name+exec+icon+categories. |
 | `verify_password(password)` | PAM check (`pam::Client::with_password("login")`) for the unlock screen. |
@@ -100,7 +99,7 @@ The Rust backend periodically polls system state and emits a `system-update` eve
 
 PTY traffic is bridged through per-instance events: each terminal subscribes to `pty-data-<id>` (output) and `pty-exit-<id>` (process exit).
 
-Launcher visibility is also event-driven: `toggle_launcher` emits `launcher-toggle` which the launcher root subscribes to, so the React tree owns the visibility animation while the OS-level window state matches.
+In production, launcher visibility is controlled through its dedicated Tauri window. The single-window browser/desktop preview uses equivalent events so the React preview keeps the same interaction model.
 
 ### 3. Shared Zustand stores
 
@@ -184,6 +183,10 @@ The shell does not assume `labwc`-specific protocols beyond layer-shell, so any 
 ## Lock screen
 
 Login and lock-screen authentication go through the Rust `verify_password` command, which calls PAM (`pam::Client::with_password("login")`). The current Linux session user is taken from `$USER` / `$LOGNAME`. The lock screen UI is a React overlay rendered inside the `desktop` window; the `power_action("lock")` IPC is a no-op because no OS-level locking is needed — the overlay simply blocks the desktop until PAM accepts a password.
+
+Alia uses `@oxyhq/core` to create a linked client for `api.alia.onl`. The SDK
+attaches the active Oxy session and performs its single refresh retry; shell code
+never reads, stores, or forwards bearer tokens itself.
 
 During development, the lock screen accepts `1234` as a PIN to skip PAM.
 

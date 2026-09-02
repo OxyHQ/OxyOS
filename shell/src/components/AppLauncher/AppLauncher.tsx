@@ -1,7 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { invoke } from "../../lib/tauri";
-import { assetUrl } from "../../lib/tauri";
 import { launchApp } from "../../lib/launchApp";
 import { appExecMap } from "../../lib/appRegistry";
 import { useInstalledApps } from "../../hooks/useInstalledApps";
@@ -73,11 +71,7 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
 
   const close = useCallback(() => {
     setQuery("");
-    if (onClose) {
-      onClose();
-    } else {
-      invoke("hide_launcher");
-    }
+    onClose?.();
   }, [onClose]);
 
   const displayApps = useMemo(() =>
@@ -93,14 +87,9 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
     return displayApps.filter((a) => a.name.toLowerCase().includes(q));
   }, [displayApps, query]);
 
-  const getIconSrc = useCallback((appName: string, icon: string) => {
-    // Prefer our bundled icon if this app has one
+  const getIconSrc = useCallback((appName: string, icon: string): string | undefined => {
     if (bundledIcons[appName]) return bundledIcons[appName];
-    // Resolved absolute path from Rust backend — convert to asset URL
-    if (icon.startsWith("/")) return assetUrl(icon);
-    // Already a usable URL
-    if (icon.startsWith("data:") || icon.startsWith("http") || icon.startsWith("blob:")) return icon;
-    return icon;
+    return icon || undefined;
   }, []);
 
   const openSettings = useSettingsStore((s) => s.open);
@@ -180,23 +169,27 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
                   className="flex cursor-pointer flex-col items-center gap-2 border-none bg-transparent p-0"
                 >
                   <div className="flex h-[60px] w-[60px] items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/8 shadow-[0_2px_8px_rgba(0,0,0,0.15)] backdrop-blur-sm transition-transform duration-100">
-                    <img
-                      src={getIconSrc(app.name, app.icon)}
-                      alt={app.name}
-                      className="h-full w-full object-cover"
-                      draggable={false}
-                      onError={(e) => {
-                        const img = e.currentTarget;
-                        img.style.display = "none";
-                        const parent = img.parentElement;
-                        if (parent && !parent.querySelector("span")) {
-                          const span = document.createElement("span");
-                          span.className = "text-[22px] font-bold text-white/80";
-                          span.textContent = app.name.charAt(0);
-                          parent.appendChild(span);
-                        }
-                      }}
-                    />
+                    {getIconSrc(app.name, app.icon) ? (
+                      <img
+                        src={getIconSrc(app.name, app.icon)}
+                        alt={app.name}
+                        className="h-full w-full object-cover"
+                        draggable={false}
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          img.style.display = "none";
+                          const parent = img.parentElement;
+                          if (parent && !parent.querySelector("span")) {
+                            const span = document.createElement("span");
+                            span.className = "text-[22px] font-bold text-white/80";
+                            span.textContent = app.name.charAt(0);
+                            parent.appendChild(span);
+                          }
+                        }}
+                      />
+                    ) : (
+                      <span className="text-[22px] font-bold text-white/80">{app.name.charAt(0)}</span>
+                    )}
                   </div>
                   <span className="max-w-[76px] truncate text-center text-[11px] font-medium leading-tight text-white/80 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
                     {app.name}

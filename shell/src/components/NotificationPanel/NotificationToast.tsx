@@ -6,41 +6,32 @@ import { appIcons, settingsIcon } from "./appIcons";
 const AUTO_DISMISS_MS = 4000;
 
 export default function NotificationToast() {
-  const notifications = useNotificationStore((s) => s.notifications);
   const dismiss = useNotificationStore((s) => s.dismiss);
 
   const [visible, setVisible] = useState<Notification | null>(null);
-  const prevCountRef = useRef(notifications.length);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const prevCount = prevCountRef.current;
-    prevCountRef.current = notifications.length;
+    let previousCount = useNotificationStore.getState().notifications.length;
+    const unsubscribe = useNotificationStore.subscribe((state) => {
+      const isNewNotification = state.notifications.length > previousCount;
+      previousCount = state.notifications.length;
+      if (!isNewNotification) return;
 
-    // A new notification was added (prepended to the front of the array)
-    if (notifications.length > prevCount && notifications.length > 0) {
-      const latest = notifications[0];
+      const latest = state.notifications[0];
+      if (!latest) return;
 
-      // Clear any existing auto-dismiss timer
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-
+      if (timerRef.current) clearTimeout(timerRef.current);
       setVisible(latest);
-
       timerRef.current = setTimeout(() => {
         setVisible(null);
         timerRef.current = null;
       }, AUTO_DISMISS_MS);
-    }
-  }, [notifications]);
+    });
 
-  // Cleanup timer on unmount
-  useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
+      unsubscribe();
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
 

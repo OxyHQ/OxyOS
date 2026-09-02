@@ -27,6 +27,9 @@ network-manager
 pulseaudio
 upower
 dbus-x11
+bluez
+brightnessctl
+gammastep
 
 # Desktop apps
 firefox-esr

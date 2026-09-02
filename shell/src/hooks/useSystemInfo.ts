@@ -3,74 +3,89 @@ import { useSystemStore } from "../stores/systemStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { invoke, isNative } from "../lib/tauri";
 
+interface BatteryInfo { present: boolean; level: number; charging: boolean }
+interface WifiInfo { enabled: boolean; ssid: string | null; strength: number }
+interface VolumeInfo { level: number; muted: boolean }
+interface BrightnessInfo { present: boolean; level: number }
+
 interface SystemUpdate {
-  battery: { level: number; charging: boolean };
-  wifi: { enabled: boolean; ssid: string | null; strength: number };
-  volume: { level: number; muted: boolean };
-  brightness: number;
+  battery: BatteryInfo;
+  wifi: WifiInfo;
+  bluetooth: boolean;
+  night_light: boolean;
+  volume: VolumeInfo;
+  brightness: BrightnessInfo;
 }
 
-/**
- * Fetches real system data on startup (native mode only),
- * then listens for "system-update" events pushed from the Tauri backend.
- * In browser mode this is a no-op — hardcoded defaults in stores are used.
- */
 export function useSystemInfo() {
   useEffect(() => {
     if (!isNative()) return;
 
-    let cancelled = false;
+    let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    async function setup() {
-      try {
-        // Register listener first to avoid missing events during initial fetch
-        const { listen } = await import("@tauri-apps/api/event");
+    Promise.all([
+      invoke<BatteryInfo>("get_battery_info"),
+      invoke<WifiInfo>("get_wifi_info"),
+      invoke<boolean>("get_bluetooth_info"),
+      invoke<boolean>("get_night_light_info"),
+      invoke<VolumeInfo>("get_volume"),
+      invoke<BrightnessInfo>("get_brightness"),
+      invoke<string>("get_username"),
+      invoke<string | null>("get_user_avatar"),
+    ]).then(([battery, wifi, bluetooth, nightLight, vol, bright, username, avatarPath]) => {
+      useSystemStore.setState({
+        ...(battery != null && {
+          batteryPresent: battery.present,
+          batteryLevel: battery.level,
+          isCharging: battery.charging,
+        }),
+        ...(wifi != null && { wifiEnabled: wifi.enabled }),
+        ...(bluetooth != null && { bluetoothEnabled: bluetooth }),
+        ...(nightLight != null && { nightLightEnabled: nightLight }),
+        ...(vol != null && { volume: vol.level }),
+        ...(bright != null && {
+          brightnessPresent: bright.present,
+          brightness: bright.level,
+        }),
+      });
+      const session = useSessionStore.getState();
+      if (username) session.setUsername(username);
+      if (avatarPath) session.setAvatarUrl(avatarPath);
+    }).catch((error: unknown) => {
+      console.error("Failed to load native system state", error);
+    });
 
-        const unlistenFn = await listen<SystemUpdate>("system-update", (event) => {
-          const { battery, wifi, volume, brightness } = event.payload;
-          useSystemStore.setState({
-            batteryLevel: battery.level,
-            isCharging: battery.charging,
-            wifiEnabled: wifi.enabled,
-            volume: volume.level,
-            brightness,
-          });
-        });
-
-        if (cancelled) { unlistenFn(); return; }
-        unlisten = unlistenFn;
-
-        // Fetch initial values so the UI doesn't show stale defaults
-        const [battery, wifi, vol, bright, username] = await Promise.all([
-          invoke<{ level: number; charging: boolean }>("get_battery_info"),
-          invoke<{ enabled: boolean; ssid: string | null; strength: number }>("get_wifi_info"),
-          invoke<{ level: number; muted: boolean }>("get_volume"),
-          invoke<number>("get_brightness"),
-          invoke<string>("get_username"),
-        ]);
-
-        if (cancelled) return;
-
+    const registration = import("@tauri-apps/api/event")
+      .then(({ listen }) => listen<SystemUpdate>("system-update", (event) => {
+        const { battery, wifi, bluetooth, night_light, volume, brightness } = event.payload;
         useSystemStore.setState({
-          ...(battery != null && { batteryLevel: battery.level, isCharging: battery.charging }),
-          ...(wifi != null && { wifiEnabled: wifi.enabled }),
-          ...(vol != null && { volume: vol.level }),
-          ...(bright != null && { brightness: bright }),
+          batteryPresent: battery.present,
+          batteryLevel: battery.level,
+          isCharging: battery.charging,
+          wifiEnabled: wifi.enabled,
+          bluetoothEnabled: bluetooth,
+          nightLightEnabled: night_light,
+          volume: volume.level,
+          brightnessPresent: brightness.present,
+          brightness: brightness.level,
         });
-
-        if (username) {
-          useSessionStore.getState().setUsername(username);
+      }))
+      .then((registeredUnlisten) => {
+        if (disposed) {
+          registeredUnlisten();
+        } else {
+          unlisten = registeredUnlisten;
         }
-      } catch {
-        // Tauri API not available
-      }
-    }
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to subscribe to native system updates", error);
+      });
 
-    setup();
     return () => {
-      cancelled = true;
+      disposed = true;
       unlisten?.();
+      void registration;
     };
   }, []);
 }

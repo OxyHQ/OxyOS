@@ -6,6 +6,9 @@
     "desktop",
     "shelf",
     "launcher",
+    "quicksettings",
+    "notifications",
+    "calendar",
     "terminal-*"
   ],
   "permissions": [

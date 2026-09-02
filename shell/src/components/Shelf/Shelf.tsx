@@ -1,8 +1,7 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSystemStore } from "../../stores/systemStore";
 import { useRunningAppsStore } from "../../stores/runningAppsStore";
-import { invoke } from "../../lib/tauri";
 import { launchApp } from "../../lib/launchApp";
 import { getBatteryVisuals } from "../../lib/styles";
 import { appExecMap } from "../../lib/appRegistry";
@@ -31,12 +30,37 @@ const pinnedApps: PinnedApp[] = [
 
 interface ShelfProps {
   variant?: "desktop" | "login";
+  /**
+   * Outer styling.
+   * - "floating": translucent glass card on top of a wallpaper. Used by the
+   *   web demo and login screen — the shelf overlays a single window.
+   * - "dock": edge-to-edge bottom dock (ChromeOS Ash style). Used when the
+   *   shelf is its own opaque always-on-top native window.
+   */
+  chrome?: "floating" | "dock";
+  /**
+   * Tray-panel callbacks. When provided, the shelf delegates to the parent
+   * (e.g. fires Tauri events) instead of rendering the panels itself. Used
+   * in dock mode where the shelf is in its own 52px window — panels need to
+   * render in the desktop window or they'd be clipped.
+   */
   onToggleLauncher?: () => void;
+  onToggleQuickSettings?: () => void;
+  onToggleNotifications?: () => void;
+  onToggleCalendar?: () => void;
 }
 
-export default function Shelf({ variant = "desktop", onToggleLauncher }: ShelfProps) {
+export default function Shelf({
+  variant = "desktop",
+  chrome = "floating",
+  onToggleLauncher,
+  onToggleQuickSettings,
+  onToggleNotifications,
+  onToggleCalendar,
+}: ShelfProps) {
   const time = useSystemStore((s) => s.time);
   const wifiEnabled = useSystemStore((s) => s.wifiEnabled);
+  const batteryPresent = useSystemStore((s) => s.batteryPresent);
   const batteryLevel = useSystemStore((s) => s.batteryLevel);
   const isCharging = useSystemStore((s) => s.isCharging);
   type TrayPanel = "quickSettings" | "notifications" | "calendar" | null;
@@ -46,29 +70,53 @@ export default function Shelf({ variant = "desktop", onToggleLauncher }: ShelfPr
   const [bouncingApp, setBouncingApp] = useState<string | null>(null);
   const isLogin = variant === "login";
 
+  // If parent supplies any tray-panel callback, parent owns ALL the panels.
+  // Otherwise we keep local state + render them inline (web demo / login behavior).
+  const externalPanels =
+    !!(onToggleQuickSettings || onToggleNotifications || onToggleCalendar);
+
   const handleToggleLauncher = useCallback(() => {
-    if (onToggleLauncher) {
-      onToggleLauncher();
-    } else {
-      invoke("toggle_launcher");
-    }
+    onToggleLauncher?.();
   }, [onToggleLauncher]);
 
-  const togglePanel = useCallback((panel: TrayPanel) => {
-    setOpenPanel((prev) => (prev === panel ? null : panel));
-  }, []);
+  const togglePanel = useCallback(
+    (panel: Exclude<TrayPanel, null>) => {
+      if (panel === "quickSettings" && onToggleQuickSettings) {
+        onToggleQuickSettings();
+        return;
+      }
+      if (panel === "notifications" && onToggleNotifications) {
+        onToggleNotifications();
+        return;
+      }
+      if (panel === "calendar" && onToggleCalendar) {
+        onToggleCalendar();
+        return;
+      }
+      setOpenPanel((prev) => (prev === panel ? null : panel));
+    },
+    [onToggleQuickSettings, onToggleNotifications, onToggleCalendar],
+  );
 
-  const shortDate = useMemo(() => new Date().toLocaleDateString("en-US", {
+  const shortDate = new Date().toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-  }), [time]);
+  });
 
   const { fillWidth, fillColor } = getBatteryVisuals(batteryLevel, isCharging);
+
+  // Outer container: edge-to-edge in dock mode (ChromeOS Ash), translucent
+  // floating card in web/login mode.
+  const outerClass = isLogin
+    ? "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto] bg-transparent"
+    : chrome === "dock"
+      ? "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] border-t border-white/8"
+      : "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]";
 
   return (
     <>
       {/* Full-width shelf */}
-      <div className={`fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 ${isLogin ? "grid-cols-[1fr_auto] bg-transparent" : "grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]"}`}>
+      <div className={outerClass}>
         {!isLogin && (
           <>
             {/* Left: Launcher button */}
@@ -173,25 +221,27 @@ export default function Shelf({ variant = "desktop", onToggleLauncher }: ShelfPr
             <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
               <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
             </svg>
-            {/* Battery icon */}
-            <div className="relative flex items-center">
-              <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
-                <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
-                <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={fillColor} opacity="0.9" />
-                <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
-              </svg>
-              {isCharging ? (
-                <span className="absolute inset-0 flex items-center justify-center pl-1">
-                  <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
-                    <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
-                  </svg>
-                </span>
-              ) : (
-                <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
-                  {batteryLevel}
-                </span>
-              )}
-            </div>
+            {/* Battery icon — hidden on systems without a battery */}
+            {batteryPresent && (
+              <div className="relative flex items-center">
+                <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
+                  <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
+                  <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={fillColor} opacity="0.9" />
+                  <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
+                </svg>
+                {isCharging ? (
+                  <span className="absolute inset-0 flex items-center justify-center pl-1">
+                    <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
+                      <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
+                    </svg>
+                  </span>
+                ) : (
+                  <span className="absolute inset-0 flex items-center justify-center pl-1 text-[8px] font-bold leading-none text-white mix-blend-difference">
+                    {batteryLevel}
+                  </span>
+                )}
+              </div>
+            )}
           </button>
 
           {/* Date + time pill — rounded right only */}
@@ -205,21 +255,25 @@ export default function Shelf({ variant = "desktop", onToggleLauncher }: ShelfPr
         </div>
       </div>
 
-      <AnimatePresence>
-        {openPanel === "quickSettings" && (
-          <QuickSettings key="qs" onClose={() => setOpenPanel(null)} />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {openPanel === "notifications" && (
-          <NotificationPanel key="notif" onClose={() => setOpenPanel(null)} />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {openPanel === "calendar" && (
-          <CalendarPopup key="cal" onClose={() => setOpenPanel(null)} />
-        )}
-      </AnimatePresence>
+      {!externalPanels && (
+        <>
+          <AnimatePresence>
+            {openPanel === "quickSettings" && (
+              <QuickSettings key="qs" onClose={() => setOpenPanel(null)} />
+            )}
+          </AnimatePresence>
+          <AnimatePresence>
+            {openPanel === "notifications" && (
+              <NotificationPanel key="notif" onClose={() => setOpenPanel(null)} />
+            )}
+          </AnimatePresence>
+          <AnimatePresence>
+            {openPanel === "calendar" && (
+              <CalendarPopup key="cal" onClose={() => setOpenPanel(null)} />
+            )}
+          </AnimatePresence>
+        </>
+      )}
     </>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSettingsStore, type SettingsSection } from "../../stores/settingsStore";
 import { useSystemStore } from "../../stores/systemStore";
+import { invoke } from "../../lib/tauri";
 import { sliderThumb } from "../../lib/styles";
 
 const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
@@ -101,8 +102,13 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 }
 
 function WifiSection() {
-  const { wifiEnabled, toggleWifi } = useSystemStore();
+  const { wifiEnabled, setWifi } = useSystemStore();
   const [connectedNetwork, setConnectedNetwork] = useState<string>("Home WiFi");
+  const toggleWifi = () => {
+    const next = !wifiEnabled;
+    setWifi(next);
+    invoke("set_wifi", { enabled: next });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -154,7 +160,12 @@ function WifiSection() {
 }
 
 function BluetoothSection() {
-  const { bluetoothEnabled, toggleBluetooth } = useSystemStore();
+  const { bluetoothEnabled, setBluetooth } = useSystemStore();
+  const toggleBluetooth = () => {
+    const next = !bluetoothEnabled;
+    setBluetooth(next);
+    invoke("set_bluetooth", { enabled: next });
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -186,7 +197,16 @@ function BluetoothSection() {
 }
 
 function DisplaySection() {
-  const { brightness, setBrightness, nightLightEnabled, toggleNightLight } = useSystemStore();
+  const { brightness, setBrightness, brightnessPresent, nightLightEnabled, setNightLight } = useSystemStore();
+  const toggleNightLight = () => {
+    const next = !nightLightEnabled;
+    setNightLight(next);
+    invoke("set_night_light", { enabled: next });
+  };
+  const handleBrightness = (val: number) => {
+    setBrightness(val);
+    invoke("set_brightness", { level: val });
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -195,6 +215,7 @@ function DisplaySection() {
         <p className="text-[12px] text-white/40">Built-in Display</p>
       </div>
 
+      {brightnessPresent && (
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-[12px] font-medium text-white/60">Brightness</span>
@@ -209,7 +230,7 @@ function DisplaySection() {
             min={0}
             max={100}
             value={brightness}
-            onChange={(e) => setBrightness(Number(e.target.value))}
+            onChange={(e) => handleBrightness(Number(e.target.value))}
             className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
             style={{
               background: `linear-gradient(to right, white ${brightness}%, rgba(255,255,255,0.1) ${brightness}%)`,
@@ -228,6 +249,7 @@ function DisplaySection() {
           </svg>
         </div>
       </div>
+      )}
 
       <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
         <div className="flex items-center gap-3">
@@ -260,6 +282,10 @@ function DisplaySection() {
 
 function SoundSection() {
   const { volume, setVolume } = useSystemStore();
+  const handleVolume = (val: number) => {
+    setVolume(val);
+    invoke("set_volume", { level: val });
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -282,7 +308,7 @@ function SoundSection() {
             min={0}
             max={100}
             value={volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
+            onChange={(e) => handleVolume(Number(e.target.value))}
             className={`h-[6px] flex-1 cursor-pointer appearance-none rounded-full outline-none ${sliderThumb}`}
             style={{
               background: `linear-gradient(to right, white ${volume}%, rgba(255,255,255,0.1) ${volume}%)`,
@@ -335,7 +361,7 @@ const wallpaperSwatches = [
 ];
 
 function WallpaperSection() {
-  const { wallpaper, setWallpaper } = useSystemStore();
+  const [wallpaper, setWallpaper] = useState<string>("default");
 
   function applyWallpaper(id: string) {
     setWallpaper(id);
