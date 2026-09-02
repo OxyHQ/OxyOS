@@ -1,5 +1,7 @@
 # OxyOS
 
+> Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
+
 Lightweight Debian-based desktop Linux distribution built with `live-build`. Website: https://os.oxy.so/
 
 ## Layout

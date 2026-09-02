@@ -5,13 +5,14 @@ import { useSystemStore } from "../../stores/systemStore";
 import avatarDefault from "../../assets/avatar-default.png";
 import Shelf from "../Shelf/Shelf";
 import { playError } from "../../lib/sounds";
-
-const CORRECT_PASSWORD = "1234";
+import { invoke, isNative } from "../../lib/tauri";
 
 export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showError, setShowError] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const username = useSessionStore((s) => s.username);
+  const avatarUrl = useSessionStore((s) => s.avatarUrl);
   const time = useSystemStore((s) => s.time);
   const shakeControls = useAnimation();
 
@@ -22,9 +23,22 @@ export default function LoginScreen() {
   });
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
-      if (password === CORRECT_PASSWORD) {
+      if (!password || isVerifying) return;
+
+      setIsVerifying(true);
+
+      let ok = false;
+      if (isNative()) {
+        ok = (await invoke<boolean>("verify_password", { password })) ?? false;
+      } else {
+        ok = password === "1234";
+      }
+
+      setIsVerifying(false);
+
+      if (ok) {
         setShowError(false);
         useSessionStore.getState().login();
       } else {
@@ -37,7 +51,7 @@ export default function LoginScreen() {
         playError();
       }
     },
-    [password, shakeControls],
+    [password, isVerifying, shakeControls],
   );
 
   return (
@@ -48,10 +62,8 @@ export default function LoginScreen() {
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Shelf — system tray only, transparent background */}
       <Shelf variant="login" />
 
-      {/* ── Clock — upper area ── */}
       <div className="mt-[18vh] flex flex-col items-center">
         <p className="text-[17px] font-normal tracking-[0.02em] text-white/65">
           {formattedDate}
@@ -61,22 +73,17 @@ export default function LoginScreen() {
         </p>
       </div>
 
-      {/* ── Spacer ── */}
       <div className="flex-1" />
 
-      {/* ── Login area — lower-center ── */}
       <div className="flex flex-col items-center pb-[12vh]">
-        {/* Avatar */}
         <img
-          src={avatarDefault}
+          src={avatarUrl ?? avatarDefault}
           alt="User avatar"
           className="h-12 w-12 rounded-full object-cover ring-[1.5px] ring-white/30"
         />
 
-        {/* Username */}
         <p className="mt-2.5 text-[15px] font-medium text-white">{username}</p>
 
-        {/* Password row */}
         <form onSubmit={handleSubmit} className="mt-4 flex items-center gap-2">
           <motion.div animate={shakeControls}>
             <input
@@ -88,21 +95,32 @@ export default function LoginScreen() {
               }}
               placeholder="Enter Password"
               autoFocus
-              className="h-[34px] w-[200px] rounded-full bg-white/20 px-4 text-[13px] text-white placeholder-white/45 outline-none backdrop-blur-sm transition-colors duration-200 focus:bg-white/25"
+              disabled={isVerifying}
+              className="h-[34px] w-[200px] rounded-full bg-white/20 px-4 text-[13px] text-white placeholder-white/45 outline-none backdrop-blur-sm transition-colors duration-200 focus:bg-white/25 disabled:opacity-50"
             />
           </motion.div>
           <button
-            type="button"
-            className="flex h-[28px] w-[28px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/30 text-white/50 transition-colors duration-150 hover:bg-white/10 hover:text-white/70"
-            aria-label="Password hint"
+            type="submit"
+            disabled={isVerifying || !password}
+            className="flex h-[28px] w-[28px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-white/30 text-white/50 transition-colors duration-150 hover:bg-white/10 hover:text-white/70 disabled:opacity-40"
+            aria-label="Unlock"
           >
-            <span className="text-[13px] font-medium leading-none">?</span>
+            <span className="text-[13px] font-medium leading-none">→</span>
           </button>
         </form>
 
-        {/* Hint / error text */}
         <AnimatePresence mode="wait">
-          {showError ? (
+          {isVerifying ? (
+            <motion.p
+              key="verifying"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="mt-3.5 text-center text-[12px] leading-snug text-white/45"
+            >
+              Verifying…
+            </motion.p>
+          ) : showError ? (
             <motion.p
               key="error"
               initial={{ opacity: 0 }}

@@ -13,8 +13,8 @@ export async function invoke<T>(
       const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
       return await tauriInvoke<T>(cmd, args);
     }
-  } catch {
-    // Browser mode — silent fallback
+  } catch (error: unknown) {
+    console.error(`Tauri command failed: ${cmd}`, error);
   }
   return null;
 }

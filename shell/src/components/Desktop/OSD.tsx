@@ -7,25 +7,28 @@ export default function OSD() {
   const brightness = useSystemStore((s) => s.brightness);
   const [visible, setVisible] = useState<"volume" | "brightness" | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const prevVolume = useRef(volume);
-  const prevBrightness = useRef(brightness);
 
   useEffect(() => {
-    let type: "volume" | "brightness" | null = null;
-    if (volume !== prevVolume.current) {
-      prevVolume.current = volume;
-      type = "volume";
-    } else if (brightness !== prevBrightness.current) {
-      prevBrightness.current = brightness;
-      type = "brightness";
-    }
-    if (!type) return;
+    let previous = useSystemStore.getState();
+    const unsubscribe = useSystemStore.subscribe((current) => {
+      const type = current.volume !== previous.volume
+        ? "volume"
+        : current.brightness !== previous.brightness
+          ? "brightness"
+          : null;
+      previous = current;
+      if (!type) return;
 
-    setVisible(type);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setVisible(null), 1500);
-    return () => clearTimeout(timerRef.current);
-  }, [volume, brightness]);
+      setVisible(type);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setVisible(null), 1500);
+    });
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const value = visible === "volume" ? volume : brightness;
 

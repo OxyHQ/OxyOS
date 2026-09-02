@@ -59,7 +59,7 @@ function cloneTree(node: PaneNode): PaneNode {
 
 // ── Component ──
 
-export default function TerminalApp({ windowId: _windowId }: { windowId: string }) {
+export default function TerminalApp({ windowId }: { windowId: string }) {
   const initialLeaf = useMemo(() => makeLeaf(), []);
   const [tabs, setTabs] = useState<Tab[]>(() => [{
     id: crypto.randomUUID(),
@@ -189,7 +189,7 @@ export default function TerminalApp({ windowId: _windowId }: { windowId: string 
   }, [activeTab, tabs, activeTabId, addTab, closeTab, closePane, splitPane]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-window-id={windowId}>
       {/* Tab bar */}
       <div className="flex h-[30px] shrink-0 items-end gap-0 border-b border-white/8 px-1">
         {tabs.map((tab) => (

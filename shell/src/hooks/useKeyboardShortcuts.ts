@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { invoke } from "../lib/tauri";
 import { useScreenshotStore } from "../stores/screenshotStore";
 
 interface KeyboardShortcutOptions {
@@ -12,29 +11,16 @@ export function useKeyboardShortcuts(options?: KeyboardShortcutOptions) {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Super/Meta key to toggle launcher
       if (e.key === "Meta" && !e.repeat) {
         e.preventDefault();
-        if (onToggleLauncher) {
-          onToggleLauncher();
-        } else {
-          invoke("toggle_launcher");
-        }
+        onToggleLauncher?.();
       }
-
-      // Ctrl+Shift+S to activate screenshot tool
       if (e.ctrlKey && e.shiftKey && e.key === "S") {
         e.preventDefault();
         useScreenshotStore.getState().activate();
       }
-
-      // Escape to close launcher
       if (e.key === "Escape") {
-        if (onCloseLauncher) {
-          onCloseLauncher();
-        } else {
-          invoke("hide_launcher");
-        }
+        onCloseLauncher?.();
       }
     }
 

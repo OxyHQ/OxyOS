@@ -149,7 +149,7 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
       noseD.set(makeNoseD(t.noseBrow));
     }, 0);
     return () => clearTimeout(timer);
-  }, [expression]);
+  }, [browD, expression, leCx, leCy, leR, noseD, reCx, reCy, reR]);
 
   // Blink loop
   const blinkRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -161,7 +161,7 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
     };
     blinkRef.current = setInterval(doBlink, 3500);
     return () => clearInterval(blinkRef.current);
-  }, []);
+  }, [blinkScale]);
 
   return (
     <motion.div

@@ -43,13 +43,17 @@ export function playLock() {
 export function playUnlock() {
   if (!signInSound) signInSound = new Audio(signInAudio);
   signInSound.currentTime = 0;
-  signInSound.play().catch(() => {});
+  signInSound.play().catch((error: unknown) => {
+    console.debug("Sign-in sound could not play", error);
+  });
 }
 
 export function playError() {
   if (!errorSound) errorSound = new Audio(sosumiAudio);
   errorSound.currentTime = 0;
-  errorSound.play().catch(() => {});
+  errorSound.play().catch((error: unknown) => {
+    console.debug("Error sound could not play", error);
+  });
 }
 
 export function playScreenshot() {
