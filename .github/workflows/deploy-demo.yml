@@ -12,14 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.20.0
+
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Install and build
         working-directory: shell
         run: |
           bun install --frozen-lockfile
+          bun run test
+          bun run lint
           bun run build:web
 
       - name: Deploy to Cloudflare Pages
@@ -27,4 +33,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy shell/web-build --project-name=oxyos-demo
+          command: pages deploy shell/web-build --project-name=oxyos-demo --branch=master

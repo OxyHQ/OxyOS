@@ -184,6 +184,10 @@ The shell does not assume `labwc`-specific protocols beyond layer-shell, so any 
 
 Login and lock-screen authentication go through the Rust `verify_password` command, which calls PAM (`pam::Client::with_password("login")`). The current Linux session user is taken from `$USER` / `$LOGNAME`. The lock screen UI is a React overlay rendered inside the `desktop` window; the `power_action("lock")` IPC is a no-op because no OS-level locking is needed — the overlay simply blocks the desktop until PAM accepts a password.
 
+Alia uses `@oxyhq/core` to create a linked client for `api.alia.onl`. The SDK
+attaches the active Oxy session and performs its single refresh retry; shell code
+never reads, stores, or forwards bearer tokens itself.
+
 During development, the lock screen accepts `1234` as a PIN to skip PAM.
 
 ## Directory map

@@ -49,4 +49,5 @@ bun run build:web    # web-only build
 - The ISO build is NOT a bun/Node project — `live-build` is a Debian tool. No JS in the build pipeline.
 - `shell/` is self-contained; it has its own `bun.lock` and is NOT part of a bun workspace.
 - Build identifiers use the `oxyos` prefix throughout live-build config.
-- This repo does NOT use `@oxyhq/*` SDK packages.
+- Alia calls the product API through `@oxyhq/core`'s linked authenticated client;
+  never construct or persist a bearer token in shell code.
