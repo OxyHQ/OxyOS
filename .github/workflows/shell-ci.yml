@@ -6,7 +6,7 @@ on:
       - "shell/**"
       - ".github/workflows/shell-ci.yml"
   push:
-    branches: [master]
+    branches: [main]
     paths:
       - "shell/**"
       - ".github/workflows/shell-ci.yml"

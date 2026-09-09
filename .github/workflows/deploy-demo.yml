@@ -3,7 +3,7 @@ name: Deploy Shell Demo
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
     paths: [shell/**, .github/workflows/deploy-demo.yml]
 
 permissions:
