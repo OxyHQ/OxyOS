@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { oxyClient } from "@oxy.so/core";
 import { streamChat } from "../src/lib/alia";
+import { oxy } from "../src/lib/oxy";
 
 const originalFetch = globalThis.fetch;
 
@@ -20,13 +20,13 @@ async function collect(stream: AsyncGenerator<string>): Promise<string> {
 }
 
 afterEach(() => {
-  oxyClient.clearTokens();
+  oxy.session.clear();
   globalThis.fetch = originalFetch;
 });
 
 describe("OxyOS Alia transport", () => {
   test("fails closed before the network when no Oxy session exists", async () => {
-    oxyClient.clearTokens();
+    oxy.session.clear();
     const fetchMock = mock(() => Promise.reject(new Error("fetch must not run")));
     globalThis.fetch = fetchMock as typeof fetch;
 
@@ -41,7 +41,7 @@ describe("OxyOS Alia transport", () => {
       userId: "user_1",
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
-    oxyClient.setTokens(accessToken);
+    oxy.session.setAccessToken(accessToken);
     const fetchMock = mock(async () =>
       new Response('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n', {
         status: 200,

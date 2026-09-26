@@ -1,8 +1,8 @@
 const ALIA_PROFILE = "profile:lite";
 
 async function createAliaClient() {
-  const { oxyClient } = await import("@oxy.so/core");
-  return oxyClient.createLinkedClient({ baseURL: "https://api.alia.onl" }).client;
+  const { oxy } = await import("./oxy");
+  return oxy.createLinkedClient({ baseURL: "https://api.alia.onl" }).client;
 }
 
 let aliaClientPromise: ReturnType<typeof createAliaClient> | undefined;
