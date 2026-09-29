@@ -12,10 +12,11 @@ OxyOS is a lightweight desktop Linux distribution built on Debian Trixie, with a
 
 ## What it is
 
-A single repository with two halves:
+A single repository with three parts:
 
 - `config/` — `live-build(7)` configuration that produces a hybrid ISO (`iso-hybrid`, fat32) including the Debian Installer, the OxyOS package set, branding, hooks, and preseed defaults.
 - `shell/` — the OxyOS desktop shell: a Tauri v2 native app with a React + Tailwind frontend that renders the desktop, shelf (taskbar), app launcher, login screen, system tray, notification panel, and a Wayland-aware terminal.
+- `website/` — the source of [os.oxy.so](https://os.oxy.so/), including the signed apt repository served under `/packages`. `.github/workflows/deploy-demo.yml` builds it together with the shell's web build (served at `/demo`) and deploys both to Cloudflare Pages on every push to `main` that touches `shell/` or `website/`.
 
 The official website is [os.oxy.so](https://os.oxy.so/), and there is a fully interactive web demo of the shell deployed at `os.oxy.so/demo`.
 
@@ -181,8 +182,7 @@ OxyOS spans multiple repositories. The current public list:
 
 | Repo | Description |
 |------|-------------|
-| [`OxyOS`](https://github.com/OxyHQ/OxyOS) | This repo — live-build configuration and desktop shell. |
-| [`OxyOS-website`](https://github.com/OxyHQ/OxyOS-website) | Source for [os.oxy.so](https://os.oxy.so/). |
+| [`OxyOS`](https://github.com/OxyHQ/OxyOS) | This repo — live-build configuration, desktop shell, and the [os.oxy.so](https://os.oxy.so/) website (`website/`). |
 | [`OxyOS-menu`](https://github.com/OxyHQ/OxyOS-menu) | Menu tooling. |
 | [`OxyOS-apps`](https://github.com/OxyHQ/OxyOS-apps) | Apps package sources. |
 | [`OxyOS-welcome`](https://github.com/OxyHQ/OxyOS-welcome) | Optional post-installation script. |

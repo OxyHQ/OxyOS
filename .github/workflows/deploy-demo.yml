@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: [shell/**, .github/workflows/deploy-demo.yml]
+    paths: [shell/**, website/**, .github/workflows/deploy-demo.yml]
 
 permissions:
   contents: read
@@ -17,14 +17,12 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # The website (os.oxy.so, its apt repository under /packages, and the
+      # /demo shell) lives in `website/` of this repository. It used to be
+      # checked out from OxyHQ/OxyOS-website, which no longer exists: every run
+      # from 2026-09-26 on failed at that checkout with "Repository not found",
+      # so no shell change reached os.oxy.so/demo after 2026-09-10.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: OxyHQ/OxyOS-website
-          ref: main
-          path: website
-          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

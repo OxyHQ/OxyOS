@@ -1,0 +1,7 @@
+{
+  "latest": {
+    "version": "1.0",
+    "codename": "ozone",
+    "debian_base": "trixie"
+  }
+}
