@@ -16,6 +16,7 @@ config/
   preseed/                    # Debian installer automation defaults
   archives/                   # apt source list fragments
 shell/                        # OxyOS desktop shell (React + Tauri v2, see below)
+website/                      # os.oxy.so + its apt repo; deploy-demo.yml ships it with the shell at /demo
 ```
 
 ## Building the ISO

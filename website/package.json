@@ -1,0 +1,29 @@
+{
+  "name": "oxyos-website",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && cp -r packages dist/packages",
+    "assemble:demo": "bun scripts/assemble-demo.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "devDependencies": {
+    "wrangler": "4.128.0"
+  }
+}

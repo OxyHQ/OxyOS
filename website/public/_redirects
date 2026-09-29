@@ -1,0 +1,6 @@
+/downloads  https://oxyos.ams3.cdn.digitaloceanspaces.com/index.html  301
+/downloads/  https://oxyos.ams3.cdn.digitaloceanspaces.com/index.html  301
+/downloads/*  https://oxyos.ams3.cdn.digitaloceanspaces.com/:splat  301
+/demo  /demo/  301
+/demo/*  /demo/index.html  200
+/*  /index.html  200
