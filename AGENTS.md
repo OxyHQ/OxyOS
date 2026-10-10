@@ -2,7 +2,7 @@
 
 > Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
 
-Lightweight Debian-based desktop Linux distribution built with `live-build`. Website: https://os.oxy.so/
+Lightweight Debian-based desktop Linux distribution built with `live-build`. Website: https://oxy.so/os (served by OxyHQ/website, which also lists the ISO downloads at https://oxy.so/os/downloads).
 
 ## Layout
 
@@ -16,7 +16,6 @@ config/
   preseed/                    # Debian installer automation defaults
   archives/                   # apt source list fragments
 shell/                        # OxyOS desktop shell (React + Tauri v2, see below)
-website/                      # os.oxy.so + its apt repo; deploy-demo.yml ships it with the shell at /demo
 ```
 
 ## Building the ISO
