@@ -42,15 +42,18 @@ bun install
 bun run dev          # web preview (Vite only)
 bun run build        # Tauri desktop build
 bun run build:web    # web-only build
-bun run lint         # Biome check (format + lint); CI runs `bunx biome ci .`
+bun run lint         # Biome check (format + lint) + ESLint; CI runs `bunx biome ci .` and `bun run lint:react`
+bun run lint:react   # ESLint: React Compiler rules only
 bun run lint:fix     # Biome check --write (safe fixes + format)
 bun run format       # Biome format --write
 ```
 
-Biome (pinned `@biomejs/biome` in `shell/package.json`) is the only formatter/linter; config is
+Biome (pinned `@biomejs/biome` in `shell/package.json`) is the formatter and main linter; config is
 `shell/biome.json`. Its scope is the shell's TS/TSX/CSS/JSON only: `src-tauri/` (Rust side and
 Tauri JSON), SVG assets and everything outside `shell/` (notably `config/`, which is copied into
-the ISO chroot byte for byte) are deliberately not covered. Do not add ESLint or Prettier.
+the ISO chroot byte for byte) are deliberately not covered. Do not add Prettier. ESLint
+(`shell/eslint.config.js`) runs ONLY the React Compiler rules of `eslint-plugin-react-hooks` 7,
+which Biome has no equivalent for; never add a rule there that Biome can enforce.
 
 ## Notes
 

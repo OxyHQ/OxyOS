@@ -34,10 +34,13 @@ cargo tauri build          # Full native binary
 
 ## Linting and formatting
 
-[Biome](https://biomejs.dev/) formats and lints the shell (config: `biome.json`).
+[Biome](https://biomejs.dev/) formats and lints the shell (config: `biome.json`). A minimal
+ESLint config (`eslint.config.js`) adds only the React Compiler rules of
+`eslint-plugin-react-hooks` 7, which Biome has no equivalent for.
 
 ```bash
-bun run lint              # biome check .
+bun run lint              # biome check . && eslint .
+bun run lint:react        # eslint . (React Compiler rules only)
 bun run lint:fix          # biome check --write .
 bun run format            # biome format --write .
 ```

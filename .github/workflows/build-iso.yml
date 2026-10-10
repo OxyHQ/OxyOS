@@ -67,6 +67,7 @@ jobs:
           bun install --frozen-lockfile
           bun run test
           bunx biome ci .
+          bun run lint:react
           bun run build:web
 
       - name: Build Tauri binary
