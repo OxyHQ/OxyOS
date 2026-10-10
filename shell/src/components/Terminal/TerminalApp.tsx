@@ -310,6 +310,8 @@ function PaneContainer({
 }) {
   if (node.type === 'leaf') {
     return (
+      // biome-ignore lint/a11y/useKeyWithClickEvents: a pointer shortcut for picking the split target; the click also focuses the xterm textarea inside, which is the pane's keyboard control
+      // biome-ignore lint/a11y/noStaticElementInteractions: the pane is a layout container, not a control; see above
       <div
         className={`relative min-h-0 min-w-0 flex-1 ${
           node.id === activePaneId ? 'ring-1 ring-inset ring-[#0a84ff]/30' : ''
