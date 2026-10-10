@@ -1,8 +1,8 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
 export interface AliaMessage {
   id: string;
-  role: "user" | "assistant";
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
 }
@@ -17,14 +17,14 @@ interface AliaState {
   toggle: () => void;
   toggleListening: () => void;
   setStreaming: (v: boolean) => void;
-  addMessage: (role: "user" | "assistant", content: string) => void;
+  addMessage: (role: 'user' | 'assistant', content: string) => void;
   appendToLastMessage: (delta: string) => void;
   clearMessages: () => void;
 }
 
 const makeGreeting = (): AliaMessage => ({
-  id: "greeting",
-  role: "assistant",
+  id: 'greeting',
+  role: 'assistant',
   content: "Hi, I'm Alia. How can I help you today?",
   timestamp: Date.now(),
 });
@@ -54,7 +54,7 @@ export const useAliaStore = create<AliaState>((set) => ({
     set((s) => {
       const msgs = [...s.messages];
       const last = msgs[msgs.length - 1];
-      if (last && last.role === "assistant") {
+      if (last && last.role === 'assistant') {
         msgs[msgs.length - 1] = { ...last, content: last.content + delta };
       }
       return { messages: msgs };

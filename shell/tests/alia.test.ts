@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { streamChat } from "../src/lib/alia";
-import { oxy } from "../src/lib/oxy";
+import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { streamChat } from '../src/lib/alia';
+import { oxy } from '../src/lib/oxy';
 
 const originalFetch = globalThis.fetch;
 
 function createJwt(payload: Record<string, unknown>): string {
-  const encode = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
-  return `${encode({ alg: "HS256", typ: "JWT" })}.${encode(payload)}.signature`;
+  const encode = (value: unknown): string =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode(payload)}.signature`;
 }
 
 function readHeaders(init: RequestInit | undefined): Headers {
@@ -14,7 +15,7 @@ function readHeaders(init: RequestInit | undefined): Headers {
 }
 
 async function collect(stream: AsyncGenerator<string>): Promise<string> {
-  let output = "";
+  let output = '';
   for await (const chunk of stream) output += chunk;
   return output;
 }
@@ -24,52 +25,53 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("OxyOS Alia transport", () => {
-  test("fails closed before the network when no Oxy session exists", async () => {
+describe('OxyOS Alia transport', () => {
+  test('fails closed before the network when no Oxy session exists', async () => {
     oxy.session.clear();
-    const fetchMock = mock(() => Promise.reject(new Error("fetch must not run")));
+    const fetchMock = mock(() => Promise.reject(new Error('fetch must not run')));
     globalThis.fetch = fetchMock as typeof fetch;
 
-    await expect(collect(streamChat([{ role: "user", content: "hello" }]))).rejects.toThrow(
-      "An active Oxy session is required",
+    await expect(collect(streamChat([{ role: 'user', content: 'hello' }]))).rejects.toThrow(
+      'An active Oxy session is required',
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("calls the product runtime with the live Oxy bearer and exact profile id", async () => {
+  test('calls the product runtime with the live Oxy bearer and exact profile id', async () => {
     const accessToken = createJwt({
-      userId: "user_1",
+      userId: 'user_1',
       exp: Math.floor(Date.now() / 1000) + 3600,
     });
     oxy.session.setAccessToken(accessToken);
-    const fetchMock = mock(async () =>
-      new Response('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n', {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      }),
+    const fetchMock = mock(
+      async () =>
+        new Response('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        }),
     );
     globalThis.fetch = fetchMock as typeof fetch;
 
-    await expect(collect(streamChat([{ role: "user", content: "hello" }]))).resolves.toBe("Hi");
+    await expect(collect(streamChat([{ role: 'user', content: 'hello' }]))).resolves.toBe('Hi');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toBe("https://api.alia.onl/alia/chat");
+    expect(url).toBe('https://api.alia.onl/alia/chat');
     const headers = readHeaders(init);
-    expect(headers.get("Content-Type")).toBe("application/json");
-    expect(headers.get("Authorization")).toBe(`Bearer ${accessToken}`);
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('Authorization')).toBe(`Bearer ${accessToken}`);
 
     const body = JSON.parse(String(init?.body)) as { model: string; stream: boolean };
-    expect(body.model).toBe("profile:lite");
+    expect(body.model).toBe('profile:lite');
     expect(body.stream).toBe(true);
   });
 
-  test("contains no browser-bundled Alia key fallback or retired route/model", async () => {
-    const source = await Bun.file(new URL("../src/lib/alia.ts", import.meta.url)).text();
-    expect(source).not.toContain("VITE_ALIA_API_KEY");
-    expect(source).not.toContain("/v1/chat/completions");
+  test('contains no browser-bundled Alia key fallback or retired route/model', async () => {
+    const source = await Bun.file(new URL('../src/lib/alia.ts', import.meta.url)).text();
+    expect(source).not.toContain('VITE_ALIA_API_KEY');
+    expect(source).not.toContain('/v1/chat/completions');
     expect(source).not.toContain('"alia-lite"');
-    expect(source).not.toContain("getAccessToken");
-    expect(source).not.toContain("Authorization");
+    expect(source).not.toContain('getAccessToken');
+    expect(source).not.toContain('Authorization');
   });
 });

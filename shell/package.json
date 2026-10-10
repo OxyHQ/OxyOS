@@ -11,8 +11,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:web": "tsc -b && vite build --config vite.web.config.ts",
-    "lint": "eslint .",
-    "lint:alia": "eslint src/lib/alia.ts tests/alia.test.ts",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "lint:alia": "biome check src/lib/alia.ts tests/alia.test.ts",
     "test": "bun test",
     "preview": "vite preview",
     "preview:web": "vite preview --config vite.web.config.ts"
@@ -28,25 +30,19 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
+    "@biomejs/biome": "2.5.15",
     "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "2.11.4",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
-    "eslint": "^10.9.1",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.6",
-    "globals": "^17.12.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2"
   },
   "overrides": {
     "@babel/core": "7.29.7",
-    "@humanfs/node": "0.16.8",
     "browserslist": "4.28.8"
   }
 }

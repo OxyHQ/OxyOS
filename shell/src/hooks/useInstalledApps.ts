@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { invoke } from "../lib/tauri";
+import { useState, useEffect } from 'react';
+import { invoke } from '../lib/tauri';
 
 export interface InstalledApp {
   name: string;
@@ -14,7 +14,7 @@ export function useInstalledApps() {
 
   useEffect(() => {
     async function loadApps() {
-      const result = await invoke<InstalledApp[]>("list_desktop_apps");
+      const result = await invoke<InstalledApp[]>('list_desktop_apps');
       if (result && result.length > 0) {
         setApps(result);
       }

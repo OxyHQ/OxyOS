@@ -1,23 +1,23 @@
-import { useState, useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useSessionStore } from "./stores/sessionStore";
-import { useClock } from "./hooks/useClock";
-import { useSystemInfo } from "./hooks/useSystemInfo";
-import { useAliaStore } from "./stores/aliaStore";
-import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { isNative } from "./lib/tauri";
-import LoginScreen from "./components/LoginScreen/LoginScreen";
-import Shelf from "./components/Shelf/Shelf";
-import AppLauncher from "./components/AppLauncher/AppLauncher";
-import OSD from "./components/Desktop/OSD";
-import ScreenshotOverlay from "./components/Desktop/ScreenshotOverlay";
-import AliaBubble from "./components/Alia/AliaBubble";
-import AliaPanel from "./components/Alia/AliaPanel";
-import NotificationToast from "./components/NotificationPanel/NotificationToast";
-import NotificationPanel from "./components/NotificationPanel/NotificationPanel";
-import SettingsPanel from "./components/Settings/SettingsPanel";
-import QuickSettings from "./components/SystemTray/QuickSettings";
-import CalendarPopup from "./components/Desktop/CalendarPopup";
+import { useState, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useSessionStore } from './stores/sessionStore';
+import { useClock } from './hooks/useClock';
+import { useSystemInfo } from './hooks/useSystemInfo';
+import { useAliaStore } from './stores/aliaStore';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { isNative } from './lib/tauri';
+import LoginScreen from './components/LoginScreen/LoginScreen';
+import Shelf from './components/Shelf/Shelf';
+import AppLauncher from './components/AppLauncher/AppLauncher';
+import OSD from './components/Desktop/OSD';
+import ScreenshotOverlay from './components/Desktop/ScreenshotOverlay';
+import AliaBubble from './components/Alia/AliaBubble';
+import AliaPanel from './components/Alia/AliaPanel';
+import NotificationToast from './components/NotificationPanel/NotificationToast';
+import NotificationPanel from './components/NotificationPanel/NotificationPanel';
+import SettingsPanel from './components/Settings/SettingsPanel';
+import QuickSettings from './components/SystemTray/QuickSettings';
+import CalendarPopup from './components/Desktop/CalendarPopup';
 
 /**
  * Single-page shell composition. Used by:
@@ -52,15 +52,17 @@ export default function WebApp() {
     let disposed = false;
     let activeUnlisteners: (() => void)[] = [];
 
-    const registration = import("@tauri-apps/api/event")
-      .then(({ listen }) => Promise.all([
-        listen("launcher-toggle", () => setLauncherOpen((v) => !v)),
-        listen("launcher-show", () => setLauncherOpen(true)),
-        listen("launcher-hide", () => setLauncherOpen(false)),
-        listen("quicksettings-toggle", () => setQuickSettingsOpen((v) => !v)),
-        listen("notifications-toggle", () => setNotificationsOpen((v) => !v)),
-        listen("calendar-toggle", () => setCalendarOpen((v) => !v)),
-      ]))
+    const registration = import('@tauri-apps/api/event')
+      .then(({ listen }) =>
+        Promise.all([
+          listen('launcher-toggle', () => setLauncherOpen((v) => !v)),
+          listen('launcher-show', () => setLauncherOpen(true)),
+          listen('launcher-hide', () => setLauncherOpen(false)),
+          listen('quicksettings-toggle', () => setQuickSettingsOpen((v) => !v)),
+          listen('notifications-toggle', () => setNotificationsOpen((v) => !v)),
+          listen('calendar-toggle', () => setCalendarOpen((v) => !v)),
+        ]),
+      )
       .then((unlisteners) => {
         if (disposed) {
           for (const unlisten of unlisteners) unlisten();
@@ -69,7 +71,7 @@ export default function WebApp() {
         }
       })
       .catch((error: unknown) => {
-        console.error("Failed to subscribe to native shell events", error);
+        console.error('Failed to subscribe to native shell events', error);
       });
 
     return () => {
@@ -133,12 +135,8 @@ export default function WebApp() {
 
           <OSD />
 
-          <AnimatePresence>
-            {!aliaOpen && <AliaBubble key="alia-bubble" />}
-          </AnimatePresence>
-          <AnimatePresence>
-            {aliaOpen && <AliaPanel key="alia-panel" />}
-          </AnimatePresence>
+          <AnimatePresence>{!aliaOpen && <AliaBubble key="alia-bubble" />}</AnimatePresence>
+          <AnimatePresence>{aliaOpen && <AliaPanel key="alia-panel" />}</AnimatePresence>
 
           <ScreenshotOverlay />
           <NotificationToast />
@@ -156,9 +154,7 @@ export default function WebApp() {
             )}
           </AnimatePresence>
           <AnimatePresence>
-            {calendarOpen && (
-              <CalendarPopup key="cal" onClose={() => setCalendarOpen(false)} />
-            )}
+            {calendarOpen && <CalendarPopup key="cal" onClose={() => setCalendarOpen(false)} />}
           </AnimatePresence>
 
           {renderShelf && (

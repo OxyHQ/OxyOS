@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
 interface SystemState {
   wifiEnabled: boolean;
@@ -31,7 +31,7 @@ export const useSystemStore = create<SystemState>((set) => ({
   volume: 0,
   brightnessPresent: false,
   brightness: 0,
-  time: "",
+  time: '',
   setWifi: (wifiEnabled) => set({ wifiEnabled }),
   setBluetooth: (bluetoothEnabled) => set({ bluetoothEnabled }),
   setNightLight: (nightLightEnabled) => set({ nightLightEnabled }),

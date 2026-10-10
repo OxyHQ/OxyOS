@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useScreenshotStore } from "../../stores/screenshotStore";
-import { playScreenshot } from "../../lib/sounds";
+import { useCallback, useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useScreenshotStore } from '../../stores/screenshotStore';
+import { playScreenshot } from '../../lib/sounds';
 
 function captureScreen(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -9,12 +9,12 @@ function captureScreen(): Promise<string> {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    const canvas = document.createElement("canvas");
+    const canvas = document.createElement('canvas');
     canvas.width = width * window.devicePixelRatio;
     canvas.height = height * window.devicePixelRatio;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext('2d');
     if (!ctx) {
-      reject(new Error("Failed to get canvas context"));
+      reject(new Error('Failed to get canvas context'));
       return;
     }
 
@@ -26,7 +26,7 @@ function captureScreen(): Promise<string> {
       [
         `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${svgData}</svg>`,
       ],
-      { type: "image/svg+xml;charset=utf-8" },
+      { type: 'image/svg+xml;charset=utf-8' },
     );
     const url = URL.createObjectURL(svgBlob);
     const img = new Image();
@@ -34,11 +34,11 @@ function captureScreen(): Promise<string> {
       ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
       ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL("image/png"));
+      resolve(canvas.toDataURL('image/png'));
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Failed to render screenshot"));
+      reject(new Error('Failed to render screenshot'));
     };
     img.src = url;
   });
@@ -48,9 +48,7 @@ async function writeToClipboard(dataUrl: string): Promise<void> {
   try {
     const response = await fetch(dataUrl);
     const blob = await response.blob();
-    await navigator.clipboard.write([
-      new ClipboardItem({ "image/png": blob }),
-    ]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
   } catch {
     // Clipboard write may fail in some browsers; toast still shows
   }
@@ -97,9 +95,9 @@ export default function ScreenshotOverlay() {
       setShowFlash(true);
       playScreenshot();
       setTimeout(() => setShowFlash(false), 150);
-      setToastMessage("Screenshot copied to clipboard");
+      setToastMessage('Screenshot copied to clipboard');
     } catch {
-      setToastMessage("Screenshot captured");
+      setToastMessage('Screenshot captured');
     }
   }, [deactivate, setCapturedUrl]);
 
@@ -107,15 +105,15 @@ export default function ScreenshotOverlay() {
     if (!isActive) return;
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         deactivate();
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isActive, deactivate]);
 
   const dismissToast = useCallback(() => setToastMessage(null), []);
@@ -163,11 +161,7 @@ export default function ScreenshotOverlay() {
       {/* Toast notification */}
       <AnimatePresence>
         {toastMessage && (
-          <Toast
-            key="screenshot-toast"
-            message={toastMessage}
-            onDone={dismissToast}
-          />
+          <Toast key="screenshot-toast" message={toastMessage} onDone={dismissToast} />
         )}
       </AnimatePresence>
     </>

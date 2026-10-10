@@ -40,18 +40,13 @@
   --cros-radius-pill: 9999px;
 
   /* Typography */
-  --cros-font-family: "Google Sans", "Google Sans Text", "Roboto", system-ui,
-    sans-serif;
-  --cros-font-family-text: "Google Sans Text", "Google Sans", "Roboto",
-    system-ui, sans-serif;
+  --cros-font-family: "Google Sans", "Google Sans Text", "Roboto", system-ui, sans-serif;
+  --cros-font-family-text: "Google Sans Text", "Google Sans", "Roboto", system-ui, sans-serif;
 
   /* Shadows */
-  --cros-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12),
-    0 1px 2px rgba(0, 0, 0, 0.08);
-  --cros-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12),
-    0 2px 4px rgba(0, 0, 0, 0.08);
-  --cros-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16),
-    0 4px 8px rgba(0, 0, 0, 0.08);
+  --cros-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+  --cros-shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08);
+  --cros-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.16), 0 4px 8px rgba(0, 0, 0, 0.08);
 
   /* Transitions */
   --cros-transition-fast: 150ms cubic-bezier(0.2, 0, 0, 1);

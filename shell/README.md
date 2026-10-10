@@ -32,6 +32,16 @@ bun run build:web         # Web demo bundle → web-build/
 cargo tauri build          # Full native binary
 ```
 
+## Linting and formatting
+
+[Biome](https://biomejs.dev/) formats and lints the shell (config: `biome.json`).
+
+```bash
+bun run lint              # biome check .
+bun run lint:fix          # biome check --write .
+bun run format            # biome format --write .
+```
+
 ## Web Demo
 
 The shell has a separate web entry point (`web.html` → `src/web.tsx` → `WebApp.tsx`) that renders the full interactive desktop in a single browser page — no Tauri required. It is a local development and preview target; it is not deployed anywhere.

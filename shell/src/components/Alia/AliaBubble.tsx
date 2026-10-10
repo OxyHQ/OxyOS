@@ -1,7 +1,7 @@
-import { motion } from "framer-motion";
-import { useAliaStore } from "../../stores/aliaStore";
-import AliaFace from "./AliaFace";
-import type { AliaExpression } from "./AliaFace";
+import { motion } from 'framer-motion';
+import { useAliaStore } from '../../stores/aliaStore';
+import AliaFace from './AliaFace';
+import type { AliaExpression } from './AliaFace';
 
 export default function AliaBubble() {
   const isOpen = useAliaStore((s) => s.isOpen);
@@ -12,10 +12,10 @@ export default function AliaBubble() {
   if (isOpen) return null;
 
   const expression: AliaExpression = isListening
-    ? "Interesting"
+    ? 'Interesting'
     : isStreaming
-      ? "Writing E"
-      : "Idle A";
+      ? 'Writing E'
+      : 'Idle A';
 
   return (
     <motion.button
@@ -31,7 +31,10 @@ export default function AliaBubble() {
         <span className="absolute inset-0 animate-ping rounded-full bg-[#0a84ff]/30" />
       )}
       {isStreaming && (
-        <span className="absolute inset-[-2px] animate-spin rounded-full border-2 border-transparent border-t-[#0a84ff]/50" style={{ animationDuration: "1.5s" }} />
+        <span
+          className="absolute inset-[-2px] animate-spin rounded-full border-2 border-transparent border-t-[#0a84ff]/50"
+          style={{ animationDuration: '1.5s' }}
+        />
       )}
       <AliaFace size={28} expression={expression} />
     </motion.button>

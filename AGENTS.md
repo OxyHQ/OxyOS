@@ -42,7 +42,15 @@ bun install
 bun run dev          # web preview (Vite only)
 bun run build        # Tauri desktop build
 bun run build:web    # web-only build
+bun run lint         # Biome check (format + lint); CI runs `bunx biome ci .`
+bun run lint:fix     # Biome check --write (safe fixes + format)
+bun run format       # Biome format --write
 ```
+
+Biome (pinned `@biomejs/biome` in `shell/package.json`) is the only formatter/linter; config is
+`shell/biome.json`. Its scope is the shell's TS/TSX/CSS/JSON only: `src-tauri/` (Rust side and
+Tauri JSON), SVG assets and everything outside `shell/` (notably `config/`, which is copied into
+the ISO chroot byte for byte) are deliberately not covered. Do not add ESLint or Prettier.
 
 ## Notes
 

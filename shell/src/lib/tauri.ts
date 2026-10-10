@@ -4,13 +4,10 @@
  * so the shell works in both demo (browser) and native (Tauri) modes.
  */
 
-export async function invoke<T>(
-  cmd: string,
-  args?: Record<string, unknown>,
-): Promise<T | null> {
+export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
   try {
     if (window.__TAURI_INTERNALS__) {
-      const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
+      const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
       return await tauriInvoke<T>(cmd, args);
     }
   } catch (error: unknown) {
@@ -25,7 +22,7 @@ export function isNative(): boolean {
 
 /** Convert an absolute file path to a Tauri asset protocol URL */
 export function assetUrl(filePath: string): string {
-  if (!filePath || !filePath.startsWith("/")) return filePath;
+  if (!filePath || !filePath.startsWith('/')) return filePath;
   if (!isNative()) return filePath;
   return `http://asset.localhost/${filePath}`;
 }
