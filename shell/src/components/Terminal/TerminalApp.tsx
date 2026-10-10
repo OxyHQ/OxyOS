@@ -110,7 +110,7 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
         if (tab.id !== tabId) return tab;
         const root = cloneTree(tab.root);
         const target = findNode(root, paneId);
-        if (!target || target.type !== 'leaf') return tab;
+        if (target?.type !== 'leaf') return tab;
 
         const newLeaf = makeLeaf();
         const splitNode: Split = {
