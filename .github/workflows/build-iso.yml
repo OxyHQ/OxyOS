@@ -89,7 +89,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y live-build git awscli
+          apt-get install -y live-build git
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -128,6 +128,18 @@ jobs:
 
           NEW_NAME="oxyos-${VERSION}-amd64.iso"
           mv "$ISO_FILE" "$NEW_NAME"
+
+          # GitHub rejects release assets of 2 GiB or more, and the release is
+          # where the ISO is published (the website links to the release page).
+          SIZE=$(stat -c %s "$NEW_NAME")
+          echo "$NEW_NAME is $SIZE bytes"
+          if [ "$SIZE" -ge 2147483648 ]; then
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              echo "::error::$NEW_NAME is $SIZE bytes; GitHub release assets must be under 2 GiB"
+              exit 1
+            fi
+            echo "::warning::$NEW_NAME is $SIZE bytes; a tagged build could not attach it to the release (limit 2 GiB)"
+          fi
           echo "ISO_FILE=$NEW_NAME" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_ENV
 
@@ -136,26 +148,42 @@ jobs:
           echo "MD5_FILE=${NEW_NAME}.md5" >> $GITHUB_ENV
           echo "SHA256_FILE=${NEW_NAME}.sha256" >> $GITHUB_ENV
 
+      # The GitHub release is the only place ISOs are published:
+      # oxy.so/os/downloads links to github.com/OxyHQ/OxyOS/releases/tag/<tag>.
       - name: Upload to GitHub Release
+        id: release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
         with:
+          fail_on_unmatched_files: true
           files: |
             ${{ env.ISO_FILE }}
             ${{ env.MD5_FILE }}
             ${{ env.SHA256_FILE }}
 
-      - name: Upload to DigitalOcean Spaces
+      - name: Verify the release carries the ISO
+        if: startsWith(github.ref, 'refs/tags/')
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.DO_SPACES_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.DO_SPACES_SECRET_KEY }}
+          ASSETS: ${{ steps.release.outputs.assets }}
         run: |
-          aws s3 cp "${{ env.ISO_FILE }}" "s3://oxyos/${{ env.ISO_FILE }}" \
-            --endpoint-url https://ams3.digitaloceanspaces.com \
-            --acl public-read
-          aws s3 cp "${{ env.MD5_FILE }}" "s3://oxyos/${{ env.MD5_FILE }}" \
-            --endpoint-url https://ams3.digitaloceanspaces.com \
-            --acl public-read
-          aws s3 cp "${{ env.SHA256_FILE }}" "s3://oxyos/${{ env.SHA256_FILE }}" \
-            --endpoint-url https://ams3.digitaloceanspaces.com \
-            --acl public-read
+          for f in "$ISO_FILE" "$MD5_FILE" "$SHA256_FILE"; do
+            if ! printf '%s' "$ASSETS" | grep -qF "\"name\":\"$f\""; then
+              echo "::error::release $GITHUB_REF_NAME has no asset named $f"
+              exit 1
+            fi
+          done
+          echo "Release $GITHUB_REF_NAME carries $ISO_FILE and its checksums"
+
+      # Manual runs have no release, so keep their ISO as a short-lived
+      # workflow artifact instead.
+      - name: Upload ISO as a workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ env.ISO_FILE }}
+          path: |
+            ${{ env.ISO_FILE }}
+            ${{ env.MD5_FILE }}
+            ${{ env.SHA256_FILE }}
+          retention-days: 7
+          compression-level: 0
