@@ -22,7 +22,7 @@ export function isNative(): boolean {
 
 /** Convert an absolute file path to a Tauri asset protocol URL */
 export function assetUrl(filePath: string): string {
-  if (!filePath || !filePath.startsWith('/')) return filePath;
+  if (!filePath?.startsWith('/')) return filePath;
   if (!isNative()) return filePath;
   return `http://asset.localhost/${filePath}`;
 }

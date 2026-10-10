@@ -51,6 +51,7 @@ export default function AliaWelcome({ onSuggestionPress }: AliaWelcomeProps) {
         >
           {SUGGESTIONS.map((item) => (
             <button
+              type="button"
               key={item.id}
               onClick={() => onSuggestionPress(item.description)}
               className="flex min-w-[35%] flex-1 cursor-pointer flex-col items-start overflow-hidden rounded-3xl border border-white/12 bg-white/6 p-4 text-left backdrop-blur-sm transition-colors hover:bg-white/10"

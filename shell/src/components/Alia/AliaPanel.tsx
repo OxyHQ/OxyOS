@@ -27,6 +27,7 @@ export default function AliaPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages is the trigger, scroll to the newest message whenever the list changes
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -116,12 +117,14 @@ export default function AliaPanel() {
         </div>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={clearMessages}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/8 hover:text-white/55"
             aria-label="Clear chat"
             title="Clear chat"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -135,11 +138,13 @@ export default function AliaPanel() {
             </svg>
           </button>
           <button
+            type="button"
             onClick={close}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/8 hover:text-white/55"
             aria-label="Minimize"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -216,6 +221,7 @@ export default function AliaPanel() {
       <div className="border-t border-white/8 px-3 py-2.5">
         <div className="flex items-end gap-2">
           <button
+            type="button"
             onClick={toggleListening}
             className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all ${
               isListening
@@ -225,6 +231,7 @@ export default function AliaPanel() {
             aria-label={isListening ? 'Stop recording' : 'Voice input'}
           >
             <svg
+              aria-hidden="true"
               width="16"
               height="16"
               viewBox="0 0 24 24"
@@ -255,21 +262,24 @@ export default function AliaPanel() {
 
           {isStreaming ? (
             <button
+              type="button"
               onClick={() => setStreaming(false)}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white"
               aria-label="Stop"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="white">
                 <rect x="4" y="4" width="16" height="16" rx="2" />
               </svg>
             </button>
           ) : hasText ? (
             <button
+              type="button"
               onClick={sendMessage}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white transition-opacity disabled:opacity-40"
               aria-label="Send"
             >
               <svg
+                aria-hidden="true"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
@@ -284,11 +294,13 @@ export default function AliaPanel() {
             </button>
           ) : (
             <button
+              type="button"
               onClick={toggleListening}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white"
               aria-label="Voice"
             >
               <svg
+                aria-hidden="true"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"

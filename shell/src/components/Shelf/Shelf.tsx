@@ -120,12 +120,13 @@ export default function Shelf({
           <>
             {/* Left: Launcher button */}
             <button
+              type="button"
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
               onClick={handleToggleLauncher}
               aria-label="App launcher"
               title="App Launcher"
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="white">
                 <path d="M12 5C15.87 5 19 8.13 19 12C19 15.87 15.87 19 12 19C8.13 19 5 15.87 5 12C5 8.13 8.13 5 12 5M12 2C17.5 2 22 6.5 22 12C22 17.5 17.5 22 12 22C6.5 22 2 17.5 2 12C2 6.5 6.5 2 12 2M12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z" />
               </svg>
             </button>
@@ -184,12 +185,13 @@ export default function Shelf({
           {/* Notifications button — desktop only */}
           {!isLogin && (
             <button
+              type="button"
               className="relative flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               onClick={() => togglePanel('notifications')}
               aria-label="Notifications"
               title="Notifications"
             >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="white">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="14" height="14" fill="white">
                 <path d="M19.993 9.042C19.48 5.017 16.054 2 11.996 2s-7.49 3.021-7.999 7.051L2.866 18H7.1c.463 2.282 2.481 4 4.9 4s4.437-1.718 4.9-4h4.236l-1.143-8.958zM12 20c-1.306 0-2.417-.835-2.829-2h5.658c-.412 1.165-1.523 2-2.829 2zm-6.866-4l.847-6.698C6.364 6.272 8.941 4 11.996 4s5.627 2.268 6.013 5.295L18.864 16H5.134z" />
               </svg>
               {notificationCount > 0 && (
@@ -203,10 +205,12 @@ export default function Shelf({
           {/* Power button — login only */}
           {isLogin && (
             <button
+              type="button"
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               aria-label="Power"
             >
               <svg
+                aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -224,11 +228,13 @@ export default function Shelf({
 
           {/* Icons pill — rounded left only */}
           <button
+            type="button"
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={() => togglePanel('quickSettings')}
             aria-label="System status"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -239,7 +245,14 @@ export default function Shelf({
             {/* Battery icon — hidden on systems without a battery */}
             {batteryPresent && (
               <div className="relative flex items-center">
-                <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
+                <svg
+                  aria-hidden="true"
+                  width="30"
+                  height="14"
+                  viewBox="0 0 30 14"
+                  fill="none"
+                  className="rotate-180"
+                >
                   <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
                   <rect
                     x="0"
@@ -255,6 +268,7 @@ export default function Shelf({
                 {isCharging ? (
                   <span className="absolute inset-0 flex items-center justify-center pl-1">
                     <svg
+                      aria-hidden="true"
                       width="10"
                       height="12"
                       viewBox="0 0 12 16"
@@ -275,6 +289,7 @@ export default function Shelf({
 
           {/* Date + time pill — rounded right only */}
           <button
+            type="button"
             className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={() => togglePanel('calendar')}
             aria-label="Date and time"

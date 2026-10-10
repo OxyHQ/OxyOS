@@ -78,11 +78,13 @@ export default function NotificationToast() {
 
             {/* Dismiss button */}
             <button
+              type="button"
               onClick={handleDismiss}
               className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/40 transition-colors duration-150 hover:bg-white/20 hover:text-white/70"
               aria-label="Dismiss notification"
             >
               <svg
+                aria-hidden="true"
                 width="8"
                 height="8"
                 viewBox="0 0 10 10"

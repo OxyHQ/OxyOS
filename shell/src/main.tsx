@@ -4,7 +4,10 @@ import App from './App';
 import './styles/tokens.css';
 import './index.css';
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root');
+if (!rootElement) throw new Error('Missing #root element');
+
+createRoot(rootElement).render(
   <StrictMode>
     <App />
   </StrictMode>,

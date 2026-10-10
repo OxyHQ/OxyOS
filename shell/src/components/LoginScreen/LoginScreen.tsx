@@ -92,6 +92,7 @@ export default function LoginScreen() {
                 setShowError(false);
               }}
               placeholder="Enter Password"
+              // biome-ignore lint/a11y/noAutofocus: the lock screen's only task is entering the password, so focus starts in the field
               autoFocus
               disabled={isVerifying}
               className="h-[34px] w-[200px] rounded-full bg-white/20 px-4 text-[13px] text-white placeholder-white/45 outline-none backdrop-blur-sm transition-colors duration-200 focus:bg-white/25 disabled:opacity-50"

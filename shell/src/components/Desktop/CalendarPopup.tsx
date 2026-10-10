@@ -17,13 +17,13 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
 
   const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < firstDay; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const cells: { key: string; day: number | null }[] = [];
+  for (let i = 0; i < firstDay; i++) cells.push({ key: `blank-${i}`, day: null });
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ key: `day-${d}`, day: d });
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div aria-hidden="true" className="fixed inset-0 z-40" onClick={onClose} />
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -45,8 +45,8 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
 
         {/* Day cells */}
         <div className="grid grid-cols-7 gap-0">
-          {cells.map((day, i) => (
-            <div key={i} className="flex items-center justify-center py-[3px]">
+          {cells.map(({ key, day }) => (
+            <div key={key} className="flex items-center justify-center py-[3px]">
               {day ? (
                 <div
                   className={`flex h-[28px] w-[28px] items-center justify-center rounded-full text-[12px] font-medium ${

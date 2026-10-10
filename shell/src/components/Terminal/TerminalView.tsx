@@ -127,23 +127,23 @@ function setupMockShell(term: Terminal) {
         term.write('  pwd, date, uname, ls, neofetch\r\n');
         break;
       case 'echo':
-        term.write(args.join(' ') + '\r\n');
+        term.write(`${args.join(' ')}\r\n`);
         break;
       case 'clear':
         term.clear();
         term.write('\x1b[H\x1b[2J');
         break;
       case 'whoami':
-        term.write(user + '\r\n');
+        term.write(`${user}\r\n`);
         break;
       case 'hostname':
-        term.write(hostname + '\r\n');
+        term.write(`${hostname}\r\n`);
         break;
       case 'pwd':
-        term.write((currentDir === '~' ? `/home/${user}` : currentDir) + '\r\n');
+        term.write(`${currentDir === '~' ? `/home/${user}` : currentDir}\r\n`);
         break;
       case 'date':
-        term.write(new Date().toString() + '\r\n');
+        term.write(`${new Date().toString()}\r\n`);
         break;
       case 'uname':
         term.write('OxyOS 2.1.0 x86_64 GNU/Linux\r\n');

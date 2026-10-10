@@ -46,5 +46,6 @@
 
 .xterm-viewport,
 .xterm-screen {
+  /* biome-ignore lint/complexity/noImportantStyles: xterm.js writes the theme background as an inline style on its viewport (and its stylesheet sets #000); only !important lets the glass window show through */
   background-color: transparent !important;
 }

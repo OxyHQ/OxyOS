@@ -45,11 +45,25 @@ export default function OSD() {
           className="fixed top-6 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-3 rounded-full border border-white/15 px-5 py-2.5 shadow-[0_4px_20px_rgba(0,0,0,0.3)] liquid-glass"
         >
           {visible === 'volume' ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white" fillOpacity="0.7">
+            <svg
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="white"
+              fillOpacity="0.7"
+            >
               <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
             </svg>
           ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="white" fillOpacity="0.7">
+            <svg
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="white"
+              fillOpacity="0.7"
+            >
               <circle cx="12" cy="12" r="5" />
               <line
                 x1="12"

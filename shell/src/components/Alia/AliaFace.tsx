@@ -185,7 +185,13 @@ export default function AliaFace({ expression = DEFAULT_EXPRESSION, size = 120 }
       transition={FLOAT_TRANSITION}
       style={{ width: size, height: size }}
     >
-      <svg width={size} height={size} viewBox="35 35 250 250" style={{ overflow: 'visible' }}>
+      <svg
+        aria-hidden="true"
+        width={size}
+        height={size}
+        viewBox="35 35 250 250"
+        style={{ overflow: 'visible' }}
+      >
         {/* Background circle */}
         <circle
           cx="160"

@@ -29,6 +29,7 @@ export default function TerminalWindow({ windowId }: { windowId: string }) {
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden rounded-xl border border-white/15 bg-black/60 shadow-[0_12px_40px_rgba(0,0,0,0.5),inset_0_0.5px_0_rgba(255,255,255,0.08)] backdrop-blur-[60px] backdrop-saturate-[180%]">
       {/* Custom title bar */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: window drag handle; dragging a window is a pointer gesture, and the window manager's move binding is the keyboard equivalent */}
       <div
         className="flex h-[38px] shrink-0 cursor-default items-center justify-between px-3"
         onMouseDown={handleStartDrag}
@@ -36,6 +37,7 @@ export default function TerminalWindow({ windowId }: { windowId: string }) {
         {/* Traffic lights */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={handleClose}
             className="h-3 w-3 cursor-pointer rounded-full bg-[#ff5f57] transition-opacity hover:opacity-80"
             aria-label="Close"

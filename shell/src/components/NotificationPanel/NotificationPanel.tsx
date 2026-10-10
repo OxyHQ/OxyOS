@@ -39,7 +39,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
   return (
     <>
       {/* Click-away backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div aria-hidden="true" className="fixed inset-0 z-40" onClick={onClose} />
 
       <motion.div
         initial={{ opacity: 0, y: 8, scale: 0.97 }}
@@ -56,6 +56,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
           </h2>
           {hasNotifications && (
             <button
+              type="button"
               onClick={clearAll}
               className="cursor-pointer text-[12px] font-medium text-white/50 transition-colors hover:text-white/80"
             >
@@ -85,6 +86,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                     </div>
                     {group.notifications.length > 1 && (
                       <button
+                        type="button"
                         onClick={() => clearApp(group.app)}
                         className="cursor-pointer text-[11px] text-white/40 transition-colors hover:text-white/70"
                       >
@@ -110,11 +112,13 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                     >
                       {/* Dismiss button */}
                       <button
+                        type="button"
                         onClick={() => dismiss(notification.id)}
                         className="absolute top-2 right-2.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/40 opacity-0 transition-all duration-150 hover:bg-white/20 hover:text-white/70 group-hover:opacity-100"
                         aria-label="Dismiss"
                       >
                         <svg
+                          aria-hidden="true"
                           width="8"
                           height="8"
                           viewBox="0 0 10 10"
@@ -161,7 +165,14 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
             /* Empty state */
             <div className="flex flex-col items-center justify-center py-16">
               <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white/8">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="white" opacity="0.3">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  width="22"
+                  height="22"
+                  fill="white"
+                  opacity="0.3"
+                >
                   <path d="M19.993 9.042C19.48 5.017 16.054 2 11.996 2s-7.49 3.021-7.999 7.051L2.866 18H7.1c.463 2.282 2.481 4 4.9 4s4.437-1.718 4.9-4h4.236l-1.143-8.958zM12 20c-1.306 0-2.417-.835-2.829-2h5.658c-.412 1.165-1.523 2-2.829 2zm-6.866-4l.847-6.698C6.364 6.272 8.941 4 11.996 4s5.627 2.268 6.013 5.295L18.864 16H5.134z" />
                 </svg>
               </div>
