@@ -1,19 +1,19 @@
-import { useState, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useSystemStore } from "../../stores/systemStore";
-import { useRunningAppsStore } from "../../stores/runningAppsStore";
-import { launchApp } from "../../lib/launchApp";
-import { getBatteryVisuals } from "../../lib/styles";
-import { appExecMap } from "../../lib/appRegistry";
-import QuickSettings from "../SystemTray/QuickSettings";
-import NotificationPanel from "../NotificationPanel/NotificationPanel";
-import CalendarPopup from "../Desktop/CalendarPopup";
-import { useNotificationStore } from "../../stores/notificationStore";
-import browserIcon from "../../assets/icons/browser.svg";
-import filesIcon from "../../assets/icons/files.svg";
-import settingsIcon from "../../assets/icons/settings.svg";
-import terminalIcon from "../../assets/icons/terminal.svg";
-import storeIcon from "../../assets/icons/store.svg";
+import { useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useSystemStore } from '../../stores/systemStore';
+import { useRunningAppsStore } from '../../stores/runningAppsStore';
+import { launchApp } from '../../lib/launchApp';
+import { getBatteryVisuals } from '../../lib/styles';
+import { appExecMap } from '../../lib/appRegistry';
+import QuickSettings from '../SystemTray/QuickSettings';
+import NotificationPanel from '../NotificationPanel/NotificationPanel';
+import CalendarPopup from '../Desktop/CalendarPopup';
+import { useNotificationStore } from '../../stores/notificationStore';
+import browserIcon from '../../assets/icons/browser.svg';
+import filesIcon from '../../assets/icons/files.svg';
+import settingsIcon from '../../assets/icons/settings.svg';
+import terminalIcon from '../../assets/icons/terminal.svg';
+import storeIcon from '../../assets/icons/store.svg';
 
 interface PinnedApp {
   name: string;
@@ -21,15 +21,15 @@ interface PinnedApp {
 }
 
 const pinnedApps: PinnedApp[] = [
-  { name: "Browser", icon: browserIcon },
-  { name: "Files", icon: filesIcon },
-  { name: "Settings", icon: settingsIcon },
-  { name: "Terminal", icon: terminalIcon },
-  { name: "Store", icon: storeIcon },
+  { name: 'Browser', icon: browserIcon },
+  { name: 'Files', icon: filesIcon },
+  { name: 'Settings', icon: settingsIcon },
+  { name: 'Terminal', icon: terminalIcon },
+  { name: 'Store', icon: storeIcon },
 ];
 
 interface ShelfProps {
-  variant?: "desktop" | "login";
+  variant?: 'desktop' | 'login';
   /**
    * Outer styling.
    * - "floating": translucent glass card on top of a wallpaper. Used by the
@@ -37,7 +37,7 @@ interface ShelfProps {
    * - "dock": edge-to-edge bottom dock (ChromeOS Ash style). Used when the
    *   shelf is its own opaque always-on-top native window.
    */
-  chrome?: "floating" | "dock";
+  chrome?: 'floating' | 'dock';
   /**
    * Tray-panel callbacks. When provided, the shelf delegates to the parent
    * (e.g. fires Tauri events) instead of rendering the panels itself. Used
@@ -51,8 +51,8 @@ interface ShelfProps {
 }
 
 export default function Shelf({
-  variant = "desktop",
-  chrome = "floating",
+  variant = 'desktop',
+  chrome = 'floating',
   onToggleLauncher,
   onToggleQuickSettings,
   onToggleNotifications,
@@ -63,17 +63,16 @@ export default function Shelf({
   const batteryPresent = useSystemStore((s) => s.batteryPresent);
   const batteryLevel = useSystemStore((s) => s.batteryLevel);
   const isCharging = useSystemStore((s) => s.isCharging);
-  type TrayPanel = "quickSettings" | "notifications" | "calendar" | null;
+  type TrayPanel = 'quickSettings' | 'notifications' | 'calendar' | null;
   const [openPanel, setOpenPanel] = useState<TrayPanel>(null);
   const notificationCount = useNotificationStore((s) => s.notifications.length);
   const running = useRunningAppsStore((s) => s.running);
   const [bouncingApp, setBouncingApp] = useState<string | null>(null);
-  const isLogin = variant === "login";
+  const isLogin = variant === 'login';
 
   // If parent supplies any tray-panel callback, parent owns ALL the panels.
   // Otherwise we keep local state + render them inline (web demo / login behavior).
-  const externalPanels =
-    !!(onToggleQuickSettings || onToggleNotifications || onToggleCalendar);
+  const externalPanels = !!(onToggleQuickSettings || onToggleNotifications || onToggleCalendar);
 
   const handleToggleLauncher = useCallback(() => {
     onToggleLauncher?.();
@@ -81,15 +80,15 @@ export default function Shelf({
 
   const togglePanel = useCallback(
     (panel: Exclude<TrayPanel, null>) => {
-      if (panel === "quickSettings" && onToggleQuickSettings) {
+      if (panel === 'quickSettings' && onToggleQuickSettings) {
         onToggleQuickSettings();
         return;
       }
-      if (panel === "notifications" && onToggleNotifications) {
+      if (panel === 'notifications' && onToggleNotifications) {
         onToggleNotifications();
         return;
       }
-      if (panel === "calendar" && onToggleCalendar) {
+      if (panel === 'calendar' && onToggleCalendar) {
         onToggleCalendar();
         return;
       }
@@ -98,9 +97,9 @@ export default function Shelf({
     [onToggleQuickSettings, onToggleNotifications, onToggleCalendar],
   );
 
-  const shortDate = new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
+  const shortDate = new Date().toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
   });
 
   const { fillWidth, fillColor } = getBatteryVisuals(batteryLevel, isCharging);
@@ -108,10 +107,10 @@ export default function Shelf({
   // Outer container: edge-to-edge in dock mode (ChromeOS Ash), translucent
   // floating card in web/login mode.
   const outerClass = isLogin
-    ? "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto] bg-transparent"
-    : chrome === "dock"
-      ? "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] border-t border-white/8"
-      : "fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]";
+    ? 'fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto] bg-transparent'
+    : chrome === 'dock'
+      ? 'fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] border-t border-white/8'
+      : 'fixed right-0 bottom-0 left-0 grid h-[52px] items-center px-3 grid-cols-[1fr_auto_1fr] rounded-t-3xl border-t border-white/20 bg-white/12 shadow-[0_-4px_30px_rgba(0,0,0,0.2),inset_0_0.5px_0_rgba(255,255,255,0.15)] backdrop-blur-[60px] backdrop-saturate-[180%]';
 
   return (
     <>
@@ -139,7 +138,9 @@ export default function Shelf({
                     className="flex h-[40px] w-[40px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform duration-150 hover:shadow-[0_2px_8px_rgba(255,255,255,0.2)] hover:brightness-110"
                     whileTap={{ scale: 0.92 }}
                     animate={bouncingApp === app.name ? { y: [0, -12, 0] } : { y: 0 }}
-                    transition={bouncingApp === app.name ? { duration: 0.4, ease: "easeInOut" } : undefined}
+                    transition={
+                      bouncingApp === app.name ? { duration: 0.4, ease: 'easeInOut' } : undefined
+                    }
                     onAnimationComplete={() => {
                       if (bouncingApp === app.name) setBouncingApp(null);
                     }}
@@ -163,7 +164,7 @@ export default function Shelf({
                   </motion.button>
                   {/* Running indicator dot */}
                   <div
-                    className={`absolute -bottom-1 left-1/2 h-[3px] w-[3px] -translate-x-1/2 rounded-full bg-white transition-opacity duration-200 ${running.has(app.name) ? "opacity-100" : "opacity-0"}`}
+                    className={`absolute -bottom-1 left-1/2 h-[3px] w-[3px] -translate-x-1/2 rounded-full bg-white transition-opacity duration-200 ${running.has(app.name) ? 'opacity-100' : 'opacity-0'}`}
                   />
                   {/* Tooltip */}
                   <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/70 px-2 py-1 text-[10px] font-medium text-white opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100">
@@ -184,7 +185,7 @@ export default function Shelf({
           {!isLogin && (
             <button
               className="relative flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
-              onClick={() => togglePanel("notifications")}
+              onClick={() => togglePanel('notifications')}
               aria-label="Notifications"
               title="Notifications"
             >
@@ -193,7 +194,7 @@ export default function Shelf({
               </svg>
               {notificationCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-[#ff453a] px-[3px] text-[9px] font-bold leading-none text-white">
-                  {notificationCount > 9 ? "9+" : notificationCount}
+                  {notificationCount > 9 ? '9+' : notificationCount}
                 </span>
               )}
             </button>
@@ -205,7 +206,16 @@ export default function Shelf({
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               aria-label="Power"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
                 <line x1="12" y1="2" x2="12" y2="12" />
               </svg>
@@ -215,10 +225,15 @@ export default function Shelf({
           {/* Icons pill — rounded left only */}
           <button
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
-            onClick={() => togglePanel("quickSettings")}
+            onClick={() => togglePanel('quickSettings')}
             aria-label="System status"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill={wifiEnabled ? "white" : "#9aa0a6"}>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill={wifiEnabled ? 'white' : '#9aa0a6'}
+            >
               <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.24 4.24 0 00-6 0zm-4-4l2 2a7.07 7.07 0 0110 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
             </svg>
             {/* Battery icon — hidden on systems without a battery */}
@@ -226,12 +241,26 @@ export default function Shelf({
               <div className="relative flex items-center">
                 <svg width="30" height="14" viewBox="0 0 30 14" fill="none" className="rotate-180">
                   <rect x="0" y="0" width="25" height="14" rx="5" fill="white" opacity="0.25" />
-                  <rect x="0" y="0" width={fillWidth} height="14" rx="5" fill={fillColor} opacity="0.9" />
+                  <rect
+                    x="0"
+                    y="0"
+                    width={fillWidth}
+                    height="14"
+                    rx="5"
+                    fill={fillColor}
+                    opacity="0.9"
+                  />
                   <rect x="26" y="4" width="3" height="6" rx="1.5" fill="white" opacity="0.4" />
                 </svg>
                 {isCharging ? (
                   <span className="absolute inset-0 flex items-center justify-center pl-1">
-                    <svg width="10" height="12" viewBox="0 0 12 16" fill="none" className="rotate-180">
+                    <svg
+                      width="10"
+                      height="12"
+                      viewBox="0 0 12 16"
+                      fill="none"
+                      className="rotate-180"
+                    >
                       <path d="M7 0L3 9h3l-1 7 5-10H7V0z" fill="white" />
                     </svg>
                   </span>
@@ -247,10 +276,12 @@ export default function Shelf({
           {/* Date + time pill — rounded right only */}
           <button
             className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
-            onClick={() => togglePanel("calendar")}
+            onClick={() => togglePanel('calendar')}
             aria-label="Date and time"
           >
-            <span className="text-[11px] font-medium text-white">{shortDate}&ensp;{time || "--:--"}</span>
+            <span className="text-[11px] font-medium text-white">
+              {shortDate}&ensp;{time || '--:--'}
+            </span>
           </button>
         </div>
       </div>
@@ -258,17 +289,17 @@ export default function Shelf({
       {!externalPanels && (
         <>
           <AnimatePresence>
-            {openPanel === "quickSettings" && (
+            {openPanel === 'quickSettings' && (
               <QuickSettings key="qs" onClose={() => setOpenPanel(null)} />
             )}
           </AnimatePresence>
           <AnimatePresence>
-            {openPanel === "notifications" && (
+            {openPanel === 'notifications' && (
               <NotificationPanel key="notif" onClose={() => setOpenPanel(null)} />
             )}
           </AnimatePresence>
           <AnimatePresence>
-            {openPanel === "calendar" && (
+            {openPanel === 'calendar' && (
               <CalendarPopup key="cal" onClose={() => setOpenPanel(null)} />
             )}
           </AnimatePresence>

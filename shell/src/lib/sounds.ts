@@ -1,7 +1,7 @@
 /** Sound effect system — lazily initialized to avoid autoplay policy issues */
 
-import signInAudio from "../assets/signIn.mp3";
-import sosumiAudio from "../assets/Sosumi.wav";
+import signInAudio from '../assets/signIn.mp3';
+import sosumiAudio from '../assets/Sosumi.wav';
 
 let audioCtx: AudioContext | undefined;
 let signInSound: HTMLAudioElement | undefined;
@@ -12,7 +12,12 @@ function getAudioCtx() {
   return audioCtx;
 }
 
-function playTone(frequency: number, duration: number, type: OscillatorType = "sine", volume = 0.08) {
+function playTone(
+  frequency: number,
+  duration: number,
+  type: OscillatorType = 'sine',
+  volume = 0.08,
+) {
   const ctx = getAudioCtx();
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -27,24 +32,24 @@ function playTone(frequency: number, duration: number, type: OscillatorType = "s
 }
 
 export function playClick() {
-  playTone(800, 0.05, "sine", 0.04);
+  playTone(800, 0.05, 'sine', 0.04);
 }
 
 export function playNotification() {
-  playTone(880, 0.1, "sine", 0.06);
-  setTimeout(() => playTone(1100, 0.15, "sine", 0.06), 120);
+  playTone(880, 0.1, 'sine', 0.06);
+  setTimeout(() => playTone(1100, 0.15, 'sine', 0.06), 120);
 }
 
 export function playLock() {
-  playTone(440, 0.15, "sine", 0.05);
-  setTimeout(() => playTone(330, 0.2, "sine", 0.04), 100);
+  playTone(440, 0.15, 'sine', 0.05);
+  setTimeout(() => playTone(330, 0.2, 'sine', 0.04), 100);
 }
 
 export function playUnlock() {
   if (!signInSound) signInSound = new Audio(signInAudio);
   signInSound.currentTime = 0;
   signInSound.play().catch((error: unknown) => {
-    console.debug("Sign-in sound could not play", error);
+    console.debug('Sign-in sound could not play', error);
   });
 }
 
@@ -52,11 +57,11 @@ export function playError() {
   if (!errorSound) errorSound = new Audio(sosumiAudio);
   errorSound.currentTime = 0;
   errorSound.play().catch((error: unknown) => {
-    console.debug("Error sound could not play", error);
+    console.debug('Error sound could not play', error);
   });
 }
 
 export function playScreenshot() {
-  playTone(1200, 0.08, "sine", 0.05);
-  setTimeout(() => playTone(1600, 0.06, "sine", 0.04), 60);
+  playTone(1200, 0.08, 'sine', 0.05);
+  setTimeout(() => playTone(1600, 0.06, 'sine', 0.04), 60);
 }

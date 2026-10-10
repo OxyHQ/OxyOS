@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
 interface RunningAppsState {
   running: Set<string>;
@@ -8,7 +8,7 @@ interface RunningAppsState {
 }
 
 export const useRunningAppsStore = create<RunningAppsState>((set, get) => ({
-  running: new Set(["Browser", "Terminal"]),
+  running: new Set(['Browser', 'Terminal']),
   launch: (appName: string) =>
     set((state) => {
       const next = new Set(state.running);

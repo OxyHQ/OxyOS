@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useNotificationStore, type Notification } from "../../stores/notificationStore";
-import { appIcons, settingsIcon } from "./appIcons";
+import { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useNotificationStore, type Notification } from '../../stores/notificationStore';
+import { appIcons, settingsIcon } from './appIcons';
 
 const AUTO_DISMISS_MS = 4000;
 

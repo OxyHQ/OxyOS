@@ -1,6 +1,6 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-export type SettingsSection = "Wi-Fi" | "Bluetooth" | "Display" | "Sound" | "Wallpaper" | "About";
+export type SettingsSection = 'Wi-Fi' | 'Bluetooth' | 'Display' | 'Sound' | 'Wallpaper' | 'About';
 
 interface SettingsState {
   isOpen: boolean;
@@ -16,6 +16,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
   toggle: () => set((s) => ({ isOpen: !s.isOpen })),
-  activeSection: "Wi-Fi",
+  activeSection: 'Wi-Fi',
   setActiveSection: (activeSection) => set({ activeSection }),
 }));

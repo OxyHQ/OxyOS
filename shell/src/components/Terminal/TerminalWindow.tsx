@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import TerminalApp from "./TerminalApp";
+import { useCallback } from 'react';
+import TerminalApp from './TerminalApp';
 
 /**
  * Root component for a native Terminal Tauri window.
@@ -8,7 +8,7 @@ import TerminalApp from "./TerminalApp";
 export default function TerminalWindow({ windowId }: { windowId: string }) {
   const handleClose = useCallback(async () => {
     try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       getCurrentWindow().close();
     } catch {
       // Browser fallback
@@ -17,9 +17,9 @@ export default function TerminalWindow({ windowId }: { windowId: string }) {
 
   const handleStartDrag = useCallback(async (e: React.MouseEvent) => {
     // Only drag from the title bar area, not buttons
-    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest('button')) return;
     try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       getCurrentWindow().startDragging();
     } catch {
       // Browser fallback
@@ -45,9 +45,7 @@ export default function TerminalWindow({ windowId }: { windowId: string }) {
         </div>
 
         {/* Title */}
-        <span className="pointer-events-none text-[12px] font-medium text-white/50">
-          Terminal
-        </span>
+        <span className="pointer-events-none text-[12px] font-medium text-white/50">Terminal</span>
 
         {/* Spacer */}
         <div className="w-[52px]" />

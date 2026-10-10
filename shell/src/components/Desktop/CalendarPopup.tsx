@@ -1,11 +1,10 @@
-import { motion } from "framer-motion";
+import { motion } from 'framer-motion';
 
 interface CalendarPopupProps {
   onClose: () => void;
 }
 
-
-const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 export default function CalendarPopup({ onClose }: CalendarPopupProps) {
   const now = new Date();
@@ -16,7 +15,7 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-  const monthName = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -33,9 +32,7 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
         className="liquid-glass rounded-[18px] border border-white/15 shadow-[0_8px_32px_rgba(0,0,0,0.35),inset_0_0.5px_0_rgba(255,255,255,0.1)] fixed right-2 bottom-[64px] z-50 w-[280px] origin-bottom-right p-4"
       >
         {/* Month header */}
-        <p className="mb-3 text-center text-[13px] font-semibold text-white/90">
-          {monthName}
-        </p>
+        <p className="mb-3 text-center text-[13px] font-semibold text-white/90">{monthName}</p>
 
         {/* Day headers */}
         <div className="mb-1 grid grid-cols-7 gap-0">
@@ -53,9 +50,7 @@ export default function CalendarPopup({ onClose }: CalendarPopupProps) {
               {day ? (
                 <div
                   className={`flex h-[28px] w-[28px] items-center justify-center rounded-full text-[12px] font-medium ${
-                    day === today
-                      ? "bg-[#0a84ff] text-white"
-                      : "text-white/70"
+                    day === today ? 'bg-[#0a84ff] text-white' : 'text-white/70'
                   }`}
                 >
                   {day}

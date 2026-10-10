@@ -1,14 +1,14 @@
-import { useState, useCallback } from "react";
-import { motion, useAnimation, AnimatePresence } from "framer-motion";
-import { useSessionStore } from "../../stores/sessionStore";
-import { useSystemStore } from "../../stores/systemStore";
-import avatarDefault from "../../assets/avatar-default.png";
-import Shelf from "../Shelf/Shelf";
-import { playError } from "../../lib/sounds";
-import { invoke, isNative } from "../../lib/tauri";
+import { useState, useCallback } from 'react';
+import { motion, useAnimation, AnimatePresence } from 'framer-motion';
+import { useSessionStore } from '../../stores/sessionStore';
+import { useSystemStore } from '../../stores/systemStore';
+import avatarDefault from '../../assets/avatar-default.png';
+import Shelf from '../Shelf/Shelf';
+import { playError } from '../../lib/sounds';
+import { invoke, isNative } from '../../lib/tauri';
 
 export default function LoginScreen() {
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState('');
   const [showError, setShowError] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const username = useSessionStore((s) => s.username);
@@ -16,10 +16,10 @@ export default function LoginScreen() {
   const time = useSystemStore((s) => s.time);
   const shakeControls = useAnimation();
 
-  const formattedDate = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
+  const formattedDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
   });
 
   const handleSubmit = useCallback(
@@ -31,9 +31,9 @@ export default function LoginScreen() {
 
       let ok: boolean;
       if (isNative()) {
-        ok = (await invoke<boolean>("verify_password", { password })) ?? false;
+        ok = (await invoke<boolean>('verify_password', { password })) ?? false;
       } else {
-        ok = password === "1234";
+        ok = password === '1234';
       }
 
       setIsVerifying(false);
@@ -46,7 +46,7 @@ export default function LoginScreen() {
           x: [0, -12, 12, -8, 8, -4, 4, 0],
           transition: { duration: 0.4 },
         });
-        setPassword("");
+        setPassword('');
         setShowError(true);
         playError();
       }
@@ -65,11 +65,9 @@ export default function LoginScreen() {
       <Shelf variant="login" />
 
       <div className="mt-[18vh] flex flex-col items-center">
-        <p className="text-[17px] font-normal tracking-[0.02em] text-white/65">
-          {formattedDate}
-        </p>
+        <p className="text-[17px] font-normal tracking-[0.02em] text-white/65">{formattedDate}</p>
         <p className="mt-1.5 text-[min(128px,14vw)] font-bold leading-[0.88] tracking-[-1px] text-white/80">
-          {time || "0:00"}
+          {time || '0:00'}
         </p>
       </div>
 
