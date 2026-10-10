@@ -36,6 +36,7 @@ export default function TerminalWindow({ windowId }: { windowId: string }) {
         {/* Traffic lights */}
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={handleClose}
             className="h-3 w-3 cursor-pointer rounded-full bg-[#ff5f57] transition-opacity hover:opacity-80"
             aria-label="Close"

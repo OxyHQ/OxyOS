@@ -56,6 +56,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
           </h2>
           {hasNotifications && (
             <button
+              type="button"
               onClick={clearAll}
               className="cursor-pointer text-[12px] font-medium text-white/50 transition-colors hover:text-white/80"
             >
@@ -85,6 +86,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                     </div>
                     {group.notifications.length > 1 && (
                       <button
+                        type="button"
                         onClick={() => clearApp(group.app)}
                         className="cursor-pointer text-[11px] text-white/40 transition-colors hover:text-white/70"
                       >
@@ -110,6 +112,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
                     >
                       {/* Dismiss button */}
                       <button
+                        type="button"
                         onClick={() => dismiss(notification.id)}
                         className="absolute top-2 right-2.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/40 opacity-0 transition-all duration-150 hover:bg-white/20 hover:text-white/70 group-hover:opacity-100"
                         aria-label="Dismiss"

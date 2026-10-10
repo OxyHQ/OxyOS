@@ -120,6 +120,7 @@ export default function Shelf({
           <>
             {/* Left: Launcher button */}
             <button
+              type="button"
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center justify-self-start rounded-full transition-colors duration-150 hover:bg-white/10"
               onClick={handleToggleLauncher}
               aria-label="App launcher"
@@ -184,6 +185,7 @@ export default function Shelf({
           {/* Notifications button — desktop only */}
           {!isLogin && (
             <button
+              type="button"
               className="relative flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               onClick={() => togglePanel('notifications')}
               aria-label="Notifications"
@@ -203,6 +205,7 @@ export default function Shelf({
           {/* Power button — login only */}
           {isLogin && (
             <button
+              type="button"
               className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center rounded-full bg-white/10 transition-colors duration-150 hover:bg-white/15"
               aria-label="Power"
             >
@@ -224,6 +227,7 @@ export default function Shelf({
 
           {/* Icons pill — rounded left only */}
           <button
+            type="button"
             className="flex h-[32px] cursor-pointer items-center gap-2 rounded-l-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={() => togglePanel('quickSettings')}
             aria-label="System status"
@@ -275,6 +279,7 @@ export default function Shelf({
 
           {/* Date + time pill — rounded right only */}
           <button
+            type="button"
             className="flex h-[32px] cursor-pointer items-center rounded-r-full bg-white/10 px-3 transition-colors duration-150 hover:bg-white/15"
             onClick={() => togglePanel('calendar')}
             aria-label="Date and time"

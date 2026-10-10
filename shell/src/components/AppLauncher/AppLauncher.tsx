@@ -161,6 +161,7 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
             />
             {query && (
               <button
+                type="button"
                 onClick={() => setQuery('')}
                 className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white/50 transition-colors hover:bg-white/25 hover:text-white/80"
               >

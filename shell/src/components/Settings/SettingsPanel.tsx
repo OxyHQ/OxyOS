@@ -133,6 +133,7 @@ function SignalIcon({ strength }: { strength: number }) {
 function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
   return (
     <button
+      type="button"
       onClick={onToggle}
       className={`relative h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full transition-colors duration-200 ${
         enabled ? 'bg-[#30d158]' : 'bg-white/20'
@@ -175,6 +176,7 @@ function WifiSection() {
           </p>
           {fakeNetworks.map((network) => (
             <button
+              type="button"
               key={network.name}
               onClick={() => setConnectedNetwork(network.name)}
               className={`flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 transition-colors ${
@@ -566,6 +568,7 @@ function WallpaperSection() {
       <div className="grid grid-cols-2 gap-3">
         {wallpaperSwatches.map((swatch) => (
           <button
+            type="button"
             key={swatch.id}
             onClick={() => applyWallpaper(swatch.id)}
             className={`group relative cursor-pointer overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
@@ -695,6 +698,7 @@ export default function SettingsPanel() {
               <nav className="flex flex-1 flex-col gap-0.5 px-2">
                 {sections.map((section) => (
                   <button
+                    type="button"
                     key={section.name}
                     onClick={() => setActiveSection(section.name)}
                     className={`flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 ${
@@ -714,6 +718,7 @@ export default function SettingsPanel() {
             <div className="relative flex-1 overflow-y-auto px-6 py-5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {/* Close button */}
               <button
+                type="button"
                 onClick={close}
                 className="absolute top-3 right-3 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white/50 transition-colors hover:bg-white/20 hover:text-white/80"
                 aria-label="Close settings"

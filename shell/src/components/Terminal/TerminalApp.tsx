@@ -219,6 +219,7 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
       <div className="flex h-[30px] shrink-0 items-end gap-0 border-b border-white/8 px-1">
         {tabs.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             onClick={() => setActiveTabId(tab.id)}
             className={`group flex h-[26px] min-w-[90px] max-w-[160px] cursor-pointer items-center gap-1 rounded-t-lg px-2.5 text-[11px] font-medium transition-colors ${
@@ -252,6 +253,7 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
           </button>
         ))}
         <button
+          type="button"
           onClick={addTab}
           className="flex h-[26px] w-[26px] shrink-0 cursor-pointer items-center justify-center rounded-t-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60"
           aria-label="New tab"

@@ -117,6 +117,7 @@ export default function AliaPanel() {
         </div>
         <div className="flex items-center gap-1">
           <button
+            type="button"
             onClick={clearMessages}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/8 hover:text-white/55"
             aria-label="Clear chat"
@@ -136,6 +137,7 @@ export default function AliaPanel() {
             </svg>
           </button>
           <button
+            type="button"
             onClick={close}
             className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white/30 transition-colors hover:bg-white/8 hover:text-white/55"
             aria-label="Minimize"
@@ -217,6 +219,7 @@ export default function AliaPanel() {
       <div className="border-t border-white/8 px-3 py-2.5">
         <div className="flex items-end gap-2">
           <button
+            type="button"
             onClick={toggleListening}
             className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-all ${
               isListening
@@ -256,6 +259,7 @@ export default function AliaPanel() {
 
           {isStreaming ? (
             <button
+              type="button"
               onClick={() => setStreaming(false)}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white"
               aria-label="Stop"
@@ -266,6 +270,7 @@ export default function AliaPanel() {
             </button>
           ) : hasText ? (
             <button
+              type="button"
               onClick={sendMessage}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white transition-opacity disabled:opacity-40"
               aria-label="Send"
@@ -285,6 +290,7 @@ export default function AliaPanel() {
             </button>
           ) : (
             <button
+              type="button"
               onClick={toggleListening}
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white"
               aria-label="Voice"

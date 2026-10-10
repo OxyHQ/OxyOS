@@ -24,6 +24,7 @@ function ConnectivityPill({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`${glass.quickSettings} flex flex-col items-center justify-center gap-1 px-2 py-2.5 transition-all duration-150 ${
         active ? '!bg-white/20 text-white' : 'text-white/55 hover:bg-white/16'
@@ -145,6 +146,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         {/* Night Light */}
         <Row delay={0.06}>
           <button
+            type="button"
             onClick={toggleNightLight}
             className={`${glass.quickSettings} flex w-full items-center gap-2.5 px-3.5 py-3 transition-colors`}
           >
@@ -286,6 +288,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             </div>
             <div className="flex items-center gap-0.5">
               <button
+                type="button"
                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-white/10"
                 aria-label="Settings"
               >
@@ -305,6 +308,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 </svg>
               </button>
               <button
+                type="button"
                 onClick={() => {
                   invoke('power_action', { action: 'lock' });
                   useSessionStore.getState().lock();
@@ -328,6 +332,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 </svg>
               </button>
               <button
+                type="button"
                 onClick={() => invoke('power_action', { action: 'shutdown' })}
                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-[#ff453a]/20"
                 aria-label="Power off"
