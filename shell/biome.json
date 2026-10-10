@@ -65,35 +65,35 @@
     "rules": {
       "preset": "recommended",
       "a11y": {
-        "noAutofocus": "warn",
-        "noStaticElementInteractions": "warn",
-        "noSvgWithoutTitle": "warn",
-        "useButtonType": "warn",
-        "useKeyWithClickEvents": "warn"
+        "noAutofocus": "error",
+        "noStaticElementInteractions": "error",
+        "noSvgWithoutTitle": "error",
+        "useButtonType": "error",
+        "useKeyWithClickEvents": "error"
       },
       "complexity": {
         "noAdjacentSpacesInRegex": "error",
         "noArguments": "error",
         "noBannedTypes": "error",
         "noExtraBooleanCast": "error",
-        "noImportantStyles": "warn",
+        "noImportantStyles": "error",
         "noUselessCatch": "error",
         "noUselessEscapeInRegex": "error",
         "noUselessThisAlias": "error",
         "noUselessTypeConstraint": "error",
-        "useOptionalChain": "warn"
+        "useOptionalChain": "error"
       },
       "correctness": {
         "noUnusedImports": "error",
         "noUnusedLabels": "error",
         "noUnusedPrivateClassMembers": "error",
         "noUnusedVariables": "error",
-        "useExhaustiveDependencies": "warn"
+        "useExhaustiveDependencies": "error"
       },
       "style": {
         "noCommonJs": "error",
         "noNamespace": "error",
-        "noNonNullAssertion": "warn",
+        "noNonNullAssertion": "error",
         "useArrayLiterals": "error",
         "useAsConstAssertion": "error",
         "useComponentExportOnlyModules": {
@@ -105,10 +105,10 @@
         "useConst": "error",
         "useErrorCause": "error",
         "useSpreadOverApply": "error",
-        "useTemplate": "warn"
+        "useTemplate": "error"
       },
       "suspicious": {
-        "noArrayIndexKey": "warn",
+        "noArrayIndexKey": "error",
         "noCatchAssign": "error",
         "noConstantBinaryExpressions": "error",
         "noDuplicateEnumValues": "error",
