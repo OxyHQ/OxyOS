@@ -61,15 +61,16 @@ function cloneTree(node: PaneNode): PaneNode {
 
 export default function TerminalApp({ windowId }: { windowId: string }) {
   const initialLeaf = useMemo(() => makeLeaf(), []);
+  const [initialTabId] = useState<string>(() => crypto.randomUUID());
   const [tabs, setTabs] = useState<Tab[]>(() => [
     {
-      id: crypto.randomUUID(),
+      id: initialTabId,
       title: 'Terminal',
       root: initialLeaf,
       activePaneId: initialLeaf.id,
     },
   ]);
-  const [activeTabId, setActiveTabId] = useState(tabs[0]!.id);
+  const [activeTabId, setActiveTabId] = useState(initialTabId);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -204,7 +205,8 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
         e.preventDefault();
         const idx = tabs.findIndex((t) => t.id === activeTabId);
         const next = e.shiftKey ? (idx - 1 + tabs.length) % tabs.length : (idx + 1) % tabs.length;
-        setActiveTabId(tabs[next]!.id);
+        const nextTab = tabs[next];
+        if (nextTab) setActiveTabId(nextTab.id);
       }
     }
     window.addEventListener('keydown', handleKeyDown);
