@@ -116,7 +116,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div aria-hidden="true" className="fixed inset-0 z-40" onClick={onClose} />
 
       <div className="fixed right-2 bottom-[64px] z-50 flex w-[320px] origin-bottom-right flex-col gap-2">
         {/* Connectivity */}

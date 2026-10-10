@@ -130,7 +130,11 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
   return (
     <>
       {/* Full-screen blurred backdrop */}
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-[32px]" onClick={close} />
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 bg-black/50 backdrop-blur-[32px]"
+        onClick={close}
+      />
 
       {/* App grid */}
       <div className="fixed inset-x-0 top-0 bottom-[56px] flex flex-col items-center select-none">

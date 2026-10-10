@@ -39,7 +39,7 @@ export default function NotificationPanel({ onClose }: NotificationPanelProps) {
   return (
     <>
       {/* Click-away backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div aria-hidden="true" className="fixed inset-0 z-40" onClick={onClose} />
 
       <motion.div
         initial={{ opacity: 0, y: 8, scale: 0.97 }}
