@@ -1,4 +1,0 @@
-Codename: trixie
-Components: main
-Architectures: amd64 arm64 armel armhf i386 ppc64el riscv64 s390x
-SignWith: D21161DAA78B0EFD90BCE50591FEE1BA128C20FA

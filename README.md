@@ -5,7 +5,7 @@ OxyOS is a lightweight, elegant desktop Linux distribution built on Debian.
 
 Over the years, under-the-hood updates have included systemd transitions, display/login stack changes, and GTK updates while keeping a fast-and-minimal experience as intact as possible.
 
-Official website: https://os.oxy.so/
+Official website: https://oxy.so/os — ISO downloads are listed at https://oxy.so/os/downloads.
 
 Lastly, we'd like to thank Philip for all his hard work through the years, the legacy he's created, and the bar he's set for sleek high-performance distros.
 

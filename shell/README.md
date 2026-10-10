@@ -28,13 +28,13 @@ bun dev           # Runs Vite dev server
 
 ```bash
 bun run build             # Native frontend bundle → build/
-bun run build:web         # Web demo bundle → web-build/ (base: /demo/)
+bun run build:web         # Web demo bundle → web-build/
 cargo tauri build          # Full native binary
 ```
 
 ## Web Demo
 
-The shell has a separate web entry point (`web.html` → `src/web.tsx` → `WebApp.tsx`) that renders the full interactive desktop in a single browser page — no Tauri required. This is deployed to `os.oxy.so/demo`.
+The shell has a separate web entry point (`web.html` → `src/web.tsx` → `WebApp.tsx`) that renders the full interactive desktop in a single browser page — no Tauri required. It is a local development and preview target; it is not deployed anywhere.
 
 The web demo and native app share all components, stores, hooks, and utilities. Components accept optional callback props (e.g. `onClose`, `onToggleLauncher`) so the web demo can manage launcher visibility via React state instead of Tauri IPC.
 
@@ -90,7 +90,7 @@ shell/
 ├── index.html                 # Native Tauri entry
 ├── web.html                   # Web demo entry
 ├── vite.config.ts             # Vite config (native build)
-├── vite.web.config.ts         # Vite config (web demo build, base: /demo/)
+├── vite.web.config.ts         # Vite config (web demo build)
 ├── src/
 │   ├── main.tsx               # Native entry point
 │   ├── web.tsx                # Web demo entry point

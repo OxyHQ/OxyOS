@@ -77,7 +77,7 @@ LB_ISO_APPLICATION="OxyOS"
 LB_ISO_PREPARER="live-build @LB_VERSION@; https://salsa.debian.org/live-team/live-build"
 
 # Set iso publisher
-LB_ISO_PUBLISHER="OxyHQ; https://os.oxy.so; hello@oxy.so"
+LB_ISO_PUBLISHER="OxyHQ; https://oxy.so/os; hello@oxy.so"
 
 # Set iso volume (max 32 chars)
 LB_ISO_VOLUME="oxyos-1.0"

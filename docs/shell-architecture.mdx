@@ -16,7 +16,7 @@ The same source tree runs in three contexts. Each entry point selects the right 
 |------|-----------|----------|----------------|-----------|
 | Production (session shell) | `index.html` | `src/main.tsx` | `App` → `NativeRoot` by window label | `labwc -s /usr/bin/oxyos-shell` |
 | Test (single Tauri window) | `index.html` | `src/main.tsx` | `App` → `NativeRoot('desktop')` → `WebApp` | `cargo tauri dev` |
-| Web demo | `web.html` | `src/web.tsx` | `WebApp` directly | `bun dev`, deployed to `os.oxy.so/demo` |
+| Web demo | `web.html` | `src/web.tsx` | `WebApp` directly | `bun dev` (local only, not deployed) |
 
 `App.tsx` reads `window.__TAURI_INTERNALS__.metadata.currentWebview.label` once at mount and dispatches:
 
@@ -197,7 +197,7 @@ shell/
 ├── index.html                 # Native Tauri entry
 ├── web.html                   # Web demo entry
 ├── vite.config.ts             # Native build
-├── vite.web.config.ts         # Web demo build (base: /demo/)
+├── vite.web.config.ts         # Web demo build
 ├── src/
 │   ├── main.tsx               # Native entry point
 │   ├── web.tsx                # Web demo entry point
