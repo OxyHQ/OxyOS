@@ -218,24 +218,27 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
       {/* Tab bar */}
       <div className="flex h-[30px] shrink-0 items-end gap-0 border-b border-white/8 px-1">
         {tabs.map((tab) => (
-          <button
-            type="button"
+          <div
             key={tab.id}
-            onClick={() => setActiveTabId(tab.id)}
-            className={`group flex h-[26px] min-w-[90px] max-w-[160px] cursor-pointer items-center gap-1 rounded-t-lg px-2.5 text-[11px] font-medium transition-colors ${
+            className={`group flex h-[26px] min-w-[90px] max-w-[160px] items-center gap-1 rounded-t-lg pr-2.5 text-[11px] font-medium transition-colors ${
               tab.id === activeTabId
                 ? 'bg-white/10 text-white/90'
                 : 'text-white/40 hover:bg-white/5 hover:text-white/60'
             }`}
           >
-            <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+            <button
+              type="button"
+              onClick={() => setActiveTabId(tab.id)}
+              className="flex h-full min-w-0 flex-1 cursor-pointer items-center pl-2.5 text-left"
+            >
+              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+            </button>
             {tabs.length > 1 && (
-              <span
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tab.id);
-                }}
-                className="flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/15 group-hover:opacity-100"
+              <button
+                type="button"
+                onClick={() => closeTab(tab.id)}
+                aria-label={`Close ${tab.title}`}
+                className="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/15 group-hover:opacity-100 focus-visible:opacity-100"
               >
                 <svg
                   aria-hidden="true"
@@ -249,9 +252,9 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
                 >
                   <path d="M1 1l8 8M9 1l-8 8" />
                 </svg>
-              </span>
+              </button>
             )}
-          </button>
+          </div>
         ))}
         <button
           type="button"
