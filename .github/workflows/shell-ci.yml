@@ -69,6 +69,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test
       - run: bunx biome ci .
+      # React Compiler rules (eslint-plugin-react-hooks 7); Biome has no equivalent.
+      - run: bun run lint:react
       - run: bun run build
       - run: bun run build:web
       - run: cargo fmt --check --manifest-path src-tauri/Cargo.toml
