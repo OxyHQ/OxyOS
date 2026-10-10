@@ -238,6 +238,7 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
                 className="flex h-4 w-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-white/15 group-hover:opacity-100"
               >
                 <svg
+                  aria-hidden="true"
                   width="6"
                   height="6"
                   viewBox="0 0 10 10"
@@ -259,6 +260,7 @@ export default function TerminalApp({ windowId }: { windowId: string }) {
           aria-label="New tab"
         >
           <svg
+            aria-hidden="true"
             width="10"
             height="10"
             viewBox="0 0 12 12"

@@ -138,6 +138,7 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
         <div className="mt-[6vh] w-[420px]">
           <div className="flex h-[42px] items-center gap-2.5 rounded-full border border-white/15 bg-white/10 px-4 shadow-[0_2px_12px_rgba(0,0,0,0.15),inset_0_0.5px_0_rgba(255,255,255,0.1)] backdrop-blur-[40px]">
             <svg
+              aria-hidden="true"
               width="15"
               height="15"
               viewBox="0 0 24 24"
@@ -163,9 +164,11 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
               <button
                 type="button"
                 onClick={() => setQuery('')}
+                aria-label="Clear search"
                 className="flex h-5 w-5 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white/50 transition-colors hover:bg-white/25 hover:text-white/80"
               >
                 <svg
+                  aria-hidden="true"
                   width="8"
                   height="8"
                   viewBox="0 0 10 10"
@@ -235,6 +238,7 @@ export default function AppLauncher({ onClose }: AppLauncherProps = {}) {
             <div className="flex flex-col items-center pt-16">
               <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/8">
                 <svg
+                  aria-hidden="true"
                   width="24"
                   height="24"
                   viewBox="0 0 24 24"

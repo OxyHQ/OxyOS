@@ -126,7 +126,13 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             onClick={toggleWifi}
             label="Wi-Fi"
             icon={
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <svg
+                aria-hidden="true"
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
                 <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 0 0-6 0zm-4-4l2 2a7.074 7.074 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
               </svg>
             }
@@ -136,7 +142,13 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             onClick={toggleBluetooth}
             label="Bluetooth"
             icon={
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
                 <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z" />
               </svg>
             }
@@ -153,7 +165,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
             <div
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nightLightEnabled ? 'bg-[#ff9f0a]' : 'bg-white/12'}`}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+              <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="white">
                 <circle cx="12" cy="12" r="5" />
               </svg>
             </div>
@@ -172,6 +184,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
           <Row delay={0.09}>
             <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
               <svg
+                aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -197,6 +210,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 }}
               />
               <svg
+                aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -214,6 +228,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
         <Row delay={0.12}>
           <div className={`${glass.quickSettings} flex items-center gap-3 px-4 py-3`}>
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -239,6 +254,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               }}
             />
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -264,6 +280,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
               {batteryPresent && (
                 <div className="flex items-center gap-1.5">
                   <svg
+                    aria-hidden="true"
                     width="22"
                     height="10"
                     viewBox="0 0 30 14"
@@ -293,6 +310,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 aria-label="Settings"
               >
                 <svg
+                  aria-hidden="true"
                   width="13"
                   height="13"
                   viewBox="0 0 24 24"
@@ -317,6 +335,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 aria-label="Lock"
               >
                 <svg
+                  aria-hidden="true"
                   width="13"
                   height="13"
                   viewBox="0 0 24 24"
@@ -338,6 +357,7 @@ function QuickSettings({ onClose }: QuickSettingsProps) {
                 aria-label="Power off"
               >
                 <svg
+                  aria-hidden="true"
                   width="13"
                   height="13"
                   viewBox="0 0 24 24"

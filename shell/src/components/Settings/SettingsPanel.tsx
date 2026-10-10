@@ -9,7 +9,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
     name: 'Wi-Fi',
     icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 0 0-6 0zm-4-4l2 2a7.074 7.074 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
       </svg>
     ),
@@ -17,7 +17,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
     name: 'Bluetooth',
     icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z" />
       </svg>
     ),
@@ -26,6 +26,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
     name: 'Display',
     icon: (
       <svg
+        aria-hidden="true"
         width="18"
         height="18"
         viewBox="0 0 24 24"
@@ -44,7 +45,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
     name: 'Sound',
     icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
       </svg>
     ),
@@ -53,6 +54,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
     name: 'Wallpaper',
     icon: (
       <svg
+        aria-hidden="true"
         width="18"
         height="18"
         viewBox="0 0 24 24"
@@ -71,7 +73,7 @@ const sections: { name: SettingsSection; icon: React.ReactNode }[] = [
   {
     name: 'About',
     icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
       </svg>
     ),
@@ -93,7 +95,7 @@ const fakeNetworks: WifiNetwork[] = [
 
 function SignalIcon({ strength }: { strength: number }) {
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
       <rect
         x="1"
         y="11"
@@ -187,13 +189,21 @@ function WifiSection() {
                 <SignalIcon strength={network.strength} />
                 <span className="text-[13px] text-white/80">{network.name}</span>
                 {network.secured && (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="white" fillOpacity="0.35">
+                  <svg
+                    aria-hidden="true"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="white"
+                    fillOpacity="0.35"
+                  >
                     <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
                   </svg>
                 )}
               </div>
               {connectedNetwork === network.name && (
                 <svg
+                  aria-hidden="true"
                   width="14"
                   height="14"
                   viewBox="0 0 24 24"
@@ -240,7 +250,14 @@ function BluetoothSection() {
             Nearby Devices
           </p>
           <div className="flex flex-col items-center justify-center rounded-xl bg-white/5 py-8">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="white" fillOpacity="0.2">
+            <svg
+              aria-hidden="true"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="white"
+              fillOpacity="0.2"
+            >
               <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z" />
             </svg>
             <p className="mt-2 text-[12px] text-white/35">Searching for devices...</p>
@@ -279,6 +296,7 @@ function DisplaySection() {
           </div>
           <div className="flex items-center gap-3">
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -300,6 +318,7 @@ function DisplaySection() {
               }}
             />
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -398,7 +417,7 @@ function DisplaySection() {
           <div
             className={`flex h-8 w-8 items-center justify-center rounded-full ${nightLightEnabled ? 'bg-[#ff9f0a]' : 'bg-white/12'}`}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="white">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
             </svg>
           </div>
@@ -445,6 +464,7 @@ function SoundSection() {
         </div>
         <div className="flex items-center gap-3">
           <svg
+            aria-hidden="true"
             width="14"
             height="14"
             viewBox="0 0 24 24"
@@ -466,6 +486,7 @@ function SoundSection() {
             }}
           />
           <svg
+            aria-hidden="true"
             width="14"
             height="14"
             viewBox="0 0 24 24"
@@ -490,7 +511,14 @@ function SoundSection() {
             }`}
           >
             <div className="flex items-center gap-3">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="white" fillOpacity="0.5">
+              <svg
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="white"
+                fillOpacity="0.5"
+              >
                 {device === 'Built-in Speakers' ? (
                   <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7.007 7.007 0 0 1 0 13.42v2.06A9.005 9.005 0 0 0 14 3.23z" />
                 ) : (
@@ -501,6 +529,7 @@ function SoundSection() {
             </div>
             {device === 'Built-in Speakers' && (
               <svg
+                aria-hidden="true"
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
@@ -582,6 +611,7 @@ function WallpaperSection() {
               <span className="text-[12px] font-medium text-white/70">{swatch.label}</span>
               {wallpaper === swatch.id && (
                 <svg
+                  aria-hidden="true"
                   width="12"
                   height="12"
                   viewBox="0 0 24 24"
@@ -607,7 +637,14 @@ function AboutSection() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col items-center gap-3 py-4">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="white" fillOpacity="0.8">
+          <svg
+            aria-hidden="true"
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="white"
+            fillOpacity="0.8"
+          >
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
           </svg>
         </div>
@@ -724,6 +761,7 @@ export default function SettingsPanel() {
                 aria-label="Close settings"
               >
                 <svg
+                  aria-hidden="true"
                   width="10"
                   height="10"
                   viewBox="0 0 10 10"

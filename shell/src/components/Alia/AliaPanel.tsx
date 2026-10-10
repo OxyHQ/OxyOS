@@ -124,6 +124,7 @@ export default function AliaPanel() {
             title="Clear chat"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -143,6 +144,7 @@ export default function AliaPanel() {
             aria-label="Minimize"
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -229,6 +231,7 @@ export default function AliaPanel() {
             aria-label={isListening ? 'Stop recording' : 'Voice input'}
           >
             <svg
+              aria-hidden="true"
               width="16"
               height="16"
               viewBox="0 0 24 24"
@@ -264,7 +267,7 @@ export default function AliaPanel() {
               className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-[#0a84ff] text-white"
               aria-label="Stop"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+              <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="white">
                 <rect x="4" y="4" width="16" height="16" rx="2" />
               </svg>
             </button>
@@ -276,6 +279,7 @@ export default function AliaPanel() {
               aria-label="Send"
             >
               <svg
+                aria-hidden="true"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"
@@ -296,6 +300,7 @@ export default function AliaPanel() {
               aria-label="Voice"
             >
               <svg
+                aria-hidden="true"
                 width="18"
                 height="18"
                 viewBox="0 0 24 24"

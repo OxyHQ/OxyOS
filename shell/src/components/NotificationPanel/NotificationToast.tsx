@@ -84,6 +84,7 @@ export default function NotificationToast() {
               aria-label="Dismiss notification"
             >
               <svg
+                aria-hidden="true"
                 width="8"
                 height="8"
                 viewBox="0 0 10 10"
