@@ -1,4 +1,5 @@
 import { StrictMode } from 'react';
+import PlatformProvider from './PlatformProvider';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles/tokens.css';
@@ -9,6 +10,8 @@ if (!rootElement) throw new Error('Missing #root element');
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <PlatformProvider>
+      <App />
+    </PlatformProvider>
   </StrictMode>,
 );

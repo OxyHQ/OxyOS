@@ -184,9 +184,25 @@ The shell does not assume `labwc`-specific protocols beyond layer-shell, so any 
 
 Login and lock-screen authentication go through the Rust `verify_password` command, which calls PAM (`pam::Client::with_password("login")`). The current Linux session user is taken from `$USER` / `$LOGNAME`. The lock screen UI is a React overlay rendered inside the `desktop` window; the `power_action("lock")` IPC is a no-op because no OS-level locking is needed — the overlay simply blocks the desktop until PAM accepts a password.
 
-Alia uses `@oxy.so/core` to create a linked client for `api.alia.onl`. The SDK
-attaches the active Oxy session and performs its single refresh retry; shell code
-never reads, stores, or forwards bearer tokens itself.
+Alia uses `AliaChatContent` from `@alia.onl/sdk/text`, under the one shared
+`OxyProvider`. The SDK owns the conversation, its `/v1` requests, streaming,
+refresh, and account isolation. The shell owns only the panel and launcher;
+closing the panel or switching accounts discards its mounted conversation.
+Sign-in and account switching use Oxy's account dialog. Linux PAM login remains
+independent of the person's Oxy account.
+
+`PlatformProvider` pins OxyOS's registered public client
+`oxy_dk_ee7af26b21c2ff9e70f59e43dc2359106280665d779b74a8`, provisioned and
+verified in the live registry on 2026-10-25. `VITE_OXY_CLIENT_ID` is an optional
+override for a separately registered development deployment. This identifier is
+public; no API key belongs in the shell. Production activation waits for the
+published SDK22 and Alia's verified B API rollout. The Linux Tauri origin is exactly
+`tauri://localhost`, registered for transport only. It does not identify the
+application: there is no HTTPS `webOrigins` entry, fake assertion, or mobile
+attestation. Ordinary Alia uses the verified session without an assertion;
+app-confined agents still require recognized app identity. The public `/v1`
+Alia API already permits browser requests without cookies; its restricted
+internal CORS allowlist is unchanged.
 
 During development, the lock screen accepts `1234` as a PIN to skip PAM.
 
@@ -215,7 +231,7 @@ shell/
 │   │   └── Terminal/          # Terminal app + TerminalWindow root
 │   ├── stores/                # Zustand state
 │   ├── hooks/                 # useClock, useSystemInfo, useKeyboardShortcuts, useInstalledApps
-│   ├── lib/                   # tauri.ts, appRegistry.ts, launchApp.ts, alia.ts, sounds.ts
+│   ├── lib/                   # tauri.ts, appRegistry.ts, launchApp.ts, sounds.ts
 │   └── styles/                # tokens.css (design tokens)
 └── src-tauri/
     ├── src/lib.rs             # Commands, system monitor, multi-window setup

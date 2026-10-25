@@ -1,77 +1,114 @@
-import { afterEach, describe, expect, mock, test } from 'bun:test';
-import { streamChat } from '../src/lib/alia';
-import { oxy } from '../src/lib/oxy';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { chromium, type Browser } from 'playwright';
+import { preview, type PreviewServer } from 'vite';
+import type { AddressInfo } from 'node:net';
 
-const originalFetch = globalThis.fetch;
+let server: PreviewServer;
+let browser: Browser;
+let origin: string;
 
-function createJwt(payload: Record<string, unknown>): string {
-  const encode = (value: unknown): string =>
-    Buffer.from(JSON.stringify(value)).toString('base64url');
-  return `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode(payload)}.signature`;
-}
+beforeAll(async () => {
+  const build = Bun.spawn(
+    [
+      'bunx',
+      'vite',
+      'build',
+      '--config',
+      'vite.web.config.ts',
+      '--outDir',
+      'node_modules/.cache/platform-browser',
+    ],
+    {
+      cwd: new URL('..', import.meta.url).pathname,
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(build.stdout).text(),
+    new Response(build.stderr).text(),
+    build.exited,
+  ]);
+  if (code !== 0) throw new Error(`Browser fixture build failed: ${stdout}\n${stderr}`);
+  server = await preview({
+    configFile: false,
+    root: new URL('..', import.meta.url).pathname,
+    build: { outDir: 'node_modules/.cache/platform-browser' },
+    preview: { host: '127.0.0.1', port: 0 },
+  });
+  origin = `http://127.0.0.1:${(server.httpServer.address() as AddressInfo).port}`;
+  browser = await chromium.launch({ headless: true });
+}, 60_000);
 
-function readHeaders(init: RequestInit | undefined): Headers {
-  return new Headers(init?.headers);
-}
-
-async function collect(stream: AsyncGenerator<string>): Promise<string> {
-  let output = '';
-  for await (const chunk of stream) output += chunk;
-  return output;
-}
-
-afterEach(() => {
-  oxy.session.clear();
-  globalThis.fetch = originalFetch;
+afterAll(async () => {
+  await browser?.close();
+  if (server) await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));
 });
 
-describe('OxyOS Alia transport', () => {
-  test('fails closed before the network when no Oxy session exists', async () => {
-    oxy.session.clear();
-    const fetchMock = mock(() => Promise.reject(new Error('fetch must not run')));
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    await expect(collect(streamChat([{ role: 'user', content: 'hello' }]))).rejects.toThrow(
-      'An active Oxy session is required',
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test('calls the product runtime with the live Oxy bearer and exact profile id', async () => {
-    const accessToken = createJwt({
-      userId: 'user_1',
-      exp: Math.floor(Date.now() / 1000) + 3600,
+describe('the desktop shared account and Alia integration', () => {
+  test('opens the shared sign-in dialog without fabricating a bearer or requesting app permissions', async () => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    const bearerRequests: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    // A public registry fixture only. No signed-in account or token is invented.
+    await page.route('https://api.oxy.so/**', (route) => {
+      const request = route.request();
+      if (request.headers().authorization) bearerRequests.push(request.url());
+      const publicClient = request
+        .url()
+        .endsWith('/auth/oauth/client/oxy_dk_ee7af26b21c2ff9e70f59e43dc2359106280665d779b74a8');
+      return route.fulfill({
+        status: publicClient ? 200 : 401,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          publicClient
+            ? {
+                application: {
+                  id: 'test-oxyos',
+                  name: 'OxyOS browser fixture',
+                  type: 'first_party',
+                  isOfficial: true,
+                  isInternal: false,
+                  scopes: [],
+                },
+              }
+            : { error: 'unauthenticated' },
+        ),
+      });
     });
-    oxy.session.setAccessToken(accessToken);
-    const fetchMock = mock(
-      async () =>
-        new Response('data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n', {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        }),
-    );
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    await expect(collect(streamChat([{ role: 'user', content: 'hello' }]))).resolves.toBe('Hi');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    const [url, init] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toBe('https://api.alia.onl/alia/chat');
-    const headers = readHeaders(init);
-    expect(headers.get('Content-Type')).toBe('application/json');
-    expect(headers.get('Authorization')).toBe(`Bearer ${accessToken}`);
-
-    const body = JSON.parse(String(init?.body)) as { model: string; stream: boolean };
-    expect(body.model).toBe('profile:lite');
-    expect(body.stream).toBe(true);
-  });
-
-  test('contains no browser-bundled Alia key fallback or retired route/model', async () => {
-    const source = await Bun.file(new URL('../src/lib/alia.ts', import.meta.url)).text();
-    expect(source).not.toContain('VITE_ALIA_API_KEY');
-    expect(source).not.toContain('/v1/chat/completions');
-    expect(source).not.toContain('"alia-lite"');
-    expect(source).not.toContain('getAccessToken');
-    expect(source).not.toContain('Authorization');
-  });
+    await page.route('https://api.alia.onl/**', (route) => {
+      if (route.request().headers().authorization) bearerRequests.push(route.request().url());
+      return route.fulfill({ status: 401, contentType: 'application/json', body: '{}' });
+    });
+    try {
+      await page.goto(`${origin}/web.html`);
+      // The Linux lock screen remains separate from the Oxy account dialog.
+      await page
+        .locator('input[type=password]')
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .catch(async (error) => {
+          throw new Error(
+            `${String(error)}\nPage errors: ${JSON.stringify(errors)}\nBody: ${await page.locator('body').innerText()}`,
+          );
+        });
+      await page.locator('input[type=password]').fill('1234');
+      await page.locator('input[type=password]').press('Enter');
+      await page.getByRole('button', { name: 'Open Alia' }).click();
+      await page.getByRole('button', { name: 'Account', exact: true }).click();
+      await page.getByRole('dialog').waitFor({ state: 'visible' });
+      expect(await page.getByRole('dialog').innerText()).toContain('Email or username');
+      expect(await page.getByRole('dialog').innerText()).not.toMatch(
+        /allow .*access|scopes|permissions/i,
+      );
+      expect(bearerRequests).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
 });

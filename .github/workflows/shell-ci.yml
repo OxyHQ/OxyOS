@@ -69,7 +69,8 @@ jobs:
             patchelf \
             pkg-config
 
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --minimum-release-age=0
+      - run: bunx playwright install --with-deps chromium
       - run: bun run test
       - run: bunx biome ci .
       # React Compiler rules (eslint-plugin-react-hooks 7); Biome has no equivalent.
