@@ -1,5 +1,10 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+@import "nativewind/theme";
+@import "@oxy.so/bloom/design-tokens/theme.css";
+@source "../node_modules/@oxy.so/services/lib/**/*.{js,jsx}";
+@source "../node_modules/@oxy.so/bloom/lib/**/*.{js,jsx}";
+@source "../node_modules/@alia.onl/sdk/src/**/*.{ts,tsx}";
 
 @layer base {
   html,
