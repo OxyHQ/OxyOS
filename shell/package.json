@@ -55,7 +55,7 @@
     "@oxy.so/contracts": "6.0.0",
     "@oxy.so/services": "13.0.0",
     "@oxy.so/bloom": "15.11.0",
-    "@alia.onl/sdk": "22.0.0"
+    "@alia.onl/sdk": "22.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
@@ -83,6 +83,6 @@
     "@oxy.so/services": "13.0.0",
     "@oxy.so/bloom": "15.11.0",
     "@oxy.so/protocol": "1.5.1",
-    "@alia.onl/sdk": "22.0.0"
+    "@alia.onl/sdk": "22.1.1"
   }
 }
