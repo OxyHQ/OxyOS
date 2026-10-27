@@ -1,0 +1,51 @@
+---
+title: BloomUI native integration audit
+description: Existing Bloom contracts, native dependencies and the work required for an Oxy runtime.
+order: 2
+---
+
+# BloomUI native integration audit
+
+Static review of [OxyHQ/Bloom 658d69a](https://github.com/OxyHQ/Bloom/tree/658d69a62d6f9ac75c0a062932500852f8587dfd), package `@oxy.so/bloom` 15.56.0. No Bloom files were changed, no package was published and no native-device test was run. The revision is evidence for this audit, not an installed runtime dependency in OxyOS.
+
+## Findings
+
+Bloom is a React Native and web component/layout package. Its compositor composes panels inside an application. It is not a GPU renderer, display server or DRM/KMS adapter. The OxyOS display compositor must compose application surfaces without duplicating Bloom's panel engine.
+
+| Preserve | Source at the audited revision |
+| --- | --- |
+| One BloomProvider above render branches, explicit router/scroll/back/locale/image adapters; outlets mounted once | `src/provider/BloomProvider.tsx`, `docs/provider.mdx` |
+| Normal size `md` and inherited visual scope | `docs/ui-architecture.mdx`, `docs/composition.mdx` |
+| AppShell.panelLayout, existing AppShellPanelLayout/AppShellPanelDefinition and embedded AppShellPanels | `src/app-shell/panel-layout-types.ts`, `docs/compose-layouts.mdx` |
+| Stable panel/content identity; controlled geometry committed after manipulation | `src/app-shell/AppShellPanelLayout.tsx`, `docs/compose-layouts.mdx` |
+| Screen/ScreenScrollView, one scroll owner, retained active=false behavior | `docs/layout.mdx`, `docs/composition.mdx` |
+| Surface material, theme/color tokens, ScreenScope, edge claims and overlay authority | `docs/surface.mdx`, `docs/composition.mdx`, `docs/overlay.mdx` |
+| MotionSpec spring response/dampingRatio or timing curve, interruption and reduced motion | `src/motion/spec.ts`, `docs/motion.mdx` |
+
+## Native dependencies to implement or audit
+
+| Dependency | Oxy runtime responsibility |
+| --- | --- |
+| React Native views/Yoga/ScrollView | Real host components, measurement, layout commits, lifecycle and native scrolling |
+| Reanimated/worklets | UI execution thread, native property updates, animation scheduling, cancellation and timestamps |
+| gesture-handler | Pointer streams, capture, gesture arbitration and cancellation |
+| react-native-css/NativeWind | Actual native style processing; no silent unsupported className behavior |
+| Text/font/image/SVG components | Resource lifecycle, shaping, font fallback, selection/editing, composition and rendering |
+| Portals/focus/accessibility | Overlay modality, keyboard traversal, semantic tree, announcements and external assistive integration |
+| Safe area, keyboard controller and Expo/native modules | Explicit capability matrix; implement required modules and report unavailable optional capabilities honestly |
+| Provider theme/font/avatar/status infrastructure | Audit the reachable dependency graph for the minimal app, not only direct package peers |
+
+The factory assembly in `src/app-shell/index.ts` (`createAppShell`, `createPanelLayoutView`, `createAppShellPanels`) is a useful component integration seam. It is not a complete renderer boundary: `AppShellPanelLayout.tsx` imports React Native and Reanimated directly. Replacing `View` by an alias or translating descriptor JSON into hand-written Rust widgets would not make current Bloom run natively.
+
+The web implementation uses DOM, CSS, container queries and browser scrolling. It is not the implementation path for the new OS. Native host support should be reusable at shared owners; do not add per-app patches that emulate missing platform behavior.
+
+## Next implementation experiment
+
+1. Pin a compatible RN/Hermes/Fabric/Yoga/Bloom set in a disposable runtime spike and enumerate the full imported native-module graph. No invented production packages or versions before a successful build.
+2. Implement a minimal Oxy host that produces an application buffer and submits it through the Oxy display contract. Keep JS out of the compositor process.
+3. Import actual BloomProvider/BloomScope/AppShell/Screen and render a two-panel application with text, one control and native scrolling. No DOM/WebView aliases or lookalike fallback components.
+4. Prove retained identity through split/deck/responsive transitions, focus/draft/reading-offset preservation, UI-thread dragging, interrupted motion and reduced motion.
+5. Verify input selection/composition, keyboard traversal, overlay modality, accessible names/states, RTL, scaling and first-frame font/theme correctness.
+6. Trace input → state → layout → render → buffer-ready → physical presentation with busy JS and a stalled second client. Unit snapshots/typechecking cannot establish these properties.
+
+No Bloom renderer or host is shipped in the initial Rust foundation. A successful metadata IPC test must never be reported as Bloom adoption or a graphics benchmark.

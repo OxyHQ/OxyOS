@@ -12,6 +12,7 @@ live-image-*
 *.zsync
 
 # Shell build artifacts
+/target/
 node_modules/
 shell/build/
 shell/web-build/

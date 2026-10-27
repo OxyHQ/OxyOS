@@ -6,6 +6,10 @@ order: 0
 
 # OxyOS
 
+The accepted direction is now the [native platform architecture](./native-architecture), with a custom display compositor/protocol and BloomUI, without X11, XWayland or Wayland. Start with the [Bloom audit](./bloom-native-audit) and [foundation build guide](./native-foundation). The foundation is headless and does not yet provide a graphical session.
+
+The sections below document the superseded prototype until [cleanup #27](https://github.com/OxyHQ/OxyOS/issues/27) replaces the old source/image graph. Existing ISO and shell instructions do not build the new platform.
+
 OxyOS is a lightweight desktop Linux distribution built on Debian Trixie, with a custom ChromeOS-inspired shell written in React, TypeScript, and Tauri v2. The project ships the live-build configuration that assembles the installation ISO, plus the desktop shell source.
 
 <Badge variant="success">App</Badge> <Badge>Debian Trixie</Badge> <Badge>Wayland</Badge>

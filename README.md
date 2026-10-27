@@ -1,4 +1,17 @@
-## OxyOS
+# OxyOS
+
+The new native platform is being built in the root Rust workspace: a custom display protocol/compositor foundation for Linux and a planned native BloomUI host, without X11, XWayland or Wayland. The current foundation is headless and does not yet render Bloom or boot a graphical session.
+
+- [Architecture and boundaries](docs/native-architecture.mdx)
+- [BloomUI source audit and integration plan](docs/bloom-native-audit.mdx)
+- [Build and verify the foundation](docs/native-foundation.mdx)
+- [Retired-stack cleanup assignment #27](https://github.com/OxyHQ/OxyOS/issues/27)
+
+`shell/`, the existing ISO configuration, and the instructions below describe the superseded prototype pending that cleanup. They are not the implementation or a fallback for the new architecture.
+
+---
+
+## Previous prototype
 # OxyOS - A lightweight desktop Linux project.
 
 OxyOS is a lightweight, elegant desktop Linux distribution built on Debian.
