@@ -1,0 +1,68 @@
+---
+title: Build and verify the native foundation
+description: Reproducible headless checks and the experimental display metadata contract.
+order: 3
+---
+
+# Build and verify the native foundation
+
+The root Rust workspace is independent of `shell/` and `config/`. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies metadata and ownership state; it draws no pixels.
+
+Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
+
+```sh
+cargo fmt --all --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+python3 scripts/check-native-boundary.py
+cargo run --locked -p oxy-platform-probe
+```
+
+The probe launches two independent client processes and exchanges six frame-metadata messages over Unix sockets with per-connection state. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. The probe is a finite developer tool, not an installed service or authenticated compositor.
+
+Expected result:
+
+```json
+{"mode":"headless-metadata","clients":2,"frames":6,"graphics":false,"bloom":false,"status":"passed"}
+```
+
+## Implemented ownership
+
+| Path | Purpose |
+| --- | --- |
+| `crates/oxy-protocol` | Experimental bounded little-endian framing, version check and typed metadata messages |
+| `crates/oxy-compositor-core` | Backend-independent single-output surface presentation state |
+| `tools/oxy-platform-probe` | Two-process transport/state exercise with synthetic completion |
+| `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
+| `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
+
+Tests cover fragmented/truncated/oversized packets, version mismatch, stale resize submissions, non-increasing sequences, held-buffer reuse, queue replacement, failed presentation retries, completion ownership and independent surfaces.
+
+## Experimental wire contract
+
+Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width fields. Payload length is 1–64 bytes. Unknown opcodes, unexpected exact lengths, invalid dimensions and zero identifiers are errors. Reads use fixed bounded storage and accept fragmented streams. No allocation depends on an unchecked peer length.
+
+| Opcode | Message | Payload bytes including opcode |
+| --- | --- | --- |
+| 1 | Hello: version u32 | 5 |
+| 2 | Welcome: version u32 | 5 |
+| 3 | Configure: serial u64, width/height u32 | 17 |
+| 4 | Submit: sequence/buffer/configure u64, width/height u32 | 33 |
+| 5 | Presented: sequence/timestamp_ns u64 | 17 |
+| 6 | Goodbye | 1 |
+
+In this experiment one connection owns one surface; identifiers are connection-local. The server requires Hello first and rejects unsupported versions. These messages carry no pixels, file descriptors or privileges. The probe uses local elapsed time and calls completion synthetically; its Presented event does not represent a hardware presentation timestamp.
+
+The production contract still needs surface creation/destruction, authenticated roles, per-peer limits, FD/buffer import and release, GPU fences, display feedback, input/output/scaling events, disconnect cleanup and a complete connection state machine. Do not expose the probe as a public daemon or freeze this experimental wire version as an SDK ABI.
+
+## Core state transitions
+
+`submit` validates current configure, dimensions, increasing sequence and buffer availability before mutation. One replacement is queued; superseding it returns its metadata so a backend can retire that resource. `begin_present` moves the queue to an in-flight slot. Only `complete_present` updates displayed content and returns the previous metadata. `retry_present` retains existing displayed content, retries the current submission or yields to a newer valid queued frame.
+
+The caller must establish GPU readiness before begin and actual output completion before complete. Returning metadata is not a GPU fence or permission to reuse a buffer still consumed elsewhere. Destroying a Surface does not make outstanding GPU references safe; a future backend must retire those independently. Multi-output references are not implemented.
+
+## Scope and next gate
+
+Not implemented: DRM/KMS, Vulkan, buffer FD import, input, text, Bloom host, graphics, secure session, bootable image or hardware performance evidence. No empty renderer/service crates or success-returning stubs are included.
+
+Next gate: implement and measure the first hardware render/import/present path and the Bloom host feasibility sample described in the architecture and audit documents. Cleanup remains in [#27](https://github.com/OxyHQ/OxyOS/issues/27); it must not turn this probe into the session executable.

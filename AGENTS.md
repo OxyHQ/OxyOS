@@ -2,7 +2,13 @@
 
 > Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
 
-Lightweight Debian-based desktop Linux distribution built with `live-build`. Website: https://oxy.so/os (served by OxyHQ/website, which also lists the ISO downloads at https://oxy.so/os/downloads).
+Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom Oxy compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the new foundation; it currently draws no pixels. Never install the headless probe as a compositor/session or claim it renders Bloom.
+
+Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded. Retired-stack removal belongs to #27; keep its scope separate from new foundation work.
+
+Native checks: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxy-platform-probe`. Use `rust-toolchain.toml`; the boundary script audits Cargo only, not the ISO. Root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
+
+The following layout/build notes describe the retired prototype pending #27. Website: https://oxy.so/os (served by OxyHQ/website).
 
 ## Layout
 

@@ -1,0 +1,108 @@
+---
+title: Native platform architecture
+description: Accepted direction, process boundaries and implementation gates for the custom Oxy display platform and BloomUI.
+order: 1
+---
+
+# Native platform architecture
+
+Decision: build an Oxy display compositor, display protocol and application runtime on Linux. The target graphical session has no X11, XWayland or Wayland dependency. BloomUI remains the shared application interface and layout system. Do not introduce Petal or copy Bloom's layout engine into this repository.
+
+This decision replaces the Wayland/Petal portions of issue #9. It does not claim that a graphical session exists. Cleanup of the old desktop and image paths is assigned separately in [#27](https://github.com/OxyHQ/OxyOS/issues/27).
+
+## Responsibilities
+
+```text
+Oxy shell (separate process)       Oxy applications / Astro (separate processes)
+           |                                     |
+      BloomUI + Oxy application runtime and typed SDK
+           |                                     |
+       custom display IPC                typed service requests
+           |                                     |
+   Oxy compositor                         session / service adapters
+           |                                     |
+   DRM/KMS + Vulkan                       existing Linux services
+           |                                     |
+              Linux / drivers / systemd
+```
+
+| Owner | Responsibilities | Must not own |
+| --- | --- | --- |
+| Compositor | Surface ownership, stacking, focus, pointer capture, output state, frame scheduling, compositor animations and lock enforcement | JavaScript execution, network requests, arbitrary app callbacks, package management |
+| App runtime | React Native host integration for actual Bloom components; layout, text, input semantics, UI-thread animation, accessibility and app buffers | Global focus policy, unrestricted device access, other apps' trees |
+| Bloom | Existing components, panel descriptors, Surface, scopes, scroll ownership, motion semantics | Display protocol, scanout or OS authentication |
+| Shell | Launcher, navigation, system UI and presentation of confirmed service state | Authentication authority or implicit compositor privileges |
+| Service adapters | Typed asynchronous requests, cancellation/deadlines, event subscriptions and restart recovery | Arbitrary command execution or a universal root API |
+| Session authority | Authenticate through established mechanisms, launch assigned roles, grant narrow capabilities, enforce lock lifecycle | Trust in a client's claimed name, environment variables or UI booleans |
+
+## Implementation choices and limits
+
+- Rust for the protocol/compositor core, with small C/C++ integration boundaries only where upstream libraries require them. Keep unsafe code outside the safe core and review it explicitly when introduced.
+- Linux/Debian Trixie, systemd and existing driver/service implementations remain the initial system base. Start with x86_64/UEFI on a named reference machine. Do not promise arbitrary-PC support.
+- DRM/KMS atomic modesetting for output and Vulkan through supported drivers for composition are the selected first hardware path. Validate buffer formats/modifiers, external-memory import and fence interoperability on the reference GPU before freezing the graphics ABI.
+- Reuse established input, shaping, font, image and accessibility libraries after feasibility work. An own protocol does not justify new drivers, shaping algorithms, crypto or authentication primitives.
+- Bloom needs an Oxy React Native host/runtime backend. Hermes/Fabric, Yoga and the native-module support matrix must be proven together against the selected Bloom/RN revisions. Do not select dependencies by assuming Astro's macOS host is a Linux host.
+- No production nested backend via X11/Wayland. CI starts with headless contract tests; graphics tests require offscreen rendering and disposable DRM/KMS-capable environments. Building on a macOS host is development, not a macOS dependency in the target.
+- Metal/AppKit/Core Animation are not required OxyOS backends. Astro's native API boundaries and performance tools inform the design even as its platform implementation changes.
+
+## Display contract
+
+The display protocol carries surfaces, buffer references and bounded input/configure/presentation events. It does not carry React nodes, Bloom panel descriptors, functions or arbitrary drawing programs into the compositor.
+
+Use a versioned bounded binary protocol over local Unix sockets. Production transport must validate ancillary file descriptors, authenticate peer credentials, enforce per-connection surface/buffer ownership, quotas and deadlines, and negotiate supported format/modifier/synchronization capabilities. A successful version handshake is not authorization. A private development socket is not the security model for an installed session.
+
+Keep the protocol experimental until a native renderer, compositor and Astro client have exercised it. Do not promise ABI compatibility for version 1 of the metadata probe.
+
+### Presentation invariants
+
+1. A new surface stays unmapped until its first valid ready buffer can be presented.
+2. Keep the last valid content while a new buffer is prepared, including during resize. The eventual policy must specify how old-size content is clipped/letterboxed; do not show uninitialized regions.
+3. Configure serials bind dimensions to submissions. Reject obsolete configures and non-increasing frame sequences without mutating accepted state.
+4. Allow one queued replacement per surface and one backend presentation in flight. Superseded queued buffers may be released; displayed/in-flight buffers cannot be reused until all GPU/output consumers have finished.
+5. Only the backend can confirm completion. GPU-ready fences, presentation completion and safe buffer release are distinct events.
+6. Multiple outputs may retain the same buffer for different durations. The current single-output state model must be extended with per-consumer references before multi-output use.
+7. Frame callbacks follow output scheduling and report presented/discarded outcomes honestly. Do not equate a React commit, CPU submission or probe timestamp with physical display time.
+8. Client failure and slow JavaScript cannot block compositor-owned move/focus/cursor behavior. Runtime animation and compositor animation have separate ownership and clocks with explicit mapping.
+
+The current core models a bounded single-surface/single-output state machine. Its caller supplies already-ready, validated metadata; it imports no GPU buffers. The probe's completion is synthetic. These tests establish state semantics, not visual smoothness or graphics synchronization.
+
+## Session and security
+
+Ordinary clients receive no global window list, screenshots, input injection or lock capability by default. Shell and authentication roles are granted by the session authority, not protocol labels. Validate messages according to connection state and bound resources independently for each peer.
+
+The lock state belongs to the compositor/session authority. Cover all outputs and block delivery of protected content/input before acknowledging lock. A failed/crashed UI must leave the session protected. Authentication success arrives through a narrow trusted path. Do not ship the current web password screen as a lock implementation.
+
+Keep the compositor outside root where device/session delegation allows. Privileged services remain independently authorized. A shell restart must not terminate clients; a compositor crash may terminate the session and needs a separate recovery design. Never promise transparent recovery from both.
+
+## Astro reference and port
+
+Reference checkout reviewed: [Astro 5a6bf7d](https://github.com/OxyHQ/Astro/tree/5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74). Preserve the approach: native ownership, typed bridges, bounded lifecycle and measurements from input to presentation. Do not copy browser-specific window code into the OS compositor.
+
+Astro will need an Oxy platform integration. Chromium's Ozone layer is the candidate seam for windows/input/graphics, with additional work for dialogs, menus, IME, clipboard, accessibility, capture permissions and resource sharing. Chromium is not the desktop renderer. Porting it is a milestone, not an already supported application.
+
+## Delivery gates
+
+| Gate | Required evidence |
+| --- | --- |
+| Foundation (this change) | Bounded protocol codec, deterministic presentation tests and two independent metadata-client processes; no display backend in the workspace |
+| Graphics feasibility | Real render/import/present on the selected GPU, fences and ownership verified; startup and resize traces; no X11/Wayland |
+| Bloom host | Actual pinned BloomProvider → BloomScope(md) → AppShell.panelLayout → Screen rendered natively, with text, scroll and controls |
+| Independent clients | Two real Bloom applications; move/resize/focus, busy JS, stalled/crashed app; no dependency on another app's event loop |
+| Session | Real authentication, secure lock, shell restart, hotplug while locked and suspend/resume fault tests |
+| Product | Astro port, supported service controls, target-built packages, disposable install/update/recovery tests and named hardware results |
+
+Graphics/runtime work should prove a small vertical slice before adding shell features. Include input composition/IME, accessibility and RTL in API design from the beginning. Do not fill unsupported capabilities with mock success.
+
+## Image and release policy
+
+The new foundation is not a bootable OS. Existing image definitions still describe the retired labwc/Tauri stack until #27 lands. Do not ship that stack as the implementation of this architecture or install the probe as a session binary. Cleanup should retire old publication paths before destructive image rewiring. Build eventual system binaries against the target userspace, validate dynamic libraries and package contents, then boot-test before release.
+
+A native update/recovery ADR, signing/provenance and source-license/asset review remain release prerequisites. Do not infer that the root workspace creates an atomic updater, sandbox or secure session.
+
+## Technical foundations
+
+- [DRM/KMS](https://www.kernel.org/doc/html/latest/gpu/drm-kms.html)
+- [DMA-BUF ownership and synchronization](https://www.kernel.org/doc/html/latest/driver-api/dma-buf.html)
+- [Explicit sync files](https://www.kernel.org/doc/html/latest/driver-api/sync_file.html)
+- [Mesa platforms](https://docs.mesa3d.org/systems.html)
+- [Chromium Ozone](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/ozone_overview.md)
