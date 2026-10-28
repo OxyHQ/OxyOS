@@ -33,6 +33,7 @@ function Inbox() {
 }
 
 function Detail() {
+  const [presses, setPresses] = React.useState(0);
   return (
     <Screen header={<PageHeader title="Native Bloom on OxyOS" />}>
       <ScreenScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
@@ -42,7 +43,9 @@ function Detail() {
           PageHeaders, Cards, typography and a Button, drawn by the OxyOS host into a buffer.
         </P>
         <Muted>React Native 0.88 · Hermes · Fabric · Yoga</Muted>
-        <Button onPress={() => {}}>Open menu</Button>
+        <Button onPress={() => setPresses((count) => count + 1)}>
+          {presses === 0 ? 'Press me' : `Pressed ${presses} ${presses === 1 ? 'time' : 'times'}`}
+        </Button>
       </ScreenScrollView>
     </Screen>
   );

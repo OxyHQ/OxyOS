@@ -2,6 +2,7 @@
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
 #include "host-modules.h"
+#include "input.h"
 #include "renderer.h"
 #include "text.h"
 #include "window.h"
@@ -383,6 +384,7 @@ int main(int argc, char** argv) {
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
     int status = 0;
+    oxy::PointerInput pointer(tree);
     try {
       while (true) {
         Beat::tickAll();
@@ -391,7 +393,7 @@ int main(int argc, char** argv) {
         busy |= timers->fire(*timerManager);
         worklets.tick();
         busy |= reanimated.tick();
-        if (!window->dispatch([](const OxyEvent&) {})) break;
+        if (!window->dispatch([&](const OxyEvent& event) { pointer.handle(event); })) break;
         if (window->resized()) {
           display = oxy::Display{window->width(), window->height(), window->scale()};
           layOut();

@@ -158,7 +158,7 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
   "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 
 add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp worklets-host.cpp
-  reanimated-host.cpp window.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp input.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
