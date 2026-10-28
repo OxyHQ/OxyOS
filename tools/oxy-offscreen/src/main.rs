@@ -191,7 +191,7 @@ fn run(out: &Path) -> Result<()> {
             }
             Step::WaitApp => {
                 if let Some(window) = compositor.surface_rect(app, 1) {
-                    snapshots.push(snapshot(&compositor, out, "1-windows.png")?);
+                    snapshots.push(snapshot(compositor, out, "1-windows.png")?);
                     // Synthetic input: a right-button press at the window's center.
                     let center = (
                         window.x + window.width as i32 / 2,
@@ -208,7 +208,7 @@ fn run(out: &Path) -> Result<()> {
                     let window = compositor.surface_rect(app, 1).expect("parent shown");
                     let base = compositor.surface_rect(other, 1).expect("other shown");
                     checks.verify_menu(compositor, window, menu, base)?;
-                    snapshots.push(snapshot(&compositor, out, "2-menu-open.png")?);
+                    snapshots.push(snapshot(compositor, out, "2-menu-open.png")?);
                     // Press a row inside the menu but outside the window, over the other app.
                     let point = (menu.x + 20, menu.y + menu.height as i32 - 20);
                     if window.contains_point(point.0, point.1)
@@ -238,7 +238,7 @@ fn run(out: &Path) -> Result<()> {
                         return Err("highlighted row not on screen".into());
                     }
                     checks.highlight_over_other = true;
-                    snapshots.push(snapshot(&compositor, out, "3-menu-row-pressed.png")?);
+                    snapshots.push(snapshot(compositor, out, "3-menu-row-pressed.png")?);
                     // Outside press over the other application: dismiss, consumed.
                     let base = compositor.surface_rect(other, 1).expect("other shown");
                     let outside = (base.x + 10, base.y + 10);
@@ -261,7 +261,7 @@ fn run(out: &Path) -> Result<()> {
                     if compositor.pixel(below.0, below.1) != OTHER_WINDOW {
                         return Err("menu pixels remain after dismissal".into());
                     }
-                    snapshots.push(snapshot(&compositor, out, "4-menu-dismissed.png")?);
+                    snapshots.push(snapshot(compositor, out, "4-menu-dismissed.png")?);
                     step = Step::Done;
                 }
             }
