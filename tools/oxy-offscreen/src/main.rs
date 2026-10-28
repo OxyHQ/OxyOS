@@ -383,6 +383,13 @@ impl Compositor {
                         self.scene.text(&text);
                     }
                 }
+                // What a sequence composes replaces its composition when committed.
+                oxy_input::Action::Compose { composition, text } => match text {
+                    Some(text) => self.scene.text(&text),
+                    None => {
+                        self.scene.preedit(&composition, composition.len());
+                    }
+                },
             }
         }
     }

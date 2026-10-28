@@ -36,6 +36,27 @@ pub enum Action {
         pressed: bool,
         text: Option<String>,
     },
+    /// A key the compose table took (a dead key, or a key of a sequence), which no
+    /// application sees as a key: `composition` is the sequence so far as it is shown (empty
+    /// once it ends), and `text` what it composed when it ends composing something.
+    Compose {
+        composition: String,
+        text: Option<String>,
+    },
+}
+
+/// What a key does.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Typed {
+    /// A key for the application, with the text a press types, if any.
+    Key(Option<String>),
+    /// A press the compose table took (see [`Action::Compose`]).
+    Compose {
+        composition: String,
+        text: Option<String>,
+    },
+    /// The release of a key the compose table took: nothing for anyone.
+    Nothing,
 }
 
 /// Opens devices for libinput as the compositor (root, or the seat's session).
@@ -58,6 +79,45 @@ impl LibinputInterface for Opener {
 pub struct Keyboard {
     state: xkb::State,
     compose: Option<compose::State>,
+    /// The sequence so far, as it is shown.
+    composition: String,
+    /// Keys whose press the compose table took, so their release is no application's either.
+    taken: Vec<u32>,
+}
+
+/// Text a key may type: not empty, and no control characters (Enter and Backspace are keys).
+fn typable(text: &str) -> bool {
+    !text.is_empty() && !text.chars().any(char::is_control)
+}
+
+/// A key of a compose sequence as the composition shows it: a dead key as its spacing
+/// accent, as GTK's input method shows them, the compose key as a middle dot, and any other
+/// key as its text.
+fn shown(keysym: xkb::Keysym) -> String {
+    let accent = match xkb::keysym_get_name(keysym).as_str() {
+        "dead_grave" => "`",
+        "dead_acute" => "´",
+        "dead_circumflex" => "^",
+        "dead_tilde" => "~",
+        "dead_macron" => "¯",
+        "dead_breve" => "˘",
+        "dead_abovedot" => "˙",
+        "dead_diaeresis" => "¨",
+        "dead_abovering" => "˚",
+        "dead_doubleacute" => "˝",
+        "dead_caron" => "ˇ",
+        "dead_cedilla" => "¸",
+        "dead_ogonek" => "˛",
+        _ => {
+            let text = xkb::keysym_to_utf8(keysym);
+            return if typable(&text) {
+                text
+            } else {
+                "·".to_string()
+            };
+        }
+    };
+    accent.to_string()
 }
 
 /// One key of a sequence that types a character: a Linux key code, and whether Shift is held.
@@ -101,6 +161,8 @@ impl Keyboard {
         Ok(Self {
             state: xkb::State::new(&keymap),
             compose,
+            composition: String::new(),
+            taken: Vec::new(),
         })
     }
 
@@ -109,37 +171,54 @@ impl Keyboard {
         self.compose.is_some()
     }
 
-    /// Updates the state with a key (Linux input code) and returns the text a press types:
-    /// none for modifiers, editing keys and control characters, and none for a key that starts
-    /// or continues a compose sequence; the key that ends it types what it composes.
-    pub fn key(&mut self, code: u32, pressed: bool) -> Option<String> {
+    /// Updates the state with a key (Linux input code) and says what it does. A press types
+    /// its text: none for modifiers, editing keys and control characters. With a compose
+    /// table, a key that starts or continues a sequence types nothing, the key that ends it
+    /// types what it composes, and a sequence that composes nothing types nothing; those keys
+    /// are the table's, not the application's.
+    pub fn key(&mut self, code: u32, pressed: bool) -> Typed {
         // XKB key codes are Linux input codes plus 8.
         let keycode = xkb::Keycode::new(code + 8);
-        let text = if pressed {
+        let typed = if !pressed {
+            match self.taken.iter().position(|taken| *taken == code) {
+                Some(index) => {
+                    self.taken.swap_remove(index);
+                    Typed::Nothing
+                }
+                None => Typed::Key(None),
+            }
+        } else {
             let keysym = self.state.key_get_one_sym(keycode);
             match self
                 .compose
                 .as_mut()
                 .map(|compose| (compose.feed(keysym), compose))
             {
-                // A key the table takes: it starts, continues, ends or cancels a sequence.
-                Some((compose::FeedResult::Accepted, compose)) => match compose.status() {
-                    compose::Status::Composing => None,
-                    compose::Status::Composed => {
-                        let text = compose.utf8();
-                        compose.reset();
-                        text
+                Some((compose::FeedResult::Accepted, compose))
+                    if compose.status() != compose::Status::Nothing =>
+                {
+                    self.taken.push(code);
+                    let text = match compose.status() {
+                        compose::Status::Composing => {
+                            self.composition.push_str(&shown(keysym));
+                            None
+                        }
+                        status => {
+                            self.composition.clear();
+                            let text = (status == compose::Status::Composed)
+                                .then(|| compose.utf8())
+                                .flatten();
+                            compose.reset();
+                            text
+                        }
+                    };
+                    Typed::Compose {
+                        composition: self.composition.clone(),
+                        text: text.filter(|text| typable(text)),
                     }
-                    compose::Status::Cancelled => {
-                        compose.reset();
-                        None
-                    }
-                    compose::Status::Nothing => Some(self.state.key_get_utf8(keycode)),
-                },
-                _ => Some(self.state.key_get_utf8(keycode)),
+                }
+                _ => Typed::Key(Some(self.state.key_get_utf8(keycode)).filter(|t| typable(t))),
             }
-        } else {
-            None
         };
         self.state.update_key(
             keycode,
@@ -149,7 +228,7 @@ impl Keyboard {
                 xkb::KeyDirection::Up
             },
         );
-        text.filter(|text| !text.is_empty() && !text.chars().any(char::is_control))
+        typed
     }
 }
 
@@ -266,12 +345,17 @@ impl Input {
                 }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
                     let pressed = key.key_state() == KeyState::Pressed;
-                    let text = self.keyboard.key(key.key(), pressed);
-                    actions.push(Action::Key {
-                        code: key.key(),
-                        pressed,
-                        text,
-                    });
+                    match self.keyboard.key(key.key(), pressed) {
+                        Typed::Key(text) => actions.push(Action::Key {
+                            code: key.key(),
+                            pressed,
+                            text,
+                        }),
+                        Typed::Compose { composition, text } => {
+                            actions.push(Action::Compose { composition, text })
+                        }
+                        Typed::Nothing => {}
+                    }
                 }
                 _ => {}
             }

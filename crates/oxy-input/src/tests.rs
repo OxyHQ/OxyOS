@@ -21,10 +21,31 @@ fn composing(layout: &str) -> Keyboard {
     keyboard
 }
 
+/// The text a press and release of `code` types, through composition or not.
 fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
-    let text = keyboard.key(code, true);
-    assert_eq!(keyboard.key(code, false), None, "a release types nothing");
-    text
+    let typed = keyboard.key(code, true);
+    let released = keyboard.key(code, false);
+    match typed {
+        Typed::Key(text) => {
+            assert_eq!(released, Typed::Key(None), "a release types nothing");
+            text
+        }
+        Typed::Compose { text, .. } => {
+            assert_eq!(
+                released,
+                Typed::Nothing,
+                "a taken key's release is nobody's"
+            );
+            text
+        }
+        Typed::Nothing => panic!("a press is always someone's"),
+    }
+}
+
+fn press(keyboard: &mut Keyboard, code: u32) -> Typed {
+    let typed = keyboard.key(code, true);
+    keyboard.key(code, false);
+    typed
 }
 
 /// Types what `key_for` returns for `character`, as a person would.
@@ -60,8 +81,8 @@ fn keys_type_their_layouts_text() {
 #[test]
 fn modifiers_and_editing_keys_type_nothing() {
     let mut us = composing("us");
-    assert_eq!(us.key(SHIFT, true), None);
-    assert_eq!(us.key(SHIFT, false), None);
+    assert_eq!(us.key(SHIFT, true), Typed::Key(None));
+    assert_eq!(us.key(SHIFT, false), Typed::Key(None));
     // Enter and Backspace are keys, not text (control characters).
     assert_eq!(tap(&mut us, ENTER), None);
     assert_eq!(tap(&mut us, BACKSPACE), None);
@@ -136,4 +157,28 @@ fn finding_keys_leaves_a_composition_under_way() {
     assert_eq!(tap(&mut es, APOSTROPHE), None);
     assert!(es.key_for('ó').is_some());
     assert_eq!(tap(&mut es, O).as_deref(), Some("ó"));
+}
+
+#[test]
+fn a_composition_shows_its_sequence_and_its_keys_are_no_applications() {
+    let mut es = composing("es");
+    let compose = |composition: &str, text: Option<&str>| Typed::Compose {
+        composition: composition.to_string(),
+        text: text.map(str::to_string),
+    };
+    // The dead key shows as its accent; the vowel ends the composition with what it composed.
+    assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
+    assert_eq!(press(&mut es, O), compose("", Some("ó")));
+    // A cancelled sequence ends the composition with nothing.
+    assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
+    assert_eq!(press(&mut es, X), compose("", None));
+    // Shift held for a capital stays the application's key; the vowel is the table's.
+    assert_eq!(press(&mut es, APOSTROPHE), compose("´", None));
+    assert_eq!(es.key(SHIFT, true), Typed::Key(None));
+    assert_eq!(es.key(O, true), compose("", Some("Ó")));
+    assert_eq!(es.key(SHIFT, false), Typed::Key(None));
+    assert_eq!(es.key(O, false), Typed::Nothing);
+    // Plain keys are the application's again, press and release.
+    assert_eq!(es.key(O, true), Typed::Key(Some("o".to_string())));
+    assert_eq!(es.key(O, false), Typed::Key(None));
 }

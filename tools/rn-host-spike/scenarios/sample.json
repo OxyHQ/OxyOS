@@ -349,6 +349,38 @@
       }
     },
     {
+      "name": "a dead key shows as a composition, and is no key for the application (a bare key without a keymap types nothing)",
+      "do": ["key", 40],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "react": {},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      },
+      "expect_devices": {
+        "texts": ["Reply: Adiós´"],
+        "focus_input": "reply",
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
+        "delivered": {"1": {"preedit": 1}}
+      }
+    },
+    {
+      "name": "the vowel replaces the composition with what it composes, and is no key either",
+      "do": ["key", 24],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "react": {},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      },
+      "expect_devices": {
+        "texts": ["Reply: Adiósó"],
+        "absent": ["´"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
+        "delivered": {"1": {"text": 1}}
+      }
+    },
+    {
       "name": "open the menu again",
       "do": ["press", [797, 487]],
       "expect": {
