@@ -106,9 +106,11 @@ target_link_libraries(oxy-rn-spike reactnative)
 target_compile_options(oxy-rn-spike PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # ---- OxyOS host: real text layout and the Bloom host executable -------------------------------
-if(NOT DEFINED TEXT_SYSROOT)
-  message(FATAL_ERROR "TEXT_SYSROOT is required; run build.sh")
-endif()
+foreach(var TEXT_SYSROOT ICU_SYSROOT)
+  if(NOT DEFINED ${var})
+    message(FATAL_ERROR "${var} is required; run build.sh")
+  endif()
+endforeach()
 set(TEXT_INCLUDES ${TEXT_SYSROOT}/include/freetype2 ${TEXT_SYSROOT}/include/harfbuzz)
 set(TEXT_LIBS ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libfreetype.so ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libharfbuzz.so)
 
@@ -181,6 +183,10 @@ set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
 # (crates/oxy-client-ffi), linked statically.
 target_include_directories(oxy-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxy-client-ffi/include)
 target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview ${OXY_CLIENT_LIB} gcc_s util rt pthread m dl)
+# Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
+# Hermes already links.
+target_include_directories(oxy-bloom-host PRIVATE ${ICU_SYSROOT}/include)
+target_link_libraries(oxy-bloom-host ${ICU_SYSROOT}/lib/x86_64-linux-gnu/libicuuc.so)
 target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # Debug aid: OXY_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.

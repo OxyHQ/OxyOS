@@ -27,7 +27,10 @@ struct GlyphRun {
 
 // One laid-out line, relative to the paragraph origin.
 struct LineLayout {
+  // Its text, and the byte offset where it starts in the paragraph's string (its fragments in
+  // order). A line ends where the next starts, or before the hard break that ends it.
   std::string text;
+  size_t start = 0;
   // `width` is the ink width; `advance` also counts trailing spaces (where a caret after them sits).
   float x = 0, top = 0, width = 0, advance = 0, height = 0;
   float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;

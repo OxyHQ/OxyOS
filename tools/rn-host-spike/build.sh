@@ -43,7 +43,8 @@ if [ ! -e text/usr/include/harfbuzz/hb.h ]; then
   done
 fi
 
-# ICU headers (the libraries are part of the Debian base), for Hermes' Unicode support.
+# ICU headers (the libraries are part of the Debian base), for Hermes' Unicode support and the
+# host's word boundaries.
 if [ ! -e icu/usr/include/unicode/uchar.h ]; then
   mkdir -p debs/icu && (cd debs/icu && apt-get download libicu-dev)
   for deb in debs/icu/*.deb; do dpkg -x "$deb" icu; done
@@ -110,7 +111,7 @@ OXY_CLIENT_LIB="$REPO/target/release/liboxy_client_ffi.a"
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
-  -DTEXT_SYSROOT="$WORK/text/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
+  -DTEXT_SYSROOT="$WORK/text/usr" -DICU_SYSROOT="$WORK/icu/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
   -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" \
   -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
 ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
@@ -146,3 +147,7 @@ python3 "$HERE/regress.py" "$HERE/scenarios/secure-field.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
   --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-adaptation"
+# Editing keys in single-line and multiline fields: where each leaves the text and the selection.
+python3 "$HERE/regress.py" "$HERE/scenarios/text-editing.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-editing"

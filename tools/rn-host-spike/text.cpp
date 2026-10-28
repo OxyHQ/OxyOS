@@ -139,6 +139,7 @@ struct Token {
   uint32_t color = 0xff000000;
   bool newline = false;
   std::string text;
+  size_t start = 0;  // byte offset in the paragraph's string
 };
 
 }  // namespace
@@ -151,7 +152,10 @@ ParagraphLayout TextEngine::layout(
   std::vector<Token> tokens;
   std::optional<TextAlignment> alignment;
 
+  size_t base = 0;  // where the fragment starts in the paragraph's string
   for (const auto& fragment : text.getFragments()) {
+    size_t fragmentBase = base;
+    base += fragment.string.size();
     if (fragment.isAttachment()) continue;
     const auto& attributes = fragment.textAttributes;
     if (!alignment) alignment = attributes.alignment;
@@ -173,6 +177,7 @@ ParagraphLayout TextEngine::layout(
       token.descent = primary.descent;
       token.capHeight = primary.capHeight;
       token.xHeight = primary.xHeight;
+      token.start = fragmentBase + i;
       if (s[i] == '\n') {
         token.newline = true;
         tokens.push_back(token);
@@ -236,6 +241,7 @@ ParagraphLayout TextEngine::layout(
   // Greedy line breaking.
   struct Line {
     std::vector<const Token*> tokens;
+    size_t start = 0;
     float width = 0, ink = 0, ascent = 0, descent = 0, height = 0;
   };
   // An empty line (before a hard break, or after one at the end) takes the break's metrics; the
@@ -251,14 +257,19 @@ ParagraphLayout TextEngine::layout(
     if (token.newline) {
       if (line->tokens.empty()) emptyLineMetrics(*line, token);
       lines.emplace_back();
+      lines.back().start = token.start + 1;
       emptyLineMetrics(lines.back(), token);
       continue;
     }
     if (!line->tokens.empty() && std::isfinite(maxWidth) && line->width + token.inkWidth > maxWidth + 0.01f) {
       lines.emplace_back();
       line = &lines.back();
+      line->start = token.start;
     }
-    if (line->tokens.empty()) line->ascent = line->descent = line->height = 0;
+    if (line->tokens.empty()) {
+      line->ascent = line->descent = line->height = 0;
+      line->start = token.start;
+    }
     line->ink = line->width + token.inkWidth;
     line->width += token.width;
     line->tokens.push_back(&token);
@@ -284,7 +295,7 @@ ParagraphLayout TextEngine::layout(
     if (alignment == TextAlignment::Right) offset = boxWidth - line.ink;
     float x = offset;
     float baseline = top + line.ascent;
-    LineLayout metrics{.x = offset, .top = top, .width = line.ink, .advance = line.width, .height = line.height,
+    LineLayout metrics{.start = line.start, .x = offset, .top = top, .width = line.ink, .advance = line.width, .height = line.height,
                        .ascent = line.ascent, .descent = line.descent};
     for (const Token* token : line.tokens) {
       metrics.text += token->text;
