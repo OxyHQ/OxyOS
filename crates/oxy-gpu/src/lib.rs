@@ -29,6 +29,17 @@ pub struct Layer<'a> {
     pub height: u32,
     pub extent: (u32, u32),
     pub paint: Paint<'a>,
+    /// Where the pixels come from, when they may be the same as an earlier frame's.
+    pub source: Option<Source>,
+}
+
+/// The identity of a layer's pixels: the same key and version are the same pixels, so the
+/// Vulkan compositor keeps them on the device and uploads them once (docs/adr/0005-damage.mdx).
+/// A new version of a key replaces its pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Source {
+    pub key: u64,
+    pub version: u64,
 }
 
 impl Layer<'_> {
@@ -47,6 +58,52 @@ impl Layer<'_> {
             && self.pixels().is_none_or(|pixels| {
                 self.extent.0 > 0 && self.extent.1 > 0 && pixels.len() as u64 >= needed
             })
+    }
+}
+
+/// A rectangle of the output, in its pixels: a frame's damage, what changed since the previous
+/// frame composed into the same place (docs/adr/0005-damage.mdx).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Rect {
+    fn right(&self) -> i64 {
+        i64::from(self.x) + i64::from(self.width)
+    }
+
+    fn bottom(&self) -> i64 {
+        i64::from(self.y) + i64::from(self.height)
+    }
+
+    /// The part of both, if any.
+    pub fn intersect(&self, other: &Rect) -> Option<Rect> {
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        let right = self.right().min(other.right());
+        let bottom = self.bottom().min(other.bottom());
+        (right > i64::from(x) && bottom > i64::from(y)).then(|| Rect {
+            x,
+            y,
+            width: (right - i64::from(x)) as u32,
+            height: (bottom - i64::from(y)) as u32,
+        })
+    }
+
+    /// The smallest rectangle holding both.
+    pub fn bounding(&self, other: &Rect) -> Rect {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        Rect {
+            x,
+            y,
+            width: (self.right().max(other.right()) - i64::from(x)) as u32,
+            height: (self.bottom().max(other.bottom()) - i64::from(y)) as u32,
+        }
     }
 }
 

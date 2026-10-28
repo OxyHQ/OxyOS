@@ -31,6 +31,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 72,
             extent: (64, 48),
             paint: Paint::Opaque(window),
+            source: None,
         },
         Layer {
             x: 70,
@@ -39,6 +40,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 30,
             extent: (20, 30),
             paint: Paint::Premultiplied(popup),
+            source: None,
         },
         Layer {
             x: 100,
@@ -47,6 +49,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 200,
             extent: (1, 1),
             paint: Paint::Fill(0x0012_3456),
+            source: None,
         },
     ]
 }
@@ -89,6 +92,7 @@ fn invalid_layers_are_skipped() {
             height: 4,
             extent: (4, 4),
             paint: Paint::Opaque(&short),
+            source: None,
         },
         Layer {
             x: 0,
@@ -97,6 +101,7 @@ fn invalid_layers_are_skipped() {
             height: 4,
             extent: (1, 1),
             paint: Paint::Fill(1),
+            source: None,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -152,7 +157,7 @@ fn a_kept_scanout_frame_is_the_reference() {
     let _targets = gpu.scanout_targets(2, 120, 90).unwrap();
     assert!(gpu.read_kept().is_err(), "nothing kept yet");
     for index in [0, 1, 0] {
-        gpu.compose_to_scanout_kept(index, 0x0011_2233, &layers)
+        gpu.compose_to_scanout_kept(index, 0x0011_2233, &layers, None)
             .unwrap();
         assert_eq!(
             gpu.read_kept().unwrap(),
@@ -161,10 +166,224 @@ fn a_kept_scanout_frame_is_the_reference() {
         );
         assert!(gpu.read_kept().is_err(), "a kept frame is read once");
     }
-    gpu.compose_to_scanout_kept(1, 0x0011_2233, &layers)
+    gpu.compose_to_scanout_kept(1, 0x0011_2233, &layers, None)
         .unwrap();
     gpu.compose(8, 8, 1, &[]).unwrap();
     assert!(gpu.read_kept().is_err(), "a later composition replaced it");
+}
+
+#[test]
+fn rectangles_intersect_and_bound() {
+    let a = Rect {
+        x: -5,
+        y: 0,
+        width: 10,
+        height: 10,
+    };
+    let b = Rect {
+        x: 3,
+        y: 4,
+        width: 10,
+        height: 2,
+    };
+    assert_eq!(
+        a.intersect(&b),
+        Some(Rect {
+            x: 3,
+            y: 4,
+            width: 2,
+            height: 2
+        })
+    );
+    let apart = Rect {
+        x: 5,
+        y: 0,
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(a.intersect(&apart), None, "touching edges share nothing");
+    assert_eq!(
+        a.bounding(&b),
+        Rect {
+            x: -5,
+            y: 0,
+            width: 18,
+            height: 10
+        }
+    );
+}
+
+/// The popup of `layers` moved by (dx, dy), and what that damages: where it was and where it is.
+fn popup_moved<'a>(layers: &[Layer<'a>], dx: i32, dy: i32) -> (Vec<Layer<'a>>, Vec<Rect>) {
+    let mut moved = layers.to_vec();
+    let before = Rect {
+        x: moved[1].x,
+        y: moved[1].y,
+        width: moved[1].width,
+        height: moved[1].height,
+    };
+    moved[1].x += dx;
+    moved[1].y += dy;
+    let after = Rect {
+        x: moved[1].x,
+        y: moved[1].y,
+        ..before
+    };
+    (moved, vec![before, after])
+}
+
+/// Composing only what changed gives the frame the reference composes whole; damage that
+/// leaves out where the popup was leaves it there, so the limit is real.
+#[test]
+fn damaged_composition_is_the_reference() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let first = layers(&window, &popup);
+    // No frame yet: composed whole whatever the damage says.
+    assert_eq!(
+        gpu.compose_damaged(120, 90, 0x0011_2233, &first, &[])
+            .unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &first)
+    );
+    let (second, damage) = popup_moved(&first, 15, -20);
+    assert_eq!(
+        gpu.compose_damaged(120, 90, 0x0011_2233, &second, &damage)
+            .unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &second)
+    );
+    let (third, damage) = popup_moved(&second, -30, 25);
+    let too_small = gpu
+        .compose_damaged(120, 90, 0x0011_2233, &third, &damage[1..])
+        .unwrap();
+    assert_ne!(
+        too_small,
+        compose_cpu(120, 90, 0x0011_2233, &third),
+        "the popup's old place was not composed again"
+    );
+    // A frame of another size holds nothing of this one: composed whole.
+    assert_eq!(
+        gpu.compose_damaged(7, 3, 0x0011_2233, &first, &[]).unwrap(),
+        compose_cpu(7, 3, 0x0011_2233, &first)
+    );
+}
+
+/// Scanout targets alternate: each frame composes its damage and what changed since its target
+/// was last written, and every frame shown is the reference's.
+#[cfg(target_os = "linux")]
+#[test]
+fn damaged_scanout_frames_are_the_reference() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) if gpu.exports_dma_buf() => gpu,
+        Ok(gpu) => {
+            eprintln!("{} exports no DMA-BUF, skipped", gpu.device_name());
+            return;
+        }
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let _targets = gpu.scanout_targets(2, 120, 90).unwrap();
+    let mut frame = layers(&window, &popup);
+    let mut damage: Option<Vec<Rect>> = None;
+    for (index, step) in [
+        (0, (0, 0)),
+        (1, (12, 9)),
+        (0, (-25, 14)),
+        (1, (8, -30)),
+        (0, (3, 3)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index > 0 {
+            let (moved, changed) = popup_moved(&frame, step.1 .0, step.1 .1);
+            frame = moved;
+            damage = Some(changed);
+        }
+        gpu.compose_to_scanout_kept(step.0, 0x0011_2233, &frame, damage.as_deref())
+            .unwrap();
+        assert_eq!(
+            gpu.read_kept().unwrap(),
+            compose_cpu(120, 90, 0x0011_2233, &frame),
+            "frame {index} on target {}",
+            step.0
+        );
+    }
+}
+
+/// Layers whose source the device keeps are not uploaded again, and every frame is still the
+/// reference's: with the same pixels, with a new version of them, and after the source buffer
+/// filled with others and was reclaimed.
+#[test]
+fn kept_sources_are_uploaded_once() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    fn sourced(layers: Vec<Layer<'_>>, version: u64) -> Vec<Layer<'_>> {
+        layers
+            .into_iter()
+            .enumerate()
+            .map(|(index, layer)| Layer {
+                source: Some(Source {
+                    key: index as u64,
+                    version,
+                }),
+                ..layer
+            })
+            .collect()
+    }
+    let first = sourced(layers(&window, &popup), 1);
+    let check = |gpu: &mut VulkanCompositor, frame: &[Layer<'_>]| {
+        assert_eq!(
+            gpu.compose(120, 90, 0x0011_2233, frame).unwrap(),
+            compose_cpu(120, 90, 0x0011_2233, frame)
+        );
+        gpu.last_uploaded_bytes()
+    };
+    let all = ((64 * 48) + (20 * 30)) * 4;
+    assert_eq!(
+        check(&mut gpu, &first),
+        all,
+        "the first frame uploads everything"
+    );
+    assert_eq!(
+        check(&mut gpu, &first),
+        0,
+        "the same versions upload nothing"
+    );
+    // The popup's pixels change: a new version of it, the window's kept.
+    let changed: Vec<u32> = (0..20 * 30).map(|i| 0xff00_0000 | i).collect();
+    let changed = pixels(&changed);
+    let mut second = first.clone();
+    second[1] = Layer {
+        paint: Paint::Premultiplied(&changed),
+        source: Some(Source { key: 1, version: 2 }),
+        ..second[1]
+    };
+    assert_eq!(check(&mut gpu, &second), 20 * 30 * 4);
+    // Many other sources fill the buffer: it is reclaimed, and kept ones are uploaded again.
+    for key in 10..40 {
+        let other = [Layer {
+            source: Some(Source { key, version: 1 }),
+            ..second[0]
+        }];
+        check(&mut gpu, &other);
+    }
+    check(&mut gpu, &second);
+    assert_eq!(check(&mut gpu, &second), 0);
 }
 
 #[test]

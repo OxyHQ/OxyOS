@@ -96,6 +96,13 @@ struct Compositor {
     compositions: Vec<f64>,
     /// For every frame composed: how long reading the clients' buffers took, in ms.
     reads: Vec<f64>,
+    /// For every frame composed: the fraction of the output its damage covers (1 when whole).
+    damaged: Vec<f64>,
+    /// A number for every frame a client submitted, never reused, by surface and sequence:
+    /// what identifies a surface's pixels to the GPU (`oxy_gpu::Source`), since surface ids
+    /// and sequences are the client's and come again when it creates a surface anew.
+    versions: HashMap<(SurfaceKey, u64), u64>,
+    next_version: u64,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -114,6 +121,8 @@ struct Gpu {
     /// For each frame composed for the display: the host's copy into the upload buffer, and
     /// submission to fence (`VulkanCompositor::last_host_ms`), in ms.
     host_ms: Vec<(f64, f64)>,
+    /// The bytes each frame composed for the display uploaded.
+    uploaded: Vec<u64>,
     /// The device's time before and after composing each frame for the display, in ms.
     phases_ms: Vec<(f64, f64)>,
 }
@@ -177,6 +186,7 @@ impl Compositor {
     }
 
     fn disconnect(&mut self, client: ClientId) {
+        self.versions.retain(|(key, _), _| key.client != client);
         self.scene.disconnect(client);
         self.peers.remove(&client);
         self.retire();
@@ -235,6 +245,30 @@ impl Compositor {
         let goodbye = matches!(request, Request::Goodbye {});
         if let Err(code) = self.scene.handle(client, request) {
             return self.fail(client, code);
+        }
+        match request {
+            Request::Submit {
+                surface, sequence, ..
+            } => {
+                self.next_version += 1;
+                self.versions.insert(
+                    (
+                        SurfaceKey {
+                            client,
+                            id: surface,
+                        },
+                        sequence,
+                    ),
+                    self.next_version,
+                );
+            }
+            Request::Destroy { surface } => self.versions.retain(|(key, _), _| {
+                *key != SurfaceKey {
+                    client,
+                    id: surface,
+                }
+            }),
+            _ => {}
         }
         if goodbye {
             self.peers.remove(&client);
@@ -299,19 +333,42 @@ impl Compositor {
             return;
         }
         self.composing_since = monotonic();
+        // What changed on the output since the frame composed last (ADR 0005); everything when
+        // there was none, or after the display came back.
+        let damage = (!self.composed.is_empty()).then(|| output_damage(&self.composed, &list));
+        let area = |rects: &[oxy_gpu::Rect]| {
+            rects
+                .iter()
+                .filter_map(|rect| rect.intersect(&OUTPUT_RECT))
+                .map(|rect| u64::from(rect.width) * u64::from(rect.height))
+                .sum::<u64>()
+        };
+        self.damaged.push(match &damage {
+            Some(rects) => (area(rects) as f64 / area(&[OUTPUT_RECT]) as f64).min(1.0),
+            None => 1.0,
+        });
         // Each surface's pixels, read from its shared buffer, and the covers.
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
         for item in list.iter().copied() {
             match item {
                 RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
-                    Some((extent, format, pixels)) => {
-                        contents.push((rect, extent, Some(format), pixels))
-                    }
+                    Some((extent, format, pixels)) => contents.push((
+                        rect,
+                        extent,
+                        Some(format),
+                        pixels,
+                        self.versions
+                            .get(&(key, frame.sequence))
+                            .map(|&version| oxy_gpu::Source {
+                                key: (u64::from(key.client) << 32) | u64::from(key.id),
+                                version,
+                            }),
+                    )),
                     None => unreadable.push(key.client),
                 },
                 RenderItem::Cover { rect, .. } => {
-                    contents.push((rect, Size::new(1, 1), None, Vec::new()))
+                    contents.push((rect, Size::new(1, 1), None, Vec::new(), None))
                 }
             }
         }
@@ -319,7 +376,7 @@ impl Compositor {
             .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         let layers: Vec<oxy_gpu::Layer<'_>> = contents
             .iter()
-            .map(|(rect, extent, format, pixels)| oxy_gpu::Layer {
+            .map(|(rect, extent, format, pixels, source)| oxy_gpu::Layer {
                 x: rect.x,
                 y: rect.y,
                 width: rect.width,
@@ -330,8 +387,18 @@ impl Compositor {
                     Some(oxy_protocol::Format::Argb8888) => oxy_gpu::Paint::Premultiplied(pixels),
                     None => oxy_gpu::Paint::Fill(0),
                 },
+                source: *source,
             })
             .collect();
+        // Frames older than those composed are never shown again.
+        self.versions.retain(|(key, sequence), _| {
+            list.iter().all(|item| match item {
+                RenderItem::Surface {
+                    key: shown, frame, ..
+                } if shown == key => *sequence >= frame.sequence,
+                _ => true,
+            })
+        });
         // The output is at the origin of the global space.
         if !self.gpu_only {
             self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
@@ -349,10 +416,19 @@ impl Compositor {
         }
         if let (Some(gpu), false) = (&mut self.gpu, self.gpu_only) {
             gpu.frames += 1;
-            match gpu
-                .compositor
-                .compose(OUTPUT.width, OUTPUT.height, DESKTOP, &layers)
-            {
+            let composed = match &damage {
+                Some(damage) => gpu.compositor.compose_damaged(
+                    OUTPUT.width,
+                    OUTPUT.height,
+                    DESKTOP,
+                    &layers,
+                    damage,
+                ),
+                None => gpu
+                    .compositor
+                    .compose(OUTPUT.width, OUTPUT.height, DESKTOP, &layers),
+            };
+            match composed {
                 Ok(pixels) if pixels == self.framebuffer => {}
                 Ok(_) => gpu.mismatches += 1,
                 Err(error) => {
@@ -370,7 +446,7 @@ impl Compositor {
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time, in
         // a later turn (`complete_flip`).
-        if self.present(&layers) {
+        if self.present(&layers, damage.as_deref()) {
             return;
         }
         self.scene.end_frame(0, Clock::Synthetic);
@@ -572,7 +648,7 @@ impl Compositor {
     /// its next refresh (`complete_flip`); true once handed over. With `--gpu` too, the frame
     /// is composed on the Vulkan device straight into a scanout buffer, with no copy through
     /// the CPU. A display error ends display output.
-    fn present(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> bool {
+    fn present(&mut self, layers: &[oxy_gpu::Layer<'_>], damage: Option<&[oxy_gpu::Rect]>) -> bool {
         if self.away {
             return false;
         }
@@ -591,17 +667,29 @@ impl Compositor {
                     ..*layer
                 })
                 .collect();
+            let damage: Option<Vec<oxy_gpu::Rect>> = damage.map(|rects| {
+                rects
+                    .iter()
+                    .map(|rect| oxy_gpu::Rect {
+                        x: rect.x + dx,
+                        y: rect.y + dy,
+                        ..*rect
+                    })
+                    .collect()
+            });
             let back = self.scanout_back;
             let composed = if self.gpu_only {
                 self.shown_kept = true;
                 gpu.compositor
-                    .compose_to_scanout_kept(back, DESKTOP, &shifted)
+                    .compose_to_scanout_kept(back, DESKTOP, &shifted, damage.as_deref())
             } else {
-                gpu.compositor.compose_to_scanout(back, DESKTOP, &shifted)
+                gpu.compositor
+                    .compose_to_scanout(back, DESKTOP, &shifted, damage.as_deref())
             }
             .map_err(|error| std::io::Error::other(error.to_string()));
             gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
             gpu.host_ms.push(gpu.compositor.last_host_ms());
+            gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
             gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
             let submitted = monotonic();
             self.compositions
@@ -757,6 +845,78 @@ impl Compositor {
 }
 
 /// The input events a step can cause, by surface and kind (motion is continuous and left out).
+/// The output, in its pixels.
+const OUTPUT_RECT: oxy_gpu::Rect = oxy_gpu::Rect {
+    x: 0,
+    y: 0,
+    width: OUTPUT.width,
+    height: OUTPUT.height,
+};
+
+/// What changed on the output from one composed frame to the next (ADR 0005): a surface's
+/// rectangle when it is new, gone or shows a new frame, its old and new ones when it moved,
+/// resized or changed places in the stacking, and covers that came or went.
+fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxy_gpu::Rect> {
+    let rect = |rect: Rect| oxy_gpu::Rect {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+    };
+    let surfaces = |list: &[RenderItem]| -> Vec<(SurfaceKey, Rect, oxy_compositor_core::Frame)> {
+        list.iter()
+            .filter_map(|item| match *item {
+                RenderItem::Surface { key, rect, frame } => Some((key, rect, frame)),
+                RenderItem::Cover { .. } => None,
+            })
+            .collect()
+    };
+    let (old, new) = (surfaces(before), surfaces(after));
+    let mut damage = Vec::new();
+    for &(key, now, frame) in &new {
+        match old.iter().find(|(old_key, ..)| *old_key == key) {
+            None => damage.push(rect(now)),
+            Some(&(_, then, _)) if then != now => damage.extend([rect(then), rect(now)]),
+            Some(&(.., then_frame)) if then_frame != frame => damage.push(rect(now)),
+            Some(_) => {}
+        }
+    }
+    for &(key, then, _) in &old {
+        if !new.iter().any(|(new_key, ..)| *new_key == key) {
+            damage.push(rect(then));
+        }
+    }
+    // Surfaces in both whose order among themselves changed show differently where they meet.
+    let order = |list: &[(SurfaceKey, Rect, oxy_compositor_core::Frame)],
+                 other: &[(SurfaceKey, Rect, oxy_compositor_core::Frame)]| {
+        list.iter()
+            .filter(|(key, ..)| other.iter().any(|(other_key, ..)| other_key == key))
+            .map(|&(key, rect, _)| (key, rect))
+            .collect::<Vec<_>>()
+    };
+    let (old_order, new_order) = (order(&old, &new), order(&new, &old));
+    for (then, now) in old_order.iter().zip(&new_order) {
+        if then.0 != now.0 {
+            damage.extend([rect(then.1), rect(now.1)]);
+        }
+    }
+    let covers = |list: &[RenderItem]| -> Vec<RenderItem> {
+        list.iter()
+            .filter(|item| matches!(item, RenderItem::Cover { .. }))
+            .copied()
+            .collect()
+    };
+    let (old_covers, new_covers) = (covers(before), covers(after));
+    for (these, others) in [(&old_covers, &new_covers), (&new_covers, &old_covers)] {
+        for cover in these.iter().filter(|cover| !others.contains(cover)) {
+            if let RenderItem::Cover { rect: cover, .. } = cover {
+                damage.push(rect(*cover));
+            }
+        }
+    }
+    damage
+}
+
 /// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
 fn monotonic() -> std::time::Duration {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
@@ -891,6 +1051,9 @@ impl Session {
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
+            damaged: Vec::new(),
+            versions: HashMap::new(),
+            next_version: 0,
             terminal: None,
             away: false,
         };
@@ -1129,5 +1292,82 @@ fn main() -> Result<()> {
             "usage: oxy-offscreen [--out DIR]\n       oxy-offscreen --launch [--out DIR] [--press X,Y]... -- COMMAND [ARGS]..."
                 .into(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn surface(id: u32, x: i32, sequence: u64) -> RenderItem {
+        RenderItem::Surface {
+            key: SurfaceKey { client: 1, id },
+            rect: Rect {
+                x,
+                y: 0,
+                width: 10,
+                height: 10,
+            },
+            frame: oxy_compositor_core::Frame {
+                sequence,
+                buffer: 1,
+                configure: 1,
+                extent: Size::new(10, 10),
+            },
+        }
+    }
+
+    fn at(x: i32) -> oxy_gpu::Rect {
+        oxy_gpu::Rect {
+            x,
+            y: 0,
+            width: 10,
+            height: 10,
+        }
+    }
+
+    #[test]
+    fn output_damage_is_what_changed() {
+        let before = [surface(1, 0, 1), surface(2, 20, 1)];
+        assert_eq!(output_damage(&before, &before), [], "nothing changed");
+        // A new frame damages its surface; a move damages both places.
+        assert_eq!(
+            output_damage(&before, &[surface(1, 0, 2), surface(2, 20, 1)]),
+            [at(0)]
+        );
+        assert_eq!(
+            output_damage(&before, &[surface(1, 5, 1), surface(2, 20, 1)]),
+            [at(0), at(5)]
+        );
+        // A surface going away damages where it was; a new one where it is.
+        assert_eq!(output_damage(&before, &[surface(1, 0, 1)]), [at(20)]);
+        assert_eq!(output_damage(&[surface(1, 0, 1)], &before), [at(20)]);
+        // Swapped in the stacking: both, where they meet.
+        let swapped = [surface(2, 20, 1), surface(1, 0, 1)];
+        let damage = output_damage(&before, &swapped);
+        assert!(
+            damage.contains(&at(0)) && damage.contains(&at(20)),
+            "{damage:?}"
+        );
+        // A cover that comes damages its rectangle.
+        let cover = RenderItem::Cover {
+            output: 1,
+            rect: Rect {
+                x: 0,
+                y: 0,
+                width: 30,
+                height: 30,
+            },
+        };
+        let covered = [surface(1, 0, 1), surface(2, 20, 1), cover];
+        assert_eq!(
+            output_damage(&before, &covered),
+            [oxy_gpu::Rect {
+                x: 0,
+                y: 0,
+                width: 30,
+                height: 30
+            }]
+        );
     }
 }

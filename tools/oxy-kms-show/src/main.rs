@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let composing = Instant::now();
         if let Some(compositor) = &mut vulkan {
             let back = index % 2;
-            compositor.compose_to_scanout(back, frame.background, &layers)?;
+            compositor.compose_to_scanout(back, frame.background, &layers, None)?;
             compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);
             device_ms.extend(compositor.last_gpu_ms());
             display.present_framebuffer(targets[back])?;
