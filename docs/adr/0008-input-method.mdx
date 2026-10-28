@@ -1,0 +1,76 @@
+---
+title: "ADR 0008: Input methods"
+description: How a text field tells the system what it is editing, how an input method composes text into it, and what an input method may see.
+order: 17
+---
+
+# ADR 0008: Input methods
+
+Status: **proposed**. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, popups, isolation) and on the keyboard as it is (`crates/oxy-input`).
+
+## Problem
+
+Typing on OxyOS is the compositor's keyboard: XKB turns key presses into text, and compose tables turn dead keys and compose sequences into characters (`oxy-input`). An application receives committed text (`Text`) and a pending composition (`Preedit`, its text and a cursor). That is enough for Latin dead keys, and nothing more:
+
+- **No input method can exist.** Chinese, Japanese and Korean need one: a program that turns key presses into candidates, shows them near the caret, and composes long runs of text before committing them. So do emoji pickers, handwriting and voice input. The protocol has no place for such a program.
+- **The field cannot tell anything.** An input method needs what the field holds around the caret (to convert a word already typed, or to predict), where the caret is on screen (to place its candidates), and what the field is for (a password must not reach it; a number field wants digits).
+- **A composition cannot say enough.** `Preedit` is one 32-byte chunk with one cursor. A Japanese composition is often longer, has a selected segment being converted, and may replace text before the caret (Android's `setComposingRegion`, `deleteSurroundingText`).
+- **No order between changes.** A commit that also deletes text before the caret and starts a new composition arrives as separate events, which a field could apply half of.
+
+The Bloom host already applies Android's input connection to its text inputs (composition as text, its commit, key presses as Android reports them); what it receives is the limit.
+
+## Decision
+
+1. **The field describes itself.** A client with a focused text field enables text input on its surface and keeps the compositor told, in one atomic update closed by a commit:
+   - `TextInputEnable { surface }` and `TextInputDisable { surface }`;
+   - `TextInputPurpose { surface, purpose, hints }`: normal, digits, number, phone, URL, email, name, password, PIN, date, time; hints such as no prediction, no capitalisation, sensitive, multiline;
+   - `TextInputSurrounding { surface, text }` in chunks, then `TextInputSelection { surface, anchor, cursor }`: up to 4,000 bytes around the caret, and the selection within them in bytes;
+   - `TextInputCaret { surface, rect }`: the caret's rectangle in surface coordinates;
+   - `TextInputCommit { surface, serial }`: the state is complete. `serial` counts the client's commits; the input method's changes say which commit they were based on (decision 3).
+
+   Only the surface with keyboard focus counts; the others' state is kept and ignored.
+
+2. **The input method is a client with a grant.** An input method is an ordinary client the session grants the `input-method` role, as an assistive technology has the `accessibility` grant (ADR 0003). One at a time; the session chooses it. While a focused field has text input enabled, the input method:
+   - receives that field's state (decision 1), never its surface or its client's identity;
+   - receives the key presses first, through a keyboard grab, and gives back each one it does not use, which then reaches the application as if it had come straight;
+   - may show one popup of a new role, `InputCandidates`, which the compositor places next to the caret's rectangle (ADR 0001's positioner, the caret as the anchor). The input method never learns where the caret is on screen, only the popup's size, as any popup.
+
+   With no input method running, the compositor's keyboard types as it does today, compose tables included.
+
+3. **Changes come as one transaction.** What the input method sends is applied by the field as a whole, in this order, when `Done` arrives:
+   - `DeleteSurrounding { before, after }`: bytes around the selection to delete;
+   - `Commit { text }` in chunks: text to insert at the selection;
+   - `Preedit { text, cursor_begin, cursor_end }` in chunks, with `PreeditStyle { begin, end, style }` segments (whole composition, the segment being converted, an error): the new composition, replacing the old one;
+   - `Done { serial }`: apply them. `serial` is the client's latest commit the input method had seen, so a field whose text changed since then knows the transaction was meant for other text (the role of text-input-v3's serial on Wayland). Such a field applies the commit at its selection and drops the deletion, which could remove text the user did not see.
+
+   The compositor relays these from the input method to the focused client. Today's `Text` and `Preedit` events become a transaction of one, so the compositor's own compose keeps its behaviour.
+
+4. **What an input method may see.**
+   - A field with the `password` or `PIN` purpose, or the `sensitive` hint, never reaches the input method: its keys go straight to the application and its state is not sent. On Android a password field likewise turns off the keyboard's learning and suggestions.
+   - The input method sees only the focused field, and only while it is focused; changing focus deactivates it before anything of the next field is sent.
+   - Surrounding text is bounded: 4,000 bytes around the caret, not the whole field.
+
+5. **Candidates and the caret.** The caret rectangle moves the candidates popup with the caret, as the field scrolls or the window moves; the compositor repositions it as it repositions any popup.
+
+## The Bloom host
+
+The host already speaks Android's input connection to React Native's text input, so it maps the transaction onto it:
+
+- **Its state.** The focused text input enables text input with its purpose: `keyboardType` and `secureTextEntry` give the purpose, `autoCorrect`, `autoCapitalize` and `multiline` the hints. It sends its surrounding text, selection and caret rectangle (from `TextInputGeometry`), committing after every change.
+- **Transactions.** It applies a transaction as one edit: deleting around the selection as Android's `deleteSurroundingText`, the commit as `commitText`, and the composition as `setComposingText` with its cursor range as the selection within it. The undo history records the transaction once the composition ends, as it records a composition now.
+- **Drawing.** The composition is underlined. The segment being converted is drawn as Android's selected composing span: underlined more heavily, with a background.
+- **Events.** React receives what it receives from Android for the same input connection calls (`change`, `selectionChange`, and key presses by the rules already in `textinput.cpp`).
+
+## Order of work
+
+1. **Protocol and scene.** The field's state and its commit, the transaction events (relayed from the compositor's own compose first, with no input method), and chunked compositions. Tests: a composition over 32 bytes, a deletion with a commit as one transaction, a stale serial refused.
+2. **The Bloom host's side.** It sends its state and applies transactions as described, with a scenario that drives transactions directly (the director gains `--transaction`), checking the text, the selection and the exact events.
+3. **The input-method role.** The grant, the keyboard grab with keys given back, the candidates popup, and the sensitive-field rule, with scene tests for each refusal.
+4. **An input method.** A real one is a separate project (the session would run one, such as a port of an existing engine's core); this ADR only makes room for it.
+
+## Consequences
+
+- Chinese, Japanese and Korean input, emoji pickers and other input methods become possible without the compositor knowing any language.
+- Fields say what they are for, and passwords never reach an input method.
+- Compositions of any length, with the segment being converted shown, and changes that apply all at once.
+- Every key press with an input method active takes a round trip through it. That is the latency every desktop with input methods pays, and it is measured when step 3 lands.
