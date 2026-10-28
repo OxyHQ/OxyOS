@@ -6,7 +6,7 @@
 
 #include "renderer.h"
 
-#include <oxy_client.h>
+#include <oxyos_client.h>
 
 #include <react/renderer/core/ReactPrimitives.h>
 
@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 // What a protocol surface shows: the window shows the root (popup subtrees excluded); a popup
 // shows its popup view's children. `origin` is where that content sits in root coordinates, the
@@ -39,7 +39,7 @@ class PointerInput {
 
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
   // touch; a cancel or the pointer leaving cancels it.
-  void handle(const OxyEvent& event);
+  void handle(const OxyOSEvent& event);
   // Scrolls a text input's text by (dx, dy) if it can still move that way (textinput.h); true
   // if it moved. A text input under the pointer takes the wheel before the scroll views around it.
   void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
@@ -72,4 +72,4 @@ class PointerInput {
   std::chrono::steady_clock::time_point epoch_ = std::chrono::steady_clock::now();
 };
 
-}  // namespace oxy
+}  // namespace oxyos

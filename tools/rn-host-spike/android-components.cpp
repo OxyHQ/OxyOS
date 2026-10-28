@@ -3,7 +3,7 @@
 #include <react/renderer/components/scrollview/AndroidHorizontalScrollContentViewComponentDescriptor.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProvider.h>
 
-namespace oxy {
+namespace oxyos {
 
 void addAndroidComponents(facebook::react::ComponentDescriptorProviderRegistry& providers) {
   using namespace facebook::react;
@@ -12,4 +12,4 @@ void addAndroidComponents(facebook::react::ComponentDescriptorProviderRegistry& 
   providers.add(concreteComponentDescriptorProvider<AndroidHorizontalScrollContentViewComponentDescriptor>());
 }
 
-}  // namespace oxy
+}  // namespace oxyos

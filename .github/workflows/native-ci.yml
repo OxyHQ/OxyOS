@@ -28,7 +28,7 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.version }}
           components: rustfmt, clippy
-      # oxy-input links libinput, libudev and xkbcommon; its tests read the keymaps (xkb-data) and
+      # oxyos-input links libinput, libudev and xkbcommon; its tests read the keymaps (xkb-data) and
       # the compose tables the image ships.
       - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data
       - run: cargo fmt --all --check
@@ -37,4 +37,4 @@ jobs:
           XLOCALEDIR: ${{ github.workspace }}/config/includes.chroot_after_packages/usr/share/X11/locale
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 scripts/check-native-boundary.py
-      - run: cargo run --locked -p oxy-platform-probe
+      - run: cargo run --locked -p oxyos-platform-probe

@@ -6,11 +6,11 @@ order: 17
 
 # ADR 0008: Input methods
 
-Status: **accepted**; not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, popups, isolation) and on the keyboard as it is (`crates/oxy-input`).
+Status: **accepted**; not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, popups, isolation) and on the keyboard as it is (`crates/oxyos-input`).
 
 ## Problem
 
-Typing on OxyOS is the compositor's keyboard: XKB turns key presses into text, and compose tables turn dead keys and compose sequences into characters (`oxy-input`). An application receives committed text (`Text`) and a pending composition (`Preedit`, its text and a cursor). That is enough for Latin dead keys, and nothing more:
+Typing on OxyOS is the compositor's keyboard: XKB turns key presses into text, and compose tables turn dead keys and compose sequences into characters (`oxyos-input`). An application receives committed text (`Text`) and a pending composition (`Preedit`, its text and a cursor). That is enough for Latin dead keys, and nothing more:
 
 - **No input method can exist.** Chinese, Japanese and Korean need one: a program that turns key presses into candidates, shows them near the caret, and composes long runs of text before committing them. So do emoji pickers, handwriting and voice input. The protocol has no place for such a program.
 - **The field cannot tell anything.** An input method needs what the field holds around the caret (to convert a word already typed, or to predict), where the caret is on screen (to place its candidates), and what the field is for (a password must not reach it; a number field wants digits).

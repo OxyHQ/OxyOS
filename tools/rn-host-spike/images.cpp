@@ -11,7 +11,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -61,11 +61,11 @@ ResolvedSource resolveImageSource(const std::string& uri) {
   return {"", "no file for the image source " + uri};
 }
 
-Images::Images(ViewTree& tree) : tree_(tree), loader_(oxy_images_new()) {
-  if (!loader_) throw std::runtime_error(std::string("the image loader cannot start: ") + oxy_last_error());
+Images::Images(ViewTree& tree) : tree_(tree), loader_(oxyos_images_new()) {
+  if (!loader_) throw std::runtime_error(std::string("the image loader cannot start: ") + oxyos_last_error());
 }
 
-Images::~Images() { oxy_images_free(loader_); }
+Images::~Images() { oxyos_images_free(loader_); }
 
 void Images::sync(float scale) {
   // Views gone, or no longer images, show nothing more.
@@ -91,7 +91,7 @@ void Images::sync(float scale) {
     auto resolved = resolveImageSource(source->uri);
     shown.key = Key{resolved.path, static_cast<uint32_t>(std::max(0.0f, width)),
                     static_cast<uint32_t>(std::max(0.0f, height)),
-                    static_cast<uint32_t>(covering ? OXY_IMAGE_FIT_COVERING : OXY_IMAGE_FIT_WITHIN)};
+                    static_cast<uint32_t>(covering ? OXYOS_IMAGE_FIT_COVERING : OXYOS_IMAGE_FIT_WITHIN)};
     if (auto it = shown_.find(tag); it != shown_.end() && it->second.key == shown.key && it->second.uri == shown.uri) {
       continue;
     }
@@ -118,9 +118,9 @@ void Images::sync(float scale) {
       shown.loading = ++next_;
       loads_[shown.loading] = {shown.key, shown.sourceScale};
       const auto& path = shown.key.path;
-      if (oxy_images_load(loader_, shown.loading, path.data(), path.size(), shown.key.width, shown.key.height,
+      if (oxyos_images_load(loader_, shown.loading, path.data(), path.size(), shown.key.width, shown.key.height,
                           shown.key.fit) != 0) {
-        std::string error = oxy_last_error();
+        std::string error = oxyos_last_error();
         loads_.erase(shown.loading);
         shown.loading = 0;
         shown_[tag] = shown;
@@ -136,8 +136,8 @@ void Images::sync(float scale) {
 
 bool Images::deliver() {
   bool changed = false;
-  OxyImageAnswer answer;
-  while (oxy_images_answer(loader_, &answer) == OXY_IMAGE_ANSWER) {
+  OxyOSImageAnswer answer;
+  while (oxyos_images_answer(loader_, &answer) == OXYOS_IMAGE_ANSWER) {
     auto load = loads_.find(answer.id);
     if (load == loads_.end()) continue;
     auto [key, sourceScale] = load->second;
@@ -223,4 +223,4 @@ void Images::failed(Tag tag, const Shown& shown, const std::string& error) {
   }
 }
 
-}  // namespace oxy
+}  // namespace oxyos

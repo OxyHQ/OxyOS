@@ -1,5 +1,5 @@
 // What the host showed and delivered, for regression checks (tools/rn-host-spike/regress.py):
-// with OXY_HOST_REPORT=<path>, one JSON object per line.
+// with OXYOS_HOST_REPORT=<path>, one JSON object per line.
 //
 //   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
@@ -9,7 +9,7 @@
 //   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //
-// `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxy-offscreen stamps its steps with, so the
+// `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the
 // two logs line up. Views are named by testID, else by accessibility label, else component#tag.
 #pragma once
 
@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 class ViewTree;
 
@@ -38,7 +38,7 @@ class Report {
   // `presented` is what the surface still shows with a change that drew nothing (a new focus).
   void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
              const std::string& focus, double damaged = 1.0, bool presented = true);
-  // A frame drawn from its damage that differs from the frame drawn whole (OXY_HOST_DAMAGE_CHECK):
+  // A frame drawn from its damage that differs from the frame drawn whole (OXYOS_HOST_DAMAGE_CHECK):
   // `pixels` of them. Any is a defect in the damage.
   void damageMismatch(uint32_t surface, size_t pixels);
   // A compositor event as received.
@@ -67,4 +67,4 @@ class Report {
   std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
 };
 
-}  // namespace oxy
+}  // namespace oxyos

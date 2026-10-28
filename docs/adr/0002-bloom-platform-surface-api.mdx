@@ -1,6 +1,6 @@
 ---
 title: "ADR 0002: Bloom platform surface API"
-description: Proposed app-facing popup/window capability API at Bloom's floating-panel owner, its adapter registration and its mapping onto the Oxy display protocol.
+description: Proposed app-facing popup/window capability API at Bloom's floating-panel owner, its adapter registration and its mapping onto the OxyOS display protocol.
 order: 11
 ---
 
@@ -51,7 +51,7 @@ interface PopupHandle {
 
 `HostSurfaceRef` is the native host's handle for a second root surface rendered by the **same** React tree. The host (#33) renders `FloatingPanel`'s children into it through a host-level portal, so providers, theme, locale, controlled state, event handlers and the accessibility parent relationship stay in one tree. The native anchored panel renders its children there. A React portal alone cannot cross OS window clipping. The native host's multi-surface root makes the difference.
 
-## Mapping onto the Oxy protocol (OxyOS adapter)
+## Mapping onto the OxyOS protocol (OxyOS adapter)
 
 | Bloom | Positioner |
 | --- | --- |
@@ -94,14 +94,14 @@ interface PopupSurfaceProps {
 
 `BloomProvider platform={adapter}` registers it, following the `scrollAdapter`, `back` and `imageResolver` pattern. Native `DropdownMenu` content is `floating/PopupPanel` (the web menu chrome) in it when `popup-surface` is reported; otherwise it keeps the sheet. The other menu families can adopt the same panel.
 
-The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It renders the `OxyPopupView` host component with the anchor's tag, and the host (`popup.cpp`) does the rest:
+The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It renders the `OxyOSPopupView` host component with the anchor's tag, and the host (`popup.cpp`) does the rest:
 - leaves the popup subtree out of the window;
 - opens a protocol popup with the positioner in the table above (flip on the side axis, slide on both), grabbed with the serial of the press that opened it;
 - draws the subtree in premultiplied ARGB;
 - routes the popup's pointer input to it;
 - sends `PopupDone` back as `onDismiss`.
 
-`oxy-offscreen --launch … --expect-popup` checks that the popup extends beyond the window.
+`oxyos-offscreen --launch … --expect-popup` checks that the popup extends beyond the window.
 
 ## Consequences
 

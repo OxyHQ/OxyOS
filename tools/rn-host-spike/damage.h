@@ -1,6 +1,6 @@
 #pragma once
 // What changed in the window between two frames (docs/adr/0005-damage.mdx): the host draws only
-// that (renderer.h's drawDamaged) and tells the compositor (oxy_client_present_damaged).
+// that (renderer.h's drawDamaged) and tells the compositor (oxyos_client_present_damaged).
 
 #include "renderer.h"
 
@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 class WindowDamage {
  public:
@@ -41,4 +41,4 @@ class WindowDamage {
   TextInputEdit edit_;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

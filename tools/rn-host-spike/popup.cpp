@@ -17,11 +17,11 @@ using namespace facebook::react;
 
 namespace facebook::react {
 
-const char OxyPopupViewComponentName[] = "OxyPopupView";
+const char OxyOSPopupViewComponentName[] = "OxyOSPopupView";
 
-OxyPopupViewProps::OxyPopupViewProps(
+OxyOSPopupViewProps::OxyOSPopupViewProps(
     const PropsParserContext& context,
-    const OxyPopupViewProps& sourceProps,
+    const OxyOSPopupViewProps& sourceProps,
     const RawProps& rawProps)
     : ViewProps(context, sourceProps, rawProps),
       anchorTag(convertRawProp(context, rawProps, "anchorTag", sourceProps.anchorTag, -1)),
@@ -32,7 +32,7 @@ OxyPopupViewProps::OxyPopupViewProps(
 
 }  // namespace facebook::react
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -43,15 +43,15 @@ enum Edge : uint8_t { Center = 0, Top = 1, Bottom = 2, Left = 3, Right = 4, TopL
 constexpr uint8_t kSlideX = 1, kSlideY = 2, kFlipX = 4, kFlipY = 8;
 
 bool tracing() {
-  static const bool trace = std::getenv("OXY_HOST_TRACE") != nullptr;
+  static const bool trace = std::getenv("OXYOS_HOST_TRACE") != nullptr;
   return trace;
 }
 
 }  // namespace
 
-OxyPositioner positioner(const OxyPopupViewProps& props, Rect anchor, Size size) {
+OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size size) {
   // Zero-filled (padding included) so positioners compare bytewise.
-  OxyPositioner p;
+  OxyOSPositioner p;
   std::memset(&p, 0, sizeof p);
   p.anchor_x = static_cast<int32_t>(std::floor(anchor.origin.x));
   p.anchor_y = static_cast<int32_t>(std::floor(anchor.origin.y));
@@ -92,7 +92,7 @@ void PopupHost::sync(uint64_t serial) {
       // An open popup follows its anchor and its content's size: place it again when either
       // changed (an inline submenu expanding, the window laid out anew).
       auto& popup = open->second;
-      auto props = std::static_pointer_cast<const OxyPopupViewProps>(view.props);
+      auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
       auto anchor = windowFrame(tree_, props->anchorTag);
       if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
       auto placed = positioner(*props, *anchor, view.layoutMetrics.frame.size);
@@ -106,7 +106,7 @@ void PopupHost::sync(uint64_t serial) {
       }
       continue;
     }
-    auto props = std::static_pointer_cast<const OxyPopupViewProps>(view.props);
+    auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
     auto anchor = windowFrame(tree_, props->anchorTag);
     Size size = view.layoutMetrics.frame.size;
     // Opened once its anchor is mounted and its content laid out.
@@ -158,7 +158,7 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
   }
 }
 
-void PopupHost::dismissed(const OxyEvent& event) {
+void PopupHost::dismissed(const OxyOSEvent& event) {
   for (auto& [tag, popup] : popups_) {
     if (popup.surface != event.surface || popup.dismissed) continue;
     popup.dismissed = true;
@@ -205,7 +205,7 @@ const char* keyName(uint32_t code) {
 
 }  // namespace
 
-void PopupHost::key(const OxyEvent& event) {
+void PopupHost::key(const OxyOSEvent& event) {
   for (auto& [tag, popup] : popups_) {
     if (popup.surface != event.surface || popup.dismissed) continue;
     auto it = tree_.views().find(tag);
@@ -214,9 +214,9 @@ void PopupHost::key(const OxyEvent& event) {
       it->second.view.eventEmitter->dispatchEvent("key", folly::dynamic::object("key", key));
       Report::get().deliver("key", popup.surface, it->second.view, folly::dynamic::object("key", key));
     };
-    if (event.kind == OXY_EVENT_KEY && event.flag) {
+    if (event.kind == OXYOS_EVENT_KEY && event.flag) {
       if (const char* name = keyName(event.code)) send(name);
-    } else if (event.kind == OXY_EVENT_TEXT) {
+    } else if (event.kind == OXYOS_EVENT_TEXT) {
       // One key per character of the committed text (UTF-8 sequences kept whole).
       std::string text(event.text);
       for (size_t i = 0; i < text.size();) {
@@ -241,4 +241,4 @@ std::optional<SurfaceContent> PopupHost::content(uint32_t surface) const {
   return std::nullopt;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

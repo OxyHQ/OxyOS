@@ -6,7 +6,7 @@
 
 #include "renderer.h"
 
-#include <oxy_client.h>
+#include <oxyos_client.h>
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputShadowNode.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 // Android's descriptor without its JNI theme lookup: OxyOS has no platform text-field theme, so a
 // text input takes only the padding its props give it (Bloom styles its own fields).
@@ -63,7 +63,7 @@ class TextEditing {
   // A view command from JavaScript (`focus`, `blur`, `setTextAndSelection`).
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
-  void handle(const OxyEvent& event);
+  void handle(const OxyOSEvent& event);
   // The wheel over an input, focused or not: scrolls its text by (dx, dy) as far as it can go.
   // True if it moved.
   bool scrollText(facebook::react::Tag tag, float dx, float dy);
@@ -82,7 +82,7 @@ class TextEditing {
   void focus(facebook::react::Tag tag);
   void blur();
   void key(uint32_t code);
-  void pointer(const OxyEvent& event);
+  void pointer(const OxyOSEvent& event);
   // The byte offset under a surface-local x, for the focused input.
   std::optional<size_t> offsetAt(uint32_t surface, float x, float y, bool inside) const;
   // Replaces bytes [from, to) with `insert` as the user's edit, the caret after it: new state,
@@ -155,4 +155,4 @@ class TextEditing {
   int eventCount_ = 0;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

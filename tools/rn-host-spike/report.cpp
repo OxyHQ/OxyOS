@@ -9,7 +9,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -27,7 +27,7 @@ Report& Report::get() {
 }
 
 Report::Report() {
-  if (const char* path = std::getenv("OXY_HOST_REPORT")) file_ = std::fopen(path, "w");
+  if (const char* path = std::getenv("OXYOS_HOST_REPORT")) file_ = std::fopen(path, "w");
 }
 
 std::string Report::name(const ShadowView& view) {
@@ -110,4 +110,4 @@ void Report::popup(const char* event, uint32_t surface, const ShadowView* view, 
   write(std::move(line));
 }
 
-}  // namespace oxy
+}  // namespace oxyos

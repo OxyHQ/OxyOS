@@ -1,7 +1,7 @@
 # OxyOS target-runtime manifest: the Debian base the native platform runs on.
 # There is no graphical session yet. Do not add a display server, compositor,
 # greeter, browser shell or desktop application here: none of them run on the
-# Oxy display protocol, and scripts/check-image-config.py rejects them.
+# OxyOS display protocol, and scripts/check-image-config.py rejects them.
 
 # Live system
 live-boot

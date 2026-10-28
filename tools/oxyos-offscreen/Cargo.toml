@@ -1,0 +1,24 @@
+[package]
+name = "oxyos-offscreen"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-protocol = { path = "../../crates/oxyos-protocol" }
+oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
+oxyos-ipc = { path = "../../crates/oxyos-ipc" }
+oxyos-client = { path = "../../crates/oxyos-client" }
+oxyos-gpu = { path = "../../crates/oxyos-gpu" }
+oxyos-kms = { path = "../../crates/oxyos-kms" }
+oxyos-input = { path = "../../crates/oxyos-input" }
+oxyos-vt = { path = "../../crates/oxyos-vt" }
+oxyos-seat = { path = "../../crates/oxyos-seat" }
+oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+# Virtual devices for `--launch --uinput`: the director types and points through the kernel.
+evdev = "0.13"
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time"] }
+
+[lints]
+workspace = true

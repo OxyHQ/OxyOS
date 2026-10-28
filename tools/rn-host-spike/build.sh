@@ -105,26 +105,26 @@ patch -s -d "$WORK/textinput" -p1 < "$HERE/patches/react-native-androidtextinput
 
 # The display protocol client the host links (the repository's Cargo workspace).
 REPO=$(cd "$HERE/../.." && pwd)
-cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-client-ffi
-OXY_CLIENT_LIB="$REPO/target/release/liboxy_client_ffi.a"
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxyos-client-ffi
+OXYOS_CLIENT_LIB="$REPO/target/release/liboxyos_client_ffi.a"
 
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DICU_SYSROOT="$WORK/icu/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
-  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" \
+  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXYOS_CLIENT_LIB="$OXYOS_CLIENT_LIB" \
   -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
-ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
+ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host
 
 # Fabric alone: a tree built through nativeFabricUIManager.
-host-build/oxy-rn-spike "$HERE/tree.js"
+host-build/oxyos-rn-spike "$HERE/tree.js"
 
 # React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
 # compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
 # resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
 (cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
-OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
-  host-build/oxy-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
+OXYOS_SCRIPT_URL="file://$WORK/sample/index.js" \
+  host-build/oxyos-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
 
 # The same app in a window, as a regression: the offscreen compositor launches the host as its own
 # process, which presents through the display protocol, and drives scenarios/sample.json. Each
@@ -132,31 +132,31 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 # events React received (no duplicate or leaked one) and a latency budget (regress.py). The menu
 # steps need Bloom 15.61.0 or later (the platform adapter, OxyHQ/Bloom#507, and the text field's
 # reading order, #511): Bloom's main has both; point BLOOM_DIR at such a checkout.
-cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
-# With OXY_GPU=1 every frame is also composed on a Vulkan device and must match the CPU
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxyos-offscreen
+# With OXYOS_GPU=1 every frame is also composed on a Vulkan device and must match the CPU
 # composition byte for byte (docs/adr/0004-gpu-composition.mdx).
-python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" ${OXY_GPU:+--gpu} --offscreen "$REPO/target/release/oxy-offscreen" \
-  --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
+python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" ${OXYOS_GPU:+--gpu} --offscreen "$REPO/target/release/oxyos-offscreen" \
+  --host "$WORK/host-build/oxyos-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
 # A secure field's text is drawn as bullets and never reported or published to an assistive
 # technology (docs/adr/0003-accessibility-protocol.mdx).
 python3 "$HERE/regress.py" "$HERE/scenarios/secure-field.json" \
-  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-secure"
 # React Native's Android APIs that OxyOS does not provide fail visibly; the rest answer truthfully
 # (docs/react-native-android-adaptation.mdx).
 python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
-  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-adaptation"
 # Editing keys in single-line and multiline fields: where each leaves the text and the selection.
 python3 "$HERE/regress.py" "$HERE/scenarios/text-editing.json" \
-  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-editing"
-# fetch and XMLHttpRequest through the network in Rust (crates/oxy-net), against a local server the
+# fetch and XMLHttpRequest through the network in Rust (crates/oxyos-net), against a local server the
 # regression runs.
 python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \
-  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-network"
 # Images: a wallpaper frame and the shell's app artwork, their load events and the output's pixels.
 python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
-  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-images"

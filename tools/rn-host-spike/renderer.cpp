@@ -24,7 +24,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 void ViewTree::apply(const ShadowViewMutationList& mutations) {
   for (const auto& m : mutations) {
@@ -503,8 +503,8 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
-  // Debug aid: OXY_HOST_DUMP=1 prints every drawn view, indented by depth.
-  static const bool dump = std::getenv("OXY_HOST_DUMP") != nullptr;
+  // Debug aid: OXYOS_HOST_DUMP=1 prints every drawn view, indented by depth.
+  static const bool dump = std::getenv("OXYOS_HOST_DUMP") != nullptr;
   static int depth = 0;
   struct Depth {
     bool entered;
@@ -920,4 +920,4 @@ RenderStats render(const ViewTree& tree, const Display& display, const std::stri
   return stats;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

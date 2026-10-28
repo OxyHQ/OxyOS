@@ -1109,50 +1109,50 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-client"
+name = "oxyos-client"
 version = "0.1.0"
 dependencies = [
- "oxy-ipc",
- "oxy-protocol",
+ "oxyos-ipc",
+ "oxyos-protocol",
  "rustix",
 ]
 
 [[package]]
-name = "oxy-client-ffi"
+name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
- "oxy-client",
- "oxy-image",
- "oxy-ipc",
- "oxy-net",
- "oxy-protocol",
+ "oxyos-client",
+ "oxyos-image",
+ "oxyos-ipc",
+ "oxyos-net",
+ "oxyos-protocol",
  "rustix",
 ]
 
 [[package]]
-name = "oxy-compositor"
+name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
- "oxy-compositor-core",
- "oxy-gpu",
- "oxy-input",
- "oxy-ipc",
- "oxy-kms",
- "oxy-protocol",
- "oxy-seat",
- "oxy-vt",
+ "oxyos-compositor-core",
+ "oxyos-gpu",
+ "oxyos-input",
+ "oxyos-ipc",
+ "oxyos-kms",
+ "oxyos-protocol",
+ "oxyos-seat",
+ "oxyos-vt",
  "rustix",
 ]
 
 [[package]]
-name = "oxy-compositor-core"
+name = "oxyos-compositor-core"
 version = "0.1.0"
 dependencies = [
- "oxy-protocol",
+ "oxyos-protocol",
 ]
 
 [[package]]
-name = "oxy-gpu"
+name = "oxyos-gpu"
 version = "0.1.0"
 dependencies = [
  "ash",
@@ -1160,7 +1160,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-image"
+name = "oxyos-image"
 version = "0.1.0"
 dependencies = [
  "moxcms",
@@ -1169,7 +1169,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-input"
+name = "oxyos-input"
 version = "0.1.0"
 dependencies = [
  "input",
@@ -1178,15 +1178,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-ipc"
+name = "oxyos-ipc"
 version = "0.1.0"
 dependencies = [
- "oxy-protocol",
+ "oxyos-protocol",
  "rustix",
 ]
 
 [[package]]
-name = "oxy-kms"
+name = "oxyos-kms"
 version = "0.1.0"
 dependencies = [
  "drm",
@@ -1195,22 +1195,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-kms-probe"
+name = "oxyos-kms-probe"
 version = "0.1.0"
 dependencies = [
- "oxy-kms",
+ "oxyos-kms",
 ]
 
 [[package]]
-name = "oxy-kms-show"
+name = "oxyos-kms-show"
 version = "0.1.0"
 dependencies = [
- "oxy-gpu",
- "oxy-kms",
+ "oxyos-gpu",
+ "oxyos-kms",
 ]
 
 [[package]]
-name = "oxy-net"
+name = "oxyos-net"
 version = "0.1.0"
 dependencies = [
  "cookie_store",
@@ -1219,37 +1219,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-offscreen"
+name = "oxyos-offscreen"
 version = "0.1.0"
 dependencies = [
  "evdev",
- "oxy-client",
- "oxy-compositor",
- "oxy-compositor-core",
- "oxy-gpu",
- "oxy-input",
- "oxy-ipc",
- "oxy-kms",
- "oxy-protocol",
- "oxy-seat",
- "oxy-vt",
+ "oxyos-client",
+ "oxyos-compositor",
+ "oxyos-compositor-core",
+ "oxyos-gpu",
+ "oxyos-input",
+ "oxyos-ipc",
+ "oxyos-kms",
+ "oxyos-protocol",
+ "oxyos-seat",
+ "oxyos-vt",
  "rustix",
 ]
 
 [[package]]
-name = "oxy-platform-probe"
+name = "oxyos-platform-probe"
 version = "0.1.0"
 dependencies = [
- "oxy-compositor-core",
- "oxy-protocol",
+ "oxyos-compositor-core",
+ "oxyos-protocol",
 ]
 
 [[package]]
-name = "oxy-protocol"
+name = "oxyos-protocol"
 version = "0.1.0"
 
 [[package]]
-name = "oxy-seat"
+name = "oxyos-seat"
 version = "0.1.0"
 dependencies = [
  "rustix",
@@ -1257,23 +1257,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "oxy-session"
+name = "oxyos-session"
 version = "0.1.0"
 dependencies = [
- "oxy-compositor",
- "oxy-compositor-core",
- "oxy-gpu",
- "oxy-input",
- "oxy-ipc",
- "oxy-kms",
- "oxy-protocol",
- "oxy-seat",
+ "oxyos-compositor",
+ "oxyos-compositor-core",
+ "oxyos-gpu",
+ "oxyos-input",
+ "oxyos-ipc",
+ "oxyos-kms",
+ "oxyos-protocol",
+ "oxyos-seat",
  "rustix",
  "signal-hook",
 ]
 
 [[package]]
-name = "oxy-vt"
+name = "oxyos-vt"
 version = "0.1.0"
 dependencies = [
  "rustix",

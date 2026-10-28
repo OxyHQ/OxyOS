@@ -169,7 +169,7 @@ class Beat : public EventBeat {
 
 class Mounter : public SchedulerDelegate {
  public:
-  explicit Mounter(oxy::ViewTree& tree) : tree_(tree) {}
+  explicit Mounter(oxyos::ViewTree& tree) : tree_(tree) {}
   void attach(const Scheduler* scheduler) { scheduler_ = scheduler; }
   int transactions = 0;
   void schedulerDidFinishTransaction(const std::shared_ptr<const MountingCoordinator>& coordinator) override {
@@ -227,7 +227,7 @@ class Mounter : public SchedulerDelegate {
   void schedulerDidClearPendingSnapshots() override {}
 
  private:
-  oxy::ViewTree& tree_;
+  oxyos::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
   bool changed_ = false;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
@@ -249,25 +249,25 @@ void crashed(int signal) {
 }
 
 void stage(const char* name) {
-  if (std::getenv("OXY_HOST_TRACE")) std::cerr << "[host] " << name << "\n";
+  if (std::getenv("OXYOS_HOST_TRACE")) std::cerr << "[host] " << name << "\n";
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::cerr << "usage: oxy-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
+    std::cerr << "usage: oxyos-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
                  "  OUT.png   run until the app settles, then draw it into OUT.png\n"
-                 "  --window  present it in a window on the compositor at $OXY_COMPOSITOR_SOCKET\n";
+                 "  --window  present it in a window on the compositor at $OXYOS_COMPOSITOR_SOCKET\n";
     return 2;
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
   const bool windowed = outPath == "--window";
-  const char* socket = std::getenv("OXY_COMPOSITOR_SOCKET");
+  const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
   if (windowed && !socket) {
-    std::cerr << "--window needs OXY_COMPOSITOR_SOCKET\n";
+    std::cerr << "--window needs OXYOS_COMPOSITOR_SOCKET\n";
     return 2;
   }
   const float width = argc > 5 ? std::stof(argv[4]) : 1024;
@@ -275,7 +275,7 @@ int main(int argc, char** argv) {
 
   for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"}) {
-    if (std::ifstream(path).good()) oxy::TextEngine::shared().addFallback(path);
+    if (std::ifstream(path).good()) oxyos::TextEngine::shared().addFallback(path);
   }
   ReactNativeFeatureFlags::override(std::make_unique<Flags>());
   auto loop = std::make_shared<Loop>();
@@ -299,18 +299,18 @@ int main(int argc, char** argv) {
   timerManager->setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
   loop->drain();
 
-  oxy::Display display{width, height, 1.0f};
+  oxyos::Display display{width, height, 1.0f};
   auto invoker = instance->createJSCallInvoker();
   // Blobs and the network (network.h): answers reach JavaScript as RCTDeviceEventEmitter events,
   // from the loop below, each with its arguments as one array, as Android emits them.
-  oxy::BlobStore blobs;
-  oxy::Networking networking(blobs, [&instance](const std::string& event, folly::dynamic args) {
+  oxyos::BlobStore blobs;
+  oxyos::Networking networking(blobs, [&instance](const std::string& event, folly::dynamic args) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
   });
-  oxy::HostServices services{blobs, networking};
-  oxy::WorkletsHost worklets;
+  oxyos::HostServices services{blobs, networking};
+  oxyos::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
-  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
+  oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
     // console.* in React Native writes through nativeLoggingHook(message, level).
     rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
@@ -326,7 +326,7 @@ int main(int argc, char** argv) {
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
           if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
-          if (auto module = oxy::createHostModule(name, invoker, display, services)) return module;
+          if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
           std::cerr << "[host] TurboModule unavailable: " << name << "\n";
           return nullptr;
@@ -349,9 +349,9 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<oxy::TextInputComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<OxyPopupViewComponentDescriptor>());
-  oxy::addAndroidComponents(*providers);
+  providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
+  oxyos::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
     auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
@@ -369,28 +369,28 @@ int main(int argc, char** argv) {
     return std::make_unique<Beat>(std::move(owner), *runtimeScheduler);
   };
 
-  oxy::ViewTree tree;
+  oxyos::ViewTree tree;
   Mounter mounter(tree);
   // What Image views show (images.h), loaded at the size they are drawn.
-  oxy::Images images(tree);
+  oxyos::Images images(tree);
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
 
   // In a window, the compositor's configure decides the size the app lays out at.
-  std::unique_ptr<oxy::Window> window;
+  std::unique_ptr<oxyos::Window> window;
   if (windowed) {
     try {
-      window = std::make_unique<oxy::Window>(socket, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+      window = std::make_unique<oxyos::Window>(socket, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
       while (!window->configured()) {
-        if (!window->dispatch([](const OxyEvent&) {})) {
+        if (!window->dispatch([](const OxyOSEvent&) {})) {
           std::cerr << "[host] the compositor closed the connection before configuring the window\n";
           return 1;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       window->resized();
-      display = oxy::Display{window->width(), window->height(), window->scale()};
+      display = oxyos::Display{window->width(), window->height(), window->scale()};
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";
       return 1;
@@ -417,66 +417,66 @@ int main(int argc, char** argv) {
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
     int status = 0;
-    oxy::AccessibilityBridge accessibility(tree, *window);
-    oxy::PopupHost popups(tree, *window, accessibility);
-    oxy::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxy::SurfaceContent> {
-      if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.surface = surface, .view = tree.root()};
+    oxyos::AccessibilityBridge accessibility(tree, *window);
+    oxyos::PopupHost popups(tree, *window, accessibility);
+    oxyos::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
+      if (surface == oxyos::Window::kToplevel) return oxyos::SurfaceContent{.surface = surface, .view = tree.root()};
       return popups.content(surface);
     });
-    oxy::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxy::Placement> {
-      auto frame = oxy::windowFrame(tree, view);
+    oxyos::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxyos::Placement> {
+      auto frame = oxyos::windowFrame(tree, view);
       if (!frame) return std::nullopt;
       uint32_t surface = popups.surfaceOf(view);
       // A popup's content is drawn relative to its popup view.
-      if (surface != oxy::Window::kToplevel) {
+      if (surface != oxyos::Window::kToplevel) {
         auto content = popups.content(surface);
         if (!content) return std::nullopt;
         frame->origin.x -= content->origin.x;
         frame->origin.y -= content->origin.y;
       }
-      return oxy::Placement{.surface = surface, .frame = *frame};
+      return oxyos::Placement{.surface = surface, .frame = *frame};
     });
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
-      return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);
+      return it == tree.views().end() ? std::string() : oxyos::Report::name(it->second.view);
     };
     // Compositor input as received, for the report (motion is left out: it is continuous).
-    auto report = [&](const OxyEvent& event) {
-      auto& r = oxy::Report::get();
+    auto report = [&](const OxyOSEvent& event) {
+      auto& r = oxyos::Report::get();
       if (!r.enabled()) return;
       static const char* pointer[] = {"", "pointer.enter", "pointer.leave", "", "pointer.press", "pointer.release",
                                       "pointer.cancel"};
-      if (event.kind == OXY_EVENT_POINTER && event.detail != OXY_POINTER_MOTION && event.detail <= 6) {
+      if (event.kind == OXYOS_EVENT_POINTER && event.detail != OXYOS_POINTER_MOTION && event.detail <= 6) {
         r.input(pointer[event.detail], event.surface);
-      } else if (event.kind == OXY_EVENT_KEY) {
+      } else if (event.kind == OXYOS_EVENT_KEY) {
         r.input(event.flag ? "key.press" : "key.release", event.surface, folly::dynamic::object("code", event.code));
-      } else if (event.kind == OXY_EVENT_TEXT) {
+      } else if (event.kind == OXYOS_EVENT_TEXT) {
         r.input("text", event.surface, folly::dynamic::object("text", editing.logged(std::string(event.text))));
-      } else if (event.kind == OXY_EVENT_PREEDIT) {
+      } else if (event.kind == OXYOS_EVENT_PREEDIT) {
         r.input("preedit", event.surface,
                 folly::dynamic::object("text", editing.logged(std::string(event.text)))("cursor", event.detail));
-      } else if (event.kind == OXY_EVENT_SCROLL) {
+      } else if (event.kind == OXYOS_EVENT_SCROLL) {
         r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
-      } else if (event.kind == OXY_EVENT_FOCUS) {
+      } else if (event.kind == OXYOS_EVENT_FOCUS) {
         r.input(event.flag ? "focus.in" : "focus.out", event.surface);
-      } else if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION) {
+      } else if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION) {
         r.input("a11y.action", event.surface, folly::dynamic::object("index", event.code)("action", event.detail));
-      } else if (event.kind == OXY_EVENT_POPUP_DONE) {
+      } else if (event.kind == OXYOS_EVENT_POPUP_DONE) {
         r.input("popup.done", event.surface, folly::dynamic::object("reason", event.detail));
       }
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
-    oxy::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
+    oxyos::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
     std::vector<std::string> shownTexts;  // the texts of the window's latest frame
     // The window's frame as last drawn: the next one draws only what changed (damage.h).
-    oxy::Canvas windowCanvas;
-    oxy::WindowDamage windowDamage;
-    // OXY_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
-    static const bool checkDamage = std::getenv("OXY_HOST_DAMAGE_CHECK") != nullptr;
+    oxyos::Canvas windowCanvas;
+    oxyos::WindowDamage windowDamage;
+    // OXYOS_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
+    static const bool checkDamage = std::getenv("OXYOS_HOST_DAMAGE_CHECK") != nullptr;
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
@@ -484,12 +484,12 @@ int main(int argc, char** argv) {
     // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
       std::string within;
-      auto path = oxy::ancestry(tree, view.tag);
+      auto path = oxyos::ancestry(tree, view.tag);
       for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
         auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
         if (props && !props->testId.empty()) within = props->testId;
       }
-      oxy::Report::get().accessibilityEvent(type, view, within);
+      oxyos::Report::get().accessibilityEvent(type, view, within);
       if (type == "focus") {
         accessibility.focus(view.tag);
         dirty = true;
@@ -505,20 +505,20 @@ int main(int argc, char** argv) {
         worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
-        if (!window->dispatch([&](const OxyEvent& event) {
-              if ((event.kind == OXY_EVENT_POINTER && event.detail == OXY_POINTER_PRESS) ||
-                  (event.kind == OXY_EVENT_KEY && event.flag) ||
-                  (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && event.detail == OXY_ACTION_ACTIVATE)) {
+        if (!window->dispatch([&](const OxyOSEvent& event) {
+              if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
+                  (event.kind == OXYOS_EVENT_KEY && event.flag) ||
+                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE)) {
                 lastPress = event.serial;
               }
               report(event);
-              if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
+              if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
               // An assistive technology's action; a focus move needs new snapshots.
-              if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
+              if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
                 dirty = true;
                 popups.changed();
               }
-              if (event.kind == OXY_EVENT_KEY || event.kind == OXY_EVENT_TEXT) popups.key(event);
+              if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
               pointer.handle(event);
               editing.handle(event);
             })) {
@@ -532,7 +532,7 @@ int main(int argc, char** argv) {
         }
         bool resized = window->resized();
         if (resized) {
-          display = oxy::Display{window->width(), window->height(), window->scale()};
+          display = oxyos::Display{window->width(), window->height(), window->scale()};
           layOut();
           // A new size or scale needs a new frame even when the layout does not change (a
           // scale change keeps every logical frame); the old one would be discarded.
@@ -553,51 +553,51 @@ int main(int argc, char** argv) {
           popups.changed();
         }
         popups.sync(lastPress);
-        if (dirty && window->ready(oxy::Window::kToplevel)) {
+        if (dirty && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
           if (damage && damage->empty()) {
             // Nothing visible changed (focus moved to a popup, say): nothing is drawn or presented.
             // The report still learns the focus, with the texts of the frame shown.
-            oxy::Report::get().frame(oxy::Window::kToplevel, windowCanvas.width, windowCanvas.height, 0, shownTexts,
+            oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, 0, shownTexts,
                                      focusName(), 0, false);
-            accessibility.publish(oxy::Window::kToplevel, tree.root());
+            accessibility.publish(oxyos::Window::kToplevel, tree.root());
             dirty = false;
           } else {
-            auto stats = damage ? oxy::drawDamaged(tree, display, windowCanvas, drawn, *damage)
-                                : oxy::draw(tree, display, windowCanvas, drawn);
+            auto stats = damage ? oxyos::drawDamaged(tree, display, windowCanvas, drawn, *damage)
+                                : oxyos::draw(tree, display, windowCanvas, drawn);
             shownTexts = stats.textContent;
             double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
             if (checkDamage && damage) {
-              oxy::Canvas whole;
-              oxy::draw(tree, display, whole, drawn);
+              oxyos::Canvas whole;
+              oxyos::draw(tree, display, whole, drawn);
               size_t differing = 0;
               for (size_t i = 0; i < whole.pixels.size() && i < windowCanvas.pixels.size(); ++i) {
                 differing += whole.pixels[i] != windowCanvas.pixels[i];
               }
               if (differing) {
                 std::cerr << "[host] a frame drawn from its damage differs in " << differing << " pixels\n";
-                oxy::Report::get().damageMismatch(oxy::Window::kToplevel, differing);
+                oxyos::Report::get().damageMismatch(oxyos::Window::kToplevel, differing);
               }
             }
             // The damage in the canvas's pixels, rounded outward.
-            std::vector<OxyRect> pixels;
+            std::vector<OxyOSRect> pixels;
             for (const auto& rect : damage.value_or(std::vector<facebook::react::Rect>{})) {
               auto x0 = static_cast<int32_t>(std::floor(rect.origin.x * display.scale));
               auto y0 = static_cast<int32_t>(std::floor(rect.origin.y * display.scale));
               auto x1 = static_cast<int32_t>(std::ceil((rect.origin.x + rect.size.width) * display.scale));
               auto y1 = static_cast<int32_t>(std::ceil((rect.origin.y + rect.size.height) * display.scale));
-              pixels.push_back(OxyRect{x0, y0, static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)});
+              pixels.push_back(OxyOSRect{x0, y0, static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)});
             }
-            window->present(oxy::Window::kToplevel, windowCanvas, pixels);
+            window->present(oxyos::Window::kToplevel, windowCanvas, pixels);
             // The share of the window drawn again (overlaps counted once per rectangle, at most 1).
             double area = 0;
             for (const auto& rect : pixels) area += static_cast<double>(rect.width) * rect.height;
             double whole = static_cast<double>(windowCanvas.width) * windowCanvas.height;
             double damaged = pixels.empty() ? 1.0 : std::min(1.0, area / std::max(whole, 1.0));
-            oxy::Report::get().frame(oxy::Window::kToplevel, windowCanvas.width, windowCanvas.height, renderMs,
+            oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, renderMs,
                                      stats.textContent, focusName(), damaged);
-            accessibility.publish(oxy::Window::kToplevel, tree.root());
+            accessibility.publish(oxyos::Window::kToplevel, tree.root());
             dirty = false;
             busy = true;
           }
@@ -643,7 +643,7 @@ int main(int argc, char** argv) {
   }
 
   stage("render");
-  auto stats = oxy::render(tree, display, outPath);
+  auto stats = oxyos::render(tree, display, outPath);
   std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"bridgeless\":true,\"transactions\":"
             << mounter.transactions << ",\"views\":" << stats.views << ",\"texts\":" << stats.texts
             << ",\"unimplemented\":" << stats.unimplemented << ",\"js_errors\":" << jsErrors

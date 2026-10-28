@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regression scenarios for the native Bloom host on the offscreen compositor.
 
-Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its report
-(OXY_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
+Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing its report
+(OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
   window and popups (each surface's latest presented frame);
@@ -51,7 +51,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
-# The fields of a director record that repeat the step's own instruction (oxy-offscreen launch.rs).
+# The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "drag", "key", "move_window",
              "resize_window", "scale", "a11y_action", "expect_popup", "switch_terminal"}
 
@@ -156,7 +156,7 @@ def latest_frames(report, until, closed_before):
 
 
 def png_pixel_reader(path):
-    """A function giving the RGB colour at (x, y) of a PNG the director wrote (oxy-offscreen's
+    """A function giving the RGB colour at (x, y) of a PNG the director wrote (oxyos-offscreen's
     png.rs): 8-bit RGB rows, none filtered. Any other PNG is refused."""
     data = pathlib.Path(path).read_bytes()
     width, height, depth, kind = struct.unpack(">IIBB", data[16:26])
@@ -360,7 +360,7 @@ def main():
     parser.add_argument("--kms", default=None,
                         help="show every composed frame on this DRM card (needs DRM master)")
     parser.add_argument("--dump-frames", default=None,
-                        help="write the frame after each step as layers (oxy-gpu's replay example)")
+                        help="write the frame after each step as layers (oxyos-gpu's replay example)")
     parser.add_argument("--gpu", action="store_true",
                         help="also compose every frame on a Vulkan device; any difference fails")
     parser.add_argument("--check-damage", action="store_true",
@@ -370,7 +370,7 @@ def main():
     options = parser.parse_args()
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
-    out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxy-regress-"))
+    out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "host-report.jsonl"
     bundle = pathlib.Path(options.bundle).resolve() / "index.js"
@@ -396,7 +396,7 @@ def main():
     # Steps checked one by one below: refuse a scenario whose steps the director would not run.
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
-    env = dict(os.environ, OXY_HOST_REPORT=str(report_path), OXY_SCRIPT_URL=f"file://{bundle}")
+    env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
     # A local server for the scenario's probe, for as long as the run lasts, and the port after
     # it held bound without listening, so that connecting there is refused at once and nothing
     # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).
@@ -408,7 +408,7 @@ def main():
         refusing = socket.socket()
         refusing.bind(("127.0.0.1", port + 1))
     if options.check_damage:
-        env["OXY_HOST_DAMAGE_CHECK"] = "1"
+        env["OXYOS_HOST_DAMAGE_CHECK"] = "1"
     run = subprocess.run(command, env=env, capture_output=True, text=True)
     (out / "director.log").write_text(run.stdout + run.stderr)
     if run.returncode != 0:

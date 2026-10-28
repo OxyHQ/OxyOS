@@ -2,14 +2,14 @@
 // native half of XMLHttpRequest, and so of fetch and axios, as React Native's Android
 // implementation exposes it (Networking, BlobModule, FileReaderModule).
 //
-// The requests themselves are Rust's (crates/oxy-net, through oxy_client.h): TLS, redirects,
+// The requests themselves are Rust's (crates/oxyos-net, through oxyos_client.h): TLS, redirects,
 // compression, a cookie jar for the process, timeouts, each request on a thread of its own. This
 // side turns what they answer into React Native's events on the JavaScript thread (`deliver`).
 // What OxyOS does not support yet fails the request with a message, never silently: file uploads
 // in multipart bodies.
 #pragma once
 
-#include "oxy_client.h"
+#include "oxyos_client.h"
 
 #include <folly/dynamic.h>
 
@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 std::string base64Encode(const std::string& bytes);
 std::optional<std::string> base64Decode(const std::string& text);
@@ -89,9 +89,9 @@ class Networking {
 
   BlobStore& blobs_;
   Emit emit_;
-  OxyNet* net_;
+  OxyOSNet* net_;
   std::map<int64_t, Live> live_;
   std::deque<std::pair<int64_t, std::string>> rejected_;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

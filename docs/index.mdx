@@ -12,7 +12,7 @@ OxyOS is being rebuilt as a native Linux platform: an Oxy display compositor and
 
 ## Status
 
-- The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 2), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. The compositor session itself drives no display yet. `oxy-gpu` composes frames on the CPU and on Vulkan, and `oxy-kms` shows them on a real output through DRM/KMS ([ADR 0004](./adr/0004-gpu-composition)). The Bloom host renders Bloom offscreen.
+- The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 2), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. The compositor session itself drives no display yet. `oxyos-gpu` composes frames on the CPU and on Vulkan, and `oxyos-kms` shows them on a real output through DRM/KMS ([ADR 0004](./adr/0004-gpu-composition)). The Bloom host renders Bloom offscreen.
 - `config/` builds a console-only Debian base system. There is no graphical session, and no OxyOS image is published until the native session and its boot acceptance tests exist.
 - The earlier React/Tauri shell on labwc/greetd is retired. See [Retired desktop stack](./retired-desktop-stack).
 
@@ -25,7 +25,7 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 3. [Build and verify the native foundation](./native-foundation): checks, the experimental wire contract and core state transitions.
 4. [ADR 0001: Native platform boundaries](./adr/0001-native-platform-boundaries): process split, ownership, surface roles, coordinates, grabs, popup and lock policy.
 5. [ADR 0002: Bloom platform surface API](./adr/0002-bloom-platform-surface-api): how Bloom's menus reach popup surfaces through an adapter (implemented in Bloom 15.61.0).
-6. [ADR 0003: Accessibility in the Oxy display protocol](./adr/0003-accessibility-protocol): how applications publish accessibility trees, how an assistive technology reads and acts on them, and what stays private.
+6. [ADR 0003: Accessibility in the OxyOS display protocol](./adr/0003-accessibility-protocol): how applications publish accessibility trees, how an assistive technology reads and acts on them, and what stays private.
 7. [ADR 0004: GPU composition and output](./adr/0004-gpu-composition): Vulkan composition checked against the CPU reference, and the order of work toward DMA-BUF, synchronization and DRM/KMS output.
 8. [ADR 0005: Damage](./adr/0005-damage): composing, uploading and drawing only what changed, from the output's damage to the protocol's and the Bloom host's.
 9. [ADR 0006: The compositor's seat through logind](./adr/0006-seat): the compositor as the user of a session, its display, input and terminal handed over by systemd-logind.
@@ -44,6 +44,6 @@ cargo fmt --all --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 scripts/check-native-boundary.py
-cargo run --locked -p oxy-platform-probe
+cargo run --locked -p oxyos-platform-probe
 python3 scripts/check-image-config.py
 ```

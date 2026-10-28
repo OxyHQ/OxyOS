@@ -10,7 +10,7 @@ Status: **accepted; composition on a GPU, and first display output through DRM/K
 
 ## Problem
 
-The compositor composes on the CPU (`oxy-offscreen`) and has no display output. #32 asks for:
+The compositor composes on the CPU (`oxyos-offscreen`) and has no display output. #32 asks for:
 - Vulkan composition on a named reference GPU;
 - DRM/KMS atomic output;
 - explicit synchronization and format/modifier compatibility, proven before the buffer ABI is frozen.
@@ -26,9 +26,9 @@ The development machine available today (WSL2) has no DRM device (`/dev/dri`), a
 
    Wrappers do not expose these. GL is not used.
 2. **One composition semantics.**
-   - `oxy-gpu::compose_cpu` is the reference: nearest-neighbour scaling into each surface's logical rectangle, clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
-   - `oxy-offscreen` composes with it.
-   - The Vulkan compositor implements the same arithmetic in a compute shader (WGSL, compiled to SPIR-V by `naga` at build time). It must match the reference byte for byte. `oxy-offscreen --gpu` checks every composed frame against it.
+   - `oxyos-gpu::compose_cpu` is the reference: nearest-neighbour scaling into each surface's logical rectangle, clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
+   - `oxyos-offscreen` composes with it.
+   - The Vulkan compositor implements the same arithmetic in a compute shader (WGSL, compiled to SPIR-V by `naga` at build time). It must match the reference byte for byte. `oxyos-offscreen --gpu` checks every composed frame against it.
 3. **Order of work toward real output:**
    1. composition on a Vulkan device, checked against the reference (this slice);
    2. client buffers as Vulkan images (sampled), then DMA-BUF import with modifiers;
@@ -41,9 +41,9 @@ The development machine available today (WSL2) has no DRM device (`/dev/dri`), a
 ## Validation on a GPU
 
 The WSL2 development machine reaches its GPU only through Windows. The procedure:
-1. Build `oxy-gpu`'s tests and its `replay` example for Windows from WSL (`x86_64-pc-windows-gnu`, linked with mingw-w64).
+1. Build `oxyos-gpu`'s tests and its `replay` example for Windows from WSL (`x86_64-pc-windows-gnu`, linked with mingw-w64).
 2. Run them on Windows, where `vulkan-1.dll` reaches the vendor's driver.
-3. `oxy-offscreen --launch --dump-frames DIR` writes the frame shown at launch and after each step of the Bloom regression, as layers (`oxy_gpu::frame_file`).
+3. `oxyos-offscreen --launch --dump-frames DIR` writes the frame shown at launch and after each step of the Bloom regression, as layers (`oxyos_gpu::frame_file`).
 4. `replay DIR` composes each frame again on the CPU reference and on the GPU, and compares them.
 
 Result on the NVIDIA GeForce RTX 5090: 56 of 56 frames identical, three runs out of three.
@@ -66,13 +66,13 @@ What remains is transfer, which a scanned-out output does not need. Sampled imag
 
 ## Output on a display
 
-`crates/oxy-kms` drives a real output: atomic modesetting, then page flips with flip events. `oxy-kms-show` replays the Bloom regression's frames on it, one per refresh.
+`crates/oxyos-kms` drives a real output: atomic modesetting, then page flips with flip events. `oxyos-kms-show` replays the Bloom regression's frames on it, one per refresh.
 
 The test machine is a ThinkPad running Debian 13 (kernel 6.12):
 - Intel Iris Xe (Alder Lake, `i915`), driving the panel eDP-1 at 1920×1200 and 60 Hz;
 - an NVIDIA T550 without outputs, not used.
 
-`oxy-kms-probe` reads every plane: they accept XRGB8888 and ARGB8888 with the linear modifier and Intel's tiled ones.
+`oxyos-kms-probe` reads every plane: they accept XRGB8888 and ARGB8888 with the linear modifier and Intel's tiled ones.
 
 | 5 s run on the panel | CPU composition into dumb buffers | Vulkan composition into DMA-BUF (`--gpu`) |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ The intervals come from the kernel's flip timestamps.
 
 With `--gpu`, the compositor's compute shader writes straight into buffers exported as DMA-BUF. KMS imports them through PRIME as linear XRGB8888 framebuffers, and nothing is copied through the CPU.
 
-**A live app on the display.** `oxy-offscreen --launch --kms CARD` shows every frame the development compositor composes on the output, and completes each frame at its flip time (`Clock::Monotonic`). The ThinkPad ran the whole Bloom regression this way:
+**A live app on the display.** `oxyos-offscreen --launch --kms CARD` shows every frame the development compositor composes on the output, and completes each frame at its flip time (`Clock::Monotonic`). The ThinkPad ran the whole Bloom regression this way:
 - the Bloom host and its bundle, built under WSL on the same Debian 13, copied over;
 - the director driving the app with its scripted input.
 
@@ -154,7 +154,7 @@ Filling the whole output every frame and uploading every client's whole buffer a
 
 Measuring found one bug in the fixture. With `--gpu-only`, the director's readback ran before the frame completed, so every client's next frame waited for the check. Clients now hear that the frame was shown first.
 
-**The terminal.** With `--kms`, the compositor takes the terminal it shows on (`oxy-vt`). The console draws nothing over the frames, its keyboard is off with device input, and switches go by request. On a switch away, the compositor releases DRM master and closes the devices. On return, it takes both back, modesets, and shows the frame again. Ctrl+Alt+Fn comes from the keymap and reaches no application.
+**The terminal.** With `--kms`, the compositor takes the terminal it shows on (`oxyos-vt`). The console draws nothing over the frames, its keyboard is off with device input, and switches go by request. On a switch away, the compositor releases DRM master and closes the devices. On return, it takes both back, modesets, and shows the frame again. Ctrl+Alt+Fn comes from the keymap and reaches no application.
 
 `scenarios/terminal.json` checks it on the ThinkPad with device input only. Terminal 8 has no login, and the test leaves for terminal 5 and comes back with that terminal's own Ctrl+Alt+F8. The app hears Ctrl and Alt and never the function keys, and the pointer and keyboard work after the return. Three runs out of three pass, away for 143–243 ms.
 

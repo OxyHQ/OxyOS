@@ -16,7 +16,7 @@ namespace facebook::react {
 class AndroidTextInputProps;
 }
 
-namespace oxy {
+namespace oxyos {
 
 struct Display {
   float width;
@@ -135,7 +135,7 @@ class TextInputGeometry {
 };
 
 // Component whose subtree is shown in a popup of its own (popup.h), never in the window.
-inline constexpr const char* kPopupComponent = "OxyPopupView";
+inline constexpr const char* kPopupComponent = "OxyOSPopupView";
 
 // Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
 // selection and composition, drawn with its text.
@@ -162,4 +162,4 @@ std::vector<facebook::react::Tag> ancestry(const ViewTree& tree, facebook::react
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath);
 bool writePng(const Canvas& canvas, const std::string& path);
 
-}  // namespace oxy
+}  // namespace oxyos

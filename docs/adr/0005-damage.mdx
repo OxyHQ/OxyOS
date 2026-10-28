@@ -15,7 +15,7 @@ Every frame is drawn, read, uploaded and composed whole, however little changed:
 - the compositor reads every client's whole buffer from shared memory and uploads all of it;
 - the compositor fills the whole output and composes all of it.
 
-Measured on the ThinkPad (Iris Xe, 1920×1200, `oxy-offscreen --launch --kms --gpu-only`, the full regression through the devices, medians per frame; the instrumentation is in #46):
+Measured on the ThinkPad (Iris Xe, 1920×1200, `oxyos-offscreen --launch --kms --gpu-only`, the full regression through the devices, medians per frame; the instrumentation is in #46):
 
 | Part of a frame | Time |
 | --- | --- |
@@ -49,23 +49,23 @@ The protocol cannot say what changed: `Submit { surface, sequence, buffer, confi
 
    The compositor then uploads only the damaged rectangles of a surface's buffer, and the output's damage is the surface damage transformed to output coordinates, scaled where the surface is.
 
-4. **Buffer age for clients.** `oxy-client` reuses buffers once released, so a reused buffer holds a frame from some presents ago. `oxy-client` reports each buffer's age: the presents since it was last written, or unknown. A client repaints the union of its damage over that age, or everything when the age is unknown. The C ABI exposes it for the Bloom host.
+4. **Buffer age for clients.** `oxyos-client` reuses buffers once released, so a reused buffer holds a frame from some presents ago. `oxyos-client` reports each buffer's age: the presents since it was last written, or unknown. A client repaints the union of its damage over that age, or everything when the age is unknown. The C ABI exposes it for the Bloom host.
 
 5. **The Bloom host's damage.** The host knows what changed from Fabric's mutations. For each mutated view, it takes the union of the old and new layout frames, extended by their shadows, borders and overflow. It adds the caret and the selection, a scroll view's content rectangle when its offset changes, and the whole surface on a resize or a scale change. It clips its drawing to that region and sends it as `Damage`. The renderer gains drawing within a clip region; the layout and the components are unchanged.
 
-6. **Checks stay whole.** The CPU reference (`oxy-gpu::compose_cpu`) keeps composing the whole output. With `--gpu`, the director compares the GPU's damage-limited output with it byte for byte, so damage that is too small is a mismatch and fails the run. A client that damages too little draws stale pixels, which the regression's expected text and frame checks see. A check of each frame's damaged area against what actually changed (`frame_px`-style expectations) is added for the regression's steps.
+6. **Checks stay whole.** The CPU reference (`oxyos-gpu::compose_cpu`) keeps composing the whole output. With `--gpu`, the director compares the GPU's damage-limited output with it byte for byte, so damage that is too small is a mismatch and fails the run. A client that damages too little draws stale pixels, which the regression's expected text and frame checks see. A check of each frame's damaged area against what actually changed (`frame_px`-style expectations) is added for the regression's steps.
 
 ## Order of work
 
 1. **The output's damage and resident surfaces (decisions 1 and 2).** Done. These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
-2. **`Damage` and buffer age (decisions 3 and 4).** Done. These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
+2. **`Damage` and buffer age (decisions 3 and 4).** Done. These cover the protocol, `oxyos-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
 3. **The host's damage (decision 5).** Done. Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
 
 Each step lands only with the CPU reference comparison passing on hardware and the regression passing through the devices.
 
 ## Results
 
-**The output's damage (decisions 1 and 2).** The development compositor works out each frame's damage from the scene (`oxy-offscreen`'s `output_damage`, unit-tested). The Vulkan compositor composes only that: the background and the layers' parts within each damaged region, and their bounding box past eight regions. Each scanout target keeps what changed since it was last written, and a target or output of unknown content is composed whole. `oxy-gpu`'s tests check, on a device, that:
+**The output's damage (decisions 1 and 2).** The development compositor works out each frame's damage from the scene (`oxyos-offscreen`'s `output_damage`, unit-tested). The Vulkan compositor composes only that: the background and the layers' parts within each damaged region, and their bounding box past eight regions. Each scanout target keeps what changed since it was last written, and a target or output of unknown content is composed whole. `oxyos-gpu`'s tests check, on a device, that:
 - damaged composition gives the reference's frame;
 - damage that leaves out where a layer was leaves it there, so the limit is real;
 - alternating scanout targets each show the reference's frame.
@@ -82,7 +82,7 @@ On the ThinkPad, the full regression through the devices passes every mode. With
 
 The whole-output fill is gone. The pass costs more, a background dispatch and one per layer for each region. A frame damages a median of 71% of the output: the window's whole rectangle, since the application redraws all of it and sends no damage yet.
 
-**Resident surfaces (decision 1).** A layer may name its pixels' source, a key and a version. The Vulkan compositor keeps those pixels in the device-local source buffer and uploads them only for a new version. The development compositor numbers every frame it receives and never reuses a number, because surface ids and sequences are the client's and repeat when a surface is created anew. `oxy-gpu`'s tests check, on a device, that:
+**Resident surfaces (decision 1).** A layer may name its pixels' source, a key and a version. The Vulkan compositor keeps those pixels in the device-local source buffer and uploads them only for a new version. The development compositor numbers every frame it receives and never reuses a number, because surface ids and sequences are the client's and repeat when a surface is created anew. `oxyos-gpu`'s tests check, on a device, that:
 - kept pixels are not uploaded again;
 - a new version is uploaded;
 - a full source buffer is reclaimed;
@@ -98,7 +98,7 @@ Most frames are a new frame of the window, which must be uploaded. Residency sav
 - **Defaults:** a `Submit` without any damages the whole surface, so existing clients are unchanged. An empty rectangle is `InvalidGeometry`.
 - **The scene adds damage up:** across the frames submitted since one last began presenting, including frames replaced in the queue or discarded. It clips to the buffer, bounds past 16 rectangles, and damages everything at a new size. `presenting_damage` says what changed for the frame being composed.
 - **On the output:** the development compositor puts a surface's damage there, scaled outward, instead of its whole rectangle.
-- **The client side:** `oxy-client`'s `present_damaged` (`oxy_client_present_damaged` in the C ABI) sends the damage before the `Submit`. It writes into a reused buffer only what the frames that buffer missed changed, and everything when one of them did not say or the history does not reach back.
+- **The client side:** `oxyos-client`'s `present_damaged` (`oxyos_client_present_damaged` in the C ABI) sends the damage before the `Submit`. It writes into a reused buffer only what the frames that buffer missed changed, and everything when one of them did not say or the history does not reach back.
 
 Tests check:
 - the accumulation, clipping, bounding and errors, in the scene;
@@ -113,9 +113,9 @@ The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends
 - a view with new state or children in a new order, with its subtree;
 - the text input whose caret or selection moved.
 
-The renderer draws only that (`drawDamaged`). Each region is reset to the window's white and drawn again as a whole frame draws it: the painter chooses which pixels to paint, never the geometry, and text outside the damage is not laid out. The frame goes out with `oxy_client_present_damaged`.
+The renderer draws only that (`drawDamaged`). Each region is reset to the window's white and drawn again as a whole frame draws it: the painter chooses which pixels to paint, never the geometry, and text outside the damage is not laid out. The frame goes out with `oxyos_client_present_damaged`.
 
-`OXY_HOST_DAMAGE_CHECK` (`regress.py --check-damage`) draws every frame whole too and fails the run on any difference. A control that shrinks every damaged rectangle by 2 pixels makes it fail, on 49 frames of the regression. `OXY_DAMAGE_TRACE` prints what drew a subtree again.
+`OXYOS_HOST_DAMAGE_CHECK` (`regress.py --check-damage`) draws every frame whole too and fails the run on any difference. A control that shrinks every damaged rectangle by 2 pixels makes it fail, on 49 frames of the regression. `OXYOS_DAMAGE_TRACE` prints what drew a subtree again.
 
 On the ThinkPad, the full regression through the devices passes with `--check-damage` (every frame drawn from its damage identical to the frame drawn whole, every `--gpu` frame identical to the CPU reference). The terminal, secure-field and Android-adaptation scenarios pass too. Medians:
 
@@ -131,7 +131,7 @@ Comparing props by pointer, the first attempt drew 67% of the window most frames
 
 **Changed rows uploaded alone.** A layer may say what changed in its pixels since an earlier version of their source (`Layer::changed`). Where the device holds that version, only those rows are copied into place and the version advances; otherwise the layer is uploaded whole. The development compositor passes a surface's damage against the version it composed last.
 
-`oxy-gpu`'s test checks on a device that:
+`oxyos-gpu`'s test checks on a device that:
 - the frame is the reference's, and only the changed rows go up;
 - a change left out keeps its old pixels on the device;
 - a frame from a version the device does not hold is uploaded whole.

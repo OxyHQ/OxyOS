@@ -26,7 +26,7 @@ void PlatformLogger::log(const bool b) { std::cerr << "[worklets] " << (b ? "tru
 
 }  // namespace worklets
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -111,4 +111,4 @@ void WorkletsHost::tick() {
   }
 }
 
-}  // namespace oxy
+}  // namespace oxyos
