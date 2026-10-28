@@ -6,7 +6,7 @@ order: 14
 
 # ADR 0005: Damage: composing and drawing only what changed
 
-Status: **accepted; the output's damage implemented** (decisions 1 and 2, except resident surfaces; see [Results](#results)). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+Status: **accepted; decisions 1 and 2 implemented** (the output's damage and resident surfaces; see [Results](#results)). Client damage (decisions 3 to 5) is next. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
@@ -57,7 +57,7 @@ The protocol cannot say what changed: `Submit { surface, sequence, buffer, confi
 
 ## Order of work
 
-1. **The output's damage and resident surfaces (decisions 1 and 2).** The output's damage is done; resident surfaces are next. These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
+1. **The output's damage and resident surfaces (decisions 1 and 2).** Done. These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
 2. **`Damage` and buffer age (decisions 3 and 4).** These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
 3. **The host's damage (decision 5).** Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
 
@@ -80,7 +80,19 @@ On the ThinkPad, the full regression through the devices passes every mode. With
 | Submit to fence | 4.2 ms | 3.4 ms |
 | Input to flip | 46–50 ms | 46.3 ms |
 
-The whole-output fill is gone. The pass costs more, a background dispatch and one per layer for each region. A frame damages a median of 71% of the output: the window's whole rectangle, since the application redraws all of it and sends no damage yet. Resident surfaces (each surface uploaded only when it presents) and client damage (decisions 3 to 5) are what remain.
+The whole-output fill is gone. The pass costs more, a background dispatch and one per layer for each region. A frame damages a median of 71% of the output: the window's whole rectangle, since the application redraws all of it and sends no damage yet.
+
+**Resident surfaces (decision 1).** A layer may name its pixels' source, a key and a version. The Vulkan compositor keeps those pixels in the device-local source buffer and uploads them only for a new version. The development compositor numbers every frame it receives and never reuses a number, because surface ids and sequences are the client's and repeat when a surface is created anew. `oxy-gpu`'s tests check, on a device, that:
+- kept pixels are not uploaded again;
+- a new version is uploaded;
+- a full source buffer is reclaimed;
+- every frame is still the reference's.
+
+On the ThinkPad, the regression passes every mode, and every `--gpu` frame is identical to the reference. With `--gpu-only`:
+- the median frame still uploads 2,560 KiB, exactly the window's buffer;
+- composition is about 4.5 ms, unchanged.
+
+Most frames are a new frame of the window, which must be uploaded. Residency saves the frames where something else changed, such as a menu over an unchanged window. Shrinking the median frame needs client damage (decisions 3 to 5).
 
 ## Consequences
 
