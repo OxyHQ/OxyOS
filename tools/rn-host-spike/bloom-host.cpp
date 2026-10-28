@@ -5,6 +5,7 @@
 #include "host-modules.h"
 #include "input.h"
 #include "popup.h"
+#include "report.h"
 #include "renderer.h"
 #include "text.h"
 #include "textinput.h"
@@ -396,10 +397,34 @@ int main(int argc, char** argv) {
     int status = 0;
     oxy::PopupHost popups(tree, *window);
     oxy::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxy::SurfaceContent> {
-      if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.view = tree.root()};
+      if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.surface = surface, .view = tree.root()};
       return popups.content(surface);
     });
-    oxy::TextEditing editing(tree);
+    oxy::TextEditing editing(tree, [&](facebook::react::Tag view) { return popups.surfaceOf(view); });
+    auto focusName = [&]() -> std::string {
+      auto it = tree.views().find(editing.focused());
+      return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);
+    };
+    // Compositor input as received, for the report (motion is left out: it is continuous).
+    auto report = [](const OxyEvent& event) {
+      auto& r = oxy::Report::get();
+      if (!r.enabled()) return;
+      static const char* pointer[] = {"", "pointer.enter", "pointer.leave", "", "pointer.press", "pointer.release",
+                                      "pointer.cancel"};
+      if (event.kind == OXY_EVENT_POINTER && event.detail != OXY_POINTER_MOTION && event.detail <= 6) {
+        r.input(pointer[event.detail], event.surface);
+      } else if (event.kind == OXY_EVENT_KEY) {
+        r.input(event.flag ? "key.press" : "key.release", event.surface, folly::dynamic::object("code", event.code));
+      } else if (event.kind == OXY_EVENT_TEXT) {
+        r.input("text", event.surface, folly::dynamic::object("text", std::string(event.text)));
+      } else if (event.kind == OXY_EVENT_SCROLL) {
+        r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
+      } else if (event.kind == OXY_EVENT_FOCUS) {
+        r.input(event.flag ? "focus.in" : "focus.out", event.surface);
+      } else if (event.kind == OXY_EVENT_POPUP_DONE) {
+        r.input("popup.done", event.surface, folly::dynamic::object("reason", event.detail));
+      }
+    };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
     facebook::react::Tag caret = -1;
@@ -419,6 +444,7 @@ int main(int argc, char** argv) {
                   (event.kind == OXY_EVENT_KEY && event.flag)) {
                 lastPress = event.serial;
               }
+              report(event);
               if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
               pointer.handle(event);
               editing.handle(event);
@@ -444,12 +470,15 @@ int main(int argc, char** argv) {
         popups.sync(lastPress);
         if (dirty && window->ready(oxy::Window::kToplevel)) {
           oxy::Canvas canvas;
-          oxy::draw(tree, display, canvas, caret);
+          auto started = Clock::now();
+          auto stats = oxy::draw(tree, display, canvas, caret);
+          double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
           window->present(oxy::Window::kToplevel, canvas);
+          oxy::Report::get().frame(oxy::Window::kToplevel, renderMs, stats.textContent, focusName());
           dirty = false;
           busy = true;
         }
-        popups.present(caret);
+        popups.present(caret, focusName());
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

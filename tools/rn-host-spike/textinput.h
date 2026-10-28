@@ -14,6 +14,7 @@
 
 #include <folly/dynamic.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -39,7 +40,10 @@ class TextInputComponentDescriptor final
 
 class TextEditing {
  public:
-  explicit TextEditing(const ViewTree& tree) : tree_(tree) {}
+  // `surfaceOf` names the surface a view is drawn on: text and keys reach the focused input only
+  // when sent to that surface (typing into an open menu must not edit the field behind it).
+  TextEditing(const ViewTree& tree, std::function<uint32_t(facebook::react::Tag)> surfaceOf)
+      : tree_(tree), surfaceOf_(std::move(surfaceOf)) {}
 
   // A view command from JavaScript (`focus`, `blur`, `setTextAndSelection`).
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
@@ -57,6 +61,7 @@ class TextEditing {
   void submit();
 
   const ViewTree& tree_;
+  std::function<uint32_t(facebook::react::Tag)> surfaceOf_;
   facebook::react::Tag focused_ = -1;
   std::string text_;
   int eventCount_ = 0;

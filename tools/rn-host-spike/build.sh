@@ -110,14 +110,11 @@ host-build/oxy-rn-spike "$HERE/tree.js"
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxy-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
 
-# The same app in a window: the offscreen compositor launches the host as its own process, which
-# presents its frames through the display protocol (sealed shared-memory buffers). Then, at
-# window-local points: press the sample's Bloom Button twice, scroll the inbox by 400 px, focus the
-# Bloom TextField, type, delete a character and submit with Enter, then open the Bloom DropdownMenu
-# (a compositor popup that must extend beyond the window) and choose its third row. Each step must
-# change the output. The menu needs Bloom 15.61.0 or later (BloomProvider's platform adapter).
+# The same app in a window, as a regression: the offscreen compositor launches the host as its own
+# process, which presents through the display protocol, and drives scenarios/sample.json. Each
+# step's expected result is checked: the text shown, the focused input and surface, the exact
+# events React received (no duplicate or leaked one) and a latency budget (regress.py). The menu
+# steps need Bloom 15.61.0 or later (BloomProvider's platform adapter).
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
-OXY_SCRIPT_URL="file://$WORK/sample/index.js" "$REPO/target/release/oxy-offscreen" --launch \
-  --out "$WORK/window" --press 686,324 --press 686,324 --scroll 170,300,400 \
-  --press 686,372 --type "Hola OxyOS!" --key 14 --key 28 \
-  --press 797,452 --expect-popup --press-popup 60,110 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640
+python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" --offscreen "$REPO/target/release/oxy-offscreen" \
+  --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"

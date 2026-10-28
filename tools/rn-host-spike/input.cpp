@@ -1,5 +1,7 @@
 #include "input.h"
 
+#include "report.h"
+
 #include <react/renderer/components/scrollview/ScrollViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
@@ -52,21 +54,6 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
     }
   }
   return inside && mode != PointerEventsMode::BoxNone ? tag : -1;
-}
-
-// The chain of views from the root to `tag`.
-std::vector<Tag> ancestry(const ViewTree& tree, Tag at, Tag tag) {
-  if (at == tag) return {tag};
-  auto it = tree.views().find(at);
-  if (it == tree.views().end()) return {};
-  for (Tag child : it->second.children) {
-    auto path = ancestry(tree, child, tag);
-    if (!path.empty()) {
-      path.insert(path.begin(), at);
-      return path;
-    }
-  }
-  return {};
 }
 
 }  // namespace
@@ -132,7 +119,7 @@ void PointerInput::handle(const OxyEvent& event) {
 void PointerInput::scroll(float dx, float dy) {
   Tag target = hitTest(tree_, content_, x_, y_);
   if (target < 0) return;
-  auto path = ancestry(tree_, tree_.root(), target);
+  auto path = ancestry(tree_, target);
   // The innermost scroll view that can still move in the scroll's direction takes it, as nested
   // scroll views do on Android.
   for (auto at = path.rbegin(); at != path.rend(); ++at) {
@@ -159,6 +146,7 @@ void PointerInput::scroll(float dx, float dy) {
       event.zoomScale = 1;
       emitter->onScroll(event);
     }
+    Report::get().deliver("scroll", content_.surface, view, folly::dynamic::object("x", next.x)("y", next.y));
     if (std::getenv("OXY_HOST_TRACE")) {
       std::cerr << "[input] scroll view " << *at << " to " << next.x << "," << next.y << " of " << content.width
                 << "x" << content.height << "\n";
@@ -190,6 +178,18 @@ void PointerInput::dispatch(Phase phase, float x, float y) {
   if (phase == Phase::Start || phase == Phase::Move) {
     event.touches.insert(touch);
     event.targetTouches.insert(touch);
+  }
+  static const char* events[] = {"touchStart", "touchMove", "touchEnd", "touchCancel"};
+  if (Report::get().enabled()) {
+    // The nearest ancestor with a testID names what was touched (the target is often its text).
+    std::string within;
+    auto path = ancestry(tree_, target_);
+    for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
+      auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
+      if (props && !props->testId.empty()) within = props->testId;
+    }
+    Report::get().deliver(events[static_cast<int>(phase)], content_.surface, it->second.view,
+                          folly::dynamic::object("x", page.x)("y", page.y)("within", within));
   }
   if (std::getenv("OXY_HOST_TRACE")) {
     static const char* names[] = {"start", "move", "end", "cancel"};

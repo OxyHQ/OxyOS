@@ -60,11 +60,13 @@ impl Step {
 
 pub struct Launch {
     pub command: Vec<std::ffi::OsString>,
-    pub steps: Vec<Step>,
+    /// Each step, and whether it may leave the output unchanged (`--allow-unchanged` before it).
+    pub steps: Vec<(Step, bool)>,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--press X,Y | --press-popup X,Y | \
-                     --scroll X,Y,DY | --type TEXT | --key CODE | --expect-popup]... -- COMMAND [ARGS]...";
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --key CODE | --expect-popup]... \
+                     -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
     let value = value.and_then(|v| v.to_str()).ok_or(USAGE)?;
@@ -81,37 +83,46 @@ fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>>
 impl Launch {
     pub fn parse(args: &[std::ffi::OsString]) -> Result<(PathBuf, Self)> {
         let mut out = PathBuf::from("target/oxy-offscreen");
-        let mut steps = Vec::new();
+        let mut steps: Vec<(Step, bool)> = Vec::new();
+        // `--allow-unchanged` applies to the step after it.
+        let mut allow = false;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
-            match arg.to_str() {
-                Some("--out") => out = args.next().ok_or(USAGE)?.into(),
+            let step = match arg.to_str() {
+                Some("--out") => {
+                    out = args.next().ok_or(USAGE)?.into();
+                    continue;
+                }
+                Some("--allow-unchanged") => {
+                    allow = true;
+                    continue;
+                }
+                Some("--launch") => continue,
                 Some("--press") => {
                     let n = numbers(args.next(), 2)?;
-                    steps.push(Step::Press { x: n[0], y: n[1] });
+                    Step::Press { x: n[0], y: n[1] }
                 }
                 Some("--press-popup") => {
                     let n = numbers(args.next(), 2)?;
-                    steps.push(Step::PressPopup { x: n[0], y: n[1] });
+                    Step::PressPopup { x: n[0], y: n[1] }
                 }
                 Some("--scroll") => {
                     let n = numbers(args.next(), 3)?;
-                    steps.push(Step::Scroll {
+                    Step::Scroll {
                         x: n[0],
                         y: n[1],
                         dy: n[2],
-                    });
+                    }
                 }
                 Some("--type") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
-                    steps.push(Step::Type(text.to_string()));
+                    Step::Type(text.to_string())
                 }
                 Some("--key") => {
                     let code = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
-                    steps.push(Step::Key(code.parse()?));
+                    Step::Key(code.parse()?)
                 }
-                Some("--expect-popup") => steps.push(Step::ExpectPopup),
-                Some("--launch") => {}
+                Some("--expect-popup") => Step::ExpectPopup,
                 Some("--") => {
                     let command: Vec<_> = args.cloned().collect();
                     if command.is_empty() {
@@ -120,7 +131,8 @@ impl Launch {
                     return Ok((out, Self { command, steps }));
                 }
                 _ => return Err(format!("unexpected argument {arg:?}\n{USAGE}").into()),
-            }
+            };
+            steps.push((step, std::mem::take(&mut allow)));
         }
         Err(USAGE.into())
     }
@@ -149,16 +161,32 @@ fn popup(compositor: &Compositor) -> Option<Rect> {
         .map(|(_, _, rect)| rect)
 }
 
+/// CLOCK_MONOTONIC in nanoseconds, the clock the application's report (OXY_HOST_REPORT) uses.
+fn monotonic_ns() -> i64 {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    now.tv_sec * 1_000_000_000 + now.tv_nsec
+}
+
+/// When a step's answer first appeared, when it settled, and the window then.
+struct Settled {
+    window: Rect,
+    first_frame_ns: Option<i64>,
+    settled_ns: i64,
+}
+
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
-/// popup opened or closed) and then stay unchanged for SETTLE. Returns the window's rectangle.
+/// popup opened or closed) and then stay unchanged for SETTLE. With `may_stay`, surfaces that do
+/// not change for SETTLE also count as settled (a step whose expected answer is nothing).
 fn settle(
     session: &mut Session,
     children: &mut Children,
     before: &[(u32, u64, Rect)],
+    may_stay: bool,
     deadline: Instant,
     waiting_for: &str,
-) -> Result<Rect> {
+) -> Result<Settled> {
     let mut last = (before.to_vec(), Instant::now());
+    let mut first_frame_ns = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -171,10 +199,15 @@ fn settle(
         session.compositor.serve(&session.listener)?;
         let now = shown(&session.compositor);
         if now != last.0 {
+            first_frame_ns.get_or_insert_with(monotonic_ns);
             last = (now, Instant::now());
-        } else if now != before && last.1.elapsed() >= SETTLE {
+        } else if (now != before || may_stay) && last.1.elapsed() >= SETTLE {
             if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
-                return Ok(window);
+                return Ok(Settled {
+                    window,
+                    first_frame_ns,
+                    settled_ns: monotonic_ns(),
+                });
             }
         }
     }
@@ -189,6 +222,48 @@ fn beyond(window: Rect, popup: Rect) -> [i64; 4] {
         (popup.right() - window.right()).max(0),
         (popup.bottom() - window.bottom()).max(0),
     ]
+}
+
+/// The surface of the application holding keyboard focus, or null.
+fn focus_json(compositor: &Compositor) -> String {
+    match compositor.scene.focus() {
+        Some(key) if key.client == CLIENT => key.id.to_string(),
+        _ => "null".to_string(),
+    }
+}
+
+/// The input routed during a step: for the application, counts per surface and kind; for any
+/// other client, a count (`leaked`).
+fn delivered_json(compositor: &Compositor) -> String {
+    let mut counts: std::collections::BTreeMap<u32, std::collections::BTreeMap<&str, usize>> =
+        Default::default();
+    let mut leaked = 0;
+    for &(client, surface, kind) in &compositor.input_log {
+        if client == CLIENT {
+            *counts.entry(surface).or_default().entry(kind).or_default() += 1;
+        } else {
+            leaked += 1;
+        }
+    }
+    let mut fields: Vec<String> = counts
+        .iter()
+        .map(|(surface, kinds)| {
+            let kinds: Vec<String> = kinds.iter().map(|(k, n)| format!("\"{k}\":{n}")).collect();
+            format!("\"{surface}\":{{{}}}", kinds.join(","))
+        })
+        .collect();
+    fields.push(format!("\"leaked\":{leaked}"));
+    format!("{{{}}}", fields.join(","))
+}
+
+/// The application's popups now shown, as [x, y, width, height] on the output.
+fn popups_json(compositor: &Compositor) -> String {
+    let popups: Vec<String> = shown(compositor)
+        .into_iter()
+        .filter(|(id, _, _)| *id != WINDOW)
+        .map(|(_, _, r)| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height))
+        .collect();
+    format!("[{}]", popups.join(","))
 }
 
 /// Injects one step's input into the scene.
@@ -241,13 +316,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .spawn()?]);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
-    let mut window = settle(
+    let launched_ns = monotonic_ns();
+    let first = settle(
         &mut session,
         &mut children,
         &[],
+        false,
         deadline,
         "the first frame",
     )?;
+    let mut window = first.window;
     if (window.y..window.bottom() as i32).all(|y| {
         (window.x..window.right() as i32).all(|x| session.compositor.pixel(x, y) == DESKTOP)
     }) {
@@ -257,7 +335,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let mut snapshots = vec![session.compositor.snapshot(out, "launch-1.png")?];
     let mut answered = Vec::new();
 
-    for (index, step) in launch.steps.iter().enumerate() {
+    session.compositor.log_input = true;
+    for (index, (step, may_stay)) in launch.steps.iter().enumerate() {
+        session.compositor.input_log.clear();
         if *step == Step::ExpectPopup {
             let popup = popup(&session.compositor).ok_or("no popup is shown")?;
             let reach = beyond(window, popup);
@@ -267,8 +347,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 );
             }
             answered.push(format!(
-                "{{{},\"popup\":[{},{},{},{}],\"beyond_window\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}}}}",
+                "{{{},\"t_settled\":{},\"popup\":[{},{},{},{}],\"beyond_window\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}}}}",
                 step.json(),
+                monotonic_ns(),
                 popup.x,
                 popup.y,
                 popup.width,
@@ -281,17 +362,37 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        let injected_ns = monotonic_ns();
         inject(&mut session.compositor, window, step)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
-        window = settle(&mut session, &mut children, &before, deadline, &what)?;
+        let answer = settle(
+            &mut session,
+            &mut children,
+            &before,
+            *may_stay,
+            deadline,
+            &what,
+        )?;
+        window = answer.window;
         let now = session.compositor.framebuffer.clone();
         let changed = now.iter().zip(&output).filter(|(a, b)| a != b).count();
-        if changed == 0 {
+        if changed == 0 && !may_stay {
             return Err(
                 format!("step {} ({}) changed no pixel", index + 1, step.describe()).into(),
             );
         }
-        answered.push(format!("{{{},\"changed_pixels\":{changed}}}", step.json()));
+        let latency = match answer.first_frame_ns {
+            Some(ns) => format!("{:.2}", (ns - injected_ns) as f64 / 1e6),
+            None => "null".to_string(),
+        };
+        answered.push(format!(
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{}}}",
+            step.json(),
+            answer.settled_ns,
+            focus_json(&session.compositor),
+            delivered_json(&session.compositor),
+            popups_json(&session.compositor),
+        ));
         snapshots.push(
             session
                 .compositor
@@ -303,8 +404,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let frames = session.compositor.frames;
     session.finish(&mut children)?;
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"launched\":{:?},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
+        first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
         window.y,
         window.width,
@@ -338,6 +440,7 @@ mod tests {
             "--key",
             "14",
             "--expect-popup",
+            "--allow-unchanged",
             "--press-popup",
             "5,6",
             "--",
@@ -346,8 +449,11 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(out, PathBuf::from("o"));
+        let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
+        let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
+        assert_eq!(allowed, [false, false, false, false, false, true]);
         assert_eq!(
-            launch.steps,
+            steps,
             [
                 Step::Press { x: 1, y: 2 },
                 Step::Scroll {

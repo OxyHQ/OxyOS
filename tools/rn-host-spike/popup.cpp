@@ -1,8 +1,11 @@
 #include "popup.h"
 
+#include "report.h"
+
 #include <react/renderer/core/propsConversions.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -90,6 +93,9 @@ void PopupHost::sync(uint64_t serial) {
     uint32_t surface = nextSurface_++;
     window_.openPopup(surface, Window::kToplevel, positioner(*props, *anchor, size), serial);
     popups_[tag] = Popup{.surface = surface};
+    Report::get().popup("open", surface, &view,
+                        folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(
+                            "width", size.width)("height", size.height));
     if (tracing()) {
       std::cerr << "[popup] open " << surface << " for view " << tag << " anchored to " << props->anchorTag << " at "
                 << anchor->origin.x << "," << anchor->origin.y << " " << size.width << "x" << size.height << "\n";
@@ -101,6 +107,7 @@ void PopupHost::sync(uint64_t serial) {
       continue;
     }
     if (!it->second.dismissed) window_.destroy(it->second.surface);
+    Report::get().popup("close", it->second.surface, nullptr);
     if (tracing()) std::cerr << "[popup] close " << it->second.surface << "\n";
     it = popups_.erase(it);
   }
@@ -110,13 +117,17 @@ void PopupHost::changed() {
   for (auto& [tag, popup] : popups_) popup.dirty = true;
 }
 
-void PopupHost::present(Tag caret) {
+void PopupHost::present(Tag caret, const std::string& focus) {
   for (auto& [tag, popup] : popups_) {
     if (popup.dismissed || !popup.dirty || !window_.ready(popup.surface)) continue;
     const auto* surface = window_.surface(popup.surface);
     Canvas canvas;
-    drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, caret);
+    auto started = std::chrono::steady_clock::now();
+    auto stats = drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, caret);
+    double renderMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     window_.present(popup.surface, canvas);
+    Report::get().frame(popup.surface, renderMs, stats.textContent, focus);
     popup.dirty = false;
   }
 }
@@ -131,9 +142,18 @@ void PopupHost::dismissed(const OxyEvent& event) {
     // The protocol's reasons, in the adapter's vocabulary.
     const char* reason = event.detail == 1 ? "outside-press" : event.detail == 4 ? "denied" : "closed";
     it->second.view.eventEmitter->dispatchEvent("dismiss", folly::dynamic::object("reason", reason));
+    Report::get().popup("dismissed", popup.surface, &it->second.view, folly::dynamic::object("reason", reason));
     if (tracing()) std::cerr << "[popup] dismissed " << popup.surface << " (" << reason << ")\n";
     return;
   }
+}
+
+uint32_t PopupHost::surfaceOf(Tag view) const {
+  for (Tag at : ancestry(tree_, view)) {
+    auto it = popups_.find(at);
+    if (it != popups_.end()) return it->second.surface;
+  }
+  return Window::kToplevel;
 }
 
 std::optional<SurfaceContent> PopupHost::content(uint32_t surface) const {
@@ -141,7 +161,7 @@ std::optional<SurfaceContent> PopupHost::content(uint32_t surface) const {
     if (popup.surface != surface || popup.dismissed) continue;
     auto frame = windowFrame(tree_, tag);
     if (!frame) return std::nullopt;
-    return SurfaceContent{.view = tag, .popup = true, .origin = frame->origin};
+    return SurfaceContent{.surface = surface, .view = tag, .popup = true, .origin = frame->origin};
   }
   return std::nullopt;
 }

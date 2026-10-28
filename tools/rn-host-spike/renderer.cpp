@@ -288,9 +288,16 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     childOy -= state.getData().contentOffset.y;
   }
 
+  bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
     drawTextInput(view, x, y, w, h, clip, opacity, tag == caret, painter);
     ++stats.texts;
+    if (visible) {
+      const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
+      std::string value = data.attributedStringBox.getValue().getString();
+      auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+      stats.textContent.push_back(value.empty() ? props->placeholder : value);
+    }
   }
 
   if (name == "Paragraph" && view.state) {
@@ -302,6 +309,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip.intersect(Clip{x, y, x + w, y + h}),
                    opacity);
     ++stats.texts;
+    if (visible) stats.textContent.push_back(state.attributedString.getString());
   }
 
   for (Tag child : it->second.children) {
@@ -376,6 +384,28 @@ std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offs
 }
 
 }  // namespace
+
+namespace {
+
+std::vector<Tag> pathTo(const ViewTree& tree, Tag at, Tag tag) {
+  if (at == tag) return {tag};
+  auto it = tree.views().find(at);
+  if (it == tree.views().end()) return {};
+  for (Tag child : it->second.children) {
+    auto path = pathTo(tree, child, tag);
+    if (!path.empty()) {
+      path.insert(path.begin(), at);
+      return path;
+    }
+  }
+  return {};
+}
+
+}  // namespace
+
+std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) {
+  return tree.root() < 0 ? std::vector<Tag>{} : pathTo(tree, tree.root(), tag);
+}
 
 std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
   return tree.root() < 0 ? std::nullopt : frameUnder(tree, tag, tree.root(), {0, 0});

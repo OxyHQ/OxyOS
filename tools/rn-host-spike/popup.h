@@ -58,10 +58,12 @@ class PopupHost {
   // The tree changed: every popup draws again once its previous frame is answered.
   void changed();
   // Draws and presents each configured popup that has changed since its last frame.
-  void present(facebook::react::Tag caret);
+  void present(facebook::react::Tag caret, const std::string& focus);
   // A compositor dismissal (PopupDone): the view's onDismiss, and the surface is destroyed.
   void dismissed(const OxyEvent& event);
 
+  // The surface a view is drawn on: its popup's, or the toplevel's.
+  uint32_t surfaceOf(facebook::react::Tag view) const;
   // What a popup surface shows, for pointer input; nullopt for any other surface.
   std::optional<SurfaceContent> content(uint32_t surface) const;
 

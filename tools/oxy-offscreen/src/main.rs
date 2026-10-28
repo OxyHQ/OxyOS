@@ -56,6 +56,9 @@ struct Compositor {
     framebuffer: Vec<u32>,
     composed: Vec<RenderItem>,
     frames: usize,
+    /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
+    input_log: Vec<(ClientId, u32, &'static str)>,
+    log_input: bool,
 }
 
 impl Compositor {
@@ -185,6 +188,11 @@ impl Compositor {
     /// Routes scene events into bounded outboxes and sends what each socket accepts now.
     fn flush(&mut self) {
         for (client, event) in self.scene.drain_events() {
+            if self.log_input {
+                if let Some((surface, kind)) = input_kind(&event) {
+                    self.input_log.push((client, surface, kind));
+                }
+            }
             if let Some(peer) = self.peers.get_mut(&client) {
                 if matches!(
                     event,
@@ -385,6 +393,33 @@ impl Compositor {
     }
 }
 
+/// The input events a step can cause, by surface and kind (motion is continuous and left out).
+fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
+    Some(match *event {
+        Event::Pointer { surface, kind, .. } => (
+            surface,
+            match kind {
+                PointerKind::Press => "press",
+                PointerKind::Release => "release",
+                PointerKind::Enter => "enter",
+                PointerKind::Leave => "leave",
+                PointerKind::Cancel => "cancel",
+                PointerKind::Motion => return None,
+            },
+        ),
+        Event::Key {
+            surface, pressed, ..
+        } => (surface, if pressed { "key.press" } else { "key.release" }),
+        Event::Text { surface, .. } => (surface, "text"),
+        Event::Scroll { surface, .. } => (surface, "scroll"),
+        Event::PopupDone { surface, .. } => (surface, "popup.done"),
+        Event::Focus { surface, focused } => {
+            (surface, if focused { "focus.in" } else { "focus.out" })
+        }
+        _ => return None,
+    })
+}
+
 /// Removes the private socket directory on every exit, including errors and deadlines.
 struct TempDir(PathBuf);
 
@@ -468,6 +503,8 @@ impl Session {
             framebuffer: vec![DESKTOP; (OUTPUT.width * OUTPUT.height) as usize],
             composed: Vec::new(),
             frames: 0,
+            input_log: Vec::new(),
+            log_input: false,
         };
         Ok(Self {
             compositor,

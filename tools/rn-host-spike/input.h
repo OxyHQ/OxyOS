@@ -22,6 +22,7 @@ namespace oxy {
 // shows its popup view's children. `origin` is where that content sits in root coordinates, the
 // space React Native measures in.
 struct SurfaceContent {
+  uint32_t surface = 0;
   facebook::react::Tag view = -1;
   bool popup = false;
   facebook::react::Point origin{};

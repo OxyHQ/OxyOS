@@ -130,11 +130,22 @@ The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Blo
 
 ### Spike result: Bloom in a window, with pointer, scrolling and text input
 
-`oxy-bloom-host --window` is a client of the Oxy display protocol (`crates/oxy-client` through the C ABI in `crates/oxy-client-ffi`). `oxy-offscreen --launch` runs it as its own process and drives it with scripted input; `build.sh` does both. Every step must change the window's pixels:
+`oxy-bloom-host --window` is a client of the Oxy display protocol (`crates/oxy-client` through the C ABI in `crates/oxy-client-ffi`). `oxy-offscreen --launch` runs it as its own process and drives it with scripted input. `regress.py` checks each step of `scenarios/sample.json` against its **expected result**, not only changed pixels (see *Regression* below); `build.sh` runs it. What it covers:
 - **Presenting:** the host lays out at the configured size and presents its view tree in sealed shared-memory buffers, one frame in flight, reusing released buffers.
 - **Pointer:** pointer events become React Native touch events on the view under the pointer (hit-tested like the renderer draws: frames, scroll offsets, clipping, `pointerEvents`), as Android delivers them. Pressability is unchanged; Bloom's `Button` counts presses.
 - **Scrolling:** the protocol's `Scroll` event moves the innermost enabled scroll view that can still move. The host owns the offset, as a native scroll view does: it updates the ScrollView's Fabric state and emits `onScroll`. Reanimated sees every Fabric event through a Scheduler event listener (as on iOS), so Bloom's scroll-linked header animation runs on the worklet runtime.
 - **Text input:** Bloom's `TextField` is React Native's Android text input (props, state and shadow node built unchanged) with an OxyOS descriptor and the native editing side Android's EditText provides. Focus and blur come from JavaScript commands. Committed text arrives in the protocol's `Text` event, and Backspace and Enter as keys. Edits update the input's state and emit Android's events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`); Bloom's focus ring and a controlled `value` follow.
+
+**Regression (`regress.py`).** The host writes a report (`OXY_HOST_REPORT`, `report.h`) with each presented frame's visible text and focused input, and every event it delivered to React with its target's `testID`. The director records, per step, the compositor's focused surface, the input it routed to each surface, the popups shown and the latency, on the same monotonic clock. Each step of the scenario states its expected result:
+- the text shown, and text that must not be shown;
+- which input and which surface have focus;
+- the exact React events, as `event@testID` counts. Any extra event fails, so duplicated and leaked events are caught; for example, text typed into an open menu must not edit the field behind it, and the outside press that dismisses a menu must reach nothing;
+- the compositor input per surface;
+- a latency budget.
+
+Disabling the host's surface check for text makes the leak step fail on both its text and its React events. The 14 steps pass three times out of three.
+
+Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640): first frame about 0.6–1 s after launch; median input-to-first-frame latency about 80 ms; drawing a full window frame about 43 ms median (popups about 10 ms). The CPU renderer is the bottleneck, below 60 fps; GPU composition is #32's.
 
 **React Native core runs its Android implementation on OxyOS.** The host implements React Native's Android interfaces: TurboModule specs, component names and commands. So modules inside the `react-native` package get its own `Platform.android.js` and take their Android branches, and assets follow Android's resource layout. Everything else, including the `Platform` that `react-native` exports to apps and Bloom, reports `oxyos` (`sample/metro.config.js`). Before this rule, the 46 core modules that branch on `Platform.OS` took neither branch on `oxyos`; `TextInput` rendered nothing at all.
 

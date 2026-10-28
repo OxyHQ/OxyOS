@@ -34,7 +34,7 @@ const MESSAGES = [
 function Inbox() {
   return (
     <Screen header={<PageHeader title="Inbox" />}>
-      <ScreenScrollView>
+      <ScreenScrollView testID="inbox">
         {MESSAGES.map((message) => (
           <Card key={message.id} style={{ marginHorizontal: 12, marginBottom: 8 }}>
             <CardHeader>
@@ -61,21 +61,26 @@ function Detail() {
           PageHeaders, Cards, typography and a Button, drawn by the OxyOS host into a buffer.
         </P>
         <Muted>React Native 0.88 · Hermes · Fabric · Yoga</Muted>
-        <Button onPress={() => setPresses((count) => count + 1)}>
+        <Button testID="press-me" onPress={() => setPresses((count) => count + 1)}>
           {presses === 0 ? 'Press me' : `Pressed ${presses} ${presses === 1 ? 'time' : 'times'}`}
         </Button>
         <TextField>
-          <TextFieldInput placeholder="Write a reply" value={reply} onChangeText={setReply} />
+          <TextFieldInput
+            testID="reply"
+            placeholder="Write a reply"
+            value={reply}
+            onChangeText={setReply}
+          />
         </TextField>
         <Muted>{reply ? `Reply: ${reply}` : 'No reply yet'}</Muted>
         {/* Opens to the right of its trigger, past the window's edge: a compositor popup. */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild style={{ alignSelf: 'flex-end' }}>
+          <DropdownMenuTrigger asChild style={{ alignSelf: 'flex-end' }} testID="open-menu">
             <Button appearance="outline">Open menu</Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="right" align="start" label="Message actions">
+          <DropdownMenuContent side="right" align="start" label="Message actions" testID="message-actions">
             {ACTIONS.map((action) => (
-              <DropdownMenuItem key={action} onPress={() => setChoice(action)}>
+              <DropdownMenuItem key={action} testID={`action-${action}`} onPress={() => setChoice(action)}>
                 {action}
               </DropdownMenuItem>
             ))}

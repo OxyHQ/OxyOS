@@ -38,6 +38,9 @@ struct RenderStats {
   int texts = 0;
   int unimplemented = 0;
   std::vector<std::string> unimplementedNames;
+  // The text drawn, in drawing order: each paragraph's string and each text input's value (its
+  // placeholder when empty), unless clipped out entirely.
+  std::vector<std::string> textContent;
   bool written = false;  // whether render() saved the PNG
 };
 
@@ -61,6 +64,8 @@ RenderStats drawPopup(const ViewTree& tree, facebook::react::Tag popup, const Di
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);
+// The views from the root to `tag`, inclusive; empty if `tag` is not in the tree.
+std::vector<facebook::react::Tag> ancestry(const ViewTree& tree, facebook::react::Tag tag);
 // Draws, writes a PNG and returns the stats; `written` reports whether the PNG was saved.
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath);
 bool writePng(const Canvas& canvas, const std::string& path);

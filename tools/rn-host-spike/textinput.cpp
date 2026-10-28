@@ -1,5 +1,7 @@
 #include "textinput.h"
 
+#include "report.h"
+
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
 #include <react/renderer/core/ConcreteState.h>
@@ -105,6 +107,7 @@ void TextEditing::focus(Tag tag) {
   text_ = data.attributedStringBox.getValue().getString();
   eventCount_ = static_cast<int>(data.mostRecentEventCount);
   it->second.view.eventEmitter->dispatchEvent("focus", folly::dynamic::object("target", tag));
+  Report::get().deliver("focus", 0, it->second.view);
   if (std::getenv("OXY_HOST_TRACE")) std::cerr << "[text] focus " << tag << " \"" << text_ << "\"\n";
 }
 
@@ -116,11 +119,13 @@ void TextEditing::blur() {
   const auto& emitter = it->second.view.eventEmitter;
   emitter->dispatchEvent("blur", folly::dynamic::object("target", tag));
   emitter->dispatchEvent("endEditing", folly::dynamic::object("target", tag)("text", text_));
+  Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", text_));
   if (std::getenv("OXY_HOST_TRACE")) std::cerr << "[text] blur " << tag << "\n";
 }
 
 void TextEditing::handle(const OxyEvent& event) {
   if (focused_ < 0) return;
+  if ((event.kind == OXY_EVENT_TEXT || event.kind == OXY_EVENT_KEY) && event.surface != surfaceOf_(focused_)) return;
   if (event.kind == OXY_EVENT_TEXT) {
     std::string committed(event.text, strnlen(event.text, sizeof(event.text)));
     edit(text_ + committed, committed);
@@ -152,6 +157,7 @@ void TextEditing::edit(std::string text, const std::string& key) {
   if (!props->editable) return;
   if (props->maxLength > 0 && utf16Length(text) > props->maxLength && text.size() > text_.size()) return;
   view.eventEmitter->dispatchEvent("keyPress", folly::dynamic::object("key", key));
+  Report::get().deliver("keyPress", 0, view, folly::dynamic::object("key", key));
   if (text == text_) return;
   text_ = std::move(text);
   ++eventCount_;
@@ -174,6 +180,7 @@ void TextEditing::edit(std::string text, const std::string& key) {
       folly::dynamic::object("text", text_)("eventCount", eventCount_)("target", focused_)("selection",
                                                                                          selection(text_)));
   view.eventEmitter->dispatchEvent("selectionChange", folly::dynamic::object("selection", selection(text_)));
+  Report::get().deliver("change", 0, view, folly::dynamic::object("text", text_)("eventCount", eventCount_));
   if (std::getenv("OXY_HOST_TRACE")) std::cerr << "[text] " << focused_ << " \"" << text_ << "\"\n";
 }
 
@@ -183,6 +190,7 @@ void TextEditing::submit() {
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
   it->second.view.eventEmitter->dispatchEvent("submitEditing",
                                               folly::dynamic::object("target", focused_)("text", text_));
+  Report::get().deliver("submitEditing", 0, it->second.view, folly::dynamic::object("text", text_));
   // A single-line input blurs on submit unless asked to stay (submitBehavior="submit").
   if (props->submitBehavior != SubmitBehavior::Submit) blur();
 }

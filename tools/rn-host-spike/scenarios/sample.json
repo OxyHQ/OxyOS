@@ -1,0 +1,131 @@
+{
+  "about": "The sample app (sample/App.tsx) in a 1024x640 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
+  "window": [1024, 640],
+  "steps": [
+    {
+      "name": "press the Bloom Button",
+      "do": ["press", [686, 324]],
+      "expect": {
+        "texts": ["Pressed 1 time"],
+        "absent": ["Press me"],
+        "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
+        "focus_surface": 1,
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "press it again",
+      "do": ["press", [686, 324]],
+      "expect": {
+        "texts": ["Pressed 2 times"],
+        "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "scroll the inbox to its end",
+      "do": ["scroll", [170, 300, 400]],
+      "expect": {
+        "texts": ["Last message", "Scrolled into view by the wheel."],
+        "absent": ["Rendered by Fabric and Hermes on Linux."],
+        "react": {"scroll@inbox": 1},
+        "delivered": {"1": {"scroll": 1}},
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "focus the reply field",
+      "do": ["press", [686, 372]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1}
+      }
+    },
+    {
+      "name": "type a reply",
+      "do": ["type", "Hola OxyOS!"],
+      "expect": {
+        "texts": ["Reply: Hola OxyOS!"],
+        "focus_input": "reply",
+        "react": {"keyPress@reply": 1, "change@reply": 1},
+        "delivered": {"1": {"text": 1}},
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "delete its last character",
+      "do": ["key", 14],
+      "expect": {
+        "texts": ["Reply: Hola OxyOS"],
+        "absent": ["Reply: Hola OxyOS!"],
+        "react": {"keyPress@reply": 1, "change@reply": 1},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      }
+    },
+    {
+      "name": "submit with Enter",
+      "do": ["key", 28],
+      "expect": {
+        "focus_input": null,
+        "texts": ["Reply: Hola OxyOS"],
+        "react": {"submitEditing@reply": 1, "blur@reply": 1}
+      }
+    },
+    {
+      "name": "open the menu",
+      "do": ["press", [797, 452]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "texts": ["Reply", "Forward", "Archive", "Move to folder", "Mark as unread", "Delete"],
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "latency_ms": 250
+      }
+    },
+    {"name": "the menu reaches beyond the window", "do": ["expect-popup", null]},
+    {
+      "name": "choose Archive in the menu",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "absent": ["Nothing chosen", "Move to folder"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    },
+    {
+      "name": "focus the reply field again",
+      "do": ["press", [686, 372]],
+      "expect": {"focus_input": "reply", "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1}}
+    },
+    {
+      "name": "reopen the menu, the field keeping its focus",
+      "do": ["press", [797, 452]],
+      "expect": {"popups": 1, "focus_surface": 3, "focus_input": "reply", "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}}
+    },
+    {
+      "name": "text typed into the open menu does not reach the field behind it",
+      "do": ["type", "zz"],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "texts": ["Reply: Hola OxyOS"],
+        "absent": ["Reply: Hola OxyOSzz"],
+        "react": {},
+        "delivered": {"3": {"text": 1}}
+      }
+    },
+    {
+      "name": "an outside press dismisses the menu and reaches nothing behind it",
+      "do": ["press", [200, 300]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive", "Pressed 2 times"],
+        "react": {}
+      }
+    }
+  ]
+}
