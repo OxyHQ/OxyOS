@@ -168,6 +168,9 @@ pub struct VulkanCompositor {
     timestamp_period: f32,
     timestamp_bits: u32,
     last_gpu_ms: Option<f64>,
+    /// The last frame's host time: copying the layers into the upload buffer, and from
+    /// submitting the commands to their fence, in milliseconds.
+    last_host_ms: (f64, f64),
     /// Whether the device exports memory as DMA-BUF (Linux), for scanout targets.
     dma_buf: bool,
     /// Output buffers exported for display (`scanout_targets`).
@@ -228,6 +231,7 @@ impl VulkanCompositor {
             timestamp_period: opened.timestamp_period,
             timestamp_bits: opened.timestamp_bits,
             last_gpu_ms: None,
+            last_host_ms: (0.0, 0.0),
             dma_buf: opened.dma_buf,
             scanout: Vec::new(),
             bound_output: vk::Buffer::null(),
@@ -427,6 +431,12 @@ impl VulkanCompositor {
         self.last_gpu_ms
     }
 
+    /// The last frame's host time, in milliseconds: copying the layers' pixels into the upload
+    /// buffer, and waiting from submission to the fence (the device's whole work for it).
+    pub fn last_host_ms(&self) -> (f64, f64) {
+        self.last_host_ms
+    }
+
     /// Composes `layers` onto an output of `width` × `height` filled with `background`, as
     /// [`crate::compose_cpu`] does, and returns the output's pixels.
     pub fn compose(
@@ -551,6 +561,7 @@ impl VulkanCompositor {
             unreachable!("reserved");
         };
 
+        let copying = std::time::Instant::now();
         // The layers' pixels one after another, into the upload buffer.
         let mut pushes = Vec::with_capacity(layers.len());
         let mut offset = 0usize;
@@ -589,6 +600,7 @@ impl VulkanCompositor {
             }
             pushes.push(push);
         }
+        self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
         let timing = self.queries != vk::QueryPool::null();
 
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -757,6 +769,7 @@ impl VulkanCompositor {
             }
             device.end_command_buffer(command)?;
             let commands = [command];
+            let submitting = std::time::Instant::now();
             device.queue_submit(
                 self.queue,
                 &[vk::SubmitInfo::default().command_buffers(&commands)],
@@ -764,6 +777,7 @@ impl VulkanCompositor {
             )?;
             device.wait_for_fences(&[self.fence], true, u64::MAX)?;
             device.reset_fences(&[self.fence])?;
+            self.last_host_ms.1 = submitting.elapsed().as_secs_f64() * 1e3;
         }
         self.last_gpu_ms = if timing {
             let mut ticks = [0u64; 2];
