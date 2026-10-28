@@ -134,6 +134,36 @@ def check_step(index, step, result, report, start, failures):
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
         if offsets != expect["scroll_offset"]:
             fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "a11y" in expect or "a11y_nodes" in expect or "a11y_order" in expect:
+        # The latest accessibility tree of the window and of each open popup (accessibility.h).
+        trees = {}
+        for line in report:
+            if line["kind"] == "a11y" and line["t"] <= end and line["surface"] not in closed:
+                trees[line["surface"]] = line["nodes"]
+
+        def surfaces(role):
+            return [nodes for s, nodes in trees.items() if (s == 1) == (role == "window")]
+
+        # Each listed node is present: every key it gives matches.
+        for role, wanted in expect.get("a11y", {}).items():
+            nodes = [n for tree in surfaces(role) for n in tree]
+            for node in wanted:
+                if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
+                    fail(f"no {role} accessibility node {node}")
+        # The surface's nodes, exactly and in reading order, as [role, name] pairs.
+        for role, wanted in expect.get("a11y_nodes", {}).items():
+            got = [[[n["role"], n["name"]] for n in tree] for tree in surfaces(role)]
+            if got != [wanted]:
+                fail(f"{role} accessibility nodes {got}, expected [{wanted}]")
+        # These names are read in this order (other nodes may come between them).
+        for role, wanted in expect.get("a11y_order", {}).items():
+            names = [n["name"] for tree in surfaces(role) for n in tree]
+            at = 0
+            for label in wanted:
+                at = names.index(label, at) + 1 if label in names[at:] else -1
+                if at < 0:
+                    fail(f"{role} reading order {names} does not read {wanted} in order")
+                    break
     if "frame_px" in expect:
         # The size in pixels of the latest frame of the window and of each open popup.
         for role, size in expect["frame_px"].items():

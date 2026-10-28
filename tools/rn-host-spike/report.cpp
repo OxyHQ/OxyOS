@@ -38,6 +38,14 @@ std::string Report::name(const ShadowView& view) {
   return std::string(view.componentName ? view.componentName : "?") + "#" + std::to_string(view.tag);
 }
 
+void Report::accessibility(uint32_t surface, const folly::dynamic& nodes) {
+  if (!file_) return;
+  auto it = accessibility_.find(surface);
+  if (it != accessibility_.end() && it->second == nodes) return;
+  accessibility_[surface] = nodes;
+  write(folly::dynamic::object("kind", "a11y")("surface", surface)("nodes", nodes));
+}
+
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
   line["t"] = monotonicNs();

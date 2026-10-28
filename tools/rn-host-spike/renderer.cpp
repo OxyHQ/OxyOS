@@ -277,9 +277,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   } scope{dump};
   if (dump) {
     Rgba bg = props ? rgba(props->backgroundColor) : Rgba{0, 0, 0, 0};
-    std::fprintf(stderr, "[tree] %*s%s tag=%d frame=(%.0f,%.0f %.0fx%.0f) at=(%.0f,%.0f) bg=%.2f,%.2f,%.2f,%.2f opacity=%.2f\n",
+    std::fprintf(stderr,
+                 "[tree] %*s%s tag=%d frame=(%.0f,%.0f %.0fx%.0f) at=(%.0f,%.0f) bg=%.2f,%.2f,%.2f,%.2f opacity=%.2f "
+                 "z=%d\n",
                  depth * 2, "", name.c_str(), tag, frame.origin.x, frame.origin.y, w, h, x, y, bg.r, bg.g, bg.b, bg.a,
-                 props ? props->opacity : 1.0f);
+                 props ? props->opacity : 1.0f, props && props->zIndex ? *props->zIndex : 0);
     ++depth;
   }
   Clip childClip = clip;

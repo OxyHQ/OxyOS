@@ -10,7 +10,9 @@
         "absent": ["Press me"],
         "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
         "focus_surface": 1,
-        "latency_ms": 250
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "button", "name": "Pressed 1 time", "id": "press-me"}, {"role": "textinput", "name": "Write a reply", "id": "reply"}, {"role": "button", "name": "Open menu", "state": {"expanded": false}}, {"role": "heading", "name": "Inbox"}]},
+        "a11y_order": {"window": ["Pressed 1 time", "Write a reply", "No reply yet", "Open menu", "Nothing chosen"]}
       }
     },
     {
@@ -51,7 +53,8 @@
         "focus_input": "reply",
         "react": {"change@reply": 1, "selectionChange@reply": 1},
         "delivered": {"1": {"text": 1}},
-        "latency_ms": 250
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "textinput", "name": "Hola OxyOS!", "id": "reply"}]}
       }
     },
     {
@@ -81,7 +84,9 @@
         "focus_surface": 2,
         "texts": ["Reply", "Forward", "Archive", "Move to folder", "Mark as unread", "Delete"],
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
-        "latency_ms": 250
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": true}}]},
+        "a11y_nodes": {"popup": [["menu", "Message actions"], ["menuitem", "Reply"], ["menuitem", "Forward"], ["menuitem", "Archive"], ["menuitem", "Move to folder"], ["menuitem", "Mark as unread"], ["menuitem", "Delete"], ["menuitem", "More actions"]]}
       }
     },
     {
@@ -96,7 +101,8 @@
         "focus_surface": 1,
         "texts": ["Chosen: Archive"],
         "absent": ["Nothing chosen", "Move to folder"],
-        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1},
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": false}}]}
       }
     },
     {
@@ -343,7 +349,8 @@
         "texts": ["Copy link", "Print"],
         "popup_events": {"reposition@message-actions": 1},
         "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
-        "popup_size": [266, 430]
+        "popup_size": [266, 430],
+        "a11y": {"popup": [{"role": "menuitem", "name": "More actions", "state": {"expanded": true}}, {"role": "menuitem", "name": "Copy link"}, {"role": "menuitem", "name": "Print"}]}
       }
     },
     {

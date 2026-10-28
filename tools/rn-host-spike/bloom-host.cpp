@@ -1,6 +1,7 @@
 // OxyOS React Native host: Hermes + bridgeless ReactInstance + Fabric on Linux, single-threaded.
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
+#include "accessibility.h"
 #include "android-components.h"
 #include "host-modules.h"
 #include "input.h"
@@ -497,6 +498,10 @@ int main(int argc, char** argv) {
           window->present(oxy::Window::kToplevel, canvas);
           oxy::Report::get().frame(oxy::Window::kToplevel, canvas.width, canvas.height, renderMs, stats.textContent,
                                    focusName());
+          if (oxy::Report::get().enabled()) {
+            oxy::Report::get().accessibility(oxy::Window::kToplevel,
+                                             oxy::toDynamic(oxy::accessibilityTree(tree, tree.root())));
+          }
           dirty = false;
           busy = true;
         }

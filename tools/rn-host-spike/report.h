@@ -5,6 +5,7 @@
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
+//   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxy-offscreen stamps its steps with, so the
 // two logs line up. Views are named by testID, else by accessibility label, else component#tag.
@@ -17,6 +18,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -41,12 +43,16 @@ class Report {
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());
 
+  // A surface's accessibility tree (accessibility.h), written when it changed.
+  void accessibility(uint32_t surface, const folly::dynamic& nodes);
+
   static std::string name(const facebook::react::ShadowView& view);
 
  private:
   Report();
   void write(folly::dynamic&& line);
   std::FILE* file_ = nullptr;
+  std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
 };
 
 }  // namespace oxy

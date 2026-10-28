@@ -1,5 +1,6 @@
 #include "popup.h"
 
+#include "accessibility.h"
 #include "report.h"
 
 #include <react/renderer/core/propsConversions.h>
@@ -150,6 +151,7 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
+    if (Report::get().enabled()) Report::get().accessibility(popup.surface, toDynamic(accessibilityTree(tree_, tag)));
     popup.dirty = false;
     popup.drawnFor = surface->configure;
   }
