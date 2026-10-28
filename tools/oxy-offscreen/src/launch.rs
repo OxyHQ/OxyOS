@@ -141,11 +141,14 @@ pub struct Launch {
     /// the director point, scroll and type through virtual devices instead of the scene.
     pub input: bool,
     pub uinput: bool,
+    /// `--seat`: with `--kms`, run in the caller's logind session as its user, devices opened
+    /// through logind, instead of as root taking the terminal (docs/adr/0006-seat.mdx).
+    pub seat: bool,
     /// `--layout LAYOUT`: the XKB layout keys are typed and read with (`us` by default).
     pub layout: String,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -171,6 +174,7 @@ impl Launch {
         let mut dump_frames = None;
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
+        let mut seat = false;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -199,6 +203,10 @@ impl Launch {
                 Some("--uinput") => {
                     input = true;
                     uinput = true;
+                    continue;
+                }
+                Some("--seat") => {
+                    seat = true;
                     continue;
                 }
                 Some("--layout") => {
@@ -310,6 +318,7 @@ impl Launch {
                             kms,
                             input,
                             uinput,
+                            seat,
                             layout,
                         },
                     ));
@@ -647,12 +656,14 @@ fn switch_terminal(
     devices: &mut crate::uinput::Devices,
     number: u16,
 ) -> Result<f64> {
-    let own = session
-        .compositor
-        .terminal
-        .as_ref()
-        .ok_or("--switch-terminal needs --kms")?
-        .number();
+    let own = match (&session.compositor.terminal, &session.compositor.seat) {
+        (Some(terminal), _) => terminal.number(),
+        (None, Some(seat)) => seat
+            .vt()
+            .and_then(|vt| u16::try_from(vt).ok())
+            .ok_or("the session has no terminal")?,
+        (None, None) => return Err("--switch-terminal needs --kms".into()),
+    };
     if number == own {
         return Err(format!("terminal {number} is the compositor's own").into());
     }
@@ -818,6 +829,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
 
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
+    // Before the session counts its descriptors: logind's connection lives as long as the
+    // process. What is opened through it is closed before the count is checked.
+    let seat = match (&launch.kms, launch.seat) {
+        (Some(_), true) => {
+            let seat = std::rc::Rc::new(oxy_seat::Seat::take()?);
+            eprintln!("[seat] logind session on terminal {:?}", seat.vt());
+            Some(seat)
+        }
+        (None, true) => return Err("--seat needs --kms".into()),
+        _ => None,
+    };
     let mut session = Session::start()?;
     session
         .compositor
@@ -830,16 +852,48 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    // With logind, a probe of the session's terminal shows that typing never reached it.
+    let mut console = None;
     if let Some(card) = &launch.kms {
-        // The display's terminal first, so the console draws nothing once the display is ours.
-        let terminal = oxy_vt::Terminal::take(launch.input)?;
-        eprintln!(
-            "[vt] terminal {}: graphics, switches by request{}",
-            terminal.number(),
-            if launch.input { ", keyboard off" } else { "" }
-        );
-        session.compositor.terminal = Some(terminal);
-        let display = oxy_kms::Display::open(oxy_kms::Card::open(card)?)?;
+        let card_file = match &seat {
+            Some(seat) => {
+                let (fd, inactive) = seat.open(card)?;
+                if inactive {
+                    return Err("the session is not active: its terminal must be shown".into());
+                }
+                session.compositor.card_device = Some(oxy_seat::Device::of(card)?);
+                session.compositor.seat = Some(seat.clone());
+                if let (Some(vt), true) = (seat.vt(), launch.input) {
+                    console = match oxy_vt::Console::open(vt) {
+                        Ok(console) => Some(console),
+                        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                            eprintln!(
+                                "[seat] terminal {vt} is not readable: what reached its console is not checked"
+                            );
+                            None
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                }
+                (oxy_kms::Card::from_fd(fd)?, true)
+            }
+            None => {
+                // The display's terminal first, so the console draws nothing once the display
+                // is ours.
+                let terminal = oxy_vt::Terminal::take(launch.input)?;
+                eprintln!(
+                    "[vt] terminal {}: graphics, switches by request{}",
+                    terminal.number(),
+                    if launch.input { ", keyboard off" } else { "" }
+                );
+                session.compositor.terminal = Some(terminal);
+                (oxy_kms::Card::open(card)?, false)
+            }
+        };
+        let display = match card_file {
+            (card, true) => oxy_kms::Display::open_from_seat(card)?,
+            (card, false) => oxy_kms::Display::open(card)?,
+        };
         eprintln!(
             "[kms] showing on {} ({})",
             card.display(),
@@ -863,7 +917,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             // udev announces the new devices before libinput can open them.
             std::thread::sleep(Duration::from_millis(500));
         }
-        let input = oxy_input::Input::open(bounds, &launch.layout)?;
+        // Through logind with `--seat`: devices are the session's, revoked when it goes away.
+        let devices = seat.clone().map(|seat| {
+            let closer = seat.clone();
+            let open: oxy_input::Open = Box::new(move |path| seat.open(path).map(|(fd, _)| fd));
+            let close: oxy_input::Close = Box::new(move |fd| {
+                use std::os::fd::AsFd;
+                if let Ok(device) = oxy_seat::Device::of_fd(fd.as_fd()) {
+                    let _ = closer.close(device);
+                }
+            });
+            (open, close)
+        });
+        let input = oxy_input::Input::open_with(bounds, &launch.layout, devices)?;
         eprintln!(
             "[input] libinput on seat0, layout {}, {}",
             launch.layout,
@@ -1102,13 +1168,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         None => "null".to_string(),
     };
     // With its keyboard off, the console under the compositor got none of what was typed.
-    let console_input = match &session.compositor.terminal {
-        Some(terminal) if launch.input => terminal.console_input()?,
-        _ => 0,
+    // `None`: the console could not be read (a session's terminal its user cannot read).
+    let console_input = match (&session.compositor.terminal, &console) {
+        (Some(terminal), _) if launch.input => Some(terminal.console_input()?),
+        (None, Some(console)) => Some(console.input()?),
+        (None, None) if launch.seat && launch.input => None,
+        _ => Some(0),
     };
-    if console_input > 0 {
-        return Err(format!("{console_input} bytes typed reached the console").into());
+    if let Some(bytes) = console_input.filter(|&bytes| bytes > 0) {
+        return Err(format!("{bytes} bytes typed reached the console").into());
     }
+    let console_input = console_input.map_or("null".to_string(), |bytes| bytes.to_string());
     // The last frame on its way to the display completes before the display is closed.
     session.compositor.complete_flip(true);
     let display = match session.compositor.display.take() {
@@ -1142,9 +1212,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         None => "null".to_string(),
     };
-    // The terminal is given back after the display, and closes before the descriptor check.
+    // The terminal is given back after the display, and closes before the descriptor check, as
+    // the console probe does; the logind session is given back after it.
     session.compositor.terminal = None;
+    session.compositor.seat = None;
+    drop(console);
     session.finish(&mut children)?;
+    drop(seat);
     println!(
         "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
@@ -1176,6 +1250,7 @@ mod tests {
             "frames",
             "--kms",
             "/dev/dri/card1",
+            "--seat",
             "--out",
             "o",
             "--press",
@@ -1213,6 +1288,7 @@ mod tests {
         assert!(launch.gpu && launch.gpu_only);
         assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
         assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
+        assert!(launch.seat);
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(

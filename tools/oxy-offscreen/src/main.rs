@@ -109,6 +109,10 @@ struct Compositor {
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
+    /// With `--seat`: the logind session the compositor runs in, instead of the terminal
+    /// (logind then owns the terminal), and the card it opened through it.
+    seat: Option<std::rc::Rc<oxy_seat::Seat>>,
+    card_device: Option<oxy_seat::Device>,
     /// Another terminal has the display and the devices: frames complete without being shown.
     away: bool,
 }
@@ -508,12 +512,29 @@ impl Compositor {
             return;
         };
         let flip = match &self.display {
-            Some(display) if wait => display.wait_flip().map(Some),
+            Some(display) if wait => {
+                // Bounded: a seat manager may have taken the display meanwhile.
+                let deadline = Instant::now() + Duration::from_secs(1);
+                loop {
+                    match display.flip_done() {
+                        Ok(None) if Instant::now() < deadline => {
+                            std::thread::sleep(Duration::from_millis(1))
+                        }
+                        other => break other,
+                    }
+                }
+            }
             Some(display) => display.flip_done(),
             None => Err(std::io::Error::other("the display went away")),
         };
         let (timestamp_ns, clock) = match flip {
-            Ok(None) => return,
+            Ok(None) if !wait => return,
+            // Never flipped: the frame completes unshown, and is composed again.
+            Ok(None) => {
+                eprintln!("[kms] a frame never flipped");
+                self.composed.clear();
+                (0, Clock::Synthetic)
+            }
             Ok(Some(flip)) => {
                 self.flips.push((submitted, flip));
                 (
@@ -588,6 +609,49 @@ impl Compositor {
         Ok(())
     }
 
+    /// With `--seat`: lets go of the display and the devices when logind pauses the card
+    /// (another session has the seat), acknowledging each pause, and takes them back when it
+    /// resumes; the frame is then shown again with a modeset.
+    fn follow_seat(&mut self) -> Result<()> {
+        let Some(seat) = self.seat.clone() else {
+            return Ok(());
+        };
+        for event in seat.events() {
+            match event {
+                oxy_seat::Event::Paused(device, pause) => {
+                    if Some(device) == self.card_device && !self.away {
+                        self.complete_flip(true);
+                        if let Some(display) = &mut self.display {
+                            display.taken_back();
+                        }
+                        if let Some(input) = &mut self.input {
+                            input.suspend();
+                        }
+                        // libinput released what was still down: applications hear it now.
+                        self.read_input();
+                        self.away = true;
+                    }
+                    if pause == oxy_seat::Pause::Pause {
+                        seat.paused(device)?;
+                    }
+                }
+                // Input devices are opened anew when libinput resumes; the card keeps its own.
+                oxy_seat::Event::Resumed(device, fd) => {
+                    drop(fd);
+                    if Some(device) == self.card_device && self.away {
+                        if let Some(input) = &mut self.input {
+                            input.resume()?;
+                        }
+                        self.away = false;
+                        // Composed again, and shown with a modeset.
+                        self.composed.clear();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// With `--input`: what the seat's devices did since the last turn, applied to the scene.
     /// Positions arrive in the display's pixels; the output is centred on the display.
     fn read_input(&mut self) {
@@ -630,6 +694,13 @@ impl Compositor {
                     }
                 }
                 oxy_input::Action::SwitchTerminal(number) => {
+                    if let Some(seat) = &self.seat {
+                        if Some(u32::from(number)) != seat.vt() {
+                            if let Err(error) = seat.switch_to(u32::from(number)) {
+                                eprintln!("[seat] switching to {number}: {error}");
+                            }
+                        }
+                    }
                     if let Some(terminal) = &self.terminal {
                         if number != terminal.number() {
                             if let Err(error) = terminal.activate(number) {
@@ -804,6 +875,7 @@ impl Compositor {
     /// a frame and sends events. Waits at most 5 ms for input.
     fn serve(&mut self, listener: &Listener) -> Result<()> {
         self.follow_terminal()?;
+        self.follow_seat()?;
         self.read_input();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener, every client and, with a frame on its way, the display (its flip);
@@ -1134,6 +1206,8 @@ impl Session {
             next_version: 0,
             shown_versions: HashMap::new(),
             terminal: None,
+            seat: None,
+            card_device: None,
             away: false,
         };
         Ok(Self {

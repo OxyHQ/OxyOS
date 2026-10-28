@@ -1,0 +1,49 @@
+---
+title: "ADR 0006: The compositor's seat through logind"
+description: How the compositor runs as the user of a session instead of as root, with its display, input devices and terminal handed to it by systemd-logind.
+order: 15
+---
+
+# ADR 0006: The compositor's seat through logind
+
+Status: **accepted; implemented in the development compositor** (`oxy-offscreen --launch --kms --seat`). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0004](./0004-gpu-composition).
+
+## Problem
+
+The development compositor ran as root. It opened the DRM card and the input devices itself, took DRM master, and took the terminal with ioctls (`oxy-vt`). The architecture keeps the compositor outside root where device and session delegation allows ([Native platform architecture](../native-architecture), *Session and security*).
+
+seatd was part of the retired desktop stack, and the image check refuses it ([Retired desktop stack](../retired-desktop-stack)). The Debian base runs systemd, whose logind already manages seats, sessions and their devices.
+
+## Decision
+
+The compositor runs as the user of a logind session on a seat, and logind hands it the session's devices (`crates/oxy-seat`, D-Bus through `zbus`, safe Rust):
+
+1. **Control of the session.** `TakeControl` on the caller's session (`XDG_SESSION_ID`, or the process's session); the session must be on a seat. logind then owns the session's terminal: graphics mode, keyboard off, switches by request. The compositor no longer touches the terminal.
+2. **Devices.** The DRM card and every input device come from `TakeDevice`.
+   - The card arrives as DRM master while the session is active. The kernel refuses `SET_MASTER` to anyone but a card's opener, so the compositor never asks (`Display::open_from_seat`).
+   - libinput opens and closes input devices through the seat (`Input::open_with`).
+3. **Switches.** When another session takes the seat, logind pauses the session's devices: it drops DRM master and revokes the input devices.
+   - **On the card's pause**, the compositor completes the frame on its way (bounded, since the flip may never come), stops showing frames, suspends libinput and acknowledges the pause (`PauseDeviceComplete`).
+   - **On the card's resume**, it resumes libinput (devices are opened anew) and shows the frame again with a modeset.
+   - **Ctrl+Alt+Fn**, from the keymap as before, becomes `Seat.SwitchTo`.
+4. **The root path stays.** Without `--seat`, the development compositor runs as root and takes the terminal itself (`oxy-vt`), for machines and tests without a session.
+
+## Results
+
+On the ThinkPad, the compositor ran as `nate` (uid 1000) in a logind session on terminal 8, created for the test with `systemd-run -p PAMName=login -p TTYPath=/dev/tty8 -p User=nate`:
+- **The full regression through the devices** (`--seat --uinput --gpu --check-damage`, 58 steps) passes. Every GPU frame is identical to the CPU reference, every frame the host drew from its damage is identical to the frame drawn whole, and the console counted 0 bytes typed.
+- **The terminal scenario** passes three runs out of three. The compositor leaves for terminal 5 and comes back, away for 63–100 ms (143–243 ms on the root path), and the console counts 0 bytes.
+- **The root path** still passes unchanged.
+
+The test machine needs two grants that the design does not:
+- `/dev/uinput` for the test driver's virtual devices;
+- reading `/dev/tty8` for the console check. Without it, the summary reports `console_input_bytes` as null and says so.
+
+## Consequences
+
+- The compositor needs no privilege of its own: logind decides which session has the seat.
+- **Its D-Bus connection lives as long as the process.** zbus keeps its own threads and descriptors, so the development compositor takes its seat before it counts descriptors. What it opens through logind is closed before the count is checked.
+- **Not decided here:**
+  - the session process that runs the compositor in a real login (a greeter is retired; an Oxy session needs its own launcher and authentication, [Oxy account and session on OxyOS](../account-session));
+  - hotplugged cards;
+  - the lock across a switch.

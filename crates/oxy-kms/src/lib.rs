@@ -92,7 +92,13 @@ impl Card {
     /// Opens a card and asks for universal planes and atomic modesetting (neither needs master).
     pub fn open(path: &Path) -> io::Result<Self> {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
-        let card = Self(file);
+        Self::from_fd(file.into())
+    }
+
+    /// The same with a card someone else opened (the session's seat manager, which makes it
+    /// DRM master while the session is active).
+    pub fn from_fd(fd: std::os::fd::OwnedFd) -> io::Result<Self> {
+        let card = Self(File::from(fd));
         card.set_client_capability(ClientCapability::UniversalPlanes, true)?;
         card.set_client_capability(ClientCapability::Atomic, true)?;
         Ok(card)
