@@ -6,7 +6,7 @@ order: 14
 
 # ADR 0005: Damage: composing and drawing only what changed
 
-Status: **accepted; decisions 1 to 4 implemented** (the output's damage, resident surfaces, the protocol's damage and buffer age; see [Results](#results)). The Bloom host's damage (decision 5) is next. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+Status: **accepted; implemented** (decisions 1 to 6; see [Results](#results)). Uploading only a surface's damaged rows is what remains. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
@@ -59,7 +59,7 @@ The protocol cannot say what changed: `Submit { surface, sequence, buffer, confi
 
 1. **The output's damage and resident surfaces (decisions 1 and 2).** Done. These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
 2. **`Damage` and buffer age (decisions 3 and 4).** Done. These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
-3. **The host's damage (decision 5).** Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
+3. **The host's damage (decision 5).** Done. Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
 
 Each step lands only with the CPU reference comparison passing on hardware and the regression passing through the devices.
 
@@ -106,6 +106,30 @@ Tests check:
 - that a reused buffer receives only its missed regions, in the client.
 
 The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends no damage yet.
+
+**The Bloom host's damage (decision 5).** The host keeps the window's frame between frames. `damage.h` works out what changed from the tree as drawn:
+- a view new, gone, moved or resized, where it was and where it is;
+- a view drawn with other props, with its subtree. `drawsTheSame` compares the props `drawView` reads (background, opacity, borders, clipping), because a re-render makes new props objects with the same values;
+- a view with new state or children in a new order, with its subtree;
+- the text input whose caret or selection moved.
+
+The renderer draws only that (`drawDamaged`). Each region is reset to the window's white and drawn again as a whole frame draws it: the painter chooses which pixels to paint, never the geometry, and text outside the damage is not laid out. The frame goes out with `oxy_client_present_damaged`.
+
+`OXY_HOST_DAMAGE_CHECK` (`regress.py --check-damage`) draws every frame whole too and fails the run on any difference. A control that shrinks every damaged rectangle by 2 pixels makes it fail, on 49 frames of the regression. `OXY_DAMAGE_TRACE` prints what drew a subtree again.
+
+On the ThinkPad, the full regression through the devices passes with `--check-damage` (every frame drawn from its damage identical to the frame drawn whole, every `--gpu` frame identical to the CPU reference). The terminal, secure-field and Android-adaptation scenarios pass too. Medians:
+
+| | Before ADR 0005 | Now |
+| --- | --- | --- |
+| The host's render per frame | about 20 ms | about 2.8 ms |
+| The output's damage per frame | the whole output | 9.8% of it |
+| The compositor's composition (`--gpu-only`) | 5.27 ms | about 3.3–3.9 ms |
+| Input to flip, `--gpu-only` (three runs) | 46–50 ms | 20.7, 21.7, 30.9 ms |
+| Input to flip, CPU composition (three runs) | 39–48 ms | 23.1, 23.7, 32.8 ms |
+
+Comparing props by pointer, the first attempt drew 67% of the window most frames and saved little: Bloom's panels got new props objects with every re-render.
+
+The window's buffer is still uploaded whole, 2,560 KiB per frame: a new version of a surface replaces its resident pixels. Uploading only the damaged rows is the next saving.
 
 ## Consequences
 
