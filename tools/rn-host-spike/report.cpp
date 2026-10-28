@@ -62,13 +62,13 @@ void Report::write(folly::dynamic&& line) {
 }
 
 void Report::frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
-                   const std::string& focus, double damaged) {
+                   const std::string& focus, double damaged, bool presented) {
   if (!file_) return;
   folly::dynamic list = folly::dynamic::array;
   for (const auto& text : texts) list.push_back(text);
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
       "render_ms", renderMs)("damaged", damaged)("texts", std::move(list))(
-      "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus)));
+      "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
 }
 
 void Report::damageMismatch(uint32_t surface, size_t pixels) {
