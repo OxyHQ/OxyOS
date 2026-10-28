@@ -199,19 +199,33 @@ impl Connection {
         }
     }
 
-    pub fn send_event(&self, event: &Event) -> io::Result<()> {
+    /// Sends one event, with the descriptor it carries (`Event::carries_fd`) and only then.
+    pub fn send_event(&self, event: &Event, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
+        if event.carries_fd() != fd.is_some() {
+            return Err(invalid("descriptor does not match the event"));
+        }
         let mut packet = Vec::with_capacity(PACKET_CAPACITY);
         write_event(&mut packet, event)?;
-        self.send_packet(&packet, None)
+        self.send_packet(&packet, fd)
     }
 
     /// Sends without blocking. Returns `Ok(false)` if the peer's receive queue is full, so the
     /// compositor can keep the event in a bounded outbox instead of waiting on a slow client.
-    pub fn try_send_event(&self, event: &Event) -> io::Result<bool> {
+    pub fn try_send_event(&self, event: &Event, fd: Option<BorrowedFd<'_>>) -> io::Result<bool> {
+        if event.carries_fd() != fd.is_some() {
+            return Err(invalid("descriptor does not match the event"));
+        }
         let mut packet = Vec::with_capacity(PACKET_CAPACITY);
         write_event(&mut packet, event)?;
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut control = SendAncillaryBuffer::new(&mut space);
+        let fds;
+        if let Some(fd) = fd {
+            fds = [fd];
+            if !control.push(SendAncillaryMessage::ScmRights(&fds)) {
+                return Err(invalid("ancillary buffer too small"));
+            }
+        }
         match rustix::net::sendmsg(
             &self.fd,
             &[IoSlice::new(&packet)],
@@ -225,13 +239,14 @@ impl Connection {
         }
     }
 
-    pub fn recv_event(&self) -> io::Result<Event> {
+    /// Receives one event, and the descriptor it carries if its kind carries one.
+    pub fn recv_event(&self) -> io::Result<(Event, Option<OwnedFd>)> {
         self.receive_event(RecvFlags::empty())
     }
 
     /// Receives an event without blocking: `Ok(None)` if none is queued, so a client can serve
     /// the compositor from its own loop.
-    pub fn try_recv_event(&self) -> io::Result<Option<Event>> {
+    pub fn try_recv_event(&self) -> io::Result<Option<(Event, Option<OwnedFd>)>> {
         match self.receive_event(RecvFlags::DONTWAIT) {
             Ok(event) => Ok(Some(event)),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
@@ -239,18 +254,21 @@ impl Connection {
         }
     }
 
-    fn receive_event(&self, flags: RecvFlags) -> io::Result<Event> {
+    /// A descriptor comes with an event exactly when its kind carries one; any mismatch closes
+    /// the received descriptors and is an error.
+    fn receive_event(&self, flags: RecvFlags) -> io::Result<(Event, Option<OwnedFd>)> {
         let mut storage = [0; PACKET_CAPACITY];
-        let (length, fds) = self.recv_packet(&mut storage, flags)?;
-        if !fds.is_empty() {
-            return Err(invalid("events carry no descriptors"));
-        }
+        let (length, mut fds) = self.recv_packet(&mut storage, flags)?;
         let mut cursor = Cursor::new(&storage[..length]);
         let event = read_event(&mut cursor)?;
         if cursor.position() as usize != length {
             return Err(invalid("trailing bytes in packet"));
         }
-        Ok(event)
+        match (event.carries_fd(), fds.len()) {
+            (true, 1) => Ok((event, fds.pop())),
+            (false, 0) => Ok((event, None)),
+            _ => Err(invalid("descriptor does not match the event")),
+        }
     }
 
     /// Sends raw bytes; for tests of malformed peers.

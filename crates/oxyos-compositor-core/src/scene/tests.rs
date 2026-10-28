@@ -2692,3 +2692,278 @@ fn a_new_size_damages_the_whole_surface() {
         Some(&SurfaceDamage::Whole)
     );
 }
+
+// ---- clipboard (ADR 0007) -------------------------------------------------------------------
+
+const PLAIN: &str = "text/plain;charset=utf-8";
+
+fn mime(text: &str) -> TextChunk {
+    TextChunk::new(text).unwrap()
+}
+
+/// A key typed into whichever client has focus: the serial its press was delivered with.
+fn type_key(h: &mut Harness) -> u64 {
+    h.scene.key(30, true);
+    let pressed = h.pump();
+    h.scene.key(30, false);
+    h.pump();
+    pressed
+        .iter()
+        .find_map(|(_, event)| match event {
+            Event::Key {
+                serial,
+                pressed: true,
+                ..
+            } => Some(*serial),
+            _ => None,
+        })
+        .expect("a key reached a client")
+}
+
+/// `client` copies: an offer of plain text with the serial of a key typed into it, committed.
+fn copy(h: &mut Harness, client: ClientId, offer: u32) {
+    let serial = type_key(h);
+    for request in [
+        Request::ClipboardOffer { offer, serial },
+        Request::ClipboardType {
+            offer,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardCommit { offer },
+    ] {
+        h.request(client, request).unwrap();
+    }
+}
+
+/// The clipboard events `client` received.
+fn clipboard_events(h: &Harness, client: ClientId) -> Vec<Event> {
+    h.events_for(client)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                Event::ClipboardTypes { .. }
+                    | Event::ClipboardType { .. }
+                    | Event::ClipboardEmpty {}
+                    | Event::ClipboardSend { .. }
+            )
+        })
+        .collect()
+}
+
+/// `client` pastes `selection` as `mime` with `serial`: the owner told to send, if allowed.
+fn paste(
+    h: &mut Harness,
+    client: ClientId,
+    selection: u32,
+    mime_type: &str,
+    serial: u64,
+) -> Option<ClientId> {
+    let request = Request::ClipboardReceive {
+        selection,
+        mime: mime(mime_type),
+        serial,
+    };
+    h.scene.handle(client, request).unwrap();
+    let owner = h.scene.take_transfer();
+    h.pump();
+    owner
+}
+
+/// Two windows, the first one focused, the log cleared.
+fn two_windows(h: &mut Harness) -> (SurfaceKey, SurfaceKey) {
+    let app = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    // Apart, so that a click on one never lands on the other.
+    h.scene.move_window_to(other, (1300, 100));
+    h.present(other);
+    let a = h.rect(app);
+    h.click(a.x + 5, a.y + 5);
+    assert_eq!(h.scene.focus(), Some(app));
+    h.clear_log();
+    (app, other)
+}
+
+#[test]
+fn a_copy_reaches_the_focused_application_which_pastes_it_from_its_owner() {
+    let mut h = Harness::new();
+    let (_, other) = two_windows(&mut h);
+    copy(&mut h, APP, 7);
+    // The owner has focus: it is told what the clipboard now holds, under the compositor's name.
+    assert_eq!(
+        clipboard_events(&h, APP),
+        [
+            Event::ClipboardTypes {
+                selection: 1,
+                count: 1
+            },
+            Event::ClipboardType {
+                selection: 1,
+                mime: mime(PLAIN)
+            },
+        ]
+    );
+    assert!(clipboard_events(&h, OTHER).is_empty());
+    // Focus moves: the application it reaches is told, once.
+    let o = h.rect(other);
+    h.click(o.x + 5, o.y + 5);
+    assert_eq!(clipboard_events(&h, OTHER).len(), 2);
+    h.clear_log();
+    // A paste with a key of its own: the owner is asked to send that type of its offer.
+    let serial = type_key(&mut h);
+    assert_eq!(paste(&mut h, OTHER, 1, PLAIN, serial), Some(APP));
+    assert_eq!(
+        clipboard_events(&h, APP),
+        [Event::ClipboardSend {
+            offer: 7,
+            mime: mime(PLAIN)
+        }]
+    );
+    assert!(clipboard_events(&h, OTHER).is_empty());
+}
+
+#[test]
+fn the_clipboard_is_read_and_replaced_only_by_the_user_s_own_actions() {
+    let mut h = Harness::new();
+    let (_, other) = two_windows(&mut h);
+    // An offer with a serial of another client's input is refused: it takes no types, and
+    // committing it changes nothing.
+    let others_key = {
+        let o = h.rect(other);
+        h.click(o.x + 5, o.y + 5);
+        type_key(&mut h)
+    };
+    h.clear_log();
+    for request in [
+        Request::ClipboardOffer {
+            offer: 1,
+            serial: others_key,
+        },
+        Request::ClipboardType {
+            offer: 1,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardCommit { offer: 1 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    assert!(clipboard_events(&h, OTHER).is_empty());
+    // An offer begun with a key of its own but committed after focus left is refused too.
+    let app = key(APP, 1);
+    let a = h.rect(app);
+    h.click(a.x + 5, a.y + 5);
+    let serial = type_key(&mut h);
+    h.request(APP, Request::ClipboardOffer { offer: 2, serial })
+        .unwrap();
+    h.request(
+        APP,
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+    )
+    .unwrap();
+    let o = h.rect(other);
+    h.click(o.x + 5, o.y + 5);
+    h.clear_log();
+    h.request(APP, Request::ClipboardCommit { offer: 2 })
+        .unwrap();
+    assert!(clipboard_events(&h, OTHER).is_empty());
+
+    // A real copy, then pastes that must be refused.
+    h.click(a.x + 5, a.y + 5);
+    copy(&mut h, APP, 3);
+    copy(&mut h, APP, 4);
+    // The refused offers and commit created no content: these are the first and the second,
+    // which replaced the first.
+    let selection = h.scene.clipboard.as_ref().unwrap().selection;
+    assert_eq!(selection, 2);
+    let apps_old_key = type_key(&mut h);
+    h.click(o.x + 5, o.y + 5);
+    let others_key = type_key(&mut h);
+    h.clear_log();
+    // Without focus, even with a key of its own.
+    assert_eq!(paste(&mut h, APP, selection, PLAIN, apps_old_key), None);
+    // A type not offered.
+    assert_eq!(
+        paste(&mut h, OTHER, selection, "image/png", others_key),
+        None
+    );
+    // Content the clipboard held, and no longer does.
+    assert_eq!(paste(&mut h, OTHER, selection - 1, PLAIN, others_key), None);
+    // A serial older than the client's latest 16 inputs.
+    for _ in 0..RECENT_INPUTS {
+        type_key(&mut h);
+    }
+    assert_eq!(paste(&mut h, OTHER, selection, PLAIN, others_key), None);
+    assert!(clipboard_events(&h, APP).is_empty());
+    // The same paste with a fresh key is allowed.
+    let fresh = type_key(&mut h);
+    assert_eq!(paste(&mut h, OTHER, selection, PLAIN, fresh), Some(APP));
+}
+
+#[test]
+fn the_clipboard_empties_when_its_owner_clears_it_or_goes() {
+    let mut h = Harness::new();
+    let (app, other) = two_windows(&mut h);
+    copy(&mut h, APP, 1);
+    let serial = type_key(&mut h);
+    h.clear_log();
+    // Only the owner clears it, with an input of its own.
+    h.request(OTHER, Request::ClipboardClear { serial })
+        .unwrap();
+    h.request(APP, Request::ClipboardClear { serial }).unwrap();
+    assert_eq!(clipboard_events(&h, APP), [Event::ClipboardEmpty {}]);
+
+    copy(&mut h, APP, 2);
+    let o = h.rect(other);
+    h.click(o.x + 5, o.y + 5);
+    let others_key = type_key(&mut h);
+    h.clear_log();
+    // The owner disconnects: the focused application is told once, and nothing can be pasted.
+    h.scene.disconnect(APP);
+    h.pump();
+    assert!(h.scene.focus() != Some(app));
+    assert_eq!(clipboard_events(&h, OTHER), [Event::ClipboardEmpty {}]);
+    assert_eq!(paste(&mut h, OTHER, 2, PLAIN, others_key), None);
+}
+
+#[test]
+fn offers_and_their_types_are_bounded() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    let serial = type_key(&mut h);
+    for offer in 0..MAX_CLIPBOARD_OFFERS as u32 {
+        h.request(APP, Request::ClipboardOffer { offer, serial })
+            .unwrap();
+    }
+    assert_eq!(
+        h.request(APP, Request::ClipboardOffer { offer: 99, serial }),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    let serial = type_key(&mut h);
+    h.request(APP, Request::ClipboardOffer { offer: 1, serial })
+        .unwrap();
+    for index in 0..MAX_CLIPBOARD_TYPES {
+        h.request(
+            APP,
+            Request::ClipboardType {
+                offer: 1,
+                mime: mime(&format!("text/x-{index}")),
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        h.request(
+            APP,
+            Request::ClipboardType {
+                offer: 1,
+                mime: mime("text/x-more")
+            }
+        ),
+        Err(ErrorCode::QuotaExceeded)
+    );
+}

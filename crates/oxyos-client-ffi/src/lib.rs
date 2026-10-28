@@ -321,6 +321,12 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibilityCommitted { .. }
         | Event::AccessibilityRemoved { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
+        // The clipboard reaches this ABI with ADR 0007's second step; until then its events are
+        // skipped, and a ClipboardSend's pipe is closed, so a paste reads an empty end at once.
+        Event::ClipboardTypes { .. }
+        | Event::ClipboardType { .. }
+        | Event::ClipboardEmpty {}
+        | Event::ClipboardSend { .. } => return None,
     }
     Some(out)
 }
