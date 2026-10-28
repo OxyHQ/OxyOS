@@ -114,6 +114,8 @@ struct Gpu {
     /// For each frame composed for the display: the host's copy into the upload buffer, and
     /// submission to fence (`VulkanCompositor::last_host_ms`), in ms.
     host_ms: Vec<(f64, f64)>,
+    /// The device's time before and after composing each frame for the display, in ms.
+    phases_ms: Vec<(f64, f64)>,
 }
 
 impl Compositor {
@@ -600,6 +602,7 @@ impl Compositor {
             .map_err(|error| std::io::Error::other(error.to_string()));
             gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
             gpu.host_ms.push(gpu.compositor.last_host_ms());
+            gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
             let submitted = monotonic();
             self.compositions
                 .push((submitted - self.composing_since).as_secs_f64() * 1e3);
