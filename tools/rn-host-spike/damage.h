@@ -18,9 +18,10 @@ class WindowDamage {
   // What changed in the window since the last call, in window-local logical pixels:
   // - a view that is new or gone, where it is or was;
   // - a view that moved or resized, both places (each child is compared where it is drawn);
-  // - a view drawn with other props (renderer.h's drawsTheSame), a new state, or children in a
-  //   new order, with its whole subtree both
-  //   before and after (a view draws its subtree with its opacity and clip);
+  // - a view drawn with other props (renderer.h's drawsTheSame) or a new state, with its whole
+  //   subtree both before and after (a view draws its subtree with its opacity and clip);
+  // - children drawn in a new order, with their subtrees (children added or removed are new or
+  //   gone views; a popup view is drawn elsewhere);
   // - an Image view showing another picture;
   // - the text input whose caret, selection or composition moved.
   // Nothing (`std::nullopt`) means everything: the first frame, or a new size or scale.

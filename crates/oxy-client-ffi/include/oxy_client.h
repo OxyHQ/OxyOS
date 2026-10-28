@@ -208,6 +208,91 @@ int64_t oxy_client_present_damaged(OxyClient* client, uint32_t surface, uint64_t
 /* Takes one queued event without blocking. */
 int oxy_client_poll(OxyClient* client, OxyEvent* out);
 
+/* HTTP (crates/oxy-net): the engine behind React Native's networking. Each request runs on a
+ * thread of its own (TLS through rustls against the system's certificates, redirects, gzip and
+ * brotli, one cookie jar for the network); the caller takes its answers from its own thread.
+ * Strings are a pointer and a length, never NUL-terminated. A network is used by one thread at a
+ * time. */
+typedef struct OxyNet OxyNet;
+
+/* Answer kinds (OxyNetAnswer.kind), in the order a request answers: a response, then chunks
+ * (incremental requests) or the data, then its completion. A failure may complete it at any
+ * point. */
+#define OXY_NET_RESPONSE 1
+#define OXY_NET_CHUNK 2
+#define OXY_NET_DATA 3
+#define OXY_NET_COMPLETE 4
+
+/* Results of oxy_net_answer. */
+#define OXY_NET_ANSWER 1
+#define OXY_NET_EMPTY 0
+
+typedef struct OxyNetHeader {
+  const char* name;
+  size_t name_length;
+  const char* value;
+  size_t value_length;
+} OxyNetHeader;
+
+/* timeout_ms is the whole request's (0 for none); has_body says whether body is sent (a request
+ * may send an empty body, or none); with_credentials, whether the jar's cookies go with it and
+ * what it sets is kept; incremental, whether the body comes as chunks instead of whole. */
+typedef struct OxyNetRequest {
+  int64_t id;
+  const char* method;
+  size_t method_length;
+  const char* url;
+  size_t url_length;
+  const OxyNetHeader* headers;
+  size_t header_count;
+  const uint8_t* body;
+  size_t body_length;
+  uint64_t timeout_ms;
+  uint8_t has_body;
+  uint8_t with_credentials;
+  uint8_t incremental;
+} OxyNetRequest;
+
+/* RESPONSE: status, headers (duplicates joined with ", ") and the URL answered after redirects.
+ * CHUNK: bytes/length, progress (bytes so far) and total (-1 if unknown).
+ * DATA: bytes/length, and content_type (NULL if none).
+ * COMPLETE: error (NULL if it succeeded) and timed_out.
+ * Its pointers stay valid until the next oxy_net_answer or oxy_net_free. */
+typedef struct OxyNetAnswer {
+  uint32_t kind;
+  uint32_t status;
+  int64_t id;
+  const OxyNetHeader* headers;
+  size_t header_count;
+  const char* url;
+  size_t url_length;
+  const uint8_t* bytes;
+  size_t length;
+  uint64_t progress;
+  int64_t total;
+  const char* content_type;
+  size_t content_type_length;
+  const char* error;
+  size_t error_length;
+  uint8_t timed_out;
+} OxyNetAnswer;
+
+/* A network with an empty cookie jar, or NULL. */
+OxyNet* oxy_net_new(void);
+/* Frees the network; requests still running end unheard. NULL is ignored. */
+void oxy_net_free(OxyNet* net);
+/* Readable while answers are queued (for poll/epoll). */
+int oxy_net_fd(OxyNet* net);
+/* Starts a request; its answers follow, ending with a completion. On failure (a malformed
+ * request) nothing is sent and no answer follows. */
+int oxy_net_send(OxyNet* net, const OxyNetRequest* request);
+/* Delivers nothing more of request `id`, not even its completion. */
+int oxy_net_abort(OxyNet* net, int64_t id);
+/* Forgets every cookie. */
+int oxy_net_clear_cookies(OxyNet* net);
+/* Takes one answer without blocking: OXY_NET_ANSWER with *out filled, or OXY_NET_EMPTY. */
+int oxy_net_answer(OxyNet* net, OxyNetAnswer* out);
+
 /* Images (crates/oxy-image): PNG and JPEG decoded into sRGB (from an embedded ICC profile),
  * premultiplied RGBA, reduced to the size they are drawn at, each load on a thread of its own.
  * Paths are a pointer and a length. A loader is used by one thread at a time. */

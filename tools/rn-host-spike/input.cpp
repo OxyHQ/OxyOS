@@ -161,11 +161,13 @@ void PointerInput::scroll(float dx, float dy) {
   Tag target = hitTest(tree_, content_, x_, y_);
   if (target < 0) return;
   auto path = ancestry(tree_, target);
-  // The innermost scroll view that can still move in the scroll's direction takes it, as nested
-  // scroll views do on Android.
+  // The innermost scroll view, or text input, that can still move in the scroll's direction
+  // takes it, as nested scrolling views do on Android.
   for (auto at = path.rbegin(); at != path.rend(); ++at) {
     const auto& view = tree_.views().at(*at).view;
-    if (std::string(view.componentName ? view.componentName : "") != "ScrollView" || !view.state) continue;
+    std::string name = view.componentName ? view.componentName : "";
+    if (name == "AndroidTextInput" && scrollText_ && scrollText_(*at, dx, dy)) return;
+    if (name != "ScrollView" || !view.state) continue;
     auto props = std::dynamic_pointer_cast<const ScrollViewProps>(view.props);
     if (props && !props->scrollEnabled) continue;
     const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);

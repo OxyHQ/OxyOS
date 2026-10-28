@@ -41,10 +41,14 @@ import struct
 import zlib
 import os
 import pathlib
+import socket
 import statistics
 import subprocess
 import sys
 import tempfile
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxy-offscreen launch.rs).
@@ -79,6 +83,67 @@ def director_args(step):
     if kind == "expect-popup":
         return ["--expect-popup"]
     raise ValueError(f"unknown step {kind}")
+
+
+class ProbeServer(BaseHTTPRequestHandler):
+    """The routes scenarios/network.json's probe calls (sample/NetworkProbe.tsx)."""
+
+    def log_message(self, *args):
+        pass
+
+    def reply(self, status, body, content_type="text/plain", headers=()):
+        data = body if isinstance(body, bytes) else body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        for name, value in headers:
+            self.send_header(name, value)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        if self.path == "/json":
+            self.reply(200, '{"hello":"OxyOS","n":3}', "application/json", [("X-OxyOS", "yes")])
+        elif self.path == "/text":
+            self.reply(200, "plain text from the server")
+        elif self.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/json")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif self.path == "/bytes":
+            self.reply(200, bytes(range(256)), "application/octet-stream")
+        elif self.path == "/header":
+            self.reply(200, self.headers.get("X-Probe", "none"))
+        elif self.path == "/split":
+            # "año" in two writes, the second "ñ"'s bytes split between them.
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "4")
+            self.end_headers()
+            self.wfile.write(b"a\xc3")
+            self.wfile.flush()
+            time.sleep(0.3)
+            self.wfile.write(b"\xb1o")
+        elif self.path == "/slow":
+            time.sleep(3)
+            self.reply(200, "late")
+        else:
+            self.reply(404, "missing")
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("multipart/form-data"):
+            # The fields' names and values, in order.
+            fields = []
+            for part in body.split("--")[1:]:
+                head, _, value = part.partition("\r\n\r\n")
+                if 'name="' in head:
+                    fields.append(head.split('name="')[1].split('"')[0] + "=" + value.rstrip("\r\n"))
+            body = " ".join(fields)
+            content_type = "multipart/form-data"
+        self.reply(200, f"POST {content_type} {body}")
 
 
 def latest_frames(report, until, closed_before):
@@ -205,6 +270,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
         if offsets != expect["scroll_offset"]:
             fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "text_scroll" in expect:
+        # How far each text input's text was scrolled in this step, by testID: the last value.
+        scrolls = {}
+        for line in report:
+            if line["kind"] == "text_scroll" and start <= line["t"] <= end:
+                scrolls[line["target"]] = [line["x"], line["y"]]
+        if scrolls != expect["text_scroll"]:
+            fail(f"text scrolls {scrolls}, expected exactly {expect['text_scroll']}")
     if "a11y" in expect or "a11y_nodes" in expect or "a11y_order" in expect:
         # The latest accessibility tree of the window and of each open popup (accessibility.h).
         trees = {}
@@ -324,6 +397,16 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXY_HOST_REPORT=str(report_path), OXY_SCRIPT_URL=f"file://{bundle}")
+    # A local server for the scenario's probe, for as long as the run lasts, and the port after
+    # it held bound without listening, so that connecting there is refused at once and nothing
+    # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).
+    if "http" in scenario:
+        port = scenario["http"]["port"]
+        server = ThreadingHTTPServer(("127.0.0.1", port), ProbeServer)
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        refusing = socket.socket()
+        refusing.bind(("127.0.0.1", port + 1))
     if options.check_damage:
         env["OXY_HOST_DAMAGE_CHECK"] = "1"
     run = subprocess.run(command, env=env, capture_output=True, text=True)
@@ -352,9 +435,11 @@ def main():
                    {"t_settled": last, "window": window}, report, start, failures,
                    screenshot=out / f"launch-{len(scenario['steps']) + 1}.png")
 
-    renders = [line["render_ms"] for line in report if line["kind"] == "frame"]
+    # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
+    renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]
     # The share of each window frame the host drew again (1 when drawn whole).
-    damaged = [line.get("damaged", 1.0) for line in report if line["kind"] == "frame" and line["surface"] == 1]
+    damaged = [line.get("damaged", 1.0) for line in report
+               if line["kind"] == "frame" and line["surface"] == 1 and line.get("presented", True)]
     latencies = [s["latency_ms"] for s in summary["steps"] if s.get("latency_ms") is not None]
     # On a display: input to the kernel's flip of the first frame showing the answer.
     flips = [s["flip_latency_ms"] for s in summary["steps"] if s.get("flip_latency_ms") is not None]

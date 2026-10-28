@@ -6,9 +6,13 @@
 #include <folly/dynamic.h>
 #include <jsi/JSIDynamic.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <map>
+#include <optional>
+#include <random>
 #include <set>
 
 using namespace facebook;
@@ -40,12 +44,88 @@ std::string text(jsi::Runtime& rt, const jsi::Value& value) {
   return value.isString() ? value.asString(rt).utf8(rt) : value.isUndefined() ? "" : value.toString(rt).utf8(rt);
 }
 
+// The bytes a blob descriptor ({blobId, offset, size}) names.
+std::optional<std::string> blobBytes(const BlobStore& blobs, const folly::dynamic& blob) {
+  if (!blob.isObject() || !blob.count("blobId")) return std::nullopt;
+  size_t offset = blob.count("offset") && blob["offset"].isNumber() ? static_cast<size_t>(blob["offset"].asDouble()) : 0;
+  size_t size = blob.count("size") && blob["size"].isNumber() ? static_cast<size_t>(blob["size"].asDouble())
+                                                               : std::string::npos;
+  return blobs.slice(blob["blobId"].asString(), offset, size);
+}
+
+// A request's body from React Native's description of it (convertRequestBody), or the reason it
+// cannot be sent. Multipart parts that are files are not supported on OxyOS yet.
+struct Body {
+  bool present = false;
+  std::string bytes;
+  std::string contentType;  // set for multipart bodies
+  std::string error;
+};
+
+// A multipart boundary no part is likely to contain: random, as OkHttp's.
+std::string boundary() {
+  static std::mt19937_64 random{std::random_device{}()};
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string boundary = "OxyOSFormBoundary";
+  for (int i = 0; i < 32; ++i) boundary += kHex[random() & 15];
+  return boundary;
+}
+
+Body requestBody(const BlobStore& blobs, const folly::dynamic& data) {
+  Body body;
+  if (!data.isObject()) return body;
+  if (data.count("string") && data["string"].isString()) {
+    body.present = true;
+    body.bytes = data["string"].asString();
+  } else if (data.count("base64") && data["base64"].isString()) {
+    auto bytes = base64Decode(data["base64"].asString());
+    if (!bytes) {
+      body.error = "the request body is not valid base64";
+    } else {
+      body.present = true;
+      body.bytes = *bytes;
+    }
+  } else if (data.count("blob")) {
+    auto bytes = blobBytes(blobs, data["blob"]);
+    if (!bytes) {
+      body.error = "the request body's blob does not exist";
+    } else {
+      body.present = true;
+      body.bytes = *bytes;
+    }
+  } else if (data.count("formData") && data["formData"].isArray()) {
+    std::string boundary = oxy::boundary();
+    for (const auto& part : data["formData"]) {
+      if (!part.count("string")) {
+        body.error = "file parts in multipart bodies are not supported on OxyOS yet";
+        return body;
+      }
+      body.bytes += "--" + boundary + "\r\n";
+      if (part.count("headers") && part["headers"].isArray()) {
+        for (const auto& header : part["headers"]) {
+          if (header.isArray() && header.size() == 2) {
+            body.bytes += header[0].asString() + ": " + header[1].asString() + "\r\n";
+          }
+        }
+      }
+      body.bytes += "\r\n" + part["string"].asString() + "\r\n";
+    }
+    body.bytes += "--" + boundary + "--\r\n";
+    body.present = true;
+    body.contentType = "multipart/form-data; boundary=" + boundary;
+  } else if (data.count("uri")) {
+    body.error = "request bodies from a URI are not supported on OxyOS yet";
+  }
+  return body;
+}
+
 }  // namespace
 
 std::shared_ptr<TurboModule> createHostModule(
     const std::string& name,
     const std::shared_ptr<CallInvoker>& invoker,
-    const Display& display) {
+    const Display& display,
+    HostServices& services) {
   auto module = std::make_shared<HostModule>(name, invoker);
   folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
       "scale", display.scale)("fontScale", 1.0);
@@ -166,6 +246,99 @@ std::shared_ptr<TurboModule> createHostModule(
         "initialWindowMetrics", folly::dynamic::object("insets", zero)(
                                     "frame", folly::dynamic::object("x", 0)("y", 0)("width", display.width)(
                                                  "height", display.height))));
+  } else if (name == "Networking") {
+    // React Native's Android networking (XMLHttpRequest, so fetch and axios): network.h.
+    module->method("sendRequest", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 9) throw jsi::JSError(rt, "Networking.sendRequest: missing arguments");
+      Networking::Request request;
+      request.method = text(rt, args[0]);
+      request.url = text(rt, args[1]);
+      request.id = static_cast<int64_t>(args[2].getNumber());
+      folly::dynamic headers = jsi::dynamicFromValue(rt, args[3]);
+      bool typed = false;
+      if (headers.isArray()) {
+        for (const auto& header : headers) {
+          if (!header.isArray() || header.size() != 2) continue;
+          std::string key = header[0].asString(), lower = key;
+          std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+          typed |= lower == "content-type";
+          request.headers.emplace_back(key, header[1].asString());
+        }
+      }
+      Body body = requestBody(services.blobs, jsi::dynamicFromValue(rt, args[4]));
+      request.responseType = text(rt, args[5]);
+      request.incremental = args[6].isBool() && args[6].getBool();
+      request.timeoutMs = args[7].isNumber() ? static_cast<long>(args[7].getNumber()) : 0;
+      request.withCredentials = !args[8].isBool() || args[8].getBool();
+      if (!body.error.empty()) {
+        services.networking.reject(request.id, body.error);
+        return jsi::Value::undefined();
+      }
+      request.hasBody = body.present;
+      request.body = std::move(body.bytes);
+      if (!body.contentType.empty() && !typed) request.headers.emplace_back("Content-Type", body.contentType);
+      services.networking.send(std::move(request));
+      return jsi::Value::undefined();
+    });
+    module->method("abortRequest", [&services](jsi::Runtime&, const jsi::Value* args, size_t count) {
+      if (count > 0 && args[0].isNumber()) services.networking.abort(static_cast<int64_t>(args[0].getNumber()));
+      return jsi::Value::undefined();
+    });
+    module->method("clearCookies", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      services.networking.clearCookies();
+      return count > 0 ? call(rt, args[0], jsi::Value(true)) : jsi::Value::undefined();
+    });
+    module->listeners();
+  } else if (name == "BlobModule") {
+    module->constants(folly::dynamic::object("BLOB_URI_SCHEME", "content")("BLOB_URI_HOST", nullptr));
+    // Responses become blobs in the network module itself.
+    module->method("addNetworkingHandler", [](jsi::Runtime&, const jsi::Value*, size_t) {
+      return jsi::Value::undefined();
+    });
+    module->method("createFromParts", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2) return jsi::Value::undefined();
+      folly::dynamic parts = jsi::dynamicFromValue(rt, args[0]);
+      std::string bytes;
+      for (const auto& part : parts) {
+        std::string type = part.count("type") ? part["type"].asString() : "";
+        if (type == "string") {
+          bytes += part["data"].asString();
+        } else if (type == "blob") {
+          auto slice = blobBytes(services.blobs, part["data"]);
+          if (!slice) throw jsi::JSError(rt, "BlobModule.createFromParts: a part's blob does not exist");
+          bytes += *slice;
+        } else {
+          throw jsi::JSError(rt, "BlobModule.createFromParts: unknown part type " + type);
+        }
+      }
+      services.blobs.put(text(rt, args[1]), std::move(bytes));
+      return jsi::Value::undefined();
+    });
+    module->method("release", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count > 0) services.blobs.release(text(rt, args[0]));
+      return jsi::Value::undefined();
+    });
+    // There is no WebSocket module yet, so no socket to send a blob over.
+    module->unsupported({"addWebSocketHandler", "removeWebSocketHandler"});
+    module->method("sendOverSocket", [](jsi::Runtime& rt, const jsi::Value*, size_t) -> jsi::Value {
+      throw jsi::JSError(rt, "BlobModule.sendOverSocket: OxyOS has no WebSocket module yet");
+    });
+  } else if (name == "FileReaderModule") {
+    module->method("readAsText", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      auto bytes = count > 0 ? blobBytes(services.blobs, jsi::dynamicFromValue(rt, args[0])) : std::nullopt;
+      if (!bytes) return rejected(rt, "FileReader: the blob does not exist");
+      // UTF-8, whatever encoding is asked for: the one React Native's Android reader uses too.
+      return resolved(rt, jsi::String::createFromUtf8(rt, *bytes));
+    });
+    module->method("readAsDataURL", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      folly::dynamic blob = count > 0 ? jsi::dynamicFromValue(rt, args[0]) : folly::dynamic(nullptr);
+      auto bytes = blobBytes(services.blobs, blob);
+      if (!bytes) return rejected(rt, "FileReader: the blob does not exist");
+      std::string type = blob.count("type") && blob["type"].isString() && !blob["type"].asString().empty()
+                             ? blob["type"].asString()
+                             : "application/octet-stream";
+      return resolved(rt, jsi::String::createFromUtf8(rt, "data:" + type + ";base64," + base64Encode(*bytes)));
+    });
   } else if (name == "OxyFontRegistry") {
     // Registers a font file under a family name with the host's text engine.
     module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
