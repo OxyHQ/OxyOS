@@ -15,6 +15,7 @@ oxy-kms = { path = "../../crates/oxy-kms" }
 oxy-input = { path = "../../crates/oxy-input" }
 oxy-vt = { path = "../../crates/oxy-vt" }
 oxy-seat = { path = "../../crates/oxy-seat" }
+oxy-compositor = { path = "../../crates/oxy-compositor" }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
 evdev = "0.13"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time"] }

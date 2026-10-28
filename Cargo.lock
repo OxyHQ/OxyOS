@@ -713,6 +713,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-compositor"
+version = "0.1.0"
+dependencies = [
+ "oxy-compositor-core",
+ "oxy-gpu",
+ "oxy-input",
+ "oxy-ipc",
+ "oxy-kms",
+ "oxy-protocol",
+ "oxy-seat",
+ "oxy-vt",
+ "rustix",
+]
+
+[[package]]
 name = "oxy-compositor-core"
 version = "0.1.0"
 dependencies = [
@@ -774,6 +789,7 @@ version = "0.1.0"
 dependencies = [
  "evdev",
  "oxy-client",
+ "oxy-compositor",
  "oxy-compositor-core",
  "oxy-gpu",
  "oxy-input",
@@ -803,6 +819,22 @@ version = "0.1.0"
 dependencies = [
  "rustix",
  "zbus",
+]
+
+[[package]]
+name = "oxy-session"
+version = "0.1.0"
+dependencies = [
+ "oxy-compositor",
+ "oxy-compositor-core",
+ "oxy-gpu",
+ "oxy-input",
+ "oxy-ipc",
+ "oxy-kms",
+ "oxy-protocol",
+ "oxy-seat",
+ "rustix",
+ "signal-hook",
 ]
 
 [[package]]

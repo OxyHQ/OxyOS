@@ -6,7 +6,7 @@ use oxy_protocol::{Adjust, Anchor, Event, Gravity, PointerKind, Positioner, Rect
 use std::io;
 use std::path::Path;
 
-pub const DESKTOP: u32 = 0x10_14_18;
+pub use oxy_compositor::DESKTOP;
 pub const OTHER_WINDOW: u32 = 0x3a_4a_6b;
 pub const APP_WINDOW: u32 = 0xe8_e8_ee;
 pub const APP_TITLE: u32 = 0x30_34_3c;
