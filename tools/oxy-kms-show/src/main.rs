@@ -7,13 +7,17 @@
 //! Needs DRM master: run it from a free virtual terminal (the desktop session releases the
 //! display when its terminal is left) or as root after switching to one.
 //!
-//!     oxy-kms-show FRAMES_DIR [/dev/dri/cardN] [SECONDS]
+//! With `--gpu` the frames are composed on the Vulkan device straight into two buffers exported
+//! as DMA-BUF and imported as framebuffers: no copy through the CPU.
+//!
+//!     oxy-kms-show [--gpu] FRAMES_DIR [/dev/dri/cardN] [SECONDS]
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    let gpu = args.next_if(|arg| arg == "--gpu").is_some();
     let dir = PathBuf::from(
         args.next()
             .ok_or("usage: oxy-kms-show FRAMES_DIR [CARD] [SECONDS]")?,
@@ -43,7 +47,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (width, height) = display.size();
     let refresh = Duration::from_secs_f64(1.0 / f64::from(display.refresh_hz().max(1)));
 
-    let (mut flips, mut compose_ms) = (Vec::new(), Vec::new());
+    // On the GPU: two scanout targets, imported as framebuffers.
+    let mut vulkan = None;
+    let mut targets = Vec::new();
+    if gpu {
+        let mut compositor = oxy_gpu::VulkanCompositor::new()?;
+        for target in compositor.scanout_targets(2, width, height)? {
+            use std::os::fd::AsFd;
+            targets.push(card.import_dmabuf(
+                target.fd.as_fd(),
+                target.width,
+                target.height,
+                target.pitch,
+            )?);
+        }
+        vulkan = Some(compositor);
+    }
+    let (mut flips, mut compose_ms, mut device_ms) = (Vec::new(), Vec::new(), Vec::new());
     let started = Instant::now();
     let mut index = 0;
     while started.elapsed() < Duration::from_secs(seconds) {
@@ -61,14 +81,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
         let composing = Instant::now();
-        let pixels = oxy_gpu::compose_cpu(width, height, frame.background, &layers);
-        compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);
-        display.draw(&pixels)?;
-        display.present()?;
+        if let Some(compositor) = &mut vulkan {
+            let back = index % 2;
+            compositor.compose_to_scanout(back, frame.background, &layers)?;
+            compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);
+            device_ms.extend(compositor.last_gpu_ms());
+            display.present_framebuffer(targets[back])?;
+        } else {
+            let pixels = oxy_gpu::compose_cpu(width, height, frame.background, &layers);
+            compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);
+            display.draw(&pixels)?;
+            display.present()?;
+        }
         flips.push(display.wait_flip()?);
         index += 1;
     }
     drop(display);
+    let device = vulkan.as_ref().map(|c| format!("{:?}", c.device_name()));
+    drop(vulkan);
 
     let mut intervals: Vec<f64> = flips
         .windows(2)
@@ -84,14 +114,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let max = intervals.iter().copied().fold(0.0, f64::max);
     println!(
-        "{{\"card\":{:?},\"driver\":{driver:?},\"mode\":{:?},\"presented\":{},\"distinct_frames\":{},\"flip_interval_ms_median\":{:.3},\"flip_interval_ms_max\":{:.3},\"missed_refreshes\":{missed},\"compose_cpu_ms_median\":{:.2}}}",
+        "{{\"card\":{:?},\"driver\":{driver:?},\"mode\":{:?},\"presented\":{},\"distinct_frames\":{},\"flip_interval_ms_median\":{:.3},\"flip_interval_ms_max\":{:.3},\"missed_refreshes\":{missed},\"composition\":{},\"compose_ms_median\":{:.2},\"gpu_compose_ms_median\":{}}}",
         card_path.display().to_string(),
         oxy_kms_mode(width, height, refresh),
         flips.len(),
         frames.len(),
         median(&mut intervals),
         max,
+        device.map_or("\"cpu\"".to_string(), |name| format!("{{\"vulkan\":{name},\"zero_copy\":true}}")),
         median(&mut compose_ms),
+        if device_ms.is_empty() { "null".to_string() } else { format!("{:.3}", median(&mut device_ms)) },
     );
     Ok(())
 }

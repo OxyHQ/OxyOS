@@ -15,6 +15,34 @@ pub use drm_fourcc::DrmFourcc;
 mod display;
 pub use display::Display;
 
+/// A DMA-BUF imported through PRIME, as `add_planar_framebuffer` takes it.
+struct Imported {
+    handle: drm::buffer::Handle,
+    size: (u32, u32),
+    pitch: u32,
+}
+
+impl drm::buffer::PlanarBuffer for Imported {
+    fn size(&self) -> (u32, u32) {
+        self.size
+    }
+    fn format(&self) -> DrmFourcc {
+        DrmFourcc::Xrgb8888
+    }
+    fn modifier(&self) -> Option<drm_fourcc::DrmModifier> {
+        Some(drm_fourcc::DrmModifier::Linear)
+    }
+    fn pitches(&self) -> [u32; 4] {
+        [self.pitch, 0, 0, 0]
+    }
+    fn handles(&self) -> [Option<drm::buffer::Handle>; 4] {
+        [Some(self.handle), None, None, None]
+    }
+    fn offsets(&self) -> [u32; 4] {
+        [0; 4]
+    }
+}
+
 /// An open DRM card.
 pub struct Card(File);
 
@@ -67,6 +95,29 @@ impl Card {
         card.set_client_capability(ClientCapability::UniversalPlanes, true)?;
         card.set_client_capability(ClientCapability::Atomic, true)?;
         Ok(card)
+    }
+
+    /// Imports a DMA-BUF holding XRGB8888 pixels with the linear modifier (rows `pitch` bytes
+    /// apart) as a framebuffer. Needs no DRM master: this is the check that a buffer from
+    /// another device or API can be scanned out.
+    pub fn import_dmabuf(
+        &self,
+        fd: BorrowedFd<'_>,
+        width: u32,
+        height: u32,
+        pitch: u32,
+    ) -> io::Result<drm::control::framebuffer::Handle> {
+        let handle = self.prime_fd_to_buffer(fd)?;
+        let buffer = Imported {
+            handle,
+            size: (width, height),
+            pitch,
+        };
+        let framebuffer =
+            self.add_planar_framebuffer(&buffer, drm::control::FbCmd2Flags::MODIFIERS);
+        // The framebuffer keeps its own reference to the buffer.
+        let _ = self.close_buffer(handle);
+        framebuffer
     }
 
     /// The kernel driver's name (for example `i915`).

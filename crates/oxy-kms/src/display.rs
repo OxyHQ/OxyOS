@@ -141,8 +141,16 @@ impl<'a> Display<'a> {
     /// Shows the back buffer: a modeset the first time, a page flip after it, each asking for a
     /// flip event (`wait_flip`).
     pub fn present(&mut self) -> io::Result<()> {
-        let card = self.card;
         let framebuffer = self.buffers[self.back].1;
+        self.present_framebuffer(framebuffer)?;
+        self.back = 1 - self.back;
+        Ok(())
+    }
+
+    /// Shows any framebuffer of the display's size (an imported DMA-BUF, for one): a modeset
+    /// the first time, a page flip after it.
+    pub fn present_framebuffer(&mut self, framebuffer: framebuffer::Handle) -> io::Result<()> {
+        let card = self.card;
         let mut request = atomic::AtomicModeReq::new();
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
         if !self.configured {
@@ -194,7 +202,6 @@ impl<'a> Display<'a> {
         );
         card.atomic_commit(flags, request)?;
         self.configured = true;
-        self.back = 1 - self.back;
         Ok(())
     }
 

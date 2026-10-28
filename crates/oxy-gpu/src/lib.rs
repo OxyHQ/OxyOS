@@ -101,6 +101,8 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
 
 pub mod frame_file;
 mod vulkan;
+#[cfg(target_os = "linux")]
+pub use vulkan::ScanoutTarget;
 pub use vulkan::{DeviceKind, VulkanCompositor};
 
 /// The SPIR-V of the composition shader (`shaders/compose.wgsl`).
