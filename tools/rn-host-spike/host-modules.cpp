@@ -6,7 +6,6 @@
 #include <jsi/JSIDynamic.h>
 
 #include <cstdlib>
-#include <functional>
 #include <iostream>
 #include <map>
 #include <set>
@@ -18,64 +17,17 @@ namespace oxy {
 
 namespace {
 
-// A TurboModule whose methods are host lambdas.
-class HostModule : public TurboModule {
- public:
-  using Method = std::function<jsi::Value(jsi::Runtime&, const jsi::Value*, size_t)>;
-
-  HostModule(const std::string& name, std::shared_ptr<CallInvoker> invoker)
-      : TurboModule(name, std::move(invoker)), name_(name) {}
-
-  HostModule& method(const std::string& name, Method fn) {
-    methods_[name] = std::move(fn);
-    return *this;
-  }
-
-  HostModule& constants(folly::dynamic value) {
-    return method("getConstants", [value](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      return jsi::valueFromDynamic(rt, value);
-    });
-  }
-
-  // Listener bookkeeping for NativeEventEmitter; this host emits no such events yet.
-  HostModule& listeners() {
-    method("addListener", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
-    return method("removeListeners", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
-  }
-
-  // Calls that OxyOS has no counterpart for: accepted, reported once, no effect.
-  HostModule& unsupported(std::initializer_list<const char*> names) {
-    for (const char* method : names) {
-      std::string qualified = name_ + "." + method;
-      this->method(method, [qualified](jsi::Runtime&, const jsi::Value*, size_t) {
-        static std::set<std::string> reported;
-        if (reported.insert(qualified).second) std::cerr << "[host] unsupported on OxyOS: " << qualified << "\n";
-        return jsi::Value::undefined();
-      });
-    }
-    return *this;
-  }
-
-  jsi::Value create(jsi::Runtime& rt, const jsi::PropNameID& prop) override {
-    auto it = methods_.find(prop.utf8(rt));
-    if (it == methods_.end()) return jsi::Value::undefined();
-    auto fn = it->second;
-    return jsi::Function::createFromHostFunction(
-        rt, prop, 0, [fn](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
-          return fn(rt, args, count);
-        });
-  }
-
- private:
-  std::string name_;
-  std::map<std::string, Method> methods_;
-};
-
 jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& argument) {
   if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
     callback.asObject(rt).asFunction(rt).call(rt, argument);
   }
   return jsi::Value::undefined();
+}
+
+// A promise rejected with an Error carrying `message`.
+jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
+  auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
 }
 
 std::string text(jsi::Runtime& rt, const jsi::Value& value) {
@@ -166,6 +118,21 @@ std::shared_ptr<TurboModule> createHostModule(
     module->unsupported({"setColor", "setTranslucent", "setStyle", "setHidden"});
   } else if (name == "KeyboardObserver") {
     module->listeners();
+  } else if (name == "ImageLoader") {
+    // No image pipeline on OxyOS yet: requests fail explicitly.
+    for (const char* method : {"getSize", "getSizeWithHeaders", "prefetchImage", "queryCache"}) {
+      module->method(method, [method](jsi::Runtime& rt, const jsi::Value*, size_t) {
+        return rejected(rt, std::string("ImageLoader.") + method + " is not supported on OxyOS yet");
+      });
+    }
+    module->unsupported({"abortRequest"});
+  } else if (name == "RNCSafeAreaContext") {
+    // An OxyOS window has no system insets.
+    folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);
+    module->constants(folly::dynamic::object(
+        "initialWindowMetrics", folly::dynamic::object("insets", zero)(
+                                    "frame", folly::dynamic::object("x", 0)("y", 0)("width", display.width)(
+                                                 "height", display.height))));
   } else if (name == "OxyFontRegistry") {
     // Registers a font file under a family name with the host's text engine.
     module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {

@@ -107,7 +107,35 @@ react-native value imports (26): `AccessibilityInfo`, `ActivityIndicator`, `Anim
   - folly is configured for libc++ and is reconfigured for libstdc++.
   - The `cxx` text layout measures every paragraph as 0 high (208×0 in the spike).
 
-Not yet shown: the React reconciler and React Native's JS (a Metro bundle for an `oxyos` platform), the platform TurboModules React Native's JS needs at start-up (`PlatformConstants`, `DeviceInfo`, `AppState`, …), real text layout, rasterizing mutations into buffers for the Oxy protocol, Reanimated, Gesture Handler, SVG and Expo modules, and Bloom itself. The feasibility gate for #33 stays open until actual Bloom renders.
+### Spike result: actual Bloom drawn into a buffer
+
+The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Bloom `main` (15.56.0), React 19, React Native 0.88.0, Worklets 0.13 and Reanimated 4.7.1:
+
+- **JS**: Metro bundles React Native's own JS, React and actual Bloom for an `oxyos` platform (`sample/metro.config.js`). Platform files resolve `.oxyos` first, then React Native's Android variants, the generic TurboModule-backed implementations. `@oxy.so/bloom` resolves to the checkout's source.
+- **Runtime**: a bridgeless `ReactInstance` on Hermes runs it with the Fabric `Scheduler`, the `RuntimeScheduler`, timers and an event beat ticked by the host loop, as Android's Choreographer does.
+- **Host modules**: `host-modules.cpp` implements what OxyOS can answer: `PlatformConstants`, `DeviceInfo`, `AppState`, `Appearance`, `I18nManager`, `SourceCode`, safe-area insets, `ExceptionsManager`, plus the font and asset loading `expo-font`/`expo-asset` call. Calls without an OxyOS counterpart are reported once and have no effect. Missing modules (Expo dev launcher and updates, `NativeAnimatedModule`, `SoundManager`, …) are reported as unavailable, never faked.
+- **Worklets and Reanimated**: their C++ cores are built unchanged. The OxyOS glue (`worklets-host.cpp`, `reanimated-host.cpp`) supplies what each platform must:
+  - the UI scheduler (the host's single loop thread);
+  - animation frames;
+  - logging;
+  - Reanimated's render requests;
+  - an explicit failure for worklet-runtime networking.
+  Animated props commit through Fabric's shadow tree; the synchronous UI-prop path stays off, as its static flags are.
+- **Mounting**: each transaction is applied to a retained view tree. The host reports every mount (`Scheduler::reportMount`), as each platform's mounting layer does. The UIManager's mount hooks run there, and Reanimated resumes its own commits in them. Without it, every animated update after the first React commit is skipped.
+- **Text**: FreeType + HarfBuzz replace the `cxx` `TextLayoutManager` stub, so Yoga measures text as it is drawn. Bloom's Inter faces load through `expo-font` → `expo-asset` → the host font registry.
+- **Result**:
+  - `BloomProvider` → `BloomScope` (md) → `AppShell` with a two-panel split (`panelLayout`), two `Screen`s with `PageHeader`s, `Card`s, typography and a primary `Button`. The panel widths animate through Reanimated to the tracks Bloom computes for the measured shell.
+  - Drawn into a 1024×640 32-bit buffer and written as PNG.
+  - 50 views, 14 paragraphs, no unimplemented components, no JS errors, deterministic across runs (byte-identical output), settled in about 1.4 s.
+
+Not yet shown:
+- presenting the buffer through the Oxy display protocol;
+- input (pointer, keyboard, text input and composition);
+- Gesture Handler, SVG, images and `expo-blur`;
+- scrolling, modals and popups from Bloom;
+- accessibility.
+
+These are the remaining #33 deliverables; Bloom renders, but it is not interactive yet.
 
 ## Platform capability matrix
 
@@ -125,7 +153,7 @@ A macOS adapter is not supported just because Astro has one. Supporting it needs
 
 1. Pin a compatible RN/Hermes/Fabric/Yoga/Bloom set in a disposable runtime spike and enumerate the full imported native-module graph. No invented production packages or versions before a successful build.
 2. Implement a minimal Oxy host that produces an application buffer and submits it through the Oxy display contract. Keep JS out of the compositor process.
-3. Import actual BloomProvider/BloomScope/AppShell/Screen and render a two-panel application with text, one control and native scrolling. No DOM/WebView aliases or lookalike fallback components.
+3. Import actual BloomProvider/BloomScope/AppShell/Screen and render a two-panel application with text, one control and native scrolling. No DOM/WebView aliases or lookalike fallback components. Rendering into a buffer is done (above); native scrolling and the control's input are not.
 4. Prove retained identity through split/deck/responsive transitions, focus/draft/reading-offset preservation, UI-thread dragging, interrupted motion and reduced motion.
 5. Verify input selection/composition, keyboard traversal, overlay modality, accessible names/states, RTL, scaling and first-frame font/theme correctness.
 6. Trace input → state → layout → render → buffer-ready → physical presentation with busy JS and a stalled second client. Unit snapshots/typechecking cannot establish these properties.

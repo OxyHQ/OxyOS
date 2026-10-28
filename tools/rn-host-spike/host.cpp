@@ -125,16 +125,18 @@ int main(int argc, char** argv) {
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = executor;
-  toolbox.componentRegistryFactory = [](const EventDispatcher::Weak& dispatcher,
-                                        const std::shared_ptr<const ContextContainer>& container) {
-    ComponentDescriptorProviderRegistry providers{};
-    providers.add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
-    return providers.createComponentDescriptorRegistry(ComponentDescriptorParameters{
+  // The descriptor registry keeps a reference to its provider registry (to resolve components
+  // on demand), so the provider registry must outlive every Scheduler that uses it.
+  auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
+  providers->add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+  toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
+                                                 const std::shared_ptr<const ContextContainer>& container) {
+    return providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
         .eventDispatcher = dispatcher, .contextContainer = container, .flavor = nullptr});
   };
   toolbox.eventBeatFactory = [&](std::shared_ptr<EventBeat::OwnerBox> owner) {

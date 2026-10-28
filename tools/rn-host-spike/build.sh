@@ -1,6 +1,7 @@
 #!/bin/sh
 # Feasibility spike for #33: build Hermes V1 and React Native's ReactCommon (Fabric, Yoga, cxx
-# platform) for Linux x86_64 and run a host that mounts a tree through nativeFabricUIManager.
+# platform) for Linux x86_64, plus the C++ cores of react-native-worklets and
+# react-native-reanimated, and run a host that mounts a tree through nativeFabricUIManager.
 #
 # Usage: tools/rn-host-spike/build.sh <react-native-package-dir> <work-dir> [<bloom-checkout>]
 #   e.g. tools/rn-host-spike/build.sh ../Bloom/node_modules/react-native /tmp/rn-spike
@@ -71,10 +72,22 @@ mkdir -p "$WORK/codegen"
     --outputDir "$WORK/codegen/out" --libraryName FBReactNativeSpec \
     --javaPackageName com.facebook.fbreact.specs)
 
+# Reanimated's component specs, generated the same way from the Bloom checkout's Reanimated.
+WORKLETS_DIR=$(cd "$BLOOM_DIR/node_modules/react-native-worklets" && pwd)
+REANIMATED_DIR=$(cd "$BLOOM_DIR/node_modules/react-native-reanimated" && pwd)
+mkdir -p "$WORK/codegen-reanimated"
+(cd "$RN_DIR" &&
+  node ../@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js --platform android \
+    "$WORK/codegen-reanimated/schema.json" "$REANIMATED_DIR/src/specs" &&
+  node scripts/generate-specs-cli.js --platform android \
+    --schemaPath "$WORK/codegen-reanimated/schema.json" --outputDir "$WORK/codegen-reanimated/out" \
+    --libraryName rnreanimated --javaPackageName com.swmansion.reanimated)
+
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
-  -DTEXT_SYSROOT="$WORK/text/usr" >/dev/null
+  -DTEXT_SYSROOT="$WORK/text/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
+  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" >/dev/null
 ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
 
 # Fabric alone: a tree built through nativeFabricUIManager.

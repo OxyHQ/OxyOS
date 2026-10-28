@@ -4,6 +4,8 @@
 #include "host-modules.h"
 #include "renderer.h"
 #include "text.h"
+#include "reanimated-host.h"
+#include "worklets-host.h"
 
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -35,9 +37,11 @@
 #include <react/utils/ContextContainer.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <set>
 #include <queue>
 #include <sstream>
 #include <thread>
@@ -121,23 +125,57 @@ class Timers : public PlatformTimerRegistry {
   std::map<uint32_t, Timer> timers_;
 };
 
+// Fabric's event beat: the host loop ticks every live beat, as Android's Choreographer does, so
+// queued events (onLayout, ...) reach JavaScript.
 class Beat : public EventBeat {
  public:
   Beat(std::shared_ptr<OwnerBox> owner, RuntimeScheduler& scheduler)
-      : EventBeat(std::move(owner), scheduler) {}
+      : EventBeat(std::move(owner), scheduler) {
+    live().insert(this);
+  }
+  ~Beat() override { live().erase(this); }
+
+  static void tickAll() {
+    for (auto* beat : live()) beat->induce();
+  }
+
+ private:
+  static std::set<Beat*>& live() {
+    static std::set<Beat*> beats;
+    return beats;
+  }
 };
 
 class Mounter : public SchedulerDelegate {
  public:
   explicit Mounter(oxy::ViewTree& tree) : tree_(tree) {}
+  void attach(const Scheduler* scheduler) { scheduler_ = scheduler; }
   int transactions = 0;
-  void schedulerDidFinishTransaction(const std::shared_ptr<const MountingCoordinator>&) override {}
+  void schedulerDidFinishTransaction(const std::shared_ptr<const MountingCoordinator>& coordinator) override {
+    coordinators_[coordinator->getSurfaceId()] = coordinator;
+  }
   void schedulerShouldRenderTransactions(
       const std::shared_ptr<const MountingCoordinator>& coordinator) override {
-    if (auto transaction = coordinator->pullTransaction()) {
-      tree_.apply(transaction->getMutations());
-      ++transactions;
+    coordinators_[coordinator->getSurfaceId()] = coordinator;
+    pull();
+  }
+  // The host's frame: pull whatever each surface committed since the last frame.
+  bool pull() {
+    bool mounted = false;
+    for (auto& [surface, coordinator] : coordinators_) {
+      // Reanimated's layout-animation proxy overrides every pull, so an empty transaction is
+      // returned even when nothing was committed.
+      auto transaction = coordinator->pullTransaction();
+      if (transaction && !transaction->getMutations().empty()) {
+        tree_.apply(transaction->getMutations());
+        ++transactions;
+        // As each platform's mounting layer does: report the mount, which runs the UIManager's
+        // mount hooks. Reanimated resumes its own commits there.
+        if (scheduler_) scheduler_->reportMount(surface);
+        mounted = true;
+      }
     }
+    return mounted;
   }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
@@ -152,6 +190,8 @@ class Mounter : public SchedulerDelegate {
 
  private:
   oxy::ViewTree& tree_;
+  const Scheduler* scheduler_ = nullptr;
+  std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
 std::string readFile(const std::string& path) {
@@ -214,9 +254,24 @@ int main(int argc, char** argv) {
 
   oxy::Display display{width, height, 1.0f};
   auto invoker = instance->createJSCallInvoker();
+  oxy::WorkletsHost worklets;
+  std::unique_ptr<Scheduler> scheduler;
+  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler->getUIManager(); });
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
+    // console.* in React Native writes through nativeLoggingHook(message, level).
+    rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
+        rt, jsi::PropNameID::forAscii(rt, "nativeLoggingHook"), 2,
+        [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+          static const char* levels[] = {"log", "info", "warn", "error"};
+          int level = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].getNumber()) : 0;
+          std::cerr << "[console." << levels[std::clamp(level, 0, 3)] << "] "
+                    << (count > 0 ? args[0].toString(rt).utf8(rt) : "") << "\n";
+          return jsi::Value::undefined();
+        }));
     TurboModuleBinding::install(
-        rt, [&, invoker](jsi::Runtime&, const std::string& name) -> std::shared_ptr<TurboModule> {
+        rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
+          if (name == "WorkletsModule") return worklets.module(runtime, invoker);
+          if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
           if (auto module = oxy::createHostModule(name, invoker, display)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
           std::cerr << "[host] TurboModule unavailable: " << name << "\n";
@@ -230,17 +285,19 @@ int main(int argc, char** argv) {
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
-  toolbox.componentRegistryFactory = [](const EventDispatcher::Weak& dispatcher,
-                                        const std::shared_ptr<const ContextContainer>& container) {
-    ComponentDescriptorProviderRegistry providers{};
-    providers.add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
-    providers.add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
-    auto registry = providers.createComponentDescriptorRegistry(ComponentDescriptorParameters{
+  // The descriptor registry keeps a reference to its provider registry (to resolve components
+  // on demand), so the provider registry must outlive every Scheduler that uses it.
+  auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
+  providers->add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+  toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
+                                                 const std::shared_ptr<const ContextContainer>& container) {
+    auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
         .eventDispatcher = dispatcher, .contextContainer = container, .flavor = nullptr});
     // Components without an OxyOS implementation mount as plain views and are reported.
     std::const_pointer_cast<ComponentDescriptorRegistry>(registry)->setFallbackComponentDescriptor(
@@ -258,7 +315,8 @@ int main(int argc, char** argv) {
   oxy::ViewTree tree;
   Mounter mounter(tree);
   stage("fabric scheduler");
-  auto scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
+  scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
+  mounter.attach(scheduler.get());
 
   stage("load script");
   instance->loadScript(std::make_unique<JSBigStdString>(readFile(bundlePath)), bundlePath);
@@ -275,8 +333,12 @@ int main(int argc, char** argv) {
   auto deadline = Clock::now() + std::chrono::seconds(10);
   auto quietSince = Clock::now();
   while (Clock::now() < deadline) {
+    Beat::tickAll();
     bool busy = loop->drain();
+    busy |= mounter.pull();
     busy |= timers->fire(*timerManager);
+    worklets.tick();
+    busy |= reanimated.tick();
     if (busy) {
       quietSince = Clock::now();
     } else if (Clock::now() - quietSince > std::chrono::milliseconds(500)) {

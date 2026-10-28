@@ -9,7 +9,8 @@ const require = createRequire(path.join(bloom, 'package.json'));
 const Metro = require('metro');
 const [entry = 'index.js', outDir = 'build'] = process.argv.slice(2);
 
-const config = await Metro.loadConfig({ config: path.resolve('metro.config.js') });
+// Transform output depends on config (asset registry, platform resolution): never reuse a cache.
+const config = await Metro.loadConfig({ config: path.resolve('metro.config.js'), resetCache: true });
 const out = path.resolve(outDir, 'index.js');
 fs.mkdirSync(path.dirname(out), { recursive: true });
 const result = await Metro.runBuild(config, {
