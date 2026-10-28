@@ -115,7 +115,7 @@ Input to the answer on screen is about 52 ms here, because this validation mode 
 | `--gpu --uinput --layout es` | 56 of 56 steps, four runs out of four; every GPU frame identical; 0 flips later than one refresh | about 52 / 103 ms |
 | `--uinput --layout us` (CPU composition) | 56 of 56 | about 39 / 102 ms |
 
-On `es`, 'ó' is a dead acute and then 'o': the director types both keys, and the compositor composes them with the locale's compose table. Three more runs with composition pass 56 of 56, with no character committed as text.
+On `es`, 'ó' is a dead acute and then 'o': the director types both keys, and the compositor composes them with the locale's compose table. While the sequence waits, the dead key shows in the field as the composition (´, a preedit), and what it composes replaces it. Keys the compose table takes reach no application as keys, as a desktop input method's do. The host, like Android, ends a composition on a key, so the vowel would otherwise have left the accent in the text. The scenario names its layout (`es`), and two steps type a dead key and its vowel through the devices. They check the composition shown, the commit, and that no key was delivered. The 58 steps pass three runs out of three (`--gpu --uinput`, about 52 ms median) and once each with CPU composition and scripted input. The secure-field and Android-adaptation scenarios also pass on both paths.
 
 Driving real devices found two bugs. The fixture had to change for both:
 - **A whole step sent at once overflowed the kernel's buffer.** The director wrote a step's keys before the compositor read any. The kernel holds 64 events for each reader of a device; "Hola OxyOS!" with its Shift presses is exactly 64, so the kernel dropped them all and libinput resynchronised to keys already up. Now the compositor reads each event as it is sent, as its event loop does with a person's input.
@@ -123,7 +123,6 @@ Driving real devices found two bugs. The fixture had to change for both:
 
 Still to do:
 - grabbing the devices (today keys also reach the virtual terminal underneath) and VT switching;
-- showing a dead key while its sequence waits (it types nothing until the sequence ends);
 - the image's compose tables: they come from `libx11-data` (data files, no X11 code), so adding it to the manifest, or shipping the tables another way, is a decision for the image rules;
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
