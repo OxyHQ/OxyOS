@@ -13,11 +13,12 @@ const SEMICOLON: u32 = 39;
 /// The key right of Ñ on the Spanish layout: the dead acute (´).
 const APOSTROPHE: u32 = 40;
 
-/// The keymap of `layout` with the en_US.UTF-8 compose table (libx11-data), which composes
+/// The keymap of `layout` with the en_US.UTF-8 compose table (the image's, under `config/`, when
+/// `XLOCALEDIR` names them, as CI does), which composes
 /// Spanish dead keys as es_ES.UTF-8's does.
 fn composing(layout: &str) -> Keyboard {
     let keyboard = Keyboard::with_locale(layout, OsStr::new("en_US.UTF-8")).unwrap();
-    assert!(keyboard.composes(), "no compose table: install libx11-data");
+    assert!(keyboard.composes(), "no compose table: set XLOCALEDIR to the image's (config/includes.chroot_after_packages/usr/share/X11/locale)");
     keyboard
 }
 
