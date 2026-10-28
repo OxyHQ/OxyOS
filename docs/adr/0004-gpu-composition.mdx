@@ -6,7 +6,7 @@ order: 13
 
 # ADR 0004: GPU composition and output
 
-Status: **accepted; first slice implemented and validated on a GPU**. Vulkan composition matches the CPU reference byte for byte on an NVIDIA GeForce RTX 5090 (Windows Vulkan driver 616.92) for every frame of the Bloom regression. There is no display output yet. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
+Status: **accepted; composition on a GPU, and first display output through DRM/KMS** (see [Output on a display](#output-on-a-display)). Vulkan composition matches the CPU reference byte for byte on an NVIDIA GeForce RTX 5090 (Windows Vulkan driver 616.92) for every frame of the Bloom regression. There is no display output yet. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
 
 ## Problem
 
@@ -63,6 +63,33 @@ In the first version, the shader read and wrote host-visible memory, and the hos
 - the output is copied back into host-cached memory.
 
 What remains is transfer, which a scanned-out output does not need. Sampled images and DMA-BUF import are still step 2.
+
+## Output on a display
+
+`crates/oxy-kms` drives a real output: atomic modesetting, then page flips with flip events. `oxy-kms-show` replays the Bloom regression's frames on it, one per refresh.
+
+The test machine is a ThinkPad running Debian 13 (kernel 6.12):
+- Intel Iris Xe (Alder Lake, `i915`), driving the panel eDP-1 at 1920×1200 and 60 Hz;
+- an NVIDIA T550 without outputs, not used.
+
+`oxy-kms-probe` reads every plane: they accept XRGB8888 and ARGB8888 with the linear modifier and Intel's tiled ones.
+
+| 5 s run on the panel | CPU composition into dumb buffers | Vulkan composition into DMA-BUF (`--gpu`) |
+| --- | --- | --- |
+| Frames presented | 300 | 300 |
+| Flip interval (median / max) | 16.666 / 16.680 ms | 16.666 / 16.679 ms |
+| Missed refreshes | 0 | 0 |
+| Composition | about 1.7 ms | about 0.49 ms on the GPU (timestamps); about 3.8 ms from the host, uploading the clients' pixels |
+
+The intervals come from the kernel's flip timestamps.
+
+With `--gpu`, the compositor's compute shader writes straight into buffers exported as DMA-BUF. KMS imports them through PRIME as linear XRGB8888 framebuffers, and nothing is copied through the CPU.
+
+Still to do:
+- explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
+- tiled modifiers, which are faster to scan out (only linear now);
+- client buffers as images and DMA-BUF import from clients;
+- the compositor session itself driving KMS, with real input, instead of a tool replaying dumped frames.
 
 ## Consequences
 

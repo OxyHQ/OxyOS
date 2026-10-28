@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code, except for the C ABI in `crates/oxy-client-ffi`, which denies it and allows it item by item, each with its safety contract. It loads no display toolkit. The compositor core verifies protocol, policy and ownership state and draws no pixels; the offscreen fixture composes client buffers on the CPU.
+The root Rust workspace is independent of the `config/` image configuration. Its third-party Cargo dependencies are `rustix` (safe system-call bindings), `ash` and `naga` for Vulkan composition (`crates/oxy-gpu`), and `drm`/`drm-fourcc` for DRM/KMS (`crates/oxy-kms`). The workspace forbids `unsafe` code, except in the C ABI (`crates/oxy-client-ffi`) and Vulkan (`crates/oxy-gpu`), which deny it and allow it item by item, each with its safety contract. It loads no display toolkit. The compositor core verifies protocol, policy and ownership state and draws no pixels. The offscreen fixture composes client buffers with `oxy-gpu`'s reference.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -39,6 +39,9 @@ Expected result:
 | `crates/oxy-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), non-blocking event polling |
 | `crates/oxy-client-ffi` | C ABI over `oxy-client` (`include/oxy_client.h`) for native runtimes in C/C++, such as the Bloom host; tests check the header against the Rust layouts |
 | `crates/oxy-gpu` | Frame composition: the CPU reference (`compose_cpu`), which `oxy-offscreen` composes with, and the same composition on a Vulkan device (`VulkanCompositor`, a compute shader), which must match it byte for byte ([ADR 0004](./adr/0004-gpu-composition)) |
+| `crates/oxy-kms` | DRM/KMS output: a card's outputs, modes and plane format/modifier pairs (no DRM master needed), DMA-BUF import as framebuffers, and a `Display` that modesets atomically and page-flips with the kernel's flip timestamps ([ADR 0004](./adr/0004-gpu-composition)) |
+| `tools/oxy-kms-probe` | Reads what each card offers, as JSON; read-only, it leaves a running session alone |
+| `tools/oxy-kms-show` | Shows frames dumped by `oxy-offscreen --launch --dump-frames` on a real output, one per refresh, and reports the flip intervals and missed refreshes. `--gpu` composes on Vulkan straight into DMA-BUF scanout buffers. Needs DRM master (a free virtual terminal) |
 | `tools/oxy-platform-probe` | Two-process protocol v2 metadata exercise with synthetic completion |
 | `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; `--launch` runs one application process (the Bloom host) and presses scripted points; writes PNG snapshots |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
