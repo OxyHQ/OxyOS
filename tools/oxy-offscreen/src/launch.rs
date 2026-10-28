@@ -118,9 +118,12 @@ pub struct Launch {
     /// `--dump-frames DIR`: the frame shown at launch and after each step, as layers
     /// (`oxy_gpu::frame_file`), to compose again elsewhere (`oxy-gpu`'s `replay` example).
     pub dump_frames: Option<PathBuf>,
+    /// `--kms CARD`: show every composed frame on the card's first connected output (needs DRM
+    /// master); frames complete at their flip times.
+    pub kms: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -144,6 +147,7 @@ impl Launch {
         let mut allow = false;
         let mut gpu = false;
         let mut dump_frames = None;
+        let mut kms = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -158,6 +162,10 @@ impl Launch {
                 Some("--launch") => continue,
                 Some("--gpu") => {
                     gpu = true;
+                    continue;
+                }
+                Some("--kms") => {
+                    kms = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--dump-frames") => {
@@ -245,6 +253,7 @@ impl Launch {
                             steps,
                             gpu,
                             dump_frames,
+                            kms,
                         },
                     ));
                 }
@@ -557,6 +566,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    if let Some(card) = &launch.kms {
+        let display = oxy_kms::Display::open(oxy_kms::Card::open(card)?)?;
+        eprintln!(
+            "[kms] showing on {} ({})",
+            card.display(),
+            display.mode_name()
+        );
+        session.compositor.display = Some(display);
+    }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;
         session.compositor.keep_frame = true;
@@ -702,9 +720,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ),
         None => "null".to_string(),
     };
+    let display = match session.compositor.display.take() {
+        Some(display) => {
+            let refresh_ms = 1e3 / f64::from(display.refresh_hz().max(1));
+            let flips = &session.compositor.flips;
+            let missed = flips
+                .windows(2)
+                .filter(|w| (w[1] - w[0]).as_secs_f64() * 1e3 > refresh_ms * 1.5)
+                .count();
+            format!(
+                "{{\"mode\":{},\"shown\":{},\"gaps_over_one_refresh\":{missed}}}",
+                json_string(&display.mode_name()),
+                flips.len()
+            )
+        }
+        None => "null".to_string(),
+    };
     session.finish(&mut children)?;
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
@@ -732,6 +766,8 @@ mod tests {
             "--gpu",
             "--dump-frames",
             "frames",
+            "--kms",
+            "/dev/dri/card1",
             "--out",
             "o",
             "--press",
@@ -764,6 +800,7 @@ mod tests {
         assert_eq!(out, PathBuf::from("o"));
         assert!(launch.gpu);
         assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
+        assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(

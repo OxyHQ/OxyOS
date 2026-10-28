@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let card = oxy_kms::Card::open(&card_path)?;
     let driver = card.driver_name()?;
-    let mut display = oxy_kms::Display::open(&card)?;
+    let mut display = oxy_kms::Display::open(card)?;
     let (width, height) = display.size();
     let refresh = Duration::from_secs_f64(1.0 / f64::from(display.refresh_hz().max(1)));
 
@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut compositor = oxy_gpu::VulkanCompositor::new()?;
         for target in compositor.scanout_targets(2, width, height)? {
             use std::os::fd::AsFd;
-            targets.push(card.import_dmabuf(
+            targets.push(display.card().import_dmabuf(
                 target.fd.as_fd(),
                 target.width,
                 target.height,

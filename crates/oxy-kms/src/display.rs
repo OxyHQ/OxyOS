@@ -14,8 +14,8 @@ use std::io;
 use std::time::Duration;
 
 /// A connector driven by this process: its mode, CRTC, primary plane and two buffers.
-pub struct Display<'a> {
-    card: &'a Card,
+pub struct Display {
+    card: Card,
     connector: connector::Handle,
     crtc: crtc::Handle,
     plane: plane::Handle,
@@ -30,9 +30,9 @@ fn not_found(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, what.to_string())
 }
 
-impl<'a> Display<'a> {
+impl Display {
     /// Takes DRM master and prepares the first connected connector at its preferred mode.
-    pub fn open(card: &'a Card) -> io::Result<Self> {
+    pub fn open(card: Card) -> io::Result<Self> {
         card.acquire_master_lock()?;
         let resources = card.resource_handles()?;
         let (connector, mode) = resources
@@ -74,7 +74,7 @@ impl<'a> Display<'a> {
                 resources
                     .filter_crtcs(info.possible_crtcs())
                     .contains(&crtc)
-                    && property_value(card, handle, "type").ok() == Some(1)
+                    && property_value(&card, handle, "type").ok() == Some(1)
             })
             .ok_or_else(|| not_found("no primary plane for the CRTC"))?;
         let (width, height) = mode.size();
@@ -90,15 +90,20 @@ impl<'a> Display<'a> {
             mode_blob: None,
         };
         for _ in 0..2 {
-            let buffer = card.create_dumb_buffer(
+            let buffer = display.card.create_dumb_buffer(
                 (u32::from(width), u32::from(height)),
                 DrmFourcc::Xrgb8888,
                 32,
             )?;
-            let framebuffer = card.add_framebuffer(&buffer, 24, 32)?;
+            let framebuffer = display.card.add_framebuffer(&buffer, 24, 32)?;
             display.buffers.push((buffer, framebuffer));
         }
         Ok(display)
+    }
+
+    /// The card this display drives (to import buffers into it, for one).
+    pub fn card(&self) -> &Card {
+        &self.card
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -150,7 +155,7 @@ impl<'a> Display<'a> {
     /// Shows any framebuffer of the display's size (an imported DMA-BUF, for one): a modeset
     /// the first time, a page flip after it.
     pub fn present_framebuffer(&mut self, framebuffer: framebuffer::Handle) -> io::Result<()> {
-        let card = self.card;
+        let card = &self.card;
         let mut request = atomic::AtomicModeReq::new();
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
         if !self.configured {
@@ -220,7 +225,7 @@ impl<'a> Display<'a> {
     }
 }
 
-impl Drop for Display<'_> {
+impl Drop for Display {
     fn drop(&mut self) {
         for (buffer, framebuffer) in self.buffers.drain(..) {
             let _ = self.card.destroy_framebuffer(framebuffer);

@@ -66,6 +66,10 @@ struct Compositor {
     /// With `--dump-frames`: the latest composed frame, as `oxy_gpu::frame_file` writes it.
     keep_frame: bool,
     last_frame: Vec<u8>,
+    /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
+    display: Option<oxy_kms::Display>,
+    /// The flip time of every frame shown.
+    flips: Vec<std::time::Duration>,
 }
 
 struct Gpu {
@@ -316,8 +320,53 @@ impl Compositor {
         }
         self.composed = self.scene.frame_list();
         self.frames += 1;
-        self.scene.end_frame(0, Clock::Synthetic);
+        // On a display, the frame completes when it is on screen, at the kernel's flip time.
+        let (timestamp_ns, clock) = match self.show() {
+            Some(flip) => (
+                u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
+                Clock::Monotonic,
+            ),
+            None => (0, Clock::Synthetic),
+        };
+        self.scene.end_frame(timestamp_ns, clock);
         self.retire();
+    }
+
+    /// With `--kms`: shows the composed output centred on the display and waits for its flip;
+    /// returns the flip's CLOCK_MONOTONIC time. A display error ends display output.
+    fn show(&mut self) -> Option<std::time::Duration> {
+        let display = self.display.as_mut()?;
+        let (width, height) = display.size();
+        let mut pixels = vec![DESKTOP; width as usize * height as usize];
+        let dx = (width.saturating_sub(OUTPUT.width) / 2) as usize;
+        let dy = (height.saturating_sub(OUTPUT.height) / 2) as usize;
+        let columns = (OUTPUT.width as usize).min(width as usize);
+        for (y, row) in self
+            .framebuffer
+            .chunks_exact(OUTPUT.width as usize)
+            .enumerate()
+        {
+            if y + dy >= height as usize {
+                break;
+            }
+            let start = (y + dy) * width as usize + dx;
+            pixels[start..start + columns].copy_from_slice(&row[..columns]);
+        }
+        let flip = display
+            .draw(&pixels)
+            .and_then(|()| display.present())
+            .and_then(|()| display.wait_flip());
+        match flip {
+            Ok(flip) => {
+                self.flips.push(flip);
+                Some(flip)
+            }
+            Err(error) => {
+                eprintln!("[kms] {error}; display output stops");
+                self.display = None;
+                None
+            }
+        }
     }
 
     /// A client buffer's pixels (tightly packed rows), size and format; `None` if the
@@ -528,6 +577,8 @@ impl Session {
             gpu: None,
             keep_frame: false,
             last_frame: Vec::new(),
+            display: None,
+            flips: Vec::new(),
         };
         Ok(Self {
             compositor,

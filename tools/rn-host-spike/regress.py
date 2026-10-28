@@ -225,6 +225,8 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--kms", default=None,
+                        help="show every composed frame on this DRM card (needs DRM master)")
     parser.add_argument("--dump-frames", default=None,
                         help="write the frame after each step as layers (oxy-gpu's replay example)")
     parser.add_argument("--gpu", action="store_true",
@@ -239,6 +241,8 @@ def main():
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
+    if options.kms:
+        command += ["--kms", options.kms]
     if options.dump_frames:
         command += ["--dump-frames", options.dump_frames]
     for step in scenario["steps"]:
@@ -272,6 +276,7 @@ def main():
         "steps": len(summary["steps"]),
         "first_frame_ms": summary["first_frame_ms"],
         "gpu": summary.get("gpu"),
+        "display": summary.get("drm"),
         "frames": len(renders),
         "render_ms": {
             "median": round(statistics.median(renders), 2) if renders else None,

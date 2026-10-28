@@ -352,6 +352,7 @@ dependencies = [
  "oxy-compositor-core",
  "oxy-gpu",
  "oxy-ipc",
+ "oxy-kms",
  "oxy-protocol",
  "rustix",
 ]
