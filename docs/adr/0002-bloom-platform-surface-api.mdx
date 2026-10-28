@@ -1,0 +1,78 @@
+---
+title: "ADR 0002 (proposed): Bloom platform surface API"
+description: Proposed app-facing popup/window capability API at Bloom's floating-panel owner, its adapter registration and its mapping onto the Oxy display protocol.
+order: 11
+---
+
+# ADR 0002 (proposed): Bloom platform surface API
+
+Status: **proposed**. Nothing here is a shipped export. Names are placeholders until Bloom's maintainers accept a design in the Bloom repository. Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime/adapters), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups). Builds on [ADR 0001](./0001-native-platform-boundaries).
+
+## Problem
+
+Bloom places anchored panels itself. On web it uses a DOM portal clipped to the browser viewport. On native it opens a bottom sheet in an RN `Modal`. OxyOS can show the same panel as a compositor-managed popup surface that extends beyond the application window. Doing so must not fork Bloom's menu families or move React state, and Bloom must not learn the display protocol.
+
+## Proposal
+
+1. **One seam at the existing owner.** Placement props are already shared: `FloatingPositionProps` (`side`, `align`, `sideOffset`, `alignOffset`) in `src/floating/types.ts`. Today the web variants (`DropdownMenu.web.tsx` and the other families) render `src/floating/FloatingPanel.tsx`, which is web-only. The native variants (`DropdownMenu.tsx`, …) render `dialog/SheetShell`. The proposal adds a native anchored-panel owner next to `FloatingPanel` in `src/floating/`. The native variants choose it instead of `SheetShell` only when the active adapter reports `popup-surface`; otherwise they keep the sheet, which remains the documented native behavior elsewhere. Rows, palette, sub-menu and keyboard logic stay shared. The families are not copied.
+2. **Adapter registration like the other adapters.** `BloomProvider` gains an optional platform-adapter prop, the same pattern as `scrollAdapter`, `back` and `imageResolver`. The default adapter reports no surface capabilities, so existing Android, iOS and web consumers behave exactly as before.
+3. **Explicit capabilities.** The adapter reports what it can do, and an unsupported request is answered as unsupported. It never returns fake success.
+
+```ts
+// Sketch only — not exported by any package.
+type SurfaceCapability = 'popup-surface' | 'modal-window';
+
+interface PlatformSurfaceAdapter {
+  readonly platform: 'android' | 'ios' | 'web' | 'macos' | 'oxyos';
+  readonly capabilities: ReadonlySet<SurfaceCapability>;
+  /** Returns null when the capability is absent or the request was refused (no activation). */
+  openPopup(request: PopupRequest): PopupHandle | null;
+}
+
+interface PopupRequest {
+  anchor: { rect: LogicalRect; host: HostSurfaceRef }; // rect in the host surface's coordinates
+  size: LogicalSize;                                    // measured content size
+  side: FloatingSide; align: FloatingAlign;             // Bloom's existing placement props
+  sideOffset: number; alignOffset: number;
+  direction: 'ltr' | 'rtl';
+  role: 'menu' | 'listbox' | 'dialog';
+  activation: ActivationToken | null;                   // from the triggering input event; null = no grab
+  accessibleParent: AccessibilityRef;
+}
+
+interface PopupHandle {
+  readonly host: HostSurfaceRef;                        // where FloatingPanel renders its children
+  onGeometry(listener: (rect: LogicalRect) => void): Unsubscribe; // compositor-approved, relative
+  onDismiss(listener: (reason: DismissReason) => void): Unsubscribe;
+  update(request: Pick<PopupRequest, 'anchor' | 'size'>): void;   // Reposition
+  close(): void;                                        // Destroy
+}
+```
+
+`HostSurfaceRef` is the native host's handle for a second root surface rendered by the **same** React tree. The host (#33) renders `FloatingPanel`'s children into it through a host-level portal, so providers, theme, locale, controlled state, event handlers and the accessibility parent relationship stay in one tree. The native anchored panel renders its children there. A React portal alone cannot cross OS window clipping. The native host's multi-surface root makes the difference.
+
+## Mapping onto the Oxy protocol (OxyOS adapter)
+
+| Bloom | Positioner |
+| --- | --- |
+| `side="bottom"`, `align="start"` | anchor `BottomLeft`, gravity `BottomRight` |
+| `side="bottom"`, `align="center"` | anchor `Bottom`, gravity `Bottom` |
+| `side="bottom"`, `align="end"` | anchor `BottomRight`, gravity `BottomLeft` |
+| `side="top"`, `align=…` | the same with Top in place of Bottom |
+| `side="right"`, `align="start"` | anchor `TopRight`, gravity `BottomRight` |
+| `side="left"`, `align="start"` | anchor `TopLeft`, gravity `BottomLeft` |
+| `side="right"` or `"left"`, `align="end"` | anchor and gravity on the bottom edge, extending upward |
+| `sideOffset` / `alignOffset` | offset on the main / cross axis |
+| `direction="rtl"` | `Adjust::RTL`; Bloom stops mirroring at each call site for this path |
+| Bloom's flip-then-clamp (`resolveDropdownPlacement`) | `FLIP` on the main axis, `SLIDE` on the cross axis; `RESIZE` on the main axis for scrolling lists (Select) |
+| `activation` | `GrabPopup` with the serial of the triggering press or key; `null` (hover cards) opens without a grab |
+| `onDismiss` reasons | `PopupDone` reasons (outside press, parent hidden, lock, …) |
+| Escape stack, arrows, Home/End, typeahead, focus return | Unchanged in Bloom; the popup surface has keyboard focus while grabbed |
+
+Hover cards and tooltips do not take a grab. Tooltips stay in-window at first, as listed in ADR 0001. Command and AlertDialog remain in-window modal dialogs unless the app requests `modal-window`.
+
+## Consequences
+
+- Existing platforms keep their behavior and tests. Only an adapter that reports `popup-surface` changes the path.
+- Bloom stays free of OxyOS, protocol and SDK imports. The OxyOS adapter lives with the Oxy runtime (#33) and depends on Bloom's interface.
+- Open questions for the Bloom maintainers: the export name and subpath; which parts of the web-only `menu-keyboard`/escape stack become platform-neutral for native hosts with hardware keyboards; whether anchor measurement (`useAnchorRect` is web-only) moves into the adapter; how `instant`/motion maps onto popup first-frame presentation, given that the first frame must be ready content and must not flash.
