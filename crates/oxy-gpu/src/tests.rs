@@ -31,6 +31,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 72,
             extent: (64, 48),
             paint: Paint::Opaque(window),
+            source: None,
         },
         Layer {
             x: 70,
@@ -39,6 +40,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 30,
             extent: (20, 30),
             paint: Paint::Premultiplied(popup),
+            source: None,
         },
         Layer {
             x: 100,
@@ -47,6 +49,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             height: 200,
             extent: (1, 1),
             paint: Paint::Fill(0x0012_3456),
+            source: None,
         },
     ]
 }
@@ -89,6 +92,7 @@ fn invalid_layers_are_skipped() {
             height: 4,
             extent: (4, 4),
             paint: Paint::Opaque(&short),
+            source: None,
         },
         Layer {
             x: 0,
@@ -97,6 +101,7 @@ fn invalid_layers_are_skipped() {
             height: 4,
             extent: (1, 1),
             paint: Paint::Fill(1),
+            source: None,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -312,6 +317,73 @@ fn damaged_scanout_frames_are_the_reference() {
             step.0
         );
     }
+}
+
+/// Layers whose source the device keeps are not uploaded again, and every frame is still the
+/// reference's: with the same pixels, with a new version of them, and after the source buffer
+/// filled with others and was reclaimed.
+#[test]
+fn kept_sources_are_uploaded_once() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    fn sourced(layers: Vec<Layer<'_>>, version: u64) -> Vec<Layer<'_>> {
+        layers
+            .into_iter()
+            .enumerate()
+            .map(|(index, layer)| Layer {
+                source: Some(Source {
+                    key: index as u64,
+                    version,
+                }),
+                ..layer
+            })
+            .collect()
+    }
+    let first = sourced(layers(&window, &popup), 1);
+    let check = |gpu: &mut VulkanCompositor, frame: &[Layer<'_>]| {
+        assert_eq!(
+            gpu.compose(120, 90, 0x0011_2233, frame).unwrap(),
+            compose_cpu(120, 90, 0x0011_2233, frame)
+        );
+        gpu.last_uploaded_bytes()
+    };
+    let all = ((64 * 48) + (20 * 30)) * 4;
+    assert_eq!(
+        check(&mut gpu, &first),
+        all,
+        "the first frame uploads everything"
+    );
+    assert_eq!(
+        check(&mut gpu, &first),
+        0,
+        "the same versions upload nothing"
+    );
+    // The popup's pixels change: a new version of it, the window's kept.
+    let changed: Vec<u32> = (0..20 * 30).map(|i| 0xff00_0000 | i).collect();
+    let changed = pixels(&changed);
+    let mut second = first.clone();
+    second[1] = Layer {
+        paint: Paint::Premultiplied(&changed),
+        source: Some(Source { key: 1, version: 2 }),
+        ..second[1]
+    };
+    assert_eq!(check(&mut gpu, &second), 20 * 30 * 4);
+    // Many other sources fill the buffer: it is reclaimed, and kept ones are uploaded again.
+    for key in 10..40 {
+        let other = [Layer {
+            source: Some(Source { key, version: 1 }),
+            ..second[0]
+        }];
+        check(&mut gpu, &other);
+    }
+    check(&mut gpu, &second);
+    assert_eq!(check(&mut gpu, &second), 0);
 }
 
 #[test]

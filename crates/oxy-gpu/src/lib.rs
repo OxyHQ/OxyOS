@@ -29,6 +29,17 @@ pub struct Layer<'a> {
     pub height: u32,
     pub extent: (u32, u32),
     pub paint: Paint<'a>,
+    /// Where the pixels come from, when they may be the same as an earlier frame's.
+    pub source: Option<Source>,
+}
+
+/// The identity of a layer's pixels: the same key and version are the same pixels, so the
+/// Vulkan compositor keeps them on the device and uploads them once (docs/adr/0005-damage.mdx).
+/// A new version of a key replaces its pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Source {
+    pub key: u64,
+    pub version: u64,
 }
 
 impl Layer<'_> {

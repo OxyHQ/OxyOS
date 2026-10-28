@@ -98,6 +98,11 @@ struct Compositor {
     reads: Vec<f64>,
     /// For every frame composed: the fraction of the output its damage covers (1 when whole).
     damaged: Vec<f64>,
+    /// A number for every frame a client submitted, never reused, by surface and sequence:
+    /// what identifies a surface's pixels to the GPU (`oxy_gpu::Source`), since surface ids
+    /// and sequences are the client's and come again when it creates a surface anew.
+    versions: HashMap<(SurfaceKey, u64), u64>,
+    next_version: u64,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -116,6 +121,8 @@ struct Gpu {
     /// For each frame composed for the display: the host's copy into the upload buffer, and
     /// submission to fence (`VulkanCompositor::last_host_ms`), in ms.
     host_ms: Vec<(f64, f64)>,
+    /// The bytes each frame composed for the display uploaded.
+    uploaded: Vec<u64>,
     /// The device's time before and after composing each frame for the display, in ms.
     phases_ms: Vec<(f64, f64)>,
 }
@@ -179,6 +186,7 @@ impl Compositor {
     }
 
     fn disconnect(&mut self, client: ClientId) {
+        self.versions.retain(|(key, _), _| key.client != client);
         self.scene.disconnect(client);
         self.peers.remove(&client);
         self.retire();
@@ -237,6 +245,30 @@ impl Compositor {
         let goodbye = matches!(request, Request::Goodbye {});
         if let Err(code) = self.scene.handle(client, request) {
             return self.fail(client, code);
+        }
+        match request {
+            Request::Submit {
+                surface, sequence, ..
+            } => {
+                self.next_version += 1;
+                self.versions.insert(
+                    (
+                        SurfaceKey {
+                            client,
+                            id: surface,
+                        },
+                        sequence,
+                    ),
+                    self.next_version,
+                );
+            }
+            Request::Destroy { surface } => self.versions.retain(|(key, _), _| {
+                *key != SurfaceKey {
+                    client,
+                    id: surface,
+                }
+            }),
+            _ => {}
         }
         if goodbye {
             self.peers.remove(&client);
@@ -321,13 +353,22 @@ impl Compositor {
         for item in list.iter().copied() {
             match item {
                 RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
-                    Some((extent, format, pixels)) => {
-                        contents.push((rect, extent, Some(format), pixels))
-                    }
+                    Some((extent, format, pixels)) => contents.push((
+                        rect,
+                        extent,
+                        Some(format),
+                        pixels,
+                        self.versions
+                            .get(&(key, frame.sequence))
+                            .map(|&version| oxy_gpu::Source {
+                                key: (u64::from(key.client) << 32) | u64::from(key.id),
+                                version,
+                            }),
+                    )),
                     None => unreadable.push(key.client),
                 },
                 RenderItem::Cover { rect, .. } => {
-                    contents.push((rect, Size::new(1, 1), None, Vec::new()))
+                    contents.push((rect, Size::new(1, 1), None, Vec::new(), None))
                 }
             }
         }
@@ -335,7 +376,7 @@ impl Compositor {
             .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         let layers: Vec<oxy_gpu::Layer<'_>> = contents
             .iter()
-            .map(|(rect, extent, format, pixels)| oxy_gpu::Layer {
+            .map(|(rect, extent, format, pixels, source)| oxy_gpu::Layer {
                 x: rect.x,
                 y: rect.y,
                 width: rect.width,
@@ -346,8 +387,18 @@ impl Compositor {
                     Some(oxy_protocol::Format::Argb8888) => oxy_gpu::Paint::Premultiplied(pixels),
                     None => oxy_gpu::Paint::Fill(0),
                 },
+                source: *source,
             })
             .collect();
+        // Frames older than those composed are never shown again.
+        self.versions.retain(|(key, sequence), _| {
+            list.iter().all(|item| match item {
+                RenderItem::Surface {
+                    key: shown, frame, ..
+                } if shown == key => *sequence >= frame.sequence,
+                _ => true,
+            })
+        });
         // The output is at the origin of the global space.
         if !self.gpu_only {
             self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
@@ -638,6 +689,7 @@ impl Compositor {
             .map_err(|error| std::io::Error::other(error.to_string()));
             gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
             gpu.host_ms.push(gpu.compositor.last_host_ms());
+            gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
             gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
             let submitted = monotonic();
             self.compositions
@@ -1000,6 +1052,8 @@ impl Session {
             compositions: Vec::new(),
             reads: Vec::new(),
             damaged: Vec::new(),
+            versions: HashMap::new(),
+            next_version: 0,
             terminal: None,
             away: false,
         };

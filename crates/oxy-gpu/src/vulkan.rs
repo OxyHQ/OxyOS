@@ -240,6 +240,13 @@ pub struct VulkanCompositor {
     kept: Option<(u32, u32)>,
     /// The size of the frame the output buffer holds, if it holds the last one composed.
     output_holds: Option<(u32, u32)>,
+    /// Pixels kept in the source buffer by `Source` key: their version, offset and length in
+    /// words. Space is taken in order from `source_next` and reclaimed all at once, when the
+    /// buffer is full or replaced.
+    resident: std::collections::HashMap<u64, (u64, u64, u64)>,
+    source_next: u64,
+    /// The bytes the last frame uploaded.
+    last_uploaded: u64,
 }
 
 impl VulkanCompositor {
@@ -298,6 +305,9 @@ impl VulkanCompositor {
             family: opened.family,
             kept: None,
             output_holds: None,
+            resident: std::collections::HashMap::new(),
+            source_next: 0,
+            last_uploaded: 0,
         };
         this.build(opened.family)?;
         Ok(this)
@@ -492,6 +502,12 @@ impl VulkanCompositor {
         self.last_gpu_ms
     }
 
+    /// The bytes of pixels the last frame uploaded: those of layers whose `Source` was not on
+    /// the device already.
+    pub fn last_uploaded_bytes(&self) -> u64 {
+        self.last_uploaded
+    }
+
     /// The device's time around the last frame's composition, in milliseconds: before it (the
     /// uploads and the fill) and after it (copies and the release to the display).
     pub fn last_gpu_phases(&self) -> Option<(f64, f64)> {
@@ -662,17 +678,46 @@ impl VulkanCompositor {
         // A new submission overwrites the readback buffer.
         self.kept = None;
         let layers: Vec<&Layer<'_>> = layers.iter().filter(|layer| layer.valid()).collect();
-        let source_bytes: u64 = layers
+        let words = |layer: &Layer<'_>| u64::from(layer.extent.0) * u64::from(layer.extent.1);
+        let frame_words: u64 = layers
             .iter()
             .filter(|layer| layer.pixels().is_some())
-            .map(|layer| u64::from(layer.extent.0) * u64::from(layer.extent.1) * 4)
+            .map(|layer| words(layer))
             .sum();
         let out_words = width as usize * height as usize;
         if out_words == 0 {
             return Ok(None);
         }
         let out_bytes = out_words as u64 * 4;
-        self.reserve(source_bytes.max(4), out_bytes)?;
+        // The source buffer holds two frames' pixels, so kept ones leave room for new ones.
+        let source = self.buffers[0].as_ref().map(|buffer| buffer.buffer);
+        self.reserve(
+            (frame_words * 8).max(4),
+            (frame_words * 4).max(4),
+            out_bytes,
+        )?;
+        if self.buffers[0].as_ref().map(|buffer| buffer.buffer) != source {
+            // A new source buffer holds no pixels.
+            self.resident.clear();
+            self.source_next = 0;
+        }
+        let capacity = self.buffers[0].as_ref().expect("reserved").size / 4;
+        let kept = |resident: &std::collections::HashMap<u64, (u64, u64, u64)>,
+                    layer: &Layer<'_>| {
+            let source = layer.source?;
+            let &(version, offset, length) = resident.get(&source.key)?;
+            (version == source.version && length == words(layer)).then_some(offset)
+        };
+        let new_words: u64 = layers
+            .iter()
+            .filter(|layer| layer.pixels().is_some() && kept(&self.resident, layer).is_none())
+            .map(|layer| words(layer))
+            .sum();
+        if self.source_next + new_words > capacity {
+            // Full: every layer is uploaded again, from the start.
+            self.resident.clear();
+            self.source_next = 0;
+        }
         let target = match scanout {
             Some(index) => self.scanout[index].buffer.buffer,
             None => self.buffers[1].as_ref().expect("reserved").buffer,
@@ -686,9 +731,11 @@ impl VulkanCompositor {
         };
 
         let copying = std::time::Instant::now();
-        // The layers' pixels one after another, into the upload buffer.
+        // Each layer's pixels: where the source buffer keeps them, or copied into the upload
+        // buffer and from there to their place in the source buffer.
         let mut layer_pushes = Vec::with_capacity(layers.len());
-        let mut offset = 0usize;
+        let mut copies = Vec::new();
+        let mut uploaded = 0u64;
         for layer in &layers {
             let mut push = Push {
                 x: layer.x,
@@ -697,7 +744,6 @@ impl VulkanCompositor {
                 height: layer.height,
                 src_width: layer.extent.0,
                 src_height: layer.extent.1,
-                src_offset: offset as u32,
                 out_width: width,
                 out_height: height,
                 ..Push::default()
@@ -709,21 +755,42 @@ impl VulkanCompositor {
                 }
                 Paint::Opaque(pixels) | Paint::Premultiplied(pixels) => {
                     push.mode = u32::from(matches!(layer.paint, Paint::Premultiplied(_)));
-                    let used = layer.extent.0 as usize * layer.extent.1 as usize * 4;
-                    // SAFETY: `upload` is mapped for at least `source_bytes` bytes and this range
-                    // ends within it; `pixels` holds at least `used` bytes (`Layer::valid`).
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            pixels.as_ptr(),
-                            upload.mapped.add(offset * 4),
-                            used,
-                        );
-                    }
-                    offset += used / 4;
+                    let length = words(layer);
+                    let offset = match kept(&self.resident, layer) {
+                        Some(offset) => offset,
+                        None => {
+                            let offset = self.source_next;
+                            self.source_next += length;
+                            // SAFETY: `upload` is mapped for at least `frame_words` words and
+                            // the frame uploads no more; `pixels` holds at least `length` words
+                            // (`Layer::valid`).
+                            unsafe {
+                                std::ptr::copy_nonoverlapping(
+                                    pixels.as_ptr(),
+                                    upload.mapped.add(uploaded as usize * 4),
+                                    length as usize * 4,
+                                );
+                            }
+                            copies.push(
+                                vk::BufferCopy::default()
+                                    .src_offset(uploaded * 4)
+                                    .dst_offset(offset * 4)
+                                    .size(length * 4),
+                            );
+                            uploaded += length;
+                            if let Some(source) = layer.source {
+                                self.resident
+                                    .insert(source.key, (source.version, offset, length));
+                            }
+                            offset
+                        }
+                    };
+                    push.src_offset = offset as u32;
                 }
             }
             layer_pushes.push(push);
         }
+        self.last_uploaded = uploaded * 4;
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
         // Every layer whole, or, region by region, the background and the parts of the layers
         // within it.
@@ -814,13 +881,8 @@ impl VulkanCompositor {
                     vk::PipelineStageFlags::TRANSFER,
                 );
             }
-            if offset > 0 {
-                device.cmd_copy_buffer(
-                    command,
-                    upload.buffer,
-                    source.buffer,
-                    &[vk::BufferCopy::default().size(offset as u64 * 4)],
-                );
+            if !copies.is_empty() {
+                device.cmd_copy_buffer(command, upload.buffer, source.buffer, &copies);
             }
             if regions.is_none() {
                 device.cmd_fill_buffer(command, target, 0, out_bytes, background);
@@ -1067,12 +1129,17 @@ impl VulkanCompositor {
     }
 
     /// Makes the buffers at least this large, binding new device buffers to the set.
-    fn reserve(&mut self, source_bytes: u64, out_bytes: u64) -> Result<(), Error> {
+    fn reserve(
+        &mut self,
+        source_bytes: u64,
+        upload_bytes: u64,
+        out_bytes: u64,
+    ) -> Result<(), Error> {
         let mut rebind = false;
         for (slot, role, bytes) in [
             (0, Role::Source, source_bytes),
             (1, Role::Output, out_bytes),
-            (2, Role::Upload, source_bytes),
+            (2, Role::Upload, upload_bytes),
             (3, Role::Readback, out_bytes),
         ] {
             if self.buffers[slot]
