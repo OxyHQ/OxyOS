@@ -1,0 +1,81 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css" source(none);
+@import "nativewind/theme";
+@import "@oxy.so/bloom/design-tokens/theme.css";
+@custom-variant dark (&:where(.dark, .dark *));
+@source "../node_modules/@oxy.so/bloom/lib/**/*.{js,jsx}";
+@source "./**/*.{ts,tsx}";
+@source "../../../apps/shell/src/**/*.{ts,tsx}";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+#root {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Browser-only material enhancement; shell geometry comes from NativeWind. */
+[data-testid="shell-topbar"] {
+  background: #12294a1a;
+  backdrop-filter: blur(24px);
+}
+[data-testid="shell-dock"] {
+  backdrop-filter: blur(28px);
+}
+[data-testid="launcher-folder"] {
+  backdrop-filter: blur(14px);
+}
+[data-testid="shell-overview"],
+[data-testid="shell-launchpad"] {
+  backdrop-filter: blur(28px);
+  animation: shell-appear 180ms ease-out;
+}
+[data-testid^="dock-"] {
+  transition: transform 150ms ease-out;
+}
+[data-testid^="dock-"]:hover {
+  transform: translateY(-2px);
+}
+@keyframes shell-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Bloom's public className contract keeps shell hit areas and paint aligned. */
+[data-testid="shell-topbar"] button:hover,
+[data-testid="shell-topbar"] button[aria-expanded="true"] {
+  background-color: #ffffff26;
+}
+[data-testid="shell-launchpad"] button:focus-visible,
+[data-testid="shell-dock"] button:focus-visible {
+  outline: 2px solid #ffffffd9;
+  outline-offset: 5px;
+}
+[data-testid="shell-dock"] button:focus-visible {
+  outline-color: #566780;
+}
+[data-testid^="launcher-"] > span {
+  transition: transform 140ms ease-out;
+}
+[data-testid^="launcher-"]:active > span {
+  transform: scale(0.94);
+}

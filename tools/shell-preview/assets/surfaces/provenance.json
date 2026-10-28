@@ -1,0 +1,41 @@
+{
+  "purpose": "Development-only published app thumbnails. No live processes or app replicas.",
+  "files": [
+    {
+      "file": "inbox.png",
+      "repository": "OxyHQ/website",
+      "revision": "f38826bf478a0d54f65cda117444c6c07a88a54e",
+      "source": "public/images/screenshots/inbox-app.png"
+    },
+    {
+      "file": "mention.png",
+      "repository": "OxyHQ/website",
+      "revision": "f38826bf478a0d54f65cda117444c6c07a88a54e",
+      "source": "public/images/screenshots/mention-app.png"
+    },
+    {
+      "file": "alia.png",
+      "repository": "OxyHQ/website",
+      "revision": "f38826bf478a0d54f65cda117444c6c07a88a54e",
+      "source": "public/images/screenshots/alia-app.png"
+    },
+    {
+      "file": "astro.webp",
+      "repository": "OxyHQ/Astro",
+      "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74",
+      "source": "apps/site/src/assets/shots/window.webp"
+    },
+    {
+      "file": "astro-split.webp",
+      "repository": "OxyHQ/Astro",
+      "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74",
+      "source": "apps/site/src/assets/shots/split.webp"
+    },
+    {
+      "file": "astro-work.webp",
+      "repository": "OxyHQ/Astro",
+      "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74",
+      "source": "apps/site/src/assets/shots/profile-work.webp"
+    }
+  ]
+}
