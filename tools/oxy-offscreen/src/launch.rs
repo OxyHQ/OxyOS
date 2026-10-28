@@ -346,6 +346,12 @@ fn popup(compositor: &Compositor) -> Option<Rect> {
 }
 
 /// CLOCK_MONOTONIC in nanoseconds, the clock the application's report (OXY_HOST_REPORT) uses.
+fn median(values: &[f64]) -> Option<f64> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    sorted.get(sorted.len() / 2).copied()
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -882,6 +888,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             compositor,
             frames: 0,
             mismatches: 0,
+            device_ms: Vec::new(),
         });
     }
     let mut children = Children(vec![Command::new(&launch.command[0])
@@ -1044,10 +1051,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .into())
         }
         Some(gpu) => format!(
-            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},{}}}",
+            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},{}}}",
             json_string(gpu.compositor.device_name()),
             gpu.compositor.device_kind(),
             gpu.frames,
+            median(&gpu.device_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
             if launch.gpu_only {
                 "\"reference\":false"
             } else {
@@ -1077,11 +1085,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .collect();
             let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
             waits.sort_by(f64::total_cmp);
+            let compositions = &session.compositor.compositions;
             format!(
-                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
                 if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
+                median(compositions).unwrap_or(0.0),
+                compositions.iter().copied().fold(0.0, f64::max),
                 waits.get(waits.len() / 2).copied().unwrap_or(0.0),
                 waits.last().copied().unwrap_or(0.0)
             )

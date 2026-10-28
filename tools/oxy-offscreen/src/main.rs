@@ -85,6 +85,10 @@ struct Compositor {
     /// For every frame shown: when it was handed to the display and when it flipped
     /// (CLOCK_MONOTONIC).
     flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
+    /// long from then to handing it to the display, in milliseconds.
+    composing_since: std::time::Duration,
+    compositions: Vec<f64>,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -96,6 +100,8 @@ struct Gpu {
     compositor: oxy_gpu::VulkanCompositor,
     frames: u64,
     mismatches: u64,
+    /// The device's time for each frame composed for the display (GPU timestamps), in ms.
+    device_ms: Vec<f64>,
 }
 
 impl Compositor {
@@ -275,6 +281,7 @@ impl Compositor {
             self.scene.end_frame(0, Clock::Synthetic);
             return;
         }
+        self.composing_since = monotonic();
         // Each surface's pixels, read from its shared buffer, and the covers.
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
@@ -528,9 +535,10 @@ impl Compositor {
                 gpu.compositor.compose_to_scanout(back, DESKTOP, &shifted)
             }
             .map_err(|error| std::io::Error::other(error.to_string()));
-            let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-            let submitted =
-                std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+            gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
+            let submitted = monotonic();
+            self.compositions
+                .push((submitted - self.composing_since).as_secs_f64() * 1e3);
             let flip = composed
                 .and_then(|()| display.present_framebuffer(self.scanout[back]))
                 .and_then(|()| display.wait_flip());
@@ -563,8 +571,9 @@ impl Compositor {
             pixels[start..start + columns].copy_from_slice(&row[..columns]);
         }
         let drawn = display.draw(&pixels);
-        let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-        let submitted = std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+        let submitted = monotonic();
+        self.compositions
+            .push((submitted - self.composing_since).as_secs_f64() * 1e3);
         let flip = drawn
             .and_then(|()| display.present())
             .and_then(|()| display.wait_flip());
@@ -679,6 +688,12 @@ impl Compositor {
 }
 
 /// The input events a step can cause, by surface and kind (motion is continuous and left out).
+/// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
+fn monotonic() -> std::time::Duration {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    std::time::Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+}
+
 fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
     Some(match *event {
         Event::Pointer { surface, kind, .. } => (
@@ -802,6 +817,8 @@ impl Session {
             scanout: Vec::new(),
             scanout_back: 0,
             flips: Vec::new(),
+            composing_since: std::time::Duration::ZERO,
+            compositions: Vec::new(),
             terminal: None,
             away: false,
         };
