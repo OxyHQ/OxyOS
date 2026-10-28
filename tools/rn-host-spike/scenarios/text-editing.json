@@ -1,5 +1,5 @@
 {
-  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's.",
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own.",
   "module": "EditingProbe",
   "window": [
     800,
@@ -1151,6 +1151,182 @@
             0,
             0
           ]
+        }
+      }
+    },
+    {
+      "name": "Home goes back to the start of the line",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@line": 1,
+          "scroll@line": 1
+        },
+        "text_scroll": {
+          "line": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Right selects its first word",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,4]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+C copies it: nothing changes in the app",
+      "do": [
+        "key",
+        [
+          29,
+          46
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,4]"
+        ],
+        "react": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a press focuses the notes at the end of their third line",
+      "do": [
+        "press",
+        [
+          154,
+          130
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [12,12]"
+        ],
+        "react": {
+          "blur@line": 1,
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "focus@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "focus_input": "notes"
+      }
+    },
+    {
+      "name": "Ctrl+V pastes the copied word at the caret, through the compositor from the clipboard's owner",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntreshola\\ncuatro\\ncinco\\nseis\" [16,16]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes the paste, an edit of its own",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [12,12]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Left selects the word before the caret",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [8,12]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+X cuts it: copied and deleted",
+      "do": [
+        "key",
+        [
+          29,
+          45
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n\\ncuatro\\ncinco\\nseis\" [8,8]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+V pastes it back",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [12,12]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
         }
       }
     }

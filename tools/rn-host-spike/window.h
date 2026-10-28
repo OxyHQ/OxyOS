@@ -3,6 +3,7 @@
 // host draws into a buffer and presents it, one frame in flight per surface.
 #pragma once
 
+#include "clipboard.h"
 #include "renderer.h"
 
 #include <oxyos_client.h>
@@ -67,8 +68,17 @@ class Window {
 
   uint64_t presented() const { return presented_; }
 
+  // The clipboard (clipboard.h): what it holds comes with the compositor's events.
+  bool copyText(uint64_t serial, const std::string& text) { return clipboard_.copy(client_, serial, text); }
+  void pasteText(uint64_t serial, std::function<void(std::string)> done) {
+    clipboard_.paste(client_, serial, std::move(done));
+  }
+  // Each turn: finishes pastes whose content arrived. True if any did.
+  bool deliverPastes() { return clipboard_.deliver(); }
+
  private:
   OxyOSClient* client_ = nullptr;
+  Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   uint64_t presented_ = 0;
 };

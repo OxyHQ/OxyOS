@@ -173,7 +173,7 @@ target_include_directories(oxyos_android_components PRIVATE ${SCROLLVIEW_ANDROID
 target_link_libraries(oxyos_android_components reactnative)
 target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
 
-add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp images.cpp network.cpp worklets-host.cpp
+add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp
   reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)

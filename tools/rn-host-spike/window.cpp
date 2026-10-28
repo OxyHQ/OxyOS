@@ -69,6 +69,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
       if (target && event.serial == target->inFlight) target->inFlight = 0;
       if (event.detail == OXYOS_OUTCOME_PRESENTED && event.surface == kToplevel) ++presented_;
+    } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES || event.kind == OXYOS_EVENT_CLIPBOARD_TYPE ||
+               event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY) {
+      clipboard_.observe(event);
     } else if (event.kind != OXYOS_EVENT_RELEASED) {
       input(event);
     }

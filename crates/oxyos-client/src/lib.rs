@@ -59,7 +59,17 @@ pub struct Client {
     history: std::collections::VecDeque<(u32, u64, Option<Vec<Rect>>)>,
     /// The descriptor the event last returned carried (a ClipboardSend's pipe).
     descriptor: Option<OwnedFd>,
+    /// What this client offered to the clipboard, by offer: each type's content. Only the
+    /// latest offers are kept; the clipboard holds at most one of them.
+    offers: std::collections::VecDeque<(u32, Offer)>,
+    next_offer: u32,
 }
+
+/// What one offer to the clipboard holds: each media type with its content.
+type Offer = Vec<(TextChunk, std::sync::Arc<[u8]>)>;
+
+/// Offers kept for the clipboard: the latest few, of which it holds one.
+const OFFERS_KEPT: usize = 4;
 
 impl Client {
     /// Connects and completes the version handshake.
@@ -81,6 +91,8 @@ impl Client {
             sequence: 0,
             history: std::collections::VecDeque::new(),
             descriptor: None,
+            offers: std::collections::VecDeque::new(),
+            next_offer: 0,
         })
     }
 
@@ -348,6 +360,36 @@ impl Client {
         }
     }
 
+    /// Copies: offers `contents` (each media type with its bytes, the most faithful first) as
+    /// the clipboard, with the serial of the user input that asked for it (ADR 0007). The
+    /// client keeps the content and answers each paste of it itself, writing it into the
+    /// paste's pipe from a thread of its own; the compositor refuses the offer if the serial is
+    /// not a recent input of this client or the client lost keyboard focus.
+    pub fn copy(&mut self, serial: u64, contents: Vec<(TextChunk, Vec<u8>)>) -> io::Result<()> {
+        self.next_offer = self.next_offer.wrapping_add(1);
+        let offer = self.next_offer;
+        self.send(&Request::ClipboardOffer { offer, serial })?;
+        for (mime, _) in &contents {
+            self.send(&Request::ClipboardType { offer, mime: *mime })?;
+        }
+        self.send(&Request::ClipboardCommit { offer })?;
+        let contents = contents
+            .into_iter()
+            .map(|(mime, bytes)| (mime, std::sync::Arc::from(bytes)))
+            .collect();
+        self.offers.push_back((offer, contents));
+        if self.offers.len() > OFFERS_KEPT {
+            self.offers.pop_front();
+        }
+        Ok(())
+    }
+
+    /// Empties the clipboard, if this client's offer is what it holds (a copied password
+    /// cleared after a while, say).
+    pub fn clear_clipboard(&mut self, serial: u64) -> io::Result<()> {
+        self.send(&Request::ClipboardClear { serial })
+    }
+
     /// Pastes `mime` from the clipboard content the compositor named `selection`, with the
     /// serial of the user input that asked for it (ADR 0007). Returns the read end of the pipe
     /// its owner writes the content into: it reaches its end when the owner is done, or at once
@@ -378,6 +420,29 @@ impl Client {
     /// Frees released buffers for reuse; a protocol error ends the connection.
     fn observe(&mut self, event: Event) -> io::Result<Event> {
         match event {
+            // A paste of what this client copied: written into its pipe from a thread, so a
+            // slow reader stalls neither the client nor the compositor.
+            Event::ClipboardSend { offer, mime } => {
+                let content = self
+                    .offers
+                    .iter()
+                    .find(|(id, _)| *id == offer)
+                    .and_then(|(_, contents)| contents.iter().find(|(m, _)| *m == mime))
+                    .map(|(_, bytes)| bytes.clone());
+                // Only for content this client holds: a program offering by its own requests
+                // keeps the pipe (take_descriptor).
+                if let Some((bytes, pipe)) =
+                    content.and_then(|bytes| Some((bytes, self.descriptor.take()?)))
+                {
+                    let _ = std::thread::Builder::new()
+                        .name("oxyos-clipboard".into())
+                        .spawn(move || {
+                            use std::io::Write;
+                            let _ = std::fs::File::from(pipe).write_all(&bytes);
+                        });
+                }
+                Ok(event)
+            }
             Event::Released { buffer, .. } => {
                 if let Some(entry) = self.buffers.iter_mut().find(|b| b.id == buffer) {
                     entry.busy = false;
