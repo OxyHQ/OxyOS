@@ -65,7 +65,7 @@ The positioner carries an anchor rectangle (inside the parent), anchor point, gr
 
 1. Place by anchor, gravity and offset relative to the parent.
 2. Constrain against one output: the one containing the anchor point. Ordinary clients use its work area (output minus shell panel exclusive zones); shell and lock popups use the full output.
-3. Per axis: if it does not fit, flip (if allowed and the flipped side fits), then slide, then resize. Resize to nothing dismisses with `Unplaceable`. Without flags, the requested geometry is kept and clipped by the output.
+3. Per axis: if it does not fit, flip (if allowed and the flipped side fits), then slide, then resize. Resize to nothing dismisses with `Unplaceable`. So does a relative position the protocol cannot carry (beyond ±2^20). Without flags, the requested geometry is kept and clipped by the output.
 4. `RTL` mirrors horizontal anchor, gravity and offset. Bloom passes its layout direction rather than every component re-deriving mirrored sides.
 
 Scrolling a too-tall resized menu is the client's content concern. A popup never spans outputs for constraint purposes; mixed scale is handled per surface (the popup gets its output's scale).
@@ -73,10 +73,11 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 ## Input, focus and grabs
 
 - Keyboard focus belongs to one surface. Activating a window focuses its topmost modal dialog if one is mapped, otherwise the window. A press on a window behind its modal dialog is consumed.
+- Focus-stealing prevention: a newly mapped window or dialog takes focus only if no user press, key or touch-down has gone to another client since its client connected or last received user input. Otherwise it maps behind the focused window without focus.
 - Pointer focus follows hit testing over ready content and input regions. A press captures the pointer until all buttons are released.
-- Every pointer, key and touch event has a compositor serial. `GrabPopup` is authorized only by the serial of the latest press (button, key or touch-down) delivered to the same connection on the popup's parent chain, while no newer press exists. Nested grabs must parent on the current top of the grab chain. Denied grabs receive `PopupDone(GrabDenied)`.
+- Every pointer, key and touch event has a compositor serial. `GrabPopup` is authorized only by the serial of the latest press (button, key or touch-down) delivered to the same connection on the popup's parent chain, while no newer press exists. A consumed press (outside a grab, on nothing, or behind a modal dialog) is a newer press for every client, so it invalidates earlier serials. Nested grabs must parent on the current top of the grab chain. Denied grabs receive `PopupDone(GrabDenied)`.
 - During a grab, keyboard focus is the top popup. The button capture moves to the grab, so press-drag-release selection works. Pointer input over the chain is delivered even where it covers another application; other surfaces receive nothing.
-- **Outside press policy:** a press or touch-down outside the chain dismisses the whole chain (`PopupDone(OutsidePress)`) and is consumed together with its matching release. It is never delivered to the surface underneath, does not activate it and does not reach the trigger, so it can neither click through nor reopen the menu.
+- **Outside press policy:** a press or touch-down outside the chain dismisses the whole chain (`PopupDone(OutsidePress)`) and is consumed, together with the releases of every button still held. It is never delivered to the surface underneath, does not activate it and does not reach the trigger, so it can neither click through nor reopen the menu.
 - Escape, arrows, typeahead and Enter are application semantics delivered to the focused popup; Bloom closes a submenu by destroying it. When the chain empties, focus returns to the surface focused before the grab.
 - If a captured surface disappears, or the compositor cancels capture (`Pointer Cancel`, `Touch Cancel`), the pending release is consumed rather than delivered as a click elsewhere.
 - Moves are compositor-owned after a valid `BeginMove` serial: the window and its popups move without client round trips.

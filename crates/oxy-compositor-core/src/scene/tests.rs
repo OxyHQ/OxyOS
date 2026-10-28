@@ -1586,3 +1586,154 @@ fn shortcuts_move_to_another_shell_surface_when_the_target_goes_away() {
     }));
     assert!(h.events_for(APP).is_empty());
 }
+
+#[test]
+fn a_finished_move_leaves_no_pointer_capture_behind() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 1200, 800);
+    let window = h.toplevel(APP, 1, 300, 200);
+    let w = h.rect(window);
+    let serial = h.press(w.x + 100, w.y + 10);
+    h.request(APP, Request::BeginMove { surface: 1, serial })
+        .unwrap();
+    h.scene.pointer_motion(w.x + 300, w.y + 10);
+    h.scene.pointer_button(BUTTON, false);
+    h.clear_log();
+    let o = h.rect(other);
+    h.click(o.x + 20, o.y + 20);
+    assert_eq!(
+        pointer_presses(&h.events_for(OTHER)),
+        2,
+        "the next click is OTHER's"
+    );
+    assert!(h.events_for(APP).iter().all(|e| !matches!(
+        e,
+        Event::Pointer {
+            kind: PointerKind::Press | PointerKind::Motion,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn a_consumed_press_invalidates_older_grab_serials() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let serial = h.press(w.x + 10, w.y + 10);
+    let first = h.popup(window, 2, menu(Rect::new(0, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(first);
+    h.scene.pointer_button(BUTTON, false);
+    h.click(5, 5);
+    assert_eq!(h.dismissed(first), Some(DismissReason::OutsidePress));
+    // Re-grabbing with the trigger's serial after the dismissing press is denied.
+    let again = h.popup(window, 3, menu(Rect::new(0, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 3, serial })
+        .unwrap();
+    assert_eq!(h.dismissed(again), Some(DismissReason::GrabDenied));
+    assert!(h.scene.grab_chain().is_empty());
+}
+
+#[test]
+fn releases_stay_balanced_after_an_outside_press_with_buttons_held() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 1200, 800);
+    let window = h.toplevel(APP, 1, 300, 200);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 40, 20), 200, 150),
+    );
+    let p = h.rect(popup);
+    h.scene.pointer_motion(p.x + 10, p.y + 10);
+    h.scene.pointer_button(BUTTON, true);
+    let o = h.rect(other);
+    h.scene.pointer_motion(o.x + 20, o.y + 20);
+    h.scene.pointer_button(BUTTON + 1, true);
+    h.scene.pointer_button(BUTTON + 1, false);
+    h.scene.pointer_button(BUTTON, false);
+    h.clear_log();
+    h.click(o.x + 20, o.y + 20);
+    assert_eq!(
+        pointer_presses(&h.events_for(OTHER)),
+        2,
+        "press and release both delivered"
+    );
+}
+
+#[test]
+fn a_buffer_awaiting_release_cannot_be_queued_again() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let (serial, _, _) = h.configures[&window];
+    let size = Size::new(400, 300);
+    h.scene.begin_frame();
+    let submit = |sequence, buffer| Request::Submit {
+        surface: 1,
+        sequence,
+        buffer,
+        configure: serial,
+        extent: size,
+    };
+    h.request(APP, submit(10, 500)).unwrap();
+    h.request(APP, submit(11, 501)).unwrap();
+    assert_eq!(
+        h.request(APP, submit(12, 500)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+}
+
+#[test]
+fn a_window_mapped_after_the_user_typed_elsewhere_does_not_take_focus() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 800, 600);
+    assert_eq!(h.scene.focus(), Some(other));
+    h.scene.key(30, true);
+    h.scene.key(30, false);
+    let window = h.toplevel(APP, 1, 300, 200);
+    assert_eq!(
+        h.scene.focus(),
+        Some(other),
+        "keystrokes keep going to OTHER"
+    );
+    let order: Vec<SurfaceKey> = h
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, .. } => Some(key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        order,
+        vec![window, other],
+        "mapped behind the focused window"
+    );
+    // Once the user activates it, it behaves normally.
+    let w = h.rect(window);
+    let o = h.rect(other);
+    assert!(o.contains(w));
+    h.scene.activate(window);
+    assert_eq!(h.scene.focus(), Some(window));
+}
+
+#[test]
+fn unencodable_popup_offsets_are_unplaceable() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let mut far = menu(Rect::new(10, 10, 20, 20), 100, 100);
+    far.adjust = Adjust::NONE;
+    far.offset_x = oxy_protocol::MAX_COORDINATE;
+    let popup = h.popup(window, 2, far);
+    assert_eq!(h.dismissed(popup), Some(DismissReason::Unplaceable));
+    // Every event the scene produced can be encoded.
+    for (_, event) in &h.log {
+        let mut bytes = Vec::new();
+        oxy_protocol::write_event(&mut bytes, event).unwrap();
+    }
+}

@@ -16,7 +16,7 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxy_protocol::{
     Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind, Positioner, Rect,
-    Request, ShellKind, Size, TouchKind, MAX_DIMENSION,
+    Request, ShellKind, Size, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -168,6 +168,11 @@ pub struct Scene {
     swallowed_releases: u32,
     touches: BTreeMap<u32, Option<SurfaceKey>>,
     last_press: Option<Press>,
+    /// Serial of the latest user press, key or touch-down, delivered or consumed.
+    last_user_serial: u64,
+    /// Per client: the serial at connect or of the latest user input delivered to it. A window
+    /// mapped after the user interacted elsewhere does not take focus.
+    activation: BTreeMap<ClientId, u64>,
     moving: Option<Move>,
     locked: bool,
     shortcuts: BTreeSet<u32>,
@@ -401,6 +406,7 @@ impl Scene {
             return Err(ErrorCode::QuotaExceeded);
         }
         self.clients.insert(client, grants);
+        self.activation.insert(client, self.serial);
         Ok(())
     }
 
@@ -420,6 +426,7 @@ impl Scene {
             self.remove_node(*key);
         }
         self.events.retain(|(target, _)| *target != client);
+        self.activation.remove(&client);
         if self.last_press.is_some_and(|press| press.client == client) {
             self.last_press = None;
         }
@@ -931,9 +938,15 @@ impl Scene {
             self.work_area(output.id)?
         };
         let placed = place(positioner, origin, area)?;
+        // The relative origin travels in a Configure; anything the codec cannot carry is
+        // unplaceable rather than an event the compositor could not send.
+        let encodable = |value: i64| -> Option<i32> {
+            let limit = i64::from(MAX_COORDINATE);
+            (-limit..=limit).contains(&value).then_some(value as i32)
+        };
         let relative = (
-            i32::try_from(i64::from(placed.x) - i64::from(origin.0)).ok()?,
-            i32::try_from(i64::from(placed.y) - i64::from(origin.1)).ok()?,
+            encodable(i64::from(placed.x) - i64::from(origin.0))?,
+            encodable(i64::from(placed.y) - i64::from(origin.1))?,
         );
         Some((relative, Size::new(placed.width, placed.height), output.id))
     }
@@ -1022,6 +1035,14 @@ impl Scene {
     }
 
     fn submit(&mut self, key: SurfaceKey, frame: Frame) -> Result<(), ErrorCode> {
+        // A buffer whose release is waiting for the in-flight frame is still being read.
+        if self
+            .deferred
+            .iter()
+            .any(|(held, buffer)| held.client == key.client && *buffer == frame.buffer)
+        {
+            return Err(ErrorCode::InvalidBuffer);
+        }
         let node = self.nodes.get_mut(&key).ok_or(ErrorCode::UnknownSurface)?;
         if node.dismissed {
             self.discard(key, frame);
@@ -1485,6 +1506,25 @@ impl Scene {
         }
     }
 
+    fn lower_below_focus(&mut self, key: SurfaceKey) {
+        let root = self.root_of(key);
+        let Some(focused) = self.focus.map(|f| self.root_of(f)) else {
+            return;
+        };
+        if focused == root
+            || layer_of(&self.nodes[&focused].role) != layer_of(&self.nodes[&root].role)
+        {
+            return;
+        }
+        self.roots.retain(|r| *r != root);
+        let index = self
+            .roots
+            .iter()
+            .position(|r| *r == focused)
+            .unwrap_or(self.roots.len());
+        self.roots.insert(index, root);
+    }
+
     pub fn minimize(&mut self, key: SurfaceKey) {
         let Some(node) = self.nodes.get(&key) else {
             return;
@@ -1733,15 +1773,17 @@ impl Scene {
         if pressed {
             self.buttons_down += 1;
             let hit = self.hit_test(self.pointer.0, self.pointer.1);
+            self.last_user_serial = serial;
             if !self.grab.is_empty() && !hit.is_some_and(|h| self.in_grab(h)) {
-                // Outside press: dismiss the chain and consume the press and its release.
+                // Outside press: dismiss the chain and consume the press and its release. Every
+                // held button's release is consumed, and the press invalidates older serials.
                 self.dismiss_grab(DismissReason::OutsidePress);
-                self.swallowed_releases += 1;
+                self.consume_press();
                 self.refresh_pointer_focus();
                 return;
             }
             let Some(target) = self.capture.or(hit) else {
-                self.swallowed_releases += 1;
+                self.consume_press();
                 return;
             };
             if self.grab.is_empty() {
@@ -1750,7 +1792,7 @@ impl Scene {
                 self.activate(target);
                 if blocked {
                     // Modal scope: the window behind a dialog does not receive the press.
-                    self.swallowed_releases += 1;
+                    self.consume_press();
                     return;
                 }
                 if self.focusable(target) && self.root_of(target) == root && target != root {
@@ -1759,18 +1801,15 @@ impl Scene {
             }
             self.capture = Some(target);
             self.set_pointer_focus(Some(target));
-            self.last_press = Some(Press {
-                serial,
-                client: target.client,
-                surface: target,
-                pointer: true,
-            });
+            self.record_press(serial, target, true);
             self.pointer_event(target, serial, PointerKind::Press, button);
         } else {
             self.buttons_down = self.buttons_down.saturating_sub(1);
             if let Some(moving) = self.moving {
                 if self.buttons_down == 0 {
+                    // The move owned the pointer; the window that started it gets no capture.
                     self.moving = None;
+                    self.capture = None;
                     self.reconstrain_children(moving.surface);
                     self.refresh_pointer_focus();
                 }
@@ -1794,6 +1833,23 @@ impl Scene {
         }
     }
 
+    /// A press that reaches no client: its release is consumed and it invalidates every earlier
+    /// press serial, so no client can authorize a grab with an older one.
+    fn consume_press(&mut self) {
+        self.swallowed_releases = self.buttons_down;
+        self.last_press = None;
+    }
+
+    fn record_press(&mut self, serial: u64, target: SurfaceKey, pointer: bool) {
+        self.last_press = Some(Press {
+            serial,
+            client: target.client,
+            surface: target,
+            pointer,
+        });
+        self.activation.insert(target.client, serial);
+    }
+
     /// Pointer capture lost (for example a compositor gesture took over): the captured surface
     /// receives Cancel and no later release is delivered as a click.
     pub fn pointer_cancel(&mut self) {
@@ -1809,6 +1865,10 @@ impl Scene {
         let serial = self.next_serial();
         if !self.locked && self.shortcuts.contains(&key) {
             if let Some(target) = self.shortcut_target.filter(|t| self.live(*t).is_some()) {
+                if pressed {
+                    self.last_user_serial = serial;
+                    self.record_press(serial, target, false);
+                }
                 self.emit(
                     target.client,
                     Event::Key {
@@ -1821,16 +1881,14 @@ impl Scene {
                 return;
             }
         }
+        if pressed {
+            self.last_user_serial = serial;
+        }
         let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
             return;
         };
         if pressed {
-            self.last_press = Some(Press {
-                serial,
-                client: target.client,
-                surface: target,
-                pointer: false,
-            });
+            self.record_press(serial, target, false);
         }
         self.emit(
             target.client,
@@ -1871,10 +1929,12 @@ impl Scene {
             return;
         }
         let serial = self.next_serial();
+        self.last_user_serial = serial;
         let hit = self.hit_test(x, y);
         if !self.grab.is_empty() && !hit.is_some_and(|h| self.in_grab(h)) {
             self.dismiss_grab(DismissReason::OutsidePress);
             self.touches.insert(id, None);
+            self.last_press = None;
             return;
         }
         let target = hit.filter(|h| {
@@ -1887,13 +1947,11 @@ impl Scene {
             }
         }
         self.touches.insert(id, target);
+        if target.is_none() {
+            self.last_press = None;
+        }
         if let Some(target) = target {
-            self.last_press = Some(Press {
-                serial,
-                client: target.client,
-                surface: target,
-                pointer: false,
-            });
+            self.record_press(serial, target, false);
             self.touch_event(target, serial, TouchKind::Down, id, x, y);
         }
     }
@@ -1997,7 +2055,17 @@ impl Scene {
                 if self.locked && layer_of(&node.role) == Layer::Lock && self.focus.is_none() {
                     self.set_focus(Some(key));
                 } else if matches!(node.role, Role::Toplevel | Role::Dialog) {
-                    self.activate(key);
+                    // Focus-stealing prevention: a window mapped after the user interacted with
+                    // another client stays behind the focused window and gets no keyboard focus.
+                    let activated = self
+                        .activation
+                        .get(&key.client)
+                        .is_some_and(|serial| self.last_user_serial <= *serial);
+                    if activated {
+                        self.activate(key);
+                    } else {
+                        self.lower_below_focus(key);
+                    }
                 }
             }
         }
