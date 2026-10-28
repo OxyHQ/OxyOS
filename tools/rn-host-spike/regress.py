@@ -16,6 +16,9 @@ Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its
 - popups: how many popups of the application are shown after the step;
 - latency_ms: budget from injecting the input to the first changed frame.
 
+A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
+once every step has run; a scenario may have no steps at all.
+
 Also reports render times per frame and the launch time. Exit status 0 only if every
 expectation holds.
 
@@ -130,6 +133,9 @@ def main():
     for step in scenario["steps"]:
         command += director_args(step)
     command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width), str(height)]
+    # Steps checked one by one below: refuse a scenario whose steps the director would not run.
+    if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
+        raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXY_HOST_REPORT=str(report_path), OXY_SCRIPT_URL=f"file://{bundle}")
     run = subprocess.run(command, env=env, capture_output=True, text=True)
     (out / "director.log").write_text(run.stdout + run.stderr)
@@ -144,6 +150,10 @@ def main():
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures)
+    if "final" in scenario:
+        last = max(line["t"] for line in report)
+        check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
+                   {"t_settled": last}, report, start, failures)
 
     renders = [line["render_ms"] for line in report if line["kind"] == "frame"]
     latencies = [s["latency_ms"] for s in summary["steps"] if s.get("latency_ms") is not None]

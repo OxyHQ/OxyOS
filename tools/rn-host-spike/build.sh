@@ -118,3 +118,8 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
 python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" --offscreen "$REPO/target/release/oxy-offscreen" \
   --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
+# React Native's Android APIs that OxyOS does not provide fail visibly; the rest answer truthfully
+# (docs/react-native-android-adaptation.mdx).
+python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-adaptation"
