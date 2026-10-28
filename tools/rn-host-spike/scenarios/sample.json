@@ -337,7 +337,7 @@
       }
     },
     {
-      "name": "typing replaces the dragged selection",
+      "name": "typing replaces the dragged selection (through the devices, ó is a dead key and its vowel: the caret stays when ó replaces ´)",
       "do": ["type", "Adiós"],
       "expect": {
         "texts": ["Reply: Adiós"],
@@ -345,7 +345,7 @@
         "react": {"change@reply": 1, "selectionChange@reply": 1}
       },
       "expect_devices": {
-        "react": {"keyPress@reply": 5, "change@reply": 5, "selectionChange@reply": 5}
+        "react": {"keyPress@reply": 6, "change@reply": 6, "selectionChange@reply": 5}
       }
     },
     {
@@ -365,7 +365,7 @@
       }
     },
     {
-      "name": "the vowel replaces the composition with what it composes, and is no key either",
+      "name": "the vowel replaces the composition with what it composes, and is no key either (the caret stays: ó takes the place of ´)",
       "do": ["key", 24],
       "allow_unchanged": true,
       "expect": {
@@ -376,7 +376,7 @@
       "expect_devices": {
         "texts": ["Reply: Adiósó"],
         "absent": ["´"],
-        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
+        "react": {"keyPress@reply": 1, "change@reply": 1},
         "delivered": {"1": {"text": 1}}
       }
     },
