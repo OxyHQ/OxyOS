@@ -12,6 +12,7 @@
 mod client;
 mod launch;
 mod png;
+mod uinput;
 
 use client::*;
 use oxy_compositor_core::{ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey};
@@ -66,6 +67,24 @@ struct Compositor {
     /// With `--dump-frames`: the latest composed frame, as `oxy_gpu::frame_file` writes it.
     keep_frame: bool,
     last_frame: Vec<u8>,
+    /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
+    display: Option<oxy_kms::Display>,
+    /// With `--input`: the seat's devices through libinput, and where the output sits on the
+    /// display (its top-left corner, in the display's pixels).
+    input: Option<oxy_input::Input>,
+    display_offset: (i32, i32),
+    /// With `--kms` and `--gpu`: the display's framebuffers, imported from the Vulkan
+    /// compositor's DMA-BUF scanout targets, and the one composed next.
+    scanout: Vec<oxy_kms::Framebuffer>,
+    scanout_back: usize,
+    /// For every frame shown: when it was handed to the display and when it flipped
+    /// (CLOCK_MONOTONIC).
+    flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
+    /// with `--input`, its keyboard off). Dropped after the display and the devices.
+    terminal: Option<oxy_vt::Terminal>,
+    /// Another terminal has the display and the devices: frames complete without being shown.
+    away: bool,
 }
 
 struct Gpu {
@@ -316,8 +335,199 @@ impl Compositor {
         }
         self.composed = self.scene.frame_list();
         self.frames += 1;
-        self.scene.end_frame(0, Clock::Synthetic);
+        // On a display, the frame completes when it is on screen, at the kernel's flip time.
+        let (timestamp_ns, clock) = match self.show(&layers) {
+            Some(flip) => (
+                u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
+                Clock::Monotonic,
+            ),
+            None => (0, Clock::Synthetic),
+        };
+        self.scene.end_frame(timestamp_ns, clock);
         self.retire();
+    }
+
+    /// With `--kms`: lets go of the display and the devices when the kernel switches to another
+    /// terminal, and takes them back when it returns; the frame is then shown again.
+    fn follow_terminal(&mut self) -> Result<()> {
+        let Some(terminal) = self.terminal.as_mut() else {
+            return Ok(());
+        };
+        for switch in terminal.switches()? {
+            match switch {
+                oxy_vt::Switch::Release if !self.away => {
+                    if let Some(display) = &mut self.display {
+                        display.suspend()?;
+                    }
+                    if let Some(input) = &mut self.input {
+                        input.suspend();
+                    }
+                    // libinput released what was still down: applications hear it now.
+                    self.read_input();
+                    self.away = true;
+                    if let Some(terminal) = &self.terminal {
+                        terminal.release()?;
+                    }
+                }
+                oxy_vt::Switch::Acquire if self.away => {
+                    if let Some(terminal) = &self.terminal {
+                        terminal.acquired()?;
+                    }
+                    if let Some(display) = &mut self.display {
+                        display.resume()?;
+                    }
+                    if let Some(input) = &mut self.input {
+                        input.resume()?;
+                    }
+                    self.away = false;
+                    // Composed again, and shown with a modeset.
+                    self.composed.clear();
+                }
+                // A release while away, or an acquire while here: nothing to give or take.
+                oxy_vt::Switch::Release | oxy_vt::Switch::Acquire => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// With `--input`: what the seat's devices did since the last turn, applied to the scene.
+    /// Positions arrive in the display's pixels; the output is centred on the display.
+    fn read_input(&mut self) {
+        let Some(input) = self.input.as_mut() else {
+            return;
+        };
+        let actions = match input.dispatch() {
+            Ok(actions) => actions,
+            Err(error) => {
+                eprintln!("[input] {error}; input stops");
+                self.input = None;
+                return;
+            }
+        };
+        let (dx, dy) = self.display_offset;
+        let trace = std::env::var_os("OXY_INPUT_TRACE").is_some();
+        for action in actions {
+            if trace {
+                eprintln!("[input] {action:?} focus {:?}", self.scene.focus());
+            }
+            match action {
+                oxy_input::Action::Motion { x, y } => self
+                    .scene
+                    .pointer_motion(x.round() as i32 - dx, y.round() as i32 - dy),
+                oxy_input::Action::Button { code, pressed } => {
+                    self.scene.pointer_button(code, pressed)
+                }
+                // libinput's units are logical pixels; the protocol's are 1/256 of one.
+                oxy_input::Action::Scroll { dx, dy } => self
+                    .scene
+                    .pointer_scroll((dx * 256.0).round() as i32, (dy * 256.0).round() as i32),
+                oxy_input::Action::Key {
+                    code,
+                    pressed,
+                    text,
+                } => {
+                    self.scene.key(code, pressed);
+                    if let Some(text) = text {
+                        self.scene.text(&text);
+                    }
+                }
+                oxy_input::Action::SwitchTerminal(number) => {
+                    if let Some(terminal) = &self.terminal {
+                        if number != terminal.number() {
+                            if let Err(error) = terminal.activate(number) {
+                                eprintln!("[vt] switching to {number}: {error}");
+                            }
+                        }
+                    }
+                }
+                // What a sequence composes replaces its composition when committed.
+                oxy_input::Action::Compose { composition, text } => match text {
+                    Some(text) => self.scene.text(&text),
+                    None => {
+                        self.scene.preedit(&composition, composition.len());
+                    }
+                },
+            }
+        }
+    }
+
+    /// With `--kms`: shows the composed output centred on the display and waits for its flip;
+    /// returns the flip's CLOCK_MONOTONIC time. With `--gpu` too, the frame is composed on the
+    /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
+    /// error ends display output.
+    fn show(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> Option<std::time::Duration> {
+        if self.away {
+            return None;
+        }
+        let display = self.display.as_mut()?;
+        let (width, height) = display.size();
+        if let (Some(gpu), false) = (&mut self.gpu, self.scanout.is_empty()) {
+            let dx = (width.saturating_sub(OUTPUT.width) / 2) as i32;
+            let dy = (height.saturating_sub(OUTPUT.height) / 2) as i32;
+            let shifted: Vec<oxy_gpu::Layer<'_>> = layers
+                .iter()
+                .map(|layer| oxy_gpu::Layer {
+                    x: layer.x + dx,
+                    y: layer.y + dy,
+                    ..*layer
+                })
+                .collect();
+            let back = self.scanout_back;
+            let composed = gpu
+                .compositor
+                .compose_to_scanout(back, DESKTOP, &shifted)
+                .map_err(|error| std::io::Error::other(error.to_string()));
+            let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+            let submitted =
+                std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+            let flip = composed
+                .and_then(|()| display.present_framebuffer(self.scanout[back]))
+                .and_then(|()| display.wait_flip());
+            self.scanout_back = 1 - back;
+            return match flip {
+                Ok(flip) => {
+                    self.flips.push((submitted, flip));
+                    Some(flip)
+                }
+                Err(error) => {
+                    eprintln!("[kms] {error}; display output stops");
+                    self.display = None;
+                    None
+                }
+            };
+        }
+        let mut pixels = vec![DESKTOP; width as usize * height as usize];
+        let dx = (width.saturating_sub(OUTPUT.width) / 2) as usize;
+        let dy = (height.saturating_sub(OUTPUT.height) / 2) as usize;
+        let columns = (OUTPUT.width as usize).min(width as usize);
+        for (y, row) in self
+            .framebuffer
+            .chunks_exact(OUTPUT.width as usize)
+            .enumerate()
+        {
+            if y + dy >= height as usize {
+                break;
+            }
+            let start = (y + dy) * width as usize + dx;
+            pixels[start..start + columns].copy_from_slice(&row[..columns]);
+        }
+        let drawn = display.draw(&pixels);
+        let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+        let submitted = std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+        let flip = drawn
+            .and_then(|()| display.present())
+            .and_then(|()| display.wait_flip());
+        match flip {
+            Ok(flip) => {
+                self.flips.push((submitted, flip));
+                Some(flip)
+            }
+            Err(error) => {
+                eprintln!("[kms] {error}; display output stops");
+                self.display = None;
+                None
+            }
+        }
     }
 
     /// A client buffer's pixels (tightly packed rows), size and format; `None` if the
@@ -340,6 +550,8 @@ impl Compositor {
     /// One turn of the compositor: accepts connections, handles every readable client, composes
     /// a frame and sends events. Waits at most 5 ms for input.
     fn serve(&mut self, listener: &Listener) -> Result<()> {
+        self.follow_terminal()?;
+        self.read_input();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener and every client; never block on any one of them.
         let readable: Vec<bool> = {
@@ -351,14 +563,17 @@ impl Compositor {
                     PollFlags::IN,
                 ));
             }
-            poll(
-                &mut fds,
-                Some(&rustix::event::Timespec {
-                    tv_sec: 0,
-                    tv_nsec: 5_000_000,
-                }),
-            )?;
-            fds.iter().map(|fd| !fd.revents().is_empty()).collect()
+            let timeout = rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 5_000_000,
+            };
+            match poll(&mut fds, Some(&timeout)) {
+                Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
+                // A signal (the terminal's switch requests) interrupts poll, which is never
+                // restarted: nothing was ready this turn.
+                Err(rustix::io::Errno::INTR) => vec![false; fds.len()],
+                Err(error) => return Err(error.into()),
+            }
         };
         if readable[0] {
             self.accept(listener)?;
@@ -528,6 +743,14 @@ impl Session {
             gpu: None,
             keep_frame: false,
             last_frame: Vec::new(),
+            display: None,
+            input: None,
+            display_offset: (0, 0),
+            scanout: Vec::new(),
+            scanout_back: 0,
+            flips: Vec::new(),
+            terminal: None,
+            away: false,
         };
         Ok(Self {
             compositor,

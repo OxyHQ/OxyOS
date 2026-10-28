@@ -1,6 +1,7 @@
 {
   "about": "The sample app (sample/App.tsx) in a 1024x640 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
   "window": [1024, 640],
+  "layout": "es",
   "steps": [
     {
       "name": "press the Bloom Button",
@@ -35,6 +36,10 @@
         "delivered": {"1": {"scroll": 1}},
         "latency_ms": 250,
         "scroll_offset": {"inbox": [0, 346]}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 24},
+        "delivered": {"1": {"scroll": 27}}
       }
     },
     {
@@ -56,6 +61,10 @@
         "latency_ms": 250,
         "a11y": {"window": [{"role": "textinput", "name": "Write a reply", "value": "Hola OxyOS!", "id": "reply"}]},
         "at": {"window": [{"role": "TextInput", "name": "Write a reply", "value": "Hola OxyOS!"}]}
+      },
+      "expect_devices": {
+        "react": {"keyPress@reply": 11, "change@reply": 11, "selectionChange@reply": 11},
+        "delivered": {"1": {"key.press": 16, "key.release": 16, "text": 11}}
       }
     },
     {
@@ -136,6 +145,9 @@
         "absent": ["Reply: Hola OxyOSzz"],
         "react": {"key@message-actions": 2},
         "delivered": {"3": {"text": 1}}
+      },
+      "expect_devices": {
+        "delivered": {"3": {"key.press": 2, "key.release": 2, "text": 2}}
       }
     },
     {
@@ -293,7 +305,7 @@
     },
     {
       "name": "a commit replaces the selection, a word being no key press",
-      "do": ["type", "Hola "],
+      "do": ["commit", "Hola "],
       "expect": {
         "texts": ["Reply: Hola"],
         "absent": ["Reply: ¡Hola"],
@@ -310,7 +322,7 @@
     },
     {
       "name": "its commit replaces the composition",
-      "do": ["type", "mundo"],
+      "do": ["commit", "mundo"],
       "expect": {
         "texts": ["Reply: Hola mundo"],
         "absent": ["munmundo"],
@@ -326,12 +338,47 @@
       }
     },
     {
-      "name": "typing replaces the dragged selection",
+      "name": "typing replaces the dragged selection (through the devices, ó is a dead key and its vowel: the caret stays when ó replaces ´)",
       "do": ["type", "Adiós"],
       "expect": {
         "texts": ["Reply: Adiós"],
         "absent": ["mundo"],
         "react": {"change@reply": 1, "selectionChange@reply": 1}
+      },
+      "expect_devices": {
+        "react": {"keyPress@reply": 6, "change@reply": 6, "selectionChange@reply": 5}
+      }
+    },
+    {
+      "name": "a dead key shows as a composition, and is no key for the application (a bare key without a keymap types nothing)",
+      "do": ["key", 40],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "react": {},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      },
+      "expect_devices": {
+        "texts": ["Reply: Adiós´"],
+        "focus_input": "reply",
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
+        "delivered": {"1": {"preedit": 1}}
+      }
+    },
+    {
+      "name": "the vowel replaces the composition with what it composes, and is no key either (the caret stays: ó takes the place of ´)",
+      "do": ["key", 24],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "react": {},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      },
+      "expect_devices": {
+        "texts": ["Reply: Adiósó"],
+        "absent": ["´"],
+        "react": {"keyPress@reply": 1, "change@reply": 1},
+        "delivered": {"1": {"text": 1}}
       }
     },
     {
@@ -422,6 +469,10 @@
         "scroll_offset": {"inbox": [0, 246]},
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 7},
+        "delivered": {"1": {"scroll": 7}}
       }
     },
     {
@@ -431,6 +482,9 @@
         "scroll_offset": {"inbox": [0, 0]},
         "texts": ["Rendered by Fabric and Hermes on Linux."],
         "react": {"scroll@inbox": 1}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 17}
       }
     },
     {
@@ -441,6 +495,9 @@
         "scroll_offset": {},
         "react": {},
         "delivered": {"1": {"scroll": 1}}
+      },
+      "expect_devices": {
+        "delivered": {"1": {"scroll": 4}}
       }
     },
     {

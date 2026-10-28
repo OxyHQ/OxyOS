@@ -32,8 +32,11 @@ pub enum Step {
     PressPopup { x: i32, y: i32 },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
-    /// Text committed to the focused surface, as a keyboard layout or input method would.
+    /// Text typed into the focused surface: committed as it is, or, through the virtual
+    /// devices, typed key by key on the layout.
     Type(String),
+    /// Text an input method commits to the focused surface: committed as it is, never typed.
+    Commit(String),
     /// The input method's composition (preedit) for the focused surface, cursor at its end.
     Preedit(String),
     /// Left-button drag in the window: press at the first point, move to the second, release.
@@ -56,6 +59,11 @@ pub enum Step {
     Scale(u32),
     /// No input: a popup of the application must be shown, extending beyond its window.
     ExpectPopup,
+    /// Through the devices (`--uinput`, `--kms`): Ctrl+Alt+F`n` to terminal `n`, and Ctrl+Alt
+    /// with the compositor's own terminal's key from there, which that terminal's owner handles
+    /// (the console's keyboard, a desktop). Both switches must happen and the frame be shown
+    /// again.
+    SwitchTerminal(u16),
 }
 
 impl Step {
@@ -65,6 +73,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Type(text) => format!("typing {text:?}"),
+            Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
@@ -73,6 +82,7 @@ impl Step {
             Step::Accessibility { action, name } => format!("assistive {action:?} on {name:?}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
+            Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
         }
     }
 
@@ -82,6 +92,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
+            Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
             Step::Drag { from, to } => {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
@@ -96,6 +107,7 @@ impl Step {
             }
             Step::Scale(scale) => format!("\"scale\":{scale}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
+            Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
         }
     }
 }
@@ -118,10 +130,19 @@ pub struct Launch {
     /// `--dump-frames DIR`: the frame shown at launch and after each step, as layers
     /// (`oxy_gpu::frame_file`), to compose again elsewhere (`oxy-gpu`'s `replay` example).
     pub dump_frames: Option<PathBuf>,
+    /// `--kms CARD`: show every composed frame on the card's first connected output (needs DRM
+    /// master); frames complete at their flip times.
+    pub kms: Option<PathBuf>,
+    /// `--input`: the seat's devices through libinput drive the scene; `--uinput` also makes
+    /// the director point, scroll and type through virtual devices instead of the scene.
+    pub input: bool,
+    pub uinput: bool,
+    /// `--layout LAYOUT`: the XKB layout keys are typed and read with (`us` by default).
+    pub layout: String,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -144,6 +165,8 @@ impl Launch {
         let mut allow = false;
         let mut gpu = false;
         let mut dump_frames = None;
+        let mut kms = None;
+        let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -158,6 +181,27 @@ impl Launch {
                 Some("--launch") => continue,
                 Some("--gpu") => {
                     gpu = true;
+                    continue;
+                }
+                Some("--input") => {
+                    input = true;
+                    continue;
+                }
+                Some("--uinput") => {
+                    input = true;
+                    uinput = true;
+                    continue;
+                }
+                Some("--layout") => {
+                    layout = args
+                        .next()
+                        .and_then(|l| l.to_str())
+                        .ok_or(USAGE)?
+                        .to_string();
+                    continue;
+                }
+                Some("--kms") => {
+                    kms = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--dump-frames") => {
@@ -233,6 +277,14 @@ impl Launch {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
                 }
+                Some("--switch-terminal") => {
+                    let number = args.next().and_then(|n| n.to_str()).ok_or(USAGE)?;
+                    Step::SwitchTerminal(number.parse()?)
+                }
+                Some("--commit") => {
+                    let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    Step::Commit(text.to_string())
+                }
                 Some("--") => {
                     let command: Vec<_> = args.cloned().collect();
                     if command.is_empty() {
@@ -245,6 +297,10 @@ impl Launch {
                             steps,
                             gpu,
                             dump_frames,
+                            kms,
+                            input,
+                            uinput,
+                            layout,
                         },
                     ));
                 }
@@ -440,6 +496,171 @@ fn popups_json(compositor: &Compositor) -> String {
     format!("[{}]", popups.join(","))
 }
 
+/// Injects a step through the virtual devices (`--uinput`): pointer steps as an absolute
+/// pointer and wheel, keys and text as a keyboard. Returns how many characters no key types
+/// and were sent as committed text instead, or `None` for a step the devices do not make.
+///
+/// The compositor reads each pointer event, each character's keys and each wheel notch before
+/// the next is sent, as its event loop would from a person. Sent at once, a step could overflow
+/// what the kernel holds for each reader of a device (64 events): past that it drops them all,
+/// and libinput resynchronises to keys that are already up. The devices deliver synchronously,
+/// so what was sent is there to read.
+fn inject_through(
+    devices: &mut crate::uinput::Devices,
+    compositor: &mut Compositor,
+    window: Rect,
+    step: &Step,
+) -> Result<Option<usize>> {
+    let (ox, oy) = compositor.display_offset;
+    let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
+        if rect.contains_point(rect.x + x, rect.y + y) {
+            Ok(())
+        } else {
+            Err(format!("({x}, {y}) is outside {rect:?}").into())
+        }
+    };
+    // Output coordinates to the display's pixels.
+    let at = |x: i32, y: i32| (x + ox, y + oy);
+    let press = |devices: &mut crate::uinput::Devices,
+                 compositor: &mut Compositor,
+                 (x, y): (i32, i32)|
+     -> Result<()> {
+        devices.move_to(x, y)?;
+        compositor.read_input();
+        devices.button(true)?;
+        compositor.read_input();
+        devices.button(false)?;
+        Ok(())
+    };
+    match step {
+        Step::Press { x, y } => {
+            inside(window, *x, *y)?;
+            press(devices, compositor, at(window.x + x, window.y + y))?;
+        }
+        Step::PressPopup { x, y } => {
+            let popup = popup(compositor).ok_or("no popup is shown")?;
+            inside(popup, *x, *y)?;
+            press(devices, compositor, at(popup.x + x, popup.y + y))?;
+        }
+        Step::Scroll { x, y, dy } => {
+            inside(window, *x, *y)?;
+            let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            devices.wheel(*dy, || compositor.read_input())?;
+        }
+        Step::Drag { from, to } => {
+            inside(window, from.0, from.1)?;
+            inside(window, to.0, to.1)?;
+            let (fx, fy) = at(window.x + from.0, window.y + from.1);
+            let (tx, ty) = at(window.x + to.0, window.y + to.1);
+            devices.move_to(fx, fy)?;
+            compositor.read_input();
+            devices.button(true)?;
+            compositor.read_input();
+            devices.move_to((fx + tx) / 2, (fy + ty) / 2)?;
+            compositor.read_input();
+            devices.move_to(tx, ty)?;
+            compositor.read_input();
+            devices.button(false)?;
+        }
+        Step::Key(codes) => {
+            for code in codes {
+                devices.key(*code as u16, true)?;
+                compositor.read_input();
+            }
+            for code in codes.iter().rev() {
+                devices.key(*code as u16, false)?;
+                compositor.read_input();
+            }
+        }
+        Step::Type(text) => {
+            let mut as_text = 0;
+            for character in text.chars() {
+                if !devices.type_char(character)? {
+                    compositor.scene.text(&character.to_string());
+                    as_text += 1;
+                }
+                compositor.read_input();
+            }
+            return Ok(Some(as_text));
+        }
+        _ => return Ok(None),
+    }
+    Ok(Some(0))
+}
+
+/// Goes to terminal `number` and back through the devices (`Step::SwitchTerminal`); returns
+/// how long the compositor was away, in milliseconds.
+fn switch_terminal(
+    session: &mut Session,
+    children: &mut Children,
+    devices: &mut crate::uinput::Devices,
+    number: u16,
+) -> Result<f64> {
+    let own = session
+        .compositor
+        .terminal
+        .as_ref()
+        .ok_or("--switch-terminal needs --kms")?
+        .number();
+    if number == own {
+        return Err(format!("terminal {number} is the compositor's own").into());
+    }
+    const CTRL: u16 = 29;
+    const ALT: u16 = 56;
+    let function_key = |n: u16| match n {
+        1..=10 => Ok(58 + n),
+        11 => Ok(87),
+        12 => Ok(88),
+        _ => Err(format!("no function key for terminal {n}")),
+    };
+    let chord = |devices: &mut crate::uinput::Devices,
+                 compositor: &mut Compositor,
+                 key: u16|
+     -> Result<()> {
+        for code in [CTRL, ALT, key] {
+            devices.key(code, true)?;
+            compositor.read_input();
+        }
+        for code in [key, ALT, CTRL] {
+            devices.key(code, false)?;
+            compositor.read_input();
+        }
+        Ok(())
+    };
+    let wait = |session: &mut Session,
+                children: &mut Children,
+                done: &dyn Fn(&Compositor) -> bool,
+                what: &str|
+     -> Result<()> {
+        let deadline = Instant::now() + STEP_DEADLINE;
+        while !done(&session.compositor) {
+            if Instant::now() > deadline {
+                return Err(format!("deadline exceeded waiting for {what}").into());
+            }
+            if let Some(status) = children.0[0].try_wait()? {
+                return Err(format!("the application exited ({status}) waiting for {what}").into());
+            }
+            session.compositor.serve(&session.listener)?;
+        }
+        Ok(())
+    };
+    chord(devices, &mut session.compositor, function_key(number)?)?;
+    wait(session, children, &|c| c.away, "the switch away")?;
+    let left = Instant::now();
+    let shown = session.compositor.flips.len();
+    // The compositor has let go of the devices: this chord is the other terminal's.
+    chord(devices, &mut session.compositor, function_key(own)?)?;
+    wait(
+        session,
+        children,
+        &|c| !c.away && c.flips.len() > shown,
+        "the switch back and the frame shown again",
+    )?;
+    Ok(left.elapsed().as_secs_f64() * 1e3)
+}
+
 /// Injects one step's input into the scene.
 fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> {
     let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
@@ -469,7 +690,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             compositor.scene.pointer_motion(window.x + x, window.y + y);
             compositor.scene.pointer_scroll(0, dy.saturating_mul(256));
         }
-        Step::Type(text) => compositor.scene.text(text),
+        Step::Type(text) | Step::Commit(text) => compositor.scene.text(text),
         Step::Preedit(text) => {
             if !compositor.scene.preedit(text, text.len()) {
                 return Err(format!("preedit {text:?} does not fit one chunk").into());
@@ -538,7 +759,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
             .map_err(|code| format!("scale {scale}: {code:?}"))?,
+        // Handled by the step loop: no input to inject.
         Step::ExpectPopup => {}
+        // The step loop runs it through the devices; there is no scene equivalent of a terminal.
+        Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
     Ok(())
 }
@@ -557,6 +781,51 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    if let Some(card) = &launch.kms {
+        // The display's terminal first, so the console draws nothing once the display is ours.
+        let terminal = oxy_vt::Terminal::take(launch.input)?;
+        eprintln!(
+            "[vt] terminal {}: graphics, switches by request{}",
+            terminal.number(),
+            if launch.input { ", keyboard off" } else { "" }
+        );
+        session.compositor.terminal = Some(terminal);
+        let display = oxy_kms::Display::open(oxy_kms::Card::open(card)?)?;
+        eprintln!(
+            "[kms] showing on {} ({})",
+            card.display(),
+            display.mode_name()
+        );
+        session.compositor.display = Some(display);
+    }
+    // Real input: the display's pixels (or the output's, without a display), the output centred.
+    let mut devices = None;
+    if launch.input {
+        let bounds = match &session.compositor.display {
+            Some(display) => display.size(),
+            None => (OUTPUT.width, OUTPUT.height),
+        };
+        session.compositor.display_offset = (
+            (bounds.0.saturating_sub(OUTPUT.width) / 2) as i32,
+            (bounds.1.saturating_sub(OUTPUT.height) / 2) as i32,
+        );
+        if launch.uinput {
+            devices = Some(crate::uinput::Devices::new(bounds, &launch.layout)?);
+            // udev announces the new devices before libinput can open them.
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        let input = oxy_input::Input::open(bounds, &launch.layout)?;
+        eprintln!(
+            "[input] libinput on seat0, layout {}, {}",
+            launch.layout,
+            if input.composes() {
+                "composing with the locale's table"
+            } else {
+                "no compose table: dead keys type nothing"
+            }
+        );
+        session.compositor.input = Some(input);
+    }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;
         session.compositor.keep_frame = true;
@@ -568,6 +837,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             compositor.device_name(),
             compositor.device_kind()
         );
+        let mut compositor = compositor;
+        // On a display, compose straight into DMA-BUF scanout buffers it imports.
+        if let Some(display) = &session.compositor.display {
+            let (width, height) = display.size();
+            for target in compositor.scanout_targets(2, width, height)? {
+                use std::os::fd::AsFd;
+                let framebuffer = display.card().import_dmabuf(
+                    target.fd.as_fd(),
+                    target.width,
+                    target.height,
+                    target.pitch,
+                )?;
+                session.compositor.scanout.push(framebuffer);
+            }
+            eprintln!("[kms] zero-copy: composing into the display's DMA-BUF framebuffers");
+        }
         session.compositor.gpu = Some(Gpu {
             compositor,
             frames: 0,
@@ -614,6 +899,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.log_input = true;
     for (index, (step, may_stay)) in launch.steps.iter().enumerate() {
         session.compositor.input_log.clear();
+        if let Step::SwitchTerminal(number) = step {
+            let devices = devices.as_mut().ok_or("--switch-terminal needs --uinput")?;
+            let away_ms = switch_terminal(&mut session, &mut children, devices, *number)?;
+            answered.push(format!(
+                "{{{},\"t_settled\":{},\"away_ms\":{away_ms:.1},\"focus\":{},\"delivered\":{},\"popups\":{}}}",
+                step.json(),
+                monotonic_ns(),
+                focus_json(&session.compositor),
+                delivered_json(&session.compositor),
+                popups_json(&session.compositor),
+            ));
+            continue;
+        }
         if *step == Step::ExpectPopup {
             let popup = popup(&session.compositor).ok_or("no popup is shown")?;
             let reach = beyond(window, popup);
@@ -639,7 +937,21 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         let before = shown(&session.compositor);
         let injected_ns = monotonic_ns();
-        inject(&mut session.compositor, window, step)?;
+        let typed_as_text = match devices.as_mut() {
+            Some(devices) => {
+                match inject_through(devices, &mut session.compositor, window, step)? {
+                    Some(count) => count,
+                    None => {
+                        inject(&mut session.compositor, window, step)?;
+                        0
+                    }
+                }
+            }
+            None => {
+                inject(&mut session.compositor, window, step)?;
+                0
+            }
+        };
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
         let answer = settle(
             &mut session,
@@ -662,7 +974,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => "null".to_string(),
         };
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -684,6 +996,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
 
     let frames = session.compositor.frames;
+    // Input devices close with the session: their descriptors are not leaks.
+    session.compositor.input = None;
+    drop(devices);
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);
     let gpu = match session.compositor.gpu.take() {
@@ -702,9 +1017,43 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ),
         None => "null".to_string(),
     };
+    // With its keyboard off, the console under the compositor got none of what was typed.
+    let console_input = match &session.compositor.terminal {
+        Some(terminal) if launch.input => terminal.console_input()?,
+        _ => 0,
+    };
+    if console_input > 0 {
+        return Err(format!("{console_input} bytes typed reached the console").into());
+    }
+    let display = match session.compositor.display.take() {
+        Some(display) => {
+            // A frame is handed over at any point of a refresh and should flip at the next
+            // vblank: later than one refresh is a missed deadline.
+            let refresh_ms = 1e3 / f64::from(display.refresh_hz().max(1));
+            let mut waits: Vec<f64> = session
+                .compositor
+                .flips
+                .iter()
+                .map(|(submitted, flip)| flip.saturating_sub(*submitted).as_secs_f64() * 1e3)
+                .collect();
+            let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
+            waits.sort_by(f64::total_cmp);
+            format!(
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                json_string(&display.mode_name()),
+                if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
+                waits.len(),
+                waits.get(waits.len() / 2).copied().unwrap_or(0.0),
+                waits.last().copied().unwrap_or(0.0)
+            )
+        }
+        None => "null".to_string(),
+    };
+    // The terminal is given back after the display, and closes before the descriptor check.
+    session.compositor.terminal = None;
     session.finish(&mut children)?;
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
@@ -732,6 +1081,8 @@ mod tests {
             "--gpu",
             "--dump-frames",
             "frames",
+            "--kms",
+            "/dev/dri/card1",
             "--out",
             "o",
             "--press",
@@ -740,6 +1091,10 @@ mod tests {
             "3,4,-50",
             "--type",
             "hi",
+            "--commit",
+            "mundo",
+            "--switch-terminal",
+            "5",
             "--key",
             "14",
             "--key",
@@ -764,11 +1119,15 @@ mod tests {
         assert_eq!(out, PathBuf::from("o"));
         assert!(launch.gpu);
         assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
+        assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
             allowed,
-            [false, false, false, false, false, false, false, false, false, false, true]
+            [
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                true
+            ]
         );
         assert_eq!(
             steps,
@@ -780,6 +1139,8 @@ mod tests {
                     dy: -50
                 },
                 Step::Type("hi".into()),
+                Step::Commit("mundo".into()),
+                Step::SwitchTerminal(5),
                 Step::Key(vec![14]),
                 Step::Key(vec![42, 106]),
                 Step::Drag {

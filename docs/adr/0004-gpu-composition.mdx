@@ -6,7 +6,7 @@ order: 13
 
 # ADR 0004: GPU composition and output
 
-Status: **accepted; first slice implemented and validated on a GPU**. Vulkan composition matches the CPU reference byte for byte on an NVIDIA GeForce RTX 5090 (Windows Vulkan driver 616.92) for every frame of the Bloom regression. There is no display output yet. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
+Status: **accepted; composition on a GPU, and first display output through DRM/KMS** (see [Output on a display](#output-on-a-display)). Vulkan composition matches the CPU reference byte for byte on an NVIDIA GeForce RTX 5090 (Windows Vulkan driver 616.92) for every frame of the Bloom regression. There is no display output yet. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
 
 ## Problem
 
@@ -63,6 +63,84 @@ In the first version, the shader read and wrote host-visible memory, and the hos
 - the output is copied back into host-cached memory.
 
 What remains is transfer, which a scanned-out output does not need. Sampled images and DMA-BUF import are still step 2.
+
+## Output on a display
+
+`crates/oxy-kms` drives a real output: atomic modesetting, then page flips with flip events. `oxy-kms-show` replays the Bloom regression's frames on it, one per refresh.
+
+The test machine is a ThinkPad running Debian 13 (kernel 6.12):
+- Intel Iris Xe (Alder Lake, `i915`), driving the panel eDP-1 at 1920×1200 and 60 Hz;
+- an NVIDIA T550 without outputs, not used.
+
+`oxy-kms-probe` reads every plane: they accept XRGB8888 and ARGB8888 with the linear modifier and Intel's tiled ones.
+
+| 5 s run on the panel | CPU composition into dumb buffers | Vulkan composition into DMA-BUF (`--gpu`) |
+| --- | --- | --- |
+| Frames presented | 300 | 300 |
+| Flip interval (median / max) | 16.666 / 16.680 ms | 16.666 / 16.679 ms |
+| Missed refreshes | 0 | 0 |
+| Composition | about 1.7 ms | about 0.49 ms on the GPU (timestamps); about 3.8 ms from the host, uploading the clients' pixels |
+
+The intervals come from the kernel's flip timestamps.
+
+With `--gpu`, the compositor's compute shader writes straight into buffers exported as DMA-BUF. KMS imports them through PRIME as linear XRGB8888 framebuffers, and nothing is copied through the CPU.
+
+**A live app on the display.** `oxy-offscreen --launch --kms CARD` shows every frame the development compositor composes on the output, and completes each frame at its flip time (`Clock::Monotonic`). The ThinkPad ran the whole Bloom regression this way:
+- the Bloom host and its bundle, built under WSL on the same Debian 13, copied over;
+- the director driving the app with its scripted input.
+
+All 56 steps pass, three runs out of three.
+
+| Per run | Value |
+| --- | --- |
+| Frames shown | 168 |
+| Handover to flip (median / max) | about 8–10 / 18–22 ms |
+| Flips later than one refresh | 1–4 of 168 |
+| Input to the answer on screen (median / max) | about 39 / 88 ms |
+| The host's CPU render per frame | about 19–20 ms |
+
+The few late flips coincide with the host's CPU rendering on the same machine.
+
+With `--gpu` as well, the live compositor composes each frame on the Iris Xe straight into DMA-BUF scanout buffers (zero copy), and also checks it byte for byte against the CPU reference. All 56 steps pass, three runs out of three:
+- every GPU frame is identical to the reference (164–167 per run);
+- handover to flip is about 6.5–7 ms median (max 17.5 ms);
+- 0, 0 and 1 flips later than one refresh.
+
+Input to the answer on screen is about 52 ms here, because this validation mode composes each frame three times: the CPU reference the director reads, the GPU copy for the comparison, and the scanout.
+
+**Real input.** With `--uinput`, the director's steps go through the kernel: a virtual wheel mouse and keyboard (uinput), read by the compositor through libinput (seat0) with an XKB keymap. Every step then reaches the scene as a real device's input does. The regression states exact counts for that path (`expect_devices`): one event per key and per wheel notch, so a duplicated or leaked event still fails it. The whole regression passes on the ThinkPad:
+
+| Run | Result | Input to the answer on screen (median / max) |
+| --- | --- | --- |
+| `--gpu --uinput --layout es` | 56 of 56 steps, four runs out of four; every GPU frame identical; 0 flips later than one refresh | about 52 / 103 ms |
+| `--uinput --layout us` (CPU composition) | 56 of 56 | about 39 / 102 ms |
+
+On `es`, 'ó' is a dead acute and then 'o': the director types both keys, and the compositor composes them with the locale's compose table. While the sequence waits, the dead key shows in the field as the composition (´, a preedit), and what it composes replaces it. Keys the compose table takes reach no application as keys, as a desktop input method's do. The host, like Android, ends a composition on a key, so the vowel would otherwise have left the accent in the text. The scenario names its layout (`es`), and two steps type a dead key and its vowel through the devices. They check the composition shown, the commit, and that no key was delivered. The 58 steps pass three runs out of three (`--gpu --uinput`, about 52 ms median) and once each with CPU composition and scripted input. The secure-field and Android-adaptation scenarios also pass on both paths.
+
+Driving real devices found two bugs. The fixture had to change for both:
+- **A whole step sent at once overflowed the kernel's buffer.** The director wrote a step's keys before the compositor read any. The kernel holds 64 events for each reader of a device; "Hola OxyOS!" with its Shift presses is exactly 64, so the kernel dropped them all and libinput resynchronised to keys already up. Now the compositor reads each event as it is sent, as its event loop does with a person's input.
+- **Middle-button emulation held each press.** libinput emulates a middle button on any pointer with left and right buttons and no middle one, and that setting is not configurable. It holds each left press until the release or a timeout while motion passes, so a drag pressed where it ended. The virtual pointer is now a wheel mouse with the wheel's button.
+
+**The terminal.** With `--kms`, the compositor takes the terminal it shows on (`oxy-vt`). The console draws nothing over the frames, its keyboard is off with device input, and switches go by request. On a switch away, the compositor releases DRM master and closes the devices. On return, it takes both back, modesets, and shows the frame again. Ctrl+Alt+Fn comes from the keymap and reaches no application.
+
+`scenarios/terminal.json` checks it on the ThinkPad with device input only. Terminal 8 has no login, and the test leaves for terminal 5 and comes back with that terminal's own Ctrl+Alt+F8. The app hears Ctrl and Alt and never the function keys, and the pointer and keyboard work after the return. Three runs out of three pass, away for 143–243 ms.
+
+Every run reports what the console counted. It is 0 bytes in every run, including the full regression, which presses Enter. With the keyboard left on, the same scenario fails with "5 bytes typed reached the console".
+
+Validating it found three problems:
+- **The validation terminal had a login prompt.** logind had started agetty on it, which read the keyboard and hung the terminal up. The compositor now refuses a terminal another session has, found through `/proc`, because `TIOCGSID` answers only a session's own members.
+- **A switch request could fail the turn.** The requests are signals, and `poll` is never restarted after one, so a request arriving during the wait failed it. A signal now means a turn with nothing ready.
+- **The other terminal's planes.** The modeset after a return turns off any plane another session left on the CRTC.
+
+The full regression on terminal 8 passes three out of three with real input, and once each with CPU composition and scripted input.
+
+Still to do:
+- the image's compose tables: they come from `libx11-data` (data files, no X11 code), so adding it to the manifest, or shipping the tables another way, is a decision for the image rules;
+- a session process instead of the development fixture;
+- explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
+- tiled modifiers, which are faster to scan out (only linear now);
+- client buffers as images and DMA-BUF import from clients;
+- composing once (GPU scanout only) outside validation, which needs the director's checks to read from the scanout instead of a CPU reference.
 
 ## Consequences
 

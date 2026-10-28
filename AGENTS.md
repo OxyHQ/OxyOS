@@ -2,7 +2,7 @@
 
 > Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
 
-Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom Oxy compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the foundation; it currently draws no pixels. Never install the headless probe as a compositor/session or claim it renders Bloom.
+Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom Oxy compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the foundation. The development compositor (`oxy-offscreen --launch --kms`) can show a live Bloom app on a real output through DRM/KMS, but it is a fixture with scripted input, not a session. Never install `oxy-offscreen`, `oxy-kms-show` or the headless probe as a compositor/session.
 
 Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded. Website: https://oxy.so/os (served by OxyHQ/website).
 
