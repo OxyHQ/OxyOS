@@ -142,6 +142,15 @@ On the ThinkPad, `--gpu --check-damage` passes with every GPU frame identical to
 - submit to fence falls from about 3.4 to 2.56 ms;
 - input to flip is 20.7 and 21.0 ms over two runs.
 
+**`main` at `f4a8819`, on the same ThinkPad** (Iris Xe, 1920×1200 at 60 Hz), the compositor in a logind session on terminal 8 (`--kms --seat --gpu`), with the text editing, images, networking and the faster fills since. Every GPU frame was identical to the CPU reference, and no frame the host drew from its damage differed from the frame drawn whole.
+
+| Scenario | Input | Input to flip, median / max | Host render, median | Composition, median / max |
+| --- | --- | --- | --- | --- |
+| `sample.json`, 58 steps | Virtual devices (`--uinput`) | 36.3 / 86.9 ms | 1.58 ms | 5.68 / 22.1 ms |
+| `text-editing.json`, 62 steps | Injected | 20.5 / 37.2 ms | 0.85 ms | 4.61 / 18.8 ms |
+| `images.json` | None | | 1.45 ms | 10.2 / 21.0 ms |
+| `network.json` | None | | 1.13 ms | 4.24 / 18.9 ms |
+
 ## Consequences
 
 - **Compatibility.** A client that never sends `Damage` behaves as today. The compositor still composes only the output's damage for it.
