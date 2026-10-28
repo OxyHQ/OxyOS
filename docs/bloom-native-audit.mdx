@@ -219,7 +219,7 @@ Known gaps:
 - actions other than activate and focus (scroll, increment and decrement, dismiss);
 - text navigation and selection by the assistive technology;
 - hiding unlocked applications' trees from the assistive technology while locked (acting on them is already refused).
-- Keyboard navigation inside a popup menu needs Bloom's `popup-navigation` (Bloom #507, unreleased). The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
+- The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
 
 
 ## Platform capability matrix
@@ -230,7 +230,7 @@ Known gaps:
 | Anchored menu/popover/select | Bottom sheet in an RN `Modal` (own window) | Same | DOM portal into `#bloom-portal-root`, placed inside the browser viewport | Not assessed | Compositor popup surface beyond the window ([ADR 0001](./adr/0001-native-platform-boundaries)); protocol, policy and offscreen pixels done, Bloom host pending |
 | Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated offscreen with a test client and with Bloom's own `DropdownMenu` through the native host |
 | Separate modal window | RN `Modal` | RN `Modal` | In-page dialog | Not assessed | `Dialog` role (modal), policy done |
-| Capability discovery | None (implicit) | None | None | None | `BloomProvider platform={…}` adapter ([ADR 0002](./adr/0002-bloom-platform-surface-api), Bloom 15.61.0 pending merge) |
+| Capability discovery | None (implicit) | None | None | None | `BloomProvider platform={…}` adapter ([ADR 0002](./adr/0002-bloom-platform-surface-api), Bloom 15.61.0) |
 
 A macOS adapter is not supported just because Astro has one. Supporting it needs its own adapter, build and tests. Unsupported capabilities are reported by the adapter, never simulated.
 

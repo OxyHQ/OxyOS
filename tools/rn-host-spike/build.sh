@@ -129,8 +129,8 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 # process, which presents through the display protocol, and drives scenarios/sample.json. Each
 # step's expected result is checked: the text shown, the focused input and surface, the exact
 # events React received (no duplicate or leaked one) and a latency budget (regress.py). The menu
-# steps need Bloom's platform adapter (OxyHQ/Bloom#507, 15.61.0) and the reading-order check
-# Bloom 15.60.5 (#511); until both are released, point BLOOM_DIR at a checkout with them.
+# steps need Bloom 15.61.0 or later (the platform adapter, OxyHQ/Bloom#507, and the text field's
+# reading order, #511): Bloom's main has both; point BLOOM_DIR at such a checkout.
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
 python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" --offscreen "$REPO/target/release/oxy-offscreen" \
   --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
