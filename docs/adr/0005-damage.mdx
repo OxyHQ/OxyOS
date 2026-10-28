@@ -1,0 +1,74 @@
+---
+title: "ADR 0005: Damage: composing and drawing only what changed"
+description: How applications tell the compositor what changed in a frame, how the compositor turns that into what changed on the output, and how both stop redrawing and re-uploading whole frames.
+order: 14
+---
+
+# ADR 0005: Damage: composing and drawing only what changed
+
+Status: **accepted**, nothing implemented yet; the order of work is below. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+
+## Problem
+
+Every frame is drawn, read, uploaded and composed whole, however little changed:
+- the Bloom host redraws its whole tree into the buffer, about 20 ms per frame on the CPU;
+- the compositor reads every client's whole buffer from shared memory and uploads all of it;
+- the compositor fills the whole output and composes all of it.
+
+Measured on the ThinkPad (Iris Xe, 1920×1200, `oxy-offscreen --launch --kms --gpu-only`, the full regression through the devices, medians per frame; the instrumentation is in #46):
+
+| Part of a frame | Time |
+| --- | --- |
+| Reading the clients' buffers (shared memory) | 0.75 ms |
+| Copying them into the upload buffer (host) | 0.24 ms |
+| On the device, before composing: the uploads and filling the whole output | 2.16 ms |
+| The composition pass | 0.5 ms |
+| On the device, after it: the copy kept for the director's check and the release to the display | 0.79 ms |
+| Submission and the device waking | about 0.75 ms |
+
+That is about 5.3 ms of the compositor's frame, and the host's 20 ms come before it. Whether an answer catches the next refresh depends on that total. Answers to key presses land in clusters one refresh (16.7 ms) apart, and small changes in a frame's cost move them between clusters (ADR 0004, *Real performance*).
+
+The protocol cannot say what changed: `Submit { surface, sequence, buffer, configure, extent }` names a whole buffer.
+
+## Decision
+
+1. **The output's damage, from the scene.** The compositor works out what changed on the output from what it already knows, with no protocol change:
+   - a surface's whole rectangle when it presents a new frame;
+   - a surface's old and new rectangles when it maps, unmaps, moves or resizes, or when stacking changes what covers what;
+   - a cover's rectangle when it appears or goes away;
+   - the whole output on a modeset, a scale change or a return from another terminal.
+
+   A frame composes only the damaged part of the output into the scanout target. It uploads only the surfaces that presented a new frame: each surface's pixels stay on the device until it presents again. This removes the whole-output fill and the re-upload of unchanged surfaces, such as the window under an open menu.
+
+2. **Buffer age on the display.** The display flips between scanout targets, so a target holds the frame from two flips ago. A frame composes the union of its own damage and the damage since that target was last written. A target with unknown content, the first use or one after a modeset, is composed whole.
+
+3. **Surface damage in the protocol.** A new request, `Damage { surface, rect }`, in buffer pixels, may precede `Submit`, any number of times. The compositor keeps up to 16 rectangles per frame and merges more into their bounding box.
+   - A `Submit` without `Damage` damages the whole surface, so today's clients keep working unchanged.
+   - Damage outside the buffer is clipped. An empty rectangle is a protocol error, like any malformed geometry.
+   - Each fits the 64-byte packet. Version 2 is still experimental (`docs/native-foundation.mdx`), so the request joins it without a new version.
+
+   The compositor then uploads only the damaged rectangles of a surface's buffer, and the output's damage is the surface damage transformed to output coordinates, scaled where the surface is.
+
+4. **Buffer age for clients.** `oxy-client` reuses buffers once released, so a reused buffer holds a frame from some presents ago. `oxy-client` reports each buffer's age: the presents since it was last written, or unknown. A client repaints the union of its damage over that age, or everything when the age is unknown. The C ABI exposes it for the Bloom host.
+
+5. **The Bloom host's damage.** The host knows what changed from Fabric's mutations. For each mutated view, it takes the union of the old and new layout frames, extended by their shadows, borders and overflow. It adds the caret and the selection, a scroll view's content rectangle when its offset changes, and the whole surface on a resize or a scale change. It clips its drawing to that region and sends it as `Damage`. The renderer gains drawing within a clip region; the layout and the components are unchanged.
+
+6. **Checks stay whole.** The CPU reference (`oxy-gpu::compose_cpu`) keeps composing the whole output. With `--gpu`, the director compares the GPU's damage-limited output with it byte for byte, so damage that is too small is a mismatch and fails the run. A client that damages too little draws stale pixels, which the regression's expected text and frame checks see. A check of each frame's damaged area against what actually changed (`frame_px`-style expectations) is added for the regression's steps.
+
+## Order of work
+
+1. **The output's damage and resident surfaces (decisions 1 and 2).** These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
+2. **`Damage` and buffer age (decisions 3 and 4).** These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
+3. **The host's damage (decision 5).** Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
+
+Each step lands only with the CPU reference comparison passing on hardware and the regression passing through the devices.
+
+## Consequences
+
+- **Compatibility.** A client that never sends `Damage` behaves as today. The compositor still composes only the output's damage for it.
+- **Correctness lives in one place per side.** On the compositor's side, damage that is too small shows as a byte-for-byte mismatch against the whole CPU reference. On the client's side, it shows as stale pixels in the regression's checks.
+- **Not decided here:**
+  - client buffers as DMA-BUF (ADR 0004), where damage tells the compositor which parts of an imported image to re-read;
+  - explicit synchronization;
+  - composing at a deadline before the refresh;
+  - partial updates on the display itself (`FB_DAMAGE_CLIPS`), which can follow once the output's damage exists.
