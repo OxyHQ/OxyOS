@@ -68,6 +68,10 @@ struct Compositor {
     last_frame: Vec<u8>,
     /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
     display: Option<oxy_kms::Display>,
+    /// With `--kms` and `--gpu`: the display's framebuffers, imported from the Vulkan
+    /// compositor's DMA-BUF scanout targets, and the one composed next.
+    scanout: Vec<oxy_kms::Framebuffer>,
+    scanout_back: usize,
     /// For every frame shown: when it was handed to the display and when it flipped
     /// (CLOCK_MONOTONIC).
     flips: Vec<(std::time::Duration, std::time::Duration)>,
@@ -322,7 +326,7 @@ impl Compositor {
         self.composed = self.scene.frame_list();
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time.
-        let (timestamp_ns, clock) = match self.show() {
+        let (timestamp_ns, clock) = match self.show(&layers) {
             Some(flip) => (
                 u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
                 Clock::Monotonic,
@@ -334,10 +338,47 @@ impl Compositor {
     }
 
     /// With `--kms`: shows the composed output centred on the display and waits for its flip;
-    /// returns the flip's CLOCK_MONOTONIC time. A display error ends display output.
-    fn show(&mut self) -> Option<std::time::Duration> {
+    /// returns the flip's CLOCK_MONOTONIC time. With `--gpu` too, the frame is composed on the
+    /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
+    /// error ends display output.
+    fn show(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> Option<std::time::Duration> {
         let display = self.display.as_mut()?;
         let (width, height) = display.size();
+        if let (Some(gpu), false) = (&mut self.gpu, self.scanout.is_empty()) {
+            let dx = (width.saturating_sub(OUTPUT.width) / 2) as i32;
+            let dy = (height.saturating_sub(OUTPUT.height) / 2) as i32;
+            let shifted: Vec<oxy_gpu::Layer<'_>> = layers
+                .iter()
+                .map(|layer| oxy_gpu::Layer {
+                    x: layer.x + dx,
+                    y: layer.y + dy,
+                    ..*layer
+                })
+                .collect();
+            let back = self.scanout_back;
+            let composed = gpu
+                .compositor
+                .compose_to_scanout(back, DESKTOP, &shifted)
+                .map_err(|error| std::io::Error::other(error.to_string()));
+            let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+            let submitted =
+                std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+            let flip = composed
+                .and_then(|()| display.present_framebuffer(self.scanout[back]))
+                .and_then(|()| display.wait_flip());
+            self.scanout_back = 1 - back;
+            return match flip {
+                Ok(flip) => {
+                    self.flips.push((submitted, flip));
+                    Some(flip)
+                }
+                Err(error) => {
+                    eprintln!("[kms] {error}; display output stops");
+                    self.display = None;
+                    None
+                }
+            };
+        }
         let mut pixels = vec![DESKTOP; width as usize * height as usize];
         let dx = (width.saturating_sub(OUTPUT.width) / 2) as usize;
         let dy = (height.saturating_sub(OUTPUT.height) / 2) as usize;
@@ -581,6 +622,8 @@ impl Session {
             keep_frame: false,
             last_frame: Vec::new(),
             display: None,
+            scanout: Vec::new(),
+            scanout_back: 0,
             flips: Vec::new(),
         };
         Ok(Self {

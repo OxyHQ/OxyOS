@@ -586,6 +586,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             compositor.device_name(),
             compositor.device_kind()
         );
+        let mut compositor = compositor;
+        // On a display, compose straight into DMA-BUF scanout buffers it imports.
+        if let Some(display) = &session.compositor.display {
+            let (width, height) = display.size();
+            for target in compositor.scanout_targets(2, width, height)? {
+                use std::os::fd::AsFd;
+                let framebuffer = display.card().import_dmabuf(
+                    target.fd.as_fd(),
+                    target.width,
+                    target.height,
+                    target.pitch,
+                )?;
+                session.compositor.scanout.push(framebuffer);
+            }
+            eprintln!("[kms] zero-copy: composing into the display's DMA-BUF framebuffers");
+        }
         session.compositor.gpu = Some(Gpu {
             compositor,
             frames: 0,
@@ -734,8 +750,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
             waits.sort_by(f64::total_cmp);
             format!(
-                "{{\"mode\":{},\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
+                if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
                 waits.get(waits.len() / 2).copied().unwrap_or(0.0),
                 waits.last().copied().unwrap_or(0.0)

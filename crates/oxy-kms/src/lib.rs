@@ -10,6 +10,7 @@ use std::io;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::path::Path;
 
+pub use drm::control::framebuffer::Handle as Framebuffer;
 pub use drm_fourcc::DrmFourcc;
 
 mod display;
