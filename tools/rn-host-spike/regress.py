@@ -225,6 +225,9 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--uinput", action="store_true",
+                        help="point, scroll and type through virtual devices read by libinput")
+    parser.add_argument("--layout", default=None, help="XKB layout for typing (default us)")
     parser.add_argument("--kms", default=None,
                         help="show every composed frame on this DRM card (needs DRM master)")
     parser.add_argument("--dump-frames", default=None,
@@ -241,6 +244,10 @@ def main():
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
+    if options.uinput:
+        command += ["--uinput"]
+    if options.layout:
+        command += ["--layout", options.layout]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:
