@@ -52,6 +52,40 @@ struct VtStat {
     _state: u16,
 }
 
+/// A process whose controlling terminal is `/dev/tty{number}` (a getty, a shell), from
+/// `/proc/*/stat`: the terminal's session, which `TIOCGSID` reports only to its own members.
+fn controlling_process(number: u16) -> io::Result<Option<(u32, String)>> {
+    // The console's major is 4 and its minor the terminal's number (tty_nr's encoding).
+    let wanted = (4 << 8) | u64::from(number);
+    for entry in std::fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        // A process may exit while it is read.
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        if let Some(name) = controlled_by(&stat, wanted) {
+            return Ok(Some((pid, name)));
+        }
+    }
+    Ok(None)
+}
+
+/// The command name in a `/proc/PID/stat` line whose controlling terminal is `tty_nr`.
+fn controlled_by(stat: &str, tty_nr: u64) -> Option<String> {
+    // "pid (comm) state ppid pgrp session tty_nr ...": comm may hold spaces and parentheses.
+    let (head, rest) = stat.rsplit_once(')')?;
+    let name = head.split_once('(')?.1;
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    (fields.get(4)?.parse::<u64>().ok()? == tty_nr).then(|| name.to_string())
+}
+
 /// What the kernel asks of the compositor about its terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Switch {
@@ -95,13 +129,10 @@ impl Terminal {
             OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
             Mode::empty(),
         )?;
-        if let Ok(session) = rustix::termios::tcgetsid(&tty) {
+        if let Some((pid, name)) = controlling_process(number)? {
             return Err(io::Error::new(
                 io::ErrorKind::ResourceBusy,
-                format!(
-                    "terminal {number} belongs to session {} (a login prompt?); use a free one",
-                    session.as_raw_nonzero()
-                ),
+                format!("terminal {number} is {name}'s (process {pid}); use one with no login"),
             ));
         }
         let (release, release_signal) = UnixStream::pair()?;
@@ -272,5 +303,26 @@ impl Drop for Terminal {
         for signal in self.signals.drain(..) {
             signal_hook::low_level::unregister(signal);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::controlled_by;
+
+    #[test]
+    fn a_stat_line_names_its_controlling_terminal() {
+        let getty = "1035801 (agetty) S 1 1035801 1035801 1027 1035801 4194560 5 0";
+        assert_eq!(
+            controlled_by(getty, (4 << 8) | 3).as_deref(),
+            Some("agetty")
+        );
+        assert_eq!(controlled_by(getty, (4 << 8) | 8), None);
+        // No controlling terminal.
+        let daemon = "1300 (systemd-logind) S 1 1300 1300 0 -1 4194560";
+        assert_eq!(controlled_by(daemon, (4 << 8) | 3), None);
+        // A name with spaces and a parenthesis.
+        let odd = "42 (a) b (c) S 1 42 42 1027 42 0";
+        assert_eq!(controlled_by(odd, 1027).as_deref(), Some("a) b (c"));
     }
 }
