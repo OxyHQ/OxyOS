@@ -74,8 +74,8 @@ impl Devices {
     }
 
     /// Scrolls by `dy` logical pixels (positive moves the content's view down), in whole and
-    /// partial notches as a high-resolution wheel does.
-    pub fn wheel(&mut self, dy: i32) -> io::Result<()> {
+    /// partial notches as a high-resolution wheel does, calling `sent` after each notch.
+    pub fn wheel(&mut self, dy: i32, mut sent: impl FnMut()) -> io::Result<()> {
         let mut units = -dy * NOTCH / PIXELS_PER_NOTCH;
         while units != 0 {
             let step = units.clamp(-NOTCH, NOTCH);
@@ -92,6 +92,7 @@ impl Devices {
                 ));
             }
             self.pointer.emit(&events)?;
+            sent();
             units -= step;
         }
         Ok(())

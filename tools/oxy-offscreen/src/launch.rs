@@ -479,6 +479,11 @@ fn popups_json(compositor: &Compositor) -> String {
 /// Injects a step through the virtual devices (`--uinput`): pointer steps as an absolute
 /// pointer and wheel, keys and text as a keyboard. Returns how many characters no key types
 /// and were sent as committed text instead, or `None` for a step the devices do not make.
+///
+/// The compositor reads each character's keys and each wheel notch before the next is sent, as
+/// its event loop would from a person: the kernel holds 64 events for each reader of a device
+/// and, past that, drops them all and libinput resynchronises to keys that are already up. The
+/// devices deliver synchronously, so what was sent is there to read.
 fn inject_through(
     devices: &mut crate::uinput::Devices,
     compositor: &mut Compositor,
@@ -515,7 +520,7 @@ fn inject_through(
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
-            devices.wheel(*dy)?;
+            devices.wheel(*dy, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
@@ -540,12 +545,10 @@ fn inject_through(
             let mut as_text = 0;
             for character in text.chars() {
                 if !devices.type_char(character)? {
-                    // The keys sent so far reach the scene first, then this character.
-                    std::thread::sleep(Duration::from_millis(50));
-                    compositor.read_input();
                     compositor.scene.text(&character.to_string());
                     as_text += 1;
                 }
+                compositor.read_input();
             }
             return Ok(Some(as_text));
         }
