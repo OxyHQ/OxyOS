@@ -1,0 +1,128 @@
+---
+title: "ADR 0001: Native platform boundaries, surface roles and popup policy"
+description: Process and privilege split, ownership and dependency direction, surface roles, coordinates, input/focus ownership, buffer lifetime and the popup and lock policies of the Oxy display protocol.
+order: 10
+---
+
+# ADR 0001: Native platform boundaries, surface roles and popup policy
+
+Status: accepted for protocol version 2 (experimental wire format). Issues: [#32](https://github.com/OxyHQ/OxyOS/issues/32) (protocol/compositor), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups), with constraints from [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime) and [#35](https://github.com/OxyHQ/OxyOS/issues/35) (account/session). Parent index: [#30](https://github.com/OxyHQ/OxyOS/issues/30).
+
+This records decisions that the code in `crates/oxy-protocol` and `crates/oxy-compositor-core` implements and tests headlessly. It does not claim a hardware path, a native Bloom host or a login: those gates are open (see [Status](#status)).
+
+## Process and privilege split
+
+| Process | Owns | Never owns |
+| --- | --- | --- |
+| Compositor (`oxy-compositor-core` policy, future backend) | Outputs, global geometry, stacking, focus, pointer/touch routing, popup grabs, lock enforcement, frame scheduling, buffer release | JavaScript, network, Oxy tokens, application callbacks |
+| Session authority (#35) | Authenticated enrollment/unlock, mapping peers to grants, launching shell and lock roles, calling `Scene::unlock` | Drawing, Bloom visuals |
+| Application runtime (#33), one process per app | React/Bloom tree, layout, text, accessibility tree, its own buffers | Global window list, other apps' input, privileged roles |
+| Shell (#36) | Bloom shell UI on granted shell roles | Lock authority, unlock, implicit privileges |
+| Lock UI | Lock surfaces on a granted lock role | Deciding that the session is unlocked |
+
+The compositor never waits on a client. Every policy operation completes from compositor state; a stalled or crashed client can lose its own content, never the compositor's move, focus, shortcut or lock behavior.
+
+Grants (`Grants { shell, lock, shortcuts }`) are attached by the session authority when it accepts a connection, from authenticated peer credentials. Requests cannot add grants. A Hello, a client name, an environment variable, an Oxy account or an Oxy token does not grant a role. Revocation dismisses the surfaces that depended on the grant.
+
+## Ownership and dependency direction
+
+| Owner | Responsibility | Depends on |
+| --- | --- | --- |
+| Oxy SDK: `@oxy.so/contracts`, `@oxy.so/core`, `@oxy.so/services` | Account, device session (`SessionClient`), OAuth/PKCE, `OxyProvider`, API clients | `@oxy.so/bloom` (`OxyProvider` mounts Bloom `SurfaceProvider`/`ToastOutlet`) |
+| Bloom (`@oxy.so/bloom`) | Components, layout/panel engine, tokens, motion, overlay/menu families, future platform-facing popup/window API | React Native; never the Oxy SDK, never OxyOS |
+| OxyOS runtime adapter (#33) | Implements Bloom's platform seam with native surfaces | Bloom (interface), `oxy-protocol` (internal IPC) |
+| `oxy-protocol` | Wire schema, codec, connection state machines | std only |
+| `oxy-compositor-core` | Policy and presentation state | `oxy-protocol` |
+
+The arrows are acyclic: SDK → Bloom ← OxyOS adapter → protocol ← compositor. Bloom components never send protocol messages; an adapter injected at Bloom's shared owner does (the same pattern as `BloomProvider`'s `scrollAdapter`). No new npm package or export is approved by this ADR. The Bloom-side API name is a design task for #33; any sketch is a proposal until it ships in Bloom.
+
+No second account SDK, provider, token transport, OAuth flow or account store is introduced. OxyOS requires an Oxy account; enrollment, offline unlock and logout/unlink semantics are #35's. The compositor and its frame loop have no network or account dependency.
+
+## Surface roles
+
+| Role | Created by | Parent | Layer | Grant |
+| --- | --- | --- | --- | --- |
+| Toplevel | `CreateToplevel` | none | Normal | none |
+| Dialog (modal) | `CreateDialog` | a toplevel of the same connection | parent's group | none |
+| Popup | `CreatePopup` | a mapped, live surface of the same connection | parent's group | none; grabbing needs a valid activation |
+| Shell: Background, Panel, Overlay, Notification | `CreateShellSurface` | none | Background, Panel, Overlay, Notification | `shell` |
+| Lock | `CreateLockSurface` | none, one per output | Lock (only while locked) | `lock` |
+
+A role is fixed at creation; an identifier is never reused while the surface exists (`SurfaceExists`). Identifiers are connection-local, so naming another client's surface as a parent is unrepresentable: it resolves to the caller's own namespace and fails with `InvalidParent`. A parent must already exist, so cycles cannot be formed. Limits: 64 surfaces per connection, popup depth 8, 64 connections, 16 outputs, 10 touch points.
+
+Layers stack bottom to top: Background, Normal (window groups, including fullscreen windows), Panel, Overlay, Notification, Lock. A popup or dialog renders directly above its parent inside the parent's group, so an ordinary client's menu can cover other ordinary windows but never shell layers or the lock. Activation raises a whole group within its layer.
+
+## Coordinates, scale and configure
+
+- One global logical coordinate space; outputs are logical rectangles with a scale in 120ths (120 = 1x, 180 = 1.5x). Physical buffer size is `ceil(logical × scale / 120)` per dimension.
+- Clients never learn global coordinates. Toplevel configures report size only; popup configures report geometry relative to the parent.
+- Every compositor-initiated geometry or scale change sends `Configure` with a new serial. A `Submit` names the serial it was rendered for. A frame for an older serial is discarded (`Feedback Discarded` + `Released`) and the previous content stays; a current-serial frame with the wrong extent is a protocol error.
+- New geometry (size, popup position) takes effect when a frame for that configure is presented, so content and geometry change in the same frame.
+
+## Popup placement
+
+The positioner carries an anchor rectangle (inside the parent), anchor point, gravity, offset, size and adjustment flags. The compositor computes the final geometry; the client cannot place a popup globally.
+
+1. Place by anchor, gravity and offset relative to the parent.
+2. Constrain against one output: the one containing the anchor point. Ordinary clients use its work area (output minus shell panel exclusive zones); shell and lock popups use the full output.
+3. Per axis: if it does not fit, flip (if allowed and the flipped side fits), then slide, then resize. Resize to nothing dismisses with `Unplaceable`. Without flags, the requested geometry is kept and clipped by the output.
+4. `RTL` mirrors horizontal anchor, gravity and offset. Bloom passes its layout direction rather than every component re-deriving mirrored sides.
+
+Scrolling a too-tall resized menu is the client's content concern. A popup never spans outputs for constraint purposes; mixed scale is handled per surface (the popup gets its output's scale).
+
+## Input, focus and grabs
+
+- Keyboard focus belongs to one surface. Activating a window focuses its topmost modal dialog if one is mapped, otherwise the window. A press on a window behind its modal dialog is consumed.
+- Pointer focus follows hit testing over ready content and input regions. A press captures the pointer until all buttons are released.
+- Every pointer, key and touch event has a compositor serial. `GrabPopup` is authorized only by the serial of the latest press (button, key or touch-down) delivered to the same connection on the popup's parent chain, while no newer press exists. Nested grabs must parent on the current top of the grab chain. Denied grabs receive `PopupDone(GrabDenied)`.
+- During a grab, keyboard focus is the top popup. The button capture moves to the grab, so press-drag-release selection works. Pointer input over the chain is delivered even where it covers another application; other surfaces receive nothing.
+- **Outside press policy:** a press or touch-down outside the chain dismisses the whole chain (`PopupDone(OutsidePress)`) and is consumed together with its matching release. It is never delivered to the surface underneath, does not activate it and does not reach the trigger, so it can neither click through nor reopen the menu.
+- Escape, arrows, typeahead and Enter are application semantics delivered to the focused popup; Bloom closes a submenu by destroying it. When the chain empties, focus returns to the surface focused before the grab.
+- If a captured surface disappears, or the compositor cancels capture (`Pointer Cancel`, `Touch Cancel`), the pending release is consumed rather than delivered as a click elsewhere.
+- Moves are compositor-owned after a valid `BeginMove` serial: the window and its popups move without client round trips.
+- Global shortcuts registered by the compositor go to the shell's shortcut target before any application, whatever the application's state.
+
+## Popup lifecycle
+
+| Event | Policy |
+| --- | --- |
+| Parent minimized | Child popups `PopupDone(ParentHidden)` |
+| Parent destroyed | Children `PopupDone(ParentGone)`; they stay inert and addressable until the client destroys them |
+| Client disconnect or crash | All its surfaces, grabs, focus, captures and touches are removed; buffers are retired for the backend |
+| Lock | Grab and all non-lock popups `PopupDone(Locked)`; new grabs denied |
+| Grant revoked | Dependent surfaces `PopupDone(AuthorizationRevoked)` |
+| Parent moved | Popups keep their parent-relative position in the same frame (no detached jump); after the move, popups whose constrained geometry changed are reconfigured, or dismissed if unplaceable |
+| Output scale change | Logical geometry kept; affected surfaces reconfigured at the new scale; old content shown until ready |
+| Output removed | Popups and output-bound shell/lock surfaces `PopupDone(OutputRemoved)`; windows move to a remaining output |
+
+A dismissed popup releases its content immediately (deferred while a backend frame is in flight).
+
+## Presentation and buffer lifetime
+
+- A surface is not drawn until its first frame is presented; there is no empty or uninitialized rectangle.
+- One queued replacement and one in-flight presentation per surface. A superseded queued frame gets `Feedback Discarded` and `Released`.
+- `Feedback Presented` carries a timestamp and its clock. The headless backend uses `Clock::Synthetic`, which never describes physical display time.
+- `Released` means no compositor consumer still reads the buffer. Releases triggered while a frame is in flight wait until that frame ends. Multi-output per-consumer references and GPU fences are not implemented; they must be added before a hardware backend reuses buffers across outputs.
+- Direct scanout is only offered for a fullscreen window covering its output with nothing above it; a menu, panel or notification above forces composition.
+
+## Lock primitive
+
+`Scene::lock` protects the session at once: popups and grabs are dismissed, input to ordinary surfaces stops and only lock surfaces render; an output without a ready lock surface gets a compositor-drawn cover. If the lock UI crashes the session stays locked and covered. No protocol request unlocks; only the session authority's trusted path calls `Scene::unlock` after the account-bound verification defined in #35. Bloom draws the lock UI but never decides the result.
+
+## Bloom components and native surfaces
+
+From the Bloom audit at `658d69a6`: on web, anchored menus are DOM portals into `#bloom-portal-root` placed by `overlay/dropdown-placement.ts`; on native they open as bottom sheets inside an RN `Modal`. The shared owners are `src/floating/` (`FloatingPanel`, `useAnchorRect`, menu keyboard, escape stack), `src/overlay/` and `src/portal/`.
+
+| Needs an OxyOS popup surface | Stays in application layout |
+| --- | --- |
+| DropdownMenu, ContextMenu, Menubar (and their submenus), Select, Popover, HoverCard, ComposerPopover | Tooltip (initially), Toast, BottomSheet, Dialog drawers, inline panels, Command (a modal dialog) |
+
+Dialog maps to the modal `Dialog` role only when it is a separate native window; otherwise it stays in-window. The OxyOS adapter replaces the placement step of `FloatingPanel` with a positioner and renders the panel into the popup surface while keeping the React tree, providers, theme and controlled state in the same process (#33/#34). A React portal alone does not escape OS window clipping.
+
+## Status
+
+| Implemented and tested headlessly | Pending (owner) |
+| --- | --- |
+| Protocol v2 schema, codec, state machines, fuzzing (`oxy-protocol`) | Peer credentials, FD passing, buffer import and validation (#32) |
+| Roles, grants, ownership, quotas, placement, stacking, grabs, focus, outside-press policy, dismissal, lock primitive, buffer release ordering, resource settling (`oxy-compositor-core`) | DRM/KMS + Vulkan on a reference GPU, fences, per-consumer release, real compositor process (#32) |
+| Two-process probe using protocol v2 with a popup placed beyond its parent (metadata only) | Native Bloom host and adapter (#33), real Bloom menu pixels and accessibility tree (#34), account/session (#35), shell (#36) |

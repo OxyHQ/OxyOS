@@ -1,0 +1,405 @@
+use super::*;
+use std::io::Cursor;
+
+fn positioner() -> Positioner {
+    Positioner {
+        anchor_rect: Rect::new(10, 20, 30, 40),
+        size: Size::new(200, 300),
+        anchor: Anchor::BottomLeft,
+        gravity: Gravity::BottomRight,
+        adjust: Adjust::FLIP_Y.union(Adjust::SLIDE_X),
+        offset_x: -4,
+        offset_y: 2,
+    }
+}
+
+fn requests() -> Vec<Request> {
+    let size = Size::new(800, 600);
+    vec![
+        Request::Hello {
+            min_version: MIN_VERSION,
+            max_version: VERSION,
+        },
+        Request::CreateToplevel { surface: 1, size },
+        Request::CreatePopup {
+            surface: 2,
+            parent: 1,
+            positioner: positioner(),
+        },
+        Request::CreateDialog {
+            surface: 3,
+            parent: 1,
+            size,
+        },
+        Request::CreateShellSurface {
+            surface: 4,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size,
+            exclusive: 32,
+        },
+        Request::CreateLockSurface {
+            surface: 5,
+            output: 1,
+        },
+        Request::GrabPopup {
+            surface: 2,
+            serial: 9,
+        },
+        Request::Reposition {
+            surface: 2,
+            positioner: positioner(),
+        },
+        Request::SetInputRegion {
+            surface: 4,
+            region: Rect::new(0, 0, 0, 0),
+        },
+        Request::Submit {
+            surface: 1,
+            sequence: 1,
+            buffer: 2,
+            configure: 1,
+            extent: size,
+        },
+        Request::Destroy { surface: 2 },
+        Request::BeginMove {
+            surface: 1,
+            serial: 3,
+        },
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+        Request::Goodbye {},
+    ]
+}
+
+fn events() -> Vec<Event> {
+    vec![
+        Event::Welcome { version: VERSION },
+        Event::Configure {
+            surface: 1,
+            serial: 2,
+            rect: Rect::new(-10, 5, 640, 480),
+            scale_120: 180,
+            fullscreen: false,
+        },
+        Event::PopupDone {
+            surface: 2,
+            reason: DismissReason::OutsidePress,
+        },
+        Event::Pointer {
+            surface: 1,
+            serial: 4,
+            kind: PointerKind::Press,
+            x: -1,
+            y: 7,
+            button: 272,
+        },
+        Event::Key {
+            surface: 1,
+            serial: 5,
+            key: 1,
+            pressed: true,
+        },
+        Event::Focus {
+            surface: 1,
+            focused: false,
+        },
+        Event::Touch {
+            surface: 1,
+            serial: 6,
+            kind: TouchKind::Cancel,
+            id: 0,
+            x: 0,
+            y: 0,
+        },
+        Event::Feedback {
+            surface: 1,
+            sequence: 1,
+            outcome: Outcome::Presented,
+            timestamp_ns: 99,
+            clock: Clock::Synthetic,
+        },
+        Event::Released {
+            surface: 1,
+            buffer: 2,
+        },
+        Event::ProtocolError {
+            code: ErrorCode::Unauthorized,
+        },
+    ]
+}
+
+#[test]
+fn every_message_round_trips_without_consuming_the_next_packet() {
+    let mut bytes = Vec::new();
+    for request in requests() {
+        write_request(&mut bytes, &request).unwrap();
+    }
+    let mut cursor = Cursor::new(bytes);
+    for request in requests() {
+        assert_eq!(read_request(&mut cursor).unwrap(), request);
+    }
+    assert_eq!(cursor.position(), cursor.get_ref().len() as u64);
+
+    let mut bytes = Vec::new();
+    for event in events() {
+        write_event(&mut bytes, &event).unwrap();
+    }
+    let mut cursor = Cursor::new(bytes);
+    for event in events() {
+        assert_eq!(read_event(&mut cursor).unwrap(), event);
+    }
+    assert_eq!(requests().len(), Request::SCHEMA.len());
+    assert_eq!(events().len(), Event::SCHEMA.len());
+}
+
+#[test]
+fn schema_table_matches_documentation() {
+    let doc = include_str!("../../../docs/native-foundation.mdx");
+    for (direction, schema) in [("Request", Request::SCHEMA), ("Event", Event::SCHEMA)] {
+        for (opcode, name, length) in schema {
+            let row = format!("| {direction} | {opcode} | {name} | {length} |");
+            assert!(doc.contains(&row), "documentation lacks `{row}`");
+        }
+    }
+}
+
+#[test]
+fn directions_have_separate_decoders() {
+    // A compositor event replayed by a client is not a request, and vice versa.
+    let mut welcome = Vec::new();
+    write_event(&mut welcome, &Event::Welcome { version: VERSION }).unwrap();
+    assert!(read_request(&mut Cursor::new(welcome)).is_err());
+    let mut destroy = Vec::new();
+    write_request(&mut destroy, &Request::Destroy { surface: 1 }).unwrap();
+    assert!(read_event(&mut Cursor::new(destroy)).is_err());
+}
+
+#[test]
+fn rejects_unbounded_lengths_before_reading_the_payload() {
+    for length in [0_u32, MAX_PACKET_BYTES as u32 + 1, u32::MAX] {
+        let error = read_request(&mut Cursor::new(length.to_le_bytes())).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
+}
+
+#[test]
+fn rejects_invalid_field_values() {
+    let bad = |body: Vec<u8>| {
+        let mut packet = (body.len() as u32).to_le_bytes().to_vec();
+        packet.extend(body);
+        read_request(&mut Cursor::new(packet)).is_err()
+    };
+    // Unknown opcode, wrong exact length.
+    assert!(bad(vec![99]));
+    assert!(bad(vec![14, 0]));
+    // Zero-sized toplevel and oversized dimension.
+    let mut body = vec![2, 1, 0, 0, 0];
+    body.extend(0_u32.to_le_bytes());
+    body.extend(1_u32.to_le_bytes());
+    assert!(bad(body));
+    let mut body = vec![2, 1, 0, 0, 0];
+    body.extend((MAX_DIMENSION + 1).to_le_bytes());
+    body.extend(1_u32.to_le_bytes());
+    assert!(bad(body));
+    // Boolean other than 0/1.
+    assert!(bad(vec![13, 1, 0, 0, 0, 2]));
+    // Unknown shell kind.
+    let mut body = vec![5, 1, 0, 0, 0, 9, 0];
+    body.extend(1_u32.to_le_bytes());
+    body.extend(1_u32.to_le_bytes());
+    body.extend(1_u32.to_le_bytes());
+    body.extend(0_u32.to_le_bytes());
+    assert!(bad(body));
+    // Encoders refuse what decoders refuse.
+    let mut sink = Vec::new();
+    let mut popup = positioner();
+    popup.anchor_rect.width = 0;
+    assert!(write_request(
+        &mut sink,
+        &Request::CreatePopup {
+            surface: 1,
+            parent: 2,
+            positioner: popup
+        }
+    )
+    .is_err());
+    assert!(sink.is_empty());
+}
+
+#[test]
+fn reads_fragmented_streams() {
+    struct Fragmented(Cursor<Vec<u8>>);
+    impl Read for Fragmented {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            let count = bytes.len().min(1);
+            self.0.read(&mut bytes[..count])
+        }
+    }
+    let mut bytes = Vec::new();
+    for request in requests() {
+        write_request(&mut bytes, &request).unwrap();
+    }
+    let mut stream = Fragmented(Cursor::new(bytes));
+    for request in requests() {
+        assert_eq!(read_request(&mut stream).unwrap(), request);
+    }
+}
+
+#[test]
+fn every_truncation_of_every_message_is_an_error() {
+    for request in requests() {
+        let mut bytes = Vec::new();
+        write_request(&mut bytes, &request).unwrap();
+        for cut in 0..bytes.len() {
+            let error = read_request(&mut Cursor::new(&bytes[..cut])).unwrap_err();
+            assert_eq!(
+                error.kind(),
+                io::ErrorKind::UnexpectedEof,
+                "{request:?} at {cut}"
+            );
+        }
+        // A header that claims a shorter or longer body than the message is rejected.
+        for delta in [-1_i64, 1] {
+            let mut altered = bytes.clone();
+            let length = (bytes.len() as i64 - 4 + delta) as u32;
+            altered[..4].copy_from_slice(&length.to_le_bytes());
+            altered.push(0);
+            assert!(read_request(&mut Cursor::new(altered)).is_err());
+        }
+    }
+}
+
+/// Deterministic xorshift so the fuzz corpus is reproducible without external crates.
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+}
+
+#[test]
+fn fuzzed_streams_never_panic_and_only_yield_valid_messages() {
+    let mut rng = Rng(0x5eed_0a11_2026_0030);
+    let mut seeds = Vec::new();
+    for request in requests() {
+        let mut bytes = Vec::new();
+        write_request(&mut bytes, &request).unwrap();
+        seeds.push(bytes);
+    }
+    let mut decoded = 0;
+    for round in 0..200_000 {
+        let mut bytes = seeds[round % seeds.len()].clone();
+        match rng.next() % 4 {
+            0 => {
+                // Flip random bits, including the header.
+                for _ in 0..1 + rng.next() % 4 {
+                    let index = (rng.next() as usize) % bytes.len();
+                    bytes[index] ^= 1 << (rng.next() % 8);
+                }
+            }
+            1 => bytes.truncate((rng.next() as usize) % bytes.len()),
+            2 => {
+                let length = (rng.next() % 80) as usize;
+                bytes = (0..length).map(|_| rng.next() as u8).collect();
+            }
+            _ => bytes.extend((0..rng.next() % 8).map(|_| rng.next() as u8)),
+        }
+        let mut cursor = Cursor::new(bytes);
+        while let Ok(request) = read_request(&mut cursor) {
+            // Anything decoded must re-encode to an identical, accepted packet.
+            let mut again = Vec::new();
+            write_request(&mut again, &request).unwrap();
+            assert_eq!(read_request(&mut Cursor::new(again)).unwrap(), request);
+            decoded += 1;
+        }
+    }
+    assert!(decoded > 0, "the corpus should still contain valid packets");
+}
+
+#[test]
+fn version_negotiation_selects_the_highest_common_version() {
+    assert_eq!(negotiate(MIN_VERSION, u16::MAX), Ok(VERSION));
+    assert_eq!(negotiate(1, 1), Err(ErrorCode::UnsupportedVersion));
+    assert_eq!(
+        negotiate(VERSION + 1, VERSION + 3),
+        Err(ErrorCode::UnsupportedVersion)
+    );
+    assert_eq!(negotiate(3, 2), Err(ErrorCode::InvalidMessage));
+}
+
+#[test]
+fn server_state_machine_rejects_invalid_order() {
+    let destroy = Request::Destroy { surface: 1 };
+    let hello = Request::Hello {
+        min_version: MIN_VERSION,
+        max_version: VERSION,
+    };
+
+    let mut connection = ServerConnection::new();
+    assert_eq!(connection.receive(&destroy), Err(ErrorCode::InvalidOrder));
+    assert!(connection.is_closed());
+    assert_eq!(connection.receive(&hello), Err(ErrorCode::InvalidOrder));
+
+    let mut connection = ServerConnection::new();
+    assert_eq!(
+        connection.receive(&hello),
+        Ok(Some(Event::Welcome { version: VERSION }))
+    );
+    assert_eq!(connection.version(), Some(VERSION));
+    assert_eq!(connection.receive(&destroy), Ok(None));
+    assert_eq!(connection.receive(&hello), Err(ErrorCode::InvalidOrder));
+    assert!(connection.is_closed());
+
+    let mut connection = ServerConnection::new();
+    connection.receive(&hello).unwrap();
+    connection.receive(&Request::Goodbye {}).unwrap();
+    assert_eq!(connection.receive(&destroy), Err(ErrorCode::InvalidOrder));
+
+    let mut connection = ServerConnection::new();
+    assert_eq!(
+        connection.receive(&Request::Hello {
+            min_version: 1,
+            max_version: 1
+        }),
+        Err(ErrorCode::UnsupportedVersion)
+    );
+    assert!(connection.is_closed());
+}
+
+#[test]
+fn client_state_machine_requires_a_requested_welcome_first() {
+    let (mut client, hello) = ClientConnection::new(MIN_VERSION, VERSION);
+    assert!(matches!(hello, Request::Hello { .. }));
+    assert_eq!(
+        client.receive(&Event::Focus {
+            surface: 1,
+            focused: true
+        }),
+        Err(ErrorCode::InvalidOrder)
+    );
+
+    let (mut client, _) = ClientConnection::new(MIN_VERSION, VERSION);
+    assert_eq!(
+        client.receive(&Event::Welcome {
+            version: VERSION + 1
+        }),
+        Err(ErrorCode::InvalidOrder)
+    );
+
+    let (mut client, _) = ClientConnection::new(MIN_VERSION, VERSION);
+    client
+        .receive(&Event::Welcome { version: VERSION })
+        .unwrap();
+    assert_eq!(client.version(), Some(VERSION));
+    assert_eq!(
+        client.receive(&Event::Welcome { version: VERSION }),
+        Err(ErrorCode::InvalidOrder)
+    );
+}

@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of the `config/` image configuration. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies metadata and ownership state; it draws no pixels.
+The root Rust workspace is independent of the `config/` image configuration. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies protocol, policy and ownership state; it draws no pixels.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -18,51 +18,75 @@ python3 scripts/check-native-boundary.py
 cargo run --locked -p oxy-platform-probe
 ```
 
-The probe launches two independent client processes and exchanges six frame-metadata messages over Unix sockets with per-connection state. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. The probe is a finite developer tool, not an installed service or authenticated compositor.
+The probe launches two independent client processes that speak protocol version 2 over Unix sockets to one shared compositor `Scene`. Each creates a toplevel and presents three frames; one also opens a popup larger than its window, checks that the compositor placed it beyond all four parent edges, and waits for its buffer to be released after destroying it. The probe then requires that no surface, client or held buffer remains. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. Completion is synthetic and labeled `Clock::Synthetic`. The probe is a finite developer tool, not an installed service or authenticated compositor.
 
 Expected result:
 
 ```json
-{"mode":"headless-metadata","clients":2,"frames":6,"graphics":false,"bloom":false,"status":"passed"}
+{"mode":"headless-metadata","protocol":2,"clients":2,"frames":7,"popups_beyond_parent":1,"graphics":false,"bloom":false,"status":"passed"}
 ```
 
 ## Implemented ownership
 
 | Path | Purpose |
 | --- | --- |
-| `crates/oxy-protocol` | Experimental bounded little-endian framing, version check and typed metadata messages |
-| `crates/oxy-compositor-core` | Backend-independent single-output surface presentation state |
-| `tools/oxy-platform-probe` | Two-process transport/state exercise with synthetic completion |
+| `crates/oxy-protocol` | Schema-generated messages, bounded codec, version negotiation, server/client connection state machines |
+| `crates/oxy-compositor-core/src/placement.rs` | Popup positioner: anchor/gravity/offset, flip/slide/resize against one output, RTL, overflow-safe |
+| `crates/oxy-compositor-core/src/scene.rs` | Roles, grants, ownership, quotas, stacking, input routing, popup grabs, focus, lock primitive, outputs, frame lifecycle and buffer release |
+| `crates/oxy-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
+| `tools/oxy-platform-probe` | Two-process protocol v2 exercise with synthetic completion |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
 | `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
 
-Tests cover fragmented/truncated/oversized packets, version mismatch, stale resize submissions, non-increasing sequences, held-buffer reuse, queue replacement, failed presentation retries, completion ownership and independent surfaces.
+Decisions and policies (roles, coordinates, grabs, outside press, dismissal, lock, buffer lifetime) are in [ADR 0001](./adr/0001-native-platform-boundaries).
 
-## Experimental wire contract
+Tests cover: every message round trip; every truncation; length mismatches; 200,000 deterministic fuzzed streams (bit flips, truncation, random bytes, trailing garbage) that must never panic and may only decode re-encodable messages; separate request/event decoders; invalid field values; version negotiation; invalid connection order. Scene tests cover popups beyond all four parent edges, ready-content-only mapping, connection-local parenting, forged roles and grants, depth and surface quotas, stale and foreign grab serials, nested submenu chains and focus return, consumed outside presses, trigger re-press, input over another application's region, press-drag-release, parent move without detached jumps and reconstraint, minimize/destroy/disconnect, shell failure, 500 popup and 200 client lifecycles settling every count, lock covering outputs and surviving a lock UI crash, work areas and input regions, overlays above fullscreen and direct-scanout eligibility, shortcuts with a stalled client, stale configures during resize, touch and capture cancellation, modal dialogs, output scale change and removal, and grant revocation.
 
-Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width fields. Payload length is 1–64 bytes. Unknown opcodes, unexpected exact lengths, invalid dimensions and zero identifiers are errors. Reads use fixed bounded storage and accept fragmented streams. No allocation depends on an unchecked peer length.
+## Wire contract (version 2, experimental)
 
-| Opcode | Message | Payload bytes including opcode |
-| --- | --- | --- |
-| 1 | Hello: version u32 | 5 |
-| 2 | Welcome: version u32 | 5 |
-| 3 | Configure: serial u64, width/height u32 | 17 |
-| 4 | Submit: sequence/buffer/configure u64, width/height u32 | 33 |
-| 5 | Presented: sequence/timestamp_ns u64 | 17 |
-| 6 | Goodbye | 1 |
+Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width little-endian fields. Payload length is 1–64 bytes. Requests (client → compositor) and events (compositor → client) have separate opcode spaces and decoders. The table is generated from `crates/oxy-protocol/src/schema.rs`; a test fails if this table and the schema differ.
 
-In this experiment one connection owns one surface; identifiers are connection-local. The server requires Hello first and rejects unsupported versions. These messages carry no pixels, file descriptors or privileges. The probe uses local elapsed time and calls completion synthetically; its Presented event does not represent a hardware presentation timestamp.
+Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; booleans are 0 or 1; enums and adjustment flags reject unknown values; anchor rectangles have a positive size; surface id 0 is invalid. Encoders run the decoder's validation, so a peer never emits what it would reject. Pointer and touch coordinates are surface-local logical pixels in 24.8 fixed point. Scale is in 120ths.
 
-The production contract still needs surface creation/destruction, authenticated roles, per-peer limits, FD/buffer import and release, GPU fences, display feedback, input/output/scaling events, disconnect cleanup and a complete connection state machine. Do not expose the probe as a public daemon or freeze this experimental wire version as an SDK ABI.
+| Direction | Opcode | Message | Payload bytes |
+| --- | --- | --- | --- |
+| Request | 1 | Hello | 5 |
+| Request | 2 | CreateToplevel | 13 |
+| Request | 3 | CreatePopup | 44 |
+| Request | 4 | CreateDialog | 17 |
+| Request | 5 | CreateShellSurface | 23 |
+| Request | 6 | CreateLockSurface | 9 |
+| Request | 7 | GrabPopup | 13 |
+| Request | 8 | Reposition | 40 |
+| Request | 9 | SetInputRegion | 21 |
+| Request | 10 | Submit | 37 |
+| Request | 11 | Destroy | 5 |
+| Request | 12 | BeginMove | 13 |
+| Request | 13 | SetFullscreen | 6 |
+| Request | 14 | Goodbye | 1 |
+| Event | 1 | Welcome | 3 |
+| Event | 2 | Configure | 34 |
+| Event | 3 | PopupDone | 6 |
+| Event | 4 | Pointer | 26 |
+| Event | 5 | Key | 18 |
+| Event | 6 | Focus | 6 |
+| Event | 7 | Touch | 26 |
+| Event | 8 | Feedback | 23 |
+| Event | 9 | Released | 13 |
+| Event | 10 | ProtocolError | 3 |
+
+The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
+
+Not yet in the contract: file-descriptor passing and buffer import, formats/modifiers, GPU fences, per-consumer release, keyboard keymaps, IME, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Core state transitions
 
-`submit` validates current configure, dimensions, increasing sequence and buffer availability before mutation. One replacement is queued; superseding it returns its metadata so a backend can retire that resource. `begin_present` moves the queue to an in-flight slot. Only `complete_present` updates displayed content and returns the previous metadata. `retry_present` retains existing displayed content, retries the current submission or yields to a newer valid queued frame.
+`Presentation::submit` validates current configure, dimensions, increasing sequence and buffer availability before mutation. One replacement is queued; superseding it returns its metadata so a backend can retire that resource. `begin_present` moves the queue to an in-flight slot. Only `complete_present` updates displayed content and returns the previous metadata. `retry_present` retains existing displayed content, retries the current submission or yields to a newer valid queued frame.
 
-The caller must establish GPU readiness before begin and actual output completion before complete. Returning metadata is not a GPU fence or permission to reuse a buffer still consumed elsewhere. Destroying a Surface does not make outstanding GPU references safe; a future backend must retire those independently. Multi-output references are not implemented.
+The caller must establish GPU readiness before begin and actual output completion before complete. Returning metadata is not a GPU fence or permission to reuse a buffer still consumed elsewhere. The `Scene` retires every held buffer of a destroyed or dismissed surface, deferring releases requested during an in-flight frame to `end_frame`; it still knows nothing about GPU fences. Multi-output references are not implemented.
 
 ## Scope and next gate
 
-Not implemented: DRM/KMS, Vulkan, buffer FD import, input, text, Bloom host, graphics, secure session, bootable image or hardware performance evidence. No empty renderer/service crates or success-returning stubs are included.
+Not implemented: DRM/KMS, Vulkan, buffer FD import, a compositor process with device input, text, Bloom host, graphics, secure session, bootable image or hardware performance evidence. Input routing and the lock exist only as tested policy driven by tests and the probe. No empty renderer/service crates or success-returning stubs are included.
 
 Next gate: implement and measure the first hardware render/import/present path and the Bloom host feasibility sample described in the architecture and audit documents. The image must not turn this probe into the session executable ([Base image configuration](./iso-build)).
