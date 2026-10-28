@@ -1869,12 +1869,16 @@ impl Scene {
             .collect();
         self.frame_in_flight = false;
         let mut newly_mapped = Vec::new();
+        let mut resized = Vec::new();
         for key in keys {
             let node = self.nodes.get_mut(&key).expect("present");
             let previous = node.presentation.complete_present().expect("presenting");
             let shown = node.presentation.displayed().expect("just displayed");
             if let Some((serial, origin, size)) = node.pending {
                 if shown.configure == serial {
+                    if node.size != size && !node.children.is_empty() {
+                        resized.push(key);
+                    }
                     node.origin = origin;
                     node.size = size;
                     node.pending = None;
@@ -1900,6 +1904,10 @@ impl Scene {
         }
         for (key, buffer) in std::mem::take(&mut self.deferred) {
             self.release(key, buffer);
+        }
+        // A parent's new size is on screen: re-place popups whose constrained geometry changed.
+        for key in resized {
+            self.reconstrain_children(key);
         }
         for key in newly_mapped {
             let node = &self.nodes[&key];

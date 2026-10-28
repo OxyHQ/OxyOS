@@ -1384,3 +1384,44 @@ impl Harness {
         self.pump();
     }
 }
+
+#[test]
+fn parent_resize_reconstrains_popups_once_the_new_size_is_presented() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.present(window);
+    // Near the bottom-right of the fullscreen window, so the menu flips up and left.
+    let popup = h.popup(window, 2, menu(Rect::new(1800, 950, 20, 20), 200, 150));
+    h.present(popup);
+    let before = h.configures[&popup];
+    assert_eq!((before.1.x, before.1.y), (1620, 800));
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(
+        h.configures[&popup], before,
+        "nothing changes until the window's new frame"
+    );
+    h.present(window);
+    let (serial, _, _) = h.configures[&popup];
+    assert!(
+        serial > before.0,
+        "the popup is reconfigured for the smaller window"
+    );
+    h.present(popup);
+    assert!(SCREEN.contains(h.rect(popup)), "{:?}", h.rect(popup));
+}
