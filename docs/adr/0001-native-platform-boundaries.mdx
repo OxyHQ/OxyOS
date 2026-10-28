@@ -126,6 +126,7 @@ Dialog maps to the modal `Dialog` role only when it is a separate native window;
 
 | Implemented and tested headlessly | Pending (owner) |
 | --- | --- |
-| Protocol v2 schema, codec, state machines, fuzzing (`oxy-protocol`) | Peer credentials, FD passing, buffer import and validation (#32) |
+| Protocol v2 schema, codec, state machines, fuzzing (`oxy-protocol`) | DMA-BUF import, modifiers and fences (#32) |
+| Seqpacket transport, kernel peer credentials, descriptor passing, sealed shared-memory import, buffer registry, bounded outboxes (`oxy-ipc`, `oxy-offscreen`) | Session authority launch records mapping credentials to shell/lock grants (#35) |
 | Roles, grants, ownership, quotas, placement, stacking, grabs, focus, outside-press policy, dismissal, lock primitive, buffer release ordering, resource settling (`oxy-compositor-core`) | DRM/KMS + Vulkan on a reference GPU, fences, per-consumer release, real compositor process (#32) |
-| Two-process probe using protocol v2 with a popup placed beyond its parent (metadata only) | Native Bloom host and adapter (#33), real Bloom menu pixels and accessibility tree (#34), account/session (#35), shell (#36) |
+| Two-process probe (metadata) and a CPU offscreen compositor whose composed pixels show a test client's menu beyond all four window edges over another client | Native Bloom host and adapter (#33), real Bloom menu pixels and accessibility tree (#34), account/session (#35), shell (#36) |

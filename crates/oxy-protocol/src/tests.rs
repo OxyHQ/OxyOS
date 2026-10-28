@@ -72,6 +72,14 @@ fn requests() -> Vec<Request> {
             enabled: true,
         },
         Request::Goodbye {},
+        Request::AttachBuffer {
+            buffer: 7,
+            format: Format::Xrgb8888,
+            extent: size,
+            stride: 3200,
+            offset: 0,
+        },
+        Request::DestroyBuffer { buffer: 7 },
     ]
 }
 
@@ -402,4 +410,50 @@ fn client_state_machine_requires_a_requested_welcome_first() {
         client.receive(&Event::Welcome { version: VERSION }),
         Err(ErrorCode::InvalidOrder)
     );
+}
+
+#[test]
+fn buffer_layouts_are_checked_without_overflow() {
+    let layout = |width, height, stride, offset| BufferLayout {
+        format: Format::Argb8888,
+        extent: Size::new(width, height),
+        stride,
+        offset,
+    };
+    assert_eq!(layout(800, 600, 3200, 0).required_bytes(), Some(3200 * 600));
+    // The last row only needs its pixels, not the full stride.
+    assert_eq!(layout(10, 2, 64, 8).required_bytes(), Some(8 + 64 + 40));
+    assert_eq!(
+        layout(800, 600, 3199, 0).required_bytes(),
+        None,
+        "stride shorter than a row"
+    );
+    assert_eq!(
+        layout(800, 600, 3202, 0).required_bytes(),
+        None,
+        "misaligned stride"
+    );
+    assert_eq!(
+        layout(800, 600, 3200, 2).required_bytes(),
+        None,
+        "misaligned offset"
+    );
+    assert_eq!(
+        layout(16_384, 16_384, u32::MAX - 3, u32::MAX - 3).required_bytes(),
+        None
+    );
+    assert_eq!(
+        layout(16_384, 16_384, 65_536, 0).required_bytes(),
+        None,
+        "over the byte cap"
+    );
+    assert!(Request::AttachBuffer {
+        buffer: 1,
+        format: Format::Xrgb8888,
+        extent: Size::new(1, 1),
+        stride: 4,
+        offset: 0
+    }
+    .carries_fd());
+    assert!(!Request::Goodbye {}.carries_fd());
 }
