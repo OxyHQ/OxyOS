@@ -117,7 +117,7 @@ Input semantics:
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 
-Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly), clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly), clipboard (proposed in [ADR 0007](./adr/0007-clipboard)), accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Transport and buffers
 
