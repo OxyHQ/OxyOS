@@ -1,6 +1,7 @@
 {
   "about": "The sample app (sample/App.tsx) in a 1024x640 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
   "window": [1024, 640],
+  "layout": "es",
   "steps": [
     {
       "name": "press the Bloom Button",

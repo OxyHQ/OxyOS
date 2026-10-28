@@ -20,8 +20,9 @@ Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
 notch at a time: what React and the client receive is then counted per key and per notch. A
-`commit` step is an input method's committed text, which no keyboard types, so it is the same on
-both paths.
+scenario's `layout` (an XKB layout, `us` by default) is the one those expectations are written
+for, and the devices type with it. A `commit` step is an input method's committed text, which
+no keyboard types, so it is the same on both paths.
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -235,7 +236,6 @@ def main():
     parser.add_argument("--out", default=None)
     parser.add_argument("--uinput", action="store_true",
                         help="point, scroll and type through virtual devices read by libinput")
-    parser.add_argument("--layout", default=None, help="XKB layout for typing (default us)")
     parser.add_argument("--kms", default=None,
                         help="show every composed frame on this DRM card (needs DRM master)")
     parser.add_argument("--dump-frames", default=None,
@@ -254,8 +254,9 @@ def main():
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
     if options.uinput:
         command += ["--uinput"]
-    if options.layout:
-        command += ["--layout", options.layout]
+    if options.uinput:
+        # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
+        command += ["--layout", scenario.get("layout", "us")]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:
