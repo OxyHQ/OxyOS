@@ -131,6 +131,42 @@ fn vulkan_matches_the_reference() {
     assert_eq!(empty, vec![5; 256]);
 }
 
+/// A frame composed into a scanout target and kept reads back as the reference composed it,
+/// once; a later composition replaces it. Where the device exports no DMA-BUF, it says so.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_kept_scanout_frame_is_the_reference() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) if gpu.exports_dma_buf() => gpu,
+        Ok(gpu) => {
+            eprintln!("{} exports no DMA-BUF, skipped", gpu.device_name());
+            return;
+        }
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let layers = layers(&window, &popup);
+    let _targets = gpu.scanout_targets(2, 120, 90).unwrap();
+    assert!(gpu.read_kept().is_err(), "nothing kept yet");
+    for index in [0, 1, 0] {
+        gpu.compose_to_scanout_kept(index, 0x0011_2233, &layers)
+            .unwrap();
+        assert_eq!(
+            gpu.read_kept().unwrap(),
+            compose_cpu(120, 90, 0x0011_2233, &layers),
+            "target {index}"
+        );
+        assert!(gpu.read_kept().is_err(), "a kept frame is read once");
+    }
+    gpu.compose_to_scanout_kept(1, 0x0011_2233, &layers)
+        .unwrap();
+    gpu.compose(8, 8, 1, &[]).unwrap();
+    assert!(gpu.read_kept().is_err(), "a later composition replaced it");
+}
+
 #[test]
 fn frames_round_trip_through_a_file() {
     let (window, popup) = frame();
