@@ -33,8 +33,12 @@ class Report {
   bool enabled() const { return file_ != nullptr; }
 
   // A presented frame (its size in pixels) and the text it shows, in drawing order.
+  // `damaged` is the fraction of the frame drawn again (1 when drawn whole).
   void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
-             const std::string& focus);
+             const std::string& focus, double damaged = 1.0);
+  // A frame drawn from its damage that differs from the frame drawn whole (OXY_HOST_DAMAGE_CHECK):
+  // `pixels` of them. Any is a defect in the damage.
+  void damageMismatch(uint32_t surface, size_t pixels);
   // A compositor event as received.
   void input(const char* event, uint32_t surface, const folly::dynamic& extra = folly::dynamic::object());
   // An event delivered to React (touch, text, scroll, …) on `view`.

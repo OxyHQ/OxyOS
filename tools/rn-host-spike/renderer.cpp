@@ -11,6 +11,7 @@
 #include <react/renderer/graphics/Color.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <fstream>
 #include <cstdio>
@@ -77,8 +78,20 @@ class Painter {
  public:
   Painter(Canvas& canvas, float scale) : canvas_(canvas), scale_(scale) {}
 
+  // Paints only the device pixels of [x0, x1) × [y0, y1) (a damaged region); what is drawn there
+  // is what a whole frame draws, since only the pixels painted are chosen, never the geometry.
+  void limit(int x0, int y0, int x1, int y1) { region_ = {x0, y0, x1, y1}; }
+
+  // Whether a logical rectangle has any pixel the painter paints.
+  bool touches(float x, float y, float w, float h) const {
+    int x0 = static_cast<int>(std::floor(x * scale_)), x1 = static_cast<int>(std::ceil((x + w) * scale_));
+    int y0 = static_cast<int>(std::floor(y * scale_)), y1 = static_cast<int>(std::ceil((y + h) * scale_));
+    return x1 > region_[0] && x0 < region_[2] && y1 > region_[1] && y0 < region_[3];
+  }
+
   void blend(int x, int y, Rgba color, float coverage) {
     if (x < 0 || y < 0 || x >= canvas_.width || y >= canvas_.height) return;
+    if (x < region_[0] || y < region_[1] || x >= region_[2] || y >= region_[3]) return;
     float a = std::clamp(color.a * coverage, 0.0f, 1.0f);
     if (a <= 0) return;
     // Premultiplied source-over: an opaque canvas stays opaque, a transparent one gains alpha.
@@ -121,6 +134,9 @@ class Painter {
     if (box.empty()) return;
     int x0 = static_cast<int>(std::floor(box.x0 * scale_)), x1 = static_cast<int>(std::ceil(box.x1 * scale_));
     int y0 = static_cast<int>(std::floor(box.y0 * scale_)), y1 = static_cast<int>(std::ceil(box.y1 * scale_));
+    // Only the pixels painted are visited; each one's coverage is the whole frame's.
+    x0 = std::max(x0, region_[0]), y0 = std::max(y0, region_[1]);
+    x1 = std::min(x1, region_[2]), y1 = std::min(y1, region_[3]);
     bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
                    radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0 || holeRadii;
     for (int py = y0; py < y1; ++py) {
@@ -181,6 +197,10 @@ class Painter {
         const auto& bitmap = engine.rasterize(glyph.face, glyph.id);
         int gx = static_cast<int>(std::lround((ox + glyph.x) * scale_)) + bitmap.left;
         int gy = static_cast<int>(std::lround((oy + run.baseline) * scale_)) - bitmap.top;
+        if (gx + bitmap.width <= region_[0] || gx >= region_[2] || gy + bitmap.height <= region_[1] ||
+            gy >= region_[3]) {
+          continue;
+        }
         for (int y = 0; y < bitmap.height; ++y) {
           for (int x = 0; x < bitmap.width; ++x) {
             float lx = (gx + x) / scale_, ly = (gy + y) / scale_;
@@ -196,6 +216,8 @@ class Painter {
  private:
   Canvas& canvas_;
   float scale_;
+  std::array<int, 4> region_{std::numeric_limits<int>::min(), std::numeric_limits<int>::min(),
+                             std::numeric_limits<int>::max(), std::numeric_limits<int>::max()};
 };
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
@@ -370,7 +392,9 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
-    drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+    if (painter.touches(x, y, w, h)) {
+      drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+    }
     ++stats.texts;
     if (visible) {
       const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
@@ -382,12 +406,15 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   if (name == "Paragraph" && view.state) {
     const auto& state = static_cast<const ConcreteState<ParagraphState>&>(*view.state).getData();
-    auto content = view.layoutMetrics.getContentFrame();
-    auto layout = TextEngine::shared().layout(state.attributedString, state.paragraphAttributes, content.size.width);
     // Glyphs stay within the paragraph's frame (a word wider than the paragraph is cut, not
-    // painted over its neighbours), as a view's content is clipped to its bounds on Android.
-    painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip.intersect(Clip{x, y, x + w, y + h}),
-                   opacity);
+    // painted over its neighbours), as a view's content is clipped to its bounds on Android: a
+    // paragraph outside the damage is not laid out.
+    if (painter.touches(x, y, w, h)) {
+      auto content = view.layoutMetrics.getContentFrame();
+      auto layout = TextEngine::shared().layout(state.attributedString, state.paragraphAttributes, content.size.width);
+      painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip.intersect(Clip{x, y, x + w, y + h}),
+                     opacity);
+    }
     ++stats.texts;
     if (visible) stats.textContent.push_back(state.attributedString.getString());
   }
@@ -453,6 +480,55 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, c
   Painter painter(canvas, display.scale);
   RenderStats stats;
   drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
+  return stats;
+}
+
+bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
+  if (before.props == after.props) return true;
+  std::string name = after.componentName ? after.componentName : "";
+  if ((before.componentName ? before.componentName : "") != name || name == "AndroidTextInput") return false;
+  auto a = std::dynamic_pointer_cast<const ViewProps>(before.props);
+  auto b = std::dynamic_pointer_cast<const ViewProps>(after.props);
+  if (!a || !b) return !a && !b;
+  // What drawView reads from a view's props, each with its own layout.
+  return a->opacity == b->opacity && a->backgroundColor == b->backgroundColor &&
+         a->resolveBorderMetrics(before.layoutMetrics) == b->resolveBorderMetrics(after.layoutMetrics) &&
+         a->getClipsContentToBounds() == b->getClipsContentToBounds();
+}
+
+RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
+                        const std::vector<Rect>& damage) {
+  int width = static_cast<int>(std::lround(display.width * display.scale));
+  int height = static_cast<int>(std::lround(display.height * display.scale));
+  if (canvas.width != width || canvas.height != height) return draw(tree, display, canvas, edit);
+  RenderStats stats;
+  bool counted = false;
+  Clip window{0, 0, display.width, display.height};
+  for (const auto& rect : damage) {
+    int x0 = std::max(0, static_cast<int>(std::floor(rect.origin.x * display.scale)));
+    int y0 = std::max(0, static_cast<int>(std::floor(rect.origin.y * display.scale)));
+    int x1 = std::min(width, static_cast<int>(std::ceil((rect.origin.x + rect.size.width) * display.scale)));
+    int y1 = std::min(height, static_cast<int>(std::ceil((rect.origin.y + rect.size.height) * display.scale)));
+    if (x1 <= x0 || y1 <= y0) continue;
+    // The region starts as a new window does, then everything over it is drawn again.
+    for (int y = y0; y < y1; ++y) {
+      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, 0xffffffffu);
+    }
+    Painter painter(canvas, display.scale);
+    painter.limit(x0, y0, x1, y1);
+    RenderStats drawn;
+    drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, drawn, edit);
+    if (!counted) {
+      stats = std::move(drawn);
+      counted = true;
+    }
+  }
+  if (!counted) {
+    // Nothing to paint; the stats are still the window's.
+    Painter painter(canvas, display.scale);
+    painter.limit(0, 0, 0, 0);
+    drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, stats, edit);
+  }
   return stats;
 }
 

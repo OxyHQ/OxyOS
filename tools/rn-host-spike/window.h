@@ -52,8 +52,9 @@ class Window {
   // A frame may be presented: the surface is configured and its previous frame was answered.
   bool ready(uint32_t id) const;
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
-  // ARGB (rounded corners); the toplevel is opaque.
-  void present(uint32_t id, const Canvas& canvas);
+  // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
+  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
+  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyRect>& damage = {});
 
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it). Throws on failure.

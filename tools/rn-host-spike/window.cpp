@@ -87,15 +87,15 @@ bool Window::ready(uint32_t id) const {
   return it != surfaces_.end() && it->second.configure != 0 && it->second.inFlight == 0;
 }
 
-void Window::present(uint32_t id, const Canvas& canvas) {
+void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyRect>& damage) {
   Surface& target = surfaces_.at(id);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
   // protocol's XRGB8888 / premultiplied ARGB8888 layout.
   uint32_t format = id == kToplevel ? OXY_FORMAT_XRGB8888 : OXY_FORMAT_ARGB8888;
-  auto sequence = oxy_client_present(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
-                                     static_cast<uint32_t>(canvas.height), format,
-                                     reinterpret_cast<const uint8_t*>(canvas.pixels.data()),
-                                     canvas.pixels.size() * sizeof(uint32_t));
+  auto sequence = oxy_client_present_damaged(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
+                                             static_cast<uint32_t>(canvas.height), format,
+                                             reinterpret_cast<const uint8_t*>(canvas.pixels.data()),
+                                             canvas.pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
   if (sequence < 0) failed("cannot present");
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
