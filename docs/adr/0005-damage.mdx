@@ -6,7 +6,7 @@ order: 14
 
 # ADR 0005: Damage: composing and drawing only what changed
 
-Status: **accepted; implemented** (decisions 1 to 6; see [Results](#results)). Uploading only a surface's damaged rows is what remains. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+Status: **accepted; implemented** (decisions 1 to 6, and surfaces' changed rows uploaded alone; see [Results](#results)). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
@@ -129,7 +129,18 @@ On the ThinkPad, the full regression through the devices passes with `--check-da
 
 Comparing props by pointer, the first attempt drew 67% of the window most frames and saved little: Bloom's panels got new props objects with every re-render.
 
-The window's buffer is still uploaded whole, 2,560 KiB per frame: a new version of a surface replaces its resident pixels. Uploading only the damaged rows is the next saving.
+**Changed rows uploaded alone.** A layer may say what changed in its pixels since an earlier version of their source (`Layer::changed`). Where the device holds that version, only those rows are copied into place and the version advances; otherwise the layer is uploaded whole. The development compositor passes a surface's damage against the version it composed last.
+
+`oxy-gpu`'s test checks on a device that:
+- the frame is the reference's, and only the changed rows go up;
+- a change left out keeps its old pixels on the device;
+- a frame from a version the device does not hold is uploaded whole.
+
+On the ThinkPad, `--gpu --check-damage` passes with every GPU frame identical to the CPU reference. With `--gpu-only`, medians:
+- the upload falls from 2,560 KiB to 351 KiB a frame;
+- the device's time before the composition pass falls from 0.5 to 0.22 ms;
+- submit to fence falls from about 3.4 to 2.56 ms;
+- input to flip is 20.7 and 21.0 ms over two runs.
 
 ## Consequences
 

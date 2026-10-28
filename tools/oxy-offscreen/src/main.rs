@@ -103,6 +103,9 @@ struct Compositor {
     /// and sequences are the client's and come again when it creates a surface anew.
     versions: HashMap<(SurfaceKey, u64), u64>,
     next_version: u64,
+    /// The version of each surface's pixels composed last, by `oxy_gpu::Source` key: what a
+    /// frame's damage is relative to.
+    shown_versions: HashMap<u64, u64>,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -364,22 +367,45 @@ impl Compositor {
         for item in list.iter().copied() {
             match item {
                 RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
-                    Some((extent, format, pixels)) => contents.push((
-                        rect,
-                        extent,
-                        Some(format),
-                        pixels,
-                        self.versions
-                            .get(&(key, frame.sequence))
-                            .map(|&version| oxy_gpu::Source {
+                    Some((extent, format, pixels)) => {
+                        let source = self.versions.get(&(key, frame.sequence)).map(|&version| {
+                            oxy_gpu::Source {
                                 key: (u64::from(key.client) << 32) | u64::from(key.id),
                                 version,
-                            }),
-                    )),
+                            }
+                        });
+                        // What changed since the version composed last, when the frame says.
+                        let changed = source.and_then(|source| {
+                            let &from = self.shown_versions.get(&source.key)?;
+                            match self.scene.presenting_damage(key)? {
+                                oxy_compositor_core::SurfaceDamage::Rects(rects)
+                                    if from != source.version =>
+                                {
+                                    Some((
+                                        from,
+                                        rects
+                                            .iter()
+                                            .map(|r| oxy_gpu::Rect {
+                                                x: r.x,
+                                                y: r.y,
+                                                width: r.width,
+                                                height: r.height,
+                                            })
+                                            .collect::<Vec<_>>(),
+                                    ))
+                                }
+                                _ => None,
+                            }
+                        });
+                        if let Some(source) = source {
+                            self.shown_versions.insert(source.key, source.version);
+                        }
+                        contents.push((rect, extent, Some(format), pixels, source, changed))
+                    }
                     None => unreadable.push(key.client),
                 },
                 RenderItem::Cover { rect, .. } => {
-                    contents.push((rect, Size::new(1, 1), None, Vec::new(), None))
+                    contents.push((rect, Size::new(1, 1), None, Vec::new(), None, None))
                 }
             }
         }
@@ -387,19 +413,26 @@ impl Compositor {
             .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         let layers: Vec<oxy_gpu::Layer<'_>> = contents
             .iter()
-            .map(|(rect, extent, format, pixels, source)| oxy_gpu::Layer {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: rect.height,
-                extent: (extent.width, extent.height),
-                paint: match format {
-                    Some(oxy_protocol::Format::Xrgb8888) => oxy_gpu::Paint::Opaque(pixels),
-                    Some(oxy_protocol::Format::Argb8888) => oxy_gpu::Paint::Premultiplied(pixels),
-                    None => oxy_gpu::Paint::Fill(0),
+            .map(
+                |(rect, extent, format, pixels, source, changed)| oxy_gpu::Layer {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                    extent: (extent.width, extent.height),
+                    paint: match format {
+                        Some(oxy_protocol::Format::Xrgb8888) => oxy_gpu::Paint::Opaque(pixels),
+                        Some(oxy_protocol::Format::Argb8888) => {
+                            oxy_gpu::Paint::Premultiplied(pixels)
+                        }
+                        None => oxy_gpu::Paint::Fill(0),
+                    },
+                    source: *source,
+                    changed: changed
+                        .as_ref()
+                        .map(|(from, rects)| (*from, rects.as_slice())),
                 },
-                source: *source,
-            })
+            )
             .collect();
         // Frames older than those composed are never shown again.
         self.versions.retain(|(key, sequence), _| {
@@ -1099,6 +1132,7 @@ impl Session {
             damaged: Vec::new(),
             versions: HashMap::new(),
             next_version: 0,
+            shown_versions: HashMap::new(),
             terminal: None,
             away: false,
         };

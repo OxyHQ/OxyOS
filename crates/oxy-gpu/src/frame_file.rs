@@ -104,6 +104,7 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             extent: (fields[4], fields[5]),
             paint: Paint::Fill(color),
             source: None,
+            changed: None,
         };
         if kind[0] > 2 {
             return Err(invalid("unknown layer kind"));

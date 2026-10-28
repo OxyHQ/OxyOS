@@ -32,6 +32,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             extent: (64, 48),
             paint: Paint::Opaque(window),
             source: None,
+            changed: None,
         },
         Layer {
             x: 70,
@@ -41,6 +42,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             extent: (20, 30),
             paint: Paint::Premultiplied(popup),
             source: None,
+            changed: None,
         },
         Layer {
             x: 100,
@@ -50,6 +52,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             extent: (1, 1),
             paint: Paint::Fill(0x0012_3456),
             source: None,
+            changed: None,
         },
     ]
 }
@@ -93,6 +96,7 @@ fn invalid_layers_are_skipped() {
             extent: (4, 4),
             paint: Paint::Opaque(&short),
             source: None,
+            changed: None,
         },
         Layer {
             x: 0,
@@ -102,6 +106,7 @@ fn invalid_layers_are_skipped() {
             extent: (1, 1),
             paint: Paint::Fill(1),
             source: None,
+            changed: None,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -384,6 +389,81 @@ fn kept_sources_are_uploaded_once() {
     }
     check(&mut gpu, &second);
     assert_eq!(check(&mut gpu, &second), 0);
+}
+
+/// Pixels the device holds at the version they changed from are updated with only what changed:
+/// the frame is the reference's and only those rows go up; a change left out keeps its old pixels
+/// on the device, so only the rows named are copied.
+#[test]
+fn changed_rows_alone_are_uploaded() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let width = 16u32;
+    let height = 8u32;
+    let words = |value: u32| vec![0xff00_0000 | value; (width * height) as usize];
+    fn window<'a>(pixels: &'a [u8], version: u64, changed: Option<(u64, &'a [Rect])>) -> Layer<'a> {
+        Layer {
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 8,
+            extent: (16, 8),
+            paint: Paint::Opaque(pixels),
+            source: Some(Source { key: 7, version }),
+            changed,
+        }
+    }
+    let first = pixels(&words(1));
+    let frame = [window(&first, 1, None)];
+    assert_eq!(
+        gpu.compose(width, height, 0, &frame).unwrap(),
+        compose_cpu(width, height, 0, &frame)
+    );
+    // Version 2 changes a 3x2 block at (4, 5).
+    let block = Rect {
+        x: 4,
+        y: 5,
+        width: 3,
+        height: 2,
+    };
+    let mut second = words(1);
+    for y in 5..7 {
+        for x in 4..7 {
+            second[(y * width + x) as usize] = 0xff00_0002;
+        }
+    }
+    let second = pixels(&second);
+    let frame = [window(&second, 2, Some((1, std::slice::from_ref(&block))))];
+    assert_eq!(
+        gpu.compose(width, height, 0, &frame).unwrap(),
+        compose_cpu(width, height, 0, &frame)
+    );
+    assert_eq!(
+        gpu.last_uploaded_bytes(),
+        3 * 2 * 4,
+        "only the block's rows"
+    );
+    // Version 3 changes everything but says only the block did: the rest stays version 2's.
+    let third = pixels(&words(3));
+    let frame = [window(&third, 3, Some((2, std::slice::from_ref(&block))))];
+    let composed = gpu.compose(width, height, 0, &frame).unwrap();
+    assert_eq!(
+        composed[0], 0x0000_0001,
+        "a pixel left out of the change is the old one"
+    );
+    assert_eq!(composed[(5 * width + 4) as usize], 0x0000_0003);
+    // From a version the device does not hold, everything goes up.
+    let frame = [window(&third, 4, Some((9, std::slice::from_ref(&block))))];
+    assert_eq!(
+        gpu.compose(width, height, 0, &frame).unwrap(),
+        compose_cpu(width, height, 0, &frame)
+    );
+    assert_eq!(gpu.last_uploaded_bytes(), u64::from(width * height) * 4);
 }
 
 #[test]
