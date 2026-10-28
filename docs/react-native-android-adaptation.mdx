@@ -8,7 +8,15 @@ order: 6
 
 OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless runs **React Native's own modules in their Android implementation**. React Native supports two native platforms, and the host implements the native interfaces of one of them, Android, instead of maintaining copies of React Native's platform branches. This page is the contract for that adaptation.
 
-**Rule:** a React Native API that OxyOS does not provide fails visibly. Its native module is absent and the call throws, or its promise rejects. It never pretends to succeed and never leaves its caller waiting. `scenarios/android-adaptation.json` checks this for the APIs below (`regress.py`; the probe is `sample/AndroidProbe.tsx`).
+**Rule:** a React Native API that OxyOS does not provide fails visibly. Its native module is absent and the call throws, or its promise rejects. It never pretends to succeed and never leaves its caller waiting. Where React Native's own Android code would skip a missing module silently, OxyOS overrides it to fail (`sample/oxyos/`).
+
+`scenarios/android-adaptation.json` (`regress.py`; the probe is `sample/AndroidProbe.tsx`) checks one call per row:
+- **unavailable:** `ToastAndroid`, `Vibration`, `PermissionsAndroid`, `Linking.openURL`, `Share`, `Alert.alert`, `Alert.prompt` and `getAndroidID`;
+- **rejected:** `Image.getSize`;
+- **answered:** `AccessibilityInfo`'s timeout and screen reader, `Appearance`, `Dimensions`, `I18nManager.isRTL` and `AppState`;
+- **accepted with no effect:** `StatusBar.setHidden`, `I18nManager.forceRTL`, `Appearance.setColorScheme` and `announceForAccessibility`.
+
+Rows not in this list are not checked.
 
 ## What is reused from React Native's Android implementation
 
@@ -38,9 +46,12 @@ OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless
 **Absent:** the call throws, and the host logs `TurboModule unavailable`.
 - `ToastAndroid`, `Vibration`, `PermissionsAndroid`;
 - `IntentAndroid` / `LinkingManager` (`Linking`);
-- `ShareModule`, `DialogManagerAndroid`, `ActionSheetManager`, `SoundManager`;
-- `NativeAnimatedModule` (Animated runs in JavaScript), `FrameRateLogger`;
+- `ShareModule`, `ActionSheetManager`;
+- `DialogManagerAndroid`: `Alert.alert` and `Alert.prompt` throw. React Native's Android `Alert` returns silently without that module, with no dialog and no callback, so OxyOS overrides it (`sample/oxyos/Libraries/Alert/Alert.oxyos.js`). Bloom's own alert surfaces, with `Alert`'s signature, draw their dialogs in the application;
+- `NativeAnimatedModule`: Animated runs in JavaScript, and React Native warns when an animation asks for the native driver;
 - the Expo modules Bloom does not need.
+
+**Absent, and only React Native's own code calls them:** `SoundManager` (Pressability's touch sound) and `FrameRateLogger` (scroll performance logging). React Native skips them when they are missing; no API an application calls depends on them.
 
 **Accepted with no effect, reported once:**
 - *There is nothing to apply on OxyOS:* status bar style, colour and visibility (there is no status bar); the default back-press handler; red-box messages.
