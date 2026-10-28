@@ -1,0 +1,184 @@
+#include "host-modules.h"
+
+#include "text.h"
+
+#include <folly/dynamic.h>
+#include <jsi/JSIDynamic.h>
+
+#include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <set>
+
+using namespace facebook;
+using namespace facebook::react;
+
+namespace oxy {
+
+namespace {
+
+// A TurboModule whose methods are host lambdas.
+class HostModule : public TurboModule {
+ public:
+  using Method = std::function<jsi::Value(jsi::Runtime&, const jsi::Value*, size_t)>;
+
+  HostModule(const std::string& name, std::shared_ptr<CallInvoker> invoker)
+      : TurboModule(name, std::move(invoker)), name_(name) {}
+
+  HostModule& method(const std::string& name, Method fn) {
+    methods_[name] = std::move(fn);
+    return *this;
+  }
+
+  HostModule& constants(folly::dynamic value) {
+    return method("getConstants", [value](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::valueFromDynamic(rt, value);
+    });
+  }
+
+  // Listener bookkeeping for NativeEventEmitter; this host emits no such events yet.
+  HostModule& listeners() {
+    method("addListener", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
+    return method("removeListeners", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
+  }
+
+  // Calls that OxyOS has no counterpart for: accepted, reported once, no effect.
+  HostModule& unsupported(std::initializer_list<const char*> names) {
+    for (const char* method : names) {
+      std::string qualified = name_ + "." + method;
+      this->method(method, [qualified](jsi::Runtime&, const jsi::Value*, size_t) {
+        static std::set<std::string> reported;
+        if (reported.insert(qualified).second) std::cerr << "[host] unsupported on OxyOS: " << qualified << "\n";
+        return jsi::Value::undefined();
+      });
+    }
+    return *this;
+  }
+
+  jsi::Value create(jsi::Runtime& rt, const jsi::PropNameID& prop) override {
+    auto it = methods_.find(prop.utf8(rt));
+    if (it == methods_.end()) return jsi::Value::undefined();
+    auto fn = it->second;
+    return jsi::Function::createFromHostFunction(
+        rt, prop, 0, [fn](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+          return fn(rt, args, count);
+        });
+  }
+
+ private:
+  std::string name_;
+  std::map<std::string, Method> methods_;
+};
+
+jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& argument) {
+  if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
+    callback.asObject(rt).asFunction(rt).call(rt, argument);
+  }
+  return jsi::Value::undefined();
+}
+
+std::string text(jsi::Runtime& rt, const jsi::Value& value) {
+  return value.isString() ? value.asString(rt).utf8(rt) : value.isUndefined() ? "" : value.toString(rt).utf8(rt);
+}
+
+}  // namespace
+
+std::shared_ptr<TurboModule> createHostModule(
+    const std::string& name,
+    const std::shared_ptr<CallInvoker>& invoker,
+    const Display& display) {
+  auto module = std::make_shared<HostModule>(name, invoker);
+  folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
+      "scale", display.scale)("fontScale", 1.0);
+
+  if (name == "PlatformConstants") {
+    module->constants(folly::dynamic::object("isTesting", false)("isDisableAnimations", false)(
+        "reactNativeVersion", folly::dynamic::object("major", 0)("minor", 88)("patch", 0)("prerelease", nullptr))(
+        "Version", 1)("Release", "OxyOS")("Serial", "")("Fingerprint", "")("Model", "OxyOS")("uiMode", "normal")(
+        "Brand", "Oxy")("Manufacturer", "Oxy"));
+    module->method("getAndroidID", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::String::createFromAscii(rt, "");
+    });
+  } else if (name == "DeviceInfo") {
+    module->constants(folly::dynamic::object("Dimensions", folly::dynamic::object("window", window)("screen", window)));
+  } else if (name == "SourceCode") {
+    const char* url = std::getenv("OXY_SCRIPT_URL");
+    module->constants(folly::dynamic::object("scriptURL", url ? url : ""));
+  } else if (name == "I18nManager") {
+    module->constants(folly::dynamic::object("isRTL", false)("doLeftAndRightSwapInRTL", true)(
+        "localeIdentifier", "en-US"));
+    module->unsupported({"allowRTL", "forceRTL", "swapLeftAndRightInRTL"});
+  } else if (name == "AppState") {
+    module->constants(folly::dynamic::object("initialAppState", "active"));
+    module->method("getCurrentAppState", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      jsi::Object state(rt);
+      state.setProperty(rt, "app_state", "active");
+      return count > 0 ? call(rt, args[0], jsi::Value(rt, state)) : jsi::Value::undefined();
+    });
+    module->listeners();
+  } else if (name == "Appearance") {
+    module->method("getColorScheme", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::String::createFromAscii(rt, "light");
+    });
+    module->unsupported({"setColorScheme"});
+    module->listeners();
+  } else if (name == "AccessibilityInfo") {
+    // No assistive-technology or reduced-motion settings exist on OxyOS yet: report them off.
+    for (const char* query : {"isReduceMotionEnabled", "isTouchExplorationEnabled", "isAccessibilityServiceEnabled",
+                              "isHighTextContrastEnabled", "isGrayscaleEnabled", "isInvertColorsEnabled",
+                              "isDarkerSystemColorsEnabled"}) {
+      module->method(query, [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        return count > 0 ? call(rt, args[0], jsi::Value(false)) : jsi::Value::undefined();
+      });
+    }
+    module->unsupported({"setAccessibilityFocus", "announceForAccessibility", "getRecommendedTimeoutMillis"});
+  } else if (name == "ExceptionsManager") {
+    auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count > 0 && args[0].isObject()) {
+        auto data = args[0].asObject(rt);
+        std::cerr << "[js exception] " << text(rt, data.getProperty(rt, "message")) << "\n";
+        auto stack = data.getProperty(rt, "stack");
+        if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
+          auto frames = stack.asObject(rt).asArray(rt);
+          for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
+            auto frame = frames.getValueAtIndex(rt, i);
+            if (!frame.isObject()) continue;
+            auto f = frame.asObject(rt);
+            std::cerr << "    at " << text(rt, f.getProperty(rt, "methodName")) << " ("
+                      << text(rt, f.getProperty(rt, "file")) << ":" << text(rt, f.getProperty(rt, "lineNumber"))
+                      << ")\n";
+          }
+        }
+      } else if (count > 0) {
+        std::cerr << "[js exception] " << text(rt, args[0]) << "\n";
+      }
+      return jsi::Value::undefined();
+    };
+    module->method("reportException", report);
+    module->method("reportFatalException", report);
+    module->method("reportSoftException", report);
+    module->unsupported({"updateExceptionMessage", "dismissRedbox"});
+  } else if (name == "DeviceEventManager") {
+    module->unsupported({"invokeDefaultBackPressHandler"});
+  } else if (name == "StatusBarManager") {
+    module->constants(folly::dynamic::object("HEIGHT", 0)("DEFAULT_BACKGROUND_COLOR", 0));
+    module->unsupported({"setColor", "setTranslucent", "setStyle", "setHidden"});
+  } else if (name == "KeyboardObserver") {
+    module->listeners();
+  } else if (name == "OxyFontRegistry") {
+    // Registers a font file under a family name with the host's text engine.
+    module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2) return jsi::Value(false);
+      std::string family = text(rt, args[0]), uri = text(rt, args[1]);
+      if (uri.rfind("file://", 0) == 0) uri = uri.substr(7);
+      TextEngine::shared().registerFamily(family, uri);
+      return jsi::Value(true);
+    });
+  } else {
+    return nullptr;
+  }
+  return module;
+}
+
+}  // namespace oxy

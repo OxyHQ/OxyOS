@@ -100,3 +100,23 @@ target_link_libraries(reactnative PUBLIC ${reactnative_LINKS} hermes-engine::her
 add_executable(oxy-rn-spike host.cpp)
 target_link_libraries(oxy-rn-spike reactnative)
 target_compile_options(oxy-rn-spike PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
+
+# ---- OxyOS host: real text layout and the Bloom host executable -------------------------------
+if(NOT DEFINED TEXT_SYSROOT)
+  message(FATAL_ERROR "TEXT_SYSROOT is required; run build.sh")
+endif()
+set(TEXT_INCLUDES ${TEXT_SYSROOT}/include/freetype2 ${TEXT_SYSROOT}/include/harfbuzz)
+set(TEXT_LIBS ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libfreetype.so ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libharfbuzz.so)
+
+# Replace the cxx platform's measurement stub with the host text engine.
+get_target_property(tlm_sources react_renderer_textlayoutmanager SOURCES)
+list(FILTER tlm_sources EXCLUDE REGEX "platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp$")
+list(APPEND tlm_sources ${CMAKE_CURRENT_SOURCE_DIR}/TextLayoutManager.cpp ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
+set_property(TARGET react_renderer_textlayoutmanager PROPERTY SOURCES ${tlm_sources})
+target_include_directories(react_renderer_textlayoutmanager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${TEXT_INCLUDES})
+target_link_libraries(reactnative PUBLIC ${TEXT_LIBS})
+
+add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp)
+target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview)
+target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES})
+target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
