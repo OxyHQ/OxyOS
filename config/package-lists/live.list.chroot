@@ -1,6 +1,13 @@
+# OxyOS target-runtime manifest: the Debian base the native platform runs on.
+# There is no graphical session yet. Do not add a display server, compositor,
+# greeter, browser shell or desktop application here: none of them run on the
+# Oxy display protocol, and scripts/check-image-config.py rejects them.
+
+# Live system
 live-boot
 live-config
 live-config-systemd
+user-setup
 
 # Core system
 sudo
@@ -8,50 +15,11 @@ apt-transport-https
 psmisc
 cryptsetup
 
-# Display manager + Wayland compositor (replaces lxdm + openbox)
-greetd
-labwc
-seatd
-xwayland
-
-# OxyOS shell runtime dependencies (Tauri/WebKitGTK)
-libwebkit2gtk-4.1-0
-libgtk-3-0
-libayatana-appindicator3-1
-librsvg2-common
-gstreamer1.0-plugins-base
-gstreamer1.0-plugins-good
-
 # System services
 network-manager
-pulseaudio
+pipewire-audio
 upower
-dbus-x11
 bluez
-brightnessctl
-gammastep
-
-# Desktop apps
-firefox-esr
-thunar
-thunar-archive-plugin
-thunar-volman
-foot
-vlc
-gnome-calculator
-gnome-text-editor
-eog
-file-roller
-gparted
-transmission-gtk
-gvfs-fuse
-
-# Fonts & themes
-fonts-freefont-ttf
-fonts-liberation
-gnome-icon-theme
-dmz-cursor-theme
-adwaita-icon-theme
 
 # Utilities
 bash-completion
@@ -64,7 +32,6 @@ openssh-client
 wireless-tools
 ntfs-3g
 dosfstools
-user-setup
 
 # Hardware
 firmware-linux-free

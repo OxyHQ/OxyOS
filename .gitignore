@@ -11,15 +11,8 @@ live-image-*
 *.iso
 *.zsync
 
-# Shell build artifacts
+# Native workspace build output
 /target/
-node_modules/
-shell/build/
-shell/web-build/
-shell/src-tauri/target/
-
-# Built binary copied into ISO chroot (generated, not source)
-config/includes.chroot_after_packages/usr/bin/oxyos-shell
 
 # Environment
 .env
