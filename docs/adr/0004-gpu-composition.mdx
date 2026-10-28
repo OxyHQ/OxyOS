@@ -173,13 +173,8 @@ Still to do:
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
-<<<<<<< HEAD
-- uploading only what changed, then importing client buffers as DMA-BUF, which removes the per-frame upload that dominates composition;
+- filling and uploading only what changed, then importing client buffers as DMA-BUF;
 - composing at a deadline before the refresh (flips no longer block; frames are still composed when they arrive).
-=======
-- uploading only what changed, then importing client buffers as DMA-BUF;
-- frame scheduling: non-blocking flips and composing at a deadline before the refresh, instead of composing when a frame arrives and waiting for its flip.
->>>>>>> origin/feat/gpu-only
 
 ## Consequences
 
