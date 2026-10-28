@@ -157,7 +157,7 @@ Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 56-step run):
 | Drawing a full window frame | about 15 ms median; max about 46 ms (1.5×: 2.25× the pixels) |
 | Drawing a popup | about 2 ms |
 
-**GPU composition.** The compositor's composition now has one definition (`oxy-gpu::compose_cpu`). The same frames composed on a Vulkan device by a compute shader match it byte for byte: all 173 frames of the 56-step run, with `--gpu`. In this environment (WSL2) the only Vulkan device is lavapipe (`llvmpipe`, kind `Cpu`), so this proves the Vulkan path, not a GPU. DRM/KMS output, DMA-BUF import and synchronization need hardware with DRM ([ADR 0004](./adr/0004-gpu-composition)).
+**GPU composition.** The compositor's composition now has one definition (`oxy-gpu::compose_cpu`). The same frames composed on a Vulkan device by a compute shader match it byte for byte: all 173 frames of the 56-step run, with `--gpu`. Inside WSL2 the only Vulkan device is lavapipe (`llvmpipe`, a CPU device). Through Windows, the 56 frames of the regression, composed again on an NVIDIA GeForce RTX 5090, are identical too. This slice's per-frame upload and readback dominate its time (about 23 ms against 1.3 ms on the CPU); the composition itself is about 1 ms. DRM/KMS output, DMA-BUF import and synchronization need hardware with DRM ([ADR 0004](./adr/0004-gpu-composition)).
 
 Before the painter's fast paths, a window frame took about 57 ms and latency was about 68 ms. Two cases are now handled directly:
 - **Opaque, fully covered pixels** are written without blending.

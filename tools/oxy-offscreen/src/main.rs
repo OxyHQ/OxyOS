@@ -63,6 +63,9 @@ struct Compositor {
     /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
     /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
     gpu: Option<Gpu>,
+    /// With `--dump-frames`: the latest composed frame, as `oxy_gpu::frame_file` writes it.
+    keep_frame: bool,
+    last_frame: Vec<u8>,
 }
 
 struct Gpu {
@@ -281,6 +284,17 @@ impl Compositor {
             .collect();
         // The output is at the origin of the global space.
         self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
+        if self.keep_frame {
+            self.last_frame.clear();
+            oxy_gpu::frame_file::write(
+                &mut self.last_frame,
+                OUTPUT.width,
+                OUTPUT.height,
+                DESKTOP,
+                &layers,
+            )
+            .expect("writing to memory");
+        }
         if let Some(gpu) = &mut self.gpu {
             gpu.frames += 1;
             match gpu
@@ -512,6 +526,8 @@ impl Session {
             input_log: Vec::new(),
             log_input: false,
             gpu: None,
+            keep_frame: false,
+            last_frame: Vec::new(),
         };
         Ok(Self {
             compositor,

@@ -225,6 +225,8 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--dump-frames", default=None,
+                        help="write the frame after each step as layers (oxy-gpu's replay example)")
     parser.add_argument("--gpu", action="store_true",
                         help="also compose every frame on a Vulkan device; any difference fails")
     options = parser.parse_args()
@@ -237,6 +239,8 @@ def main():
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
+    if options.dump_frames:
+        command += ["--dump-frames", options.dump_frames]
     for step in scenario["steps"]:
         command += director_args(step)
     command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width), str(height)]

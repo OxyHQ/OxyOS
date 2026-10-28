@@ -115,9 +115,12 @@ pub struct Launch {
     /// `--gpu`: compose every frame on a Vulkan device too; any difference from the CPU
     /// reference fails the run.
     pub gpu: bool,
+    /// `--dump-frames DIR`: the frame shown at launch and after each step, as layers
+    /// (`oxy_gpu::frame_file`), to compose again elsewhere (`oxy-gpu`'s `replay` example).
+    pub dump_frames: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -140,6 +143,7 @@ impl Launch {
         // `--allow-unchanged` applies to the step after it.
         let mut allow = false;
         let mut gpu = false;
+        let mut dump_frames = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -154,6 +158,10 @@ impl Launch {
                 Some("--launch") => continue,
                 Some("--gpu") => {
                     gpu = true;
+                    continue;
+                }
+                Some("--dump-frames") => {
+                    dump_frames = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--press") => {
@@ -236,6 +244,7 @@ impl Launch {
                             command,
                             steps,
                             gpu,
+                            dump_frames,
                         },
                     ));
                 }
@@ -548,6 +557,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    if let Some(dir) = &launch.dump_frames {
+        fs::create_dir_all(dir)?;
+        session.compositor.keep_frame = true;
+    }
     if launch.gpu {
         let compositor = oxy_gpu::VulkanCompositor::new()?;
         eprintln!(
@@ -586,6 +599,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
     let mut output = session.compositor.framebuffer.clone();
     let mut snapshots = vec![session.compositor.snapshot(out, "launch-1.png")?];
+    let dump = |compositor: &Compositor, index: usize| -> Result<()> {
+        if let Some(dir) = &launch.dump_frames {
+            fs::write(
+                dir.join(format!("frame-{index:03}.oxyframe")),
+                &compositor.last_frame,
+            )?;
+        }
+        Ok(())
+    };
+    dump(&session.compositor, 1)?;
     let mut answered = Vec::new();
 
     session.compositor.log_input = true;
@@ -656,6 +679,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .compositor
                 .snapshot(out, &format!("launch-{}.png", index + 2))?,
         );
+        dump(&session.compositor, index + 2)?;
         output = now;
     }
 
@@ -706,6 +730,8 @@ mod tests {
         let (out, launch) = Launch::parse(&args(&[
             "--launch",
             "--gpu",
+            "--dump-frames",
+            "frames",
             "--out",
             "o",
             "--press",
@@ -737,6 +763,7 @@ mod tests {
         .unwrap();
         assert_eq!(out, PathBuf::from("o"));
         assert!(launch.gpu);
+        assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(

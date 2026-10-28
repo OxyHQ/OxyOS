@@ -130,3 +130,21 @@ fn vulkan_matches_the_reference() {
     let empty = gpu.compose(16, 16, 5, &[]).unwrap();
     assert_eq!(empty, vec![5; 256]);
 }
+
+#[test]
+fn frames_round_trip_through_a_file() {
+    let (window, popup) = frame();
+    let layers = layers(&window, &popup);
+    let mut bytes = Vec::new();
+    frame_file::write(&mut bytes, 120, 90, 0x0011_2233, &layers).unwrap();
+    let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
+    assert_eq!(
+        (frame.width, frame.height, frame.background),
+        (120, 90, 0x0011_2233)
+    );
+    assert_eq!(
+        compose_cpu(120, 90, 0x0011_2233, &frame.layers()),
+        compose_cpu(120, 90, 0x0011_2233, &layers)
+    );
+    assert!(frame_file::read(&mut &b"NOTAFRAME"[..]).is_err());
+}

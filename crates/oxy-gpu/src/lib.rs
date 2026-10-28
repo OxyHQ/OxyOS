@@ -99,6 +99,7 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
     out
 }
 
+pub mod frame_file;
 mod vulkan;
 pub use vulkan::{DeviceKind, VulkanCompositor};
 
