@@ -133,7 +133,7 @@ What the numbers say:
 - **Composition is not where the time goes.** The device composes a frame in 0.5 ms. Most of the 5.3 ms is uploading every client's whole buffer from shared memory each frame; client buffers stay shared memory until they are imported as DMA-BUF.
 - **The app and the refresh set the latency.** The host renders a frame in about 20 ms on the CPU, the handover waits for the next refresh, and many answers take more than one frame.
 - **Neither path is faster end to end.** Paired step by step over two runs of each (108 steps), GPU-only minus CPU is a median of −1.2 ms and a mean of +1.7 ms.
-- **One difference is unexplained.** Key presses and typing are about 10 ms slower with `--gpu-only`, consistently, while presses, popups, scrolling and window changes are within a few ms. The cause is not yet known.
+- **Key presses miss a refresh more often with `--gpu-only`.** Their median is about 10 ms higher, while presses, popups, scrolling and window changes are within a few ms. The cause is the refresh, not composition: answers land in clusters one refresh apart (about 20, 36, 51 and 68 ms). Over 40 key answers, the CPU path put 19 near 36 ms and 13 near 51 ms; `--gpu-only` put 10 and 23. Within a cluster, `--gpu-only` is slightly earlier. These answers are ready close to a refresh, so the small extra work in each submission (the kept copy and the fence wait) is enough to miss it. The director's readback takes 2.6 ms and runs after the clients hear the frame was shown, so it is not the cause. Composing against the refresh is frame scheduling, which the fixture does not do: it waits for each flip.
 
 Measuring found one bug in the fixture. With `--gpu-only`, the director's readback ran before the frame completed, so every client's next frame waited for the check. Clients now hear that the frame was shown first.
 
@@ -157,7 +157,7 @@ Still to do:
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
 - uploading only what changed, then importing client buffers as DMA-BUF, which removes the per-frame upload that dominates composition;
-- finding why key presses are about 10 ms slower with `--gpu-only`.
+- frame scheduling: non-blocking flips and composing at a deadline before the refresh, instead of composing when a frame arrives and waiting for its flip.
 
 ## Consequences
 
