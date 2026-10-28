@@ -83,6 +83,12 @@ class Painter {
     if (a <= 0) return;
     // Premultiplied source-over: an opaque canvas stays opaque, a transparent one gains alpha.
     uint32_t& dst = canvas_.pixels[static_cast<size_t>(y) * canvas_.width + x];
+    if (a >= 1) {
+      // The formula below with a = 1: the destination does not contribute.
+      auto c = [](float v) { return static_cast<uint32_t>(std::lround(v * 255)); };
+      dst = 0xff000000u | c(color.r) << 16 | c(color.g) << 8 | c(color.b);
+      return;
+    }
     auto channel = [&](int shift, float src) {
       float d = ((dst >> shift) & 0xff) / 255.0f;
       return static_cast<uint32_t>(std::lround((src * a + d * (1 - a)) * 255)) << shift;
@@ -120,21 +126,38 @@ class Painter {
     for (int py = y0; py < y1; ++py) {
       for (int px = x0; px < x1; ++px) {
         float lx = px / scale_, ly = py / scale_;
+        if (lx + 1 / scale_ <= clip.x0 || lx >= clip.x1 || ly + 1 / scale_ <= clip.y0 || ly >= clip.y1) continue;
         float coverage;
         if (rounded) {
           float s = 1 / scale_;
           // Subsample in logical space at device-pixel granularity.
-          coverage = roundedCoverageScaled(lx, ly, s, x, y, w, h, radii);
-          if (holeRadii) coverage -= roundedCoverageScaled(lx, ly, s, hx, hy, hw, hh, *holeRadii);
+          coverage = roundedCoverage(lx, ly, s, x, y, w, h, radii);
+          if (holeRadii && coverage > 0) coverage -= roundedCoverage(lx, ly, s, hx, hy, hw, hh, *holeRadii);
         } else {
           float cx = std::min(lx + 1 / scale_, box.x1) - std::max(lx, box.x0);
           float cy = std::min(ly + 1 / scale_, box.y1) - std::max(ly, box.y0);
           coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
         }
-        if (lx + 1 / scale_ <= clip.x0 || lx >= clip.x1 || ly + 1 / scale_ <= clip.y0 || ly >= clip.y1) continue;
         blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
       }
     }
+  }
+
+  // The 4x4-sampled coverage below, without sampling where every sample agrees: a pixel square
+  // outside the rectangle covers nothing, and one inside it that meets no corner square covers
+  // all of it (the same clamped radii as insideRounded).
+  static float roundedCoverage(float lx, float ly, float s, float x, float y, float w, float h,
+                               const BorderRadii& r) {
+    if (lx + s <= x || ly + s <= y || lx >= x + w || ly >= y + h) return 0;
+    if (lx >= x && ly >= y && lx + s <= x + w && ly + s <= y + h) {
+      float limit = std::min(w, h) / 2;
+      float tl = std::min(r.topLeft.horizontal, limit), tr = std::min(r.topRight.horizontal, limit);
+      float bl = std::min(r.bottomLeft.horizontal, limit), br = std::min(r.bottomRight.horizontal, limit);
+      bool clear = (lx >= x + tl || ly >= y + tl) && (lx + s <= x + w - tr || ly >= y + tr) &&
+                   (lx >= x + bl || ly + s <= y + h - bl) && (lx + s <= x + w - br || ly + s <= y + h - br);
+      if (clear) return 1;
+    }
+    return roundedCoverageScaled(lx, ly, s, x, y, w, h, r);
   }
 
   // 4x4-sampled coverage of a device pixel whose logical size is `s`.

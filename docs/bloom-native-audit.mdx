@@ -148,7 +148,20 @@ The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Blo
 
 The director can also send key chords (`--key 42+106` is Shift+Right), a pointer drag and a composition (`--preedit`). The 39 steps cover the button, wheel scrolling, the reply field (typing, Backspace, submit, caret keys, Shift selection, Delete, Ctrl+A, composition and its commit, press-to-place and drag selection), the menu by pointer and keyboard (arrows, Enter, Escape, typeahead), and an inline submenu that grows the open popup, which the compositor then places again within the output. They also cover an output scale change with the menu open (both surfaces drawn again at 1.5×, nothing moved, the menu still pressable in logical coordinates) and the wheel: exact offsets, clamping at the top, no event when nothing can move, and nothing delivered behind an open menu. The 53 steps, including the window move and resize below, pass three times out of three. Disabling the host's surface check for text makes the leak step fail on both its text and its React events.
 
-Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640): first frame about 0.6 s after launch; median input-to-first-frame latency about 68 ms (max about 90 ms); drawing a full window frame about 57 ms median (popups about 8 ms). The CPU renderer is the bottleneck, below 60 fps; GPU composition is #32's.
+Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 53-step run):
+
+| Measure | Value |
+| --- | --- |
+| First frame after launch | about 0.57 s |
+| Input-to-first-frame latency | about 25 ms median; max about 60 ms (the 1.5× frame) |
+| Drawing a full window frame | about 15 ms median; max about 46 ms (1.5×: 2.25× the pixels) |
+| Drawing a popup | about 2 ms |
+
+Before the painter's fast paths, a window frame took about 57 ms and latency was about 68 ms. Two cases are now handled directly:
+- **Opaque, fully covered pixels** are written without blending.
+- **Rounded rectangles** sample only near their corners: pixels whose square is inside, and clear of every corner, are full, and pixels outside are empty.
+
+Both give exactly what sampling gave: every regression frame is byte-identical before and after. GPU composition is #32's.
 
 **Accessibility (host side).** OxyOS has no assistive-technology bridge yet. The host builds each surface's accessibility tree from React Native's accessibility props, as Android exposes a view hierarchy to TalkBack (`accessibility.h`):
 - **Elements:** a view that is `accessible`, has a role or a label, or is a text input. Its name is its label, or else the text it contains.
@@ -166,7 +179,7 @@ The host reports the tree whenever it changes, and the regression checks it. For
 
 The steps check the window's and popup's exact rectangles.
 
-**Bloom's styles.** Bloom maps its `className`s to styles with `react-native-css`, which needs the app's Metro to compile a Tailwind stylesheet; Oxy apps do it through `@oxy.so/app-preset` (`global.css`, Tailwind v4 through PostCSS, `inlineRem: 16`). Until the sample did the same (`sample/global.css`), every class-styled part of Bloom lost its style silently: menu rows were laid out as a column without padding, panels had no border. Parts styled with resolved tokens looked right, which hid the gap. With the stylesheet, a full window frame takes about 57 ms instead of 37 ms, because the bordered, rounded panels are drawn. The sample does not import NativeWind's theme (`nativewind/theme`), which Oxy apps add on top: NativeWind is not among Bloom's dependencies, and what an app loses without it on OxyOS has not been checked.
+**Bloom's styles.** Bloom maps its `className`s to styles with `react-native-css`, which needs the app's Metro to compile a Tailwind stylesheet; Oxy apps do it through `@oxy.so/app-preset` (`global.css`, Tailwind v4 through PostCSS, `inlineRem: 16`). Until the sample did the same (`sample/global.css`), every class-styled part of Bloom lost its style silently: menu rows were laid out as a column without padding, panels had no border. Parts styled with resolved tokens looked right, which hid the gap. With the stylesheet the window has more to draw (bordered, rounded panels), which the painter's fast paths absorbed (see the measurements above). The sample does not import NativeWind's theme (`nativewind/theme`), which Oxy apps add on top: NativeWind is not among Bloom's dependencies, and what an app loses without it on OxyOS has not been checked.
 
 **React Native core runs its Android implementation on OxyOS** ([the adaptation's contract](./react-native-android-adaptation), checked by `scenarios/android-adaptation.json`). The host implements React Native's Android interfaces: TurboModule specs, component names and commands. So modules inside the `react-native` package get its own `Platform.android.js` and take their Android branches, and assets follow Android's resource layout. Everything else, including the `Platform` that `react-native` exports to apps and Bloom, reports `oxyos` (`sample/metro.config.js`). Before this rule, the 46 core modules that branch on `Platform.OS` took neither branch on `oxyos`; `TextInput` rendered nothing at all.
 
