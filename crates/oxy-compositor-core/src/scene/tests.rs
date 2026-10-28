@@ -1425,3 +1425,164 @@ fn parent_resize_reconstrains_popups_once_the_new_size_is_presented() {
     h.present(popup);
     assert!(SCREEN.contains(h.rect(popup)), "{:?}", h.rect(popup));
 }
+
+#[test]
+fn configures_only_representable_buffers_at_high_scale() {
+    let mut h = Harness::new();
+    h.scene.set_output_scale(1, 480).unwrap();
+    h.request(
+        APP,
+        Request::CreateToplevel {
+            surface: 1,
+            size: Size::new(5000, 1000),
+        },
+    )
+    .unwrap();
+    let (_, rect, scale) = h.configures[&key(APP, 1)];
+    // 4096 logical × 4 = 16384 physical: the largest buffer a client can submit.
+    assert_eq!((rect.width, rect.height, scale), (4096, 1000, 480));
+    h.present(key(APP, 1));
+    assert_eq!(h.rect(key(APP, 1)).width, 4096);
+}
+
+#[test]
+fn moving_a_window_to_a_denser_output_reconfigures_it_and_its_popups() {
+    let mut h = Harness::new();
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: Rect::new(1920, 0, 1920, 1080),
+            scale_120: 240,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let popup = h.popup(window, 2, menu(Rect::new(0, 280, 40, 20), 200, 150));
+    h.present(popup);
+    let w = h.rect(window);
+    let serial = h.press(w.x + 200, w.y + 10);
+    h.request(APP, Request::BeginMove { surface: 1, serial })
+        .unwrap();
+    h.scene.pointer_motion(w.x + 200 + 1500, w.y + 10);
+    h.pump();
+    assert_eq!(h.configures[&window].2, 240, "rescaled while moving");
+    assert_eq!(
+        h.rect(window).x,
+        w.x + 1500,
+        "old content keeps moving with the pointer"
+    );
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(
+        h.configures[&popup].2, 240,
+        "the popup follows its new anchor output"
+    );
+    // The new buffers are twice as dense.
+    h.present(window);
+    h.present(popup);
+    assert_eq!(h.rect(window).width, 400);
+}
+
+#[test]
+fn entering_fullscreen_re_places_popups_against_the_new_geometry() {
+    let mut h = Harness::new();
+    // 1800 wide, centered at x=60: a menu at local x=1700 does not fit to the right and flips.
+    let window = h.toplevel(APP, 1, 1800, 600);
+    let popup = h.popup(window, 2, menu(Rect::new(1700, 100, 20, 20), 200, 150));
+    h.present(popup);
+    let before = h.configures[&popup];
+    assert_eq!(before.1.x, 1520, "flipped left of the anchor");
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(
+        h.configures[&popup], before,
+        "unchanged until the fullscreen frame shows"
+    );
+    h.present(window);
+    let (serial, rect, _) = h.configures[&popup];
+    assert!(serial > before.0);
+    assert_eq!(rect.x, 1700, "now fits on its preferred side");
+    h.present(popup);
+    assert!(SCREEN.contains(h.rect(popup)));
+}
+
+#[test]
+fn a_fullscreen_window_fills_the_surviving_output_after_removal() {
+    let mut h = Harness::new();
+    let small = Rect::new(1920, 0, 1280, 720);
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: small,
+            scale_120: 120,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    let window = h.toplevel(APP, 1, 800, 600);
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.present(window);
+    h.scene.remove_output(1);
+    h.pump();
+    let (_, rect, _) = h.configures[&window];
+    assert_eq!((rect.width, rect.height), (1280, 720));
+    h.present(window);
+    assert_eq!(h.rect(window), small);
+    // Leaving fullscreen restores the windowed size on the surviving output.
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    h.present(window);
+    let restored = h.rect(window);
+    assert_eq!((restored.width, restored.height), (800, 600));
+    assert!(small.contains(restored), "{restored:?}");
+}
+
+#[test]
+fn shortcuts_move_to_another_shell_surface_when_the_target_goes_away() {
+    let mut h = Harness::new();
+    for (surface, kind) in [(1, ShellKind::Panel), (2, ShellKind::Overlay)] {
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface,
+                kind,
+                edge: PanelEdge::None,
+                output: 1,
+                size: Size::new(100, 40),
+                exclusive: 0,
+            },
+        )
+        .unwrap();
+    }
+    h.toplevel(APP, 1, 400, 300);
+    h.request(SHELL, Request::Destroy { surface: 1 }).unwrap();
+    h.clear_log();
+    h.scene.key(SUPER, true);
+    h.pump();
+    assert!(h.events_for(SHELL).contains(&Event::Key {
+        surface: 2,
+        serial: h.scene.serial,
+        key: SUPER,
+        pressed: true
+    }));
+    assert!(h.events_for(APP).is_empty());
+}

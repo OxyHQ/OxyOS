@@ -54,7 +54,7 @@ Layers stack bottom to top: Background, Normal (window groups, including fullscr
 
 ## Coordinates, scale and configure
 
-- One global logical coordinate space; outputs are logical rectangles with a scale in 120ths (120 = 1x, 180 = 1.5x). Physical buffer size is `ceil(logical × scale / 120)` per dimension.
+- One global logical coordinate space; outputs are logical rectangles with a scale in 120ths (120 = 1x, 180 = 1.5x). Physical buffer size is `ceil(logical × scale / 120)` per dimension. If that would exceed the 16,384-pixel buffer limit, the compositor configures the largest representable logical size together with the scale. It never configures a buffer the client cannot submit.
 - Clients never learn global coordinates. Toplevel configures report size only; popup configures report geometry relative to the parent.
 - Every compositor-initiated geometry or scale change sends `Configure` with a new serial. A `Submit` names the serial it was rendered for. A frame for an older serial is discarded (`Feedback Discarded` + `Released`) and the previous content stays; a current-serial frame with the wrong extent is a protocol error.
 - New geometry (size, popup position) takes effect when a frame for that configure is presented, so content and geometry change in the same frame.
@@ -80,7 +80,7 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 - Escape, arrows, typeahead and Enter are application semantics delivered to the focused popup; Bloom closes a submenu by destroying it. When the chain empties, focus returns to the surface focused before the grab.
 - If a captured surface disappears, or the compositor cancels capture (`Pointer Cancel`, `Touch Cancel`), the pending release is consumed rather than delivered as a click elsewhere.
 - Moves are compositor-owned after a valid `BeginMove` serial: the window and its popups move without client round trips.
-- Global shortcuts registered by the compositor go to the shell's shortcut target before any application, whatever the application's state.
+- Global shortcuts registered by the compositor go to the shell's shortcut target before any application, whatever the application's state. When that surface goes away, another live surface of a shortcut-granted shell becomes the target.
 
 ## Popup lifecycle
 
@@ -92,9 +92,10 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 | Lock | Grab and all non-lock popups `PopupDone(Locked)`; new grabs denied |
 | Grant revoked | Dependent surfaces `PopupDone(AuthorizationRevoked)` |
 | Parent moved | Popups keep their parent-relative position in the same frame (no detached jump); after the move, popups whose constrained geometry changed are reconfigured, or dismissed if unplaceable |
-| Parent resized | Popups keep their relative position until the parent's new size is presented, then are re-placed (or dismissed) if their constrained geometry changed |
+| Window moved to another output | Window and dialogs are reconfigured at the new output's scale during the move; popups follow their anchor output; old content stays until new buffers arrive |
+| Parent resized or repositioned (fullscreen, unfullscreen) | Popups keep their relative position until the parent's new geometry is presented, then are re-placed (or dismissed) if their constrained geometry changed |
 | Output scale change | Logical geometry kept; affected surfaces reconfigured at the new scale; old content shown until ready |
-| Output removed | Popups and output-bound shell/lock surfaces `PopupDone(OutputRemoved)`; windows move to a remaining output |
+| Output removed | Popups and output-bound shell/lock surfaces `PopupDone(OutputRemoved)`. Windows move to the first remaining output at once (a compositor-owned move, like a drag), so their last content is visible while buffers for the new scale are prepared. Fullscreen windows are configured to the surviving output's size, and their windowed geometry is restored on it |
 
 A dismissed popup releases its content immediately (deferred while a backend frame is in flight).
 

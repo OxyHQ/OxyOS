@@ -178,13 +178,25 @@ pub struct Scene {
     deferred: Vec<(SurfaceKey, u64)>,
 }
 
+/// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
+/// compositor configures this size (with the scale) instead of a buffer the client cannot submit.
+fn fit(size: Size, scale_120: u32) -> Size {
+    let limit = (u64::from(MAX_DIMENSION) * u64::from(SCALE_DENOMINATOR) / u64::from(scale_120))
+        .max(1) as u32;
+    Size::new(size.width.min(limit), size.height.min(limit))
+}
+
+/// Buffer size for a logical size that `fit` already made representable.
 fn physical(size: Size, scale_120: u32) -> Size {
     let scale = |logical: u32| {
-        let value =
-            (u64::from(logical) * u64::from(scale_120)).div_ceil(u64::from(SCALE_DENOMINATOR));
-        value.clamp(1, u64::from(MAX_DIMENSION)) as u32
+        (u64::from(logical) * u64::from(scale_120)).div_ceil(u64::from(SCALE_DENOMINATOR)) as u32
     };
-    Size::new(scale(size.width), scale(size.height))
+    let extent = Size::new(scale(size.width), scale(size.height));
+    debug_assert!(
+        extent.is_valid(),
+        "{size:?} at {scale_120} is not representable"
+    );
+    extent
 }
 
 fn layer_of(role: &Role) -> Layer {
@@ -256,11 +268,26 @@ impl Scene {
                     self.dismiss(key, DismissReason::OutputRemoved);
                 }
                 Role::Toplevel | Role::Dialog => {
+                    // Windows on a removed output are not visible anywhere; moving them is a
+                    // compositor-owned move, applied at once like a drag, so their last content
+                    // shows on the surviving output while new buffers are prepared.
                     if let Some(target) = self.outputs.first().copied() {
-                        let size = self.nodes[&key].size;
+                        let fullscreen = node.fullscreen;
+                        let mut size = node.pending.map_or(node.size, |(_, _, size)| size);
                         if node.parent.is_none() {
-                            let origin = self.centered(size, target.id);
-                            self.nodes.get_mut(&key).expect("present").origin = origin;
+                            let origin = if fullscreen {
+                                size = Size::new(target.rect.width, target.rect.height);
+                                (target.rect.x, target.rect.y)
+                            } else {
+                                self.centered(size, target.id)
+                            };
+                            let restore = node.restore.map(|(_, restored)| {
+                                (self.centered(restored, target.id), restored)
+                            });
+                            let node = self.nodes.get_mut(&key).expect("present");
+                            node.origin = origin;
+                            node.restore = restore;
+                            node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
                         }
                         self.nodes.get_mut(&key).expect("present").output = target.id;
                         self.reconfigure(key, None, size);
@@ -427,6 +454,21 @@ impl Scene {
         if revoked.shortcuts && self.shortcut_target.is_some_and(|key| key.client == client) {
             self.shortcut_target = None;
         }
+        self.elect_shortcut_target();
+    }
+
+    /// Keeps a live shell surface of a shortcut-granted client as the shortcut target.
+    fn elect_shortcut_target(&mut self) {
+        let valid = |scene: &Self, key: SurfaceKey| {
+            scene
+                .live(key)
+                .is_some_and(|node| matches!(node.role, Role::Shell { .. }))
+                && scene.clients.get(&key.client).is_some_and(|g| g.shortcuts)
+        };
+        if self.shortcut_target.is_some_and(|key| valid(self, key)) {
+            return;
+        }
+        self.shortcut_target = self.nodes.keys().copied().find(|key| valid(self, *key));
     }
 
     /// Keys the compositor routes to the shell before any application sees them.
@@ -712,6 +754,7 @@ impl Scene {
         let scale_120 = self
             .output(output)
             .map_or(SCALE_DENOMINATOR, |o| o.scale_120);
+        let size = fit(size, scale_120);
         let presentation =
             Presentation::new(physical(size, scale_120)).expect("physical sizes are valid");
         let (serial, _) = presentation.configuration();
@@ -785,6 +828,7 @@ impl Scene {
             self.output(node.output)
                 .map_or(node.scale_120, |o| o.scale_120)
         };
+        let size = fit(size, scale_120);
         let node = self.nodes.get_mut(&key).expect("present");
         node.scale_120 = scale_120;
         let discarded = node
@@ -792,7 +836,9 @@ impl Scene {
             .configure(physical(size, scale_120))
             .expect("physical sizes are valid");
         let (serial, _) = node.presentation.configuration();
-        node.pending = Some((serial, origin.unwrap_or(node.origin), size));
+        // Without an explicit origin the latest requested one is kept, not the displayed one.
+        let keep = node.pending.map_or(node.origin, |(_, origin, _)| origin);
+        node.pending = Some((serial, origin.unwrap_or(keep), size));
         if let Some(frame) = discarded {
             self.discard(key, frame);
         }
@@ -923,8 +969,14 @@ impl Scene {
                 let current = node
                     .pending
                     .map_or((node.origin, node.size), |(_, o, s)| (o, s));
+                let scale = node.scale_120;
                 match self.placement(key, &positioner) {
-                    Some((origin, size, _)) if (origin, size) == current => {}
+                    Some((origin, size, output))
+                        if (origin, size) == current
+                            && self.output(output).map(|o| o.scale_120) == Some(scale) =>
+                    {
+                        self.nodes.get_mut(&child).expect("present").output = output;
+                    }
                     Some(_) => self.reposition_popup(child),
                     None => self.dismiss(child, DismissReason::Unplaceable),
                 }
@@ -1106,6 +1158,7 @@ impl Scene {
         }
         if self.shortcut_target == Some(key) {
             self.shortcut_target = None;
+            self.elect_shortcut_target();
         }
     }
 
@@ -1179,6 +1232,7 @@ impl Scene {
         }
         if self.shortcut_target == Some(key) {
             self.shortcut_target = None;
+            self.elect_shortcut_target();
         }
         if self.last_press.is_some_and(|press| press.surface == key) {
             self.last_press = None;
@@ -1620,7 +1674,35 @@ impl Scene {
             ));
         }
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
-            self.nodes.get_mut(&moving.surface).expect("present").output = output.id;
+            self.move_to_output(moving.surface, output.id);
+        }
+    }
+
+    /// Assigns `output` to a window and its dialogs, asking for buffers at the new scale when it
+    /// differs; displayed content stays until they arrive. Popups follow their anchor output in
+    /// `reconstrain_children`.
+    fn move_to_output(&mut self, key: SurfaceKey, output: OutputId) {
+        let Some(scale) = self.output(output).map(|o| o.scale_120) else {
+            return;
+        };
+        let Some(node) = self.nodes.get_mut(&key) else {
+            return;
+        };
+        node.output = output;
+        let rescale = node.scale_120 != scale && !node.dismissed;
+        let size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let children = node.children.clone();
+        if rescale {
+            self.reconfigure(key, None, size);
+        }
+        for child in children {
+            if self
+                .nodes
+                .get(&child)
+                .is_some_and(|n| n.role == Role::Dialog)
+            {
+                self.move_to_output(child, output);
+            }
         }
     }
 
@@ -1876,7 +1958,7 @@ impl Scene {
             let shown = node.presentation.displayed().expect("just displayed");
             if let Some((serial, origin, size)) = node.pending {
                 if shown.configure == serial {
-                    if node.size != size && !node.children.is_empty() {
+                    if (node.size != size || node.origin != origin) && !node.children.is_empty() {
                         resized.push(key);
                     }
                     node.origin = origin;
@@ -1905,7 +1987,7 @@ impl Scene {
         for (key, buffer) in std::mem::take(&mut self.deferred) {
             self.release(key, buffer);
         }
-        // A parent's new size is on screen: re-place popups whose constrained geometry changed.
+        // A parent's new geometry is on screen: re-place popups whose constrained geometry changed.
         for key in resized {
             self.reconstrain_children(key);
         }
