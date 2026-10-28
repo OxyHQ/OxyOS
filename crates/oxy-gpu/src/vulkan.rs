@@ -33,6 +33,31 @@ impl From<vk::PhysicalDeviceType> for DeviceKind {
     }
 }
 
+/// Where the device holds a layer's pixels at the version they changed from (`Layer::changed`):
+/// their offset, and what changed. Rows are copied once per rectangle, never more than the whole
+/// layer, so the upload buffer (one copy of every layer) holds them.
+fn updatable<'a>(
+    resident: &std::collections::HashMap<u64, (u64, u64, u64)>,
+    layer: &Layer<'a>,
+) -> Option<(u64, &'a [crate::Rect])> {
+    let source = layer.source?;
+    let (from, changed) = layer.changed?;
+    let &(version, offset, length) = resident.get(&source.key)?;
+    let words = u64::from(layer.extent.0) * u64::from(layer.extent.1);
+    let extent = crate::Rect {
+        x: 0,
+        y: 0,
+        width: layer.extent.0,
+        height: layer.extent.1,
+    };
+    let copied: u64 = changed
+        .iter()
+        .filter_map(|rect| rect.intersect(&extent))
+        .map(|rect| u64::from(rect.width) * u64::from(rect.height))
+        .sum();
+    (version == from && length == words && copied <= length).then_some((offset, changed))
+}
+
 /// Damage clipped to the output, without empty rectangles. Past eight, one rectangle holding
 /// them all: each region costs a dispatch per layer.
 fn merged(regions: Vec<crate::Rect>, output: &crate::Rect) -> Vec<crate::Rect> {
@@ -710,7 +735,11 @@ impl VulkanCompositor {
         };
         let new_words: u64 = layers
             .iter()
-            .filter(|layer| layer.pixels().is_some() && kept(&self.resident, layer).is_none())
+            .filter(|layer| {
+                layer.pixels().is_some()
+                    && kept(&self.resident, layer).is_none()
+                    && updatable(&self.resident, layer).is_none()
+            })
             .map(|layer| words(layer))
             .sum();
         if self.source_next + new_words > capacity {
@@ -756,9 +785,46 @@ impl VulkanCompositor {
                 Paint::Opaque(pixels) | Paint::Premultiplied(pixels) => {
                     push.mode = u32::from(matches!(layer.paint, Paint::Premultiplied(_)));
                     let length = words(layer);
-                    let offset = match kept(&self.resident, layer) {
-                        Some(offset) => offset,
-                        None => {
+                    let updated = updatable(&self.resident, layer);
+                    let offset = match (kept(&self.resident, layer), updated) {
+                        (Some(offset), _) => offset,
+                        (None, Some((offset, changed))) => {
+                            let extent = crate::Rect {
+                                x: 0,
+                                y: 0,
+                                width: layer.extent.0,
+                                height: layer.extent.1,
+                            };
+                            let row = u64::from(layer.extent.0);
+                            for rect in changed.iter().filter_map(|rect| rect.intersect(&extent)) {
+                                for y in rect.y as u64..rect.y as u64 + u64::from(rect.height) {
+                                    let at = y * row + rect.x as u64;
+                                    let count = u64::from(rect.width);
+                                    // SAFETY: `upload` is mapped for at least `frame_words` words,
+                                    // and a frame copies no more than its layers' pixels; this row
+                                    // lies within `pixels` (`Layer::valid`, clipped to the extent).
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(
+                                            pixels.as_ptr().add(at as usize * 4),
+                                            upload.mapped.add(uploaded as usize * 4),
+                                            count as usize * 4,
+                                        );
+                                    }
+                                    copies.push(
+                                        vk::BufferCopy::default()
+                                            .src_offset(uploaded * 4)
+                                            .dst_offset((offset + at) * 4)
+                                            .size(count * 4),
+                                    );
+                                    uploaded += count;
+                                }
+                            }
+                            let source = layer.source.expect("updatable layers have a source");
+                            self.resident
+                                .insert(source.key, (source.version, offset, length));
+                            offset
+                        }
+                        (None, None) => {
                             let offset = self.source_next;
                             self.source_next += length;
                             // SAFETY: `upload` is mapped for at least `frame_words` words and

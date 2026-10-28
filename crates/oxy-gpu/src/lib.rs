@@ -31,6 +31,9 @@ pub struct Layer<'a> {
     pub paint: Paint<'a>,
     /// Where the pixels come from, when they may be the same as an earlier frame's.
     pub source: Option<Source>,
+    /// What changed in the pixels (in their own coordinates) since an earlier version of their
+    /// source: where the device holds that version, only these rows are uploaded.
+    pub changed: Option<(u64, &'a [Rect])>,
 }
 
 /// The identity of a layer's pixels: the same key and version are the same pixels, so the
