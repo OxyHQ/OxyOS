@@ -6,7 +6,7 @@ order: 14
 
 # ADR 0005: Damage: composing and drawing only what changed
 
-Status: **proposed**. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+Status: **accepted**, nothing implemented yet; the order of work is below. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
@@ -30,7 +30,7 @@ That is about 5.3 ms of the compositor's frame, and the host's 20 ms come before
 
 The protocol cannot say what changed: `Submit { surface, sequence, buffer, configure, extent }` names a whole buffer.
 
-## Decision (proposed)
+## Decision
 
 1. **The output's damage, from the scene.** The compositor works out what changed on the output from what it already knows, with no protocol change:
    - a surface's whole rectangle when it presents a new frame;
