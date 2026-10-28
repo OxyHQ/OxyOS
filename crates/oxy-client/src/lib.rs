@@ -33,7 +33,12 @@ struct Buffer {
     extent: Size,
     format: Format,
     busy: bool,
+    /// The sequence of the frame last written into it; 0 for none.
+    written: u64,
 }
+
+/// Frames' damage kept per client, enough for buffers reused a few frames later.
+const HISTORY: usize = 16;
 
 /// What a non-blocking poll found.
 #[derive(Debug, PartialEq, Eq)]
@@ -50,6 +55,8 @@ pub struct Client {
     buffers: Vec<Buffer>,
     next_buffer: u64,
     sequence: u64,
+    /// The latest frames: surface, sequence, and what changed in them (`None`: everything).
+    history: std::collections::VecDeque<(u32, u64, Option<Vec<Rect>>)>,
 }
 
 impl Client {
@@ -70,6 +77,7 @@ impl Client {
             buffers: Vec::new(),
             next_buffer: 0,
             sequence: 0,
+            history: std::collections::VecDeque::new(),
         })
     }
 
@@ -101,6 +109,32 @@ impl Client {
         format: Format,
         pixels: &[u8],
     ) -> io::Result<u64> {
+        self.present_damaged(surface, configure, extent, format, pixels, None)
+    }
+
+    /// [`Client::present_format`] for a frame of which only `damage` changed since the
+    /// surface's previous frame (in buffer pixels; `None` or none at all: everything). The
+    /// compositor hears the damage (docs/adr/0005-damage.mdx). A reused buffer holds a frame
+    /// from some presents ago, so only what changed since that frame is written into it: the
+    /// damage of every frame it missed, or everything when that is not known.
+    pub fn present_damaged(
+        &mut self,
+        surface: u32,
+        configure: u64,
+        extent: Size,
+        format: Format,
+        pixels: &[u8],
+        damage: Option<&[Rect]>,
+    ) -> io::Result<u64> {
+        let buffer = Rect::new(0, 0, extent.width, extent.height);
+        let damage: Option<Vec<Rect>> = damage
+            .map(|rects| {
+                rects
+                    .iter()
+                    .filter_map(|rect| clipped(rect, &buffer))
+                    .collect()
+            })
+            .filter(|rects: &Vec<Rect>| !rects.is_empty());
         let layout = BufferLayout {
             format,
             extent,
@@ -152,15 +186,69 @@ impl Client {
                     extent,
                     format,
                     busy: false,
+                    written: 0,
                 });
                 self.buffers.len() - 1
             }
         };
+        // What this buffer lacks: the frames presented since it was written, and this one.
+        let written = self.buffers[index].written;
+        let missed: Option<Vec<Rect>> = if written == 0 {
+            None
+        } else {
+            let since: Vec<&(u32, u64, Option<Vec<Rect>>)> = self
+                .history
+                .iter()
+                .filter(|(s, sequence, _)| *s == surface && *sequence > written)
+                .collect();
+            // The history must reach back to the frame after the one written.
+            let complete = self
+                .history
+                .iter()
+                .any(|(s, sequence, _)| *s == surface && *sequence <= written);
+            complete
+                .then(|| {
+                    since
+                        .iter()
+                        .try_fold(damage.clone()?, |mut all, (_, _, frame)| {
+                            all.extend(frame.as_ref()?);
+                            Some(all)
+                        })
+                })
+                .flatten()
+        };
         let buffer = &mut self.buffers[index];
-        write_at(buffer.fd.as_fd(), 0, pixels)?;
+        match missed {
+            Some(rects) => {
+                let stride = u64::from(extent.width) * 4;
+                for rect in rects {
+                    for y in rect.y as u32..rect.y as u32 + rect.height {
+                        let start = u64::from(y) * stride + u64::from(rect.x as u32) * 4;
+                        let end = start + u64::from(rect.width) * 4;
+                        write_at(
+                            buffer.fd.as_fd(),
+                            start,
+                            &pixels[start as usize..end as usize],
+                        )?;
+                    }
+                }
+            }
+            None => write_at(buffer.fd.as_fd(), 0, pixels)?,
+        }
         buffer.busy = true;
         let id = buffer.id;
         self.sequence += 1;
+        buffer.written = self.sequence;
+        for rect in damage.iter().flatten() {
+            self.send(&Request::Damage {
+                surface,
+                rect: *rect,
+            })?;
+        }
+        self.history.push_back((surface, self.sequence, damage));
+        if self.history.len() > HISTORY {
+            self.history.pop_front();
+        }
         self.send(&Request::Submit {
             surface,
             sequence: self.sequence,
@@ -276,6 +364,24 @@ impl AsFd for Client {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.connection.as_fd()
     }
+}
+
+/// The part of `rect` within `bounds`, if any.
+fn clipped(rect: &Rect, bounds: &Rect) -> Option<Rect> {
+    let left = i64::from(rect.x).max(i64::from(bounds.x));
+    let top = i64::from(rect.y).max(i64::from(bounds.y));
+    let right = (i64::from(rect.x) + i64::from(rect.width))
+        .min(i64::from(bounds.x) + i64::from(bounds.width));
+    let bottom = (i64::from(rect.y) + i64::from(rect.height))
+        .min(i64::from(bounds.y) + i64::from(bounds.height));
+    (right > left && bottom > top).then(|| {
+        Rect::new(
+            left as i32,
+            top as i32,
+            (right - left) as u32,
+            (bottom - top) as u32,
+        )
+    })
 }
 
 /// One node of a surface's accessibility snapshot (`Client::publish_accessibility`).

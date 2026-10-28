@@ -179,6 +179,16 @@ fn the_header_matches_the_abi() {
         (rust.to_vec(), size_of::<OxyAccessibleNode>())
     );
 
+    let rect = fields("OxyRect");
+    assert_eq!(names(&rect), ["x", "y", "width", "height"]);
+    let rust = [
+        offset_of!(OxyRect, x),
+        offset_of!(OxyRect, y),
+        offset_of!(OxyRect, width),
+        offset_of!(OxyRect, height),
+    ];
+    assert_eq!(c_offsets(&rect), (rust.to_vec(), size_of::<OxyRect>()));
+
     let event = fields("OxyEvent");
     let rust = [
         offset_of!(OxyEvent, kind),

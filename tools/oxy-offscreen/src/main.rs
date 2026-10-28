@@ -335,7 +335,18 @@ impl Compositor {
         self.composing_since = monotonic();
         // What changed on the output since the frame composed last (ADR 0005); everything when
         // there was none, or after the display came back.
-        let damage = (!self.composed.is_empty()).then(|| output_damage(&self.composed, &list));
+        let scene = &self.scene;
+        let drawn = |key: SurfaceKey, rect: Rect, extent: Size| match scene.presenting_damage(key) {
+            Some(oxy_compositor_core::SurfaceDamage::Rects(rects)) => Some(
+                rects
+                    .iter()
+                    .map(|damage| on_output(damage, rect, extent))
+                    .collect(),
+            ),
+            _ => None,
+        };
+        let damage =
+            (!self.composed.is_empty()).then(|| output_damage(&self.composed, &list, &drawn));
         let area = |rects: &[oxy_gpu::Rect]| {
             rects
                 .iter()
@@ -853,10 +864,41 @@ const OUTPUT_RECT: oxy_gpu::Rect = oxy_gpu::Rect {
     height: OUTPUT.height,
 };
 
+/// A surface's damage (buffer pixels) on the output, where the surface shows at `rect`: scaled
+/// as the surface is, rounded outward so every output pixel sampling a damaged buffer pixel is
+/// in it.
+fn on_output(damage: &Rect, rect: Rect, extent: Size) -> oxy_gpu::Rect {
+    let scale = |at: u32, length: u32, extent: u32, up: bool| {
+        let product = u64::from(at) * u64::from(length);
+        let extent = u64::from(extent.max(1));
+        (if up {
+            product.div_ceil(extent)
+        } else {
+            product / extent
+        }) as i64
+    };
+    let (x0, y0) = (damage.x.max(0) as u32, damage.y.max(0) as u32);
+    let left = scale(x0, rect.width, extent.width, false);
+    let top = scale(y0, rect.height, extent.height, false);
+    let right = scale(x0 + damage.width, rect.width, extent.width, true);
+    let bottom = scale(y0 + damage.height, rect.height, extent.height, true);
+    oxy_gpu::Rect {
+        x: rect.x + left as i32,
+        y: rect.y + top as i32,
+        width: (right - left) as u32,
+        height: (bottom - top) as u32,
+    }
+}
+
 /// What changed on the output from one composed frame to the next (ADR 0005): a surface's
-/// rectangle when it is new, gone or shows a new frame, its old and new ones when it moved,
-/// resized or changed places in the stacking, and covers that came or went.
-fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxy_gpu::Rect> {
+/// rectangle when it is new or gone, its damage (`drawn`, on the output) or else its rectangle
+/// when it shows a new frame, its old and new rectangles when it moved, resized or changed
+/// places in the stacking, and covers that came or went.
+fn output_damage(
+    before: &[RenderItem],
+    after: &[RenderItem],
+    drawn: &dyn Fn(SurfaceKey, Rect, Size) -> Option<Vec<oxy_gpu::Rect>>,
+) -> Vec<oxy_gpu::Rect> {
     let rect = |rect: Rect| oxy_gpu::Rect {
         x: rect.x,
         y: rect.y,
@@ -877,7 +919,10 @@ fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxy_gpu::Re
         match old.iter().find(|(old_key, ..)| *old_key == key) {
             None => damage.push(rect(now)),
             Some(&(_, then, _)) if then != now => damage.extend([rect(then), rect(now)]),
-            Some(&(.., then_frame)) if then_frame != frame => damage.push(rect(now)),
+            Some(&(.., then_frame)) if then_frame != frame => match drawn(key, now, frame.extent) {
+                Some(drawn) => damage.extend(drawn),
+                None => damage.push(rect(now)),
+            },
             Some(_) => {}
         }
     }
@@ -1324,6 +1369,40 @@ mod tests {
             width: 10,
             height: 10,
         }
+    }
+
+    fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxy_gpu::Rect> {
+        super::output_damage(before, after, &|_, _, _| None)
+    }
+
+    #[test]
+    fn a_surfaces_damage_is_on_the_output_where_it_shows() {
+        let before = [surface(1, 0, 1)];
+        let after = [surface(1, 0, 2)];
+        // The surface's own damage, not its whole rectangle.
+        let drawn = |_: SurfaceKey, rect: Rect, extent: Size| {
+            Some(vec![on_output(&Rect::new(2, 3, 4, 1), rect, extent)])
+        };
+        assert_eq!(
+            super::output_damage(&before, &after, &drawn),
+            [oxy_gpu::Rect {
+                x: 2,
+                y: 3,
+                width: 4,
+                height: 1
+            }]
+        );
+        // Scaled outward: a 10x10 buffer at 15x15 (1.5x), pixels 3 to 5 cover output 4 to 9.
+        let shown = Rect::new(100, 0, 15, 15);
+        assert_eq!(
+            on_output(&Rect::new(3, 3, 3, 3), shown, Size::new(10, 10)),
+            oxy_gpu::Rect {
+                x: 104,
+                y: 4,
+                width: 5,
+                height: 5
+            }
+        );
     }
 
     #[test]

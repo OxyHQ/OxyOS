@@ -105,6 +105,10 @@ fn requests() -> Vec<Request> {
             index: 1,
             action: AccessibleAction::Activate,
         },
+        Request::Damage {
+            surface: 1,
+            rect: Rect::new(-2, 3, 40, 5),
+        },
     ]
 }
 
