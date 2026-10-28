@@ -121,6 +121,22 @@ Driving real devices found two bugs. The fixture had to change for both:
 - **A whole step sent at once overflowed the kernel's buffer.** The director wrote a step's keys before the compositor read any. The kernel holds 64 events for each reader of a device; "Hola OxyOS!" with its Shift presses is exactly 64, so the kernel dropped them all and libinput resynchronised to keys already up. Now the compositor reads each event as it is sent, as its event loop does with a person's input.
 - **Middle-button emulation held each press.** libinput emulates a middle button on any pointer with left and right buttons and no middle one, and that setting is not configurable. It holds each left press until the release or a timeout while motion passes, so a drag pressed where it ended. The virtual pointer is now a wheel mouse with the wheel's button.
 
+**Real performance.** `--gpu` validates: every frame is composed three times (the CPU reference, the GPU comparison and the scanout). `--gpu-only` composes once, into the scanout buffer, and the director reads a copy back after the flip. Every display step reports input to the kernel's flip of the frame showing the answer. Measured on the ThinkPad with the full regression through the devices (58 steps, terminal 8), medians:
+
+| Mode | Input to flip | Composition per frame | Device per frame | Handover to flip |
+| --- | --- | --- | --- | --- |
+| CPU (`--kms`) | 39–48 ms across runs | about 5.0 ms | n/a | about 9.5–10.8 ms |
+| Validation (`--gpu`) | about 52.5 ms | about 10.1 ms | 0.5 ms | about 6.6 ms |
+| GPU only (`--gpu-only`) | 46–50 ms across runs | about 5.3 ms | 0.5 ms | about 7.7–8.5 ms |
+
+What the numbers say:
+- **The composition pass is not where the time goes.** The device's compute pass takes 0.5 ms. The rest of the 5.3 ms is reading the clients' buffers, uploading them, filling the whole output and submitting the work; #46 measures each part.
+- **The app and the refresh set the latency.** The host renders a frame in about 20 ms on the CPU, the handover waits for the next refresh, and many answers take more than one frame.
+- **Neither path is faster end to end.** Paired step by step over two runs of each (108 steps), GPU-only minus CPU is a median of −1.2 ms and a mean of +1.7 ms.
+- **Key presses miss a refresh more often with `--gpu-only`.** Their median is about 10 ms higher, while presses, popups, scrolling and window changes are within a few ms. The cause is the refresh, not composition: answers land in clusters one refresh apart (about 20, 36, 51 and 68 ms). Over 40 key answers, the CPU path put 19 near 36 ms and 13 near 51 ms; `--gpu-only` put 10 and 23. Within a cluster, `--gpu-only` is slightly earlier. These answers are ready close to a refresh, so the small extra work in each submission (the kept copy and the fence wait) is enough to miss it. The director's readback takes 2.6 ms and runs after the clients hear the frame was shown, so it is not the cause. Composing against the refresh is frame scheduling, which the fixture does not do: it waits for each flip.
+
+Measuring found one bug in the fixture. With `--gpu-only`, the director's readback ran before the frame completed, so every client's next frame waited for the check. Clients now hear that the frame was shown first.
+
 **The terminal.** With `--kms`, the compositor takes the terminal it shows on (`oxy-vt`). The console draws nothing over the frames, its keyboard is off with device input, and switches go by request. On a switch away, the compositor releases DRM master and closes the devices. On return, it takes both back, modesets, and shows the frame again. Ctrl+Alt+Fn comes from the keymap and reaches no application.
 
 `scenarios/terminal.json` checks it on the ThinkPad with device input only. Terminal 8 has no login, and the test leaves for terminal 5 and comes back with that terminal's own Ctrl+Alt+F8. The app hears Ctrl and Alt and never the function keys, and the pointer and keyboard work after the return. Three runs out of three pass, away for 143–243 ms.
@@ -139,7 +155,8 @@ Still to do:
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
-- composing once (GPU scanout only) outside validation, which needs the director's checks to read from the scanout instead of a CPU reference.
+- uploading only what changed, then importing client buffers as DMA-BUF;
+- frame scheduling: non-blocking flips and composing at a deadline before the refresh, instead of composing when a frame arrives and waiting for its flip.
 
 ## Consequences
 

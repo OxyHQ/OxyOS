@@ -64,6 +64,11 @@ struct Compositor {
     /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
     /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
     gpu: Option<Gpu>,
+    /// With `--gpu-only`: frames are composed on the Vulkan device alone, with no CPU reference;
+    /// the frame the director checks is the one composed, read back after it is shown.
+    gpu_only: bool,
+    /// The frame just shown was kept on the device for `framebuffer_from_gpu`.
+    shown_kept: bool,
     /// With `--dump-frames`: the latest composed frame, as `oxy_gpu::frame_file` writes it.
     keep_frame: bool,
     last_frame: Vec<u8>,
@@ -80,6 +85,10 @@ struct Compositor {
     /// For every frame shown: when it was handed to the display and when it flipped
     /// (CLOCK_MONOTONIC).
     flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
+    /// long from then to handing it to the display, in milliseconds.
+    composing_since: std::time::Duration,
+    compositions: Vec<f64>,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -91,6 +100,10 @@ struct Gpu {
     compositor: oxy_gpu::VulkanCompositor,
     frames: u64,
     mismatches: u64,
+    /// The device's time for each frame composed for the display (GPU timestamps), in ms.
+    device_ms: Vec<f64>,
+    /// With `--gpu-only`: how long each readback of the shown frame took, in ms.
+    readback_ms: Vec<f64>,
 }
 
 impl Compositor {
@@ -270,6 +283,7 @@ impl Compositor {
             self.scene.end_frame(0, Clock::Synthetic);
             return;
         }
+        self.composing_since = monotonic();
         // Each surface's pixels, read from its shared buffer, and the covers.
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
@@ -302,7 +316,9 @@ impl Compositor {
             })
             .collect();
         // The output is at the origin of the global space.
-        self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
+        if !self.gpu_only {
+            self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
+        }
         if self.keep_frame {
             self.last_frame.clear();
             oxy_gpu::frame_file::write(
@@ -314,7 +330,7 @@ impl Compositor {
             )
             .expect("writing to memory");
         }
-        if let Some(gpu) = &mut self.gpu {
+        if let (Some(gpu), false) = (&mut self.gpu, self.gpu_only) {
             gpu.frames += 1;
             match gpu
                 .compositor
@@ -336,7 +352,8 @@ impl Compositor {
         self.composed = self.scene.frame_list();
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time.
-        let (timestamp_ns, clock) = match self.show(&layers) {
+        let flip = self.show(&layers);
+        let (timestamp_ns, clock) = match flip {
             Some(flip) => (
                 u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
                 Clock::Monotonic,
@@ -345,6 +362,12 @@ impl Compositor {
         };
         self.scene.end_frame(timestamp_ns, clock);
         self.retire();
+        if self.gpu_only {
+            // The clients hear the frame was shown before the director reads it back, so its
+            // check delays no client's next frame.
+            self.flush();
+            self.framebuffer_from_gpu(&layers);
+        }
     }
 
     /// With `--kms`: lets go of the display and the devices when the kernel switches to another
@@ -451,6 +474,45 @@ impl Compositor {
         }
     }
 
+    /// With `--gpu-only`: the director's frame is the GPU's, the output's part of the frame shown
+    /// (read back after the flip) or, with nothing shown, composed for it. An error counts as a
+    /// mismatch, and the run fails.
+    fn framebuffer_from_gpu(&mut self, layers: &[oxy_gpu::Layer<'_>]) {
+        let display = self.display.as_ref().map(|display| display.size());
+        let Some(gpu) = &mut self.gpu else {
+            return;
+        };
+        gpu.frames += 1;
+        let started = monotonic();
+        let frame = match display {
+            Some((width, height)) if self.shown_kept => {
+                self.shown_kept = false;
+                let dx = (width.saturating_sub(OUTPUT.width) / 2) as usize;
+                let dy = (height.saturating_sub(OUTPUT.height) / 2) as usize;
+                gpu.compositor.read_kept().map(|shown| {
+                    shown
+                        .chunks_exact(width as usize)
+                        .skip(dy)
+                        .take(OUTPUT.height as usize)
+                        .flat_map(|row| row[dx..dx + OUTPUT.width as usize].iter().copied())
+                        .collect()
+                })
+            }
+            _ => gpu
+                .compositor
+                .compose(OUTPUT.width, OUTPUT.height, DESKTOP, layers),
+        };
+        gpu.readback_ms
+            .push((monotonic() - started).as_secs_f64() * 1e3);
+        match frame {
+            Ok(frame) => self.framebuffer = frame,
+            Err(error) => {
+                eprintln!("[gpu] {error}");
+                gpu.mismatches += 1;
+            }
+        }
+    }
+
     /// With `--kms`: shows the composed output centred on the display and waits for its flip;
     /// returns the flip's CLOCK_MONOTONIC time. With `--gpu` too, the frame is composed on the
     /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
@@ -473,13 +535,18 @@ impl Compositor {
                 })
                 .collect();
             let back = self.scanout_back;
-            let composed = gpu
-                .compositor
-                .compose_to_scanout(back, DESKTOP, &shifted)
-                .map_err(|error| std::io::Error::other(error.to_string()));
-            let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-            let submitted =
-                std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+            let composed = if self.gpu_only {
+                self.shown_kept = true;
+                gpu.compositor
+                    .compose_to_scanout_kept(back, DESKTOP, &shifted)
+            } else {
+                gpu.compositor.compose_to_scanout(back, DESKTOP, &shifted)
+            }
+            .map_err(|error| std::io::Error::other(error.to_string()));
+            gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
+            let submitted = monotonic();
+            self.compositions
+                .push((submitted - self.composing_since).as_secs_f64() * 1e3);
             let flip = composed
                 .and_then(|()| display.present_framebuffer(self.scanout[back]))
                 .and_then(|()| display.wait_flip());
@@ -512,8 +579,9 @@ impl Compositor {
             pixels[start..start + columns].copy_from_slice(&row[..columns]);
         }
         let drawn = display.draw(&pixels);
-        let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
-        let submitted = std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+        let submitted = monotonic();
+        self.compositions
+            .push((submitted - self.composing_since).as_secs_f64() * 1e3);
         let flip = drawn
             .and_then(|()| display.present())
             .and_then(|()| display.wait_flip());
@@ -628,6 +696,12 @@ impl Compositor {
 }
 
 /// The input events a step can cause, by surface and kind (motion is continuous and left out).
+/// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
+fn monotonic() -> std::time::Duration {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    std::time::Duration::new(now.tv_sec as u64, now.tv_nsec as u32)
+}
+
 fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
     Some(match *event {
         Event::Pointer { surface, kind, .. } => (
@@ -741,6 +815,8 @@ impl Session {
             input_log: Vec::new(),
             log_input: false,
             gpu: None,
+            gpu_only: false,
+            shown_kept: false,
             keep_frame: false,
             last_frame: Vec::new(),
             display: None,
@@ -749,6 +825,8 @@ impl Session {
             scanout: Vec::new(),
             scanout_back: 0,
             flips: Vec::new(),
+            composing_since: std::time::Duration::ZERO,
+            compositions: Vec::new(),
             terminal: None,
             away: false,
         };

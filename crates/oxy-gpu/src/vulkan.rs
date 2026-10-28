@@ -176,6 +176,8 @@ pub struct VulkanCompositor {
     bound_output: vk::Buffer,
     /// The compute queue's family.
     family: u32,
+    /// The size of the frame `compose_to_scanout_kept` copied for `read_kept`, if any.
+    kept: Option<(u32, u32)>,
 }
 
 impl VulkanCompositor {
@@ -230,6 +232,7 @@ impl VulkanCompositor {
             scanout: Vec::new(),
             bound_output: vk::Buffer::null(),
             family: opened.family,
+            kept: None,
         };
         this.build(opened.family)?;
         Ok(this)
@@ -451,8 +454,62 @@ impl VulkanCompositor {
             .get(index)
             .ok_or_else(|| Error(format!("no scanout target {index}")))?;
         let (width, height) = (target.width, target.height);
-        self.run(width, height, background, layers, Some(index))?;
+        self.run(width, height, background, layers, Some((index, false)))?;
         Ok(())
+    }
+
+    /// The same, also copying the frame (in the same submission, before the display has it) for
+    /// [`read_kept`](Self::read_kept): a caller that checks what was shown reads it after the
+    /// display took it, so the check never delays the frame.
+    pub fn compose_to_scanout_kept(
+        &mut self,
+        index: usize,
+        background: u32,
+        layers: &[Layer<'_>],
+    ) -> Result<(), Error> {
+        let target = self
+            .scanout
+            .get(index)
+            .ok_or_else(|| Error(format!("no scanout target {index}")))?;
+        let (width, height) = (target.width, target.height);
+        self.run(width, height, background, layers, Some((index, true)))?;
+        self.kept = Some((width, height));
+        Ok(())
+    }
+
+    /// The frame the last [`compose_to_scanout_kept`](Self::compose_to_scanout_kept) copied,
+    /// row by row at the scanout target's size; it is read once.
+    pub fn read_kept(&mut self) -> Result<Vec<u32>, Error> {
+        let (width, height) = self
+            .kept
+            .take()
+            .ok_or_else(|| Error("no frame was kept".into()))?;
+        Ok(self.read_back(width as usize * height as usize)?)
+    }
+
+    /// The readback buffer's first `words` pixels, after a completed submission copied them.
+    fn read_back(&self, words: usize) -> Result<Vec<u32>, vk::Result> {
+        let readback = self.buffers[3].as_ref().expect("reserved");
+        if !readback.coherent {
+            // SAFETY: the memory is mapped and live; the submission that wrote it completed.
+            unsafe {
+                self.device
+                    .invalidate_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
+                        .memory(readback.memory)
+                        .size(vk::WHOLE_SIZE)])?
+            };
+        }
+        let mut out = vec![0u32; words];
+        // SAFETY: the copy's writes are visible (fence waited for, memory invalidated), and
+        // `readback` is mapped for at least `words` pixels (reserved for the output's size).
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                readback.mapped,
+                out.as_mut_ptr().cast::<u8>(),
+                words * 4,
+            );
+        }
+        Ok(out)
     }
 
     fn run(
@@ -461,8 +518,15 @@ impl VulkanCompositor {
         height: u32,
         background: u32,
         layers: &[Layer<'_>],
-        scanout: Option<usize>,
+        scanout: Option<(usize, bool)>,
     ) -> Result<Option<Vec<u32>>, Error> {
+        // A scanout target, and whether its frame is also copied for `read_kept`.
+        let (scanout, keep) = match scanout {
+            Some((index, keep)) => (Some(index), keep),
+            None => (None, false),
+        };
+        // A new submission overwrites the readback buffer.
+        self.kept = None;
         let layers: Vec<&Layer<'_>> = layers.iter().filter(|layer| layer.valid()).collect();
         let source_bytes: u64 = layers
             .iter()
@@ -641,13 +705,34 @@ impl VulkanCompositor {
                 );
             }
             if scanout.is_some() {
-                // The display reads it next: release it to the external queue.
+                if keep {
+                    barrier(
+                        vk::AccessFlags::SHADER_WRITE,
+                        vk::AccessFlags::TRANSFER_READ,
+                        vk::PipelineStageFlags::COMPUTE_SHADER,
+                        vk::PipelineStageFlags::TRANSFER,
+                    );
+                    device.cmd_copy_buffer(
+                        command,
+                        target,
+                        readback.buffer,
+                        &[vk::BufferCopy::default().size(out_bytes)],
+                    );
+                    barrier(
+                        vk::AccessFlags::TRANSFER_WRITE,
+                        vk::AccessFlags::HOST_READ,
+                        vk::PipelineStageFlags::TRANSFER,
+                        vk::PipelineStageFlags::HOST,
+                    );
+                }
+                // The display reads it next: release it to the external queue, after the
+                // shader's writes (and the copy's reads).
                 ownership(
                     family,
                     vk::QUEUE_FAMILY_EXTERNAL,
                     vk::AccessFlags::SHADER_WRITE,
                     vk::AccessFlags::empty(),
-                    vk::PipelineStageFlags::COMPUTE_SHADER,
+                    vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::TRANSFER,
                     vk::PipelineStageFlags::BOTTOM_OF_PIPE,
                 );
             } else {
@@ -679,11 +764,6 @@ impl VulkanCompositor {
             )?;
             device.wait_for_fences(&[self.fence], true, u64::MAX)?;
             device.reset_fences(&[self.fence])?;
-            if scanout.is_none() && !readback.coherent {
-                device.invalidate_mapped_memory_ranges(&[vk::MappedMemoryRange::default()
-                    .memory(readback.memory)
-                    .size(vk::WHOLE_SIZE)])?;
-            }
         }
         self.last_gpu_ms = if timing {
             let mut ticks = [0u64; 2];
@@ -710,18 +790,7 @@ impl VulkanCompositor {
             self.scanout[index].released = true;
             return Ok(None);
         }
-        let mut out = vec![0u32; out_words];
-        let readback = self.buffers[3].as_ref().expect("reserved");
-        // SAFETY: the fence was waited for and non-coherent memory invalidated, so the copy's
-        // writes are visible; `readback` is mapped for at least `out_bytes` bytes.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                readback.mapped,
-                out.as_mut_ptr().cast::<u8>(),
-                out_words * 4,
-            );
-        }
-        Ok(Some(out))
+        Ok(Some(self.read_back(out_words)?))
     }
 
     /// Points the descriptor set's output binding at `buffer`.

@@ -244,6 +244,8 @@ def main():
                         help="write the frame after each step as layers (oxy-gpu's replay example)")
     parser.add_argument("--gpu", action="store_true",
                         help="also compose every frame on a Vulkan device; any difference fails")
+    parser.add_argument("--gpu-only", action="store_true",
+                        help="compose on the Vulkan device alone, with no CPU reference (measures it)")
     options = parser.parse_args()
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
@@ -254,6 +256,8 @@ def main():
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
+    if options.gpu_only:
+        command += ["--gpu-only"]
     if options.uinput:
         command += ["--uinput"]
     if options.uinput:
@@ -290,6 +294,8 @@ def main():
 
     renders = [line["render_ms"] for line in report if line["kind"] == "frame"]
     latencies = [s["latency_ms"] for s in summary["steps"] if s.get("latency_ms") is not None]
+    # On a display: input to the kernel's flip of the first frame showing the answer.
+    flips = [s["flip_latency_ms"] for s in summary["steps"] if s.get("flip_latency_ms") is not None]
     metrics = {
         "steps": len(summary["steps"]),
         "first_frame_ms": summary["first_frame_ms"],
@@ -303,6 +309,10 @@ def main():
         "latency_ms": {
             "median": round(statistics.median(latencies), 2) if latencies else None,
             "max": round(max(latencies), 2) if latencies else None,
+        },
+        "flip_latency_ms": {
+            "median": round(statistics.median(flips), 2) if flips else None,
+            "max": round(max(flips), 2) if flips else None,
         },
         "failures": len(failures),
         "out": str(out),
