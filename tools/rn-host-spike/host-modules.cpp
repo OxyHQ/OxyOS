@@ -45,12 +45,17 @@ std::shared_ptr<TurboModule> createHostModule(
       "scale", display.scale)("fontScale", 1.0);
 
   if (name == "PlatformConstants") {
+    // React Native's Android spec, answered for OxyOS. `Version` is not a device's Android API
+    // level (OxyOS is not Android): it is the level whose React Native code paths the host follows,
+    // React Native 0.88's target SDK, which core compares only to trust keyboard events (OxyOS has
+    // no software keyboard and sends none). See docs/react-native-android-adaptation.mdx.
     module->constants(folly::dynamic::object("isTesting", false)("isDisableAnimations", false)(
         "reactNativeVersion", folly::dynamic::object("major", 0)("minor", 88)("patch", 0)("prerelease", nullptr))(
-        "Version", 1)("Release", "OxyOS")("Serial", "")("Fingerprint", "")("Model", "OxyOS")("uiMode", "normal")(
+        "Version", 36)("Release", "OxyOS")("Serial", "")("Fingerprint", "")("Model", "OxyOS")("uiMode", "normal")(
         "Brand", "Oxy")("Manufacturer", "Oxy"));
-    module->method("getAndroidID", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      return jsi::String::createFromAscii(rt, "");
+    // There is no Android ID to give: callers learn that rather than receive a fake one.
+    module->method("getAndroidID", [](jsi::Runtime& rt, const jsi::Value*, size_t) -> jsi::Value {
+      throw jsi::JSError(rt, "OxyOS has no Android ID");
     });
   } else if (name == "DeviceInfo") {
     module->constants(folly::dynamic::object("Dimensions", folly::dynamic::object("window", window)("screen", window)));
@@ -84,7 +89,13 @@ std::shared_ptr<TurboModule> createHostModule(
         return count > 0 ? call(rt, args[0], jsi::Value(false)) : jsi::Value::undefined();
       });
     }
-    module->unsupported({"setAccessibilityFocus", "announceForAccessibility", "getRecommendedTimeoutMillis"});
+    // No accessibility timeout preference exists on OxyOS, so the recommended timeout is the one
+    // asked about, as on Android without a user preference.
+    module->method("getRecommendedTimeoutMillis", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      return count > 1 ? call(rt, args[1], jsi::Value(args[0].isNumber() ? args[0].getNumber() : 0))
+                       : jsi::Value::undefined();
+    });
+    module->unsupported({"setAccessibilityFocus", "announceForAccessibility"});
   } else if (name == "ExceptionsManager") {
     auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       if (count > 0 && args[0].isObject()) {

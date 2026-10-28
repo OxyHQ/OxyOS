@@ -9,9 +9,12 @@
 #include <worklets/Compat/StableApi.h>
 #include <worklets/NativeModules/WorkletsModuleProxy.h>
 
+#include <react/renderer/core/EventListener.h>
+#include <react/renderer/scheduler/Scheduler.h>
 #include <react/renderer/uimanager/UIManager.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 
 using namespace facebook;
@@ -34,9 +37,9 @@ void unsupported(const char* what) {
 
 ReanimatedHost::ReanimatedHost(
     WorkletsHost& worklets,
-    std::function<std::shared_ptr<react::UIManager>()> uiManager)
+    std::function<react::Scheduler*()> scheduler)
     : worklets_(worklets),
-      uiManager_(std::move(uiManager)),
+      scheduler_(std::move(scheduler)),
       renders_(std::make_shared<std::vector<std::function<void(double)>>>()) {}
 
 ReanimatedHost::~ReanimatedHost() = default;
@@ -78,7 +81,20 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
     proxy_ = std::make_shared<reanimated::ReanimatedModuleProxy>(
         uiRuntime, workletsProxy->getUIScheduler(), rt, invoker, platform, /*isReducedMotion=*/false);
     proxy_->init(platform);
-    proxy_->initializeFabric(uiManager_());
+    auto* scheduler = scheduler_();
+    proxy_->initializeFabric(scheduler->getUIManager());
+    // As Reanimated's iOS module does: every Fabric event reaches its worklet event handlers
+    // (useAnimatedScrollHandler, ...) first. The host's one thread is the UI thread.
+    std::weak_ptr<reanimated::ReanimatedModuleProxy> weak = proxy_;
+    scheduler->addEventListener(std::make_shared<react::EventListener>([weak](const react::RawEvent& event) {
+      auto proxy = weak.lock();
+      if (proxy && std::getenv("OXY_HOST_TRACE") && event.eventTarget) {
+        std::string type = event.type.rfind("top", 0) == 0 ? "on" + event.type.substr(3) : event.type;
+        std::cerr << "[reanimated] event " << event.type << " tag " << event.eventTarget->getTag() << " handled "
+                  << proxy->isAnyHandlerWaitingForEvent(type, event.eventTarget->getTag()) << "\n";
+      }
+      return proxy && proxy->handleRawEvent(event, nowMs());
+    }));
     reanimated::RNRuntimeDecorator::decorate(rt, worklets::getJSIRuntimeFromWorkletRuntime(uiRuntime), proxy_);
     return jsi::Value(true);
   });

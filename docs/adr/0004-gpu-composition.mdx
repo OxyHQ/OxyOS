@@ -1,0 +1,76 @@
+---
+title: "ADR 0004: GPU composition and output"
+description: How the compositor moves from CPU composition to Vulkan composition and DRM/KMS output, what the first slice proves and what only real hardware can.
+order: 13
+---
+
+# ADR 0004: GPU composition and output
+
+Status: **accepted; first slice implemented and validated on a GPU**. Vulkan composition matches the CPU reference byte for byte on an NVIDIA GeForce RTX 5090 (Windows Vulkan driver 616.92) for every frame of the Bloom regression. There is no display output yet. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
+
+## Problem
+
+The compositor composes on the CPU (`oxy-offscreen`) and has no display output. #32 asks for:
+- Vulkan composition on a named reference GPU;
+- DRM/KMS atomic output;
+- explicit synchronization and format/modifier compatibility, proven before the buffer ABI is frozen.
+
+The development machine available today (WSL2) has no DRM device (`/dev/dri`), and its Debian Mesa offers no Vulkan driver for the GPU behind `/dev/dxg`. The only Vulkan device there is lavapipe, Mesa's CPU implementation.
+
+## Decision
+
+1. **Vulkan directly** (`ash`, loading `libvulkan.so.1` at run time), not a portable wrapper. A compositor needs:
+   - DMA-BUF import with modifiers (`VK_EXT_image_drm_format_modifier`);
+   - external memory and semaphores (sync files, DRM syncobj);
+   - control of queues and memory.
+
+   Wrappers do not expose these. GL is not used.
+2. **One composition semantics.**
+   - `oxy-gpu::compose_cpu` is the reference: nearest-neighbour scaling into each surface's logical rectangle, clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
+   - `oxy-offscreen` composes with it.
+   - The Vulkan compositor implements the same arithmetic in a compute shader (WGSL, compiled to SPIR-V by `naga` at build time). It must match the reference byte for byte. `oxy-offscreen --gpu` checks every composed frame against it.
+3. **Order of work toward real output:**
+   1. composition on a Vulkan device, checked against the reference (this slice);
+   2. client buffers as Vulkan images (sampled), then DMA-BUF import with modifiers;
+   3. explicit synchronization (acquire and release fences per consumer);
+   4. DRM/KMS atomic modesetting and page flips on a named reference GPU, with scanout of an unobstructed fullscreen surface where `Scene::scanout_candidate` allows.
+
+   The buffer ABI is not frozen before step 4 has run on that hardware.
+4. **Honest reporting.** The Vulkan compositor reports the device it composes on and its type. A CPU device (lavapipe) proves the Vulkan path and the semantics, never GPU performance or hardware validation.
+
+## Validation on a GPU
+
+The WSL2 development machine reaches its GPU only through Windows. The procedure:
+1. Build `oxy-gpu`'s tests and its `replay` example for Windows from WSL (`x86_64-pc-windows-gnu`, linked with mingw-w64).
+2. Run them on Windows, where `vulkan-1.dll` reaches the vendor's driver.
+3. `oxy-offscreen --launch --dump-frames DIR` writes the frame shown at launch and after each step of the Bloom regression, as layers (`oxy_gpu::frame_file`).
+4. `replay DIR` composes each frame again on the CPU reference and on the GPU, and compares them.
+
+Result on the NVIDIA GeForce RTX 5090: 56 of 56 frames identical, three runs out of three.
+
+Timing (median per frame, three runs):
+
+| Composition | First version | Now |
+| --- | --- | --- |
+| CPU reference | about 1.3 ms | about 1.3 ms |
+| Vulkan, a whole frame from the host (upload, composition, readback) | about 23 ms | about 1.1–1.2 ms |
+| Vulkan, an empty frame from the host | about 22 ms | about 0.8–0.9 ms |
+| The GPU's own composing time (timestamps) | not measured | about 6 µs |
+
+In the first version, the shader read and wrote host-visible memory, and the host read the output back from it. Now the buffers the shader uses live in device memory:
+- pixels arrive by a staging copy;
+- the background is filled on the device;
+- the output is copied back into host-cached memory.
+
+What remains is transfer, which a scanned-out output does not need. Sampled images and DMA-BUF import are still step 2.
+
+## Consequences
+
+- **What the first slice proves.** It runs on any Vulkan 1.1 device; in development that is lavapipe. It proves:
+  - device selection (a GPU before a CPU device);
+  - upload;
+  - composition order and blending;
+  - fence-waited completion;
+  - readback.
+- **What only real hardware proves:** DMA-BUF import, modifiers, synchronization with clients' GPU work, and KMS output. A machine with DRM/KMS is required, and they are #32's open items. The RTX 5090 run proves composition on a GPU through its vendor's Vulkan driver, but on Windows: no DRM, no DMA-BUF.
+- **This slice still copies.** Client pixels are copied through a staging buffer into a device-local storage buffer per frame; sampled images and zero-copy import replace that in step 2.

@@ -10,11 +10,21 @@ const PLATFORM = 'oxyos';
 const RN_DIR = path.dirname(bloomRequire.resolve('react-native/package.json'));
 const OVERRIDES = path.join(__dirname, 'oxyos');
 
+const PLATFORM_MODULE = path.join('Libraries', 'Utilities', 'Platform');
+const RN_ENTRY = path.join(RN_DIR, 'index.js');
+
 // React Native files split by platform: an OxyOS override when one exists, otherwise the
 // Android variant (React Native's generic TurboModule-backed implementation).
-function oxyosVariant(filePath) {
+//
+// React Native's own modules run its Android implementation, because the host implements React
+// Native's Android interfaces (TurboModule specs, component names, commands); they read
+// `Platform.OS` as 'android' and take their Android branches. Everything else, including what
+// `react-native` exports to apps and Bloom, sees 'oxyos'.
+function oxyosVariant(filePath, originModulePath) {
   if (!filePath.startsWith(RN_DIR + path.sep) || !filePath.endsWith('.js')) return null;
   const relative = path.relative(RN_DIR, filePath).replace(/\.js$/, '');
+  const internal = originModulePath.startsWith(RN_DIR + path.sep) && originModulePath !== RN_ENTRY;
+  if (relative === PLATFORM_MODULE && internal) return path.join(RN_DIR, relative + '.android.js');
   const override = path.join(OVERRIDES, relative + '.oxyos.js');
   if (fs.existsSync(override)) return override;
   const android = path.join(RN_DIR, relative + '.android.js');
@@ -64,7 +74,7 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
         throw error;
       }
       if (platform !== PLATFORM || result.type !== 'sourceFile') return result;
-      const variant = oxyosVariant(result.filePath);
+      const variant = oxyosVariant(result.filePath, context.originModulePath);
       if (variant) return { type: 'sourceFile', filePath: variant };
       return result;
     },
@@ -75,4 +85,5 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
     babelTransformerPath: bloomRequire.resolve('@react-native/metro-babel-transformer'),
   },
   projectRoot: __dirname,
-}), { disableTypeScriptGeneration: true });
+  // As @oxy.so/app-preset configures it: 1rem = 16px, variables resolved at runtime.
+}), { disableTypeScriptGeneration: true, inlineRem: 16, inlineVariables: false });

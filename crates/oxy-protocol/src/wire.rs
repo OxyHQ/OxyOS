@@ -48,16 +48,24 @@ macro_rules! wire_enum {
         #[repr($repr)]
         pub enum $name { $($variant = $value),* }
 
+        impl $name {
+            /// The variant with this wire value, if there is one.
+            pub fn from_raw(value: $repr) -> Option<Self> {
+                match value {
+                    $($value => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+
         impl Wire for $name {
             const SIZE: usize = std::mem::size_of::<$repr>();
             fn put(&self, out: &mut Vec<u8>) {
                 (*self as $repr).put(out);
             }
             fn get(bytes: &[u8]) -> io::Result<Self> {
-                match <$repr>::get(bytes)? {
-                    $($value => Ok(Self::$variant),)*
-                    _ => Err(invalid(concat!("invalid ", stringify!($name)))),
-                }
+                Self::from_raw(<$repr>::get(bytes)?)
+                    .ok_or_else(|| invalid(concat!("invalid ", stringify!($name))))
             }
         }
     };
@@ -102,6 +110,25 @@ wire_enum! {
 wire_enum! {
     /// Source of a feedback timestamp. Synthetic timestamps never describe physical display time.
     Clock: u8 { Synthetic = 1, Monotonic = 2 }
+}
+wire_enum! {
+    /// What an accessible node is, for an assistive technology (ADR 0003). Unknown roles are
+    /// published as `Generic`, never guessed.
+    AccessibleRole: u8 {
+        Generic = 0, Button = 1, Link = 2, Text = 3, Heading = 4, Image = 5, TextInput = 6,
+        Menu = 7, MenuItem = 8, CheckBox = 9, Radio = 10, Switch = 11, Tab = 12, TabList = 13,
+        List = 14, ListItem = 15, Dialog = 16, Alert = 17, ProgressBar = 18, Slider = 19,
+        Search = 20, Toolbar = 21, ScrollView = 22, Group = 23, ComboBox = 24, Summary = 25,
+        Grid = 26,
+    }
+}
+wire_enum! {
+    /// Which text of an accessible node a chunk belongs to.
+    AccessibleField: u8 { Name = 1, Value = 2 }
+}
+wire_enum! {
+    /// What an assistive technology asks an application to do with a node.
+    AccessibleAction: u8 { Activate = 1, Focus = 2 }
 }
 wire_enum! {
     ErrorCode: u16 {
@@ -198,6 +225,163 @@ impl Wire for Rect {
     }
 }
 
+/// An accessible node's states, as bits. Unknown bits are invalid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AccessibleState(u16);
+
+impl AccessibleState {
+    pub const DISABLED: u16 = 1 << 0;
+    pub const SELECTED: u16 = 1 << 1;
+    pub const CHECKED: u16 = 1 << 2;
+    /// Checked and unchecked at once (a partly checked group).
+    pub const MIXED: u16 = 1 << 3;
+    pub const EXPANDED: u16 = 1 << 4;
+    /// Expandable and not expanded.
+    pub const COLLAPSED: u16 = 1 << 5;
+    pub const BUSY: u16 = 1 << 6;
+    /// The node with the application's accessibility focus.
+    pub const FOCUSED: u16 = 1 << 7;
+    const ALL: u16 = (1 << 8) - 1;
+
+    /// The state with these bits, if every bit is known.
+    pub const fn new(bits: u16) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn contains(self, bit: u16) -> bool {
+        self.0 & bit == bit
+    }
+}
+
+impl Wire for AccessibleState {
+    const SIZE: usize = 2;
+    fn put(&self, out: &mut Vec<u8>) {
+        self.0.put(out);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible state"))
+    }
+}
+
+/// Bytes of UTF-8 one `Text` event carries.
+pub const TEXT_CHUNK_BYTES: usize = 32;
+
+/// Committed text: 1 to 32 bytes of UTF-8 that never split a character. Longer text is sent as
+/// consecutive chunks.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextChunk {
+    length: u8,
+    bytes: [u8; TEXT_CHUNK_BYTES],
+}
+
+impl TextChunk {
+    /// The chunk holding `text`, if it is 1 to 32 bytes long.
+    pub fn new(text: &str) -> Option<Self> {
+        if text.is_empty() || text.len() > TEXT_CHUNK_BYTES {
+            return None;
+        }
+        let mut bytes = [0; TEXT_CHUNK_BYTES];
+        bytes[..text.len()].copy_from_slice(text.as_bytes());
+        Some(Self {
+            length: text.len() as u8,
+            bytes,
+        })
+    }
+
+    /// Splits `text` into chunks at character boundaries.
+    pub fn split(text: &str) -> Vec<Self> {
+        let mut chunks = Vec::new();
+        let mut rest = text;
+        while !rest.is_empty() {
+            let mut end = rest.len().min(TEXT_CHUNK_BYTES);
+            while !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            chunks.push(Self::new(&rest[..end]).expect("1 to 32 bytes"));
+            rest = &rest[end..];
+        }
+        chunks
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..usize::from(self.length)]).expect("validated UTF-8")
+    }
+}
+
+impl std::fmt::Debug for TextChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
+impl Wire for TextChunk {
+    const SIZE: usize = 1 + TEXT_CHUNK_BYTES;
+    fn put(&self, out: &mut Vec<u8>) {
+        out.push(self.length);
+        out.extend(self.bytes);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        let length = usize::from(bytes[0]);
+        if !(1..=TEXT_CHUNK_BYTES).contains(&length) {
+            return Err(invalid("text length out of range"));
+        }
+        let text = &bytes[1..=length];
+        // Unused bytes are zero, so every chunk has one encoding.
+        if bytes[1 + length..].iter().any(|&b| b != 0) {
+            return Err(invalid("text padding is not zero"));
+        }
+        let text = std::str::from_utf8(text).map_err(|_| invalid("text is not UTF-8"))?;
+        Ok(Self::new(text).expect("checked length"))
+    }
+}
+
+/// Composition (preedit) text from an input method: like [`TextChunk`] but possibly empty, which
+/// ends the composition without committing anything.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PreeditText(Option<TextChunk>);
+
+impl PreeditText {
+    /// The preedit holding `text` (empty clears it), if it fits in one chunk.
+    pub fn new(text: &str) -> Option<Self> {
+        if text.is_empty() {
+            Some(Self(None))
+        } else {
+            TextChunk::new(text).map(|chunk| Self(Some(chunk)))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref().map_or("", TextChunk::as_str)
+    }
+}
+
+impl Wire for PreeditText {
+    const SIZE: usize = TextChunk::SIZE;
+    fn put(&self, out: &mut Vec<u8>) {
+        match &self.0 {
+            Some(chunk) => chunk.put(out),
+            None => out.extend([0; TextChunk::SIZE]),
+        }
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        if bytes[0] == 0 {
+            if bytes.iter().any(|&b| b != 0) {
+                return Err(invalid("text padding is not zero"));
+            }
+            return Ok(Self(None));
+        }
+        TextChunk::get(bytes).map(|chunk| Self(Some(chunk)))
+    }
+}
+
 /// Logical or physical size; both dimensions within 1..=MAX_DIMENSION.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size {
@@ -257,6 +441,15 @@ impl Adjust {
     pub const fn has(self, other: Adjust) -> bool {
         self.0 & other.0 == other.0
     }
+
+    /// The flags with these bits, if every bit is a known flag.
+    pub const fn from_bits(bits: u8) -> Option<Adjust> {
+        if bits & !Adjust::ALL.0 == 0 {
+            Some(Adjust(bits))
+        } else {
+            None
+        }
+    }
 }
 
 impl Wire for Adjust {
@@ -265,11 +458,7 @@ impl Wire for Adjust {
         out.push(self.0);
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
-        if bytes[0] & !Adjust::ALL.0 == 0 {
-            Ok(Adjust(bytes[0]))
-        } else {
-            Err(invalid("unknown adjustment flags"))
-        }
+        Adjust::from_bits(bytes[0]).ok_or_else(|| invalid("unknown adjustment flags"))
     }
 }
 

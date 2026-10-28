@@ -1,0 +1,553 @@
+{
+  "about": "The sample app (sample/App.tsx) in a 1024x640 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
+  "window": [1024, 640],
+  "steps": [
+    {
+      "name": "press the Bloom Button",
+      "do": ["press", [686, 359]],
+      "expect": {
+        "texts": ["Pressed 1 time"],
+        "absent": ["Press me"],
+        "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
+        "focus_surface": 1,
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "button", "name": "Pressed 1 time", "id": "press-me"}, {"role": "textinput", "name": "Write a reply", "id": "reply"}, {"role": "button", "name": "Open menu", "state": {"expanded": false}}, {"role": "heading", "name": "Inbox"}]},
+        "a11y_order": {"window": ["Pressed 1 time", "Write a reply", "No reply yet", "Open menu", "Nothing chosen"]}
+      }
+    },
+    {
+      "name": "press it again",
+      "do": ["press", [686, 359]],
+      "expect": {
+        "texts": ["Pressed 2 times"],
+        "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "scroll the inbox to its end",
+      "do": ["scroll", [170, 300, 400]],
+      "expect": {
+        "texts": ["Last message", "Scrolled into view by the wheel."],
+        "absent": ["Rendered by Fabric and Hermes on Linux."],
+        "react": {"scroll@inbox": 1},
+        "delivered": {"1": {"scroll": 1}},
+        "latency_ms": 250,
+        "scroll_offset": {"inbox": [0, 346]}
+      }
+    },
+    {
+      "name": "focus the reply field",
+      "do": ["press", [686, 407]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "type a reply",
+      "do": ["type", "Hola OxyOS!"],
+      "expect": {
+        "texts": ["Reply: Hola OxyOS!"],
+        "focus_input": "reply",
+        "react": {"change@reply": 1, "selectionChange@reply": 1},
+        "delivered": {"1": {"text": 1}},
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "textinput", "name": "Write a reply", "value": "Hola OxyOS!", "id": "reply"}]},
+        "at": {"window": [{"role": "TextInput", "name": "Write a reply", "value": "Hola OxyOS!"}]}
+      }
+    },
+    {
+      "name": "delete its last character",
+      "do": ["key", 14],
+      "expect": {
+        "texts": ["Reply: Hola OxyOS"],
+        "absent": ["Reply: Hola OxyOS!"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
+        "delivered": {"1": {"key.press": 1, "key.release": 1}}
+      }
+    },
+    {
+      "name": "submit with Enter",
+      "do": ["key", 28],
+      "expect": {
+        "focus_input": null,
+        "texts": ["Reply: Hola OxyOS"],
+        "react": {"submitEditing@reply": 1, "blur@reply": 1}
+      }
+    },
+    {
+      "name": "open the menu",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "texts": ["Reply", "Forward", "Archive", "Move to folder", "Mark as unread", "Delete"],
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "latency_ms": 250,
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": true}}], "popup": [{"role": "menuitem", "name": "Reply", "state": {"focused": true}}]},
+        "a11y_nodes": {"popup": [["menu", "Message actions"], ["menuitem", "Reply"], ["menuitem", "Forward"], ["menuitem", "Archive"], ["menuitem", "Move to folder"], ["menuitem", "Mark as unread"], ["menuitem", "Delete"], ["menuitem", "More actions"]]},
+        "a11y_events": {"focus@message-actions": 1}
+      }
+    },
+    {
+      "name": "the menu reaches beyond the window",
+      "do": ["expect-popup", null]
+    },
+    {
+      "name": "choose Archive in the menu",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "absent": ["Nothing chosen", "Move to folder"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1},
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": false, "focused": true}}]},
+        "a11y_events": {"focus@open-menu": 1}
+      }
+    },
+    {
+      "name": "focus the reply field again",
+      "do": ["press", [686, 407]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "reopen the menu, the field keeping its focus",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "focus_input": "reply",
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "text typed into the open menu goes to the menu (typeahead), not the field behind it",
+      "do": ["type", "zz"],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "texts": ["Reply: Hola OxyOS"],
+        "absent": ["Reply: Hola OxyOSzz"],
+        "react": {"key@message-actions": 2},
+        "delivered": {"3": {"text": 1}}
+      }
+    },
+    {
+      "name": "an outside press dismisses the menu and reaches nothing behind it",
+      "do": ["press", [200, 300]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive", "Pressed 2 times"],
+        "react": {},
+        "a11y_events": {"focus@open-menu": 1}
+      }
+    },
+    {
+      "name": "open the menu from the keyboard's side",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 4,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "ArrowDown highlights the first row",
+      "do": ["key", 108],
+      "expect": {
+        "popups": 1,
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "three more rows down",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "and down",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "and down to Move to folder",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "Enter chooses the highlighted row and closes the menu",
+      "do": ["key", 28],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Move to folder"],
+        "absent": ["Chosen: Archive"],
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "reopen",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 5
+      }
+    },
+    {
+      "name": "Escape closes it without choosing",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Move to folder"],
+        "absent": ["Mark as unread"],
+        "react": {"key@message-actions": 1},
+        "a11y_events": {"focus@open-menu": 1}
+      }
+    },
+    {
+      "name": "reopen again",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 6
+      }
+    },
+    {
+      "name": "typing d finds Delete",
+      "do": ["type", "d"],
+      "expect": {
+        "popups": 1,
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "Enter chooses it",
+      "do": ["key", 28],
+      "expect": {
+        "popups": 0,
+        "texts": ["Chosen: Delete"],
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "a press at the start of the focused reply moves the caret there",
+      "do": ["press", [533, 407]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "typed text goes in at the caret",
+      "do": ["type", "¡"],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyOS"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "End moves the caret to the end",
+      "do": ["key", 107],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyOS"],
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Shift+Left selects the last character",
+      "do": ["key", [42, 105]],
+      "expect": {
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Delete removes the selection, with no key press (as on Android)",
+      "do": ["key", 111],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyO"],
+        "absent": ["Reply: ¡Hola OxyOS"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Ctrl+A selects everything",
+      "do": ["key", [29, 30]],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyO"],
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a commit replaces the selection, a word being no key press",
+      "do": ["type", "Hola "],
+      "expect": {
+        "texts": ["Reply: Hola"],
+        "absent": ["Reply: ¡Hola"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a composition is part of the text while it lasts",
+      "do": ["preedit", "mun"],
+      "expect": {
+        "texts": ["Reply: Hola mun"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "its commit replaces the composition",
+      "do": ["type", "mundo"],
+      "expect": {
+        "texts": ["Reply: Hola mundo"],
+        "absent": ["munmundo"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a drag from the start across the text selects it",
+      "do": ["drag", [533, 407, 840, 407]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchMove@reply": 2, "touchEnd@reply": 1, "selectionChange@reply": 2}
+      }
+    },
+    {
+      "name": "typing replaces the dragged selection",
+      "do": ["type", "Adiós"],
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "absent": ["mundo"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "open the menu again",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 7,
+        "popup_size": [266, 338],
+        "absent": ["Copy link"],
+        "popup_events": {"open@message-actions": 1},
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "More actions expands inline: the popup grows and is placed again",
+      "do": ["press-popup", [60, 307]],
+      "expect": {
+        "popups": 1,
+        "texts": ["Copy link", "Print"],
+        "popup_events": {"reposition@message-actions": 1},
+        "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
+        "popup_size": [266, 430],
+        "a11y": {"popup": [{"role": "menuitem", "name": "More actions", "state": {"expanded": true}}, {"role": "menuitem", "name": "Copy link"}, {"role": "menuitem", "name": "Print"}]}
+      }
+    },
+    {
+      "name": "choose Print in the expanded submenu",
+      "do": ["press-popup", [60, 399]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Print"],
+        "absent": ["Chosen: Delete", "Copy link"],
+        "popup_events": {"close@7": 1},
+        "react": {"touchStart@action-Print": 1, "touchEnd@action-Print": 1}
+      }
+    },
+    {
+      "name": "open the menu once more",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 8,
+        "popup_size": [266, 338],
+        "frame_px": {"window": [1024, 640], "popup": [266, 338]},
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "the output's scale becomes 1.5: both surfaces are drawn again at it, nothing moves",
+      "do": ["scale", 180],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 8,
+        "popup_size": [266, 338],
+        "frame_px": {"window": [1536, 960], "popup": [399, 507]},
+        "texts": ["Reply", "Move to folder", "Chosen: Print"],
+        "popup_events": {},
+        "react": {}
+      }
+    },
+    {
+      "name": "the menu still takes presses in logical coordinates",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "absent": ["Chosen: Print"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    },
+    {
+      "name": "back to scale 1",
+      "do": ["scale", 120],
+      "expect": {
+        "popups": 0,
+        "frame_px": {"window": [1024, 640]},
+        "texts": ["Chosen: Archive"],
+        "react": {}
+      }
+    },
+    {
+      "name": "the wheel scrolls the inbox back by 100",
+      "do": ["scroll", [170, 300, -100]],
+      "expect": {
+        "scroll_offset": {"inbox": [0, 246]},
+        "react": {"scroll@inbox": 1},
+        "delivered": {"1": {"scroll": 1}}
+      }
+    },
+    {
+      "name": "scrolling past the top stops at it",
+      "do": ["scroll", [170, 300, -1000]],
+      "expect": {
+        "scroll_offset": {"inbox": [0, 0]},
+        "texts": ["Rendered by Fabric and Hermes on Linux."],
+        "react": {"scroll@inbox": 1}
+      }
+    },
+    {
+      "name": "at the top the wheel moves nothing and React hears nothing",
+      "do": ["scroll", [170, 300, -50]],
+      "allow_unchanged": true,
+      "expect": {
+        "scroll_offset": {},
+        "react": {},
+        "delivered": {"1": {"scroll": 1}}
+      }
+    },
+    {
+      "name": "open the menu to test the wheel behind it",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 9,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "the wheel over the window behind an open menu reaches no client and scrolls nothing",
+      "do": ["scroll", [170, 300, 200]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "scroll_offset": {},
+        "react": {},
+        "texts": ["Rendered by Fabric and Hermes on Linux."],
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "open the menu before the shell moves the window",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 10,
+        "window_rect": [128, 40, 1024, 640],
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "popup_rect": [981, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the shell moves the window: the open menu moves with it",
+      "do": ["move-window", [-100, -20]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 10,
+        "window_rect": [28, 20, 1024, 640],
+        "popup_events": {},
+        "react": {},
+        "popup_rect": [881, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the shell resizes the window: the host lays out again and places the menu at its trigger",
+      "do": ["resize-window", [900, 600]],
+      "expect": {
+        "popups": 1,
+        "window_rect": [28, 20, 900, 600],
+        "frame_px": {"window": [900, 600]},
+        "popup_events": {"reposition@message-actions": 1},
+        "react": {},
+        "popup_rect": [819, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the menu still works after the move and resize",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    },
+    {
+      "name": "a screen reader activates Open menu, as a double tap does",
+      "do": ["a11y-action", ["activate", "Open menu"]],
+      "expect": {
+        "popups": 1,
+        "react": {"click@open-menu": 1},
+        "a11y_events": {"focus@message-actions": 1},
+        "at": {"popup": [{"role": "Menu", "name": "Message actions"}, {"role": "MenuItem", "name": "Reply", "state": ["focused"]}], "window": [{"role": "Button", "name": "Open menu", "state": ["expanded"]}]}
+      }
+    },
+    {
+      "name": "the screen reader moves its focus to Archive",
+      "do": ["a11y-action", ["focus", "Archive"]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "react": {},
+        "at": {"popup": [{"role": "MenuItem", "name": "Archive", "state": ["focused"]}, {"role": "MenuItem", "name": "Reply", "state": []}]}
+      }
+    },
+    {
+      "name": "and activates it: the row is chosen and focus returns to the trigger",
+      "do": ["a11y-action", ["activate", "Archive"]],
+      "expect": {
+        "popups": 0,
+        "texts": ["Chosen: Archive"],
+        "react": {"click@action-Archive": 1},
+        "a11y_events": {"focus@open-menu": 1},
+        "at": {"window": [{"role": "Button", "name": "Open menu", "state": ["collapsed", "focused"]}]}
+      }
+    }
+  ]
+}

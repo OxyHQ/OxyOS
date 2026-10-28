@@ -1,1 +1,7 @@
-{"name":"oxy-bloom-sample","private":true}
+{
+  "name": "oxy-bloom-sample",
+  "private": true,
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.2"
+  }
+}

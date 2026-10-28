@@ -1,12 +1,12 @@
 ---
-title: "ADR 0002 (proposed): Bloom platform surface API"
+title: "ADR 0002: Bloom platform surface API"
 description: Proposed app-facing popup/window capability API at Bloom's floating-panel owner, its adapter registration and its mapping onto the Oxy display protocol.
 order: 11
 ---
 
-# ADR 0002 (proposed): Bloom platform surface API
+# ADR 0002: Bloom platform surface API
 
-Status: **proposed**. Nothing here is a shipped export. Names are placeholders until Bloom's maintainers accept a design in the Bloom repository. Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime/adapters), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups). Builds on [ADR 0001](./0001-native-platform-boundaries).
+Status: **implemented** in Bloom ([OxyHQ/Bloom#507](https://github.com/OxyHQ/Bloom/pull/507), merged as 15.61.0), with the refinement under [Decision](#decision). The proposal below is kept as written. Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime/adapters), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups). Builds on [ADR 0001](./0001-native-platform-boundaries).
 
 ## Problem
 
@@ -71,8 +71,41 @@ interface PopupHandle {
 
 Hover cards and tooltips do not take a grab. Tooltips stay in-window at first, as listed in ADR 0001. Command and AlertDialog remain in-window modal dialogs unless the app requests `modal-window`.
 
+## Decision
+
+Bloom 15.61.0 implements the seam with one change: **the adapter supplies a host component instead of an imperative `openPopup` handle.**
+
+```ts
+// @oxy.so/bloom/platform-surface
+interface PlatformSurfaceAdapter {
+  readonly platform: string;
+  readonly capabilities: ReadonlySet<'popup-surface'>;
+  readonly PopupSurface?: ComponentType<PopupSurfaceProps>; // required with popup-surface
+}
+interface PopupSurfaceProps {
+  anchorRef; side; align; sideOffset; alignOffset;  // Bloom's FloatingPositionProps
+  role: 'menu' | 'listbox' | 'dialog'; label?: string;
+  onDismiss(reason: 'outside-press' | 'denied' | 'closed'): void;
+  children: ReactNode;                               // the panel, sized by its content
+}
+```
+
+`PopupSurface` renders its children in a popup of the platform **in the same React tree**, as React Native's `Modal` renders into another window. The `HostSurfaceRef` and host-level portal of the proposal become the host component itself. Providers, theme, locale and state therefore reach the panel without any portal machinery, and the popup's lifetime is the component's mount.
+
+`BloomProvider platform={adapter}` registers it, following the `scrollAdapter`, `back` and `imageResolver` pattern. Native `DropdownMenu` content is `floating/PopupPanel` (the web menu chrome) in it when `popup-surface` is reported; otherwise it keeps the sheet. The other menu families can adopt the same panel.
+
+The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It renders the `OxyPopupView` host component with the anchor's tag, and the host (`popup.cpp`) does the rest:
+- leaves the popup subtree out of the window;
+- opens a protocol popup with the positioner in the table above (flip on the side axis, slide on both), grabbed with the serial of the press that opened it;
+- draws the subtree in premultiplied ARGB;
+- routes the popup's pointer input to it;
+- sends `PopupDone` back as `onDismiss`.
+
+`oxy-offscreen --launch … --expect-popup` checks that the popup extends beyond the window.
+
 ## Consequences
 
 - Existing platforms keep their behavior and tests. Only an adapter that reports `popup-surface` changes the path.
 - Bloom stays free of OxyOS, protocol and SDK imports. The OxyOS adapter lives with the Oxy runtime (#33) and depends on Bloom's interface.
-- Open questions for the Bloom maintainers: the export name and subpath; which parts of the web-only `menu-keyboard`/escape stack become platform-neutral for native hosts with hardware keyboards; whether anchor measurement (`useAnchorRect` is web-only) moves into the adapter; how `instant`/motion maps onto popup first-frame presentation, given that the first frame must be ready content and must not flash.
+- Settled by the decision: the export name and subpath (`@oxy.so/bloom/platform-surface`), and anchor measurement (the host measures the anchor from its own tree; Bloom passes a ref).
+- Still open: which parts of the web-only `menu-keyboard`/escape stack become platform-neutral for native hosts with hardware keyboards, and how `instant`/motion maps onto popup first-frame presentation, given that the first frame must be ready content and must not flash.

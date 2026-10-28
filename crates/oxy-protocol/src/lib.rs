@@ -14,8 +14,10 @@ mod wire;
 
 pub use schema::{Event, Request};
 pub use wire::{
-    Adjust, Anchor, BufferLayout, Clock, DismissReason, ErrorCode, Format, Gravity, Outcome,
-    PanelEdge, PointerKind, Positioner, Rect, ShellKind, Size, TouchKind, MAX_BUFFER_BYTES,
+    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
+    BufferLayout, Clock, DismissReason, ErrorCode, Format, Gravity, Outcome, PanelEdge,
+    PointerKind, Positioner, PreeditText, Rect, ShellKind, Size, TextChunk, TouchKind,
+    MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -23,6 +25,12 @@ pub const MIN_VERSION: u16 = 2;
 pub const VERSION: u16 = 2;
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
+/// Most nodes in one surface's accessibility snapshot (ADR 0003).
+pub const MAX_ACCESSIBLE_NODES: u32 = 4096;
+/// Most bytes of one accessible node's name or value.
+pub const MAX_ACCESSIBLE_TEXT_BYTES: usize = 1024;
+/// `parent` of an accessible node that is a root of its surface's tree.
+pub const NO_ACCESSIBLE_PARENT: u32 = u32::MAX;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

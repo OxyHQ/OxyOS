@@ -80,6 +80,31 @@ fn requests() -> Vec<Request> {
             offset: 0,
         },
         Request::DestroyBuffer { buffer: 7 },
+        Request::AccessibilityBegin {
+            surface: 1,
+            nodes: 2,
+        },
+        Request::AccessibleNode {
+            surface: 1,
+            index: 1,
+            parent: 0,
+            role: AccessibleRole::MenuItem,
+            state: AccessibleState::new(AccessibleState::FOCUSED).unwrap(),
+            rect: Rect::new(8, 8, 248, 44),
+        },
+        Request::AccessibleText {
+            surface: 1,
+            index: 1,
+            field: AccessibleField::Name,
+            text: TextChunk::new("Mover a carpeta").unwrap(),
+        },
+        Request::AccessibilityCommit { surface: 1 },
+        Request::AccessibilityAction {
+            client: 3,
+            surface: 1,
+            index: 1,
+            action: AccessibleAction::Activate,
+        },
     ]
 }
 
@@ -130,6 +155,23 @@ fn events() -> Vec<Event> {
             timestamp_ns: 99,
             clock: Clock::Synthetic,
         },
+        Event::Scroll {
+            surface: 1,
+            serial: 7,
+            dx: 0,
+            dy: -256 * 40,
+        },
+        Event::Text {
+            surface: 1,
+            serial: 8,
+            text: TextChunk::new("héllo").unwrap(),
+        },
+        Event::Preedit {
+            surface: 1,
+            serial: 9,
+            text: PreeditText::new("にほ").unwrap(),
+            cursor: 3,
+        },
         Event::Released {
             surface: 1,
             buffer: 2,
@@ -137,7 +179,71 @@ fn events() -> Vec<Event> {
         Event::ProtocolError {
             code: ErrorCode::Unauthorized,
         },
+        Event::AccessibilityAction {
+            surface: 2,
+            serial: 12,
+            index: 4,
+            action: AccessibleAction::Focus,
+        },
+        Event::AccessibilityTree {
+            client: 3,
+            surface: 2,
+            parent: 1,
+            nodes: 8,
+        },
+        Event::AccessibleNode {
+            client: 3,
+            surface: 2,
+            index: 0,
+            parent: NO_ACCESSIBLE_PARENT,
+            role: AccessibleRole::Menu,
+            state: AccessibleState::default(),
+            rect: Rect::new(981, 382, 266, 338),
+        },
+        Event::AccessibleText {
+            client: 3,
+            surface: 2,
+            index: 0,
+            field: AccessibleField::Value,
+            text: TextChunk::new("Hola").unwrap(),
+        },
+        Event::AccessibilityCommitted {
+            client: 3,
+            surface: 2,
+        },
+        Event::AccessibilityRemoved {
+            client: 3,
+            surface: 2,
+        },
     ]
+}
+
+#[test]
+fn accessible_roles_and_states_are_closed_sets() {
+    assert!(AccessibleState::new(1 << 8).is_none());
+    assert!(AccessibleState::new(AccessibleState::EXPANDED | AccessibleState::FOCUSED).is_some());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::AccessibleNode {
+            surface: 1,
+            index: 0,
+            parent: NO_ACCESSIBLE_PARENT,
+            role: AccessibleRole::Button,
+            state: AccessibleState::default(),
+            rect: Rect::new(0, 0, 10, 10),
+        },
+    )
+    .unwrap();
+    // The role byte follows the 4-byte length, the opcode and three u32 fields.
+    let role = 4 + 1 + 12;
+    let mut bad_role = bytes.clone();
+    bad_role[role] = 200;
+    assert!(read_request(&mut Cursor::new(bad_role)).is_err());
+    let mut bad_state = bytes.clone();
+    bad_state[role + 2] = 0xff;
+    assert!(read_request(&mut Cursor::new(bad_state)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
 }
 
 #[test]
@@ -456,4 +562,62 @@ fn buffer_layouts_are_checked_without_overflow() {
     }
     .carries_fd());
     assert!(!Request::Goodbye {}.carries_fd());
+}
+
+#[test]
+fn text_chunks_hold_whole_characters_of_valid_utf8() {
+    assert!(TextChunk::new("").is_none());
+    assert!(TextChunk::new(&"a".repeat(TEXT_CHUNK_BYTES + 1)).is_none());
+    // Splitting never cuts a character: 11 three-byte characters are 33 bytes.
+    let text = "€".repeat(11);
+    let chunks = TextChunk::split(&text);
+    assert_eq!(
+        chunks.iter().map(|c| c.as_str().len()).collect::<Vec<_>>(),
+        [30, 3]
+    );
+    assert_eq!(chunks.iter().map(|c| c.as_str()).collect::<String>(), text);
+
+    let encoded = |text: TextChunk| {
+        let mut out = Vec::new();
+        write_event(
+            &mut out,
+            &Event::Text {
+                surface: 1,
+                serial: 1,
+                text,
+            },
+        )
+        .unwrap();
+        out
+    };
+    let valid = encoded(TextChunk::new("ok").unwrap());
+    // Text starts after the length prefix, opcode, surface and serial.
+    let text_at = 4 + 1 + 4 + 8;
+    for (offset, value, reason) in [
+        (text_at, 0, "zero length"),
+        (text_at, 33, "length beyond the chunk"),
+        (text_at + 1, 0xff, "invalid UTF-8"),
+        (text_at + 1 + 2, b'x', "nonzero padding"),
+    ] {
+        let mut packet = valid.clone();
+        packet[offset] = value;
+        assert!(read_event(&mut Cursor::new(packet)).is_err(), "{reason}");
+    }
+}
+
+#[test]
+fn an_empty_preedit_ends_the_composition_and_has_one_encoding() {
+    let end = Event::Preedit {
+        surface: 1,
+        serial: 1,
+        text: PreeditText::new("").unwrap(),
+        cursor: 0,
+    };
+    let mut packet = Vec::new();
+    write_event(&mut packet, &end).unwrap();
+    assert_eq!(read_event(&mut Cursor::new(packet.clone())).unwrap(), end);
+    // An empty preedit's padding must be zero, like a text chunk's.
+    let text_at = 4 + 1 + 4 + 8;
+    packet[text_at + 5] = b'x';
+    assert!(read_event(&mut Cursor::new(packet)).is_err());
 }

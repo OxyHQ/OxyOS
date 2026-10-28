@@ -1,5 +1,7 @@
 // Bundles the app for the `oxyos` platform and copies its assets where React Native's
-// AssetSourceResolver looks for them next to a file:// bundle.
+// AssetSourceResolver looks for them next to a file:// bundle. React Native runs its Android
+// implementation on OxyOS (metro.config.js), so that is Android's resource layout:
+// `<folder for the scale>/<resource identifier>.<type>`, computed by React Native's own helpers.
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +9,17 @@ import path from 'node:path';
 const bloom = process.env.BLOOM_DIR;
 const require = createRequire(path.join(bloom, 'package.json'));
 const Metro = require('metro');
+const { getAndroidResourceFolderName, getAndroidResourceIdentifier } = require(
+  '@react-native/assets-registry/path-support',
+);
 const [entry = 'index.js', outDir = 'build'] = process.argv.slice(2);
+
+// The app's stylesheet imports `@oxy.so/bloom` and scans its source as an app's does from its
+// node_modules (global.css): link the Bloom checkout there.
+const linked = path.resolve('node_modules/@oxy.so/bloom');
+fs.mkdirSync(path.dirname(linked), { recursive: true });
+fs.rmSync(linked, { force: true });
+fs.symlinkSync(bloom, linked);
 
 // Transform output depends on config (asset registry, platform resolution): never reuse a cache.
 const config = await Metro.loadConfig({ config: path.resolve('metro.config.js'), resetCache: true });
@@ -18,11 +30,9 @@ const result = await Metro.runBuild(config, {
 });
 let copied = 0;
 for (const asset of result.assets ?? []) {
-  const base = asset.httpServerLocation.replace(/^\//, '').replace(/\.\.\//g, '_');
   asset.files.forEach((file, index) => {
-    const scale = asset.scales[index];
-    const suffix = scale === 1 ? '' : `@${scale}x`;
-    const dest = path.resolve(outDir, base, `${asset.name}${suffix}.${asset.type}`);
+    const folder = getAndroidResourceFolderName(asset, asset.scales[index]);
+    const dest = path.resolve(outDir, folder, `${getAndroidResourceIdentifier(asset)}.${asset.type}`);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(file, dest);
     copied += 1;

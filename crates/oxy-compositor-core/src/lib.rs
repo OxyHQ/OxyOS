@@ -7,4 +7,6 @@ pub mod presentation;
 pub mod scene;
 
 pub use presentation::{Error, Extent, Frame, Presentation};
-pub use scene::{ClientId, Grants, Output, OutputId, RenderItem, Role, Scene, Stats, SurfaceKey};
+pub use scene::{
+    AccessibleNode, ClientId, Grants, Output, OutputId, RenderItem, Role, Scene, Stats, SurfaceKey,
+};

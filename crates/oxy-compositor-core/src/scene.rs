@@ -16,7 +16,8 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxy_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, Rect, Request, ShellKind, Size, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    Positioner, PreeditText, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
+    MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +47,9 @@ pub struct Grants {
     pub shell: bool,
     pub lock: bool,
     pub shortcuts: bool,
+    /// An assistive technology: reads every surface's accessibility snapshot and acts on
+    /// nodes (ADR 0003).
+    pub accessibility: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -211,6 +215,7 @@ pub struct Scene {
     retired: Vec<(ClientId, u64)>,
     frame_in_flight: bool,
     deferred: Vec<(SurfaceKey, u64)>,
+    accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -437,6 +442,9 @@ impl Scene {
         }
         self.clients.insert(client, grants);
         self.activation.insert(client, self.serial);
+        if grants.accessibility {
+            self.replay_accessibility(client);
+        }
         Ok(())
     }
 
@@ -487,6 +495,7 @@ impl Scene {
         grants.shell &= !revoked.shell;
         grants.lock &= !revoked.lock;
         grants.shortcuts &= !revoked.shortcuts;
+        grants.accessibility &= !revoked.accessibility;
         let keys: Vec<SurfaceKey> = self
             .nodes
             .iter()
@@ -745,6 +754,54 @@ impl Scene {
                     });
                     self.set_pointer_focus(None);
                 }
+                Ok(())
+            }
+            Request::AccessibilityBegin { surface, nodes } => {
+                self.accessibility_begin(key(surface), nodes)
+            }
+            Request::AccessibleNode {
+                surface,
+                index,
+                parent,
+                role,
+                state,
+                rect,
+            } => self.accessibility_node(
+                key(surface),
+                index,
+                AccessibleNode {
+                    parent,
+                    role,
+                    state,
+                    rect,
+                    name: String::new(),
+                    value: String::new(),
+                },
+            ),
+            Request::AccessibleText {
+                surface,
+                index,
+                field,
+                text,
+            } => self.accessibility_text(key(surface), index, field, text),
+            Request::AccessibilityCommit { surface } => self.accessibility_commit(key(surface)),
+            Request::AccessibilityAction {
+                client: target,
+                surface,
+                index,
+                action,
+            } => {
+                if !grants.accessibility {
+                    return Err(ErrorCode::Unauthorized);
+                }
+                self.accessibility_action(
+                    SurfaceKey {
+                        client: target,
+                        id: surface,
+                    },
+                    index,
+                    action,
+                );
                 Ok(())
             }
             Request::SetFullscreen { surface, enabled } => {
@@ -1368,6 +1425,7 @@ impl Scene {
         }
         self.roots.retain(|root| *root != key);
         self.nodes.remove(&key);
+        self.forget_accessibility(key);
         if self.focus == Some(key) {
             self.focus = None;
             self.focus_next();
@@ -1709,6 +1767,52 @@ impl Scene {
         }
     }
 
+    // ---- window management -----------------------------------------------------------------
+
+    /// Moves a window to `origin` (global logical), as the shell does for a keyboard move or
+    /// tiling: at once and without the client, like an interactive move, and kept on screen the
+    /// same way. Popups keep their parent-relative position, so they move with it in the same
+    /// frame (an open menu stays open), and are then re-placed if their constraints changed.
+    pub fn move_window_to(&mut self, key: SurfaceKey, origin: (i32, i32)) {
+        let Some(node) = self.live(key) else {
+            return;
+        };
+        if node.role != Role::Toplevel || node.fullscreen || node.hidden || self.locked {
+            return;
+        }
+        let current = node.origin;
+        self.move_window(
+            Move {
+                surface: key,
+                pointer: current,
+                origin: current,
+            },
+            origin.0,
+            origin.1,
+        );
+        self.reconstrain_children(key);
+        self.refresh_pointer_focus();
+    }
+
+    /// Resizes a window, as the shell does to maximize or tile it: the client is configured
+    /// with `size` (fitted to its output's scale). Its content stays until it presents a frame
+    /// for the new size; then the window takes that size and its popups are re-placed.
+    pub fn resize_window(&mut self, key: SurfaceKey, size: Size) {
+        let Some(node) = self.live(key) else {
+            return;
+        };
+        if node.role != Role::Toplevel
+            || node.fullscreen
+            || node.hidden
+            || self.locked
+            || size.width == 0
+            || size.height == 0
+        {
+            return;
+        }
+        self.reconfigure(key, None, size);
+    }
+
     // ---- secure lock ---------------------------------------------------------------------
 
     /// Protects the session immediately: popups and grabs are dismissed, input to ordinary
@@ -1868,6 +1972,7 @@ impl Scene {
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
         }
+        self.refresh_accessibility_geometry();
     }
 
     /// Assigns `output` to a window and its dialogs, asking for buffers at the new scale when it
@@ -2011,6 +2116,71 @@ impl Scene {
         }
         self.swallowed_releases = self.buttons_down;
         self.moving = None;
+    }
+
+    /// A wheel or touchpad scroll, in 1/256 logical pixels, for the surface under the pointer
+    /// (or holding its capture). It is not a press: it authorizes no grab and activates nothing.
+    pub fn pointer_scroll(&mut self, dx: i32, dy: i32) {
+        let Some(target) = self.pointer_target() else {
+            return;
+        };
+        let serial = self.next_serial();
+        self.emit(
+            target.client,
+            Event::Scroll {
+                surface: target.id,
+                serial,
+                dx,
+                dy,
+            },
+        );
+    }
+
+    /// The input method's composition (preedit) for the focused surface: `text` replaces the
+    /// previous composition, with the composing cursor at byte `cursor`; empty text ends it.
+    /// Returns false, delivering nothing, for text over one chunk or a cursor outside it.
+    pub fn preedit(&mut self, text: &str, cursor: usize) -> bool {
+        let (Some(preedit), Ok(cursor)) = (PreeditText::new(text), u8::try_from(cursor)) else {
+            return false;
+        };
+        if usize::from(cursor) > text.len() || !text.is_char_boundary(usize::from(cursor)) {
+            return false;
+        }
+        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
+            return true;
+        };
+        let serial = self.next_serial();
+        self.emit(
+            target.client,
+            Event::Preedit {
+                surface: target.id,
+                serial,
+                text: preedit,
+                cursor,
+            },
+        );
+        true
+    }
+
+    /// Text committed by the keyboard layout or input method, for the focused surface. It counts
+    /// as user input, like a key press. Long text arrives as consecutive chunks.
+    pub fn text(&mut self, text: &str) {
+        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
+            return;
+        };
+        for chunk in TextChunk::split(text) {
+            let serial = self.next_serial();
+            self.last_user_serial = serial;
+            self.record_press(serial, target, false);
+            self.emit(
+                target.client,
+                Event::Text {
+                    surface: target.id,
+                    serial,
+                    text: chunk,
+                },
+            );
+        }
     }
 
     pub fn key(&mut self, key: u32, pressed: bool) {
@@ -2201,6 +2371,7 @@ impl Scene {
         for key in resized {
             self.reconstrain_children(key);
         }
+        self.refresh_accessibility_geometry();
         for key in newly_mapped {
             let node = &self.nodes[&key];
             if node.parent.is_none() || node.role == Role::Dialog {
@@ -2269,6 +2440,9 @@ impl Scene {
         }
     }
 }
+
+mod accessibility;
+pub use accessibility::AccessibleNode;
 
 #[cfg(test)]
 mod tests;

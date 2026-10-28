@@ -43,10 +43,23 @@ if [ ! -e text/usr/include/harfbuzz/hb.h ]; then
   done
 fi
 
-# Hermes V1 at the revision React Native pins. Unicode-lite: no ICU, as on Android.
+# ICU headers (the libraries are part of the Debian base), for Hermes' Unicode support.
+if [ ! -e icu/usr/include/unicode/uchar.h ]; then
+  mkdir -p debs/icu && (cd debs/icu && apt-get download libicu-dev)
+  for deb in debs/icu/*.deb; do dpkg -x "$deb" icu; done
+  for lib in icuuc icui18n icudata; do
+    so=$(ls /usr/lib/x86_64-linux-gnu/lib$lib.so.[0-9]* | head -1)
+    rm -f "icu/usr/lib/x86_64-linux-gnu/lib$lib.so" && ln -s "$so" "icu/usr/lib/x86_64-linux-gnu/lib$lib.so"
+  done
+fi
+
+# Hermes V1 at the revision React Native pins, with ICU for case mapping and normalisation.
+# Unicode-lite (Android's build) leaves String.prototype.toLocaleLowerCase and normalize() as
+# identity functions without the platform's Java ICU behind them; OxyOS has no Java, so Hermes
+# links the system ICU instead. Intl stays off: Hermes' Linux Intl is a stub.
 [ -d hermes ] || git clone -q --depth 1 --branch "$HERMES_TAG" https://github.com/facebook/hermes.git hermes
 cmake -S hermes -B hermes-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHERMES_ENABLE_INTL=OFF \
-  -DHERMES_UNICODE_LITE=ON -DHERMES_ENABLE_TEST_SUITE=OFF >/dev/null
+  -DHERMES_UNICODE_LITE=OFF -DICU_ROOT="$WORK/icu/usr" -DHERMES_ENABLE_TEST_SUITE=OFF >/dev/null
 ninja -C hermes-build -j "$JOBS" lib/libhermesvm.so bin/hermes bin/hermesc
 
 # React Native's pinned third-party sources (versions from its gradle/libs.versions.toml).
@@ -83,17 +96,53 @@ mkdir -p "$WORK/codegen-reanimated"
     --schemaPath "$WORK/codegen-reanimated/schema.json" --outputDir "$WORK/codegen-reanimated/out" \
     --libraryName rnreanimated --javaPackageName com.swmansion.reanimated)
 
+# React Native's text input component, patched to build off Android (see the patch's header). A
+# private copy: the React Native package is never modified.
+rm -rf "$WORK/textinput"
+cp -R "$RN_DIR/ReactCommon/react/renderer/components/textinput" "$WORK/textinput"
+patch -s -d "$WORK/textinput" -p1 < "$HERE/patches/react-native-androidtextinput-props.patch"
+
+# The display protocol client the host links (the repository's Cargo workspace).
+REPO=$(cd "$HERE/../.." && pwd)
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-client-ffi
+OXY_CLIENT_LIB="$REPO/target/release/liboxy_client_ffi.a"
+
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
-  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" >/dev/null
+  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" \
+  -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
 ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
 
 # Fabric alone: a tree built through nativeFabricUIManager.
 host-build/oxy-rn-spike "$HERE/tree.js"
 
-# React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG.
-(cd "$HERE/sample" && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
+# React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
+# compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
+# resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
+(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxy-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
+
+# The same app in a window, as a regression: the offscreen compositor launches the host as its own
+# process, which presents through the display protocol, and drives scenarios/sample.json. Each
+# step's expected result is checked: the text shown, the focused input and surface, the exact
+# events React received (no duplicate or leaked one) and a latency budget (regress.py). The menu
+# steps need Bloom 15.61.0 or later (the platform adapter, OxyHQ/Bloom#507, and the text field's
+# reading order, #511): Bloom's main has both; point BLOOM_DIR at such a checkout.
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
+# With OXY_GPU=1 every frame is also composed on a Vulkan device and must match the CPU
+# composition byte for byte (docs/adr/0004-gpu-composition.mdx).
+python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" ${OXY_GPU:+--gpu} --offscreen "$REPO/target/release/oxy-offscreen" \
+  --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
+# A secure field's text is drawn as bullets and never reported or published to an assistive
+# technology (docs/adr/0003-accessibility-protocol.mdx).
+python3 "$HERE/regress.py" "$HERE/scenarios/secure-field.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-secure"
+# React Native's Android APIs that OxyOS does not provide fail visibly; the rest answer truthfully
+# (docs/react-native-android-adaptation.mdx).
+python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-adaptation"

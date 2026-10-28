@@ -1,0 +1,49 @@
+---
+title: React Native's Android implementation on OxyOS
+description: What the OxyOS host reuses from React Native's Android implementation, what it implements itself, and what it does not provide.
+order: 6
+---
+
+# React Native's Android implementation on OxyOS
+
+OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless runs **React Native's own modules in their Android implementation**. React Native supports two native platforms, and the host implements the native interfaces of one of them, Android, instead of maintaining copies of React Native's platform branches. This page is the contract for that adaptation.
+
+**Rule:** a React Native API that OxyOS does not provide fails visibly. Its native module is absent and the call throws, or its promise rejects. It never pretends to succeed and never leaves its caller waiting. `scenarios/android-adaptation.json` checks this for the APIs below (`regress.py`; the probe is `sample/AndroidProbe.tsx`).
+
+## What is reused from React Native's Android implementation
+
+| Part | How |
+| --- | --- |
+| Core JavaScript | React Native's own modules resolve `Platform.android.js` and take their Android branches. Their `.android.js` files are used where no OxyOS override exists (`sample/metro.config.js`). Everything else, including the `Platform` that `react-native` exports to apps and to Bloom, reports `oxyos`. |
+| Native component names, view configs and commands | `AndroidTextInput` (Bloom's `TextField`), `AndroidHorizontalScrollView` (the `ScrollView` component) and `AndroidHorizontalScrollContentView`. |
+| C++ shadow nodes, props and state | The Android text input's, built unchanged from a private copy patched with the `RN_SERIALIZABLE_STATE` guard upstream lacks (`patches/`). The horizontal scroll content view's is built unchanged. |
+| TurboModule specs | The Android specs (for example `PlatformConstants`), answered by the host's own modules below. |
+| Events | Android's text-input events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`) with Android's payloads. |
+| Assets | Android's resource layout (`drawable-*`, `raw/`), computed by React Native's own path helpers. |
+
+## What OxyOS implements
+
+| Module | OxyOS behavior |
+| --- | --- |
+| `PlatformConstants` | `Release`/`Model` are `OxyOS`. `Version` is 36: not a device API level, but the level whose React Native code paths the host follows (React Native 0.88's target SDK). Core uses it only to trust keyboard events, and OxyOS has no software keyboard and sends none. `getAndroidID` throws ("OxyOS has no Android ID"). |
+| `DeviceInfo`, `SourceCode`, `AppState`, `Appearance` | The window's size and scale; the bundle URL; always active; the light scheme. |
+| `AccessibilityInfo` | Reports no assistive technology and no reduced motion; the recommended timeout is the one asked about, as on Android without a preference. `sendAccessibilityEvent(view, 'focus')` (through Fabric) moves the host's accessibility focus, as Android's accessibility focus: to the view, or to the first accessible node inside it. The host publishes each surface's tree to the compositor for a screen reader ([ADR 0003](./adr/0003-accessibility-protocol)), and a screen reader's activation reaches JavaScript as Android's accessibility click (`onClick`, which Pressability turns into `onPress`). |
+| `ExceptionsManager` | Prints the error and its stack. |
+| `ImageLoader` | Fails each request explicitly: OxyOS has no image pipeline yet. |
+| Fonts (`OxyFontRegistry`, for `expo-font`) | Registers a font only if FreeType can open it. |
+| Fabric | View, Paragraph, ScrollView (native offsets), text input, popups (`OxyPopupView`), events, Reanimated and Worklets. |
+
+## What OxyOS does not provide
+
+**Absent:** the call throws, and the host logs `TurboModule unavailable`.
+- `ToastAndroid`, `Vibration`, `PermissionsAndroid`;
+- `IntentAndroid` / `LinkingManager` (`Linking`);
+- `ShareModule`, `DialogManagerAndroid`, `ActionSheetManager`, `SoundManager`;
+- `NativeAnimatedModule` (Animated runs in JavaScript), `FrameRateLogger`;
+- the Expo modules Bloom does not need.
+
+**Accepted with no effect, reported once:**
+- *There is nothing to apply on OxyOS:* status bar style, colour and visibility (there is no status bar); the default back-press handler; red-box messages.
+- *Capabilities OxyOS does not have yet:* forcing or allowing RTL; setting the colour scheme; announcements (not yet in the accessibility protocol) and the legacy tag-based `setAccessibilityFocus`.
+
+Changing any of these is a change to this page and to its scenario.

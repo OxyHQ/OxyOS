@@ -2,6 +2,8 @@
 
 #include "text.h"
 
+#include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
+#include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -11,6 +13,9 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
 #include <set>
 
 using namespace facebook::react;
@@ -76,12 +81,19 @@ class Painter {
     if (x < 0 || y < 0 || x >= canvas_.width || y >= canvas_.height) return;
     float a = std::clamp(color.a * coverage, 0.0f, 1.0f);
     if (a <= 0) return;
+    // Premultiplied source-over: an opaque canvas stays opaque, a transparent one gains alpha.
     uint32_t& dst = canvas_.pixels[static_cast<size_t>(y) * canvas_.width + x];
+    if (a >= 1) {
+      // The formula below with a = 1: the destination does not contribute.
+      auto c = [](float v) { return static_cast<uint32_t>(std::lround(v * 255)); };
+      dst = 0xff000000u | c(color.r) << 16 | c(color.g) << 8 | c(color.b);
+      return;
+    }
     auto channel = [&](int shift, float src) {
       float d = ((dst >> shift) & 0xff) / 255.0f;
       return static_cast<uint32_t>(std::lround((src * a + d * (1 - a)) * 255)) << shift;
     };
-    dst = 0xff000000 | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
+    dst = channel(24, 1.0f) | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
   }
 
   // Whether a point lies in a rectangle with circular corner radii (logical units).
@@ -114,21 +126,38 @@ class Painter {
     for (int py = y0; py < y1; ++py) {
       for (int px = x0; px < x1; ++px) {
         float lx = px / scale_, ly = py / scale_;
+        if (lx + 1 / scale_ <= clip.x0 || lx >= clip.x1 || ly + 1 / scale_ <= clip.y0 || ly >= clip.y1) continue;
         float coverage;
         if (rounded) {
           float s = 1 / scale_;
           // Subsample in logical space at device-pixel granularity.
-          coverage = roundedCoverageScaled(lx, ly, s, x, y, w, h, radii);
-          if (holeRadii) coverage -= roundedCoverageScaled(lx, ly, s, hx, hy, hw, hh, *holeRadii);
+          coverage = roundedCoverage(lx, ly, s, x, y, w, h, radii);
+          if (holeRadii && coverage > 0) coverage -= roundedCoverage(lx, ly, s, hx, hy, hw, hh, *holeRadii);
         } else {
           float cx = std::min(lx + 1 / scale_, box.x1) - std::max(lx, box.x0);
           float cy = std::min(ly + 1 / scale_, box.y1) - std::max(ly, box.y0);
           coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
         }
-        if (lx + 1 / scale_ <= clip.x0 || lx >= clip.x1 || ly + 1 / scale_ <= clip.y0 || ly >= clip.y1) continue;
         blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
       }
     }
+  }
+
+  // The 4x4-sampled coverage below, without sampling where every sample agrees: a pixel square
+  // outside the rectangle covers nothing, and one inside it that meets no corner square covers
+  // all of it (the same clamped radii as insideRounded).
+  static float roundedCoverage(float lx, float ly, float s, float x, float y, float w, float h,
+                               const BorderRadii& r) {
+    if (lx + s <= x || ly + s <= y || lx >= x + w || ly >= y + h) return 0;
+    if (lx >= x && ly >= y && lx + s <= x + w && ly + s <= y + h) {
+      float limit = std::min(w, h) / 2;
+      float tl = std::min(r.topLeft.horizontal, limit), tr = std::min(r.topRight.horizontal, limit);
+      float bl = std::min(r.bottomLeft.horizontal, limit), br = std::min(r.bottomRight.horizontal, limit);
+      bool clear = (lx >= x + tl || ly >= y + tl) && (lx + s <= x + w - tr || ly >= y + tr) &&
+                   (lx >= x + bl || ly + s <= y + h - bl) && (lx + s <= x + w - br || ly + s <= y + h - br);
+      if (clear) return 1;
+    }
+    return roundedCoverageScaled(lx, ly, s, x, y, w, h, r);
   }
 
   // 4x4-sampled coverage of a device pixel whose logical size is `s`.
@@ -170,16 +199,114 @@ class Painter {
 };
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
+                                            "AndroidTextInput", "AndroidHorizontalScrollContentView",
                                             "Image"};
 
+// The input's text laid out as it is drawn: single-line inputs do not wrap.
+ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
+  float maxWidth = props.multiline ? width : std::numeric_limits<float>::infinity();
+  return TextEngine::shared().layout(text, props.paragraphAttributes, maxWidth);
+}
+
+// A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
+// fields do; its text is never drawn or reported.
+constexpr const char* kSecureBullet = "\u2022";
+
+bool isContinuation(const std::string& text, size_t i) {
+  return (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80;
+}
+
+std::string shownText(const AndroidTextInputProps& props, const std::string& value) {
+  if (!props.secureTextEntry) return value;
+  std::string shown;
+  for (size_t i = 0; i < value.size(); ++i) {
+    if (!isContinuation(value, i)) shown += kSecureBullet;
+  }
+  return shown;
+}
+
+// A byte offset into the value, as a byte offset into what is shown.
+size_t shownOffset(const AndroidTextInputProps& props, const std::string& value, size_t offset) {
+  if (!props.secureTextEntry) return offset;
+  size_t characters = 0;
+  for (size_t i = 0; i < std::min(offset, value.size()); ++i) {
+    if (!isContinuation(value, i)) ++characters;
+  }
+  return characters * std::char_traits<char>::length(kSecureBullet);
+}
+
+AttributedString inputText(const AndroidTextInputProps& props, const std::string& text) {
+  AttributedString string;
+  string.setBaseTextAttributes(props.getEffectiveTextAttributes(1));
+  if (!text.empty()) {
+    string.appendFragment({.string = text, .textAttributes = string.getBaseTextAttributes(), .parentShadowView = {}});
+  }
+  return string;
+}
+
+// A text input's text, or its placeholder when empty. When it has focus (`edit`): the selection
+// behind the text, the composition underlined, and the caret. A single-line input centres its
+// line vertically, as Android's EditText does.
+void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity,
+                   const TextInputEdit* edit, Painter& painter) {
+  const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  AttributedString text = data.attributedStringBox.getValue();
+  std::string value = text.getString();
+  if (props->secureTextEntry) text = inputText(*props, shownText(*props, value));
+  if (text.isEmpty() && !props->placeholder.empty()) {
+    auto attributes = props->getEffectiveTextAttributes(1);
+    attributes.foregroundColor = props->placeholderTextColor ? props->placeholderTextColor
+                                                             : colorFromComponents({0.5f, 0.5f, 0.5f, 1});
+    text.appendFragment({.string = props->placeholder, .textAttributes = attributes, .parentShadowView = {}});
+  }
+  auto content = view.layoutMetrics.getContentFrame();
+  auto layout = layoutInput(*props, text, content.size.width);
+  float top = y + content.origin.y;
+  if (!props->multiline) top += (content.size.height - layout.height) / 2;
+  float left = x + content.origin.x;
+  Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
+  float lineTop = layout.lines.empty() ? 0 : layout.lines.front().top;
+  float lineHeight = props->getEffectiveTextAttributes(1).fontSize;
+  if (std::isnan(lineHeight)) lineHeight = 14;
+  if (!layout.lines.empty()) lineHeight = layout.lines.front().height;
+  SharedColor textColor = props->getEffectiveTextAttributes(1).foregroundColor;
+
+  if (edit && edit->selectionStart != edit->selectionEnd && !value.empty()) {
+    float from = textInputCaretX(view, value, edit->selectionStart);
+    float to = textInputCaretX(view, value, edit->selectionEnd);
+    Rgba selection = props->selectionColor ? rgba(props->selectionColor) : Rgba{0.25f, 0.45f, 1.0f, 0.3f};
+    selection.a *= opacity;
+    painter.fill(left + from, top + lineTop, to - from, lineHeight, BorderRadii{}, selection, inside);
+  }
+  painter.glyphs(layout, left, top, inside, opacity);
+  if (!edit) return;
+  Rgba ink = textColor ? rgba(textColor) : Rgba{0, 0, 0, 1};
+  ink.a *= opacity;
+  if (edit->composeStart != edit->composeEnd && !value.empty()) {
+    float from = textInputCaretX(view, value, edit->composeStart);
+    float to = textInputCaretX(view, value, edit->composeEnd);
+    float baseline = layout.lines.empty() ? lineHeight : layout.lines.front().top + layout.lines.front().ascent;
+    painter.fill(left + from, top + baseline + 2, to - from, 1, BorderRadii{}, ink, inside);
+  }
+  if (edit->selectionStart == edit->selectionEnd) {
+    float caretX = value.empty() ? 0 : textInputCaretX(view, value, edit->selectionEnd);
+    Rgba caret = props->cursorColor ? rgba(props->cursorColor) : ink;
+    caret.a *= opacity;
+    painter.fill(left + caretX, top + lineTop, 1.5f, lineHeight, BorderRadii{}, caret, inside);
+  }
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
-              RenderStats& stats) {
+              RenderStats& stats, const TextInputEdit& edit) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
   float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
+  // A popup's subtree is drawn in its own surface (drawPopup), never in the window.
+  if (name == kPopupComponent) return;
   ++stats.views;
   if (!kImplemented.count(name)) {
     ++stats.unimplemented;
@@ -190,6 +317,24 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  // Debug aid: OXY_HOST_DUMP=1 prints every drawn view, indented by depth.
+  static const bool dump = std::getenv("OXY_HOST_DUMP") != nullptr;
+  static int depth = 0;
+  struct Depth {
+    bool entered;
+    ~Depth() {
+      if (entered) --depth;
+    }
+  } scope{dump};
+  if (dump) {
+    Rgba bg = props ? rgba(props->backgroundColor) : Rgba{0, 0, 0, 0};
+    std::fprintf(stderr,
+                 "[tree] %*s%s tag=%d frame=(%.0f,%.0f %.0fx%.0f) at=(%.0f,%.0f) bg=%.2f,%.2f,%.2f,%.2f opacity=%.2f "
+                 "z=%d\n",
+                 depth * 2, "", name.c_str(), tag, frame.origin.x, frame.origin.y, w, h, x, y, bg.r, bg.g, bg.b, bg.a,
+                 props ? props->opacity : 1.0f, props && props->zIndex ? *props->zIndex : 0);
+    ++depth;
+  }
   Clip childClip = clip;
   float childOx = x, childOy = y;
   if (props) {
@@ -223,6 +368,18 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     childOy -= state.getData().contentOffset.y;
   }
 
+  bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
+  if (name == "AndroidTextInput" && view.state) {
+    drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+    ++stats.texts;
+    if (visible) {
+      const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
+      std::string value = data.attributedStringBox.getValue().getString();
+      auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+      stats.textContent.push_back(value.empty() ? props->placeholder : shownText(*props, value));
+    }
+  }
+
   if (name == "Paragraph" && view.state) {
     const auto& state = static_cast<const ConcreteState<ParagraphState>&>(*view.state).getData();
     auto content = view.layoutMetrics.getContentFrame();
@@ -232,10 +389,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip.intersect(Clip{x, y, x + w, y + h}),
                    opacity);
     ++stats.texts;
+    if (visible) stats.textContent.push_back(state.attributedString.getString());
   }
 
   for (Tag child : it->second.children) {
-    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats);
+    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, edit);
   }
 }
 
@@ -261,14 +419,104 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 
 }  // namespace
 
-RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas) {
+float textInputCaretX(const ShadowView& view, const std::string& text, size_t offset) {
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  float width = view.layoutMetrics.getContentFrame().size.width;
+  auto shown = shownText(*props, text);
+  auto prefix =
+      layoutInput(*props, inputText(*props, shown.substr(0, std::min(shownOffset(*props, text, offset), shown.size()))),
+                  width);
+  if (prefix.lines.empty()) return 0;
+  const auto& last = prefix.lines.back();
+  return last.x + last.advance;
+}
+
+size_t textInputOffsetAt(const ShadowView& view, const std::string& text, float x) {
+  // The character boundary whose caret position is nearest x.
+  size_t best = 0;
+  float bestDistance = std::abs(x - textInputCaretX(view, text, 0));
+  for (size_t i = 1; i <= text.size(); ++i) {
+    if (i < text.size() && (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80) continue;
+    float distance = std::abs(x - textInputCaretX(view, text, i));
+    if (distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0xffffffff);
   Painter painter(canvas, display.scale);
   RenderStats stats;
-  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats);
+  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
   return stats;
+}
+
+RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, Canvas& canvas,
+                      const TextInputEdit& edit) {
+  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
+  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
+  Painter painter(canvas, display.scale);
+  RenderStats stats;
+  auto it = tree.views().find(popup);
+  if (it == tree.views().end()) return stats;
+  for (Tag child : it->second.children) {
+    drawView(tree, child, 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
+  }
+  return stats;
+}
+
+namespace {
+
+std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offset) {
+  auto it = tree.views().find(at);
+  if (it == tree.views().end()) return std::nullopt;
+  const auto& view = it->second.view;
+  Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
+  if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
+  Point children = position;
+  if (std::string(view.componentName ? view.componentName : "") == "ScrollView" && view.state) {
+    const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
+    children.x -= state.contentOffset.x;
+    children.y -= state.contentOffset.y;
+  }
+  for (Tag child : it->second.children) {
+    if (auto found = frameUnder(tree, tag, child, children)) return found;
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
+namespace {
+
+std::vector<Tag> pathTo(const ViewTree& tree, Tag at, Tag tag) {
+  if (at == tag) return {tag};
+  auto it = tree.views().find(at);
+  if (it == tree.views().end()) return {};
+  for (Tag child : it->second.children) {
+    auto path = pathTo(tree, child, tag);
+    if (!path.empty()) {
+      path.insert(path.begin(), at);
+      return path;
+    }
+  }
+  return {};
+}
+
+}  // namespace
+
+std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) {
+  return tree.root() < 0 ? std::vector<Tag>{} : pathTo(tree, tree.root(), tag);
+}
+
+std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
+  return tree.root() < 0 ? std::nullopt : frameUnder(tree, tag, tree.root(), {0, 0});
 }
 
 bool writePng(const Canvas& canvas, const std::string& path) {

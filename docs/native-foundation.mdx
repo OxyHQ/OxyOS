@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code and loads no display toolkit. It currently verifies protocol, policy and ownership state; it draws no pixels.
+The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code, except for the C ABI in `crates/oxy-client-ffi`, which denies it and allows it item by item, each with its safety contract. It loads no display toolkit. The compositor core verifies protocol, policy and ownership state and draws no pixels; the offscreen fixture composes client buffers on the CPU.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -35,9 +35,12 @@ Expected result:
 | `crates/oxy-compositor-core/src/placement.rs` | Popup positioner: anchor/gravity/offset, flip/slide/resize against one output, RTL, overflow-safe |
 | `crates/oxy-compositor-core/src/scene.rs` | Roles, grants, ownership, quotas, stacking, input routing, popup grabs, focus, lock primitive, outputs, frame lifecycle and buffer release |
 | `crates/oxy-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
-| `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send |
+| `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send and receive |
+| `crates/oxy-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), non-blocking event polling |
+| `crates/oxy-client-ffi` | C ABI over `oxy-client` (`include/oxy_client.h`) for native runtimes in C/C++, such as the Bloom host; tests check the header against the Rust layouts |
+| `crates/oxy-gpu` | Frame composition: the CPU reference (`compose_cpu`), which `oxy-offscreen` composes with, and the same composition on a Vulkan device (`VulkanCompositor`, a compute shader), which must match it byte for byte ([ADR 0004](./adr/0004-gpu-composition)) |
 | `tools/oxy-platform-probe` | Two-process protocol v2 metadata exercise with synthetic completion |
-| `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; writes PNG snapshots |
+| `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; `--launch` runs one application process (the Bloom host) and presses scripted points; writes PNG snapshots |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
 | `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
 
@@ -49,7 +52,16 @@ Tests cover: every message round trip; every truncation; length mismatches; 200,
 
 Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width little-endian fields. Payload length is 1–64 bytes. Requests (client → compositor) and events (compositor → client) have separate opcode spaces and decoders. The table is generated from `crates/oxy-protocol/src/schema.rs`; a test fails if this table and the schema differ.
 
-Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; booleans are 0 or 1; enums and adjustment flags reject unknown values; anchor rectangles have a positive size; surface id 0 is invalid. Encoders run the decoder's validation, so a peer never emits what it would reject. Pointer and touch coordinates are surface-local logical pixels in 24.8 fixed point. Scale is in 120ths.
+Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; booleans are 0 or 1; enums and adjustment flags reject unknown values; anchor rectangles have a positive size; surface id 0 is invalid. Encoders run the decoder's validation, so a peer never emits what it would reject. Pointer and touch coordinates, and scroll distances, are surface-local logical pixels in 24.8 fixed point. Scale is in 120ths.
+
+Input semantics:
+- **Scroll** goes to the surface under the pointer, like motion. It is not a press: it authorizes no popup grab and activates nothing. Positive distances move the view right and down.
+- **Text** carries committed text for the focused surface: 1 to 32 bytes of UTF-8 that never split a character, with longer text arriving as consecutive chunks. The compositor turns keys into text through its keymap (and, later, an input method), so clients never translate key codes. `Key` stays for layout-independent keys such as Backspace, Enter, Tab, Escape and the arrows.
+- **Preedit** carries the input method's composition for the focused surface: its current text (0 to 32 bytes of whole characters, empty to end it) and the composing cursor as a byte offset. Each `Preedit` replaces the previous one; the composition's result arrives as `Text`.
+- **Accessibility** ([ADR 0003](./adr/0003-accessibility-protocol)):
+  - **Publishing:** an application publishes one snapshot per surface (`AccessibilityBegin`, `AccessibleNode`s in reading order with parents first, `AccessibleText` chunks for names and values, then `AccessibilityCommit`). Limits are 4096 nodes and 1024 bytes per text, with closed sets of roles and states.
+  - **Reading:** only a client granted `accessibility` receives committed snapshots, with global rectangles, and their removal.
+  - **Acting:** that client's `AccessibilityAction` (activate, focus) reaches the owning application as an event. Its serial is the user's activation, as a key press's is, so an activation can open a grabbing popup; a focus move authorizes nothing.
 
 | Direction | Opcode | Message | Payload bytes |
 | --- | --- | --- | --- |
@@ -69,6 +81,11 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 | Request | 14 | Goodbye | 1 |
 | Request | 15 | AttachBuffer | 29 |
 | Request | 16 | DestroyBuffer | 9 |
+| Request | 17 | AccessibilityBegin | 9 |
+| Request | 18 | AccessibleNode | 32 |
+| Request | 19 | AccessibleText | 43 |
+| Request | 20 | AccessibilityCommit | 5 |
+| Request | 21 | AccessibilityAction | 14 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -79,10 +96,19 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 | Event | 8 | Feedback | 23 |
 | Event | 9 | Released | 13 |
 | Event | 10 | ProtocolError | 3 |
+| Event | 11 | Scroll | 21 |
+| Event | 12 | Text | 46 |
+| Event | 13 | Preedit | 47 |
+| Event | 14 | AccessibilityAction | 18 |
+| Event | 15 | AccessibilityTree | 17 |
+| Event | 16 | AccessibleNode | 36 |
+| Event | 17 | AccessibleText | 47 |
+| Event | 18 | AccessibilityCommitted | 9 |
+| Event | 19 | AccessibilityRemoved | 9 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 
-Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, keyboard keymaps, IME, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly), clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Transport and buffers
 
@@ -94,11 +120,21 @@ Shared-memory buffers must be regular files sealed against shrinking (`memfd` wi
 
 `oxy-offscreen` runs the protocol, transport and scene with real processes and memory: a `poll` loop that never blocks on a client, bounded per-client outboxes (1,024 unread events disconnect the client), CPU composition of the in-flight frame (`Scene::frame_list`) and recomposition when the scene changes. A scripted director injects synthetic input: one client opens a context menu larger than its window; the fixture samples composed pixels beyond all four window edges over the other client, presses a menu row outside the window, presses outside the menu, and checks that the other client received no press, that no menu pixels remain, and that scene resources and the process's open descriptors return to their starting counts. It writes four PNG snapshots.
 
+`oxy-offscreen --launch [--gpu] [--press X,Y | --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --key CODE | --expect-popup | …]... -- COMMAND` (the full list is in its usage text) launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the application's surfaces stay unchanged for 750 ms, then runs each step in order:
+- a left-button press at a window-local point, or at a point of the application's popup;
+- a scroll with the pointer at a point;
+- committed text;
+- a key press and release.
+
+An input step passes only when the application answers with changed pixels anywhere on the output (its window or a popup). `--expect-popup` asserts that a popup of the application is shown, and reports how far it extends beyond the window on each edge; it fails if the popup stays inside. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
+
 ```json
 {"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}
 ```
 
-This is the headless development path. It is not DRM/KMS, Vulkan, a session or Bloom, its input is scripted and its feedback timestamps are synthetic. The test clients draw flat rectangles.
+With `--gpu`, every composed frame is also composed on the best Vulkan device present and must match the CPU composition byte for byte. Any difference fails the run, and the summary names the device and its kind. On a machine without a Vulkan driver, Mesa's lavapipe (`mesa-vulkan-drivers`, a CPU device) runs it: that proves the Vulkan path and the semantics, not a GPU.
+
+This is the headless development path. It is not DRM/KMS output, GPU-timed, a session or Bloom, its input is scripted and its feedback timestamps are synthetic. The test clients draw flat rectangles.
 
 ## Core state transitions
 

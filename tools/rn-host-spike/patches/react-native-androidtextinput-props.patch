@@ -1,0 +1,112 @@
+React Native 0.88: build the Android text input's props and state off Android.
+
+AndroidTextInputProps declares getDiffProps and getDiffPropsImplementationTarget
+as overrides of Props methods that exist only with RN_SERIALIZABLE_STATE, and
+its getDynamic converts colours with the Android-only toAndroidRepr.
+AndroidTextInputState's dynamic constructor, getDynamic and getMapBuffer are
+the same serialisation, which ConcreteState only uses with
+RN_SERIALIZABLE_STATE. Other components (Text, RawText, Image,
+UnimplementedView, the Android paragraph props, ScrollViewState) guard this
+API with #ifdef RN_SERIALIZABLE_STATE; this patch adds the same guard, so the
+shared props, state and shadow node build on hosts without Android's
+serialisation (the OxyOS host). Behaviour with RN_SERIALIZABLE_STATE (Android) is unchanged.
+
+Upstream (facebook/react-native main) still lacks the guard at the time of
+writing. build.sh applies this to a private copy of the module in its work
+directory; the React Native package itself is never modified.
+
+diff --git a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.cpp b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.cpp
+--- a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.cpp
++++ b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.cpp
+@@ -277,6 +277,7 @@ void AndroidTextInputProps::setProp(
+ }
+ 
+ // TODO T53300085: support this in codegen; this was hand-written
++#ifdef RN_SERIALIZABLE_STATE
+ folly::dynamic AndroidTextInputProps::getDynamic() const {
+   folly::dynamic props = folly::dynamic::object();
+   props["autoComplete"] = autoComplete;
+@@ -343,6 +344,7 @@ folly::dynamic AndroidTextInputProps::getDynamic() const {
+ 
+   return props;
+ }
++#endif
+ 
+ #pragma mark - DebugStringConvertible
+ 
+@@ -353,6 +355,7 @@ SharedDebugStringConvertibleList AndroidTextInputProps::getDebugProps() const {
+ }
+ #endif
+ 
++#ifdef RN_SERIALIZABLE_STATE
+ ComponentName AndroidTextInputProps::getDiffPropsImplementationTarget() const {
+   return "TextInput";
+ }
+@@ -636,5 +639,6 @@ folly::dynamic AndroidTextInputProps::getDiffProps(
+ 
+   return result;
+ }
++#endif
+ 
+ } // namespace facebook::react
+diff --git a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.h b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.h
+--- a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.h
++++ b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputProps.h
+@@ -75,7 +75,9 @@ class AndroidTextInputProps final : public BaseTextInputProps {
+   void
+   setProp(const PropsParserContext &context, RawPropsPropNameHash hash, const char *propName, const RawValue &value);
+ 
++#ifdef RN_SERIALIZABLE_STATE
+   folly::dynamic getDynamic() const;
++#endif
+ 
+ #pragma mark - Props
+ 
+@@ -132,8 +134,10 @@ class AndroidTextInputProps final : public BaseTextInputProps {
+   SharedDebugStringConvertibleList getDebugProps() const override;
+ #endif
+ 
++#ifdef RN_SERIALIZABLE_STATE
+   ComponentName getDiffPropsImplementationTarget() const override;
+   folly::dynamic getDiffProps(const Props *prevProps) const override;
++#endif
+ };
+ 
+ } // namespace facebook::react
+diff --git a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.cpp b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.cpp
+--- a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.cpp
++++ b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.cpp
+@@ -12,6 +12,7 @@
+ 
+ namespace facebook::react {
+ 
++#ifdef RN_SERIALIZABLE_STATE
+ folly::dynamic AndroidTextInputState::getDynamic() const {
+   LOG(FATAL) << "TextInputState state should only be read using MapBuffer";
+ }
+@@ -38,5 +39,6 @@ MapBuffer AndroidTextInputState::getMapBuffer() const {
+   }
+   return builder.build();
+ }
++#endif
+ 
+ } // namespace facebook::react
+diff --git a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.h b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.h
+--- a/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.h
++++ b/platform/android/react/renderer/components/androidtextinput/AndroidTextInputState.h
+@@ -37,6 +37,7 @@ class AndroidTextInputState final {
+   {
+   }
+ 
++#ifdef RN_SERIALIZABLE_STATE
+   AndroidTextInputState(const AndroidTextInputState &previousState, const folly::dynamic &data)
+       : attributedStringBox(previousState.attributedStringBox),
+         reactTreeAttributedString(previousState.reactTreeAttributedString),
+@@ -48,6 +49,7 @@ class AndroidTextInputState final {
+ 
+   folly::dynamic getDynamic() const;
+   MapBuffer getMapBuffer() const;
++#endif
+ 
+   /*
+    * All content of <TextInput> component.

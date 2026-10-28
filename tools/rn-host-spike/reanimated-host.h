@@ -12,7 +12,7 @@
 #include <vector>
 
 namespace facebook::react {
-class UIManager;
+class Scheduler;
 }
 namespace reanimated {
 class ReanimatedModuleProxy;
@@ -24,7 +24,8 @@ class WorkletsHost;
 
 class ReanimatedHost {
  public:
-  ReanimatedHost(WorkletsHost& worklets, std::function<std::shared_ptr<facebook::react::UIManager>()> uiManager);
+  // `scheduler` returns the Fabric scheduler, which exists before JavaScript installs the module.
+  ReanimatedHost(WorkletsHost& worklets, std::function<facebook::react::Scheduler*()> scheduler);
   ~ReanimatedHost();
 
   std::shared_ptr<facebook::react::TurboModule> module(
@@ -36,7 +37,7 @@ class ReanimatedHost {
 
  private:
   WorkletsHost& worklets_;
-  std::function<std::shared_ptr<facebook::react::UIManager>()> uiManager_;
+  std::function<facebook::react::Scheduler*()> scheduler_;
   std::shared_ptr<reanimated::ReanimatedModuleProxy> proxy_;
   std::shared_ptr<std::vector<std::function<void(double)>>> renders_;
   double lastFrame_ = 0;

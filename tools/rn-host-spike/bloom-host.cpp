@@ -1,9 +1,16 @@
 // OxyOS React Native host: Hermes + bridgeless ReactInstance + Fabric on Linux, single-threaded.
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
+#include "accessibility.h"
+#include "android-components.h"
 #include "host-modules.h"
+#include "input.h"
+#include "popup.h"
+#include "report.h"
 #include "renderer.h"
 #include "text.h"
+#include "textinput.h"
+#include "window.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
@@ -59,6 +66,9 @@ using Clock = std::chrono::steady_clock;
 class Flags : public ReactNativeFeatureFlagsDefaults {
  public:
   bool enableBridgelessArchitecture() override { return true; }
+  // A desktop pointer hovers: Pressability's hover (onHoverIn/Out) is built on W3C pointer
+  // events when this is on, and absent otherwise on React Native's Android path.
+  bool shouldPressibilityUseW3CPointerEventsForHover() override { return true; }
 };
 
 // The JS thread is this process's only thread: tasks run when the loop drains the queue.
@@ -180,14 +190,31 @@ class Mounter : public SchedulerDelegate {
         // mount hooks. Reanimated resumes its own commits there.
         if (scheduler_) scheduler_->reportMount(surface);
         mounted = true;
+        changed_ = true;
       }
     }
     return mounted;
   }
+  // Whether the tree changed since the last call, whether the mount came from the host's loop or
+  // from the Scheduler's own callback.
+  bool takeChanged() {
+    bool changed = changed_;
+    changed_ = false;
+    return changed;
+  }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
-  void schedulerDidDispatchCommand(const ShadowView&, const std::string&, const folly::dynamic&) override {}
-  void schedulerDidSendAccessibilityEvent(const ShadowView&, const std::string&) override {}
+  // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
+  std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
+  void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
+    if (onCommand) onCommand(view, name, args);
+  }
+  // Accessibility events from JavaScript (AccessibilityInfo.sendAccessibilityEvent): moving
+  // accessibility focus, for the host's accessibility state.
+  std::function<void(const ShadowView&, const std::string&)> onAccessibilityEvent;
+  void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
+    if (onAccessibilityEvent) onAccessibilityEvent(view, type);
+  }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag, const folly::dynamic&) override {}
   void schedulerDidUpdateShadowTree(const std::unordered_map<Tag, folly::dynamic>&) override {}
@@ -198,6 +225,7 @@ class Mounter : public SchedulerDelegate {
  private:
   oxy::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
+  bool changed_ = false;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
@@ -224,12 +252,20 @@ void stage(const char* name) {
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::cerr << "usage: oxy-bloom-host BUNDLE.js MODULE OUT.png [WIDTH HEIGHT] [--fonts DIR]\n";
+    std::cerr << "usage: oxy-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
+                 "  OUT.png   run until the app settles, then draw it into OUT.png\n"
+                 "  --window  present it in a window on the compositor at $OXY_COMPOSITOR_SOCKET\n";
     return 2;
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
+  const bool windowed = outPath == "--window";
+  const char* socket = std::getenv("OXY_COMPOSITOR_SOCKET");
+  if (windowed && !socket) {
+    std::cerr << "--window needs OXY_COMPOSITOR_SOCKET\n";
+    return 2;
+  }
   const float width = argc > 5 ? std::stof(argv[4]) : 1024;
   const float height = argc > 5 ? std::stof(argv[5]) : 640;
 
@@ -263,7 +299,7 @@ int main(int argc, char** argv) {
   auto invoker = instance->createJSCallInvoker();
   oxy::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
-  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler->getUIManager(); });
+  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
     // console.* in React Native writes through nativeLoggingHook(message, level).
     rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
@@ -302,6 +338,9 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<oxy::TextInputComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyPopupViewComponentDescriptor>());
+  oxy::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
     auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
@@ -325,16 +364,192 @@ int main(int argc, char** argv) {
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
 
+  // In a window, the compositor's configure decides the size the app lays out at.
+  std::unique_ptr<oxy::Window> window;
+  if (windowed) {
+    try {
+      window = std::make_unique<oxy::Window>(socket, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+      while (!window->configured()) {
+        if (!window->dispatch([](const OxyEvent&) {})) {
+          std::cerr << "[host] the compositor closed the connection before configuring the window\n";
+          return 1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      window->resized();
+      display = oxy::Display{window->width(), window->height(), window->scale()};
+    } catch (const std::exception& error) {
+      std::cerr << "[host] " << error.what() << "\n";
+      return 1;
+    }
+  }
+
   stage("load script");
   instance->loadScript(std::make_unique<JSBigStdString>(readFile(bundlePath)), bundlePath);
 
   stage("surface");
   SurfaceHandler surface(moduleName, 1);
   scheduler->registerSurface(surface);
-  surface.constraintLayout(
-      LayoutConstraints{.minimumSize = {width, height}, .maximumSize = {width, height}},
-      LayoutContext{.pointScaleFactor = display.scale});
+  auto layOut = [&] {
+    Size size{display.width, display.height};
+    surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
+                             LayoutContext{.pointScaleFactor = display.scale});
+  };
+  layOut();
   surface.start();
+
+  if (window) {
+    // Serve the compositor until it closes the connection: lay out for each configured size,
+    // and present whenever the tree changed and the previous frame was answered.
+    // The first frame is the first mounted tree, never an empty window.
+    bool dirty = false;
+    int status = 0;
+    oxy::AccessibilityBridge accessibility(tree, *window);
+    oxy::PopupHost popups(tree, *window, accessibility);
+    oxy::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxy::SurfaceContent> {
+      if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.surface = surface, .view = tree.root()};
+      return popups.content(surface);
+    });
+    oxy::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxy::Placement> {
+      auto frame = oxy::windowFrame(tree, view);
+      if (!frame) return std::nullopt;
+      uint32_t surface = popups.surfaceOf(view);
+      // A popup's content is drawn relative to its popup view.
+      if (surface != oxy::Window::kToplevel) {
+        auto content = popups.content(surface);
+        if (!content) return std::nullopt;
+        frame->origin.x -= content->origin.x;
+        frame->origin.y -= content->origin.y;
+      }
+      return oxy::Placement{.surface = surface, .frame = *frame};
+    });
+    auto focusName = [&]() -> std::string {
+      auto it = tree.views().find(editing.focused());
+      return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);
+    };
+    // Compositor input as received, for the report (motion is left out: it is continuous).
+    auto report = [&](const OxyEvent& event) {
+      auto& r = oxy::Report::get();
+      if (!r.enabled()) return;
+      static const char* pointer[] = {"", "pointer.enter", "pointer.leave", "", "pointer.press", "pointer.release",
+                                      "pointer.cancel"};
+      if (event.kind == OXY_EVENT_POINTER && event.detail != OXY_POINTER_MOTION && event.detail <= 6) {
+        r.input(pointer[event.detail], event.surface);
+      } else if (event.kind == OXY_EVENT_KEY) {
+        r.input(event.flag ? "key.press" : "key.release", event.surface, folly::dynamic::object("code", event.code));
+      } else if (event.kind == OXY_EVENT_TEXT) {
+        r.input("text", event.surface, folly::dynamic::object("text", editing.logged(std::string(event.text))));
+      } else if (event.kind == OXY_EVENT_PREEDIT) {
+        r.input("preedit", event.surface,
+                folly::dynamic::object("text", editing.logged(std::string(event.text)))("cursor", event.detail));
+      } else if (event.kind == OXY_EVENT_SCROLL) {
+        r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
+      } else if (event.kind == OXY_EVENT_FOCUS) {
+        r.input(event.flag ? "focus.in" : "focus.out", event.surface);
+      } else if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION) {
+        r.input("a11y.action", event.surface, folly::dynamic::object("index", event.code)("action", event.detail));
+      } else if (event.kind == OXY_EVENT_POPUP_DONE) {
+        r.input("popup.done", event.surface, folly::dynamic::object("reason", event.detail));
+      }
+    };
+    // The latest press or key press: the input a popup opened by it cites for its grab.
+    uint64_t lastPress = 0;
+    oxy::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
+    mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
+      editing.command(view, name, args);
+    };
+    // Accessibility focus, as Android's accessibility focus (separate from input focus): the
+    // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
+    mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
+      std::string within;
+      auto path = oxy::ancestry(tree, view.tag);
+      for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
+        if (props && !props->testId.empty()) within = props->testId;
+      }
+      oxy::Report::get().accessibilityEvent(type, view, within);
+      if (type == "focus") {
+        accessibility.focus(view.tag);
+        dirty = true;
+        popups.changed();
+      }
+    };
+    try {
+      while (true) {
+        Beat::tickAll();
+        bool busy = loop->drain();
+        busy |= mounter.pull();
+        busy |= timers->fire(*timerManager);
+        worklets.tick();
+        busy |= reanimated.tick();
+        if (!window->dispatch([&](const OxyEvent& event) {
+              if ((event.kind == OXY_EVENT_POINTER && event.detail == OXY_POINTER_PRESS) ||
+                  (event.kind == OXY_EVENT_KEY && event.flag) ||
+                  (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && event.detail == OXY_ACTION_ACTIVATE)) {
+                lastPress = event.serial;
+              }
+              report(event);
+              if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
+              // An assistive technology's action; a focus move needs new snapshots.
+              if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
+                dirty = true;
+                popups.changed();
+              }
+              if (event.kind == OXY_EVENT_KEY || event.kind == OXY_EVENT_TEXT) popups.key(event);
+              pointer.handle(event);
+              editing.handle(event);
+            })) {
+          break;
+        }
+        // Focus, caret and selection moves draw even when the tree did not change.
+        if (editing.edit() != drawn) {
+          drawn = editing.edit();
+          dirty = true;
+          popups.changed();
+        }
+        if (window->resized()) {
+          display = oxy::Display{window->width(), window->height(), window->scale()};
+          layOut();
+          // A new size or scale needs a new frame even when the layout does not change (a
+          // scale change keeps every logical frame); the old one would be discarded.
+          dirty = true;
+          busy = true;
+        }
+        if (mounter.takeChanged()) {
+          dirty = true;
+          busy = true;
+          popups.changed();
+        }
+        popups.sync(lastPress);
+        if (dirty && window->ready(oxy::Window::kToplevel)) {
+          oxy::Canvas canvas;
+          auto started = Clock::now();
+          auto stats = oxy::draw(tree, display, canvas, drawn);
+          double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+          window->present(oxy::Window::kToplevel, canvas);
+          oxy::Report::get().frame(oxy::Window::kToplevel, canvas.width, canvas.height, renderMs, stats.textContent,
+                                   focusName());
+          accessibility.publish(oxy::Window::kToplevel, tree.root());
+          dirty = false;
+          busy = true;
+        }
+        popups.present(drawn, focusName());
+        if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+    } catch (const std::exception& error) {
+      std::cerr << "[host] " << error.what() << "\n";
+      status = 1;
+    }
+    std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
+              << mounter.transactions << ",\"presented\":" << window->presented()
+              << ",\"js_errors\":" << jsErrors << "}\n";
+    window.reset();
+    surface.stop();
+    scheduler->unregisterSurface(surface);
+    loop->drain();
+    scheduler.reset();
+    return status == 0 && jsErrors == 0 ? 0 : 1;
+  }
 
   // Run until the app settles (no queued work and no one-shot timer due for a while) or a hard
   // deadline passes.

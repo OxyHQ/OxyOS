@@ -99,7 +99,7 @@ react-native value imports (26): `AccessibilityInfo`, `ActivityIndicator`, `Anim
 
 `tools/rn-host-spike/build.sh <react-native-package> <work-dir>` reproduces it on Debian trixie x86_64. It installs nothing system-wide; it is not part of the Cargo workspace or CI. On 2026-10-28, with React Native 0.88.0 from Bloom's dev dependencies:
 
-- **Hermes V1** `hermes-v260318099.0.2`, the version React Native pins, builds with `HERMES_UNICODE_LITE` (no ICU, as on Android). `libhermesvm.so` depends only on libstdc++, libm and libc. A full ICU build needs `libicu-dev`; whether OxyOS ships ICU or Unicode-lite is an open product decision.
+- **Hermes V1** `hermes-v260318099.0.2`, the version React Native pins, builds against the system ICU (`HERMES_UNICODE_LITE=OFF`, headers from `libicu-dev`), so `libhermesvm.so` also depends on `libicuuc`/`libicui18n`. Unicode-lite is not usable on Linux: Android's build delegates case mapping and normalisation to the platform's Java, and without it `toLocaleLowerCase()` and `normalize()` return their input, which broke menu typeahead. `Intl` stays off (`HERMES_ENABLE_INTL=OFF`): Hermes' Linux `Intl` is a stub, so `Intl` is undefined rather than wrong.
 - **ReactCommon**: every module ReactAndroid builds into `libreactnative.so` compiles for Linux, except the Android-only switch, progress bar and text-input implementations. That includes Fabric's scheduler, UI manager, mounting, Yoga, the runtime, the native-module defaults and the generated `FBReactNativeSpec` components. The build uses clang 19 with libstdc++, the CMake files React Native already ships (they select `platform/cxx` off Android) and the third-party versions React Native pins. The resulting `libreactnative.so` links only libatomic, libhermesvm, libjsi, libstdc++ and libc: no X11, Wayland or GTK.
 - **Host**: `host.cpp` builds the `Scheduler` with Root, View, Paragraph, RawText, Text and ScrollView descriptors. `tree.js` builds a sidebar + scroll-view tree through the real `nativeFabricUIManager` binding. Fabric commits it, Yoga lays it out and the mounting coordinator delivers create/insert mutations with correct frames: shell 800×600, sidebar 240×600, scroll view 560×600 at x=240, content 560×980.
 - **Found gaps**:
@@ -128,14 +128,101 @@ The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Blo
   - Drawn into a 1024×640 32-bit buffer and written as PNG.
   - 50 views, 14 paragraphs, no unimplemented components, no JS errors, deterministic across runs (byte-identical output), settled in about 1.4 s.
 
-Not yet shown:
-- presenting the buffer through the Oxy display protocol;
-- input (pointer, keyboard, text input and composition);
-- Gesture Handler, SVG, images and `expo-blur`;
-- scrolling, modals and popups from Bloom;
-- accessibility.
+### Spike result: Bloom in a window, with pointer, scrolling and text input
 
-These are the remaining #33 deliverables; Bloom renders, but it is not interactive yet.
+`oxy-bloom-host --window` is a client of the Oxy display protocol (`crates/oxy-client` through the C ABI in `crates/oxy-client-ffi`). `oxy-offscreen --launch` runs it as its own process and drives it with scripted input. `regress.py` checks each step of `scenarios/sample.json` against its **expected result**, not only changed pixels (see *Regression* below); `build.sh` runs it. What it covers:
+- **Presenting:** the host lays out at the configured size and presents its view tree in sealed shared-memory buffers, one frame in flight, reusing released buffers.
+- **Pointer:** pointer events become React Native touch events on the view under the pointer (hit-tested like the renderer draws: frames, scroll offsets, clipping, `pointerEvents`), as Android delivers them. Pressability is unchanged; Bloom's `Button` counts presses.
+- **Scrolling:** the protocol's `Scroll` event moves the innermost enabled scroll view that can still move. The host owns the offset, as a native scroll view does: it updates the ScrollView's Fabric state and emits `onScroll`. Reanimated sees every Fabric event through a Scheduler event listener (as on iOS), so Bloom's scroll-linked header animation runs on the worklet runtime.
+- **Text input:** Bloom's `TextField` is React Native's Android text input (props, state and shadow node built unchanged) with an OxyOS descriptor and the native editing side Android's EditText provides. Focus and blur come from JavaScript commands. The input keeps a selection (an anchor and a caret): arrows, Home and End move it, Shift extends it, Ctrl+A selects everything, a press places the caret (also the press that focuses the input) and a drag selects. Committed text (`Text`) replaces the selection. An input method's composition (`Preedit`) is part of the text while it lasts, as on Android: it emits change events, is drawn underlined and is replaced by the commit. Backspace and Delete remove the selection or one character; Enter submits or, in a multiline input, inserts a newline. Edits update the input's state and emit Android's events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`) with Android's rules: `onKeyPress` follows React Native's Android input connection (a commit longer than one character and a forward Delete are no key press). The renderer draws the selection, the caret at its offset and the composition. Bloom's focus ring and a controlled `value` and `selection` follow.
+
+**Regression (`regress.py`).** The host writes a report (`OXY_HOST_REPORT`, `report.h`) with each presented frame's visible text and focused input, and every event it delivered to React with its target's `testID`. The director records, per step, the compositor's focused surface, the input it routed to each surface, the popups shown and the latency, on the same monotonic clock. Each step of the scenario states its expected result:
+- the text shown, and text that must not be shown;
+- which input and which surface have focus;
+- the exact React events, as `event@testID` counts. Any extra event fails, so duplicated and leaked events are caught; for example, text typed into an open menu must reach the menu (typeahead) and not the field behind it, and the outside press that dismisses a menu must reach nothing;
+- the compositor input per surface;
+- the popups shown, their size and their exact lifecycle events (open, reposition, close, dismissed);
+- the size in pixels of each surface's latest frame, and the offset the host gave each scroll view;
+- the accessibility tree (below): nodes that must be present with their role, name and state, a surface's exact node list, and reading order;
+- a latency budget.
+
+The director can also send key chords (`--key 42+106` is Shift+Right), a pointer drag and a composition (`--preedit`). The steps cover the button, wheel scrolling, the reply field (typing, Backspace, submit, caret keys, Shift selection, Delete, Ctrl+A, composition and its commit, press-to-place and drag selection), the menu by pointer and keyboard (arrows, Enter, Escape, typeahead), and an inline submenu that grows the open popup, which the compositor then places again within the output. They also cover an output scale change with the menu open (both surfaces drawn again at 1.5×, nothing moved, the menu still pressable in logical coordinates) and the wheel: exact offsets, clamping at the top, no event when nothing can move, and nothing delivered behind an open menu. The 56 steps, including the window move and resize and the screen reader steps below, pass three times out of three. Disabling the host's surface check for text makes the leak step fail on both its text and its React events.
+
+Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 56-step run):
+
+| Measure | Value |
+| --- | --- |
+| First frame after launch | about 0.57 s |
+| Input-to-first-frame latency | about 25 ms median; max about 60 ms (the 1.5× frame) |
+| Drawing a full window frame | about 15 ms median; max about 46 ms (1.5×: 2.25× the pixels) |
+| Drawing a popup | about 2 ms |
+
+**GPU composition.** The compositor's composition now has one definition (`oxy-gpu::compose_cpu`). The same frames composed on a Vulkan device by a compute shader match it byte for byte: all 173 frames of the 56-step run, with `--gpu`. Inside WSL2 the only Vulkan device is lavapipe (`llvmpipe`, a CPU device). Through Windows, the 56 frames of the regression, composed again on an NVIDIA GeForce RTX 5090, are identical too. A whole frame from the host takes about 1.1–1.2 ms, including upload and readback (the CPU reference takes about 1.3 ms). The GPU's own composing time, from timestamps, is about 6 µs. DRM/KMS output, DMA-BUF import and synchronization need hardware with DRM ([ADR 0004](./adr/0004-gpu-composition)).
+
+Before the painter's fast paths, a window frame took about 57 ms and latency was about 68 ms. Two cases are now handled directly:
+- **Opaque, fully covered pixels** are written without blending.
+- **Rounded rectangles** sample only near their corners: pixels whose square is inside, and clear of every corner, are full, and pixels outside are empty.
+
+Both give exactly what sampling gave: every regression frame is byte-identical before and after. GPU composition is #32's.
+
+**Accessibility.** Accessibility crosses processes through the display protocol ([ADR 0003](./adr/0003-accessibility-protocol)), the way pixels do. The host builds each surface's accessibility tree from React Native's accessibility props, as Android exposes a view hierarchy to TalkBack (`accessibility.h`):
+- **Elements:** a view that is `accessible`, has a role or a label, or is a text input. Its name is its label, or else the text it contains.
+- **Merging and hiding:** text inside an accessible element is part of it. `accessibilityElementsHidden` and `importantForAccessibility="no-hide-descendants"` hide a subtree.
+- **Popups:** a popup's content belongs to the popup's surface.
+
+The host publishes each surface's snapshot to the compositor whenever it changes:
+- its nodes, in reading order with parents first;
+- each node's role and state, in the protocol's sets;
+- surface-local rectangles;
+- names, and a text input's value (never a secure field's).
+
+Only a client granted `accessibility`, the screen reader, receives the snapshots, with global rectangles. Its actions come back to the host:
+- **activate:** React Native's accessibility click, which Pressability turns into `onPress`, as TalkBack's activation on Android. Its serial is the user's activation, so a menu it opens grabs like one opened from the keyboard.
+- **focus:** moves the host's accessibility focus.
+
+The director plays the screen reader in the regression. With the menu closed, it activates "Open menu" by name, then moves focus to "Archive" and activates it. The steps check what the compositor holds for each surface, which is what a screen reader receives: the menu, its focused first row, the expanded trigger, then the chosen row and the trigger focused again.
+
+The host also keeps accessibility focus, as Android does apart from input focus. `AccessibilityInfo.sendAccessibilityEvent(view, 'focus')` moves it, to the view or to the first node inside it (the behaviour Bloom's focus moves rely on). The tree marks the focused node. The host reports the tree whenever it changes, and each focus event as it happens; the regression checks both. For example, the trigger reads `button "Open menu"` with `expanded` false or true as the menu closes or opens, the popup reads `menu "Message actions"` and then its `menuitem`s, and an expanded submenu row reads `expanded`. Focus moves into an open menu (its first row) and back to the trigger when the menu closes, whether a row is chosen, Escape is pressed or an outside press dismisses it. The tree and focus checks found three Bloom defects, all fixed at the source:
+- **Duplicate label:** the popup's menu name was announced twice (the panel inside the labelled popup was labelled again). Fixed in Bloom #507.
+- **No focus on open:** a platform popup did not take screen-reader focus when it opened, as a sheet does, so a screen reader stayed behind the menu. Fixed in Bloom #507.
+- **Reading order:** `TextField`'s flattened root let Fabric order the field's z-indexed layers among its siblings, so the input was read after the content that follows it. This is the same on Android. Fixed in Bloom #511, 15.60.5.
+
+**Window move and resize with a menu open.** The compositor places windows itself (`Scene::move_window_to` and `Scene::resize_window`, the operations a shell's keyboard move, maximize or tiling use). The director drives them with `--move-window` and `--resize-window`:
+- **Move:** the open Bloom menu moves with its window at once. The host takes no part and does not reposition it, and the menu stays open.
+- **Resize:** the host lays out again at the new size, and the trigger moves. The host then repositions the popup, which the compositor places at the trigger's new edge.
+- **Afterwards:** the menu still takes presses.
+
+The steps check the window's and popup's exact rectangles.
+
+**Secure fields.** A secure field (`secureTextEntry`) is drawn as one bullet per character, as on Android. Its caret, selection and pointer placement follow the bullets. Its text never appears in the host's report, only as many bullets as it has characters. It is never published to an assistive technology, which receives the field's label and an empty value. Before this, the host drew a password in clear text.
+
+`scenarios/secure-field.json` checks this with a Bloom password field: what is typed reaches the application, but appears nowhere in the host's report or in the compositor's snapshots. Publishing the value on purpose makes the scenario fail three ways: the screen reader's node, the host's report and the compositor's snapshot.
+
+**Bloom's styles.** Bloom maps its `className`s to styles with `react-native-css`, which needs the app's Metro to compile a Tailwind stylesheet; Oxy apps do it through `@oxy.so/app-preset` (`global.css`, Tailwind v4 through PostCSS, `inlineRem: 16`). Until the sample did the same (`sample/global.css`), every class-styled part of Bloom lost its style silently: menu rows were laid out as a column without padding, panels had no border. Parts styled with resolved tokens looked right, which hid the gap. With the stylesheet the window has more to draw (bordered, rounded panels), which the painter's fast paths absorbed (see the measurements above). The sample does not import NativeWind's theme (`nativewind/theme`), which Oxy apps add on top: NativeWind is not among Bloom's dependencies, and what an app loses without it on OxyOS has not been checked.
+
+**React Native core runs its Android implementation on OxyOS** ([the adaptation's contract](./react-native-android-adaptation), checked by `scenarios/android-adaptation.json`). The host implements React Native's Android interfaces: TurboModule specs, component names and commands. So modules inside the `react-native` package get its own `Platform.android.js` and take their Android branches, and assets follow Android's resource layout. Everything else, including the `Platform` that `react-native` exports to apps and Bloom, reports `oxyos` (`sample/metro.config.js`). Before this rule, the 46 core modules that branch on `Platform.OS` took neither branch on `oxyos`; `TextInput` rendered nothing at all.
+
+Defects found and fixed at their source:
+- **React Native:** `AndroidTextInputProps` and `AndroidTextInputState` use Android's serialisation API without the `#ifdef RN_SERIALIZABLE_STATE` guard every other component has, so they do not build off Android. `tools/rn-host-spike/patches/react-native-androidtextinput-props.patch` adds the guard. `build.sh` applies it to a private copy; the React Native package is never modified. Upstream `main` still lacks the guard.
+- **Bloom:** `FontLoader` gated rendering on `useFonts`' `loaded` alone, so one font that failed to load left the whole app blank, on every platform. Fixed in Bloom 15.59.4: the app renders in the system font and the failure is reported.
+
+- **A Bloom menu beyond the window:** with the OxyOS platform adapter (`sample/oxyos/platform-surface.js`, [ADR 0002](./adr/0002-bloom-platform-surface-api)), Bloom's native `DropdownMenu` renders its rows in `OxyPopupView`. The host leaves that subtree out of the window and opens a protocol popup positioned from the anchor's frame and Bloom's placement, grabbed with the press that opened it. It is drawn in premultiplied ARGB, so the rounded corners are transparent. In the sample, the menu opens 96 px beyond the window's right edge and 40 px beyond its bottom; choosing a row closes it and updates the app; an outside press closes it through `PopupDone` and `onDismiss`.
+
+Bloom fixes found on the way:
+- **Fonts (15.60.1):** one font that failed to load left the whole app blank.
+- **Accessibility (15.60.2):** focus moves used the deprecated `setAccessibilityFocus`, which throws on bridgeless Android when the legacy UIManager constants are absent.
+
+Known gaps:
+- The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
+- Text input: no clipboard, word-wise movement, undo or vertical caret movement; the caret and selection are drawn on single-line inputs only.
+- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility is **not complete**. What exists: the protocol and the Bloom host's side (publication, accessibility focus, activate and focus actions), checked by the regression. **Parked**, by decision, while desktop interaction, the open PRs and GPU output come first:
+- a screen reader client: nothing speaks yet;
+- announcements (live regions);
+- actions other than activate and focus (scroll, increment and decrement, dismiss);
+- text navigation and selection by the assistive technology;
+- hiding unlocked applications' trees from the assistive technology while locked (acting on them is already refused).
+- The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
+
 
 ## Platform capability matrix
 
@@ -143,9 +230,9 @@ These are the remaining #33 deliverables; Bloom renders, but it is not interacti
 | --- | --- | --- | --- | --- | --- |
 | Bloom support today | Supported (Expo/RN) | Supported (Expo/RN) | Supported (react-native-web) | Not a declared Bloom target: no `.macos` files, one `Platform.OS === 'macos'` check; Astro consumes Bloom through react-native-macos 0.81 | In progress (#32–#36) |
 | Anchored menu/popover/select | Bottom sheet in an RN `Modal` (own window) | Same | DOM portal into `#bloom-portal-root`, placed inside the browser viewport | Not assessed | Compositor popup surface beyond the window ([ADR 0001](./adr/0001-native-platform-boundaries)); protocol, policy and offscreen pixels done, Bloom host pending |
-| Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated with a test client offscreen |
+| Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated offscreen with a test client and with Bloom's own `DropdownMenu` through the native host |
 | Separate modal window | RN `Modal` | RN `Modal` | In-page dialog | Not assessed | `Dialog` role (modal), policy done |
-| Capability discovery | None (implicit) | None | None | None | Proposed adapter API ([ADR 0002](./adr/0002-bloom-platform-surface-api)) |
+| Capability discovery | None (implicit) | None | None | None | `BloomProvider platform={…}` adapter ([ADR 0002](./adr/0002-bloom-platform-surface-api), Bloom 15.61.0) |
 
 A macOS adapter is not supported just because Astro has one. Supporting it needs its own adapter, build and tests. Unsupported capabilities are reported by the adapter, never simulated.
 

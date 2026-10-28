@@ -1,0 +1,22 @@
+{
+  "about": "React Native's Android APIs on OxyOS (sample/AndroidProbe.tsx). React Native's own modules run their Android implementation, but OxyOS is not Android: what it does not provide must fail visibly (unavailable or rejected), never succeed silently or leave its caller waiting. What it does provide answers truthfully.",
+  "module": "AndroidProbe",
+  "window": [800, 480],
+  "steps": [],
+  "final": {
+    "texts": [
+      "ToastAndroid: unavailable",
+      "Vibration: unavailable",
+      "PermissionsAndroid: unavailable",
+      "Linking.openURL: unavailable",
+      "Share: unavailable",
+      "AccessibilityInfo.getRecommendedTimeoutMillis: ok 1000",
+      "AccessibilityInfo.isScreenReaderEnabled: ok false",
+      "Appearance.getColorScheme: ok \"light\"",
+      "Dimensions.window: ok 800",
+      "I18nManager.isRTL: ok false",
+      "PlatformConstants.getAndroidID: unavailable (OxyOS has no Android ID)"
+    ],
+    "absent": ["pending", "running"]
+  }
+}

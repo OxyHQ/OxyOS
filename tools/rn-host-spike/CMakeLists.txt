@@ -7,7 +7,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
-    REANIMATED_CODEGEN_DIR)
+    REANIMATED_CODEGEN_DIR OXY_CLIENT_LIB TEXTINPUT_DIR)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -74,6 +74,9 @@ foreach(dir
   string(REPLACE "/" "_" build_dir ${dir})
   add_subdirectory(${REACT_COMMON_DIR}/${dir} ReactCommon/${build_dir})
 endforeach()
+# The text input component (the Android one, whose JS React Native runs on OxyOS) from build.sh's
+# patched copy: patches/react-native-androidtextinput-props.patch.
+add_subdirectory(${TEXTINPUT_DIR} ReactCommon/react_renderer_components_textinput)
 
 # Like ReactAndroid's libreactnative.so: every ReactCommon OBJECT library in one shared library.
 function(collect_targets directory out)
@@ -115,6 +118,8 @@ list(FILTER tlm_sources EXCLUDE REGEX "platform/cxx/react/renderer/textlayoutman
 list(APPEND tlm_sources ${CMAKE_CURRENT_SOURCE_DIR}/TextLayoutManager.cpp ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
 set_property(TARGET react_renderer_textlayoutmanager PROPERTY SOURCES ${tlm_sources})
 target_include_directories(react_renderer_textlayoutmanager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${TEXT_INCLUDES})
+# The OxyOS platform header comes before the cxx platform's for every target that includes it.
+target_include_directories(react_renderer_textlayoutmanager BEFORE PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform)
 target_link_libraries(reactnative PUBLIC ${TEXT_LIBS})
 
 # The cores report their package versions.
@@ -157,13 +162,25 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
   -Wno-unused-variable -Wno-unused-but-set-variable
   "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 
+# React Native's portable Android-only core components, in their own target: their headers sit
+# beside Android's ScrollView props, which must not replace the cxx platform's elsewhere.
+set(SCROLLVIEW_ANDROID ${REACT_COMMON_DIR}/react/renderer/components/scrollview/platform/android)
+add_library(oxy_android_components OBJECT android-components.cpp
+  ${SCROLLVIEW_ANDROID}/react/renderer/components/scrollview/AndroidHorizontalScrollContentViewShadowNode.cpp)
+target_include_directories(oxy_android_components PRIVATE ${SCROLLVIEW_ANDROID})
+target_link_libraries(oxy_android_components reactnative)
+target_compile_options(oxy_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
+
 add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp worklets-host.cpp
-  reanimated-host.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp $<TARGET_OBJECTS:oxy_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
   "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
-target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview)
+# The Oxy display protocol client: the workspace's Rust crates behind a C ABI
+# (crates/oxy-client-ffi), linked statically.
+target_include_directories(oxy-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxy-client-ffi/include)
+target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview ${OXY_CLIENT_LIB} gcc_s util rt pthread m dl)
 target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # Debug aid: OXY_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.

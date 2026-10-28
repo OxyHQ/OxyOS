@@ -1,0 +1,29 @@
+{
+  "about": "A Bloom password field (sample/SecureProbe.tsx): what is typed reaches the application, which shows only how many characters arrived, but is drawn as bullets and never appears in the host's report or in what the compositor holds for an assistive technology (ADR 0003).",
+  "module": "SecureProbe",
+  "window": [800, 480],
+  "steps": [
+    {
+      "name": "focus the password field",
+      "do": ["press", [400, 42]],
+      "expect": {"focus_input": "password"}
+    },
+    {
+      "name": "type a password: bullets on screen, nothing published",
+      "do": ["type", "hunter2"],
+      "expect": {
+        "texts": ["Typed 7 characters", "•••••••"],
+        "absent": ["hunter2"],
+        "focus_input": "password",
+        "a11y": {"window": [{"role": "textinput", "name": "Password", "id": "password"}]},
+        "at": {"window": [{"role": "TextInput", "name": "Password", "value": ""}]},
+        "never": ["hunter2", "hunter"]
+      }
+    },
+    {
+      "name": "delete a character",
+      "do": ["key", 14],
+      "expect": {"texts": ["Typed 6 characters", "••••••"], "absent": ["•••••••"], "never": ["hunter"]}
+    }
+  ]
+}

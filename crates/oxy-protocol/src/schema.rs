@@ -2,8 +2,9 @@
 //! `schema_table_matches_documentation` test keeps them in step.
 
 use crate::wire::{
-    Clock, DismissReason, ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, Rect,
-    ShellKind, Size, TouchKind, Wire,
+    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
+    ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, PreeditText, Rect, ShellKind,
+    Size, TextChunk, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -85,6 +86,13 @@ messages! {
         14 => Goodbye {},
         15 => AttachBuffer { buffer: u64, format: Format, extent: Size, stride: u32, offset: u32 },
         16 => DestroyBuffer { buffer: u64 },
+        // Accessibility (ADR 0003): one snapshot per surface, replaced at commit.
+        17 => AccessibilityBegin { surface: u32, nodes: u32 },
+        18 => AccessibleNode { surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, rect: Rect },
+        19 => AccessibleText { surface: u32, index: u32, field: AccessibleField, text: TextChunk },
+        20 => AccessibilityCommit { surface: u32 },
+        // Assistive technology only (the `accessibility` grant): a node of another client.
+        21 => AccessibilityAction { client: u32, surface: u32, index: u32, action: AccessibleAction },
     }
 }
 
@@ -102,6 +110,18 @@ messages! {
         8 => Feedback { surface: u32, sequence: u64, outcome: Outcome, timestamp_ns: u64, clock: Clock },
         9 => Released { surface: u32, buffer: u64 },
         10 => ProtocolError { code: ErrorCode },
+        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32 },
+        12 => Text { surface: u32, serial: u64, text: TextChunk },
+        13 => Preedit { surface: u32, serial: u64, text: PreeditText, cursor: u8 },
+        // To the application: an assistive technology's action on one of its nodes.
+        // `serial` is an activation, like a key press: a popup opened by it may grab with it.
+        14 => AccessibilityAction { surface: u32, serial: u64, index: u32, action: AccessibleAction },
+        // To an assistive technology only: committed snapshots, global rectangles.
+        15 => AccessibilityTree { client: u32, surface: u32, parent: u32, nodes: u32 },
+        16 => AccessibleNode { client: u32, surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, rect: Rect },
+        17 => AccessibleText { client: u32, surface: u32, index: u32, field: AccessibleField, text: TextChunk },
+        18 => AccessibilityCommitted { client: u32, surface: u32 },
+        19 => AccessibilityRemoved { client: u32, surface: u32 },
     }
 }
 
