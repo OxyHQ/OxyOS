@@ -12,6 +12,9 @@ use std::path::Path;
 
 pub use drm_fourcc::DrmFourcc;
 
+mod display;
+pub use display::Display;
+
 /// An open DRM card.
 pub struct Card(File);
 

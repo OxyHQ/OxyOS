@@ -337,6 +337,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-kms-show"
+version = "0.1.0"
+dependencies = [
+ "oxy-gpu",
+ "oxy-kms",
+]
+
+[[package]]
 name = "oxy-offscreen"
 version = "0.1.0"
 dependencies = [
