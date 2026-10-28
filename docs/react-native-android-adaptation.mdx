@@ -27,7 +27,7 @@ OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless
 | --- | --- |
 | `PlatformConstants` | `Release`/`Model` are `OxyOS`. `Version` is 36: not a device API level, but the level whose React Native code paths the host follows (React Native 0.88's target SDK). Core uses it only to trust keyboard events, and OxyOS has no software keyboard and sends none. `getAndroidID` throws ("OxyOS has no Android ID"). |
 | `DeviceInfo`, `SourceCode`, `AppState`, `Appearance` | The window's size and scale; the bundle URL; always active; the light scheme. |
-| `AccessibilityInfo` | Reports no assistive technology and no reduced motion; the recommended timeout is the one asked about, as on Android without a preference. |
+| `AccessibilityInfo` | Reports no assistive technology and no reduced motion; the recommended timeout is the one asked about, as on Android without a preference. `sendAccessibilityEvent(view, 'focus')` (through Fabric) moves the host's accessibility focus, as Android's accessibility focus: to the view, or to the first accessible node inside it. No assistive technology reads it yet. |
 | `ExceptionsManager` | Prints the error and its stack. |
 | `ImageLoader` | Fails each request explicitly: OxyOS has no image pipeline yet. |
 | Fonts (`OxyFontRegistry`, for `expo-font`) | Registers a font only if FreeType can open it. |
@@ -44,6 +44,6 @@ OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless
 
 **Accepted with no effect, reported once:**
 - *There is nothing to apply on OxyOS:* status bar style, colour and visibility (there is no status bar); the default back-press handler; red-box messages.
-- *Capabilities OxyOS does not have yet:* forcing or allowing RTL; setting the colour scheme; moving screen-reader focus and announcements (there is no accessibility bridge yet).
+- *Capabilities OxyOS does not have yet:* forcing or allowing RTL; setting the colour scheme; announcements and the legacy tag-based `setAccessibilityFocus` (there is no assistive-technology bridge to speak or act on them).
 
 Changing any of these is a change to this page and to its scenario.

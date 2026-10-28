@@ -25,7 +25,10 @@ struct AccessibleNode {
 // name, not a node of its own. `accessibilityElementsHidden` and
 // `importantForAccessibility="no-hide-descendants"` hide a subtree. Popup views are left out:
 // their content belongs to the popup's surface (`root` is then the popup view).
-std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, facebook::react::Tag root);
+// The node that has accessibility focus has "focused" in its state: the view `focus` if it is a
+// node, else the first node inside it (as VoiceOver moves into a container).
+std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, facebook::react::Tag root,
+                                             facebook::react::Tag focus = -1);
 
 folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes);
 

@@ -65,7 +65,16 @@ folly::dynamic stateOf(const ViewProps& props) {
   return state;
 }
 
-void walk(const ViewTree& tree, Tag tag, bool isRoot, bool merged, int depth, std::vector<AccessibleNode>& out) {
+// Accessibility focus sent to a view that is not an element lands on the first node inside it,
+// as VoiceOver moves to a container's first element (the behaviour Bloom's focus moves rely on:
+// `useAccessibilityFocus` targets a non-accessible container).
+struct Focus {
+  Tag tag = -1;
+  bool pending = false;  // inside the focused view, before its first node
+};
+
+void walk(const ViewTree& tree, Tag tag, Focus& focus, bool isRoot, bool merged, int depth,
+          std::vector<AccessibleNode>& out) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const auto& view = it->second.view;
@@ -73,6 +82,13 @@ void walk(const ViewTree& tree, Tag tag, bool isRoot, bool merged, int depth, st
   if (name == kPopupComponent && !isRoot) return;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   if (props && hidden(*props)) return;
+  bool focusedHere = tag == focus.tag;
+  if (focusedHere) focus.pending = true;
+  auto take = [&](AccessibleNode& node) {
+    if (!focus.pending) return;
+    node.state["focused"] = true;
+    focus.pending = false;
+  };
 
   bool textInput = name == "AndroidTextInput";
   std::string role;
@@ -84,25 +100,33 @@ void walk(const ViewTree& tree, Tag tag, bool isRoot, bool merged, int depth, st
     AccessibleNode node{.role = role, .name = props->accessibilityLabel, .id = props->testId,
                         .state = stateOf(*props), .depth = depth};
     if (node.name.empty()) collectText(tree, tag, node.name);
+    take(node);
     out.push_back(std::move(node));
     // An accessible element is read as one: its text is its name. Elements inside it are still
     // reported, as Android's focusable children are.
-    for (Tag child : it->second.children) walk(tree, child, false, props->accessible || merged, depth + 1, out);
-    return;
-  }
-  if (!merged && name == "Paragraph") {
+    for (Tag child : it->second.children) {
+      walk(tree, child, focus, false, props->accessible || merged, depth + 1, out);
+    }
+  } else if (!merged && name == "Paragraph") {
     auto text = ownText(view);
-    if (!text.empty()) out.push_back(AccessibleNode{.role = "text", .name = text, .depth = depth});
-    return;
+    if (!text.empty()) {
+      AccessibleNode node{.role = "text", .name = text, .depth = depth};
+      take(node);
+      out.push_back(std::move(node));
+    }
+  } else {
+    for (Tag child : it->second.children) walk(tree, child, focus, false, merged, depth, out);
   }
-  for (Tag child : it->second.children) walk(tree, child, false, merged, depth, out);
+  // A focused view with no node inside it gives focus to nothing.
+  if (focusedHere) focus.pending = false;
 }
 
 }  // namespace
 
-std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root) {
+std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Tag focus) {
   std::vector<AccessibleNode> nodes;
-  walk(tree, root, true, false, 0, nodes);
+  Focus state{.tag = focus};
+  walk(tree, root, state, true, false, 0, nodes);
   return nodes;
 }
 

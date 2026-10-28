@@ -58,7 +58,7 @@ class PopupHost {
   // The tree changed: every popup draws again once its previous frame is answered.
   void changed();
   // Draws and presents each configured popup that has changed since its last frame.
-  void present(const TextInputEdit& edit, const std::string& focus);
+  void present(const TextInputEdit& edit, const std::string& focus, facebook::react::Tag accessibilityFocus = -1);
   // A compositor dismissal (PopupDone): the view's onDismiss, and the surface is destroyed.
   void dismissed(const OxyEvent& event);
   // A key press or committed text sent to a popup's surface: the view's onKey, one event per key

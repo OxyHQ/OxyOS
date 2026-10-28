@@ -139,7 +139,7 @@ void PopupHost::changed() {
   for (auto& [tag, popup] : popups_) popup.dirty = true;
 }
 
-void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
+void PopupHost::present(const TextInputEdit& edit, const std::string& focus, Tag accessibilityFocus) {
   for (auto& [tag, popup] : popups_) {
     if (popup.dismissed || !window_.ready(popup.surface)) continue;
     const auto* surface = window_.surface(popup.surface);
@@ -151,7 +151,7 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
-    if (Report::get().enabled()) Report::get().accessibility(popup.surface, toDynamic(accessibilityTree(tree_, tag)));
+    if (Report::get().enabled()) Report::get().accessibility(popup.surface, toDynamic(accessibilityTree(tree_, tag, accessibilityFocus)));
     popup.dirty = false;
     popup.drawnFor = surface->configure;
   }

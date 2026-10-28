@@ -85,8 +85,9 @@
         "texts": ["Reply", "Forward", "Archive", "Move to folder", "Mark as unread", "Delete"],
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
         "latency_ms": 250,
-        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": true}}]},
-        "a11y_nodes": {"popup": [["menu", "Message actions"], ["menuitem", "Reply"], ["menuitem", "Forward"], ["menuitem", "Archive"], ["menuitem", "Move to folder"], ["menuitem", "Mark as unread"], ["menuitem", "Delete"], ["menuitem", "More actions"]]}
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": true}}], "popup": [{"role": "menuitem", "name": "Reply", "state": {"focused": true}}]},
+        "a11y_nodes": {"popup": [["menu", "Message actions"], ["menuitem", "Reply"], ["menuitem", "Forward"], ["menuitem", "Archive"], ["menuitem", "Move to folder"], ["menuitem", "Mark as unread"], ["menuitem", "Delete"], ["menuitem", "More actions"]]},
+        "a11y_events": {"focus@message-actions": 1}
       }
     },
     {
@@ -102,7 +103,8 @@
         "texts": ["Chosen: Archive"],
         "absent": ["Nothing chosen", "Move to folder"],
         "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1},
-        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": false}}]}
+        "a11y": {"window": [{"role": "button", "name": "Open menu", "state": {"expanded": false, "focused": true}}]},
+        "a11y_events": {"focus@open-menu": 1}
       }
     },
     {
@@ -142,7 +144,8 @@
         "popups": 0,
         "focus_surface": 1,
         "texts": ["Chosen: Archive", "Pressed 2 times"],
-        "react": {}
+        "react": {},
+        "a11y_events": {"focus@open-menu": 1}
       }
     },
     {
@@ -210,7 +213,8 @@
         "focus_surface": 1,
         "texts": ["Chosen: Move to folder"],
         "absent": ["Mark as unread"],
-        "react": {"key@message-actions": 1}
+        "react": {"key@message-actions": 1},
+        "a11y_events": {"focus@open-menu": 1}
       }
     },
     {

@@ -5,6 +5,7 @@
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
+//   {"t":…,"kind":"a11y_event","event":"focus","target":"open-menu","within":"open-menu"}
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxy-offscreen stamps its steps with, so the
@@ -43,6 +44,9 @@ class Report {
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());
 
+  // An accessibility event JavaScript sent for `view` (AccessibilityInfo.sendAccessibilityEvent).
+  // `within` names the nearest view with a testID, the view itself included.
+  void accessibilityEvent(const std::string& type, const facebook::react::ShadowView& view, const std::string& within);
   // A surface's accessibility tree (accessibility.h), written when it changed.
   void accessibility(uint32_t surface, const folly::dynamic& nodes);
 

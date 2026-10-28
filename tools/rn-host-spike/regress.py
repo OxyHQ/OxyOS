@@ -107,6 +107,15 @@ def check_step(index, step, result, report, start, failures):
                 got[key] = got.get(key, 0) + 1
         if got != expect["react"]:
             fail(f"React received {got}, expected exactly {expect['react']}")
+    if "a11y_events" in expect:
+        # Accessibility events JavaScript sent (focus moves), as `event@testID` counts.
+        got = {}
+        for line in report:
+            if line["kind"] == "a11y_event" and start <= line["t"] <= end:
+                key = f"{line['event']}@{line.get('within') or line['target']}"
+                got[key] = got.get(key, 0) + 1
+        if got != expect["a11y_events"]:
+            fail(f"accessibility events {got}, expected exactly {expect['a11y_events']}")
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)

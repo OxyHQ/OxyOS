@@ -209,7 +209,12 @@ class Mounter : public SchedulerDelegate {
   void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
     if (onCommand) onCommand(view, name, args);
   }
-  void schedulerDidSendAccessibilityEvent(const ShadowView&, const std::string&) override {}
+  // Accessibility events from JavaScript (AccessibilityInfo.sendAccessibilityEvent): moving
+  // accessibility focus, for the host's accessibility state.
+  std::function<void(const ShadowView&, const std::string&)> onAccessibilityEvent;
+  void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
+    if (onAccessibilityEvent) onAccessibilityEvent(view, type);
+  }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag, const folly::dynamic&) override {}
   void schedulerDidUpdateShadowTree(const std::unordered_map<Tag, folly::dynamic>&) override {}
@@ -449,6 +454,23 @@ int main(int argc, char** argv) {
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
+    // Accessibility focus, as Android's accessibility focus (separate from input focus): the
+    // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
+    facebook::react::Tag accessibilityFocus = -1;
+    mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
+      std::string within;
+      auto path = oxy::ancestry(tree, view.tag);
+      for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
+        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
+        if (props && !props->testId.empty()) within = props->testId;
+      }
+      oxy::Report::get().accessibilityEvent(type, view, within);
+      if (type == "focus") {
+        accessibilityFocus = view.tag;
+        dirty = true;
+        popups.changed();
+      }
+    };
     try {
       while (true) {
         Beat::tickAll();
@@ -500,12 +522,12 @@ int main(int argc, char** argv) {
                                    focusName());
           if (oxy::Report::get().enabled()) {
             oxy::Report::get().accessibility(oxy::Window::kToplevel,
-                                             oxy::toDynamic(oxy::accessibilityTree(tree, tree.root())));
+                                             oxy::toDynamic(oxy::accessibilityTree(tree, tree.root(), accessibilityFocus)));
           }
           dirty = false;
           busy = true;
         }
-        popups.present(drawn, focusName());
+        popups.present(drawn, focusName(), accessibilityFocus);
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

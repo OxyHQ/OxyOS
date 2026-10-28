@@ -38,6 +38,12 @@ std::string Report::name(const ShadowView& view) {
   return std::string(view.componentName ? view.componentName : "?") + "#" + std::to_string(view.tag);
 }
 
+void Report::accessibilityEvent(const std::string& type, const facebook::react::ShadowView& view,
+                                const std::string& within) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "a11y_event")("event", type)("target", name(view))("within", within));
+}
+
 void Report::accessibility(uint32_t surface, const folly::dynamic& nodes) {
   if (!file_) return;
   auto it = accessibility_.find(surface);
