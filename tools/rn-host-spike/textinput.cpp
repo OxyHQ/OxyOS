@@ -438,13 +438,46 @@ void TextEditing::reveal() {
   if (caret.top < scroll.y) scroll.y = caret.top;
   if (caret.top + caret.height > scroll.y + size.height) scroll.y = caret.top + caret.height - size.height;
   scroll = geometry.clamp(scroll, size);
-  if (scroll == was) return;
+  if (scroll != was) scrolled(it->second.view, scroll, geometry);
+}
+
+bool TextEditing::scrollText(Tag tag, float dx, float dy) {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end() || !it->second.view.state) return false;
+  const auto& view = it->second.view;
+  std::string value = tag == focused_
+                          ? text_
+                          : std::static_pointer_cast<const TextInputState>(view.state)
+                                ->getData()
+                                .attributedStringBox.getValue()
+                                .getString();
+  TextInputGeometry geometry(view, value);
+  auto kept = scrolls_.find(tag);
+  Point was = kept != scrolls_.end() ? kept->second : Point{};
+  Point scroll = geometry.clamp(Point{was.x + dx, was.y + dy}, view.layoutMetrics.getContentFrame().size);
+  if (scroll == was) return false;
+  scrolled(view, scroll, geometry);
+  return true;
+}
+
+void TextEditing::scrolled(const ShadowView& view, Point scroll, const TextInputGeometry& geometry) {
   if (scroll.x == 0 && scroll.y == 0) {
-    scrolls_.erase(focused_);
+    scrolls_.erase(view.tag);
   } else {
-    scrolls_[focused_] = scroll;
+    scrolls_[view.tag] = scroll;
   }
-  Report::get().textScroll(it->second.view, scroll.x, scroll.y);
+  // Android's ReactEditText reports its text scrolling as a scroll event, with the box it scrolls
+  // in and the text's extent.
+  auto size = view.layoutMetrics.getContentFrame().size;
+  view.eventEmitter->dispatchEvent(
+      "scroll", folly::dynamic::object("target", view.tag)(
+                    "contentOffset", folly::dynamic::object("x", scroll.x)("y", scroll.y))(
+                    "contentSize", folly::dynamic::object("width", geometry.width())("height", geometry.height()))(
+                    "layoutMeasurement", folly::dynamic::object("width", size.width)("height", size.height))(
+                    "contentInset", folly::dynamic::object("top", 0)("left", 0)("bottom", 0)("right", 0))(
+                    "zoomScale", 1));
+  Report::get().deliver("scroll", 0, view, folly::dynamic::object("x", scroll.x)("y", scroll.y));
+  Report::get().textScroll(view, scroll.x, scroll.y);
 }
 
 void TextEditing::select(size_t caret, bool extend) {

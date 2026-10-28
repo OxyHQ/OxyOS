@@ -98,7 +98,18 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
       if (!now.count(tag)) damage.push_back(seen.at);
     }
     if (!(edit == edit_)) {
-      for (Tag tag : {edit_.tag, edit.tag}) {
+      std::vector<Tag> changed{edit_.tag, edit.tag};
+      // An input whose text scrolled, focused or not (the wheel scrolls any input under it).
+      auto scroll = [](const TextInputEdit& edit, Tag tag) {
+        auto it = edit.scrolls.find(tag);
+        return it == edit.scrolls.end() ? Point{} : it->second;
+      };
+      for (const auto& scrolls : {edit_.scrolls, edit.scrolls}) {
+        for (const auto& entry : scrolls) {
+          if (!(scroll(edit_, entry.first) == scroll(edit, entry.first))) changed.push_back(entry.first);
+        }
+      }
+      for (Tag tag : changed) {
         if (auto it = now.find(tag); it != now.end()) damage.push_back(it->second.at);
         if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(it->second.at);
       }

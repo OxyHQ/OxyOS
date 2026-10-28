@@ -1,5 +1,5 @@
 {
-  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn.",
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's.",
   "module": "EditingProbe",
   "window": [
     800,
@@ -855,7 +855,8 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1,
-          "keyPress@notes": 1
+          "keyPress@notes": 1,
+          "scroll@notes": 1
         },
         "text_scroll": {
           "notes": [
@@ -917,7 +918,8 @@
           "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
         ],
         "react": {
-          "selectionChange@notes": 1
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
         },
         "text_scroll": {
           "notes": [
@@ -938,7 +940,8 @@
           "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [26,26]"
         ],
         "react": {
-          "selectionChange@notes": 1
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
         },
         "text_scroll": {
           "notes": [
@@ -975,7 +978,8 @@
           "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
         ],
         "react": {
-          "selectionChange@notes": 1
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
         },
         "text_scroll": {
           "notes": [
@@ -1020,7 +1024,8 @@
         ],
         "react": {
           "change@line": 4,
-          "selectionChange@line": 4
+          "selectionChange@line": 4,
+          "scroll@line": 1
         },
         "delivered": {
           "1": {
@@ -1046,7 +1051,8 @@
           "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,0]"
         ],
         "react": {
-          "selectionChange@line": 1
+          "selectionChange@line": 1,
+          "scroll@line": 1
         },
         "text_scroll": {
           "line": [
@@ -1067,11 +1073,82 @@
           "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [112,112]"
         ],
         "react": {
-          "selectionChange@line": 1
+          "selectionChange@line": 1,
+          "scroll@line": 1
         },
         "text_scroll": {
           "line": [
             22.921875,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "the wheel over the notes scrolls their text, though the line has focus",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            16
+          ]
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "with no more text below, the wheel moves nothing",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          40
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {},
+        "text_scroll": {}
+      }
+    },
+    {
+      "name": "the wheel up scrolls them back",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          -40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
             0
           ]
         }

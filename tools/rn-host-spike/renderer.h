@@ -107,6 +107,7 @@ class TextInputGeometry {
     size_t start = 0, end = 0;  // offsets into what is shown; `end` excludes a hard break
     bool broken = false;        // ended by a hard break (not wrapped, not the last)
     float x = 0, top = 0, height = 0;
+    std::vector<std::pair<size_t, float>> stops;  // the layout's caret stops (LineLayout::stops)
   };
   float xOn(const Line& line, size_t shownOffset) const;
   // lineEdges, in offsets into what is shown.

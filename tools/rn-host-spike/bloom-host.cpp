@@ -425,6 +425,9 @@ int main(int argc, char** argv) {
       }
       return oxy::Placement{.surface = surface, .frame = *frame};
     });
+    pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
+      return editing.scrollText(view, dx, dy);
+    });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
       return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);

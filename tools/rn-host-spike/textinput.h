@@ -64,6 +64,9 @@ class TextEditing {
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyEvent& event);
+  // The wheel over an input, focused or not: scrolls its text by (dx, dy) as far as it can go.
+  // True if it moved.
+  bool scrollText(facebook::react::Tag tag, float dx, float dy);
 
   // Whether the focused input is secure (`secureTextEntry`): its text is never reported, only
   // as many bullets as it has characters (`logged`).
@@ -122,6 +125,10 @@ class TextEditing {
   void vertical(bool up, bool page);
   // Scrolls the focused input's text so that its caret is inside the content box.
   void reveal();
+  // Records that `view`'s text is now scrolled to `scroll` (none if zero), and tells JavaScript
+  // (onScroll, as Android's ReactEditText) and the report.
+  void scrolled(const facebook::react::ShadowView& view, facebook::react::Point scroll,
+                const TextInputGeometry& geometry);
   void selectionChanged();
   void submit();
 

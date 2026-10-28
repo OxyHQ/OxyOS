@@ -140,6 +140,7 @@ struct Token {
   bool newline = false;
   std::string text;
   size_t start = 0;  // byte offset in the paragraph's string
+  std::vector<std::pair<size_t, float>> stops;  // each cluster's offset and its x in the token
 };
 
 }  // namespace
@@ -223,6 +224,9 @@ ParagraphLayout TextEngine::layout(
         auto* infos = hb_buffer_get_glyph_infos(buffer, &count);
         auto* positions = hb_buffer_get_glyph_positions(buffer, &count);
         for (unsigned g = 0; g < count; ++g) {
+          // HarfBuzz's clusters are byte offsets into the fragment's string.
+          size_t cluster = fragmentBase + infos[g].cluster;
+          if (token.stops.empty() || token.stops.back().first != cluster) token.stops.emplace_back(cluster, pen);
           token.glyphs.push_back({infos[g].codepoint, pen + positions[g].x_offset / 64.0f, face->ft});
           pen += positions[g].x_advance / 64.0f + spacing;
           if (infos[g].cluster < wordEnd) token.inkWidth = pen;
@@ -299,6 +303,7 @@ ParagraphLayout TextEngine::layout(
                        .ascent = line.ascent, .descent = line.descent};
     for (const Token* token : line.tokens) {
       metrics.text += token->text;
+      for (const auto& [at, stop] : token->stops) metrics.stops.emplace_back(at, x + stop);
       metrics.capHeight = std::max(metrics.capHeight, token->capHeight);
       metrics.xHeight = std::max(metrics.xHeight, token->xHeight);
       GlyphRun run;
@@ -307,6 +312,10 @@ ParagraphLayout TextEngine::layout(
       for (const auto& glyph : token->glyphs) run.glyphs.push_back({glyph.id, x + glyph.x, glyph.face});
       x += token->width;
       result.runs.push_back(std::move(run));
+    }
+    if (!line.tokens.empty()) {
+      const Token& last = *line.tokens.back();
+      metrics.stops.emplace_back(last.start + last.text.size(), x);
     }
     result.lines.push_back(std::move(metrics));
     top += line.height;

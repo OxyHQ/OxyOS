@@ -472,6 +472,7 @@ TextInputGeometry::TextInputGeometry(const ShadowView& view, const std::string& 
   for (size_t i = 0; i < layout.lines.size(); ++i) {
     const auto& line = layout.lines[i];
     Line geometry{.start = shown_.empty() ? 0 : line.start, .x = line.x, .top = top + line.top, .height = line.height};
+    if (!shown_.empty()) geometry.stops = line.stops;
     if (shown_.empty()) {
       geometry.end = 0;
     } else if (i + 1 < layout.lines.size()) {
@@ -500,10 +501,22 @@ size_t TextInputGeometry::toValue(size_t shownOffset) const {
 }
 
 float TextInputGeometry::xOn(const Line& line, size_t shownOffset) const {
-  if (shownOffset <= line.start) return line.x;
-  auto prefix = layoutInput(*props_, inputText(*props_, shown_.substr(line.start, shownOffset - line.start)),
-                            std::numeric_limits<float>::infinity());
-  return prefix.lines.empty() ? line.x : line.x + prefix.lines.back().advance;
+  // From the shaped line's caret stops; inside a cluster of several characters (a ligature), its
+  // width is shared among them.
+  if (shownOffset <= line.start || line.stops.empty()) return line.x;
+  auto next = std::upper_bound(line.stops.begin(), line.stops.end(), shownOffset,
+                               [](size_t at, const auto& stop) { return at < stop.first; });
+  if (next == line.stops.begin()) return line.x;
+  auto stop = std::prev(next);
+  if (stop->first == shownOffset || next == line.stops.end()) return stop->second;
+  auto characters = [&](size_t from, size_t to) {
+    size_t count = 0;
+    for (size_t i = from; i < to && i < shown_.size(); ++i) count += !isContinuation(shown_, i);
+    return count;
+  };
+  float share = static_cast<float>(characters(stop->first, shownOffset)) /
+                static_cast<float>(std::max<size_t>(1, characters(stop->first, next->first)));
+  return stop->second + (next->second - stop->second) * share;
 }
 
 TextInputGeometry::Caret TextInputGeometry::caret(size_t offset) const {

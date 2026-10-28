@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace oxy {
@@ -31,6 +32,9 @@ struct LineLayout {
   // order). A line ends where the next starts, or before the hard break that ends it.
   std::string text;
   size_t start = 0;
+  // Where a caret goes on the line: the byte offset where each glyph cluster starts, and its x,
+  // then the line's end. Left to right, as the engine shapes.
+  std::vector<std::pair<size_t, float>> stops;
   // `width` is the ink width; `advance` also counts trailing spaces (where a caret after them sits).
   float x = 0, top = 0, width = 0, advance = 0, height = 0;
   float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;
