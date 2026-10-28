@@ -93,6 +93,9 @@ messages! {
         20 => AccessibilityCommit { surface: u32 },
         // Assistive technology only (the `accessibility` grant): a node of another client.
         21 => AccessibilityAction { client: u32, surface: u32, index: u32, action: AccessibleAction },
+        // What changed in the next Submit's buffer since the surface's previous one, in buffer
+        // pixels (ADR 0005); none damages the whole surface.
+        22 => Damage { surface: u32, rect: Rect },
     }
 }
 

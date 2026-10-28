@@ -624,6 +624,79 @@ pub unsafe extern "C" fn oxy_client_present(
     }
 }
 
+/// A rectangle of a buffer, in its pixels: what changed in a frame (`oxy_client_present_damaged`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// [`oxy_client_present`] for a frame of which only `count` rectangles at `damage` changed
+/// since the surface's previous frame (none: everything). The compositor hears the damage, and
+/// a reused buffer receives only what changed since it was last written
+/// (docs/adr/0005-damage.mdx).
+///
+/// # Safety
+/// As [`oxy_client_present`]; `damage` points to `count` readable `OxyRect`s (any pointer when
+/// `count` is 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxy_client_present_damaged(
+    client: *mut OxyClient,
+    surface: u32,
+    configure: u64,
+    width: u32,
+    height: u32,
+    format: u32,
+    pixels: *const u8,
+    length: usize,
+    damage: *const OxyRect,
+    count: usize,
+) -> i64 {
+    if pixels.is_null() || (count > 0 && damage.is_null()) {
+        fail("null pixels or damage");
+        return -1;
+    }
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return -1;
+    };
+    // SAFETY: the caller guarantees `length` readable bytes at `pixels`.
+    let pixels = unsafe { std::slice::from_raw_parts(pixels, length) };
+    let damage: Vec<Rect> = if count == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller guarantees `count` readable rectangles at `damage`.
+        unsafe { std::slice::from_raw_parts(damage, count) }
+            .iter()
+            .map(|rect| Rect::new(rect.x, rect.y, rect.width, rect.height))
+            .collect()
+    };
+    let Some(format) = Format::from_raw(format) else {
+        fail("unknown pixel format");
+        return -1;
+    };
+    let damage = (!damage.is_empty()).then_some(damage.as_slice());
+    match client.present_damaged(
+        surface,
+        configure,
+        Size::new(width, height),
+        format,
+        pixels,
+        damage,
+    ) {
+        Ok(sequence) => i64::try_from(sequence).unwrap_or(-1),
+        Err(error) => {
+            fail(error);
+            -1
+        }
+    }
+}
+
 /// Takes one queued event without blocking: `OXY_POLL_EVENT` with `*out` filled,
 /// `OXY_POLL_EMPTY`, `OXY_POLL_CLOSED` once the compositor closed the connection, or `OXY_ERROR`
 /// (a protocol error ends the connection).

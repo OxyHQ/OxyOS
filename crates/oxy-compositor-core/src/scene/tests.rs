@@ -2588,3 +2588,107 @@ fn readers_follow_moves_removals_and_join_late() {
     assert!(read_tree(&h, window).is_empty());
     assert!(h.scene.accessibility_snapshot(window).is_none());
 }
+
+#[test]
+fn damage_is_what_the_client_drew_since_the_frame_displayed() {
+    let mut h = Harness::new();
+    let window = h.toplevel(1, 1, 200, 100);
+    let damage = |h: &mut Harness, rect: Rect| h.request(1, Request::Damage { surface: 1, rect });
+    let presenting = |h: &mut Harness| {
+        h.scene.begin_frame();
+        let damage = h.scene.presenting_damage(window).cloned();
+        h.scene.end_frame(1, Clock::Synthetic);
+        h.pump();
+        damage
+    };
+    // A Submit without Damage damages the whole surface.
+    h.submit(window);
+    assert_eq!(presenting(&mut h), Some(SurfaceDamage::Whole));
+    // Damage, clipped to the buffer.
+    damage(&mut h, Rect::new(10, 10, 20, 5)).unwrap();
+    damage(&mut h, Rect::new(190, 90, 50, 50)).unwrap();
+    h.submit(window);
+    assert_eq!(
+        presenting(&mut h),
+        Some(SurfaceDamage::Rects(vec![
+            Rect::new(10, 10, 20, 5),
+            Rect::new(190, 90, 10, 10)
+        ]))
+    );
+    // Two frames before one presents: the second replaces the first, and the damage of both is
+    // what changed since the frame displayed.
+    damage(&mut h, Rect::new(0, 0, 5, 5)).unwrap();
+    h.submit(window);
+    damage(&mut h, Rect::new(50, 50, 5, 5)).unwrap();
+    h.submit(window);
+    assert_eq!(
+        presenting(&mut h),
+        Some(SurfaceDamage::Rects(vec![
+            Rect::new(0, 0, 5, 5),
+            Rect::new(50, 50, 5, 5)
+        ]))
+    );
+    // Past sixteen rectangles, the one holding them all.
+    for i in 0..17 {
+        damage(&mut h, Rect::new(i * 10, 0, 2, 2)).unwrap();
+    }
+    h.submit(window);
+    assert_eq!(
+        presenting(&mut h),
+        Some(SurfaceDamage::Rects(vec![Rect::new(0, 0, 162, 2)]))
+    );
+    // An empty rectangle and an unknown surface are errors.
+    assert_eq!(
+        damage(&mut h, Rect::new(0, 0, 0, 5)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(
+            1,
+            Request::Damage {
+                surface: 9,
+                rect: Rect::new(0, 0, 1, 1)
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+}
+
+#[test]
+fn a_new_size_damages_the_whole_surface() {
+    let mut h = Harness::new();
+    let window = h.toplevel(1, 1, 200, 100);
+    h.request(
+        1,
+        Request::Damage {
+            surface: 1,
+            rect: Rect::new(0, 0, 4, 4),
+        },
+    )
+    .unwrap();
+    h.submit(window);
+    h.scene.begin_frame();
+    assert_eq!(
+        h.scene.presenting_damage(window),
+        Some(&SurfaceDamage::Rects(vec![Rect::new(0, 0, 4, 4)]))
+    );
+    h.scene.end_frame(1, Clock::Synthetic);
+    h.pump();
+    // The compositor resizes the window; the client's next buffer is of the new size.
+    h.scene.resize_window(window, Size::new(300, 150));
+    h.pump();
+    h.request(
+        1,
+        Request::Damage {
+            surface: 1,
+            rect: Rect::new(0, 0, 4, 4),
+        },
+    )
+    .unwrap();
+    h.submit(window);
+    h.scene.begin_frame();
+    assert_eq!(
+        h.scene.presenting_damage(window),
+        Some(&SurfaceDamage::Whole)
+    );
+}

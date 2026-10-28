@@ -6,7 +6,7 @@ order: 14
 
 # ADR 0005: Damage: composing and drawing only what changed
 
-Status: **accepted; decisions 1 and 2 implemented** (the output's damage and resident surfaces; see [Results](#results)). Client damage (decisions 3 to 5) is next. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
+Status: **accepted; decisions 1 to 4 implemented** (the output's damage, resident surfaces, the protocol's damage and buffer age; see [Results](#results)). The Bloom host's damage (decision 5) is next. Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries) and [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
@@ -58,7 +58,7 @@ The protocol cannot say what changed: `Submit { surface, sequence, buffer, confi
 ## Order of work
 
 1. **The output's damage and resident surfaces (decisions 1 and 2).** Done. These are compositor-only and need no client change. Measure the same breakdown before and after with `--gpu-only`. The fill and the uploads should shrink to the window's area and to surfaces that changed.
-2. **`Damage` and buffer age (decisions 3 and 4).** These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
+2. **`Damage` and buffer age (decisions 3 and 4).** Done. These cover the protocol, `oxy-client` and the C ABI, with tests for clipping, the merge beyond 16 rectangles and ages across release and reuse.
 3. **The host's damage (decision 5).** Measure the host's render time per frame, the 20 ms, before and after, on the regression's typing, caret and menu steps.
 
 Each step lands only with the CPU reference comparison passing on hardware and the regression passing through the devices.
@@ -93,6 +93,19 @@ On the ThinkPad, the regression passes every mode, and every `--gpu` frame is id
 - composition is about 4.5 ms, unchanged.
 
 Most frames are a new frame of the window, which must be uploaded. Residency saves the frames where something else changed, such as a menu over an unchanged window. Shrinking the median frame needs client damage (decisions 3 to 5).
+
+**The protocol's damage and buffer age (decisions 3 and 4).** `Damage { surface, rect }` is request 22, in buffer pixels.
+- **Defaults:** a `Submit` without any damages the whole surface, so existing clients are unchanged. An empty rectangle is `InvalidGeometry`.
+- **The scene adds damage up:** across the frames submitted since one last began presenting, including frames replaced in the queue or discarded. It clips to the buffer, bounds past 16 rectangles, and damages everything at a new size. `presenting_damage` says what changed for the frame being composed.
+- **On the output:** the development compositor puts a surface's damage there, scaled outward, instead of its whole rectangle.
+- **The client side:** `oxy-client`'s `present_damaged` (`oxy_client_present_damaged` in the C ABI) sends the damage before the `Submit`. It writes into a reused buffer only what the frames that buffer missed changed, and everything when one of them did not say or the history does not reach back.
+
+Tests check:
+- the accumulation, clipping, bounding and errors, in the scene;
+- the outward scaling, in the fixture;
+- that a reused buffer receives only its missed regions, in the client.
+
+The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends no damage yet.
 
 ## Consequences
 

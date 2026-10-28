@@ -108,6 +108,64 @@ struct Node {
     restore: Option<((i32, i32), Size)>,
     /// Local input region; `None` accepts input everywhere, an empty rectangle nowhere.
     input_region: Option<Rect>,
+    /// Damage requested for the next Submit, in buffer pixels.
+    requested: Vec<Rect>,
+    /// What changed in the frames submitted since one last began presenting, and the extent of
+    /// the last one submitted.
+    unshown: Option<SurfaceDamage>,
+    last_extent: Option<Size>,
+    /// What changed in the frame presenting (or last presented), relative to the one displayed
+    /// before it.
+    presenting_damage: SurfaceDamage,
+}
+
+/// What changed in a surface's frame since the frame displayed before it, in buffer pixels
+/// (docs/adr/0005-damage.mdx).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SurfaceDamage {
+    Whole,
+    Rects(Vec<Rect>),
+}
+
+impl SurfaceDamage {
+    /// At most this many rectangles; more become the one holding them all.
+    pub const MAX_RECTS: usize = 16;
+
+    /// What changed in either.
+    fn and(self, other: SurfaceDamage) -> SurfaceDamage {
+        match (self, other) {
+            (SurfaceDamage::Rects(mut these), SurfaceDamage::Rects(those)) => {
+                these.extend(those);
+                SurfaceDamage::Rects(bounded(these))
+            }
+            _ => SurfaceDamage::Whole,
+        }
+    }
+}
+
+/// `rects`, or past `SurfaceDamage::MAX_RECTS` the one rectangle holding them all.
+fn bounded(rects: Vec<Rect>) -> Vec<Rect> {
+    if rects.len() <= SurfaceDamage::MAX_RECTS {
+        return rects;
+    }
+    let left = rects.iter().map(|r| i64::from(r.x)).min().unwrap_or(0);
+    let top = rects.iter().map(|r| i64::from(r.y)).min().unwrap_or(0);
+    let right = rects
+        .iter()
+        .map(|r| i64::from(r.x) + i64::from(r.width))
+        .max()
+        .unwrap_or(0);
+    let bottom = rects
+        .iter()
+        .map(|r| i64::from(r.y) + i64::from(r.height))
+        .max()
+        .unwrap_or(0);
+    vec![Rect::new(
+        left as i32,
+        top as i32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    )]
 }
 
 impl Node {
@@ -665,6 +723,18 @@ impl Scene {
                 self.reposition_popup(key(surface));
                 Ok(())
             }
+            Request::Damage { surface, rect } => {
+                let node = self
+                    .nodes
+                    .get_mut(&key(surface))
+                    .ok_or(ErrorCode::UnknownSurface)?;
+                if rect.width == 0 || rect.height == 0 {
+                    return Err(ErrorCode::InvalidGeometry);
+                }
+                let requested = std::mem::take(&mut node.requested);
+                node.requested = bounded([requested, vec![rect]].concat());
+                Ok(())
+            }
             Request::SetInputRegion { surface, region } => {
                 let node = self
                     .nodes
@@ -919,6 +989,10 @@ impl Scene {
                 fullscreen: false,
                 restore: None,
                 input_region: None,
+                requested: Vec::new(),
+                unshown: None,
+                last_extent: None,
+                presenting_damage: SurfaceDamage::Whole,
             },
         );
         match parent {
@@ -1217,6 +1291,26 @@ impl Scene {
             return Err(ErrorCode::InvalidBuffer);
         }
         let node = self.nodes.get_mut(&key).expect("checked");
+        // What the client drew into this frame since its previous one: the damage it asked for,
+        // clipped to the buffer, or the whole surface without any or at a new size. It adds to
+        // what the frames not yet presenting changed, shown or discarded.
+        let requested = std::mem::take(&mut node.requested);
+        let buffer = Rect::new(0, 0, frame.extent.width, frame.extent.height);
+        let drawn = if requested.is_empty() || node.last_extent != Some(frame.extent) {
+            SurfaceDamage::Whole
+        } else {
+            SurfaceDamage::Rects(
+                requested
+                    .iter()
+                    .filter_map(|rect| intersect(rect, &buffer))
+                    .collect(),
+            )
+        };
+        node.last_extent = Some(frame.extent);
+        node.unshown = Some(match node.unshown.take() {
+            Some(unshown) => unshown.and(drawn),
+            None => drawn,
+        });
         if node.dismissed {
             self.discard(key, frame);
             return Ok(());
@@ -2314,10 +2408,18 @@ impl Scene {
                 && node.presentation.has_queued()
                 && node.presentation.begin_present().ok().flatten().is_some()
             {
+                // Relative to the frame displayed now: everything the client drew since.
+                node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
             }
         }
         started
+    }
+
+    /// What changed in a surface's frame presenting (between `begin_frame` and `end_frame`),
+    /// relative to its frame displayed before, in buffer pixels; `None` for no such surface.
+    pub fn presenting_damage(&self, key: SurfaceKey) -> Option<&SurfaceDamage> {
+        self.nodes.get(&key).map(|node| &node.presenting_damage)
     }
 
     /// Completes the frame: in-flight frames become displayed, surfaces with their first ready
@@ -2446,3 +2548,19 @@ pub use accessibility::AccessibleNode;
 
 #[cfg(test)]
 mod tests;
+
+/// The part of both rectangles, if any.
+fn intersect(a: &Rect, b: &Rect) -> Option<Rect> {
+    let left = i64::from(a.x).max(i64::from(b.x));
+    let top = i64::from(a.y).max(i64::from(b.y));
+    let right = (i64::from(a.x) + i64::from(a.width)).min(i64::from(b.x) + i64::from(b.width));
+    let bottom = (i64::from(a.y) + i64::from(a.height)).min(i64::from(b.y) + i64::from(b.height));
+    (right > left && bottom > top).then(|| {
+        Rect::new(
+            left as i32,
+            top as i32,
+            (right - left) as u32,
+            (bottom - top) as u32,
+        )
+    })
+}

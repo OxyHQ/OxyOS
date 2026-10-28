@@ -255,3 +255,163 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
         io::ErrorKind::InvalidInput
     );
 }
+
+/// The next Submit, past any Damage before it.
+fn until_submit(server: &Connection) -> Request {
+    loop {
+        let request = server.recv_request().unwrap().0;
+        match request {
+            Request::Damage { .. } => continue,
+            Request::Submit { .. } => return request,
+            other => panic!("expected Damage or Submit, got {other:?}"),
+        }
+    }
+}
+
+/// The XRGB pixels of a buffer, row by row.
+fn contents(shared: &SharedBuffer, extent: Size) -> Vec<u8> {
+    let mut all = Vec::new();
+    for y in 0..extent.height {
+        let mut row = vec![0; extent.width as usize * 4];
+        shared.read_row(y, &mut row).unwrap();
+        all.extend(row);
+    }
+    all
+}
+
+/// `base` with `rect` set to `value`.
+fn painted(base: &[u8], extent: Size, rect: Rect, value: u8) -> Vec<u8> {
+    let mut out = base.to_vec();
+    for y in rect.y as u32..rect.y as u32 + rect.height {
+        for x in rect.x as u32..rect.x as u32 + rect.width {
+            let at = ((y * extent.width + x) * 4) as usize;
+            out[at..at + 4].fill(value);
+        }
+    }
+    out
+}
+
+#[test]
+fn damage_reaches_the_compositor_before_its_submit() {
+    let (mut client, server) = connected();
+    let extent = Size::new(8, 4);
+    client.present(1, 1, extent, &pixels(extent, 0)).unwrap();
+    submitted(&server);
+    // Clipped to the buffer; one past it is dropped.
+    let damage = [
+        Rect::new(6, 2, 5, 5),
+        Rect::new(1, 1, 2, 1),
+        Rect::new(9, 0, 1, 1),
+    ];
+    client
+        .present_damaged(
+            1,
+            1,
+            extent,
+            Format::Xrgb8888,
+            &pixels(extent, 1),
+            Some(&damage),
+        )
+        .unwrap();
+    let (attach, _) = server.recv_request().unwrap();
+    assert!(
+        matches!(attach, Request::AttachBuffer { .. }),
+        "a second buffer: the first is busy"
+    );
+    let requests: Vec<Request> = (0..3).map(|_| server.recv_request().unwrap().0).collect();
+    assert_eq!(
+        requests[..2],
+        [
+            Request::Damage {
+                surface: 1,
+                rect: Rect::new(6, 2, 2, 2)
+            },
+            Request::Damage {
+                surface: 1,
+                rect: Rect::new(1, 1, 2, 1)
+            }
+        ]
+    );
+    assert!(matches!(requests[2], Request::Submit { .. }));
+}
+
+#[test]
+fn a_reused_buffer_receives_only_what_changed_since_it_was_written() {
+    let (mut client, server) = connected();
+    let extent = Size::new(8, 4);
+    let xrgb = Format::Xrgb8888;
+    let first = pixels(extent, 0);
+    client.present(1, 1, extent, &first).unwrap();
+    let (a, shared_a, _) = submitted(&server);
+    // A second frame changes one corner, into a second buffer (the first is busy).
+    let corner = Rect::new(0, 0, 2, 2);
+    let second = painted(&first, extent, corner, 2);
+    client
+        .present_damaged(1, 1, extent, xrgb, &second, Some(&[corner]))
+        .unwrap();
+    let (attach, _) = server.recv_request().unwrap();
+    let Request::AttachBuffer { buffer: b, .. } = attach else {
+        panic!("expected AttachBuffer, got {attach:?}");
+    };
+    until_submit(&server);
+    server
+        .send_event(&Event::Released {
+            surface: 1,
+            buffer: a,
+        })
+        .unwrap();
+    client.poll().unwrap();
+    // The third frame changes another corner, and (against what it promises) everything else
+    // too: only what the first buffer missed is written into it, the two corners.
+    let other = Rect::new(6, 2, 2, 2);
+    let mut third = painted(&second, extent, other, 3);
+    for (index, byte) in third.iter_mut().enumerate() {
+        let (x, y) = (
+            (index / 4) as u32 % extent.width,
+            (index / 4) as u32 / extent.width,
+        );
+        let inside = |rect: Rect| {
+            (rect.x as u32..rect.x as u32 + rect.width).contains(&x)
+                && (rect.y as u32..rect.y as u32 + rect.height).contains(&y)
+        };
+        if !inside(corner) && !inside(other) {
+            *byte = 9;
+        }
+    }
+    client
+        .present_damaged(1, 1, extent, xrgb, &third, Some(&[other]))
+        .unwrap();
+    let submit = until_submit(&server);
+    assert!(
+        matches!(submit, Request::Submit { buffer, .. } if buffer == a),
+        "{submit:?}"
+    );
+    let expected = painted(&painted(&first, extent, corner, 2), extent, other, 3);
+    assert_eq!(contents(&shared_a, extent), expected);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn without_damage_or_history_a_buffer_is_written_whole() {
+    let (mut client, server) = connected();
+    let extent = Size::new(4, 2);
+    let xrgb = Format::Xrgb8888;
+    client.present(1, 1, extent, &pixels(extent, 0)).unwrap();
+    let (a, shared_a, _) = submitted(&server);
+    // A frame without damage changed everything: the buffer that missed it is written whole.
+    client.present(1, 1, extent, &pixels(extent, 1)).unwrap();
+    submitted(&server);
+    server
+        .send_event(&Event::Released {
+            surface: 1,
+            buffer: a,
+        })
+        .unwrap();
+    client.poll().unwrap();
+    let corner = [Rect::new(0, 0, 1, 1)];
+    client
+        .present_damaged(1, 1, extent, xrgb, &pixels(extent, 7), Some(&corner))
+        .unwrap();
+    until_submit(&server);
+    assert_eq!(contents(&shared_a, extent), pixels(extent, 7));
+}

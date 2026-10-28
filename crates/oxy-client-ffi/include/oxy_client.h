@@ -190,6 +190,21 @@ int oxy_client_destroy_surface(OxyClient* client, uint32_t surface);
 int64_t oxy_client_present(OxyClient* client, uint32_t surface, uint64_t configure, uint32_t width,
                            uint32_t height, uint32_t format, const uint8_t* pixels, size_t length);
 
+/* A rectangle of a buffer, in its pixels. */
+typedef struct OxyRect {
+  int32_t x;
+  int32_t y;
+  uint32_t width;
+  uint32_t height;
+} OxyRect;
+
+/* oxy_client_present for a frame of which only `count` rectangles at `damage` changed since the
+ * surface's previous frame (0: everything). The compositor hears the damage, and a reused buffer
+ * receives only what changed since it was last written. Returns the sequence number, or -1. */
+int64_t oxy_client_present_damaged(OxyClient* client, uint32_t surface, uint64_t configure, uint32_t width,
+                                   uint32_t height, uint32_t format, const uint8_t* pixels, size_t length,
+                                   const OxyRect* damage, size_t count);
+
 /* Takes one queued event without blocking. */
 int oxy_client_poll(OxyClient* client, OxyEvent* out);
 

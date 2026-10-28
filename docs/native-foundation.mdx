@@ -36,7 +36,7 @@ Expected result:
 | `crates/oxy-compositor-core/src/scene.rs` | Roles, grants, ownership, quotas, stacking, input routing, popup grabs, focus, lock primitive, outputs, frame lifecycle and buffer release |
 | `crates/oxy-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
 | `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send and receive |
-| `crates/oxy-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), non-blocking event polling |
+| `crates/oxy-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), frames with damage (only what a reused buffer missed is written into it), non-blocking event polling |
 | `crates/oxy-client-ffi` | C ABI over `oxy-client` (`include/oxy_client.h`) for native runtimes in C/C++, such as the Bloom host; tests check the header against the Rust layouts |
 | `crates/oxy-gpu` | Frame composition: the CPU reference (`compose_cpu`), which `oxy-offscreen` composes with, and the same composition on a Vulkan device (`VulkanCompositor`, a compute shader), which must match it byte for byte ([ADR 0004](./adr/0004-gpu-composition)) |
 | `crates/oxy-kms` | DRM/KMS output: a card's outputs, modes and plane format/modifier pairs (no DRM master needed), DMA-BUF import as framebuffers, and a `Display` that modesets atomically and page-flips with the kernel's flip timestamps ([ADR 0004](./adr/0004-gpu-composition)) |
@@ -91,6 +91,7 @@ Input semantics:
 | Request | 19 | AccessibleText | 43 |
 | Request | 20 | AccessibilityCommit | 5 |
 | Request | 21 | AccessibilityAction | 14 |
+| Request | 22 | Damage | 21 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
