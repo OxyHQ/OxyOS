@@ -208,6 +208,33 @@ ParagraphLayout layoutInput(const AndroidTextInputProps& props, const Attributed
   return TextEngine::shared().layout(text, props.paragraphAttributes, maxWidth);
 }
 
+// A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
+// fields do; its text is never drawn or reported.
+constexpr const char* kSecureBullet = "\u2022";
+
+bool isContinuation(const std::string& text, size_t i) {
+  return (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80;
+}
+
+std::string shownText(const AndroidTextInputProps& props, const std::string& value) {
+  if (!props.secureTextEntry) return value;
+  std::string shown;
+  for (size_t i = 0; i < value.size(); ++i) {
+    if (!isContinuation(value, i)) shown += kSecureBullet;
+  }
+  return shown;
+}
+
+// A byte offset into the value, as a byte offset into what is shown.
+size_t shownOffset(const AndroidTextInputProps& props, const std::string& value, size_t offset) {
+  if (!props.secureTextEntry) return offset;
+  size_t characters = 0;
+  for (size_t i = 0; i < std::min(offset, value.size()); ++i) {
+    if (!isContinuation(value, i)) ++characters;
+  }
+  return characters * std::char_traits<char>::length(kSecureBullet);
+}
+
 AttributedString inputText(const AndroidTextInputProps& props, const std::string& text) {
   AttributedString string;
   string.setBaseTextAttributes(props.getEffectiveTextAttributes(1));
@@ -226,6 +253,7 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   AttributedString text = data.attributedStringBox.getValue();
   std::string value = text.getString();
+  if (props->secureTextEntry) text = inputText(*props, shownText(*props, value));
   if (text.isEmpty() && !props->placeholder.empty()) {
     auto attributes = props->getEffectiveTextAttributes(1);
     attributes.foregroundColor = props->placeholderTextColor ? props->placeholderTextColor
@@ -348,7 +376,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
       const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
       std::string value = data.attributedStringBox.getValue().getString();
       auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
-      stats.textContent.push_back(value.empty() ? props->placeholder : value);
+      stats.textContent.push_back(value.empty() ? props->placeholder : shownText(*props, value));
     }
   }
 
@@ -394,7 +422,10 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 float textInputCaretX(const ShadowView& view, const std::string& text, size_t offset) {
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   float width = view.layoutMetrics.getContentFrame().size.width;
-  auto prefix = layoutInput(*props, inputText(*props, text.substr(0, std::min(offset, text.size()))), width);
+  auto shown = shownText(*props, text);
+  auto prefix =
+      layoutInput(*props, inputText(*props, shown.substr(0, std::min(shownOffset(*props, text, offset), shown.size()))),
+                  width);
   if (prefix.lines.empty()) return 0;
   const auto& last = prefix.lines.back();
   return last.x + last.advance;

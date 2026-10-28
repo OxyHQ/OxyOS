@@ -192,6 +192,10 @@ The host also keeps accessibility focus, as Android does apart from input focus.
 
 The steps check the window's and popup's exact rectangles.
 
+**Secure fields.** A secure field (`secureTextEntry`) is drawn as one bullet per character, as on Android. Its caret, selection and pointer placement follow the bullets. Its text never appears in the host's report, only as many bullets as it has characters. It is never published to an assistive technology, which receives the field's label and an empty value. Before this, the host drew a password in clear text.
+
+`scenarios/secure-field.json` checks this with a Bloom password field: what is typed reaches the application, but appears nowhere in the host's report or in the compositor's snapshots. Publishing the value on purpose makes the scenario fail three ways: the screen reader's node, the host's report and the compositor's snapshot.
+
 **Bloom's styles.** Bloom maps its `className`s to styles with `react-native-css`, which needs the app's Metro to compile a Tailwind stylesheet; Oxy apps do it through `@oxy.so/app-preset` (`global.css`, Tailwind v4 through PostCSS, `inlineRem: 16`). Until the sample did the same (`sample/global.css`), every class-styled part of Bloom lost its style silently: menu rows were laid out as a column without padding, panels had no border. Parts styled with resolved tokens looked right, which hid the gap. With the stylesheet the window has more to draw (bordered, rounded panels), which the painter's fast paths absorbed (see the measurements above). The sample does not import NativeWind's theme (`nativewind/theme`), which Oxy apps add on top: NativeWind is not among Bloom's dependencies, and what an app loses without it on OxyOS has not been checked.
 
 **React Native core runs its Android implementation on OxyOS** ([the adaptation's contract](./react-native-android-adaptation), checked by `scenarios/android-adaptation.json`). The host implements React Native's Android interfaces: TurboModule specs, component names and commands. So modules inside the `react-native` package get its own `Platform.android.js` and take their Android branches, and assets follow Android's resource layout. Everything else, including the `Platform` that `react-native` exports to apps and Bloom, reports `oxyos` (`sample/metro.config.js`). Before this rule, the 46 core modules that branch on `Platform.OS` took neither branch on `oxyos`; `TextInput` rendered nothing at all.
@@ -209,10 +213,12 @@ Bloom fixes found on the way:
 Known gaps:
 - The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
 - Text input: no clipboard, word-wise movement, undo or vertical caret movement; the caret and selection are drawn on single-line inputs only.
-- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility:
-- **No screen reader yet.** The protocol and the Bloom host's side exist, but no screen reader client has been written, so nothing speaks.
-- **Not in the protocol yet:** announcements, and actions other than activate and focus.
-- **Not covered by a regression:** a secure field's value is never published, but no step has a secure field.
+- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility is **not complete**. What exists: the protocol and the Bloom host's side (publication, accessibility focus, activate and focus actions), checked by the regression. **Parked**, by decision, while desktop interaction, the open PRs and GPU output come first:
+- a screen reader client: nothing speaks yet;
+- announcements (live regions);
+- actions other than activate and focus (scroll, increment and decrement, dismiss);
+- text navigation and selection by the assistive technology;
+- hiding unlocked applications' trees from the assistive technology while locked (acting on them is already refused).
 - Keyboard navigation inside a popup menu needs Bloom's `popup-navigation` (Bloom #507, unreleased). The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
 
 

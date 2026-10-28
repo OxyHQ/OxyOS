@@ -60,6 +60,11 @@ class TextEditing {
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyEvent& event);
 
+  // Whether the focused input is secure (`secureTextEntry`): its text is never reported, only
+  // as many bullets as it has characters (`logged`).
+  bool secure() const;
+  std::string logged(const std::string& text) const;
+
   // The input that has focus, -1 if none.
   facebook::react::Tag focused() const { return focused_; }
   // What the renderer draws for the focused input: its selection (or caret) and composition.

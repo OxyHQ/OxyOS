@@ -428,7 +428,7 @@ int main(int argc, char** argv) {
       return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);
     };
     // Compositor input as received, for the report (motion is left out: it is continuous).
-    auto report = [](const OxyEvent& event) {
+    auto report = [&](const OxyEvent& event) {
       auto& r = oxy::Report::get();
       if (!r.enabled()) return;
       static const char* pointer[] = {"", "pointer.enter", "pointer.leave", "", "pointer.press", "pointer.release",
@@ -438,9 +438,10 @@ int main(int argc, char** argv) {
       } else if (event.kind == OXY_EVENT_KEY) {
         r.input(event.flag ? "key.press" : "key.release", event.surface, folly::dynamic::object("code", event.code));
       } else if (event.kind == OXY_EVENT_TEXT) {
-        r.input("text", event.surface, folly::dynamic::object("text", std::string(event.text)));
+        r.input("text", event.surface, folly::dynamic::object("text", editing.logged(std::string(event.text))));
       } else if (event.kind == OXY_EVENT_PREEDIT) {
-        r.input("preedit", event.surface, folly::dynamic::object("text", std::string(event.text))("cursor", event.detail));
+        r.input("preedit", event.surface,
+                folly::dynamic::object("text", editing.logged(std::string(event.text)))("cursor", event.detail));
       } else if (event.kind == OXY_EVENT_SCROLL) {
         r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
       } else if (event.kind == OXY_EVENT_FOCUS) {

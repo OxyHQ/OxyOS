@@ -3,6 +3,8 @@ import './global.css';
 import { AppRegistry } from 'react-native';
 import App from './App';
 import AndroidProbe from './AndroidProbe';
+import SecureProbe from './SecureProbe';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
+AppRegistry.registerComponent('SecureProbe', () => SecureProbe);

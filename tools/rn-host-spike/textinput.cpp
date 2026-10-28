@@ -178,7 +178,7 @@ void TextEditing::focus(Tag tag) {
   it->second.view.eventEmitter->dispatchEvent("focus", folly::dynamic::object("target", tag));
   Report::get().deliver("focus", 0, it->second.view);
   selectionChanged();
-  if (tracing()) std::cerr << "[text] focus " << tag << " \"" << text_ << "\" caret " << caret_ << "\n";
+  if (tracing()) std::cerr << "[text] focus " << tag << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
 }
 
 void TextEditing::blur() {
@@ -192,7 +192,7 @@ void TextEditing::blur() {
   const auto& emitter = it->second.view.eventEmitter;
   emitter->dispatchEvent("blur", folly::dynamic::object("target", tag));
   emitter->dispatchEvent("endEditing", folly::dynamic::object("target", tag)("text", text_));
-  Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", text_));
+  Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
   if (tracing()) std::cerr << "[text] blur " << tag << "\n";
 }
 
@@ -364,8 +364,8 @@ void TextEditing::replace(size_t from, size_t to, const std::string& insert, con
     view.eventEmitter->dispatchEvent(
         "change", folly::dynamic::object("text", text_)("eventCount", eventCount_)("target", focused_)(
                       "selection", folly::dynamic::object("start", caret)("end", caret)));
-    Report::get().deliver("change", 0, view, folly::dynamic::object("text", text_)("eventCount", eventCount_));
-    if (tracing()) std::cerr << "[text] " << focused_ << " \"" << text_ << "\" caret " << caret_ << "\n";
+    Report::get().deliver("change", 0, view, folly::dynamic::object("text", logged(text_))("eventCount", eventCount_));
+    if (tracing()) std::cerr << "[text] " << focused_ << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
   }
   if (moved) selectionChanged();
 }
@@ -374,7 +374,23 @@ void TextEditing::keyPress(const std::string& key) {
   auto it = tree_.views().find(focused_);
   if (key.empty() || it == tree_.views().end()) return;
   it->second.view.eventEmitter->dispatchEvent("keyPress", folly::dynamic::object("key", key));
-  Report::get().deliver("keyPress", 0, it->second.view, folly::dynamic::object("key", key));
+  bool named = key == "Backspace" || key == "Enter";
+  Report::get().deliver("keyPress", 0, it->second.view, folly::dynamic::object("key", named ? key : logged(key)));
+}
+
+bool TextEditing::secure() const {
+  auto it = tree_.views().find(focused_);
+  return it != tree_.views().end() &&
+         std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props)->secureTextEntry;
+}
+
+std::string TextEditing::logged(const std::string& text) const {
+  if (!secure()) return text;
+  std::string masked;
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (!continuation(text, i)) masked += "\u2022";
+  }
+  return masked;
 }
 
 void TextEditing::submit() {
@@ -383,7 +399,7 @@ void TextEditing::submit() {
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
   it->second.view.eventEmitter->dispatchEvent("submitEditing",
                                               folly::dynamic::object("target", focused_)("text", text_));
-  Report::get().deliver("submitEditing", 0, it->second.view, folly::dynamic::object("text", text_));
+  Report::get().deliver("submitEditing", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
   // A single-line input blurs on submit unless asked to stay (submitBehavior="submit").
   if (props->submitBehavior != SubmitBehavior::Submit) blur();
 }

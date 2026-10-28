@@ -36,6 +36,11 @@ import sys
 import tempfile
 
 
+# The fields of a director record that repeat the step's own instruction (oxy-offscreen launch.rs).
+STEP_KEYS = {"press", "press_popup", "scroll", "type", "preedit", "drag", "key", "move_window",
+             "resize_window", "scale", "a11y_action", "expect_popup"}
+
+
 def director_args(step):
     kind, value = step["do"]
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
@@ -185,6 +190,14 @@ def check_step(index, step, result, report, start, failures):
             for node in wanted:
                 if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
+    if "never" in expect:
+        # Text that must appear nowhere: not drawn, not reported by the host, not held by the
+        # compositor for an assistive technology. The step's own instruction is left out.
+        held = json.dumps({k: v for k, v in result.items() if k not in STEP_KEYS}, ensure_ascii=False)
+        lines = [json.dumps(line, ensure_ascii=False) for line in report if line["t"] <= end]
+        for text in expect["never"]:
+            if text in held or any(text in line for line in lines):
+                fail(f"{text!r} leaked (host report or compositor)")
     if "frame_px" in expect:
         # The size in pixels of the latest frame of the window and of each open popup.
         for role, size in expect["frame_px"].items():

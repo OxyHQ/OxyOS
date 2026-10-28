@@ -64,7 +64,8 @@ The display protocol carries accessibility, as it carries buffers. The composito
 
 - The screen reader is an ordinary protocol client with a grant, like the shell. It can be written for OxyOS without D-Bus. An AT-SPI bridge remains possible as such a client if Orca support is wanted later.
 - Applications other than the Bloom host publish nothing until they implement the messages. A surface without a snapshot is presented to the assistive technology as empty, never guessed from pixels.
-- Not in this slice:
+- Parked (not abandoned) while desktop interaction, the open pull requests and GPU output come first; accessibility is not complete:
+  - a screen reader client, so nothing speaks yet;
   - announcements (live regions);
   - actions beyond activate and focus (scroll, increment, dismiss);
   - text navigation and selection by the assistive technology;
