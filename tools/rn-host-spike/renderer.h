@@ -4,10 +4,17 @@
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <optional>
+#include <utility>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace facebook::react {
+class AndroidTextInputProps;
+}
 
 namespace oxy {
 
@@ -17,15 +24,29 @@ struct Display {
   float scale;
 };
 
+// A decoded image an Image view shows (images.h): `width` × `height` premultiplied RGBA pixels,
+// sRGB, and the size it is drawn at by `center` and `repeat`, in logical pixels.
+struct Picture {
+  int width = 0, height = 0;
+  std::vector<uint8_t> pixels;
+  float naturalWidth = 0, naturalHeight = 0;
+};
+
 struct View {
   facebook::react::ShadowView view;
   std::vector<facebook::react::Tag> children;
+  // What an Image view shows, as Android's ReactImageView holds its bitmap; none until loaded.
+  std::shared_ptr<const Picture> picture;
 };
 
 class ViewTree {
  public:
   void apply(const facebook::react::ShadowViewMutationList& mutations);
   const std::unordered_map<facebook::react::Tag, View>& views() const { return views_; }
+  // Gives an existing view the picture it shows (none for nullptr).
+  void setPicture(facebook::react::Tag tag, std::shared_ptr<const Picture> picture) {
+    if (auto it = views_.find(tag); it != views_.end()) it->second.picture = std::move(picture);
+  }
   facebook::react::Tag root() const { return root_; }
 
  private:
@@ -57,13 +78,61 @@ struct TextInputEdit {
   facebook::react::Tag tag = -1;
   size_t selectionStart = 0, selectionEnd = 0;  // the caret when equal
   size_t composeStart = 0, composeEnd = 0;      // the composition, underlined; empty if equal
+  // How far each input's text is scrolled within its content box: across for a single-line input,
+  // down for a multiline one. An input keeps it when it loses focus, as an EditText does.
+  std::map<facebook::react::Tag, facebook::react::Point> scrolls;
   bool operator==(const TextInputEdit&) const = default;
 };
 
-// A text input's caret geometry: the content-local x of byte offset `offset` of `text`, and the
-// offset nearest a content-local x. Single-line inputs (multiline ones use their last line).
-float textInputCaretX(const facebook::react::ShadowView& view, const std::string& text, size_t offset);
-size_t textInputOffsetAt(const facebook::react::ShadowView& view, const std::string& text, float x);
+// A text input's caret geometry, from its value laid out as it is drawn (wrapped when multiline,
+// centred vertically when single-line). Offsets are UTF-8 byte offsets into the value; positions
+// are relative to the input's content box. A secure field's geometry is its bullets'.
+class TextInputGeometry {
+ public:
+  TextInputGeometry(const facebook::react::ShadowView& view, const std::string& value);
+
+  struct Caret {
+    size_t line = 0;
+    float x = 0, top = 0, height = 0;
+  };
+  // Where the caret at `offset` is drawn. An offset where a wrapped line ends is drawn at the start
+  // of the next line.
+  Caret caret(size_t offset) const;
+  // The offset nearest a point: its line by y, then the character boundary nearest x.
+  size_t offsetAt(float x, float y) const;
+  // The offset on `line` nearest x.
+  size_t offsetOnLine(size_t line, float x) const;
+  // The first and last offsets on `line` (Home and End). A wrapped line's last offset is before
+  // the character at which it wrapped, since the offset after it is drawn on the next line.
+  std::pair<size_t, size_t> lineEdges(size_t line) const;
+  size_t lineCount() const { return lines_.size(); }
+  // The text's extent: its widest line's right edge, and its last line's bottom.
+  float width() const;
+  float height() const;
+  // `scroll` kept within what the text's extent allows in a content box of `size`, with room
+  // for the caret at the end of a line.
+  facebook::react::Point clamp(facebook::react::Point scroll, facebook::react::Size size) const;
+  // Rectangles covering [from, to): one per line it touches; a hard break inside it shows as a
+  // little width past its line's end.
+  std::vector<facebook::react::Rect> span(size_t from, size_t to) const;
+
+ private:
+  struct Line {
+    size_t start = 0, end = 0;  // offsets into what is shown; `end` excludes a hard break
+    bool broken = false;        // ended by a hard break (not wrapped, not the last)
+    float x = 0, top = 0, height = 0;
+    std::vector<std::pair<size_t, float>> stops;  // the layout's caret stops (LineLayout::stops)
+  };
+  float xOn(const Line& line, size_t shownOffset) const;
+  // lineEdges, in offsets into what is shown.
+  std::pair<size_t, size_t> shownEdges(size_t line) const;
+  size_t toShown(size_t offset) const;
+  size_t toValue(size_t shownOffset) const;
+
+  std::shared_ptr<const facebook::react::AndroidTextInputProps> props_;
+  std::string value_, shown_;
+  std::vector<Line> lines_;
+};
 
 // Component whose subtree is shown in a popup of its own (popup.h), never in the window.
 inline constexpr const char* kPopupComponent = "OxyPopupView";

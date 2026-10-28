@@ -1,0 +1,71 @@
+---
+title: Shell development preview
+description: Develop the OxyOS-owned shell components with NativeWind and real Bloom controls.
+---
+
+# Shell development preview
+
+## What this runs
+
+`apps/shell/src` contains the OxyOS shell presentation: `TopBar`, `Dock`, `Launchpad`, `Overview` and `Wallpaper`. It uses NativeWind v5 through `react-native-css`, Bloom controls, menus and typography, and React Native image primitives. These are source components owned by OxyOS; Bloom itself is unchanged.
+
+`tools/shell-preview` is a browser host for those exact components, running on macOS or Linux. It is **not a native OxyOS session**, a packaged desktop or a compositor. The native Linux regression sample is unchanged. There is no recreated Files app, mail client, terminal or settings application in the shell.
+
+## Data and platform ownership
+
+`apps/shell/src/model.ts` defines the presentation inputs and requests:
+
+- `ShellSnapshot`: application names and artwork, folders, workspaces, surfaces and their thumbnails, active application and application menus. A real host must obtain these from the application registry, compositor and services.
+- `ShellActions`: requests to activate applications, focus/close surfaces, select/create workspaces and execute menu commands. The UI never launches a pretend app or changes native window policy itself.
+- The component owns only transient presentation state: which overlay is open, the search query and the expanded folder.
+- Native application surfaces are owned and composed by the OS compositor. They are not rebuilt as React children inside the shell. Overview uses supplied thumbnails, not hand-drawn application replicas.
+
+This is a small presentation contract, not a replacement Oxy account SDK or a new public SDK. No Oxy authentication code is duplicated.
+
+## Browser-only fixtures
+
+`tools/shell-preview/src/fixtures.ts` supplies a **development catalog**, not the installed application inventory. It uses existing Oxy artwork from OxyHQ/website and Astro; provenance is in `tools/shell-preview/assets/apps/provenance.json`. Published screenshots from Astro and OxyHQ/website supply six overview thumbnails across two desktops, solely to inspect the layout. Their sources and revisions are recorded in `tools/shell-preview/assets/surfaces/provenance.json`. There are no live application processes behind these fixtures.
+
+The browser adapter records application activation, surface focus and system command requests in its console. It does not open fake application windows. Closing a fixture surface and selecting/adding a fixture desktop change only the preview data. The status glyphs are illustrative, not the laptop's battery/network telemetry. Unsupported application menu commands are disabled.
+
+`tools/shell-preview/src/styles.css` supplies browser-only backdrop blur and hover/overlay transitions. Layout comes from NativeWind in the shared components. Native rendering still needs equivalent material support and verification on Linux; the browser screenshot does not prove native blur, animation smoothness, typography, input, image decoding or GPU presentation.
+
+## Run and edit
+
+Use Node.js 24.3+ and pnpm 11. From the repository root:
+
+```sh
+cd tools/shell-preview
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+Open the printed localhost URL, normally `http://127.0.0.1:5173`. Edit `apps/shell/src` for shell components; edit `tools/shell-preview/src` only for browser hosting/fixtures. Escape closes an open folder first, clears a search next, and then dismisses the launcher; Ctrl-Space opens applications. App search is accent-insensitive; folder activation opens the central folder panel. The launcher uses seven columns on desktop, up to five rows per page, and page selectors derived from the supplied catalog rather than decorative extra dots. The launcher uses Bloom’s public `Search` component, including its clear action. The second dock button opens the workspace overview: desktop cards scroll horizontally, their menu can reveal another desktop, and selecting a window emits workspace/focus requests. Thumbnail proportions come from the supplied image dimensions; closing a thumbnail only emits its close request. Stop the server with Ctrl-C.
+
+```sh
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+`pnpm preview` serves the static build. The existing Rust workspace, Debian image, native runtime and ISO pipeline do not depend on this Node tool.
+
+## Native integration still required
+
+A Linux host must provide live registry/compositor/service snapshots, translate the requests to the real owners, and mount the components under Bloom with the Oxy platform-surface adapter. The existing protocol has `CreateShellSurface` with `Background`, `Panel` and `Overlay` kinds: wallpaper belongs in a background surface, the top bar and dock in top/bottom panel surfaces, and launcher/overview in authorized overlay surfaces. `Shell.tsx` currently combines these components in one view for development; it is not a production native session entry point. Never place an opaque full-screen React surface above application windows and claim that this replaces the compositor. Shell surfaces, input regions, overlay stacking, native image/SVG rendering, materials and GPU timing must pass native acceptance tests. The current web host does none of that. No shell binary is installed into the image by this work.
+
+## Wallpaper resources
+
+The user-supplied Solar Gradients HEIC contains 16 frames at 5120 × 2880. All frames were imported as JPEG derivatives with Display P3 profiles under `assets/wallpapers/solar-gradients`, along with the original decoded solar metadata and source hash. The browser host currently supplies frame 08 to the shared `Wallpaper` component.
+
+`solar-wallpaper.ts` selects a frame from the original solar-elevation anchors and a rising/setting phase. It does not calculate sun position, request location, invent fixed hourly thresholds or schedule updates. The real wallpaper service and image packaging remain pending. See the wallpaper resource README.
+
+## Overview gestures and window-management boundary
+
+The overview uses Gesture Handler to distinguish a click from a drag (8 px activation threshold), and Reanimated shared values to move the lifted thumbnail without React state updates for every pointer sample. The source stays in its desktop until the host publishes a new snapshot. The destination is highlighted, approaching a viewport edge scrolls the desktop strip, and dropping on a gap, panel or outside the strip makes no move request. Escape cancels a drag before dismissing the overview. Unmount and pointer cancellation stop edge scrolling.
+
+Horizontal trackpad scrolling uses the ScrollView's normal scroll path, preserving vertical scrolling inside a crowded desktop. After scrolling settles, the strip aligns to the nearest actual desktop and emits `activateWorkspace`. This is navigation **inside the overview**, not interception of global macOS/Linux gestures. Global desktop-switch gestures must come from the native input/compositor integration, with its focus and lock policies.
+
+`ShellActions.moveWindowToWorkspace(windowId, workspaceId)` is a presentation intent, not a new display-protocol request or authority granted by the UI. Only the browser adapter changes its fixture windows in response. A native adapter must route the request to the platform owner, validate surface ownership and target workspace, handle rejection, and publish the confirmed snapshot. Focus, visibility, input routing, stacking and persistence belong to the window-management policy/compositor, not to React.
+
+At the inspected `main` revision `d7ca0d1`, the protocol has `BeginMove` for interactive window movement but no virtual-workspace API. This says nothing about unpublished work on another machine. Agree that integration contract with the native implementation before adding Rust protocol or compositor state here. The browser preview does not prove native Gesture Handler/Reanimated support or trackpad timing on OxyOS hardware.

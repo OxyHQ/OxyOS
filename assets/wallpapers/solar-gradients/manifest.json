@@ -1,0 +1,194 @@
+{
+  "encoding" : "JPEG, quality 0.96, original resolution, embedded source colour profile",
+  "frames" : [
+    {
+      "file" : "frames/frame-00.jpg",
+      "height" : 2880,
+      "index" : 0,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-01.jpg",
+      "height" : 2880,
+      "index" : 1,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-02.jpg",
+      "height" : 2880,
+      "index" : 2,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-03.jpg",
+      "height" : 2880,
+      "index" : 3,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-04.jpg",
+      "height" : 2880,
+      "index" : 4,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-05.jpg",
+      "height" : 2880,
+      "index" : 5,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-06.jpg",
+      "height" : 2880,
+      "index" : 6,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-07.jpg",
+      "height" : 2880,
+      "index" : 7,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-08.jpg",
+      "height" : 2880,
+      "index" : 8,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-09.jpg",
+      "height" : 2880,
+      "index" : 9,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-10.jpg",
+      "height" : 2880,
+      "index" : 10,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-11.jpg",
+      "height" : 2880,
+      "index" : 11,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-12.jpg",
+      "height" : 2880,
+      "index" : 12,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-13.jpg",
+      "height" : 2880,
+      "index" : 13,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-14.jpg",
+      "height" : 2880,
+      "index" : 14,
+      "width" : 5120
+    },
+    {
+      "file" : "frames/frame-15.jpg",
+      "height" : 2880,
+      "index" : 15,
+      "width" : 5120
+    }
+  ],
+  "id" : "solar-gradients",
+  "name" : "Solar Gradients",
+  "previewFrame" : 8,
+  "solarAnchors" : [
+    {
+      "azimuthDegrees" : 260.58980042556732,
+      "elevationDegrees" : -87.61464321640851,
+      "frame" : 0
+    },
+    {
+      "azimuthDegrees" : 90.196410452802354,
+      "elevationDegrees" : -17.107833232320647,
+      "frame" : 1
+    },
+    {
+      "azimuthDegrees" : 90.184292280279067,
+      "elevationDegrees" : -11.106712852371931,
+      "frame" : 2
+    },
+    {
+      "azimuthDegrees" : 90.175040414179477,
+      "elevationDegrees" : -5.3556087296156827,
+      "frame" : 3
+    },
+    {
+      "azimuthDegrees" : 90.167737808865922,
+      "elevationDegrees" : 0.18772787277664793,
+      "frame" : 4
+    },
+    {
+      "azimuthDegrees" : 90.161728424622765,
+      "elevationDegrees" : 6.0426817014084806,
+      "frame" : 5
+    },
+    {
+      "azimuthDegrees" : 90.15767253075893,
+      "elevationDegrees" : 11.978559286514264,
+      "frame" : 6
+    },
+    {
+      "azimuthDegrees" : 90.155076136101798,
+      "elevationDegrees" : 18.453044152377785,
+      "frame" : 7
+    },
+    {
+      "azimuthDegrees" : 92.546591588707315,
+      "elevationDegrees" : 88.418587166161458,
+      "frame" : 8
+    },
+    {
+      "azimuthDegrees" : 270.01069780903151,
+      "elevationDegrees" : 18.363179677279813,
+      "frame" : 9
+    },
+    {
+      "azimuthDegrees" : 270.0174023923966,
+      "elevationDegrees" : 12.137504395377398,
+      "frame" : 10
+    },
+    {
+      "azimuthDegrees" : 270.02347353472419,
+      "elevationDegrees" : 6.4451259486528949,
+      "frame" : 11
+    },
+    {
+      "azimuthDegrees" : 270.02991920699668,
+      "elevationDegrees" : 0.75101295352156883,
+      "frame" : 12
+    },
+    {
+      "azimuthDegrees" : 270.03727250682118,
+      "elevationDegrees" : -5.4458325468871678,
+      "frame" : 13
+    },
+    {
+      "azimuthDegrees" : 270.04432734999762,
+      "elevationDegrees" : -11.196970640174076,
+      "frame" : 14
+    },
+    {
+      "azimuthDegrees" : 270.05323865678253,
+      "elevationDegrees" : -17.698226731979346,
+      "frame" : 15
+    }
+  ],
+  "source" : {
+    "bytes" : 80850306,
+    "colorProfile" : "Display P3",
+    "filename" : "Solar Gradients.heic",
+    "frameCount" : 16,
+    "sha256" : "5c6b1fbf526478030d8c8ca929f288c232b75610a62d97aacd15d98978a2acf8"
+  },
+  "version" : 1
+}

@@ -1,6 +1,7 @@
 // TurboModules the OxyOS host implements for React Native's start-up and Bloom.
 #pragma once
 
+#include "network.h"
 #include "renderer.h"
 
 #include <ReactCommon/CallInvoker.h>
@@ -41,7 +42,8 @@ class HostModule : public TurboModule {
     });
   }
 
-  // Listener bookkeeping for NativeEventEmitter; this host emits no such events yet.
+  // Listener bookkeeping for NativeEventEmitter: the host emits its events whether or not anything
+  // listens, so there is nothing to count.
   HostModule& listeners() {
     method("addListener", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
     return method("removeListeners", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
@@ -76,9 +78,16 @@ class HostModule : public TurboModule {
 };
 
 
+// What modules share with the host: blobs, and the network.
+struct HostServices {
+  BlobStore& blobs;
+  Networking& networking;
+};
+
 std::shared_ptr<facebook::react::TurboModule> createHostModule(
     const std::string& name,
     const std::shared_ptr<facebook::react::CallInvoker>& invoker,
-    const Display& display);
+    const Display& display,
+    HostServices& services);
 
 }  // namespace oxy

@@ -1,0 +1,1158 @@
+{
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's.",
+  "module": "EditingProbe",
+  "window": [
+    800,
+    480
+  ],
+  "steps": [
+    {
+      "name": "focus the line",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "type three words",
+      "do": [
+        "type",
+        "hola mundo bonito"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [17,17]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Left goes to the start of the last word",
+      "do": [
+        "key",
+        [
+          29,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [11,11]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "again, to the start of the word before",
+      "do": [
+        "key",
+        [
+          29,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [5,5]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Right goes to the end of the word",
+      "do": [
+        "key",
+        [
+          29,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [10,10]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Right selects to the end of the next word",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          106
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [10,17]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Right collapses the selection to its end",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [17,17]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Backspace deletes the word before the caret",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [11,11]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Left, to the start of the second word",
+      "do": [
+        "key",
+        [
+          29,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [5,5]"
+        ],
+        "react": {
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Delete deletes the word after the caret",
+      "do": [
+        "key",
+        [
+          29,
+          111
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola  \" [5,5]"
+        ],
+        "react": {
+          "change@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes the deletion",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [5,5]"
+        ],
+        "react": {
+          "change@line": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z again undoes the word deleted before",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [17,17]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "and again, the typing",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "with nothing left to undo, Ctrl+Z does nothing",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+Shift+Z redoes the typing",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo bonito\" [17,17]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "and the deleted word",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [11,11]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "typing a character",
+      "do": [
+        "type",
+        "a"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo a\" [12,12]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "and another, which continues it",
+      "do": [
+        "type",
+        "b"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo ab\" [13,13]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        }
+      }
+    },
+    {
+      "name": "one Ctrl+Z undoes both",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [11,11]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "focus the notes",
+      "do": [
+        "press",
+        [
+          154,
+          130
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"\" [0,0]"
+        ],
+        "react": {
+          "blur@line": 1,
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "focus@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "focus_input": "notes"
+      }
+    },
+    {
+      "name": "type a first line",
+      "do": [
+        "type",
+        "uno"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\" [3,3]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter starts a line",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\n\" [4,4]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1
+        }
+      }
+    },
+    {
+      "name": "type a second line",
+      "do": [
+        "type",
+        "dos"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\" [7,7]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n\" [8,8]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1
+        }
+      }
+    },
+    {
+      "name": "type a third line",
+      "do": [
+        "type",
+        "tres"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [12,12]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Up goes to the line above, its end the nearest",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [7,7]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Up again",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [3,3]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Up from the first line goes to the start",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Down keeps the column the moves began with",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [7,7]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Home goes to the start of the line",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [4,4]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "End to its end",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [7,7]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+End to the end of the text",
+      "do": [
+        "key",
+        [
+          29,
+          107
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [12,12]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Home to its start",
+      "do": [
+        "key",
+        [
+          29,
+          102
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Down selects a line",
+      "do": [
+        "key",
+        [
+          42,
+          108
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [0,4]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Shift+Down selects across two lines",
+      "do": [
+        "key",
+        [
+          42,
+          108
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [0,8]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+End collapses the selection at the end",
+      "do": [
+        "key",
+        [
+          29,
+          107
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [12,12]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\n\" [13,13]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1
+        }
+      }
+    },
+    {
+      "name": "a line too long for the field wraps; over 32 bytes, it arrives as two text events, each one change",
+      "do": [
+        "type",
+        "una frase bastante larga que no cabe"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [49,49]"
+        ],
+        "react": {
+          "change@notes": 2,
+          "selectionChange@notes": 2
+        },
+        "delivered": {
+          "1": {
+            "text": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Up from the wrapped line's end goes up within it, at the same x",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [18,18]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Home goes to the start of that line as drawn",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [13,13]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "End to its end as drawn, before the space where it wraps",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [44,44]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Down goes to the line it wraps onto",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [49,49]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "a press on the line a wrapped line wraps onto puts the caret there",
+      "do": [
+        "press",
+        [
+          51,
+          170
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [47,47]"
+        ],
+        "react": {
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes the new line and the long line typed after it: one continued edit, both of its parts included",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\" [12,12]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\n\" [13,13]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1
+        }
+      }
+    },
+    {
+      "name": "a fourth line",
+      "do": [
+        "type",
+        "cuatro"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\" [19,19]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\n\" [20,20]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1
+        }
+      }
+    },
+    {
+      "name": "a fifth line, the last that fits",
+      "do": [
+        "type",
+        "cinco"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\" [25,25]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Enter: the sixth line does not fit, and the text scrolls to show the caret",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\n\" [26,26]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1,
+          "keyPress@notes": 1,
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            16
+          ]
+        }
+      }
+    },
+    {
+      "name": "typing on the last line scrolls no further",
+      "do": [
+        "type",
+        "seis"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [30,30]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "text_scroll": {}
+      }
+    },
+    {
+      "name": "a press goes to the line drawn under it, scrolled",
+      "do": [
+        "press",
+        [
+          60,
+          95
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [7,7]"
+        ],
+        "react": {
+          "touchStart@notes": 1,
+          "touchEnd@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "text_scroll": {}
+      }
+    },
+    {
+      "name": "Ctrl+Home scrolls back to the top",
+      "do": [
+        "key",
+        [
+          29,
+          102
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "Page Down moves the caret a content box down, and the text with it",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [26,26]"
+        ],
+        "react": {
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            16
+          ]
+        }
+      }
+    },
+    {
+      "name": "Page Down past the last line goes to the end",
+      "do": [
+        "key",
+        109
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [30,30]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        },
+        "text_scroll": {}
+      }
+    },
+    {
+      "name": "Page Up past the first line goes to the start",
+      "do": [
+        "key",
+        104
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@notes": 1,
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "focus the line again; the press puts the caret at its end",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo \" [11,11]"
+        ],
+        "react": {
+          "blur@notes": 1,
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "text wider than the line scrolls it across to keep the caret in view; 101 bytes are four text events",
+      "do": [
+        "type",
+        " y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [112,112]"
+        ],
+        "react": {
+          "change@line": 4,
+          "selectionChange@line": 4,
+          "scroll@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text": 4
+          }
+        },
+        "text_scroll": {
+          "line": [
+            22.921875,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "Home scrolls back to the start",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,0]"
+        ],
+        "react": {
+          "selectionChange@line": 1,
+          "scroll@line": 1
+        },
+        "text_scroll": {
+          "line": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "End scrolls to the end again",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [112,112]"
+        ],
+        "react": {
+          "selectionChange@line": 1,
+          "scroll@line": 1
+        },
+        "text_scroll": {
+          "line": [
+            22.921875,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "the wheel over the notes scrolls their text, though the line has focus",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            16
+          ]
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "with no more text below, the wheel moves nothing",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          40
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {},
+        "text_scroll": {}
+      }
+    },
+    {
+      "name": "the wheel up scrolls them back",
+      "do": [
+        "scroll",
+        [
+          154,
+          130,
+          -40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
+        ],
+        "react": {
+          "scroll@notes": 1
+        },
+        "text_scroll": {
+          "notes": [
+            0,
+            0
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -15,9 +15,11 @@
 #include <folly/dynamic.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace oxy {
 
@@ -46,8 +48,11 @@ struct Placement {
 };
 
 // The editing a focused input receives, as Android's EditText does it: a caret and selection
-// (keys, Shift, Ctrl+A, the pointer), committed text that replaces the selection, and an input
-// method's composition (preedit), which is part of the text while it lasts.
+// (arrows, by word with Ctrl, Up and Down across lines, Page Up and Page Down, Home and End,
+// Shift to extend, Ctrl+A, the pointer), deletion by character or word, committed text that
+// replaces the selection, an input method's composition (preedit), which is part of the text
+// while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), and text scrolled to keep the caret in
+// view.
 class TextEditing {
  public:
   // `locate` places a view: text, keys and pointer input reach the focused input only on its
@@ -59,6 +64,9 @@ class TextEditing {
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyEvent& event);
+  // The wheel over an input, focused or not: scrolls its text by (dx, dy) as far as it can go.
+  // True if it moved.
+  bool scrollText(facebook::react::Tag tag, float dx, float dy);
 
   // Whether the focused input is secure (`secureTextEntry`): its text is never reported, only
   // as many bullets as it has characters (`logged`).
@@ -78,13 +86,49 @@ class TextEditing {
   // The byte offset under a surface-local x, for the focused input.
   std::optional<size_t> offsetAt(uint32_t surface, float x, float y, bool inside) const;
   // Replaces bytes [from, to) with `insert` as the user's edit, the caret after it: new state,
-  // then events, the key press (if any) first. `composing` keeps the inserted text as the
-  // composition.
+  // then events, the key press (if any) first, and the edit recorded for undo. `composing` keeps
+  // the inserted text as the composition.
   void replace(size_t from, size_t to, const std::string& insert, const std::string& key, bool composing = false);
+  // The text and selection the user's editing leaves: the input's state, then its change and
+  // selection events, each only if it changed.
+  void update(std::string text, size_t anchor, size_t caret);
+
+  // What undo returns to and redo restores.
+  struct Snapshot {
+    std::string text;
+    size_t anchor = 0, caret = 0;
+  };
+  enum class Edit { Insert, Delete, Replace };
+  struct Step {
+    Snapshot before, after;
+    Edit kind;
+  };
+  // An input's edits, the first `done` of them applied; valid while its text is still `text`.
+  struct History {
+    std::vector<Step> entries;
+    size_t done = 0;
+    std::string text;
+  };
+  static constexpr size_t kHistoryLimit = 100;
+  // Records the edit from `before` to now, merged into the last one when it continues it.
+  void record(const Snapshot& before, Edit kind);
+  // Ends a composition, keeping its text, as one edit.
+  void endComposition();
+  // Ctrl+Z, or Ctrl+Shift+Z with `redo`.
+  void undo(bool redo);
   // Dispatches onKeyPress for `key`, none if empty.
   void keyPress(const std::string& key);
   // Moves the selection; `extend` keeps the anchor.
   void select(size_t caret, bool extend);
+  // Up or Down: the caret to the line above or below; with `page`, a content box's height away
+  // (Page Up, Page Down).
+  void vertical(bool up, bool page);
+  // Scrolls the focused input's text so that its caret is inside the content box.
+  void reveal();
+  // Records that `view`'s text is now scrolled to `scroll` (none if zero), and tells JavaScript
+  // (onScroll, as Android's ReactEditText) and the report.
+  void scrolled(const facebook::react::ShadowView& view, facebook::react::Point scroll,
+                const TextInputGeometry& geometry);
   void selectionChanged();
   void submit();
 
@@ -96,6 +140,15 @@ class TextEditing {
   size_t composeStart_ = 0, composeEnd_ = 0;  // the composition, none if equal
   bool shift_ = false, ctrl_ = false;
   bool dragging_ = false;
+  // The x that consecutive Up and Down moves keep, from where they began.
+  std::optional<float> column_;
+  // Each input's undo history, kept across focus; whether the next edit may merge into the last
+  // one; the text and selection before the composition in progress.
+  std::map<facebook::react::Tag, History> histories_;
+  bool merging_ = false;
+  std::optional<Snapshot> composeBefore_;
+  // How far each input's text is scrolled (TextInputEdit::scrolls); none if not at all.
+  std::map<facebook::react::Tag, facebook::react::Point> scrolls_;
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;

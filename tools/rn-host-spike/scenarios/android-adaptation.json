@@ -18,7 +18,7 @@
       "PlatformConstants.getAndroidID: unavailable (OxyOS has no Android ID)",
       "Alert.alert: unavailable (Alert.alert is unavailable on OxyOS",
       "Alert.prompt: unavailable (Alert.prompt is unavailable on OxyOS",
-      "Image.getSize: rejected: ImageLoader.getSize is not supported on OxyOS yet",
+      "Image.getSize: rejected: remote images are not supported on OxyOS yet",
       "AppState.currentState: ok \"active\"",
       "StatusBar.setHidden: ok",
       "I18nManager.forceRTL: ok",

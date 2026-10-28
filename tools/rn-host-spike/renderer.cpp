@@ -4,6 +4,7 @@
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
+#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -14,6 +15,8 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iostream>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -109,6 +112,33 @@ class Painter {
     dst = channel(24, 1.0f) | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
   }
 
+  // A colour as a fully covered pixel takes it: premultiplied 8-bit channels, packed when opaque.
+  struct Solid {
+    uint32_t a, r, g, b;
+    bool opaque;
+    uint32_t packed;
+  };
+  static Solid solid(Rgba color) {
+    auto c = [](float v) { return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255)); };
+    float a = std::clamp(color.a, 0.0f, 1.0f);
+    Solid s{c(a), c(color.r * a), c(color.g * a), c(color.b * a), a >= 1, 0};
+    s.packed = 0xff000000u | c(color.r) << 16 | c(color.g) << 8 | c(color.b);
+    return s;
+  }
+  // Source-over of a fully covered pixel, in integers: the inside of a fill, where most of a
+  // frame's pixels are, costs one store when opaque.
+  static void blendSolid(uint32_t& dst, const Solid& s) {
+    if (s.opaque) {
+      dst = s.packed;
+      return;
+    }
+    uint32_t keep = 255 - s.a;
+    auto channel = [&](int shift, uint32_t src) {
+      return (src + (((dst >> shift) & 0xff) * keep + 127) / 255) << shift;
+    };
+    dst = channel(24, s.a) | channel(16, s.r) | channel(8, s.g) | channel(0, s.b);
+  }
+
   // Whether a point lies in a rectangle with circular corner radii (logical units).
   static bool insideRounded(float px, float py, float x, float y, float w, float h, const BorderRadii& r) {
     if (px < x || py < y || px > x + w || py > y + h) return false;
@@ -135,8 +165,9 @@ class Painter {
     int x0 = static_cast<int>(std::floor(box.x0 * scale_)), x1 = static_cast<int>(std::ceil(box.x1 * scale_));
     int y0 = static_cast<int>(std::floor(box.y0 * scale_)), y1 = static_cast<int>(std::ceil(box.y1 * scale_));
     // Only the pixels painted are visited; each one's coverage is the whole frame's.
-    x0 = std::max(x0, region_[0]), y0 = std::max(y0, region_[1]);
-    x1 = std::min(x1, region_[2]), y1 = std::min(y1, region_[3]);
+    x0 = std::max({x0, region_[0], 0}), y0 = std::max({y0, region_[1], 0});
+    x1 = std::min({x1, region_[2], canvas_.width}), y1 = std::min({y1, region_[3], canvas_.height});
+    Solid full = solid(color);
     bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
                    radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0 || holeRadii;
     for (int py = y0; py < y1; ++py) {
@@ -154,7 +185,11 @@ class Painter {
           float cy = std::min(ly + 1 / scale_, box.y1) - std::max(ly, box.y0);
           coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
         }
-        blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
+        if (coverage >= 1) {
+          blendSolid(canvas_.pixels[static_cast<size_t>(py) * canvas_.width + px], full);
+        } else {
+          blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
+        }
       }
     }
   }
@@ -186,6 +221,66 @@ class Painter {
       }
     }
     return hits / 16.0f;
+  }
+
+  // Draws `picture` stretched over the logical rectangle (dx, dy, dw, dh), sampled bilinearly,
+  // within `clip`, rounded by `radii` over the box (bx, by, bw, bh). With `tint`, each pixel takes
+  // the tint's colour and keeps its own alpha (Android's SRC_IN colour filter).
+  void image(const Picture& picture, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+             float bw, float bh, const BorderRadii& radii, float opacity, const std::optional<Rgba>& tint) {
+    if (picture.width <= 0 || picture.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+    Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+    if (box.empty()) return;
+    int x0 = std::max(static_cast<int>(std::floor(box.x0 * scale_)), region_[0]);
+    int y0 = std::max(static_cast<int>(std::floor(box.y0 * scale_)), region_[1]);
+    int x1 = std::min(static_cast<int>(std::ceil(box.x1 * scale_)), region_[2]);
+    int y1 = std::min(static_cast<int>(std::ceil(box.y1 * scale_)), region_[3]);
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0), x1 = std::min(x1, canvas_.width), y1 = std::min(y1, canvas_.height);
+    bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
+                   radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0;
+    const float s = 1 / scale_;
+    auto texel = [&](int tx, int ty, int c) {
+      tx = std::clamp(tx, 0, picture.width - 1), ty = std::clamp(ty, 0, picture.height - 1);
+      return picture.pixels[(static_cast<size_t>(ty) * picture.width + tx) * 4 + c] / 255.0f;
+    };
+    for (int py = y0; py < y1; ++py) {
+      for (int px = x0; px < x1; ++px) {
+        float lx = px * s, ly = py * s;
+        // The share of this device pixel inside the destination and the clip.
+        float cx = std::min(lx + s, box.x1) - std::max(lx, box.x0);
+        float cy = std::min(ly + s, box.y1) - std::max(ly, box.y0);
+        float coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
+        if (rounded && coverage > 0) coverage *= roundedCoverage(lx, ly, s, bx, by, bw, bh, radii);
+        if (coverage <= 0) continue;
+        // The picture's point under this pixel's centre, between texel centres.
+        float u = ((lx + s / 2 - dx) / dw) * picture.width - 0.5f;
+        float v = ((ly + s / 2 - dy) / dh) * picture.height - 0.5f;
+        int u0 = static_cast<int>(std::floor(u)), v0 = static_cast<int>(std::floor(v));
+        float fu = u - u0, fv = v - v0;
+        float sample[4];
+        for (int c = 0; c < 4; ++c) {
+          float top = texel(u0, v0, c) * (1 - fu) + texel(u0 + 1, v0, c) * fu;
+          float bottom = texel(u0, v0 + 1, c) * (1 - fu) + texel(u0 + 1, v0 + 1, c) * fu;
+          sample[c] = top * (1 - fv) + bottom * fv;
+        }
+        float alpha = sample[3] * opacity * coverage;
+        if (alpha <= 0) continue;
+        float r, g, b;  // premultiplied by `alpha`
+        if (tint) {
+          r = tint->r * alpha * tint->a, g = tint->g * alpha * tint->a, b = tint->b * alpha * tint->a;
+          alpha *= tint->a;
+        } else {
+          float k = opacity * coverage;
+          r = sample[0] * k, g = sample[1] * k, b = sample[2] * k;
+        }
+        uint32_t& dst = canvas_.pixels[static_cast<size_t>(py) * canvas_.width + px];
+        auto channel = [&](int shift, float src) {
+          float d = ((dst >> shift) & 0xff) / 255.0f;
+          return static_cast<uint32_t>(std::lround(std::clamp(src + d * (1 - alpha), 0.0f, 1.0f) * 255)) << shift;
+        };
+        dst = channel(24, alpha) | channel(16, r) | channel(8, g) | channel(0, b);
+      }
+    }
   }
 
   void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
@@ -233,6 +328,7 @@ ParagraphLayout layoutInput(const AndroidTextInputProps& props, const Attributed
 // A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
 // fields do; its text is never drawn or reported.
 constexpr const char* kSecureBullet = "\u2022";
+constexpr float kCaretWidth = 1.5f;
 
 bool isContinuation(const std::string& text, size_t i) {
   return (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80;
@@ -270,7 +366,8 @@ AttributedString inputText(const AndroidTextInputProps& props, const std::string
 // behind the text, the composition underlined, and the caret. A single-line input centres its
 // line vertically, as Android's EditText does.
 void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity,
-                   const TextInputEdit* edit, Painter& painter) {
+                   const TextInputEdit& editing, Painter& painter) {
+  const TextInputEdit* edit = view.tag == editing.tag ? &editing : nullptr;
   const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   AttributedString text = data.attributedStringBox.getValue();
@@ -284,38 +381,105 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
   }
   auto content = view.layoutMetrics.getContentFrame();
   auto layout = layoutInput(*props, text, content.size.width);
-  float top = y + content.origin.y;
+  // Text scrolled within the input is cut at its content box on the axis it scrolls, as Android's
+  // TextView clips to its padding.
+  Point scroll{};
+  if (auto it = editing.scrolls.find(view.tag); it != editing.scrolls.end()) {
+    scroll = TextInputGeometry(view, value).clamp(it->second, content.size);
+  }
+  float top = y + content.origin.y - scroll.y;
   if (!props->multiline) top += (content.size.height - layout.height) / 2;
-  float left = x + content.origin.x;
+  float left = x + content.origin.x - scroll.x;
   Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
-  float lineTop = layout.lines.empty() ? 0 : layout.lines.front().top;
-  float lineHeight = props->getEffectiveTextAttributes(1).fontSize;
-  if (std::isnan(lineHeight)) lineHeight = 14;
-  if (!layout.lines.empty()) lineHeight = layout.lines.front().height;
+  if (scroll.x != 0 || scroll.y != 0 || props->multiline) {
+    float boxLeft = x + content.origin.x, boxTop = y + content.origin.y;
+    inside = props->multiline ? inside.intersect(Clip{x, boxTop, x + w, boxTop + content.size.height})
+                              : inside.intersect(Clip{boxLeft, y, boxLeft + content.size.width, y + h});
+  }
   SharedColor textColor = props->getEffectiveTextAttributes(1).foregroundColor;
+  std::optional<TextInputGeometry> geometry;
+  if (edit) geometry.emplace(view, value);
+  // The geometry's positions are relative to the content box, before scrolling.
+  float boxTop = y + content.origin.y - scroll.y;
 
-  if (edit && edit->selectionStart != edit->selectionEnd && !value.empty()) {
-    float from = textInputCaretX(view, value, edit->selectionStart);
-    float to = textInputCaretX(view, value, edit->selectionEnd);
+  if (edit && edit->selectionStart != edit->selectionEnd) {
     Rgba selection = props->selectionColor ? rgba(props->selectionColor) : Rgba{0.25f, 0.45f, 1.0f, 0.3f};
     selection.a *= opacity;
-    painter.fill(left + from, top + lineTop, to - from, lineHeight, BorderRadii{}, selection, inside);
+    for (const auto& rect : geometry->span(edit->selectionStart, edit->selectionEnd)) {
+      painter.fill(left + rect.origin.x, boxTop + rect.origin.y, rect.size.width, rect.size.height, BorderRadii{},
+                   selection, inside);
+    }
   }
   painter.glyphs(layout, left, top, inside, opacity);
   if (!edit) return;
   Rgba ink = textColor ? rgba(textColor) : Rgba{0, 0, 0, 1};
   ink.a *= opacity;
-  if (edit->composeStart != edit->composeEnd && !value.empty()) {
-    float from = textInputCaretX(view, value, edit->composeStart);
-    float to = textInputCaretX(view, value, edit->composeEnd);
-    float baseline = layout.lines.empty() ? lineHeight : layout.lines.front().top + layout.lines.front().ascent;
-    painter.fill(left + from, top + baseline + 2, to - from, 1, BorderRadii{}, ink, inside);
+  if (edit->composeStart != edit->composeEnd) {
+    // Underlined under each line it covers, just below the line's text.
+    for (const auto& rect : geometry->span(edit->composeStart, edit->composeEnd)) {
+      painter.fill(left + rect.origin.x, boxTop + rect.origin.y + rect.size.height - 1, rect.size.width, 1,
+                   BorderRadii{}, ink, inside);
+    }
   }
   if (edit->selectionStart == edit->selectionEnd) {
-    float caretX = value.empty() ? 0 : textInputCaretX(view, value, edit->selectionEnd);
-    Rgba caret = props->cursorColor ? rgba(props->cursorColor) : ink;
-    caret.a *= opacity;
-    painter.fill(left + caretX, top + lineTop, 1.5f, lineHeight, BorderRadii{}, caret, inside);
+    auto caret = geometry->caret(edit->selectionEnd);
+    Rgba color = props->cursorColor ? rgba(props->cursorColor) : ink;
+    color.a *= opacity;
+    painter.fill(left + caret.x, boxTop + caret.top, kCaretWidth, caret.height, BorderRadii{}, color, inside);
+  }
+}
+
+// An Image view's picture within its content box, as React Native's resizeMode places it, rounded
+// with the view's corners and tinted with its tintColor.
+void drawImage(const ShadowView& view, const Picture& picture, float x, float y, float w, float h, Clip clip,
+               float opacity, Painter& painter) {
+  auto props = std::static_pointer_cast<const ImageProps>(view.props);
+  if (props->blurRadius > 0) {
+    static bool reported = false;
+    if (!reported) std::cerr << "[host] unsupported on OxyOS: Image blurRadius (drawn unblurred)\n";
+    reported = true;
+  }
+  auto content = view.layoutMetrics.getContentFrame();
+  float cx = x + content.origin.x, cy = y + content.origin.y, cw = content.size.width, ch = content.size.height;
+  if (cw <= 0 || ch <= 0) return;
+  // The picture's own proportions, and its size at its scale (center, repeat, none).
+  float aspect = static_cast<float>(picture.width) / std::max(1, picture.height);
+  float nw = picture.naturalWidth > 0 ? picture.naturalWidth : picture.width;
+  float nh = picture.naturalHeight > 0 ? picture.naturalHeight : picture.height;
+  auto within = [&](float w0, float h0) {
+    float shrink = std::min(1.0f, std::min(cw / w0, ch / h0));
+    return std::pair{w0 * shrink, h0 * shrink};
+  };
+  Clip inside = clip.intersect(Clip{cx, cy, cx + cw, cy + ch});
+  auto border = props->resolveBorderMetrics(view.layoutMetrics);
+  std::optional<Rgba> tint;
+  if (props->tintColor && *props->tintColor) tint = rgba(*props->tintColor);
+  auto draw = [&](float dx, float dy, float dw, float dh) {
+    painter.image(picture, dx, dy, dw, dh, inside, x, y, w, h, border.borderRadii, opacity, tint);
+  };
+  switch (props->resizeMode) {
+    case ImageResizeMode::Stretch:
+      return draw(cx, cy, cw, ch);
+    case ImageResizeMode::Cover:
+    case ImageResizeMode::Contain: {
+      bool cover = props->resizeMode == ImageResizeMode::Cover;
+      float dw = cw, dh = cw / aspect;
+      if (cover ? dh < ch : dh > ch) dh = ch, dw = ch * aspect;
+      return draw(cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
+    }
+    case ImageResizeMode::Center: {
+      auto [dw, dh] = within(nw, nh);
+      return draw(cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
+    }
+    case ImageResizeMode::None:
+      return draw(cx, cy, nw, nh);
+    case ImageResizeMode::Repeat: {
+      auto [dw, dh] = within(nw, nh);
+      for (float ty = cy; ty < cy + ch; ty += dh) {
+        for (float tx = cx; tx < cx + cw; tx += dw) draw(tx, ty, dw, dh);
+      }
+      return;
+    }
   }
 }
 
@@ -393,7 +557,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
     if (painter.touches(x, y, w, h)) {
-      drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+      drawTextInput(view, x, y, w, h, clip, opacity, edit, painter);
     }
     ++stats.texts;
     if (visible) {
@@ -402,6 +566,10 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
       auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
       stats.textContent.push_back(value.empty() ? props->placeholder : shownText(*props, value));
     }
+  }
+
+  if (name == "Image" && it->second.picture && painter.touches(x, y, w, h)) {
+    drawImage(view, *it->second.picture, x, y, w, h, clip, opacity, painter);
   }
 
   if (name == "Paragraph" && view.state) {
@@ -446,31 +614,139 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 
 }  // namespace
 
-float textInputCaretX(const ShadowView& view, const std::string& text, size_t offset) {
-  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
-  float width = view.layoutMetrics.getContentFrame().size.width;
-  auto shown = shownText(*props, text);
-  auto prefix =
-      layoutInput(*props, inputText(*props, shown.substr(0, std::min(shownOffset(*props, text, offset), shown.size()))),
-                  width);
-  if (prefix.lines.empty()) return 0;
-  const auto& last = prefix.lines.back();
-  return last.x + last.advance;
+TextInputGeometry::TextInputGeometry(const ShadowView& view, const std::string& value)
+    : props_(std::static_pointer_cast<const AndroidTextInputProps>(view.props)),
+      value_(value),
+      shown_(shownText(*props_, value)) {
+  auto content = view.layoutMetrics.getContentFrame();
+  // An empty input still has a line, as tall as its text would be, where its caret goes.
+  auto layout = layoutInput(*props_, inputText(*props_, shown_.empty() ? " " : shown_), content.size.width);
+  float top = props_->multiline ? 0 : (content.size.height - layout.height) / 2;
+  for (size_t i = 0; i < layout.lines.size(); ++i) {
+    const auto& line = layout.lines[i];
+    Line geometry{.start = shown_.empty() ? 0 : line.start, .x = line.x, .top = top + line.top, .height = line.height};
+    if (!shown_.empty()) geometry.stops = line.stops;
+    if (shown_.empty()) {
+      geometry.end = 0;
+    } else if (i + 1 < layout.lines.size()) {
+      size_t next = layout.lines[i + 1].start;
+      geometry.broken = next > 0 && shown_[next - 1] == '\n';
+      geometry.end = geometry.broken ? next - 1 : next;
+    } else {
+      geometry.end = std::min(line.start + line.text.size(), shown_.size());
+    }
+    lines_.push_back(geometry);
+  }
+  if (lines_.empty()) lines_.push_back(Line{.top = top});
 }
 
-size_t textInputOffsetAt(const ShadowView& view, const std::string& text, float x) {
-  // The character boundary whose caret position is nearest x.
-  size_t best = 0;
-  float bestDistance = std::abs(x - textInputCaretX(view, text, 0));
-  for (size_t i = 1; i <= text.size(); ++i) {
-    if (i < text.size() && (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80) continue;
-    float distance = std::abs(x - textInputCaretX(view, text, i));
+size_t TextInputGeometry::toShown(size_t offset) const { return shownOffset(*props_, value_, offset); }
+
+size_t TextInputGeometry::toValue(size_t shownOffset) const {
+  if (!props_->secureTextEntry) return std::min(shownOffset, value_.size());
+  size_t characters = shownOffset / std::char_traits<char>::length(kSecureBullet);
+  size_t i = 0;
+  for (; i < value_.size() && characters > 0; ++i) {
+    if (!isContinuation(value_, i)) --characters;
+    while (i + 1 < value_.size() && isContinuation(value_, i + 1)) ++i;
+  }
+  return i;
+}
+
+float TextInputGeometry::xOn(const Line& line, size_t shownOffset) const {
+  // From the shaped line's caret stops; inside a cluster of several characters (a ligature), its
+  // width is shared among them.
+  if (shownOffset <= line.start || line.stops.empty()) return line.x;
+  auto next = std::upper_bound(line.stops.begin(), line.stops.end(), shownOffset,
+                               [](size_t at, const auto& stop) { return at < stop.first; });
+  if (next == line.stops.begin()) return line.x;
+  auto stop = std::prev(next);
+  if (stop->first == shownOffset || next == line.stops.end()) return stop->second;
+  auto characters = [&](size_t from, size_t to) {
+    size_t count = 0;
+    for (size_t i = from; i < to && i < shown_.size(); ++i) count += !isContinuation(shown_, i);
+    return count;
+  };
+  float share = static_cast<float>(characters(stop->first, shownOffset)) /
+                static_cast<float>(std::max<size_t>(1, characters(stop->first, next->first)));
+  return stop->second + (next->second - stop->second) * share;
+}
+
+TextInputGeometry::Caret TextInputGeometry::caret(size_t offset) const {
+  size_t shown = toShown(offset);
+  size_t index = 0;
+  while (index + 1 < lines_.size() && lines_[index + 1].start <= shown) ++index;
+  const auto& line = lines_[index];
+  return Caret{.line = index, .x = xOn(line, std::min(shown, std::max(line.end, line.start))), .top = line.top,
+               .height = line.height};
+}
+
+std::pair<size_t, size_t> TextInputGeometry::shownEdges(size_t index) const {
+  const auto& line = lines_[std::min(index, lines_.size() - 1)];
+  bool wrapped = index + 1 < lines_.size() && !line.broken;
+  size_t last = line.end;
+  if (wrapped && last > line.start) {
+    do --last;
+    while (last > line.start && isContinuation(shown_, last));
+  }
+  return {line.start, last};
+}
+
+std::pair<size_t, size_t> TextInputGeometry::lineEdges(size_t index) const {
+  auto [first, last] = shownEdges(index);
+  return {toValue(first), toValue(last)};
+}
+
+size_t TextInputGeometry::offsetOnLine(size_t index, float x) const {
+  const auto& line = lines_[std::min(index, lines_.size() - 1)];
+  auto [first, last] = shownEdges(index);
+  size_t best = first;
+  float bestDistance = std::abs(x - xOn(line, first));
+  for (size_t i = first + 1; i <= last; ++i) {
+    if (i < shown_.size() && isContinuation(shown_, i)) continue;
+    float distance = std::abs(x - xOn(line, i));
     if (distance < bestDistance) {
       best = i;
       bestDistance = distance;
     }
   }
-  return best;
+  return toValue(best);
+}
+
+size_t TextInputGeometry::offsetAt(float x, float y) const {
+  size_t index = 0;
+  while (index + 1 < lines_.size() && y >= lines_[index + 1].top) ++index;
+  return offsetOnLine(index, x);
+}
+
+float TextInputGeometry::width() const {
+  float width = 0;
+  for (const auto& line : lines_) width = std::max(width, xOn(line, line.end));
+  return width;
+}
+
+float TextInputGeometry::height() const { return lines_.back().top + lines_.back().height; }
+
+Point TextInputGeometry::clamp(Point scroll, Size size) const {
+  bool multiline = props_->multiline;
+  float x = multiline ? 0 : std::clamp(scroll.x, 0.0f, std::max(0.0f, width() + kCaretWidth - size.width));
+  float y = multiline ? std::clamp(scroll.y, 0.0f, std::max(0.0f, height() - size.height)) : 0;
+  return Point{x, y};
+}
+
+std::vector<Rect> TextInputGeometry::span(size_t from, size_t to) const {
+  std::vector<Rect> rects;
+  size_t start = toShown(from), end = toShown(to);
+  for (size_t i = 0; i < lines_.size(); ++i) {
+    const auto& line = lines_[i];
+    size_t lineEnd = i + 1 < lines_.size() ? lines_[i + 1].start : shown_.size();
+    if (end <= line.start || start >= lineEnd) continue;
+    float left = xOn(line, std::max(start, line.start));
+    float right = xOn(line, std::min(end, line.end));
+    if (line.broken && end > line.end) right += line.height / 4;
+    if (right > left) rects.push_back(Rect{Point{left, line.top}, Size{right - left, line.height}});
+  }
+  return rects;
 }
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {

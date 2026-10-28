@@ -1,0 +1,70 @@
+---
+title: "ADR 0007: The clipboard"
+description: How an application offers what the user copied, how another receives it when the user pastes, and what keeps a background application from reading or replacing it.
+order: 16
+---
+
+# ADR 0007: The clipboard
+
+Status: **accepted**; not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
+
+## Problem
+
+OxyOS has no clipboard. Text copied in one application cannot be pasted in another, or in the same one: the Bloom host's text inputs have no Ctrl+C, Ctrl+X or Ctrl+V, and React Native's clipboard modules have nothing to answer with: `expo-clipboard`, which the Oxy SDK (`oxy`), Authenticator and Nilo use, and `@react-native-clipboard/clipboard`.
+
+What a clipboard needs is a protocol matter, not a host one:
+- what was copied lives in the application that copied it, and must reach another process;
+- the protocol's packets are 64 bytes (`oxy-ipc`), and copied content has no bound;
+- a clipboard is a classic leak and a classic attack: a background application reading every password copied, or replacing an account number just before it is pasted.
+
+## Decision
+
+1. **Offers, not copies.** Copying does not move data. The application that copies *offers* its content: an offer number of its choosing and the media types it can produce, most faithful first (`text/plain;charset=utf-8` at least, for text). The offer becomes the clipboard when the application commits it. Content moves only when someone pastes, straight from the owner to the receiver, through a pipe (decision 3).
+
+   New requests (client → compositor):
+   - `ClipboardOffer { offer, serial }`: begins an offer. `serial` is a user input's (decision 4).
+   - `ClipboardType { offer, mime }`: one media type, in the text chunks the protocol already has. At most 16 per offer.
+   - `ClipboardCommit { offer }`: the offer becomes the clipboard, replacing any other.
+   - `ClipboardClear { serial }`: the owner empties the clipboard (for example after a timeout on a copied password).
+
+2. **What the focused application sees.** Only the client with keyboard focus learns what the clipboard holds: when it gains focus, and when the clipboard changes while it has it. It receives the clipboard's types, never its content.
+
+   New events (compositor → client):
+   - `ClipboardTypes { selection, count }`, then `ClipboardType { selection, mime }` per type. `selection` names this clipboard content for the receiver; it is the compositor's, not the owner's offer number, so a receiver cannot tell which application or offer it came from.
+   - `ClipboardEmpty {}` when there is nothing to paste.
+
+3. **Pasting moves the content through a pipe.** The receiver makes a pipe and asks for one type: `ClipboardReceive { selection, mime, serial }`, carrying the pipe's write end. The compositor checks the request (decision 4) and passes the descriptor to the owner: `ClipboardSend { offer, mime }`, carrying it. The owner writes the content and closes it; the receiver reads to the end. The content never passes through the compositor, so neither its size nor its type are the compositor's concern, and a slow or stuck owner stalls only the receiver's pipe.
+
+   The protocol's events gain descriptors for this: `ClipboardSend` is the first event that carries one, as `AttachBuffer` is the only request that does today. `oxy-ipc` checks it the same way: an event carries a descriptor exactly when its kind says so.
+
+4. **Only the user's own actions.** Every clipboard request that reads or changes the clipboard carries the serial of a user input delivered to that client: a key press or a pointer or touch press, as `GrabPopup` and `BeginMove` already require.
+   - **Offer, commit and clear** need the serial of an input delivered to the client, and the client must have keyboard focus when it commits. An application in the background cannot replace the clipboard.
+   - **Receive** needs the serial of an input delivered to the client while it has keyboard focus, and `selection` must be the clipboard's current content. An application cannot read the clipboard on its own, nor read content that was replaced since it was told about it.
+   - A request that fails these checks is refused without a protocol error (a race with focus changes is normal), and nothing is sent: a refused receive closes the receiver's descriptor, so its read ends at once, empty.
+   - The serial must be recent: one of the client's latest 16 user inputs.
+
+5. **When the owner goes away.** The clipboard is the owner's offer. When the owner disconnects or clears it, the clipboard empties, and focused clients receive `ClipboardEmpty`. The compositor keeps no copy: it would have to read every copy, and would hold what may be a password. A clipboard that outlives the application belongs to a clipboard manager of the shell, which can take over an offer by receiving it and offering it anew with the user's input. This needs no further protocol.
+
+6. **Secure content.** The Bloom host never offers the text of a secure field (`secureTextEntry`): Ctrl+C and Ctrl+X do nothing there, as on Android. Content an application chooses to offer is its responsibility. A type `x-oxy-sensitive` in an offer asks clipboard managers not to keep it, as `x-kde-passwordManagerHint` does on Linux desktops today.
+
+7. **Out of scope.** The primary selection (pasting the last selected text with the middle button) is not provided: Android and the applications Bloom targets have none, and it reads selections the user did not mean to copy. Drag and drop moves content the same way (offers, types, pipes), and is decided in its own ADR when it is built.
+
+## The Bloom host
+
+- **Text inputs.** Ctrl+C copies the selection, Ctrl+X copies and deletes it (one undoable edit), and Ctrl+V pastes `text/plain;charset=utf-8` at the selection as one edit, as a commit is. None of them applies in a secure field. The key press serials are the ones the compositor delivered with the keys.
+- **Writing.** The host answers `ClipboardSend` without blocking its loop: the content of the offer is held as the text copied at the time, and written as the pipe accepts it.
+- **Reading.** A paste reads the pipe as it becomes readable, from the loop, with a bound on time and size reported if hit; the edit happens when the content is complete.
+- **React Native.** `expo-clipboard`'s `getStringAsync`, `setStringAsync` and `hasStringAsync` are answered from the same machinery. Calls without a user input behind them are refused by the compositor (decision 4), and reject: an application cannot read the clipboard when it is opened, only when the user pastes. This is stricter than Android, where an application in the foreground may read it at any time, and it is said so in `docs/react-native-android-adaptation.mdx`.
+
+## Order of work
+
+1. **Protocol and scene.** The requests and events, descriptors on events in `oxy-ipc`, and the scene's ownership, focus and serial rules, with tests for each refusal: a background offer, a receive without focus, a stale serial, a stale selection, an owner gone mid-paste.
+2. **`oxy-client` and the C ABI.** Offers with their content held by the client library (it answers `ClipboardSend` itself, from a writer thread), and receives as a pipe the caller reads.
+3. **The Bloom host.** Ctrl+C, Ctrl+X and Ctrl+V in text inputs, and `expo-clipboard`. A scenario copies between two fields, and between two applications under one compositor, checking the exact events and that a background application's offer and receive are refused.
+
+## Consequences
+
+- Copy and paste between applications works without the compositor holding or reading what is copied.
+- No application reads the clipboard without the user pasting into it, and none replaces it from the background.
+- The clipboard does not outlive its owner until a clipboard manager exists.
+- Applications that read the clipboard on start (to offer "paste the link you copied") cannot; they get it when the user pastes.

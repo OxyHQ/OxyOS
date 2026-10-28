@@ -50,7 +50,8 @@ fn fields(name: &str) -> Vec<Field> {
                 "uint8_t" | "char" => 1,
                 "uint16_t" => 2,
                 "int32_t" | "uint32_t" => 4,
-                "uint64_t" | "char*" => 8,
+                "uint64_t" | "int64_t" | "size_t" => 8,
+                pointer if pointer.ends_with('*') => 8,
                 other => panic!("unexpected field type {other}"),
             };
             let (name, count) = match declarator.split_once('[') {
@@ -577,4 +578,412 @@ fn null_arguments_fail_instead_of_crashing() {
         );
         oxy_client_close(std::ptr::null_mut());
     }
+}
+
+#[test]
+fn the_header_matches_the_network_abi() {
+    use net::*;
+    for (name, value) in [
+        ("OXY_NET_RESPONSE", OXY_NET_RESPONSE.into()),
+        ("OXY_NET_CHUNK", OXY_NET_CHUNK.into()),
+        ("OXY_NET_DATA", OXY_NET_DATA.into()),
+        ("OXY_NET_COMPLETE", OXY_NET_COMPLETE.into()),
+        ("OXY_NET_ANSWER", OXY_NET_ANSWER.into()),
+        ("OXY_NET_EMPTY", OXY_NET_EMPTY.into()),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+
+    let header = fields("OxyNetHeader");
+    assert_eq!(
+        names(&header),
+        ["name", "name_length", "value", "value_length"]
+    );
+    let rust = [
+        offset_of!(OxyNetHeader, name),
+        offset_of!(OxyNetHeader, name_length),
+        offset_of!(OxyNetHeader, value),
+        offset_of!(OxyNetHeader, value_length),
+    ];
+    assert_eq!(
+        c_offsets(&header),
+        (rust.to_vec(), size_of::<OxyNetHeader>())
+    );
+
+    let request = fields("OxyNetRequest");
+    assert_eq!(
+        names(&request),
+        [
+            "id",
+            "method",
+            "method_length",
+            "url",
+            "url_length",
+            "headers",
+            "header_count",
+            "body",
+            "body_length",
+            "timeout_ms",
+            "has_body",
+            "with_credentials",
+            "incremental"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyNetRequest, id),
+        offset_of!(OxyNetRequest, method),
+        offset_of!(OxyNetRequest, method_length),
+        offset_of!(OxyNetRequest, url),
+        offset_of!(OxyNetRequest, url_length),
+        offset_of!(OxyNetRequest, headers),
+        offset_of!(OxyNetRequest, header_count),
+        offset_of!(OxyNetRequest, body),
+        offset_of!(OxyNetRequest, body_length),
+        offset_of!(OxyNetRequest, timeout_ms),
+        offset_of!(OxyNetRequest, has_body),
+        offset_of!(OxyNetRequest, with_credentials),
+        offset_of!(OxyNetRequest, incremental),
+    ];
+    assert_eq!(
+        c_offsets(&request),
+        (rust.to_vec(), size_of::<OxyNetRequest>())
+    );
+
+    let answer = fields("OxyNetAnswer");
+    assert_eq!(
+        names(&answer),
+        [
+            "kind",
+            "status",
+            "id",
+            "headers",
+            "header_count",
+            "url",
+            "url_length",
+            "bytes",
+            "length",
+            "progress",
+            "total",
+            "content_type",
+            "content_type_length",
+            "error",
+            "error_length",
+            "timed_out"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyNetAnswer, kind),
+        offset_of!(OxyNetAnswer, status),
+        offset_of!(OxyNetAnswer, id),
+        offset_of!(OxyNetAnswer, headers),
+        offset_of!(OxyNetAnswer, header_count),
+        offset_of!(OxyNetAnswer, url),
+        offset_of!(OxyNetAnswer, url_length),
+        offset_of!(OxyNetAnswer, bytes),
+        offset_of!(OxyNetAnswer, length),
+        offset_of!(OxyNetAnswer, progress),
+        offset_of!(OxyNetAnswer, total),
+        offset_of!(OxyNetAnswer, content_type),
+        offset_of!(OxyNetAnswer, content_type_length),
+        offset_of!(OxyNetAnswer, error),
+        offset_of!(OxyNetAnswer, error_length),
+        offset_of!(OxyNetAnswer, timed_out),
+    ];
+    assert_eq!(
+        c_offsets(&answer),
+        (rust.to_vec(), size_of::<OxyNetAnswer>())
+    );
+}
+
+/// The `length` bytes at `data`, as text.
+fn seen(data: *const c_char, length: usize) -> String {
+    if data.is_null() {
+        return String::new();
+    }
+    // SAFETY: an answer's pointers are valid for their lengths until the next answer.
+    let bytes = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), length) };
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+#[test]
+fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
+    use net::*;
+    use std::io::{BufRead, BufReader, Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let (mut line, mut length, mut custom) = (String::new(), 0, String::new());
+        reader.read_line(&mut line).unwrap();
+        loop {
+            let mut header = String::new();
+            reader.read_line(&mut header).unwrap();
+            let header = header.trim_end();
+            if header.is_empty() {
+                break;
+            }
+            let (name, value) = header.split_once(':').unwrap();
+            match name.to_ascii_lowercase().as_str() {
+                "content-length" => length = value.trim().parse().unwrap(),
+                "x-oxy" => custom = value.trim().to_string(),
+                _ => {}
+            }
+        }
+        let mut body = vec![0u8; length];
+        reader.read_exact(&mut body).unwrap();
+        let text = format!(
+            "{} {custom} {}",
+            line.trim(),
+            String::from_utf8_lossy(&body)
+        );
+        let mut stream = stream;
+        write!(
+            stream,
+            "HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+            text.len()
+        )
+        .unwrap();
+    });
+
+    let network = oxy_net_new();
+    assert!(!network.is_null());
+    let (method, url, body) = ("PUT", format!("http://{address}/thing"), "hola");
+    let (name, value) = ("X-Oxy", "yes");
+    let header = OxyNetHeader {
+        name: name.as_ptr().cast(),
+        name_length: name.len(),
+        value: value.as_ptr().cast(),
+        value_length: value.len(),
+    };
+    let request = OxyNetRequest {
+        id: 7,
+        method: method.as_ptr().cast(),
+        method_length: method.len(),
+        url: url.as_ptr().cast(),
+        url_length: url.len(),
+        headers: &header,
+        header_count: 1,
+        body: body.as_ptr(),
+        body_length: body.len(),
+        timeout_ms: 5000,
+        has_body: 1,
+        with_credentials: 1,
+        incremental: 0,
+    };
+    // SAFETY: a live network, and a request whose pointers outlive the call.
+    assert_eq!(unsafe { oxy_net_send(network, &request) }, 0);
+
+    let mut got = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        let mut answer = OxyNetAnswer::default();
+        // SAFETY: a live network and a writable answer.
+        match unsafe { oxy_net_answer(network, &mut answer) } {
+            OXY_NET_ANSWER => {
+                assert_eq!(answer.id, 7);
+                let headers = if answer.header_count == 0 {
+                    Vec::new()
+                } else {
+                    // SAFETY: valid for header_count until the next answer.
+                    unsafe { std::slice::from_raw_parts(answer.headers, answer.header_count) }
+                        .iter()
+                        .map(|h| (seen(h.name, h.name_length), seen(h.value, h.value_length)))
+                        .collect()
+                };
+                got.push((
+                    answer.kind,
+                    answer.status,
+                    headers,
+                    seen(answer.bytes.cast(), answer.length),
+                    seen(answer.content_type, answer.content_type_length),
+                    answer.error.is_null(),
+                ));
+                if answer.kind == OXY_NET_COMPLETE {
+                    break;
+                }
+            }
+            OXY_NET_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            other => panic!("answer failed: {other}"),
+        }
+    }
+    // SAFETY: a network from oxy_net_new, freed once.
+    unsafe { oxy_net_free(network) };
+
+    assert_eq!(got.len(), 3, "{got:?}");
+    assert_eq!((got[0].0, got[0].1), (OXY_NET_RESPONSE, 201));
+    assert!(got[0]
+        .2
+        .contains(&("content-type".to_string(), "text/plain".to_string())));
+    assert_eq!(got[1].0, OXY_NET_DATA);
+    assert_eq!(got[1].3, "PUT /thing HTTP/1.1 yes hola");
+    assert_eq!(got[1].4, "text/plain");
+    assert_eq!((got[2].0, got[2].5), (OXY_NET_COMPLETE, true));
+}
+
+#[test]
+fn a_malformed_request_is_refused_and_sends_nothing() {
+    use net::*;
+    let network = oxy_net_new();
+    let bad = [0xff_u8, 0xfe];
+    let url = "http://127.0.0.1:9/";
+    let request = OxyNetRequest {
+        id: 1,
+        method: bad.as_ptr().cast(),
+        method_length: bad.len(),
+        url: url.as_ptr().cast(),
+        url_length: url.len(),
+        headers: std::ptr::null(),
+        header_count: 0,
+        body: std::ptr::null(),
+        body_length: 0,
+        timeout_ms: 0,
+        has_body: 0,
+        with_credentials: 1,
+        incremental: 0,
+    };
+    // SAFETY: a live network, and a request whose pointers outlive the call.
+    assert_eq!(unsafe { oxy_net_send(network, &request) }, OXY_ERROR);
+    // SAFETY: oxy_last_error is NUL-terminated.
+    let error = unsafe { CStr::from_ptr(oxy_last_error()) };
+    assert_eq!(error.to_str().unwrap(), "method is not UTF-8");
+    let mut answer = OxyNetAnswer::default();
+    // SAFETY: a live network and a writable answer.
+    let answered = unsafe { oxy_net_answer(network, &mut answer) };
+    assert_eq!(answered, OXY_NET_EMPTY);
+    // SAFETY: a network from oxy_net_new, freed once.
+    unsafe { oxy_net_free(network) };
+}
+
+#[test]
+fn the_header_matches_the_image_abi() {
+    use images::*;
+    assert_eq!(define("OXY_IMAGE_ANSWER"), OXY_IMAGE_ANSWER.into());
+    assert_eq!(define("OXY_IMAGE_EMPTY"), OXY_IMAGE_EMPTY.into());
+    assert_eq!(define("OXY_IMAGE_FIT_WITHIN"), OXY_IMAGE_FIT_WITHIN.into());
+    assert_eq!(
+        define("OXY_IMAGE_FIT_COVERING"),
+        OXY_IMAGE_FIT_COVERING.into()
+    );
+    let answer = fields("OxyImageAnswer");
+    assert_eq!(
+        names(&answer),
+        [
+            "id",
+            "width",
+            "height",
+            "natural_width",
+            "natural_height",
+            "pixels",
+            "length",
+            "error",
+            "error_length"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyImageAnswer, id),
+        offset_of!(OxyImageAnswer, width),
+        offset_of!(OxyImageAnswer, height),
+        offset_of!(OxyImageAnswer, natural_width),
+        offset_of!(OxyImageAnswer, natural_height),
+        offset_of!(OxyImageAnswer, pixels),
+        offset_of!(OxyImageAnswer, length),
+        offset_of!(OxyImageAnswer, error),
+        offset_of!(OxyImageAnswer, error_length),
+    ];
+    assert_eq!(
+        c_offsets(&answer),
+        (rust.to_vec(), size_of::<OxyImageAnswer>())
+    );
+}
+
+#[test]
+fn an_image_loads_through_the_c_abi() {
+    use images::*;
+    let wallpaper = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/wallpapers/solar-gradients/frames/frame-08.jpg"
+    );
+    let missing = "/nonexistent/oxy.png";
+    let (mut width, mut height) = (0, 0);
+    // SAFETY: the path is valid for its length; the sizes are writable.
+    let sized = unsafe {
+        oxy_image_size(
+            wallpaper.as_ptr().cast(),
+            wallpaper.len(),
+            &mut width,
+            &mut height,
+        )
+    };
+    assert_eq!((sized, width, height), (0, 5120, 2880));
+    let images = oxy_images_new();
+    assert!(!images.is_null());
+    // SAFETY: a live loader, and paths valid for their lengths.
+    unsafe {
+        assert_eq!(
+            oxy_images_load(
+                images,
+                1,
+                wallpaper.as_ptr().cast(),
+                wallpaper.len(),
+                640,
+                640,
+                OXY_IMAGE_FIT_COVERING
+            ),
+            0
+        );
+        assert_eq!(
+            oxy_images_load(
+                images,
+                2,
+                missing.as_ptr().cast(),
+                missing.len(),
+                0,
+                0,
+                OXY_IMAGE_FIT_WITHIN
+            ),
+            0
+        );
+    }
+    let mut got = std::collections::BTreeMap::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while got.len() < 2 && std::time::Instant::now() < deadline {
+        let mut answer = OxyImageAnswer::default();
+        // SAFETY: a live loader and a writable answer.
+        match unsafe { oxy_images_answer(images, &mut answer) } {
+            OXY_IMAGE_ANSWER => {
+                let error = if answer.error.is_null() {
+                    None
+                } else {
+                    // SAFETY: valid for error_length until the next answer.
+                    let bytes = unsafe {
+                        std::slice::from_raw_parts(answer.error.cast::<u8>(), answer.error_length)
+                    };
+                    Some(String::from_utf8_lossy(bytes).into_owned())
+                };
+                got.insert(
+                    answer.id,
+                    (
+                        answer.width,
+                        answer.height,
+                        answer.length,
+                        answer.pixels.is_null(),
+                        error,
+                    ),
+                );
+            }
+            OXY_IMAGE_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            other => panic!("answer failed: {other}"),
+        }
+    }
+    // SAFETY: a loader from oxy_images_new, freed once.
+    unsafe { oxy_images_free(images) };
+    assert_eq!(got[&1], (1138, 640, 1138 * 640 * 4, false, None));
+    let (_, _, _, no_pixels, error) = &got[&2];
+    assert!(
+        *no_pixels
+            && error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("cannot read the image"))
+    );
 }
