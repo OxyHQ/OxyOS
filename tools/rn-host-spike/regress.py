@@ -228,6 +228,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
         if offsets != expect["scroll_offset"]:
             fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "text_scroll" in expect:
+        # How far each text input's text was scrolled in this step, by testID: the last value.
+        scrolls = {}
+        for line in report:
+            if line["kind"] == "text_scroll" and start <= line["t"] <= end:
+                scrolls[line["target"]] = [line["x"], line["y"]]
+        if scrolls != expect["text_scroll"]:
+            fail(f"text scrolls {scrolls}, expected exactly {expect['text_scroll']}")
     if "a11y" in expect or "a11y_nodes" in expect or "a11y_order" in expect:
         # The latest accessibility tree of the window and of each open popup (accessibility.h).
         trees = {}
@@ -379,9 +387,11 @@ def main():
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last}, report, start, failures)
 
-    renders = [line["render_ms"] for line in report if line["kind"] == "frame"]
+    # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
+    renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]
     # The share of each window frame the host drew again (1 when drawn whole).
-    damaged = [line.get("damaged", 1.0) for line in report if line["kind"] == "frame" and line["surface"] == 1]
+    damaged = [line.get("damaged", 1.0) for line in report
+               if line["kind"] == "frame" and line["surface"] == 1 and line.get("presented", True)]
     latencies = [s["latency_ms"] for s in summary["steps"] if s.get("latency_ms") is not None]
     # On a display: input to the kernel's flip of the first frame showing the answer.
     flips = [s["flip_latency_ms"] for s in summary["steps"] if s.get("flip_latency_ms") is not None]

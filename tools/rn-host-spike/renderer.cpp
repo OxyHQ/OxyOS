@@ -233,6 +233,7 @@ ParagraphLayout layoutInput(const AndroidTextInputProps& props, const Attributed
 // A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
 // fields do; its text is never drawn or reported.
 constexpr const char* kSecureBullet = "\u2022";
+constexpr float kCaretWidth = 1.5f;
 
 bool isContinuation(const std::string& text, size_t i) {
   return (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80;
@@ -270,7 +271,8 @@ AttributedString inputText(const AndroidTextInputProps& props, const std::string
 // behind the text, the composition underlined, and the caret. A single-line input centres its
 // line vertically, as Android's EditText does.
 void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity,
-                   const TextInputEdit* edit, Painter& painter) {
+                   const TextInputEdit& editing, Painter& painter) {
+  const TextInputEdit* edit = view.tag == editing.tag ? &editing : nullptr;
   const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   AttributedString text = data.attributedStringBox.getValue();
@@ -284,38 +286,51 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
   }
   auto content = view.layoutMetrics.getContentFrame();
   auto layout = layoutInput(*props, text, content.size.width);
-  float top = y + content.origin.y;
+  // Text scrolled within the input is cut at its content box on the axis it scrolls, as Android's
+  // TextView clips to its padding.
+  Point scroll{};
+  if (auto it = editing.scrolls.find(view.tag); it != editing.scrolls.end()) {
+    scroll = TextInputGeometry(view, value).clamp(it->second, content.size);
+  }
+  float top = y + content.origin.y - scroll.y;
   if (!props->multiline) top += (content.size.height - layout.height) / 2;
-  float left = x + content.origin.x;
+  float left = x + content.origin.x - scroll.x;
   Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
-  float lineTop = layout.lines.empty() ? 0 : layout.lines.front().top;
-  float lineHeight = props->getEffectiveTextAttributes(1).fontSize;
-  if (std::isnan(lineHeight)) lineHeight = 14;
-  if (!layout.lines.empty()) lineHeight = layout.lines.front().height;
+  if (scroll.x != 0 || scroll.y != 0 || props->multiline) {
+    float boxLeft = x + content.origin.x, boxTop = y + content.origin.y;
+    inside = props->multiline ? inside.intersect(Clip{x, boxTop, x + w, boxTop + content.size.height})
+                              : inside.intersect(Clip{boxLeft, y, boxLeft + content.size.width, y + h});
+  }
   SharedColor textColor = props->getEffectiveTextAttributes(1).foregroundColor;
+  std::optional<TextInputGeometry> geometry;
+  if (edit) geometry.emplace(view, value);
+  // The geometry's positions are relative to the content box, before scrolling.
+  float boxTop = y + content.origin.y - scroll.y;
 
-  if (edit && edit->selectionStart != edit->selectionEnd && !value.empty()) {
-    float from = textInputCaretX(view, value, edit->selectionStart);
-    float to = textInputCaretX(view, value, edit->selectionEnd);
+  if (edit && edit->selectionStart != edit->selectionEnd) {
     Rgba selection = props->selectionColor ? rgba(props->selectionColor) : Rgba{0.25f, 0.45f, 1.0f, 0.3f};
     selection.a *= opacity;
-    painter.fill(left + from, top + lineTop, to - from, lineHeight, BorderRadii{}, selection, inside);
+    for (const auto& rect : geometry->span(edit->selectionStart, edit->selectionEnd)) {
+      painter.fill(left + rect.origin.x, boxTop + rect.origin.y, rect.size.width, rect.size.height, BorderRadii{},
+                   selection, inside);
+    }
   }
   painter.glyphs(layout, left, top, inside, opacity);
   if (!edit) return;
   Rgba ink = textColor ? rgba(textColor) : Rgba{0, 0, 0, 1};
   ink.a *= opacity;
-  if (edit->composeStart != edit->composeEnd && !value.empty()) {
-    float from = textInputCaretX(view, value, edit->composeStart);
-    float to = textInputCaretX(view, value, edit->composeEnd);
-    float baseline = layout.lines.empty() ? lineHeight : layout.lines.front().top + layout.lines.front().ascent;
-    painter.fill(left + from, top + baseline + 2, to - from, 1, BorderRadii{}, ink, inside);
+  if (edit->composeStart != edit->composeEnd) {
+    // Underlined under each line it covers, just below the line's text.
+    for (const auto& rect : geometry->span(edit->composeStart, edit->composeEnd)) {
+      painter.fill(left + rect.origin.x, boxTop + rect.origin.y + rect.size.height - 1, rect.size.width, 1,
+                   BorderRadii{}, ink, inside);
+    }
   }
   if (edit->selectionStart == edit->selectionEnd) {
-    float caretX = value.empty() ? 0 : textInputCaretX(view, value, edit->selectionEnd);
-    Rgba caret = props->cursorColor ? rgba(props->cursorColor) : ink;
-    caret.a *= opacity;
-    painter.fill(left + caretX, top + lineTop, 1.5f, lineHeight, BorderRadii{}, caret, inside);
+    auto caret = geometry->caret(edit->selectionEnd);
+    Rgba color = props->cursorColor ? rgba(props->cursorColor) : ink;
+    color.a *= opacity;
+    painter.fill(left + caret.x, boxTop + caret.top, kCaretWidth, caret.height, BorderRadii{}, color, inside);
   }
 }
 
@@ -393,7 +408,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
     if (painter.touches(x, y, w, h)) {
-      drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+      drawTextInput(view, x, y, w, h, clip, opacity, edit, painter);
     }
     ++stats.texts;
     if (visible) {
@@ -446,31 +461,139 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 
 }  // namespace
 
-float textInputCaretX(const ShadowView& view, const std::string& text, size_t offset) {
-  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
-  float width = view.layoutMetrics.getContentFrame().size.width;
-  auto shown = shownText(*props, text);
-  auto prefix =
-      layoutInput(*props, inputText(*props, shown.substr(0, std::min(shownOffset(*props, text, offset), shown.size()))),
-                  width);
-  if (prefix.lines.empty()) return 0;
-  const auto& last = prefix.lines.back();
-  return last.x + last.advance;
+TextInputGeometry::TextInputGeometry(const ShadowView& view, const std::string& value)
+    : props_(std::static_pointer_cast<const AndroidTextInputProps>(view.props)),
+      value_(value),
+      shown_(shownText(*props_, value)) {
+  auto content = view.layoutMetrics.getContentFrame();
+  // An empty input still has a line, as tall as its text would be, where its caret goes.
+  auto layout = layoutInput(*props_, inputText(*props_, shown_.empty() ? " " : shown_), content.size.width);
+  float top = props_->multiline ? 0 : (content.size.height - layout.height) / 2;
+  for (size_t i = 0; i < layout.lines.size(); ++i) {
+    const auto& line = layout.lines[i];
+    Line geometry{.start = shown_.empty() ? 0 : line.start, .x = line.x, .top = top + line.top, .height = line.height};
+    if (!shown_.empty()) geometry.stops = line.stops;
+    if (shown_.empty()) {
+      geometry.end = 0;
+    } else if (i + 1 < layout.lines.size()) {
+      size_t next = layout.lines[i + 1].start;
+      geometry.broken = next > 0 && shown_[next - 1] == '\n';
+      geometry.end = geometry.broken ? next - 1 : next;
+    } else {
+      geometry.end = std::min(line.start + line.text.size(), shown_.size());
+    }
+    lines_.push_back(geometry);
+  }
+  if (lines_.empty()) lines_.push_back(Line{.top = top});
 }
 
-size_t textInputOffsetAt(const ShadowView& view, const std::string& text, float x) {
-  // The character boundary whose caret position is nearest x.
-  size_t best = 0;
-  float bestDistance = std::abs(x - textInputCaretX(view, text, 0));
-  for (size_t i = 1; i <= text.size(); ++i) {
-    if (i < text.size() && (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80) continue;
-    float distance = std::abs(x - textInputCaretX(view, text, i));
+size_t TextInputGeometry::toShown(size_t offset) const { return shownOffset(*props_, value_, offset); }
+
+size_t TextInputGeometry::toValue(size_t shownOffset) const {
+  if (!props_->secureTextEntry) return std::min(shownOffset, value_.size());
+  size_t characters = shownOffset / std::char_traits<char>::length(kSecureBullet);
+  size_t i = 0;
+  for (; i < value_.size() && characters > 0; ++i) {
+    if (!isContinuation(value_, i)) --characters;
+    while (i + 1 < value_.size() && isContinuation(value_, i + 1)) ++i;
+  }
+  return i;
+}
+
+float TextInputGeometry::xOn(const Line& line, size_t shownOffset) const {
+  // From the shaped line's caret stops; inside a cluster of several characters (a ligature), its
+  // width is shared among them.
+  if (shownOffset <= line.start || line.stops.empty()) return line.x;
+  auto next = std::upper_bound(line.stops.begin(), line.stops.end(), shownOffset,
+                               [](size_t at, const auto& stop) { return at < stop.first; });
+  if (next == line.stops.begin()) return line.x;
+  auto stop = std::prev(next);
+  if (stop->first == shownOffset || next == line.stops.end()) return stop->second;
+  auto characters = [&](size_t from, size_t to) {
+    size_t count = 0;
+    for (size_t i = from; i < to && i < shown_.size(); ++i) count += !isContinuation(shown_, i);
+    return count;
+  };
+  float share = static_cast<float>(characters(stop->first, shownOffset)) /
+                static_cast<float>(std::max<size_t>(1, characters(stop->first, next->first)));
+  return stop->second + (next->second - stop->second) * share;
+}
+
+TextInputGeometry::Caret TextInputGeometry::caret(size_t offset) const {
+  size_t shown = toShown(offset);
+  size_t index = 0;
+  while (index + 1 < lines_.size() && lines_[index + 1].start <= shown) ++index;
+  const auto& line = lines_[index];
+  return Caret{.line = index, .x = xOn(line, std::min(shown, std::max(line.end, line.start))), .top = line.top,
+               .height = line.height};
+}
+
+std::pair<size_t, size_t> TextInputGeometry::shownEdges(size_t index) const {
+  const auto& line = lines_[std::min(index, lines_.size() - 1)];
+  bool wrapped = index + 1 < lines_.size() && !line.broken;
+  size_t last = line.end;
+  if (wrapped && last > line.start) {
+    do --last;
+    while (last > line.start && isContinuation(shown_, last));
+  }
+  return {line.start, last};
+}
+
+std::pair<size_t, size_t> TextInputGeometry::lineEdges(size_t index) const {
+  auto [first, last] = shownEdges(index);
+  return {toValue(first), toValue(last)};
+}
+
+size_t TextInputGeometry::offsetOnLine(size_t index, float x) const {
+  const auto& line = lines_[std::min(index, lines_.size() - 1)];
+  auto [first, last] = shownEdges(index);
+  size_t best = first;
+  float bestDistance = std::abs(x - xOn(line, first));
+  for (size_t i = first + 1; i <= last; ++i) {
+    if (i < shown_.size() && isContinuation(shown_, i)) continue;
+    float distance = std::abs(x - xOn(line, i));
     if (distance < bestDistance) {
       best = i;
       bestDistance = distance;
     }
   }
-  return best;
+  return toValue(best);
+}
+
+size_t TextInputGeometry::offsetAt(float x, float y) const {
+  size_t index = 0;
+  while (index + 1 < lines_.size() && y >= lines_[index + 1].top) ++index;
+  return offsetOnLine(index, x);
+}
+
+float TextInputGeometry::width() const {
+  float width = 0;
+  for (const auto& line : lines_) width = std::max(width, xOn(line, line.end));
+  return width;
+}
+
+float TextInputGeometry::height() const { return lines_.back().top + lines_.back().height; }
+
+Point TextInputGeometry::clamp(Point scroll, Size size) const {
+  bool multiline = props_->multiline;
+  float x = multiline ? 0 : std::clamp(scroll.x, 0.0f, std::max(0.0f, width() + kCaretWidth - size.width));
+  float y = multiline ? std::clamp(scroll.y, 0.0f, std::max(0.0f, height() - size.height)) : 0;
+  return Point{x, y};
+}
+
+std::vector<Rect> TextInputGeometry::span(size_t from, size_t to) const {
+  std::vector<Rect> rects;
+  size_t start = toShown(from), end = toShown(to);
+  for (size_t i = 0; i < lines_.size(); ++i) {
+    const auto& line = lines_[i];
+    size_t lineEnd = i + 1 < lines_.size() ? lines_[i + 1].start : shown_.size();
+    if (end <= line.start || start >= lineEnd) continue;
+    float left = xOn(line, std::max(start, line.start));
+    float right = xOn(line, std::min(end, line.end));
+    if (line.broken && end > line.end) right += line.height / 4;
+    if (right > left) rects.push_back(Rect{Point{left, line.top}, Size{right - left, line.height}});
+  }
+  return rects;
 }
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {

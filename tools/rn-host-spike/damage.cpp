@@ -75,19 +75,44 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
       }
       const auto& then = old->second;
       bool props = !drawsTheSame(then.view, seen.view);
-      if (props || then.view.state != seen.view.state || then.children != seen.children) {
-        // OXY_DAMAGE_TRACE: what drew a subtree again, and why.
-        static const bool trace = std::getenv("OXY_DAMAGE_TRACE") != nullptr;
+      bool state = then.view.state != seen.view.state;
+      // OXY_DAMAGE_TRACE: what drew a subtree again, and why.
+      static const bool trace = std::getenv("OXY_DAMAGE_TRACE") != nullptr;
+      if (props || state) {
         if (trace) {
-          std::fprintf(stderr, "[damage] %s tag=%d %.0fx%.0f:%s%s%s\n",
+          std::fprintf(stderr, "[damage] %s tag=%d %.0fx%.0f:%s%s\n",
                        seen.view.componentName ? seen.view.componentName : "?", tag, seen.at.size.width,
-                       seen.at.size.height, props ? " props" : "",
-                       then.view.state != seen.view.state ? " state" : "",
-                       then.children != seen.children ? " children" : "");
+                       seen.at.size.height, props ? " props" : "", state ? " state" : "");
         }
         subtree(seen_, tag, subtree);
         subtree(now, tag, subtree);
-      } else if (!(then.at == seen.at) || !(then.view.layoutMetrics == seen.view.layoutMetrics)) {
+        continue;
+      }
+      if (then.children != seen.children) {
+        // Children added or gone are damaged where they are or were, as every new or gone view
+        // is (a popup view's not at all: it is not drawn in the window). What else a new list
+        // of children changes is the order the remaining ones are drawn in: if it changed, they
+        // are drawn again, subtrees and all. The view's own drawing does not depend on them.
+        auto kept = [](const std::vector<Tag>& children, const std::vector<Tag>& others) {
+          std::vector<Tag> common;
+          for (Tag child : children) {
+            if (std::find(others.begin(), others.end(), child) != others.end()) common.push_back(child);
+          }
+          return common;
+        };
+        auto before = kept(then.children, seen.children), after = kept(seen.children, then.children);
+        if (before != after) {
+          if (trace) {
+            std::fprintf(stderr, "[damage] %s tag=%d: children reordered\n",
+                         seen.view.componentName ? seen.view.componentName : "?", tag);
+          }
+          for (Tag child : after) {
+            subtree(seen_, child, subtree);
+            subtree(now, child, subtree);
+          }
+        }
+      }
+      if (!(then.at == seen.at) || !(then.view.layoutMetrics == seen.view.layoutMetrics)) {
         // A new frame alone: its own background and border, and the clip of its children, lie
         // in its old and new rectangles; each child is compared where it is drawn.
         damage.push_back(old->second.at);
@@ -98,7 +123,18 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
       if (!now.count(tag)) damage.push_back(seen.at);
     }
     if (!(edit == edit_)) {
-      for (Tag tag : {edit_.tag, edit.tag}) {
+      std::vector<Tag> changed{edit_.tag, edit.tag};
+      // An input whose text scrolled, focused or not (the wheel scrolls any input under it).
+      auto scroll = [](const TextInputEdit& edit, Tag tag) {
+        auto it = edit.scrolls.find(tag);
+        return it == edit.scrolls.end() ? Point{} : it->second;
+      };
+      for (const auto& scrolls : {edit_.scrolls, edit.scrolls}) {
+        for (const auto& entry : scrolls) {
+          if (!(scroll(edit_, entry.first) == scroll(edit, entry.first))) changed.push_back(entry.first);
+        }
+      }
+      for (Tag tag : changed) {
         if (auto it = now.find(tag); it != now.end()) damage.push_back(it->second.at);
         if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(it->second.at);
       }
