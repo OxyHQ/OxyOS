@@ -1123,14 +1123,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             waits.sort_by(f64::total_cmp);
             let compositions = &session.compositor.compositions;
             let reads = &session.compositor.reads;
+            let damaged = &session.compositor.damaged;
             format!(
-                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"read_ms_median\":{:.2},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"read_ms_median\":{:.2},\"damaged_fraction_median\":{:.3},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
                 if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
                 median(compositions).unwrap_or(0.0),
                 compositions.iter().copied().fold(0.0, f64::max),
                 median(reads).unwrap_or(0.0),
+                median(damaged).unwrap_or(1.0),
                 waits.get(waits.len() / 2).copied().unwrap_or(0.0),
                 waits.last().copied().unwrap_or(0.0)
             )

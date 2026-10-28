@@ -152,7 +152,7 @@ fn a_kept_scanout_frame_is_the_reference() {
     let _targets = gpu.scanout_targets(2, 120, 90).unwrap();
     assert!(gpu.read_kept().is_err(), "nothing kept yet");
     for index in [0, 1, 0] {
-        gpu.compose_to_scanout_kept(index, 0x0011_2233, &layers)
+        gpu.compose_to_scanout_kept(index, 0x0011_2233, &layers, None)
             .unwrap();
         assert_eq!(
             gpu.read_kept().unwrap(),
@@ -161,10 +161,157 @@ fn a_kept_scanout_frame_is_the_reference() {
         );
         assert!(gpu.read_kept().is_err(), "a kept frame is read once");
     }
-    gpu.compose_to_scanout_kept(1, 0x0011_2233, &layers)
+    gpu.compose_to_scanout_kept(1, 0x0011_2233, &layers, None)
         .unwrap();
     gpu.compose(8, 8, 1, &[]).unwrap();
     assert!(gpu.read_kept().is_err(), "a later composition replaced it");
+}
+
+#[test]
+fn rectangles_intersect_and_bound() {
+    let a = Rect {
+        x: -5,
+        y: 0,
+        width: 10,
+        height: 10,
+    };
+    let b = Rect {
+        x: 3,
+        y: 4,
+        width: 10,
+        height: 2,
+    };
+    assert_eq!(
+        a.intersect(&b),
+        Some(Rect {
+            x: 3,
+            y: 4,
+            width: 2,
+            height: 2
+        })
+    );
+    let apart = Rect {
+        x: 5,
+        y: 0,
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(a.intersect(&apart), None, "touching edges share nothing");
+    assert_eq!(
+        a.bounding(&b),
+        Rect {
+            x: -5,
+            y: 0,
+            width: 18,
+            height: 10
+        }
+    );
+}
+
+/// The popup of `layers` moved by (dx, dy), and what that damages: where it was and where it is.
+fn popup_moved<'a>(layers: &[Layer<'a>], dx: i32, dy: i32) -> (Vec<Layer<'a>>, Vec<Rect>) {
+    let mut moved = layers.to_vec();
+    let before = Rect {
+        x: moved[1].x,
+        y: moved[1].y,
+        width: moved[1].width,
+        height: moved[1].height,
+    };
+    moved[1].x += dx;
+    moved[1].y += dy;
+    let after = Rect {
+        x: moved[1].x,
+        y: moved[1].y,
+        ..before
+    };
+    (moved, vec![before, after])
+}
+
+/// Composing only what changed gives the frame the reference composes whole; damage that
+/// leaves out where the popup was leaves it there, so the limit is real.
+#[test]
+fn damaged_composition_is_the_reference() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let first = layers(&window, &popup);
+    // No frame yet: composed whole whatever the damage says.
+    assert_eq!(
+        gpu.compose_damaged(120, 90, 0x0011_2233, &first, &[])
+            .unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &first)
+    );
+    let (second, damage) = popup_moved(&first, 15, -20);
+    assert_eq!(
+        gpu.compose_damaged(120, 90, 0x0011_2233, &second, &damage)
+            .unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &second)
+    );
+    let (third, damage) = popup_moved(&second, -30, 25);
+    let too_small = gpu
+        .compose_damaged(120, 90, 0x0011_2233, &third, &damage[1..])
+        .unwrap();
+    assert_ne!(
+        too_small,
+        compose_cpu(120, 90, 0x0011_2233, &third),
+        "the popup's old place was not composed again"
+    );
+    // A frame of another size holds nothing of this one: composed whole.
+    assert_eq!(
+        gpu.compose_damaged(7, 3, 0x0011_2233, &first, &[]).unwrap(),
+        compose_cpu(7, 3, 0x0011_2233, &first)
+    );
+}
+
+/// Scanout targets alternate: each frame composes its damage and what changed since its target
+/// was last written, and every frame shown is the reference's.
+#[cfg(target_os = "linux")]
+#[test]
+fn damaged_scanout_frames_are_the_reference() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) if gpu.exports_dma_buf() => gpu,
+        Ok(gpu) => {
+            eprintln!("{} exports no DMA-BUF, skipped", gpu.device_name());
+            return;
+        }
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let _targets = gpu.scanout_targets(2, 120, 90).unwrap();
+    let mut frame = layers(&window, &popup);
+    let mut damage: Option<Vec<Rect>> = None;
+    for (index, step) in [
+        (0, (0, 0)),
+        (1, (12, 9)),
+        (0, (-25, 14)),
+        (1, (8, -30)),
+        (0, (3, 3)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index > 0 {
+            let (moved, changed) = popup_moved(&frame, step.1 .0, step.1 .1);
+            frame = moved;
+            damage = Some(changed);
+        }
+        gpu.compose_to_scanout_kept(step.0, 0x0011_2233, &frame, damage.as_deref())
+            .unwrap();
+        assert_eq!(
+            gpu.read_kept().unwrap(),
+            compose_cpu(120, 90, 0x0011_2233, &frame),
+            "frame {index} on target {}",
+            step.0
+        );
+    }
 }
 
 #[test]

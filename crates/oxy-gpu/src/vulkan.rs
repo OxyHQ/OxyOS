@@ -33,6 +33,21 @@ impl From<vk::PhysicalDeviceType> for DeviceKind {
     }
 }
 
+/// Damage clipped to the output, without empty rectangles. Past eight, one rectangle holding
+/// them all: each region costs a dispatch per layer.
+fn merged(regions: Vec<crate::Rect>, output: &crate::Rect) -> Vec<crate::Rect> {
+    let clipped: Vec<crate::Rect> = regions
+        .iter()
+        .filter_map(|region| region.intersect(output))
+        .collect();
+    if clipped.len() <= 8 {
+        return clipped;
+    }
+    vec![clipped[1..]
+        .iter()
+        .fold(clipped[0], |all, region| all.bounding(region))]
+}
+
 /// Push constants of `shaders/compose.wgsl`'s `Layer`.
 #[derive(Clone, Copy, Default)]
 struct Push {
@@ -47,10 +62,42 @@ struct Push {
     out_height: u32,
     mode: u32,
     color: u32,
+    base_x: u32,
+    base_y: u32,
+    count_x: u32,
+    count_y: u32,
 }
 
 impl Push {
-    fn bytes(&self) -> [u8; 44] {
+    /// The whole layer in one dispatch.
+    fn whole(self) -> Self {
+        Self {
+            base_x: 0,
+            base_y: 0,
+            count_x: self.width,
+            count_y: self.height,
+            ..self
+        }
+    }
+
+    /// The part of the layer within `region` (output pixels), if any.
+    fn within(self, region: &crate::Rect) -> Option<Self> {
+        let part = region.intersect(&crate::Rect {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+        })?;
+        Some(Self {
+            base_x: (part.x - self.x) as u32,
+            base_y: (part.y - self.y) as u32,
+            count_x: part.width,
+            count_y: part.height,
+            ..self
+        })
+    }
+
+    fn bytes(&self) -> [u8; 60] {
         let words = [
             self.x as u32,
             self.y as u32,
@@ -63,8 +110,12 @@ impl Push {
             self.out_height,
             self.mode,
             self.color,
+            self.base_x,
+            self.base_y,
+            self.count_x,
+            self.count_y,
         ];
-        let mut bytes = [0; 44];
+        let mut bytes = [0; 60];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
             chunk.copy_from_slice(&word.to_ne_bytes());
         }
@@ -88,6 +139,9 @@ struct Scanout {
     width: u32,
     height: u32,
     released: bool,
+    /// What changed since this target was last written (frames composed into the others),
+    /// or `None` when its content is unknown (never written, or a whole frame since).
+    stale: Option<Vec<crate::Rect>>,
 }
 
 /// A scanout target for a display: its DMA-BUF, size and pitch, XRGB8888 with the linear
@@ -184,6 +238,8 @@ pub struct VulkanCompositor {
     family: u32,
     /// The size of the frame `compose_to_scanout_kept` copied for `read_kept`, if any.
     kept: Option<(u32, u32)>,
+    /// The size of the frame the output buffer holds, if it holds the last one composed.
+    output_holds: Option<(u32, u32)>,
 }
 
 impl VulkanCompositor {
@@ -241,6 +297,7 @@ impl VulkanCompositor {
             bound_output: vk::Buffer::null(),
             family: opened.family,
             kept: None,
+            output_holds: None,
         };
         this.build(opened.family)?;
         Ok(this)
@@ -350,7 +407,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(44)];
+                .size(60)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -457,24 +514,50 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
     ) -> Result<Vec<u32>, Error> {
         Ok(self
-            .run(width, height, background, layers, None)?
+            .run(width, height, background, layers, None, None)?
+            .unwrap_or_default())
+    }
+
+    /// The same, composing only `damage`, what changed since the previous frame composed here
+    /// at this size: the rest of the output is that frame's. A whole frame is composed when
+    /// there was none.
+    pub fn compose_damaged(
+        &mut self,
+        width: u32,
+        height: u32,
+        background: u32,
+        layers: &[Layer<'_>],
+        damage: &[crate::Rect],
+    ) -> Result<Vec<u32>, Error> {
+        Ok(self
+            .run(width, height, background, layers, None, Some(damage))?
             .unwrap_or_default())
     }
 
     /// Composes into scanout target `index` (`scanout_targets`) for a display to show; nothing
-    /// is read back. Returns once the device has finished writing it.
+    /// is read back. Returns once the device has finished writing it. With `damage`, what
+    /// changed since the previous frame (on any target), only that and what changed since this
+    /// target was last written are composed; without it, the whole frame.
     pub fn compose_to_scanout(
         &mut self,
         index: usize,
         background: u32,
         layers: &[Layer<'_>],
+        damage: Option<&[crate::Rect]>,
     ) -> Result<(), Error> {
         let target = self
             .scanout
             .get(index)
             .ok_or_else(|| Error(format!("no scanout target {index}")))?;
         let (width, height) = (target.width, target.height);
-        self.run(width, height, background, layers, Some((index, false)))?;
+        self.run(
+            width,
+            height,
+            background,
+            layers,
+            Some((index, false)),
+            damage,
+        )?;
         Ok(())
     }
 
@@ -486,13 +569,21 @@ impl VulkanCompositor {
         index: usize,
         background: u32,
         layers: &[Layer<'_>],
+        damage: Option<&[crate::Rect]>,
     ) -> Result<(), Error> {
         let target = self
             .scanout
             .get(index)
             .ok_or_else(|| Error(format!("no scanout target {index}")))?;
         let (width, height) = (target.width, target.height);
-        self.run(width, height, background, layers, Some((index, true)))?;
+        self.run(
+            width,
+            height,
+            background,
+            layers,
+            Some((index, true)),
+            damage,
+        )?;
         self.kept = Some((width, height));
         Ok(())
     }
@@ -539,7 +630,30 @@ impl VulkanCompositor {
         background: u32,
         layers: &[Layer<'_>],
         scanout: Option<(usize, bool)>,
+        damage: Option<&[crate::Rect]>,
     ) -> Result<Option<Vec<u32>>, Error> {
+        let output = crate::Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        // What to compose: the damage and what changed since the target held a frame, or the
+        // whole output (`None`) when its content is unknown or the damage is.
+        let known = match scanout {
+            Some((index, _)) => self
+                .scanout
+                .get(index)
+                .and_then(|target| target.stale.clone()),
+            None => (self.output_holds == Some((width, height))).then(Vec::new),
+        };
+        let regions = match (known, damage) {
+            (Some(mut regions), Some(damage)) => {
+                regions.extend_from_slice(damage);
+                Some(merged(regions, &output))
+            }
+            _ => None,
+        };
         // A scanout target, and whether its frame is also copied for `read_kept`.
         let (scanout, keep) = match scanout {
             Some((index, keep)) => (Some(index), keep),
@@ -573,7 +687,7 @@ impl VulkanCompositor {
 
         let copying = std::time::Instant::now();
         // The layers' pixels one after another, into the upload buffer.
-        let mut pushes = Vec::with_capacity(layers.len());
+        let mut layer_pushes = Vec::with_capacity(layers.len());
         let mut offset = 0usize;
         for layer in &layers {
             let mut push = Push {
@@ -608,9 +722,33 @@ impl VulkanCompositor {
                     offset += used / 4;
                 }
             }
-            pushes.push(push);
+            layer_pushes.push(push);
         }
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
+        // Every layer whole, or, region by region, the background and the parts of the layers
+        // within it.
+        let pushes: Vec<Push> = match &regions {
+            None => layer_pushes.iter().map(|push| push.whole()).collect(),
+            Some(regions) => regions
+                .iter()
+                .flat_map(|region| {
+                    let background = Push {
+                        x: region.x,
+                        y: region.y,
+                        width: region.width,
+                        height: region.height,
+                        out_width: width,
+                        out_height: height,
+                        mode: 2,
+                        color: background,
+                        ..Push::default()
+                    }
+                    .whole();
+                    std::iter::once(background)
+                        .chain(layer_pushes.iter().filter_map(|push| push.within(region)))
+                })
+                .collect(),
+        };
         let timing = self.queries != vk::QueryPool::null();
 
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -684,7 +822,9 @@ impl VulkanCompositor {
                     &[vk::BufferCopy::default().size(offset as u64 * 4)],
                 );
             }
-            device.cmd_fill_buffer(command, target, 0, out_bytes, background);
+            if regions.is_none() {
+                device.cmd_fill_buffer(command, target, 0, out_bytes, background);
+            }
             barrier(
                 vk::AccessFlags::TRANSFER_WRITE,
                 vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
@@ -716,7 +856,12 @@ impl VulkanCompositor {
                     0,
                     &push.bytes(),
                 );
-                device.cmd_dispatch(command, push.width.div_ceil(8), push.height.div_ceil(8), 1);
+                device.cmd_dispatch(
+                    command,
+                    push.count_x.div_ceil(8),
+                    push.count_y.div_ceil(8),
+                    1,
+                );
                 // Layers compose in order: each sees the one below written.
                 barrier(
                     vk::AccessFlags::SHADER_WRITE,
@@ -832,8 +977,23 @@ impl VulkanCompositor {
         };
         if let Some(index) = scanout {
             self.scanout[index].released = true;
+            // This target holds the frame now; the others lack what changed in it.
+            for (other, target) in self.scanout.iter_mut().enumerate() {
+                target.stale = if other == index {
+                    Some(Vec::new())
+                } else {
+                    match (target.stale.take(), damage) {
+                        (Some(mut stale), Some(damage)) => {
+                            stale.extend_from_slice(damage);
+                            Some(merged(stale, &output))
+                        }
+                        _ => None,
+                    }
+                };
+            }
             return Ok(None);
         }
+        self.output_holds = Some((width, height));
         Ok(Some(self.read_back(out_words)?))
     }
 
@@ -894,6 +1054,7 @@ impl VulkanCompositor {
                 width,
                 height,
                 released: false,
+                stale: None,
             });
             targets.push(ScanoutTarget {
                 fd,
@@ -925,6 +1086,10 @@ impl VulkanCompositor {
                 self.free(old);
             }
             rebind |= slot < 2;
+            if slot == 1 {
+                // A new output buffer holds no frame.
+                self.output_holds = None;
+            }
         }
         if rebind {
             let [Some(source), Some(output), ..] = &self.buffers else {
