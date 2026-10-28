@@ -88,7 +88,10 @@ async function audit(entry) {
     loader: { '.ttf': 'empty', '.otf': 'empty', '.woff2': 'empty', '.png': 'empty', '.svg': 'empty', '.lottie': 'empty', '.riv': 'empty' },
     plugins: [record],
   });
-  const files = Object.keys(result.metafile.inputs).filter((f) => !f.includes('node_modules'));
+  // Source modules only: fonts and images also appear in esbuild's inputs.
+  const files = Object.keys(result.metafile.inputs).filter(
+    (f) => !f.includes('node_modules') && /\.[cm]?[jt]sx?$/.test(f),
+  );
   // Named value imports from react-native: the core API surface the host must provide.
   const coreApi = new Set();
   for (const file of files) {
