@@ -57,6 +57,8 @@ pub struct Client {
     sequence: u64,
     /// The latest frames: surface, sequence, and what changed in them (`None`: everything).
     history: std::collections::VecDeque<(u32, u64, Option<Vec<Rect>>)>,
+    /// The descriptor the event last returned carried (a ClipboardSend's pipe).
+    descriptor: Option<OwnedFd>,
 }
 
 impl Client {
@@ -70,7 +72,7 @@ impl Client {
         let (mut state, hello) = ClientConnection::new(MIN_VERSION, VERSION);
         connection.send_request(&hello, None)?;
         state
-            .receive(&connection.recv_event()?)
+            .receive(&connection.recv_event()?.0)
             .map_err(|code| io::Error::other(format!("handshake: {code:?}")))?;
         Ok(Self {
             connection,
@@ -78,6 +80,7 @@ impl Client {
             next_buffer: 0,
             sequence: 0,
             history: std::collections::VecDeque::new(),
+            descriptor: None,
         })
     }
 
@@ -323,7 +326,10 @@ impl Client {
     /// Blocks for the next event; `None` once the compositor closes the connection.
     pub fn next_event(&mut self) -> io::Result<Option<Event>> {
         match self.connection.recv_event() {
-            Ok(event) => self.observe(event).map(Some),
+            Ok((event, fd)) => {
+                self.descriptor = fd;
+                self.observe(event).map(Some)
+            }
             Err(error) if closed(&error) => Ok(None),
             Err(error) => Err(error),
         }
@@ -332,11 +338,41 @@ impl Client {
     /// Returns a queued event without blocking.
     pub fn poll(&mut self) -> io::Result<Poll> {
         match self.connection.try_recv_event() {
-            Ok(Some(event)) => self.observe(event).map(Poll::Event),
+            Ok(Some((event, fd))) => {
+                self.descriptor = fd;
+                self.observe(event).map(Poll::Event)
+            }
             Ok(None) => Ok(Poll::Empty),
             Err(error) if closed(&error) => Ok(Poll::Closed),
             Err(error) => Err(error),
         }
+    }
+
+    /// Pastes `mime` from the clipboard content the compositor named `selection`, with the
+    /// serial of the user input that asked for it (ADR 0007). Returns the read end of the pipe
+    /// its owner writes the content into: it reaches its end when the owner is done, or at once
+    /// if the paste was refused.
+    pub fn receive_clipboard(
+        &self,
+        selection: u32,
+        mime: TextChunk,
+        serial: u64,
+    ) -> io::Result<OwnedFd> {
+        let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+        let request = Request::ClipboardReceive {
+            selection,
+            mime,
+            serial,
+        };
+        self.connection
+            .send_request(&request, Some(write.as_fd()))?;
+        Ok(read)
+    }
+
+    /// The descriptor the event last returned carried, if any: a ClipboardSend's pipe, to write
+    /// the offer's content into and close. It is dropped (closed) with the next event.
+    pub fn take_descriptor(&mut self) -> Option<OwnedFd> {
+        self.descriptor.take()
     }
 
     /// Frees released buffers for reuse; a protocol error ends the connection.

@@ -96,6 +96,16 @@ messages! {
         // What changed in the next Submit's buffer since the surface's previous one, in buffer
         // pixels (ADR 0005); none damages the whole surface.
         22 => Damage { surface: u32, rect: Rect },
+        // The clipboard (ADR 0007). An offer of content the client holds, begun with a user
+        // input's serial, its media types, then committed as the clipboard while the client has
+        // keyboard focus; or the owner empties it.
+        23 => ClipboardOffer { offer: u32, serial: u64 },
+        24 => ClipboardType { offer: u32, mime: TextChunk },
+        25 => ClipboardCommit { offer: u32 },
+        26 => ClipboardClear { serial: u64 },
+        // A paste: one type of the clipboard's content, written by its owner into the pipe this
+        // request carries, while the client has keyboard focus, with a user input's serial.
+        27 => ClipboardReceive { selection: u32, mime: TextChunk, serial: u64 },
     }
 }
 
@@ -125,6 +135,22 @@ messages! {
         17 => AccessibleText { client: u32, surface: u32, index: u32, field: AccessibleField, text: TextChunk },
         18 => AccessibilityCommitted { client: u32, surface: u32 },
         19 => AccessibilityRemoved { client: u32, surface: u32 },
+        // To the client with keyboard focus: what the clipboard holds now (`selection` names it,
+        // not its owner), its types one by one, or that it is empty.
+        20 => ClipboardTypes { selection: u32, count: u8 },
+        21 => ClipboardType { selection: u32, mime: TextChunk },
+        22 => ClipboardEmpty {},
+        // To the clipboard's owner: write that type of the offer into the pipe this event
+        // carries, then close it.
+        23 => ClipboardSend { offer: u32, mime: TextChunk },
+    }
+}
+
+impl Event {
+    /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's
+    /// content into); every other event carries none.
+    pub fn carries_fd(&self) -> bool {
+        matches!(self, Event::ClipboardSend { .. })
     }
 }
 
@@ -132,7 +158,10 @@ impl Request {
     /// Whether this request must carry exactly one file descriptor; every other request must
     /// carry none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Request::AttachBuffer { .. })
+        matches!(
+            self,
+            Request::AttachBuffer { .. } | Request::ClipboardReceive { .. }
+        )
     }
 
     /// The validated buffer layout of an AttachBuffer.

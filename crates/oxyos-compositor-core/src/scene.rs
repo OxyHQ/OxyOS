@@ -30,6 +30,12 @@ pub const MAX_POPUP_DEPTH: usize = 8;
 pub const MAX_OUTPUTS: usize = 16;
 pub const MAX_TOUCH_POINTS: usize = 10;
 pub const MAX_BUFFERS_PER_CLIENT: usize = 128;
+/// Media types an offer may name (ADR 0007).
+pub const MAX_CLIPBOARD_TYPES: usize = 16;
+/// Offers a client may have begun and not committed.
+pub const MAX_CLIPBOARD_OFFERS: usize = 4;
+/// The latest user inputs per client whose serials authorize clipboard requests.
+pub const RECENT_INPUTS: usize = 16;
 /// Output scale is expressed in 120ths: 120 = 1x, 180 = 1.5x.
 pub const SCALE_DENOMINATOR: u32 = 120;
 const MIN_VISIBLE: i64 = 64;
@@ -199,6 +205,15 @@ struct BufferEntry {
     destroyed: bool,
 }
 
+/// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
+#[derive(Clone, Debug)]
+struct Clipboard {
+    owner: ClientId,
+    offer: u32,
+    types: Vec<TextChunk>,
+    selection: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct Press {
     serial: u64,
@@ -262,6 +277,18 @@ pub struct Scene {
     /// Per client: the serial at connect or of the latest user input delivered to it. A window
     /// mapped after the user interacted elsewhere does not take focus.
     activation: BTreeMap<ClientId, u64>,
+    /// Per client: the serials of its latest user inputs (RECENT_INPUTS), oldest first.
+    inputs: BTreeMap<ClientId, std::collections::VecDeque<u64>>,
+    /// The clipboard (ADR 0007): an offer its owner committed; empty if none.
+    clipboard: Option<Clipboard>,
+    /// Offers begun and not committed, by client and the client's offer number: their types.
+    offers: BTreeMap<(ClientId, u32), Vec<TextChunk>>,
+    /// Names each clipboard content for receivers, never reused.
+    selections: u32,
+    /// The client last told what the clipboard holds, and the content it was told about.
+    told: Option<(ClientId, Option<u32>)>,
+    /// The owner that must answer the paste the request handled last (Scene::take_transfer).
+    transfer: Option<ClientId>,
     moving: Option<Move>,
     locked: bool,
     shortcuts: BTreeSet<u32>,
@@ -512,6 +539,21 @@ impl Scene {
         if self.clients.remove(&client).is_none() {
             return;
         }
+        // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
+        // on, so the client focus reaches is told once.
+        self.inputs.remove(&client);
+        self.offers.retain(|(owner, _), _| *owner != client);
+        if self
+            .clipboard
+            .as_ref()
+            .is_some_and(|clipboard| clipboard.owner == client)
+        {
+            self.clipboard = None;
+            self.tell_clipboard();
+        }
+        if self.told.is_some_and(|(told, _)| told == client) {
+            self.told = None;
+        }
         let keys: Vec<SurfaceKey> = self
             .nodes
             .keys()
@@ -721,6 +763,76 @@ impl Scene {
                 self.validate_anchor(node.parent.expect("popups have parents"), &positioner)?;
                 self.nodes.get_mut(&key(surface)).expect("present").role = Role::Popup(positioner);
                 self.reposition_popup(key(surface));
+                Ok(())
+            }
+            Request::ClipboardOffer { offer, serial } => {
+                // Only with a user input of its own: a background client cannot offer.
+                if !self.recent_input(client, serial) {
+                    return Ok(());
+                }
+                let begun = self.offers.range((client, 0)..=(client, u32::MAX)).count();
+                if begun >= MAX_CLIPBOARD_OFFERS && !self.offers.contains_key(&(client, offer)) {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                self.offers.insert((client, offer), Vec::new());
+                Ok(())
+            }
+            Request::ClipboardType { offer, mime } => {
+                // An offer that was refused takes no types.
+                let Some(types) = self.offers.get_mut(&(client, offer)) else {
+                    return Ok(());
+                };
+                if types.len() >= MAX_CLIPBOARD_TYPES {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                if !types.contains(&mime) {
+                    types.push(mime);
+                }
+                Ok(())
+            }
+            Request::ClipboardCommit { offer } => {
+                let types = self.offers.remove(&(client, offer));
+                // The clipboard changes only for the client the user is typing into.
+                if let Some(types) = types.filter(|types| !types.is_empty()) {
+                    if self.focused_client() == Some(client) {
+                        self.selections += 1;
+                        self.clipboard = Some(Clipboard {
+                            owner: client,
+                            offer,
+                            types,
+                            selection: self.selections,
+                        });
+                        self.tell_clipboard();
+                    }
+                }
+                Ok(())
+            }
+            Request::ClipboardClear { serial } => {
+                let owner = self.clipboard.as_ref().map(|clipboard| clipboard.owner);
+                if owner == Some(client) && self.recent_input(client, serial) {
+                    self.clipboard = None;
+                    self.tell_clipboard();
+                }
+                Ok(())
+            }
+            Request::ClipboardReceive {
+                selection,
+                mime,
+                serial,
+            } => {
+                // A paste: by the client the user is typing into, with an input of its own, of
+                // the content it was told about, in one of its types. Anything else is refused,
+                // and the receiver's pipe is closed unanswered.
+                let allowed =
+                    self.focused_client() == Some(client) && self.recent_input(client, serial);
+                let send = self.clipboard.as_ref().filter(|clipboard| {
+                    allowed && clipboard.selection == selection && clipboard.types.contains(&mime)
+                });
+                if let Some(clipboard) = send {
+                    let (owner, offer) = (clipboard.owner, clipboard.offer);
+                    self.transfer = Some(owner);
+                    self.emit(owner, Event::ClipboardSend { offer, mime });
+                }
                 Ok(())
             }
             Request::Damage { surface, rect } => {
@@ -1333,6 +1445,61 @@ impl Scene {
 
     // ---- lifecycle helpers ---------------------------------------------------------------
 
+    // ---- clipboard (ADR 0007) -------------------------------------------------------------
+
+    /// Whether `serial` is one of the latest user inputs delivered to `client`.
+    fn recent_input(&self, client: ClientId, serial: u64) -> bool {
+        self.inputs
+            .get(&client)
+            .is_some_and(|inputs| inputs.contains(&serial))
+    }
+
+    /// The client whose surface has keyboard focus.
+    fn focused_client(&self) -> Option<ClientId> {
+        self.focus.map(|key| key.client)
+    }
+
+    /// Tells the client with keyboard focus what the clipboard holds, if it was not told yet:
+    /// its types under the name it has for receivers, or that it is empty.
+    fn tell_clipboard(&mut self) {
+        let Some(client) = self.focused_client() else {
+            self.told = None;
+            return;
+        };
+        let selection = self.clipboard.as_ref().map(|clipboard| clipboard.selection);
+        if self.told == Some((client, selection)) {
+            return;
+        }
+        self.told = Some((client, selection));
+        match self.clipboard.clone() {
+            Some(clipboard) => {
+                self.emit(
+                    client,
+                    Event::ClipboardTypes {
+                        selection: clipboard.selection,
+                        count: clipboard.types.len() as u8,
+                    },
+                );
+                for mime in clipboard.types {
+                    self.emit(
+                        client,
+                        Event::ClipboardType {
+                            selection: clipboard.selection,
+                            mime,
+                        },
+                    );
+                }
+            }
+            None => self.emit(client, Event::ClipboardEmpty {}),
+        }
+    }
+
+    /// The owner that must answer the paste the request handled last, if it was allowed: the
+    /// compositor passes it the receiver's pipe with the ClipboardSend event queued for it.
+    pub fn take_transfer(&mut self) -> Option<ClientId> {
+        self.transfer.take()
+    }
+
     fn emit(&mut self, client: ClientId, event: Event) {
         if self.clients.contains_key(&client) {
             self.events.push((client, event));
@@ -1753,6 +1920,7 @@ impl Scene {
             );
         }
         self.focus = key;
+        self.tell_clipboard();
     }
 
     /// Focus target inside a window group: its topmost live modal dialog, else the window.
@@ -2192,6 +2360,11 @@ impl Scene {
     }
 
     fn record_press(&mut self, serial: u64, target: SurfaceKey, pointer: bool) {
+        let inputs = self.inputs.entry(target.client).or_default();
+        inputs.push_back(serial);
+        if inputs.len() > RECENT_INPUTS {
+            inputs.pop_front();
+        }
         self.last_press = Some(Press {
             serial,
             client: target.client,

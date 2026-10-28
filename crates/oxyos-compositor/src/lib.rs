@@ -10,7 +10,7 @@ use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection, Size};
 use rustix::event::{poll, PollFd, PollFlags};
-use rustix::fd::AsFd;
+use rustix::fd::{AsFd, OwnedFd};
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
@@ -29,7 +29,10 @@ const HELLO_DEADLINE: Duration = Duration::from_secs(2);
 pub struct Peer {
     connection: Connection,
     protocol: ServerConnection,
-    outbox: VecDeque<Event>,
+    /// Events not sent yet, each with the descriptor it carries (a ClipboardSend's pipe).
+    outbox: VecDeque<(Event, Option<OwnedFd>)>,
+    /// Pipes of pastes this client must answer, in the order of their ClipboardSend events.
+    pipes: VecDeque<OwnedFd>,
     buffers: HashMap<u64, SharedBuffer>,
     /// Presses routed to this client (the development compositor counts them).
     pub presses: usize,
@@ -200,6 +203,7 @@ impl Compositor {
                 connection,
                 protocol: ServerConnection::new(),
                 outbox: VecDeque::new(),
+                pipes: VecDeque::new(),
                 buffers: HashMap::new(),
                 presses: 0,
                 accepted: Instant::now(),
@@ -227,7 +231,7 @@ impl Compositor {
         if let Some(peer) = self.peers.get(&client) {
             let _ = peer
                 .connection
-                .try_send_event(&Event::ProtocolError { code });
+                .try_send_event(&Event::ProtocolError { code }, None);
         }
         self.disconnect(client);
     }
@@ -262,7 +266,7 @@ impl Compositor {
         match peer.protocol.receive(&request) {
             Ok(Some(welcome)) => {
                 let credentials = peer.connection.peer_credentials();
-                peer.outbox.push_back(welcome);
+                peer.outbox.push_back((welcome, None));
                 let grants = credentials.ok().and_then(|c| self.grants_for(c));
                 match grants.map(|grants| self.scene.connect(client, grants)) {
                     Some(Ok(())) => {}
@@ -273,6 +277,22 @@ impl Compositor {
             Ok(None) => {}
             Err(code) => return self.fail(client, code),
         }
+        let fd = match (request, fd) {
+            (Request::ClipboardReceive { .. }, Some(pipe)) => {
+                if let Err(code) = self.scene.handle(client, request) {
+                    return self.fail(client, code);
+                }
+                // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend; a
+                // refused one is closed here, and the receiver reads its end at once.
+                if let Some(owner) = self.scene.take_transfer() {
+                    if let Some(peer) = self.peers.get_mut(&owner) {
+                        peer.pipes.push_back(pipe);
+                    }
+                }
+                return;
+            }
+            (_, fd) => fd,
+        };
         if let (Some(layout), Some(fd), Request::AttachBuffer { buffer, .. }) =
             (request.buffer_layout(), fd, request)
         {
@@ -341,13 +361,24 @@ impl Compositor {
                 ) {
                     peer.presses += 1;
                 }
-                peer.outbox.push_back(event);
+                let pipe = if event.carries_fd() {
+                    match peer.pipes.pop_front() {
+                        Some(pipe) => Some(pipe),
+                        None => continue,
+                    }
+                } else {
+                    None
+                };
+                peer.outbox.push_back((event, pipe));
             }
         }
         let mut unresponsive = Vec::new();
         for (client, peer) in &mut self.peers {
-            while let Some(event) = peer.outbox.front() {
-                match peer.connection.try_send_event(event) {
+            while let Some((event, pipe)) = peer.outbox.front() {
+                match peer
+                    .connection
+                    .try_send_event(event, pipe.as_ref().map(|pipe| pipe.as_fd()))
+                {
                     Ok(true) => {
                         peer.outbox.pop_front();
                     }

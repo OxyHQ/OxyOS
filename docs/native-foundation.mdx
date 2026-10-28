@@ -97,6 +97,11 @@ Input semantics:
 | Request | 20 | AccessibilityCommit | 5 |
 | Request | 21 | AccessibilityAction | 14 |
 | Request | 22 | Damage | 21 |
+| Request | 23 | ClipboardOffer | 13 |
+| Request | 24 | ClipboardType | 38 |
+| Request | 25 | ClipboardCommit | 5 |
+| Request | 26 | ClipboardClear | 9 |
+| Request | 27 | ClipboardReceive | 46 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -116,10 +121,14 @@ Input semantics:
 | Event | 17 | AccessibleText | 47 |
 | Event | 18 | AccessibilityCommitted | 9 |
 | Event | 19 | AccessibilityRemoved | 9 |
+| Event | 20 | ClipboardTypes | 6 |
+| Event | 21 | ClipboardType | 38 |
+| Event | 22 | ClipboardEmpty | 1 |
+| Event | 23 | ClipboardSend | 38 |
 
-The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
+The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
-Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method), not implemented yet), clipboard (decided in [ADR 0007](./adr/0007-clipboard), not implemented yet), accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method), not implemented yet), accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Transport and buffers
 

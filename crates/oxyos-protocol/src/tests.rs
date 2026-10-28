@@ -109,6 +109,21 @@ fn requests() -> Vec<Request> {
             surface: 1,
             rect: Rect::new(-2, 3, 40, 5),
         },
+        Request::ClipboardOffer {
+            offer: 4,
+            serial: 9,
+        },
+        Request::ClipboardType {
+            offer: 4,
+            mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
+        },
+        Request::ClipboardCommit { offer: 4 },
+        Request::ClipboardClear { serial: 10 },
+        Request::ClipboardReceive {
+            selection: 2,
+            mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
+            serial: 11,
+        },
     ]
 }
 
@@ -218,6 +233,19 @@ fn events() -> Vec<Event> {
         Event::AccessibilityRemoved {
             client: 3,
             surface: 2,
+        },
+        Event::ClipboardTypes {
+            selection: 2,
+            count: 1,
+        },
+        Event::ClipboardType {
+            selection: 2,
+            mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
+        },
+        Event::ClipboardEmpty {},
+        Event::ClipboardSend {
+            offer: 4,
+            mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
         },
     ]
 }

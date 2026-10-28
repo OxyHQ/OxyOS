@@ -6,7 +6,7 @@ order: 16
 
 # ADR 0007: The clipboard
 
-Status: **accepted**; not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
+Status: **accepted; step 1 implemented** (the protocol, the compositor and `oxyos-client`; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
 
 ## Problem
 
@@ -61,6 +61,22 @@ What a clipboard needs is a protocol matter, not a host one:
 1. **Protocol and scene.** The requests and events, descriptors on events in `oxyos-ipc`, and the scene's ownership, focus and serial rules, with tests for each refusal: a background offer, a receive without focus, a stale serial, a stale selection, an owner gone mid-paste.
 2. **`oxyos-client` and the C ABI.** Offers with their content held by the client library (it answers `ClipboardSend` itself, from a writer thread), and receives as a pipe the caller reads.
 3. **The Bloom host.** Ctrl+C, Ctrl+X and Ctrl+V in text inputs, and `expo-clipboard`. A scenario copies between two fields, and between two applications under one compositor, checking the exact events and that a background application's offer and receive are refused.
+
+## Results
+
+**Step 1** (the protocol, the scene, `oxyos-ipc` and the compositor):
+- Five requests and four events, in the protocol's table (`docs/native-foundation.mdx`). Events can now carry a descriptor, checked like requests: one exactly when its kind takes one, so a `ClipboardSend` without its pipe, or another event with one, is refused.
+- The scene keeps each client's 16 latest user inputs; an offer and a clear need one of them, a commit and a paste also keyboard focus. The client focus reaches is told what the clipboard holds, once.
+- The compositor passes the pipe of an allowed paste to the owner with its `ClipboardSend`, and closes a refused one. `oxyos-client` hands an event's descriptor over (`take_descriptor`) and pastes into a pipe it makes (`receive_clipboard`).
+- Scene tests cover a copy and a paste with their exact events, and every refusal:
+  - an offer with another client's serial;
+  - a commit after focus left;
+  - a paste without focus, of a type not offered, of replaced content, or with a serial older than the latest 16;
+  - the owner clearing and leaving;
+  - the quotas.
+- A test through real sockets has one application copy and another paste "hola OxyOS" through the pipe; it passes ten runs in ten. Without the compositor passing the pipe, it fails, and so does the refusals test without the focus rule.
+
+The C ABI and the Bloom host (steps 2 and 3) are next; until then the ABI skips clipboard events.
 
 ## Consequences
 

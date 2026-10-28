@@ -9,7 +9,7 @@ fn connected() -> (Client, Connection) {
         let mut protocol = ServerConnection::new();
         let (hello, _) = server.recv_request().unwrap();
         let welcome = protocol.receive(&hello).unwrap().expect("welcome");
-        server.send_event(&welcome).unwrap();
+        server.send_event(&welcome, None).unwrap();
         server
     });
     let client = Client::handshake(client).unwrap();
@@ -62,10 +62,13 @@ fn released_buffers_are_reused_and_busy_ones_are_not() {
     let (second, _, _) = submitted(&server);
     assert_ne!(first, second);
     server
-        .send_event(&Event::Released {
-            surface: 1,
-            buffer: first,
-        })
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: first,
+            },
+            None,
+        )
         .unwrap();
     assert!(matches!(
         client.poll().unwrap(),
@@ -87,10 +90,13 @@ fn a_resize_destroys_idle_buffers_of_the_old_size() {
     client.present(1, 1, small, &pixels(small, 1)).unwrap();
     let (old, _, _) = submitted(&server);
     server
-        .send_event(&Event::Released {
-            surface: 1,
-            buffer: old,
-        })
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: old,
+            },
+            None,
+        )
         .unwrap();
     client.poll().unwrap();
     let large = Size::new(3, 3);
@@ -136,9 +142,12 @@ fn polling_reports_empty_and_closed_and_protocol_errors_end_the_connection() {
     let (mut client, server) = connected();
     assert_eq!(client.poll().unwrap(), Poll::Empty);
     server
-        .send_event(&Event::ProtocolError {
-            code: oxyos_protocol::ErrorCode::InvalidBuffer,
-        })
+        .send_event(
+            &Event::ProtocolError {
+                code: oxyos_protocol::ErrorCode::InvalidBuffer,
+            },
+            None,
+        )
         .unwrap();
     assert!(client.poll().is_err());
     drop(server);
@@ -161,10 +170,13 @@ fn a_frame_in_another_format_takes_a_buffer_of_that_format() {
     client.present(1, 1, extent, &pixels(extent, 1)).unwrap();
     let (opaque, _, _) = submitted(&server);
     server
-        .send_event(&Event::Released {
-            surface: 1,
-            buffer: opaque,
-        })
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: opaque,
+            },
+            None,
+        )
         .unwrap();
     client.poll().unwrap();
     client
@@ -355,10 +367,13 @@ fn a_reused_buffer_receives_only_what_changed_since_it_was_written() {
     };
     until_submit(&server);
     server
-        .send_event(&Event::Released {
-            surface: 1,
-            buffer: a,
-        })
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: a,
+            },
+            None,
+        )
         .unwrap();
     client.poll().unwrap();
     // The third frame changes another corner, and (against what it promises) everything else
@@ -402,10 +417,13 @@ fn without_damage_or_history_a_buffer_is_written_whole() {
     client.present(1, 1, extent, &pixels(extent, 1)).unwrap();
     submitted(&server);
     server
-        .send_event(&Event::Released {
-            surface: 1,
-            buffer: a,
-        })
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: a,
+            },
+            None,
+        )
         .unwrap();
     client.poll().unwrap();
     let corner = [Rect::new(0, 0, 1, 1)];

@@ -353,7 +353,7 @@ fn a_session_through_the_c_abi() {
         let mut protocol = ServerConnection::new();
         let (hello, _) = server.recv_request().unwrap();
         server
-            .send_event(&protocol.receive(&hello).unwrap().unwrap())
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
         assert_eq!(
             server.recv_request().unwrap().0,
@@ -363,13 +363,16 @@ fn a_session_through_the_c_abi() {
             }
         );
         server
-            .send_event(&Event::Configure {
-                surface: 1,
-                serial: 5,
-                rect: Rect::new(0, 0, 2, 1),
-                scale_120: 120,
-                fullscreen: false,
-            })
+            .send_event(
+                &Event::Configure {
+                    surface: 1,
+                    serial: 5,
+                    rect: Rect::new(0, 0, 2, 1),
+                    scale_120: 120,
+                    fullscreen: false,
+                },
+                None,
+            )
             .unwrap();
         let (attach, fd) = server.recv_request().unwrap();
         let shared = SharedBuffer::import(fd.unwrap(), attach.buffer_layout().unwrap()).unwrap();
@@ -452,7 +455,7 @@ fn accessibility_through_the_c_abi() {
         let mut protocol = ServerConnection::new();
         let (hello, _) = server.recv_request().unwrap();
         server
-            .send_event(&protocol.receive(&hello).unwrap().unwrap())
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
         let mut requests = Vec::new();
         loop {
@@ -464,12 +467,15 @@ fn accessibility_through_the_c_abi() {
             }
         }
         server
-            .send_event(&Event::AccessibilityAction {
-                surface: 1,
-                serial: 77,
-                index: 1,
-                action: AccessibleAction::Activate,
-            })
+            .send_event(
+                &Event::AccessibilityAction {
+                    surface: 1,
+                    serial: 77,
+                    index: 1,
+                    action: AccessibleAction::Activate,
+                },
+                None,
+            )
             .unwrap();
         requests
     });

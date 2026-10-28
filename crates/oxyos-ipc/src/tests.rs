@@ -39,10 +39,10 @@ fn messages_and_descriptors_travel_together() {
     let fd = fd.expect("descriptor arrives with its message");
     SharedBuffer::import(fd, layout(4, 4)).unwrap();
     server
-        .send_event(&Event::Welcome { version: VERSION })
+        .send_event(&Event::Welcome { version: VERSION }, None)
         .unwrap();
     assert_eq!(
-        client.recv_event().unwrap(),
+        client.recv_event().unwrap().0,
         Event::Welcome { version: VERSION }
     );
 }
@@ -200,28 +200,63 @@ fn a_client_that_stops_reading_never_blocks_the_sender() {
         focused: true,
     };
     let mut sent = 0;
-    while server.try_send_event(&event).unwrap() {
+    while server.try_send_event(&event, None).unwrap() {
         sent += 1;
         assert!(sent < 1_000_000, "the queue must fill");
     }
     assert!(sent > 0);
     // Once the client drains one packet there is room again.
-    assert_eq!(client.recv_event().unwrap(), event);
-    assert!(server.try_send_event(&event).unwrap());
+    assert_eq!(client.recv_event().unwrap().0, event);
+    assert!(server.try_send_event(&event, None).unwrap());
 }
 
 #[test]
 fn a_client_polls_for_events_without_blocking() {
     let (client, server) = Connection::pair().unwrap();
-    assert_eq!(client.try_recv_event().unwrap(), None);
+    assert!(client.try_recv_event().unwrap().is_none());
     let event = Event::Focus {
         surface: 1,
         focused: true,
     };
-    server.send_event(&event).unwrap();
-    assert_eq!(client.try_recv_event().unwrap(), Some(event));
-    assert_eq!(client.try_recv_event().unwrap(), None);
+    server.send_event(&event, None).unwrap();
+    assert_eq!(
+        client.try_recv_event().unwrap().map(|(event, _)| event),
+        Some(event)
+    );
+    assert!(client.try_recv_event().unwrap().is_none());
     drop(server);
     let closed = client.try_recv_event().unwrap_err();
     assert_eq!(closed.kind(), io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn a_clipboard_pipe_travels_with_its_event_and_only_with_it() {
+    use std::io::{Read, Write};
+    let (client, server) = Connection::pair().unwrap();
+    let (read, write) = rustix::pipe::pipe().unwrap();
+    let send = Event::ClipboardSend {
+        offer: 3,
+        mime: oxyos_protocol::TextChunk::new("text/plain;charset=utf-8").unwrap(),
+    };
+    // The sender refuses the event without its pipe, and an event that takes none with one.
+    assert!(server.send_event(&send, None).is_err());
+    assert!(server
+        .send_event(&Event::ClipboardEmpty {}, Some(write.as_fd()))
+        .is_err());
+    server.send_event(&send, Some(write.as_fd())).unwrap();
+    drop(write);
+    let (event, pipe) = client.recv_event().unwrap();
+    assert_eq!(event, send);
+    // The pipe that arrived is the one sent: what is written into it is read at its other end.
+    let mut pipe = std::fs::File::from(pipe.expect("the pipe arrives with its event"));
+    pipe.write_all(b"hola").unwrap();
+    drop(pipe);
+    let mut text = String::new();
+    std::fs::File::from(read).read_to_string(&mut text).unwrap();
+    assert_eq!(text, "hola");
+    // A malformed peer sending the event without its pipe is refused.
+    let mut packet = Vec::new();
+    write_event(&mut packet, &send).unwrap();
+    server.send_raw(&packet, &[]).unwrap();
+    assert!(client.recv_event().is_err());
 }

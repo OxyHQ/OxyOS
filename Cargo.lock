@@ -1133,6 +1133,7 @@ dependencies = [
 name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
+ "oxyos-client",
  "oxyos-compositor-core",
  "oxyos-gpu",
  "oxyos-input",
