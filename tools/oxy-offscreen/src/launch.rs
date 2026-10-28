@@ -1074,6 +1074,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if console_input > 0 {
         return Err(format!("{console_input} bytes typed reached the console").into());
     }
+    // The last frame on its way to the display completes before the display is closed.
+    session.compositor.complete_flip(true);
     let display = match session.compositor.display.take() {
         Some(display) => {
             // A frame is handed over at any point of a refresh and should flip at the next

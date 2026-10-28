@@ -85,6 +85,9 @@ struct Compositor {
     /// For every frame shown: when it was handed to the display and when it flipped
     /// (CLOCK_MONOTONIC).
     flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// The frame on its way to the display: when it was handed over. It completes at its flip,
+    /// in a later turn; no frame is composed meanwhile (one on the display at a time).
+    pending_flip: Option<std::time::Duration>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
     /// long from then to handing it to the display, in milliseconds.
     composing_since: std::time::Duration,
@@ -277,6 +280,9 @@ impl Compositor {
     /// Composes the in-flight frame on the CPU, then completes it. Without new client frames
     /// the output is recomposed only if the scene changed (a surface went away, moved, ...).
     fn frame(&mut self) {
+        if self.pending_flip.is_some() {
+            return;
+        }
         let started = self.scene.begin_frame();
         let list = self.scene.frame_list();
         if started == 0 && list == self.composed {
@@ -351,22 +357,55 @@ impl Compositor {
         }
         self.composed = self.scene.frame_list();
         self.frames += 1;
-        // On a display, the frame completes when it is on screen, at the kernel's flip time.
-        let flip = self.show(&layers);
-        let (timestamp_ns, clock) = match flip {
-            Some(flip) => (
-                u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
-                Clock::Monotonic,
-            ),
-            None => (0, Clock::Synthetic),
-        };
-        self.scene.end_frame(timestamp_ns, clock);
+        // On a display, the frame completes when it is on screen, at the kernel's flip time, in
+        // a later turn (`complete_flip`).
+        if self.present(&layers) {
+            return;
+        }
+        self.scene.end_frame(0, Clock::Synthetic);
         self.retire();
         if self.gpu_only {
+            self.flush();
+            self.framebuffer_from_gpu(&layers);
+        }
+    }
+
+    /// Completes the frame on its way to the display once it has flipped, at the kernel's flip
+    /// time; with `wait`, waits for the flip (before giving the display away, or at the end).
+    fn complete_flip(&mut self, wait: bool) {
+        let Some(submitted) = self.pending_flip else {
+            return;
+        };
+        let flip = match &self.display {
+            Some(display) if wait => display.wait_flip().map(Some),
+            Some(display) => display.flip_done(),
+            None => Err(std::io::Error::other("the display went away")),
+        };
+        let (timestamp_ns, clock) = match flip {
+            Ok(None) => return,
+            Ok(Some(flip)) => {
+                self.flips.push((submitted, flip));
+                (
+                    u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
+                    Clock::Monotonic,
+                )
+            }
+            Err(error) => {
+                eprintln!("[kms] {error}; display output stops");
+                self.display = None;
+                // Composed again for the director's checks, without the display.
+                self.composed.clear();
+                (0, Clock::Synthetic)
+            }
+        };
+        self.pending_flip = None;
+        self.scene.end_frame(timestamp_ns, clock);
+        self.retire();
+        if self.gpu_only && clock == Clock::Monotonic {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
-            self.framebuffer_from_gpu(&layers);
+            self.framebuffer_from_gpu(&[]);
         }
     }
 
@@ -379,6 +418,8 @@ impl Compositor {
         for switch in terminal.switches()? {
             match switch {
                 oxy_vt::Switch::Release if !self.away => {
+                    // The frame on its way is shown before the display is given away.
+                    self.complete_flip(true);
                     if let Some(display) = &mut self.display {
                         display.suspend()?;
                     }
@@ -513,15 +554,17 @@ impl Compositor {
         }
     }
 
-    /// With `--kms`: shows the composed output centred on the display and waits for its flip;
-    /// returns the flip's CLOCK_MONOTONIC time. With `--gpu` too, the frame is composed on the
-    /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
-    /// error ends display output.
-    fn show(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> Option<std::time::Duration> {
+    /// With `--kms`: hands the composed output, centred, to the display, which flips to it at
+    /// its next refresh (`complete_flip`); true once handed over. With `--gpu` too, the frame
+    /// is composed on the Vulkan device straight into a scanout buffer, with no copy through
+    /// the CPU. A display error ends display output.
+    fn present(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> bool {
         if self.away {
-            return None;
+            return false;
         }
-        let display = self.display.as_mut()?;
+        let Some(display) = self.display.as_mut() else {
+            return false;
+        };
         let (width, height) = display.size();
         if let (Some(gpu), false) = (&mut self.gpu, self.scanout.is_empty()) {
             let dx = (width.saturating_sub(OUTPUT.width) / 2) as i32;
@@ -547,21 +590,9 @@ impl Compositor {
             let submitted = monotonic();
             self.compositions
                 .push((submitted - self.composing_since).as_secs_f64() * 1e3);
-            let flip = composed
-                .and_then(|()| display.present_framebuffer(self.scanout[back]))
-                .and_then(|()| display.wait_flip());
+            let presented = composed.and_then(|()| display.present_framebuffer(self.scanout[back]));
             self.scanout_back = 1 - back;
-            return match flip {
-                Ok(flip) => {
-                    self.flips.push((submitted, flip));
-                    Some(flip)
-                }
-                Err(error) => {
-                    eprintln!("[kms] {error}; display output stops");
-                    self.display = None;
-                    None
-                }
-            };
+            return self.handed_over(presented, submitted);
         }
         let mut pixels = vec![DESKTOP; width as usize * height as usize];
         let dx = (width.saturating_sub(OUTPUT.width) / 2) as usize;
@@ -582,18 +613,24 @@ impl Compositor {
         let submitted = monotonic();
         self.compositions
             .push((submitted - self.composing_since).as_secs_f64() * 1e3);
-        let flip = drawn
-            .and_then(|()| display.present())
-            .and_then(|()| display.wait_flip());
-        match flip {
-            Ok(flip) => {
-                self.flips.push((submitted, flip));
-                Some(flip)
+        let presented = drawn.and_then(|()| display.present());
+        self.handed_over(presented, submitted)
+    }
+
+    fn handed_over(
+        &mut self,
+        presented: std::io::Result<()>,
+        submitted: std::time::Duration,
+    ) -> bool {
+        match presented {
+            Ok(()) => {
+                self.pending_flip = Some(submitted);
+                true
             }
             Err(error) => {
                 eprintln!("[kms] {error}; display output stops");
                 self.display = None;
-                None
+                false
             }
         }
     }
@@ -621,13 +658,20 @@ impl Compositor {
         self.follow_terminal()?;
         self.read_input();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
-        // Poll the listener and every client; never block on any one of them.
+        // Poll the listener, every client and, with a frame on its way, the display (its flip);
+        // never block on any one of them.
         let readable: Vec<bool> = {
-            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 1);
+            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 2);
             fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
             for client in &clients {
                 fds.push(PollFd::from_borrowed_fd(
                     self.peers[client].connection.as_fd(),
+                    PollFlags::IN,
+                ));
+            }
+            if let (Some(display), Some(_)) = (&self.display, self.pending_flip) {
+                fds.push(PollFd::from_borrowed_fd(
+                    display.card().as_fd(),
                     PollFlags::IN,
                 ));
             }
@@ -643,6 +687,7 @@ impl Compositor {
                 Err(error) => return Err(error.into()),
             }
         };
+        self.complete_flip(false);
         if readable[0] {
             self.accept(listener)?;
         }
@@ -825,6 +870,7 @@ impl Session {
             scanout: Vec::new(),
             scanout_back: 0,
             flips: Vec::new(),
+            pending_flip: None,
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             terminal: None,
