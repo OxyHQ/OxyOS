@@ -1,0 +1,32 @@
+{
+  "website": {
+    "repository": "OxyHQ/website",
+    "revision": "f38826bf478a0d54f65cda117444c6c07a88a54e",
+    "files": [
+      "inbox.png",
+      "mention.png",
+      "alia.svg",
+      "allo.png",
+      "clarity.png",
+      "noted.png",
+      "schedio.png",
+      "codea.png",
+      "homiio.png",
+      "moovo.png",
+      "mercaria.png",
+      "peable.png",
+      "faircoin-wallet.png",
+      "goway.png",
+      "commons-app.png",
+      "accounts.png"
+    ],
+    "overrides": {
+      "alia.svg": "public/images/apps/alia-mark.svg"
+    }
+  },
+  "astro": {
+    "repository": "OxyHQ/Astro",
+    "path": "apps/browser/assets/app-icon.png",
+    "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74"
+  }
+}

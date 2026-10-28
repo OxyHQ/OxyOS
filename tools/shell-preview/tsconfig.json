@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "types": ["vite/client", "node"],
+    "paths": {
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "react-native": [
+        "./node_modules/react-native/types_generated/index.d.ts"
+      ],
+      "react-native-svg": [
+        "./node_modules/react-native-svg/lib/typescript/index.d.ts"
+      ],
+      "react-native-css": [
+        "./node_modules/react-native-css/dist/typescript/module/src/index.d.ts"
+      ],
+      "@oxy.so/bloom/icons/*": [
+        "./node_modules/@oxy.so/bloom/lib/typescript/module/icons/remix/*.d.ts"
+      ],
+      "@oxy.so/bloom/*": [
+        "./node_modules/@oxy.so/bloom/lib/typescript/module/*"
+      ],
+      "react-native-reanimated": [
+        "./node_modules/react-native-reanimated/lib/typescript/index.d.ts"
+      ],
+      "react-native-gesture-handler": [
+        "./node_modules/react-native-gesture-handler/lib/typescript/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "vite.config.ts",
+    "../../apps/shell/src",
+    "../../apps/shell/tests"
+  ]
+}

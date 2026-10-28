@@ -151,3 +151,8 @@ python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/text-editing.json" \
   --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-editing"
+# fetch and XMLHttpRequest through the network in Rust (crates/oxy-net), against a local server the
+# regression runs.
+python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-network"
