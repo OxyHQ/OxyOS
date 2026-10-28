@@ -102,6 +102,8 @@ struct Gpu {
     mismatches: u64,
     /// The device's time for each frame composed for the display (GPU timestamps), in ms.
     device_ms: Vec<f64>,
+    /// With `--gpu-only`: how long each readback of the shown frame took, in ms.
+    readback_ms: Vec<f64>,
 }
 
 impl Compositor {
@@ -481,6 +483,7 @@ impl Compositor {
             return;
         };
         gpu.frames += 1;
+        let started = monotonic();
         let frame = match display {
             Some((width, height)) if self.shown_kept => {
                 self.shown_kept = false;
@@ -499,6 +502,8 @@ impl Compositor {
                 .compositor
                 .compose(OUTPUT.width, OUTPUT.height, DESKTOP, layers),
         };
+        gpu.readback_ms
+            .push((monotonic() - started).as_secs_f64() * 1e3);
         match frame {
             Ok(frame) => self.framebuffer = frame,
             Err(error) => {

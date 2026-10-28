@@ -889,6 +889,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             frames: 0,
             mismatches: 0,
             device_ms: Vec::new(),
+            readback_ms: Vec::new(),
         });
     }
     let mut children = Children(vec![Command::new(&launch.command[0])
@@ -1051,11 +1052,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .into())
         }
         Some(gpu) => format!(
-            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},{}}}",
+            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},\"readback_ms_median\":{},{}}}",
             json_string(gpu.compositor.device_name()),
             gpu.compositor.device_kind(),
             gpu.frames,
             median(&gpu.device_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.readback_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
             if launch.gpu_only {
                 "\"reference\":false"
             } else {
