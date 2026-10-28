@@ -94,6 +94,8 @@ struct Compositor {
     /// long from then to handing it to the display, in milliseconds.
     composing_since: std::time::Duration,
     compositions: Vec<f64>,
+    /// For every frame composed: how long reading the clients' buffers took, in ms.
+    reads: Vec<f64>,
     /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
     /// with `--input`, its keyboard off). Dropped after the display and the devices.
     terminal: Option<oxy_vt::Terminal>,
@@ -308,6 +310,8 @@ impl Compositor {
                 }
             }
         }
+        self.reads
+            .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         let layers: Vec<oxy_gpu::Layer<'_>> = contents
             .iter()
             .map(|(rect, extent, format, pixels)| oxy_gpu::Layer {
@@ -879,6 +883,7 @@ impl Session {
             flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
+            reads: Vec::new(),
             terminal: None,
             away: false,
         };
