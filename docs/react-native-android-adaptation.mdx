@@ -18,6 +18,8 @@ OxyOS is not Android. The native Bloom host (`tools/rn-host-spike`) nevertheless
 
 Rows not in this list are not checked.
 
+`scenarios/network.json` (the probe is `sample/NetworkProbe.tsx`, against a local server `regress.py` runs) checks `fetch` and `XMLHttpRequest`: JSON, text, a 404, request and response headers, a POST body, a redirect, bytes read back as an `ArrayBuffer`, a multipart form, an abort, a refused connection, a timeout, and a text body as it arrives with a character split between two reads. A file in a multipart body fails visibly.
+
 ## What is reused from React Native's Android implementation
 
 | Part | How |
@@ -38,6 +40,8 @@ Rows not in this list are not checked.
 | `AccessibilityInfo` | Reports no assistive technology and no reduced motion; the recommended timeout is the one asked about, as on Android without a preference. `sendAccessibilityEvent(view, 'focus')` (through Fabric) moves the host's accessibility focus, as Android's accessibility focus: to the view, or to the first accessible node inside it. The host publishes each surface's tree to the compositor for a screen reader ([ADR 0003](./adr/0003-accessibility-protocol)), and a screen reader's activation reaches JavaScript as Android's accessibility click (`onClick`, which Pressability turns into `onPress`). |
 | `ExceptionsManager` | Prints the error and its stack. |
 | `ImageLoader` | Fails each request explicitly: OxyOS has no image pipeline yet. |
+| `Networking` (`fetch`, `XMLHttpRequest`) | Requests run in Rust (`crates/oxy-net`, through the host's one Rust library): TLS with rustls against the system's certificates, gzip and brotli, a timeout over the whole request, and one cookie jar for the process, used only by requests `withCredentials`. Redirects are followed as browsers do (up to 20; a 303, or a 301 or 302 after a POST, goes on as a GET without its body; `Authorization` is not carried to another origin), and each hop keeps and sends its own cookies. A connection lost before any response is tried again, up to three times, as Android's OkHttp does. The answers are Android's events, each with its arguments as one array; an incremental body (text only, as on Android) never splits a character. Every failure's reason is logged (`[host] network request N failed: ...`), since `fetch` reports only "Network request failed". Not supported yet, and failing the request: files in multipart bodies and bodies from a URI. The jar has no public suffix list, so a cookie for a whole public suffix is not refused. |
+| `BlobModule`, `FileReaderModule` | Blobs are kept in the host: a response read as a blob, and blobs built from parts. `FileReader` reads them as text or as a data URL. |
 | Fonts (`OxyFontRegistry`, for `expo-font`) | Registers a font only if FreeType can open it. |
 | Fabric | View, Paragraph, ScrollView (native offsets), text input, popups (`OxyPopupView`), events, Reanimated and Worklets. |
 
@@ -48,6 +52,7 @@ Rows not in this list are not checked.
 - `IntentAndroid` / `LinkingManager` (`Linking`);
 - `ShareModule`, `ActionSheetManager`;
 - `DialogManagerAndroid`: `Alert.alert` and `Alert.prompt` throw. React Native's Android `Alert` returns silently without that module, with no dialog and no callback, so OxyOS overrides it (`sample/oxyos/Libraries/Alert/Alert.oxyos.js`). Bloom's own alert surfaces, with `Alert`'s signature, draw their dialogs in the application;
+- `WebSocketModule` (`WebSocket`), and with it `BlobModule.sendOverSocket`, which throws;
 - `NativeAnimatedModule`: Animated runs in JavaScript, and React Native warns when an animation asks for the native driver;
 - the Expo modules Bloom does not need.
 
