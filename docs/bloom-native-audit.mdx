@@ -95,7 +95,19 @@ react-native value imports (26): `AccessibilityInfo`, `ActivityIndicator`, `Anim
 - Reanimated, Gesture Handler, SVG, Safe Area and Expo modules have iOS/Android native halves only. Each needs a Linux implementation of its native interface on the Oxy host, and each is a scoped deliverable of #33.
 - Astro has no Linux React Native host to reuse: its Linux UI runs on react-native-web inside Chromium, which this platform must not use as the Bloom host.
 
-The feasibility gate is still open. This table is a starting inventory, not proof that the set builds. The first spike builds Hermes, Yoga and the Fabric `cxx` core on Linux x86_64, mounts a React tree and reports laid-out frames, then replaces the text stub.
+### Spike result: Hermes + Fabric + Yoga on Linux
+
+`tools/rn-host-spike/build.sh <react-native-package> <work-dir>` reproduces it on Debian trixie x86_64. It installs nothing system-wide; it is not part of the Cargo workspace or CI. On 2026-10-28, with React Native 0.88.0 from Bloom's dev dependencies:
+
+- **Hermes V1** `hermes-v260318099.0.2`, the version React Native pins, builds with `HERMES_UNICODE_LITE` (no ICU, as on Android). `libhermesvm.so` depends only on libstdc++, libm and libc. A full ICU build needs `libicu-dev`; whether OxyOS ships ICU or Unicode-lite is an open product decision.
+- **ReactCommon**: every module ReactAndroid builds into `libreactnative.so` compiles for Linux, except the Android-only switch, progress bar and text-input implementations. That includes Fabric's scheduler, UI manager, mounting, Yoga, the runtime, the native-module defaults and the generated `FBReactNativeSpec` components. The build uses clang 19 with libstdc++, the CMake files React Native already ships (they select `platform/cxx` off Android) and the third-party versions React Native pins. The resulting `libreactnative.so` links only libatomic, libhermesvm, libjsi, libstdc++ and libc: no X11, Wayland or GTK.
+- **Host**: `host.cpp` builds the `Scheduler` with Root, View, Paragraph, RawText, Text and ScrollView descriptors. `tree.js` builds a sidebar + scroll-view tree through the real `nativeFabricUIManager` binding. Fabric commits it, Yoga lays it out and the mounting coordinator delivers create/insert mutations with correct frames: shell 800×600, sidebar 240×600, scroll view 560×600 at x=240, content 560×980.
+- **Found gaps**:
+  - Several React Native headers use `uint8_t`/`uint16_t` without `<cstdint>`, which only works through libc++'s transitive includes. The spike force-includes it; an upstream fix is the right resolution.
+  - folly is configured for libc++ and is reconfigured for libstdc++.
+  - The `cxx` text layout measures every paragraph as 0 high (208×0 in the spike).
+
+Not yet shown: the React reconciler and React Native's JS (a Metro bundle for an `oxyos` platform), the platform TurboModules React Native's JS needs at start-up (`PlatformConstants`, `DeviceInfo`, `AppState`, …), real text layout, rasterizing mutations into buffers for the Oxy protocol, Reanimated, Gesture Handler, SVG and Expo modules, and Bloom itself. The feasibility gate for #33 stays open until actual Bloom renders.
 
 ## Platform capability matrix
 
