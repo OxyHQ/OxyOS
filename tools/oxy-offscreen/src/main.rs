@@ -28,6 +28,10 @@ const OUTPUT: Rect = Rect::new(0, 0, 1280, 720);
 const DEADLINE: Duration = Duration::from_secs(10);
 /// Events a client may leave unread before it is disconnected as unresponsive.
 const MAX_OUTBOX: usize = 1024;
+/// Connections, including ones that have not completed Hello yet.
+const MAX_PEERS: usize = oxy_compositor_core::scene::MAX_CLIENTS;
+/// Time a connection may take to send Hello.
+const HELLO_DEADLINE: Duration = Duration::from_secs(2);
 const BUTTON: u32 = 272;
 
 struct Peer {
@@ -36,6 +40,7 @@ struct Peer {
     outbox: VecDeque<Event>,
     buffers: HashMap<u64, SharedBuffer>,
     presses: usize,
+    accepted: Instant,
 }
 
 struct Compositor {
@@ -62,7 +67,9 @@ impl Compositor {
             Err(error) => return Err(error.into()),
         };
         let credentials = connection.peer_credentials()?;
-        if self.grants_for(credentials).is_none() {
+        // Unauthorized peers and peers beyond the limit are closed at once; pending peers
+        // count against the limit, so silent connections cannot exhaust descriptors.
+        if self.grants_for(credentials).is_none() || self.peers.len() >= MAX_PEERS {
             return Ok(());
         }
         self.next_client += 1;
@@ -74,9 +81,25 @@ impl Compositor {
                 outbox: VecDeque::new(),
                 buffers: HashMap::new(),
                 presses: 0,
+                accepted: Instant::now(),
             },
         );
         Ok(())
+    }
+
+    /// Closes connections that have not sent Hello in time.
+    fn expire_pending(&mut self) {
+        let expired: Vec<ClientId> = self
+            .peers
+            .iter()
+            .filter(|(_, peer)| {
+                peer.protocol.version().is_none() && peer.accepted.elapsed() > HELLO_DEADLINE
+            })
+            .map(|(client, _)| *client)
+            .collect();
+        for client in expired {
+            self.fail(client, ErrorCode::InvalidOrder);
+        }
     }
 
     fn fail(&mut self, client: ClientId, code: ErrorCode) {
@@ -203,13 +226,23 @@ impl Compositor {
             return;
         }
         self.framebuffer.fill(DESKTOP);
+        let mut unreadable = Vec::new();
         for item in list.iter().copied() {
             match item {
-                RenderItem::Surface { key, rect, frame } => self.blit(key, rect, frame.buffer),
+                RenderItem::Surface { key, rect, frame } => {
+                    if !self.blit(key, rect, frame.buffer) {
+                        unreadable.push(key.client);
+                    }
+                }
                 RenderItem::Cover { rect, .. } => self.fill(rect, 0),
             }
         }
-        self.composed = list;
+        // A buffer that could not be read is never reported as presented: its client is
+        // disconnected before the frame completes.
+        for client in unreadable {
+            self.fail(client, ErrorCode::InvalidBuffer);
+        }
+        self.composed = self.scene.frame_list();
         self.frames += 1;
         self.scene.end_frame(0, Clock::Synthetic);
         self.retire();
@@ -225,13 +258,14 @@ impl Compositor {
 
     /// Nearest-neighbour copy of a client buffer into its logical rectangle, clipped to the
     /// output. XRGB8888 is opaque; ARGB8888 is premultiplied.
-    fn blit(&mut self, key: SurfaceKey, rect: Rect, buffer: u64) {
+    /// Returns false if the client's buffer could not be read.
+    fn blit(&mut self, key: SurfaceKey, rect: Rect, buffer: u64) -> bool {
         let Some(shared) = self
             .peers
             .get(&key.client)
             .and_then(|p| p.buffers.get(&buffer))
         else {
-            return;
+            return false;
         };
         let layout = shared.layout();
         let mut row = vec![0; layout.extent.width as usize * 4];
@@ -241,7 +275,7 @@ impl Compositor {
                 / u64::from(rect.height)) as u32;
             if loaded != Some(source_y) {
                 if shared.read_row(source_y, &mut row).is_err() {
-                    return;
+                    return false;
                 }
                 loaded = Some(source_y);
             }
@@ -268,6 +302,7 @@ impl Compositor {
                 };
             }
         }
+        true
     }
 
     fn pixel(&self, x: i32, y: i32) -> u32 {
@@ -305,6 +340,15 @@ impl Compositor {
                 }
                 _ => None,
             })
+    }
+}
+
+/// Removes the private socket directory on every exit, including errors and deadlines.
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
@@ -350,6 +394,7 @@ fn run(out: &Path) -> Result<()> {
     let directory =
         std::env::temp_dir().join(format!("oxy-offscreen-{}-{nonce}", std::process::id()));
     DirBuilder::new().mode(0o700).create(&directory)?;
+    let _cleanup = TempDir(directory.clone());
     let socket = directory.join("s");
     let listener = Listener::bind(&socket)?;
     listener.set_nonblocking(true)?;
@@ -419,6 +464,7 @@ fn run(out: &Path) -> Result<()> {
                 compositor.receive(*client);
             }
         }
+        compositor.expire_pending();
         compositor.frame();
         compositor.flush();
 
@@ -532,8 +578,6 @@ fn run(out: &Path) -> Result<()> {
         return Err(format!("descriptors leaked: {baseline_fds} before, {fds} after").into());
     }
     drop(listener);
-    fs::remove_file(&socket)?;
-    fs::remove_dir(&directory)?;
     println!(
         "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"bloom\":false,\"clients\":2,\"frames\":{},\"popup_beyond_parent_edges\":{},\"menu_row_pressed_over_other_client\":{},\"outside_presses_delivered\":{},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         compositor.frames,

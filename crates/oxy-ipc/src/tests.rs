@@ -154,6 +154,18 @@ fn shared_memory_import_validates_type_seals_and_size() {
         SharedBuffer::import(memory, bad).unwrap_err(),
         ImportError::InvalidLayout
     );
+    // A write-only descriptor to valid memory: it could never be composed.
+    let memory = create_shared_memory("write-only", 64).unwrap();
+    let path = format!("/proc/self/fd/{}", rustix::fd::AsRawFd::as_raw_fd(&memory));
+    let write_only: OwnedFd = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .into();
+    assert_eq!(
+        SharedBuffer::import(write_only, layout(4, 4)).unwrap_err(),
+        ImportError::NotReadable
+    );
     // Sealed memory cannot be shrunk by the client afterwards.
     let memory = create_shared_memory("ok", 64).unwrap();
     assert!(rustix::fs::ftruncate(&memory, 0).is_err());

@@ -2052,3 +2052,40 @@ fn an_output_attached_while_locked_is_covered_immediately() {
         .iter()
         .any(|item| matches!(item, RenderItem::Cover { .. })));
 }
+
+#[test]
+fn an_in_flight_buffer_of_a_destroyed_surface_cannot_back_another_surface() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    let buffer = h.submit(first);
+    h.request(
+        APP,
+        Request::CreateToplevel {
+            surface: 2,
+            size: Size::new(400, 300),
+        },
+    )
+    .unwrap();
+    h.scene.begin_frame();
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    let (serial, _, _) = h.configures[&key(APP, 2)];
+    assert_eq!(
+        h.request(
+            APP,
+            Request::Submit {
+                surface: 2,
+                sequence: 1,
+                buffer,
+                configure: serial,
+                extent: Size::new(400, 300)
+            }
+        ),
+        Err(ErrorCode::InvalidBuffer),
+        "the composition may still read it"
+    );
+    h.scene.end_frame(2, Clock::Synthetic);
+    h.pump();
+    assert!(h
+        .events_for(APP)
+        .contains(&Event::Released { surface: 1, buffer }));
+}

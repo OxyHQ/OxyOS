@@ -14,7 +14,7 @@ use oxy_protocol::{
     MAX_PACKET_BYTES,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use rustix::fs::{FileType, MemfdFlags, SealFlags};
+use rustix::fs::{FileType, MemfdFlags, OFlags, SealFlags};
 use rustix::net::{
     AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags,
     SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType,
@@ -265,6 +265,7 @@ impl AsFd for Connection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportError {
     InvalidLayout,
+    NotReadable,
     NotRegularFile,
     NotSealed,
     TooSmall,
@@ -272,6 +273,10 @@ pub enum ImportError {
 }
 
 /// A validated client buffer in sealed shared memory.
+///
+/// Like any shared-memory protocol, the client can still write the pages after submitting; it
+/// can only change its own surface's content (equivalent to submitting a new frame, without
+/// feedback). The compositor never maps the memory, so such writes cannot fault it.
 #[derive(Debug)]
 pub struct SharedBuffer {
     fd: OwnedFd,
@@ -283,6 +288,12 @@ impl SharedBuffer {
     /// `layout`. The descriptor is closed on failure.
     pub fn import(fd: OwnedFd, layout: BufferLayout) -> Result<Self, ImportError> {
         let required = layout.required_bytes().ok_or(ImportError::InvalidLayout)?;
+        // The compositor reads with pread; a write-only descriptor would look valid and draw
+        // nothing.
+        let access = rustix::fs::fcntl_getfl(&fd).map_err(|_| ImportError::Io)? & OFlags::RWMODE;
+        if access == OFlags::WRONLY {
+            return Err(ImportError::NotReadable);
+        }
         let stat = rustix::fs::fstat(&fd).map_err(|_| ImportError::Io)?;
         if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile {
             return Err(ImportError::NotRegularFile);
