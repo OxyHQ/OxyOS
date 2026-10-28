@@ -381,6 +381,8 @@ fn settle(
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.flips.len();
+    // The flip that will show the answer, when it was not yet shown as it appeared.
+    let mut answer_flip = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -392,16 +394,36 @@ fn settle(
         }
         session.compositor.serve(&session.listener)?;
         let now = shown(&session.compositor);
-        if now != last.0 {
+        let changed = now != last.0;
+        if changed {
             if first_frame_ns.is_none() {
                 first_frame_ns = Some(monotonic_ns());
-                // The turn that composed the answer showed it, and waited for its flip.
-                first_flip_ns = session.compositor.flips[shown_before..]
-                    .last()
-                    .map(|(_, flip)| flip.as_nanos() as i64);
+                let compositor = &session.compositor;
+                if compositor.flipped == compositor.scene.render_list() {
+                    // The last flip shows the answer: its completion made it.
+                    first_flip_ns = compositor.flips[shown_before..]
+                        .last()
+                        .map(|(_, flip)| flip.as_nanos() as i64);
+                } else {
+                    // Not on screen yet (a surface went away, say): the frame on its way shows it
+                    // if it was composed with it, or else the next one.
+                    let composed_with_it = compositor.pending_flip.is_some()
+                        && compositor.composed == compositor.scene.frame_list();
+                    answer_flip = Some(
+                        compositor.flips.len()
+                            + usize::from(compositor.pending_flip.is_some() && !composed_with_it),
+                    );
+                }
             }
             last = (now, Instant::now());
-        } else if (now != before || may_stay) && last.1.elapsed() >= SETTLE {
+        }
+        if let Some(index) = answer_flip {
+            if let Some((_, flip)) = session.compositor.flips.get(index) {
+                first_flip_ns = Some(flip.as_nanos() as i64);
+                answer_flip = None;
+            }
+        }
+        if !changed && (last.0 != before || may_stay) && last.1.elapsed() >= SETTLE {
             if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
                 return Ok(Settled {
                     window,

@@ -88,6 +88,8 @@ struct Compositor {
     /// The frame on its way to the display: when it was handed over. It completes at its flip,
     /// in a later turn; no frame is composed meanwhile (one on the display at a time).
     pending_flip: Option<std::time::Duration>,
+    /// What the last flip showed (the scene's displayed content once it completed).
+    flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
     /// long from then to handing it to the display, in milliseconds.
     composing_since: std::time::Duration,
@@ -401,6 +403,9 @@ impl Compositor {
         self.pending_flip = None;
         self.scene.end_frame(timestamp_ns, clock);
         self.retire();
+        if clock == Clock::Monotonic {
+            self.flipped = self.scene.render_list();
+        }
         if self.gpu_only && clock == Clock::Monotonic {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
@@ -871,6 +876,7 @@ impl Session {
             scanout_back: 0,
             flips: Vec::new(),
             pending_flip: None,
+            flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             terminal: None,
