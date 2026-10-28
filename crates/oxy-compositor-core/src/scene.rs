@@ -16,7 +16,7 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxy_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
+    Positioner, PreeditText, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
     MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -2030,6 +2030,32 @@ impl Scene {
                 dy,
             },
         );
+    }
+
+    /// The input method's composition (preedit) for the focused surface: `text` replaces the
+    /// previous composition, with the composing cursor at byte `cursor`; empty text ends it.
+    /// Returns false, delivering nothing, for text over one chunk or a cursor outside it.
+    pub fn preedit(&mut self, text: &str, cursor: usize) -> bool {
+        let (Some(preedit), Ok(cursor)) = (PreeditText::new(text), u8::try_from(cursor)) else {
+            return false;
+        };
+        if usize::from(cursor) > text.len() || !text.is_char_boundary(usize::from(cursor)) {
+            return false;
+        }
+        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
+            return true;
+        };
+        let serial = self.next_serial();
+        self.emit(
+            target.client,
+            Event::Preedit {
+                surface: target.id,
+                serial,
+                text: preedit,
+                cursor,
+            },
+        );
+        true
     }
 
     /// Text committed by the keyboard layout or input method, for the focused surface. It counts

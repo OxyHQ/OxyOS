@@ -141,6 +141,12 @@ fn events() -> Vec<Event> {
             serial: 8,
             text: TextChunk::new("héllo").unwrap(),
         },
+        Event::Preedit {
+            surface: 1,
+            serial: 9,
+            text: PreeditText::new("にほ").unwrap(),
+            cursor: 3,
+        },
         Event::Released {
             surface: 1,
             buffer: 2,
@@ -508,4 +514,21 @@ fn text_chunks_hold_whole_characters_of_valid_utf8() {
         packet[offset] = value;
         assert!(read_event(&mut Cursor::new(packet)).is_err(), "{reason}");
     }
+}
+
+#[test]
+fn an_empty_preedit_ends_the_composition_and_has_one_encoding() {
+    let end = Event::Preedit {
+        surface: 1,
+        serial: 1,
+        text: PreeditText::new("").unwrap(),
+        cursor: 0,
+    };
+    let mut packet = Vec::new();
+    write_event(&mut packet, &end).unwrap();
+    assert_eq!(read_event(&mut Cursor::new(packet.clone())).unwrap(), end);
+    // An empty preedit's padding must be zero, like a text chunk's.
+    let text_at = 4 + 1 + 4 + 8;
+    packet[text_at + 5] = b'x';
+    assert!(read_event(&mut Cursor::new(packet)).is_err());
 }

@@ -28,6 +28,7 @@ typedef struct OxyClient OxyClient;
 #define OXY_EVENT_RELEASED 9
 #define OXY_EVENT_SCROLL 11
 #define OXY_EVENT_TEXT 12
+#define OXY_EVENT_PREEDIT 13
 
 /* Pointer kinds (OxyEvent.detail of a pointer event). */
 #define OXY_POINTER_ENTER 1
@@ -64,7 +65,9 @@ typedef struct OxyClient OxyClient;
  *   RELEASED    serial: buffer id (the client reuses it; informational).
  *   SCROLL      serial; x, y: horizontal and vertical scroll distance in 1/256 logical pixels
  *               (positive moves the content's view right and down).
- *   TEXT        serial; text: committed UTF-8 (whole characters), NUL-terminated. */
+ *   TEXT        serial; text: committed UTF-8 (whole characters), NUL-terminated.
+ *   PREEDIT     serial; text: the composition (empty ends it), NUL-terminated; detail: the
+ *               composing cursor, a byte offset into text. */
 typedef struct OxyEvent {
   uint32_t kind;
   uint32_t surface;
@@ -108,6 +111,8 @@ int oxy_client_create_toplevel(OxyClient* client, uint32_t surface, uint32_t wid
 int oxy_client_create_popup(OxyClient* client, uint32_t surface, uint32_t parent,
                             const OxyPositioner* positioner);
 int oxy_client_grab_popup(OxyClient* client, uint32_t surface, uint64_t serial);
+/* Places an existing popup again (its anchor moved or its content resized). */
+int oxy_client_reposition(OxyClient* client, uint32_t surface, const OxyPositioner* positioner);
 int oxy_client_destroy_surface(OxyClient* client, uint32_t surface);
 
 /* Presents pixels (rows of width * 4 bytes) on a surface in answer to the configure with serial

@@ -56,6 +56,7 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 Input semantics:
 - **Scroll** goes to the surface under the pointer, like motion. It is not a press: it authorizes no popup grab and activates nothing. Positive distances move the view right and down.
 - **Text** carries committed text for the focused surface: 1 to 32 bytes of UTF-8 that never split a character, with longer text arriving as consecutive chunks. The compositor turns keys into text through its keymap (and, later, an input method), so clients never translate key codes. `Key` stays for layout-independent keys such as Backspace, Enter, Tab, Escape and the arrows.
+- **Preedit** carries the input method's composition for the focused surface: its current text (0 to 32 bytes of whole characters, empty to end it) and the composing cursor as a byte offset. Each `Preedit` replaces the previous one; the composition's result arrives as `Text`.
 
 | Direction | Opcode | Message | Payload bytes |
 | --- | --- | --- | --- |
@@ -87,10 +88,11 @@ Input semantics:
 | Event | 10 | ProtocolError | 3 |
 | Event | 11 | Scroll | 21 |
 | Event | 12 | Text | 46 |
+| Event | 13 | Preedit | 47 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 
-Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text directly), composition (preedit) text, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text and preedit directly), clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Transport and buffers
 

@@ -15,6 +15,8 @@ use super::*;
 const SETTLE: Duration = Duration::from_millis(750);
 /// The application starts its runtime and loads its bundle inside this budget.
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
+/// Each step's answer must settle inside this budget.
+const STEP_DEADLINE: Duration = Duration::from_secs(30);
 const CLIENT: ClientId = 1;
 const WINDOW: u32 = 1;
 
@@ -28,8 +30,13 @@ pub enum Step {
     Scroll { x: i32, y: i32, dy: i32 },
     /// Text committed to the focused surface, as a keyboard layout or input method would.
     Type(String),
-    /// Press and release of a key (Linux input code).
-    Key(u32),
+    /// The input method's composition (preedit) for the focused surface, cursor at its end.
+    Preedit(String),
+    /// Left-button drag in the window: press at the first point, move to the second, release.
+    Drag { from: (i32, i32), to: (i32, i32) },
+    /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
+    /// reverse, so `42+106` is Shift+Right.
+    Key(Vec<u32>),
     /// No input: a popup of the application must be shown, extending beyond its window.
     ExpectPopup,
 }
@@ -41,7 +48,9 @@ impl Step {
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Type(text) => format!("typing {text:?}"),
-            Step::Key(code) => format!("key {code}"),
+            Step::Preedit(text) => format!("composing {text:?}"),
+            Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
+            Step::Key(codes) => format!("key {}", chord(codes)),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
         }
     }
@@ -52,10 +61,22 @@ impl Step {
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
-            Step::Key(code) => format!("\"key\":{code}"),
+            Step::Preedit(text) => format!("\"preedit\":{text:?}"),
+            Step::Drag { from, to } => {
+                format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
+            }
+            Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
         }
     }
+}
+
+fn chord(codes: &[u32]) -> String {
+    codes
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join("+")
 }
 
 pub struct Launch {
@@ -65,7 +86,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --key CODE | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -119,10 +140,26 @@ impl Launch {
                     Step::Type(text.to_string())
                 }
                 Some("--key") => {
-                    let code = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
-                    Step::Key(code.parse()?)
+                    let codes = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
+                    Step::Key(
+                        codes
+                            .split('+')
+                            .map(str::parse)
+                            .collect::<std::result::Result<_, _>>()?,
+                    )
+                }
+                Some("--drag") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::Drag {
+                        from: (n[0], n[1]),
+                        to: (n[2], n[3]),
+                    }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
+                Some("--preedit") => {
+                    let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    Step::Preedit(text.to_string())
+                }
                 Some("--") => {
                     let command: Vec<_> = args.cloned().collect();
                     if command.is_empty() {
@@ -296,9 +333,32 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             compositor.scene.pointer_scroll(0, dy.saturating_mul(256));
         }
         Step::Type(text) => compositor.scene.text(text),
-        Step::Key(code) => {
-            compositor.scene.key(*code, true);
-            compositor.scene.key(*code, false);
+        Step::Preedit(text) => {
+            if !compositor.scene.preedit(text, text.len()) {
+                return Err(format!("preedit {text:?} does not fit one chunk").into());
+            }
+        }
+        Step::Drag { from, to } => {
+            inside(window, from.0, from.1)?;
+            inside(window, to.0, to.1)?;
+            let scene = &mut compositor.scene;
+            scene.pointer_motion(window.x + from.0, window.y + from.1);
+            scene.pointer_button(BUTTON, true);
+            // Through a midpoint, as a hand moves, then to the end.
+            scene.pointer_motion(
+                window.x + (from.0 + to.0) / 2,
+                window.y + (from.1 + to.1) / 2,
+            );
+            scene.pointer_motion(window.x + to.0, window.y + to.1);
+            scene.pointer_button(BUTTON, false);
+        }
+        Step::Key(codes) => {
+            for code in codes {
+                compositor.scene.key(*code, true);
+            }
+            for code in codes.iter().rev() {
+                compositor.scene.key(*code, false);
+            }
         }
         Step::ExpectPopup => {}
     }
@@ -370,7 +430,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &mut children,
             &before,
             *may_stay,
-            deadline,
+            Instant::now() + STEP_DEADLINE,
             &what,
         )?;
         window = answer.window;
@@ -439,6 +499,10 @@ mod tests {
             "hi",
             "--key",
             "14",
+            "--key",
+            "42+106",
+            "--drag",
+            "1,2,3,4",
             "--expect-popup",
             "--allow-unchanged",
             "--press-popup",
@@ -451,7 +515,10 @@ mod tests {
         assert_eq!(out, PathBuf::from("o"));
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
-        assert_eq!(allowed, [false, false, false, false, false, true]);
+        assert_eq!(
+            allowed,
+            [false, false, false, false, false, false, false, true]
+        );
         assert_eq!(
             steps,
             [
@@ -462,7 +529,12 @@ mod tests {
                     dy: -50
                 },
                 Step::Type("hi".into()),
-                Step::Key(14),
+                Step::Key(vec![14]),
+                Step::Key(vec![42, 106]),
+                Step::Drag {
+                    from: (1, 2),
+                    to: (3, 4)
+                },
                 Step::ExpectPopup,
                 Step::PressPopup { x: 5, y: 6 },
             ]
@@ -476,6 +548,8 @@ mod tests {
             &["--press", "1", "--", "app"][..],
             &["--scroll", "1,2", "--", "app"],
             &["--key", "x", "--", "app"],
+            &["--key", "42+", "--", "app"],
+            &["--drag", "1,2,3", "--", "app"],
             &["--press", "1,2"],
             &["--press", "1,2", "--"],
         ] {

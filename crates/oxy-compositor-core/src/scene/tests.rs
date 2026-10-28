@@ -2159,3 +2159,37 @@ fn text_goes_to_the_focused_surface_in_whole_character_chunks() {
     assert_eq!(chunks, [&text[..31], &text[31..]]);
     assert_eq!(chunks.concat(), text);
 }
+
+#[test]
+fn preedit_goes_to_the_focused_surface_and_rejects_what_does_not_fit() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    h.pump();
+    assert!(h.scene.preedit("にほ", 3));
+    let delivered: Vec<(String, u8)> = h
+        .pump()
+        .into_iter()
+        .filter_map(|(_, event)| match event {
+            Event::Preedit {
+                surface: 1,
+                text,
+                cursor,
+                ..
+            } => Some((text.as_str().to_string(), cursor)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(delivered, [("にほ".to_string(), 3)]);
+    // An empty preedit ends the composition.
+    assert!(h.scene.preedit("", 0));
+    assert!(h
+        .pump()
+        .iter()
+        .any(|(_, e)| matches!(e, Event::Preedit { cursor: 0, .. })));
+    // Too long, a cursor past the end or inside a character: nothing is delivered.
+    assert!(!h.scene.preedit(&"a".repeat(33), 0));
+    assert!(!h.scene.preedit("ab", 3));
+    assert!(!h.scene.preedit("に", 1));
+    assert!(h.pump().is_empty());
+}

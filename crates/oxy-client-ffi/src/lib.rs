@@ -28,6 +28,7 @@ pub const OXY_EVENT_FEEDBACK: u32 = 8;
 pub const OXY_EVENT_RELEASED: u32 = 9;
 pub const OXY_EVENT_SCROLL: u32 = 11;
 pub const OXY_EVENT_TEXT: u32 = 12;
+pub const OXY_EVENT_PREEDIT: u32 = 13;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXY_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -261,6 +262,22 @@ pub fn convert(event: &Event) -> Option<OxyEvent> {
                 ..out
             }
         }
+        Event::Preedit {
+            surface,
+            serial,
+            text,
+            cursor,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyEvent {
+                kind: OXY_EVENT_PREEDIT,
+                surface,
+                serial,
+                detail: u32::from(cursor),
+                ..out
+            }
+        }
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
     }
     Some(out)
@@ -406,6 +423,35 @@ pub unsafe extern "C" fn oxy_client_create_popup(
             Request::CreatePopup {
                 surface,
                 parent,
+                positioner,
+            },
+        )
+    }
+}
+
+/// Places an existing popup again (its anchor moved or its content resized); the compositor
+/// answers with a configure. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxy_client_connect`; `positioner` points to a valid
+/// `OxyPositioner` for the duration of the call.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxy_client_reposition(
+    client: *mut OxyClient,
+    surface: u32,
+    positioner: *const OxyPositioner,
+) -> c_int {
+    // SAFETY: the caller passes a valid positioner or NULL.
+    let Some(positioner) = unsafe { positioner.as_ref() }.and_then(self::positioner) else {
+        return fail("invalid positioner");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::Reposition {
+                surface,
                 positioner,
             },
         )

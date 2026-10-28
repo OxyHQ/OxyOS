@@ -411,6 +411,7 @@ fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
             surface, pressed, ..
         } => (surface, if pressed { "key.press" } else { "key.release" }),
         Event::Text { surface, .. } => (surface, "text"),
+        Event::Preedit { surface, .. } => (surface, "preedit"),
         Event::Scroll { surface, .. } => (surface, "scroll"),
         Event::PopupDone { surface, .. } => (surface, "popup.done"),
         Event::Focus { surface, focused } => {

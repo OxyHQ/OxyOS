@@ -2,8 +2,8 @@
 //! `schema_table_matches_documentation` test keeps them in step.
 
 use crate::wire::{
-    Clock, DismissReason, ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, Rect,
-    ShellKind, Size, TextChunk, TouchKind, Wire,
+    Clock, DismissReason, ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner,
+    PreeditText, Rect, ShellKind, Size, TextChunk, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -104,6 +104,7 @@ messages! {
         10 => ProtocolError { code: ErrorCode },
         11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32 },
         12 => Text { surface: u32, serial: u64, text: TextChunk },
+        13 => Preedit { surface: u32, serial: u64, text: PreeditText, cursor: u8 },
     }
 }
 

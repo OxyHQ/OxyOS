@@ -278,6 +278,45 @@ impl Wire for TextChunk {
     }
 }
 
+/// Composition (preedit) text from an input method: like [`TextChunk`] but possibly empty, which
+/// ends the composition without committing anything.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PreeditText(Option<TextChunk>);
+
+impl PreeditText {
+    /// The preedit holding `text` (empty clears it), if it fits in one chunk.
+    pub fn new(text: &str) -> Option<Self> {
+        if text.is_empty() {
+            Some(Self(None))
+        } else {
+            TextChunk::new(text).map(|chunk| Self(Some(chunk)))
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_ref().map_or("", TextChunk::as_str)
+    }
+}
+
+impl Wire for PreeditText {
+    const SIZE: usize = TextChunk::SIZE;
+    fn put(&self, out: &mut Vec<u8>) {
+        match &self.0 {
+            Some(chunk) => chunk.put(out),
+            None => out.extend([0; TextChunk::SIZE]),
+        }
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        if bytes[0] == 0 {
+            if bytes.iter().any(|&b| b != 0) {
+                return Err(invalid("text padding is not zero"));
+            }
+            return Ok(Self(None));
+        }
+        TextChunk::get(bytes).map(|chunk| Self(Some(chunk)))
+    }
+}
+
 /// Logical or physical size; both dimensions within 1..=MAX_DIMENSION.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size {

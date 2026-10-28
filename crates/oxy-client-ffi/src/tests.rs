@@ -88,6 +88,7 @@ fn the_header_matches_the_abi() {
         ("OXY_EVENT_RELEASED", OXY_EVENT_RELEASED.into()),
         ("OXY_EVENT_SCROLL", OXY_EVENT_SCROLL.into()),
         ("OXY_EVENT_TEXT", OXY_EVENT_TEXT.into()),
+        ("OXY_EVENT_PREEDIT", OXY_EVENT_PREEDIT.into()),
         ("OXY_POINTER_ENTER", PointerKind::Enter as i64),
         ("OXY_POINTER_LEAVE", PointerKind::Leave as i64),
         ("OXY_POINTER_MOTION", PointerKind::Motion as i64),
@@ -371,6 +372,10 @@ fn null_arguments_fail_instead_of_crashing() {
         );
         assert_eq!(
             oxy_client_poll(std::ptr::null_mut(), std::ptr::null_mut()),
+            OXY_ERROR
+        );
+        assert_eq!(
+            oxy_client_reposition(std::ptr::null_mut(), 2, std::ptr::null()),
             OXY_ERROR
         );
         oxy_client_close(std::ptr::null_mut());
