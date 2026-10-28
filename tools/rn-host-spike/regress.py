@@ -52,6 +52,8 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind == "preedit":
         return args + ["--preedit", value]
+    if kind in ("move-window", "resize-window"):
+        return args + [f"--{kind}", ",".join(map(str, value))]
     if kind == "scale":
         return args + ["--scale", str(value)]
     if kind == "expect-popup":
@@ -170,6 +172,10 @@ def check_step(index, step, result, report, start, failures):
             got = [[f["width"], f["height"]] for s, f in frames.items() if (s == 1) == (role == "window")]
             if got != [size]:
                 fail(f"{role} frames are {got} px, expected [{size}]")
+    if "window_rect" in expect and result.get("window") != expect["window_rect"]:
+        fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
+    if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
+        fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
     if "popups" in expect:
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:

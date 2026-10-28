@@ -1710,6 +1710,52 @@ impl Scene {
         }
     }
 
+    // ---- window management -----------------------------------------------------------------
+
+    /// Moves a window to `origin` (global logical), as the shell does for a keyboard move or
+    /// tiling: at once and without the client, like an interactive move, and kept on screen the
+    /// same way. Popups keep their parent-relative position, so they move with it in the same
+    /// frame (an open menu stays open), and are then re-placed if their constraints changed.
+    pub fn move_window_to(&mut self, key: SurfaceKey, origin: (i32, i32)) {
+        let Some(node) = self.live(key) else {
+            return;
+        };
+        if node.role != Role::Toplevel || node.fullscreen || node.hidden || self.locked {
+            return;
+        }
+        let current = node.origin;
+        self.move_window(
+            Move {
+                surface: key,
+                pointer: current,
+                origin: current,
+            },
+            origin.0,
+            origin.1,
+        );
+        self.reconstrain_children(key);
+        self.refresh_pointer_focus();
+    }
+
+    /// Resizes a window, as the shell does to maximize or tile it: the client is configured
+    /// with `size` (fitted to its output's scale). Its content stays until it presents a frame
+    /// for the new size; then the window takes that size and its popups are re-placed.
+    pub fn resize_window(&mut self, key: SurfaceKey, size: Size) {
+        let Some(node) = self.live(key) else {
+            return;
+        };
+        if node.role != Role::Toplevel
+            || node.fullscreen
+            || node.hidden
+            || self.locked
+            || size.width == 0
+            || size.height == 0
+        {
+            return;
+        }
+        self.reconfigure(key, None, size);
+    }
+
     // ---- secure lock ---------------------------------------------------------------------
 
     /// Protects the session immediately: popups and grabs are dismissed, input to ordinary

@@ -1441,6 +1441,56 @@ impl Harness {
 }
 
 #[test]
+fn shell_moves_and_resizes_carry_an_open_menu() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 20, w.y + 20),
+        menu(Rect::new(0, 280, 40, 20), 200, 150),
+    );
+    let before = h.rect(popup);
+    h.clear_log();
+
+    // A move: at once, the menu carried in the same frame and still open, nothing sent to the
+    // client.
+    h.scene.move_window_to(window, (w.x + 100, w.y + 50));
+    let moved = h.rect(window);
+    assert_eq!((moved.x, moved.y), (w.x + 100, w.y + 50));
+    let carried = h.rect(popup);
+    assert_eq!((carried.x - before.x, carried.y - before.y), (100, 50));
+    assert_eq!(h.dismissed(popup), None);
+    assert_eq!(h.scene.grab_chain(), &[popup]);
+    assert!(h.events_for(APP).is_empty(), "{:?}", h.events_for(APP));
+
+    // Kept on screen like an interactive move.
+    h.scene.move_window_to(window, (100_000, 100_000));
+    assert!(h.rect(window).x < SCREEN.right() as i32);
+    h.scene.move_window_to(window, (w.x, w.y));
+
+    // A resize: configured now, applied when presented; the menu stays open meanwhile.
+    h.scene.resize_window(window, Size::new(600, 500));
+    h.pump();
+    assert_eq!(
+        h.rect(window).width,
+        400,
+        "the old content stays until the new frame"
+    );
+    let (_, rect, _) = h.configures[&window];
+    assert_eq!((rect.width, rect.height), (600, 500));
+    h.present(window);
+    assert_eq!((h.rect(window).width, h.rect(window).height), (600, 500));
+    assert_eq!(h.dismissed(popup), None);
+
+    // Never to an empty size.
+    h.scene.resize_window(window, Size::new(0, 10));
+    h.pump();
+    assert_eq!(h.configures[&window].1.width, 600);
+}
+
+#[test]
 fn parent_resize_reconstrains_popups_once_the_new_size_is_presented() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

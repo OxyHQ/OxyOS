@@ -37,6 +37,10 @@ pub enum Step {
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
+    /// The shell moves the window by (dx, dy), as a keyboard move or tiling does.
+    MoveWindow { dx: i32, dy: i32 },
+    /// The shell resizes the window, as maximizing or tiling does.
+    ResizeWindow { width: u32, height: u32 },
     /// The output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
     /// on it for buffers at the new scale; logical geometry is unchanged.
     Scale(u32),
@@ -54,6 +58,8 @@ impl Step {
             Step::Preedit(text) => format!("composing {text:?}"),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
+            Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
+            Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
         }
@@ -70,6 +76,10 @@ impl Step {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
+            Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
+            Step::ResizeWindow { width, height } => {
+                format!("\"resize_window\":[{width},{height}]")
+            }
             Step::Scale(scale) => format!("\"scale\":{scale}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
         }
@@ -91,7 +101,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -161,6 +171,17 @@ impl Launch {
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
+                Some("--move-window") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::MoveWindow { dx: n[0], dy: n[1] }
+                }
+                Some("--resize-window") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::ResizeWindow {
+                        width: u32::try_from(n[0])?,
+                        height: u32::try_from(n[1])?,
+                    }
+                }
                 Some("--scale") => {
                     let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Scale(scale.parse()?)
@@ -369,6 +390,20 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 compositor.scene.key(*code, false);
             }
         }
+        Step::MoveWindow { dx, dy } => compositor.scene.move_window_to(
+            SurfaceKey {
+                client: CLIENT,
+                id: WINDOW,
+            },
+            (window.x + dx, window.y + dy),
+        ),
+        Step::ResizeWindow { width, height } => compositor.scene.resize_window(
+            SurfaceKey {
+                client: CLIENT,
+                id: WINDOW,
+            },
+            oxy_protocol::Size::new(*width, *height),
+        ),
         Step::Scale(scale) => compositor
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
@@ -459,12 +494,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => "null".to_string(),
         };
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}]}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
             delivered_json(&session.compositor),
             popups_json(&session.compositor),
+            answer.window.x,
+            answer.window.y,
+            answer.window.width,
+            answer.window.height,
         ));
         snapshots.push(
             session
@@ -518,6 +557,10 @@ mod tests {
             "1,2,3,4",
             "--scale",
             "180",
+            "--move-window",
+            "-10,5",
+            "--resize-window",
+            "800,600",
             "--expect-popup",
             "--allow-unchanged",
             "--press-popup",
@@ -532,7 +575,7 @@ mod tests {
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
             allowed,
-            [false, false, false, false, false, false, false, false, true]
+            [false, false, false, false, false, false, false, false, false, false, true]
         );
         assert_eq!(
             steps,
@@ -551,6 +594,11 @@ mod tests {
                     to: (3, 4)
                 },
                 Step::Scale(180),
+                Step::MoveWindow { dx: -10, dy: 5 },
+                Step::ResizeWindow {
+                    width: 800,
+                    height: 600
+                },
                 Step::ExpectPopup,
                 Step::PressPopup { x: 5, y: 6 },
             ]

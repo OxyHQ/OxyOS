@@ -467,6 +467,51 @@
         "focus_surface": 1,
         "react": {"key@message-actions": 1}
       }
+    },
+    {
+      "name": "open the menu before the shell moves the window",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 10,
+        "window_rect": [128, 40, 1024, 640],
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "popup_rect": [981, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the shell moves the window: the open menu moves with it",
+      "do": ["move-window", [-100, -20]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 10,
+        "window_rect": [28, 20, 1024, 640],
+        "popup_events": {},
+        "react": {},
+        "popup_rect": [881, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the shell resizes the window: the host lays out again and places the menu at its trigger",
+      "do": ["resize-window", [900, 600]],
+      "expect": {
+        "popups": 1,
+        "window_rect": [28, 20, 900, 600],
+        "frame_px": {"window": [900, 600]},
+        "popup_events": {"reposition@message-actions": 1},
+        "react": {},
+        "popup_rect": [819, 382, 266, 338]
+      }
+    },
+    {
+      "name": "the menu still works after the move and resize",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
     }
   ]
 }
