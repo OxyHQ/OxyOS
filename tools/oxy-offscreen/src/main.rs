@@ -68,8 +68,9 @@ struct Compositor {
     last_frame: Vec<u8>,
     /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
     display: Option<oxy_kms::Display>,
-    /// The flip time of every frame shown.
-    flips: Vec<std::time::Duration>,
+    /// For every frame shown: when it was handed to the display and when it flipped
+    /// (CLOCK_MONOTONIC).
+    flips: Vec<(std::time::Duration, std::time::Duration)>,
 }
 
 struct Gpu {
@@ -352,13 +353,15 @@ impl Compositor {
             let start = (y + dy) * width as usize + dx;
             pixels[start..start + columns].copy_from_slice(&row[..columns]);
         }
-        let flip = display
-            .draw(&pixels)
+        let drawn = display.draw(&pixels);
+        let submitted = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+        let submitted = std::time::Duration::new(submitted.tv_sec as u64, submitted.tv_nsec as u32);
+        let flip = drawn
             .and_then(|()| display.present())
             .and_then(|()| display.wait_flip());
         match flip {
             Ok(flip) => {
-                self.flips.push(flip);
+                self.flips.push((submitted, flip));
                 Some(flip)
             }
             Err(error) => {

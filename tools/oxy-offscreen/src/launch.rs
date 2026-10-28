@@ -722,16 +722,23 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     };
     let display = match session.compositor.display.take() {
         Some(display) => {
+            // A frame is handed over at any point of a refresh and should flip at the next
+            // vblank: later than one refresh is a missed deadline.
             let refresh_ms = 1e3 / f64::from(display.refresh_hz().max(1));
-            let flips = &session.compositor.flips;
-            let missed = flips
-                .windows(2)
-                .filter(|w| (w[1] - w[0]).as_secs_f64() * 1e3 > refresh_ms * 1.5)
-                .count();
+            let mut waits: Vec<f64> = session
+                .compositor
+                .flips
+                .iter()
+                .map(|(submitted, flip)| flip.saturating_sub(*submitted).as_secs_f64() * 1e3)
+                .collect();
+            let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
+            waits.sort_by(f64::total_cmp);
             format!(
-                "{{\"mode\":{},\"shown\":{},\"gaps_over_one_refresh\":{missed}}}",
+                "{{\"mode\":{},\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
-                flips.len()
+                waits.len(),
+                waits.get(waits.len() / 2).copied().unwrap_or(0.0),
+                waits.last().copied().unwrap_or(0.0)
             )
         }
         None => "null".to_string(),
