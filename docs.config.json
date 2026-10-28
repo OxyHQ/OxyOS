@@ -7,5 +7,5 @@
   "versions": ["main"],
   "defaultVersion": "main",
   "docsPath": "docs/",
-  "description": "Lightweight, elegant desktop Linux distribution built on Debian — live-build ISO plus a React + Tauri v2 desktop shell."
+  "description": "Native Linux platform rebuild — custom Oxy display compositor and protocol with BloomUI, no X11, XWayland or Wayland."
 }

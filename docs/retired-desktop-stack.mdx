@@ -1,0 +1,48 @@
+---
+title: Retired desktop stack
+description: What the React/Tauri shell and labwc/greetd session did, what replaced each responsibility, and the open follow-ups.
+order: 5
+---
+
+# Retired desktop stack
+
+Historical record of [#27](https://github.com/OxyHQ/OxyOS/issues/27). Nothing described here is active. The last commit containing the stack is `6c35e60`; recover any file from there instead of reintroducing it.
+
+## What was removed
+
+| Removed | It did | Now |
+| --- | --- | --- |
+| `shell/`: React 19 + Vite + Tauri v2 on WebKitGTK, browser demo (`web.html`), Zustand state, xterm.js terminal, PAM login screen, simulated notifications and running apps | Desktop, shelf, launcher, tray panels and terminal as Tauri windows on labwc | Nothing. The shell is a future Bloom application on the Oxy runtime ([architecture](./native-architecture)). Its web lock screen is not a lock implementation. |
+| `.github/workflows/shell-ci.yml` | Built and linted the shell | Removed |
+| `.github/workflows/build-iso.yml` | Built the shell, copied `oxyos-shell` into the chroot, published tagged ISOs to GitHub releases | Removed; [publication is retired](./iso-build#image-publication-is-retired) |
+| `etc/greetd/config.toml`, `etc/xdg/labwc/{autostart,rc.xml}` | Auto-login of `user` into `labwc -s /usr/bin/oxyos-shell`; exported `XDG_SESSION_TYPE=wayland`, `GDK_BACKEND`, `QT_QPA_PLATFORM`, `MOZ_ENABLE_WAYLAND` | No graphical session. Apps choose no host backend globally. |
+| `hooks/{live,normal}/0850-lxdm-config`, `0855-disable-live-config-lxdm` | Masked LXDM, enabled greetd and seatd, pre-created `user:live` with `sudo,video,audio,input,render,seat` | live-config creates the live user; no blanket device groups |
+| `hooks/live/0840-build-shell` | Printed a message and succeeded when the shell binary was missing | Removed |
+| `hooks/{live,normal}/0900-tap-to-click` | Copied X.org snippets; wrote a libinput quirk (`AttrLibinputTappingDefault` is not a quirk attribute) | Tap-to-click default is an input-policy decision of the future compositor |
+| `hooks/{live,normal}/0990-sources-fix` | Comments only | Removed |
+| `hooks/live/0860-grub-init-tune` | `update-grub \|\| true` in a chroot without GRUB | `GRUB_INIT_TUNE` as a `grub.d` drop-in |
+| `config/includes.installer/` GTK theme and banner images | Graphical debian-installer (X.org) | Text installer |
+| `config/archives/oxyos.key.*` | Trusted for every source, signed no configured repository | Removed; a future repository needs a `Signed-By`-scoped key |
+| Packages: `greetd labwc seatd xwayland dbus-x11`, `libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-common gstreamer1.0-plugins-{base,good}`, `pulseaudio gammastep brightnessctl`, fonts and icon/cursor themes | Session, shell runtime, audio, night light, backlight CLI | PipeWire is the audio stack. Night light, backlight and fonts belong to the compositor/runtime when they exist. |
+
+## Desktop applications
+
+`firefox-esr`, `thunar` (+ archive plugin, volman), `foot`, `vlc`, `gnome-calculator`, `gnome-text-editor`, `eog`, `file-roller`, `gparted`, `transmission-gtk` and `gvfs-fuse` were removed from the manifest. They are X11/Wayland/GTK/Qt clients and cannot be advertised as runnable on the Oxy protocol. Each needs a port or an Oxy replacement. The browser is the planned [Astro port](./native-architecture#astro-reference-and-port).
+
+## Assets
+
+The shell's artwork was not kept: no provenance or licence records exist and nothing in the native platform consumes it. That includes `Sosumi.wav`, whose name is that of an Apple system sound, plus the wallpaper, logo, avatar, app icons and Tauri icons. Retrieve them from `6c35e60:shell/` only with a provenance record and a named destination. The bootloader splash artwork in `config/bootloaders/` is still used by the boot menus and remains.
+
+## Follow-ups outside this repository
+
+Not changed by #27:
+
+- **Satellite repositories.** The previous README listed `OxyOS-menu`, `-apps`, `-welcome`, `-wallpapers`, `-ui-theme`, `-pipemenus`, `-metapackage`, `-lxdm-theme`, `-icon-theme`, `-exit` and `-configs`. On 2026-10-28 every one returned 404 under `OxyHQ` for an authenticated organisation member, and no build path ever installed them: there was no package entry and no apt source. The names and the README's thanks to Philip match BunsenLabs' repositories. The owner should confirm where the satellites live, if anywhere, and whether this configuration derives from BunsenLabs. That affects the licence below.
+- **Website.** OxyHQ/website lists OxyOS 1.0 for download from `downloads.oxy.so` (`src/data/oxyosReleases.ts`). That image is the retired stack. Whether to keep offering it is the owner's decision.
+- **GitHub releases.** `v1.0` (latest) and a `v1.1` draft remain. They were not edited or deleted.
+
+## Release blockers recorded here
+
+- The repository has no licence file, and neither the configuration's upstream derivation nor the asset provenance is resolved. Do not assign a licence unilaterally.
+- `oxyos-apt-setup` orders itself after `getty@%i.service` in a non-template unit. It also fails its first run when `sources.list~` is absent, then finishes on the next boot. It predates #27 and is unchanged.
+- No image has been built from the cleaned configuration in CI.

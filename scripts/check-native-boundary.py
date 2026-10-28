@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the resolved native workspace without auditing the retired ISO graph."""
+"""Check the resolved native workspace; the image config is check-image-config.py's."""
 
 import json
 import pathlib
