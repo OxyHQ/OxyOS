@@ -168,6 +168,12 @@ pub struct VulkanCompositor {
     timestamp_period: f32,
     timestamp_bits: u32,
     last_gpu_ms: Option<f64>,
+    /// The last frame's host time: copying the layers into the upload buffer, and from
+    /// submitting the commands to their fence, in milliseconds.
+    last_host_ms: (f64, f64),
+    /// The device's time before composing (uploads, the fill) and after it (copies, release),
+    /// in milliseconds.
+    last_gpu_phases: Option<(f64, f64)>,
     /// Whether the device exports memory as DMA-BUF (Linux), for scanout targets.
     dma_buf: bool,
     /// Output buffers exported for display (`scanout_targets`).
@@ -228,6 +234,8 @@ impl VulkanCompositor {
             timestamp_period: opened.timestamp_period,
             timestamp_bits: opened.timestamp_bits,
             last_gpu_ms: None,
+            last_host_ms: (0.0, 0.0),
+            last_gpu_phases: None,
             dma_buf: opened.dma_buf,
             scanout: Vec::new(),
             bound_output: vk::Buffer::null(),
@@ -397,7 +405,7 @@ impl VulkanCompositor {
                 self.queries = device.create_query_pool(
                     &vk::QueryPoolCreateInfo::default()
                         .query_type(vk::QueryType::TIMESTAMP)
-                        .query_count(2),
+                        .query_count(4),
                     None,
                 )?;
             }
@@ -425,6 +433,18 @@ impl VulkanCompositor {
     /// no timestamps.
     pub fn last_gpu_ms(&self) -> Option<f64> {
         self.last_gpu_ms
+    }
+
+    /// The device's time around the last frame's composition, in milliseconds: before it (the
+    /// uploads and the fill) and after it (copies and the release to the display).
+    pub fn last_gpu_phases(&self) -> Option<(f64, f64)> {
+        self.last_gpu_phases
+    }
+
+    /// The last frame's host time, in milliseconds: copying the layers' pixels into the upload
+    /// buffer, and waiting from submission to the fence (the device's whole work for it).
+    pub fn last_host_ms(&self) -> (f64, f64) {
+        self.last_host_ms
     }
 
     /// Composes `layers` onto an output of `width` × `height` filled with `background`, as
@@ -551,6 +571,7 @@ impl VulkanCompositor {
             unreachable!("reserved");
         };
 
+        let copying = std::time::Instant::now();
         // The layers' pixels one after another, into the upload buffer.
         let mut pushes = Vec::with_capacity(layers.len());
         let mut offset = 0usize;
@@ -589,6 +610,7 @@ impl VulkanCompositor {
             }
             pushes.push(push);
         }
+        self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
         let timing = self.queries != vk::QueryPool::null();
 
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -617,7 +639,14 @@ impl VulkanCompositor {
                     .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
             )?;
             if timing {
-                device.cmd_reset_query_pool(command, self.queries, 0, 2);
+                device.cmd_reset_query_pool(command, self.queries, 0, 4);
+                // The start of the commands (query 2): uploads and the fill follow.
+                device.cmd_write_timestamp(
+                    command,
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    self.queries,
+                    2,
+                );
             }
             let ownership =
                 |from: u32, to: u32, src: vk::AccessFlags, dst: vk::AccessFlags, before, after| {
@@ -755,8 +784,18 @@ impl VulkanCompositor {
                     vk::PipelineStageFlags::HOST,
                 );
             }
+            if timing {
+                // The end of the commands (query 3), after any copy and ownership release.
+                device.cmd_write_timestamp(
+                    command,
+                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                    self.queries,
+                    3,
+                );
+            }
             device.end_command_buffer(command)?;
             let commands = [command];
+            let submitting = std::time::Instant::now();
             device.queue_submit(
                 self.queue,
                 &[vk::SubmitInfo::default().command_buffers(&commands)],
@@ -764,10 +803,11 @@ impl VulkanCompositor {
             )?;
             device.wait_for_fences(&[self.fence], true, u64::MAX)?;
             device.reset_fences(&[self.fence])?;
+            self.last_host_ms.1 = submitting.elapsed().as_secs_f64() * 1e3;
         }
         self.last_gpu_ms = if timing {
-            let mut ticks = [0u64; 2];
-            // SAFETY: both queries were written by the completed submission.
+            let mut ticks = [0u64; 4];
+            // SAFETY: the four queries were written by the completed submission.
             unsafe {
                 self.device.get_query_pool_results(
                     self.queries,
@@ -781,8 +821,12 @@ impl VulkanCompositor {
             } else {
                 (1u64 << self.timestamp_bits) - 1
             };
-            let elapsed = (ticks[1] & mask).wrapping_sub(ticks[0] & mask) & mask;
-            Some(elapsed as f64 * f64::from(self.timestamp_period) / 1e6)
+            let ms = |from: usize, to: usize| {
+                let elapsed = (ticks[to] & mask).wrapping_sub(ticks[from] & mask) & mask;
+                elapsed as f64 * f64::from(self.timestamp_period) / 1e6
+            };
+            self.last_gpu_phases = Some((ms(2, 0), ms(1, 3)));
+            Some(ms(0, 1))
         } else {
             None
         };

@@ -381,6 +381,8 @@ fn settle(
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.flips.len();
+    // The flip that will show the answer, when it was not yet shown as it appeared.
+    let mut answer_flip = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -392,16 +394,36 @@ fn settle(
         }
         session.compositor.serve(&session.listener)?;
         let now = shown(&session.compositor);
-        if now != last.0 {
+        let changed = now != last.0;
+        if changed {
             if first_frame_ns.is_none() {
                 first_frame_ns = Some(monotonic_ns());
-                // The turn that composed the answer showed it, and waited for its flip.
-                first_flip_ns = session.compositor.flips[shown_before..]
-                    .last()
-                    .map(|(_, flip)| flip.as_nanos() as i64);
+                let compositor = &session.compositor;
+                if compositor.flipped == compositor.scene.render_list() {
+                    // The last flip shows the answer: its completion made it.
+                    first_flip_ns = compositor.flips[shown_before..]
+                        .last()
+                        .map(|(_, flip)| flip.as_nanos() as i64);
+                } else {
+                    // Not on screen yet (a surface went away, say): the frame on its way shows it
+                    // if it was composed with it, or else the next one.
+                    let composed_with_it = compositor.pending_flip.is_some()
+                        && compositor.composed == compositor.scene.frame_list();
+                    answer_flip = Some(
+                        compositor.flips.len()
+                            + usize::from(compositor.pending_flip.is_some() && !composed_with_it),
+                    );
+                }
             }
             last = (now, Instant::now());
-        } else if (now != before || may_stay) && last.1.elapsed() >= SETTLE {
+        }
+        if let Some(index) = answer_flip {
+            if let Some((_, flip)) = session.compositor.flips.get(index) {
+                first_flip_ns = Some(flip.as_nanos() as i64);
+                answer_flip = None;
+            }
+        }
+        if !changed && (last.0 != before || may_stay) && last.1.elapsed() >= SETTLE {
             if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
                 return Ok(Settled {
                     window,
@@ -890,6 +912,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             mismatches: 0,
             device_ms: Vec::new(),
             readback_ms: Vec::new(),
+            host_ms: Vec::new(),
+            phases_ms: Vec::new(),
         });
     }
     let mut children = Children(vec![Command::new(&launch.command[0])
@@ -1052,12 +1076,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .into())
         }
         Some(gpu) => format!(
-            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},\"readback_ms_median\":{},{}}}",
+            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},\"readback_ms_median\":{},\"upload_copy_ms_median\":{},\"submit_to_fence_ms_median\":{},\"device_before_ms_median\":{},\"device_after_ms_median\":{},{}}}",
             json_string(gpu.compositor.device_name()),
             gpu.compositor.device_kind(),
             gpu.frames,
             median(&gpu.device_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
             median(&gpu.readback_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.host_ms.iter().map(|t| t.0).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.host_ms.iter().map(|t| t.1).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.phases_ms.iter().map(|t| t.0).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.phases_ms.iter().map(|t| t.1).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
             if launch.gpu_only {
                 "\"reference\":false"
             } else {
@@ -1074,6 +1106,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if console_input > 0 {
         return Err(format!("{console_input} bytes typed reached the console").into());
     }
+    // The last frame on its way to the display completes before the display is closed.
+    session.compositor.complete_flip(true);
     let display = match session.compositor.display.take() {
         Some(display) => {
             // A frame is handed over at any point of a refresh and should flip at the next
@@ -1088,13 +1122,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
             waits.sort_by(f64::total_cmp);
             let compositions = &session.compositor.compositions;
+            let reads = &session.compositor.reads;
             format!(
-                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"read_ms_median\":{:.2},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
                 if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
                 median(compositions).unwrap_or(0.0),
                 compositions.iter().copied().fold(0.0, f64::max),
+                median(reads).unwrap_or(0.0),
                 waits.get(waits.len() / 2).copied().unwrap_or(0.0),
                 waits.last().copied().unwrap_or(0.0)
             )

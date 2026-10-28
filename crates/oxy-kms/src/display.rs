@@ -245,6 +245,30 @@ impl Display {
         Ok(())
     }
 
+    /// The presented frame's flip if it has happened: the kernel's timestamp of it
+    /// (CLOCK_MONOTONIC). Never blocks; the card is readable once it has (`card().as_fd()`).
+    pub fn flip_done(&self) -> io::Result<Option<Duration>> {
+        use rustix::event::{poll, PollFd, PollFlags, Timespec};
+        let mut fds = [PollFd::new(&self.card, PollFlags::IN)];
+        let now = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        match poll(&mut fds, Some(&now)) {
+            Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(None),
+            Ok(_) => {}
+            Err(error) => return Err(error.into()),
+        }
+        for event in self.card.receive_events()? {
+            if let Event::PageFlip(flip) = event {
+                if flip.crtc == self.crtc {
+                    return Ok(Some(flip.duration));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Waits for the presented frame's flip; returns the kernel's timestamp of it
     /// (CLOCK_MONOTONIC).
     pub fn wait_flip(&self) -> io::Result<Duration> {
