@@ -856,6 +856,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
 
     let frames = session.compositor.frames;
+    // Input devices close with the session: their descriptors are not leaks.
+    session.compositor.input = None;
+    drop(devices);
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);
     let gpu = match session.compositor.gpu.take() {
