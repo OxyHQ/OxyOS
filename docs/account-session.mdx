@@ -1,0 +1,46 @@
+---
+title: Oxy account and session on OxyOS
+description: Inventory of the existing Oxy SDK owners that OxyOS's required-account model must reuse, the gaps, and the open decisions for #35.
+order: 4
+---
+
+# Oxy account and session on OxyOS
+
+Status: inventory and constraints for [#35](https://github.com/OxyHQ/OxyOS/issues/35). Nothing here is implemented in OxyOS yet. It was read from the Oxy SDK at `e41f48242` (current `main`, 2026-10-28) and changes nothing there.
+
+OxyOS requires an Oxy account. First enrollment is online, through the existing SDK. An enrolled account can sign in and unlock offline with a protected device-local credential. Compositor grants ([ADR 0001](./adr/0001-native-platform-boundaries)) come from the session authority, never from an Oxy token.
+
+## Existing owners to reuse
+
+| Need | Existing owner | Notes |
+| --- | --- | --- |
+| Account sign-in UI and flow | `@oxy.so/services` `OxyProvider`, account dialog; ADR 0030 (email → code/link → optional password → authenticator; passkeys removed) | Runs without login (`requireAuth="off"` by default); OxyOS enrollment uses this flow, not a new one |
+| Device session | `@oxy.so/core` `SessionClient` (`packages/core/src/session/SessionClient.ts`); contracts `deviceSession.ts`, `deviceDirectory.ts`, `deviceBoot.ts`, `sessionStatus.ts`, `sessionRevocation.ts` in `@oxy.so/contracts` | Device identity is `deviceId` + `deviceSecret`. Access tokens are short-lived, minted by `POST /session/device/token`. There are no refresh tokens or cookies. The server holds authoritative per-device state and pushes changes over a socket |
+| One session for several first-party apps | `packages/core/src/session/sharedDeviceCredential.ts` | Shares the `deviceId`/`deviceSecret` pair through an injected `SharedDeviceCredentialStore` (keychain/keystore on mobile). The token mint does not rotate, so several apps can refresh concurrently. Reads fail closed: `present` / `absent` / `unavailable` / `unsupported` |
+| Identity binding | `identityPin.ts`, `identitySession.ts`, `KeyManager` | Commons' self-custody identity key is for identity and signed approval only. It is never the general session transport |
+| Platform detection | `packages/core/src/utils/platform.ts` `PlatformOS` | `'ios' \| 'android' \| 'web' \| 'windows' \| 'macos' \| 'unknown'`: no Linux/OxyOS value yet |
+| Storage | `packages/services/src/ui/utils/storageHelpers.ts`, `authStateStore.ts` | localStorage on web, SecureStore on native. There is no Linux secure-storage backend |
+| First-party authority | ADR 0049, `docs/auth/first-party-platform-access.md` | A person in an Oxy product uses one `OxyProvider` and the device session, with no app scopes or OAuth consent |
+
+`docs/auth/desktop-public-clients.md` in the SDK still describes the retired Tauri/WebKit shell (`tauri://localhost`). It needs updating when the native runtime registers. That is an SDK-repository change.
+
+## What does not exist yet
+
+- An OS enrollment contract that links this device to an account and provisions the device-local unlock verifier.
+- Offline sign-in or unlock eligibility, and its relationship to a lapsed access token, a password change or remote revocation.
+- A Linux `SharedDeviceCredentialStore` backend, or secure storage in general (secret store, TPM or disk-encryption key).
+- A `PlatformOS` value for OxyOS, plus the registration and recognition story for its native apps (no desktop app-assertion protocol exists).
+- Contracts for process activation, local files or OS notifications. The SDK's file and notification contracts are server-side.
+
+## Constraints from the platform ADRs
+
+- The session authority owns enrollment, local verification, unlock and grants. The compositor and the frame loop never touch the network or account secrets.
+- Bloom renders lock and enrollment visuals but decides nothing (ADR 0001 lock primitive); #31 consumes the trusted state.
+- No app, shell or compositor receives a universal bearer or the device secret by default.
+
+## Open decisions for #35 (with the SDK owners)
+
+1. **Where the shared device credential lives.** On mobile, sibling apps read the same `deviceSecret`. On OxyOS that would hand every app process a secret that can mint account tokens. The alternative is a session-authority broker that holds the credential and gives each app only what the existing contracts allow. First-party calls carry no app scopes (ADR 0049), so a per-app narrowing needs SDK/server design rather than local invention.
+2. **Local unlock verifier.** Password/PIN verification must use established primitives (for example a memory-hard KDF verifier and rate limiting, optionally bound to TPM or disk-encryption key release). It must not cache the Oxy password or treat an access token as an unlock secret.
+3. **Offline lifetime and revocation.** Decide whether an enrolled device has any offline-access limit, and what changes only on reconnect. Do not promise instant remote revocation offline.
+4. **Multi-user mapping.** Each enrolled Oxy account maps to an OS user/UID/home as an implementation detail, with no local-only account and no guest desktop.
