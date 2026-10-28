@@ -357,7 +357,11 @@ impl Compositor {
             }
         };
         let (dx, dy) = self.display_offset;
+        let trace = std::env::var_os("OXY_INPUT_TRACE").is_some();
         for action in actions {
+            if trace {
+                eprintln!("[input] {action:?} focus {:?}", self.scene.focus());
+            }
             match action {
                 oxy_input::Action::Motion { x, y } => self
                     .scene
