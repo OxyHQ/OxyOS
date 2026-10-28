@@ -85,11 +85,27 @@ The intervals come from the kernel's flip timestamps.
 
 With `--gpu`, the compositor's compute shader writes straight into buffers exported as DMA-BUF. KMS imports them through PRIME as linear XRGB8888 framebuffers, and nothing is copied through the CPU.
 
-Still to do:
+**A live app on the display.** `oxy-offscreen --launch --kms CARD` shows every frame the development compositor composes on the output, and completes each frame at its flip time (`Clock::Monotonic`). The ThinkPad ran the whole Bloom regression this way:
+- the Bloom host and its bundle, built under WSL on the same Debian 13, copied over;
+- the director driving the app with its scripted input.
+
+All 56 steps pass, three runs out of three.
+
+| Per run | Value |
+| --- | --- |
+| Frames shown | 168 |
+| Handover to flip (median / max) | about 8–10 / 18–22 ms |
+| Flips later than one refresh | 1–4 of 168 |
+| Input to the answer on screen (median / max) | about 39 / 88 ms |
+| The host's CPU render per frame | about 19–20 ms |
+
+The few late flips coincide with the host's CPU rendering on the same machine. Still to do:
+- real input (evdev/libinput) instead of the director;
+- a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
-- the compositor session itself driving KMS, with real input, instead of a tool replaying dumped frames.
+- the GPU path in the live compositor (`--kms` composes on the CPU; `oxy-kms-show --gpu` shows zero-copy composition with replayed frames).
 
 ## Consequences
 

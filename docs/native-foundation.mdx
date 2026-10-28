@@ -135,6 +135,8 @@ An input step passes only when the application answers with changed pixels anywh
 {"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}
 ```
 
+With `--kms CARD`, every composed frame is shown on the card's first connected output through DRM/KMS, and completes at the kernel's flip time (feedback timestamps are then `Monotonic`, not synthetic). The summary reports the mode, the frames shown, the handover-to-flip times and the flips later than one refresh. It needs DRM master: run it from a free virtual terminal, as root.
+
 With `--gpu`, every composed frame is also composed on the best Vulkan device present and must match the CPU composition byte for byte. Any difference fails the run, and the summary names the device and its kind. On a machine without a Vulkan driver, Mesa's lavapipe (`mesa-vulkan-drivers`, a CPU device) runs it: that proves the Vulkan path and the semantics, not a GPU.
 
 This is the headless development path. It is not DRM/KMS output, GPU-timed, a session or Bloom, its input is scripted and its feedback timestamps are synthetic. The test clients draw flat rectangles.
