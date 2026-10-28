@@ -284,8 +284,8 @@ ParagraphLayout TextEngine::layout(
     if (alignment == TextAlignment::Right) offset = boxWidth - line.ink;
     float x = offset;
     float baseline = top + line.ascent;
-    LineLayout metrics{.x = offset, .top = top, .width = line.ink, .height = line.height, .ascent = line.ascent,
-                       .descent = line.descent};
+    LineLayout metrics{.x = offset, .top = top, .width = line.ink, .advance = line.width, .height = line.height,
+                       .ascent = line.ascent, .descent = line.descent};
     for (const Token* token : line.tokens) {
       metrics.text += token->text;
       metrics.capHeight = std::max(metrics.capHeight, token->capHeight);

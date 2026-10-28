@@ -57,6 +57,8 @@ class Window {
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it). Throws on failure.
   void openPopup(uint32_t id, uint32_t parent, const OxyPositioner& positioner, uint64_t serial);
+  // Places an open popup again (its anchor moved or its content resized).
+  void reposition(uint32_t id, const OxyPositioner& positioner);
   void destroy(uint32_t id);
 
   uint64_t presented() const { return presented_; }

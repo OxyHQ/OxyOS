@@ -110,6 +110,10 @@ void Window::openPopup(uint32_t id, uint32_t parent, const OxyPositioner& positi
   if (serial != 0 && oxy_client_grab_popup(client_, id, serial) != 0) failed("cannot grab the popup");
 }
 
+void Window::reposition(uint32_t id, const OxyPositioner& positioner) {
+  if (oxy_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
+}
+
 void Window::destroy(uint32_t id) {
   if (surfaces_.erase(id) == 0) return;
   if (oxy_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");

@@ -28,7 +28,8 @@ struct GlyphRun {
 // One laid-out line, relative to the paragraph origin.
 struct LineLayout {
   std::string text;
-  float x = 0, top = 0, width = 0, height = 0;
+  // `width` is the ink width; `advance` also counts trailing spaces (where a caret after them sits).
+  float x = 0, top = 0, width = 0, advance = 0, height = 0;
   float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;
 };
 

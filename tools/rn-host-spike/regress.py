@@ -15,6 +15,7 @@ Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
 - latency_ms: budget from injecting the input to the first changed frame.
+  (Pointer enter/leave, which follow every motion, are left out of `react`.)
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -45,7 +46,12 @@ def director_args(step):
     if kind == "type":
         return args + ["--type", value]
     if kind == "key":
-        return args + ["--key", str(value)]
+        # A code, or a chord as a list of codes pressed in order (Shift+Right is [42, 106]).
+        return args + ["--key", "+".join(map(str, value)) if isinstance(value, list) else str(value)]
+    if kind == "drag":
+        return args + ["--drag", ",".join(map(str, value))]
+    if kind == "preedit":
+        return args + ["--preedit", value]
     if kind == "expect-popup":
         return ["--expect-popup"]
     raise ValueError(f"unknown step {kind}")
@@ -90,7 +96,8 @@ def check_step(index, step, result, report, start, failures):
     if "react" in expect:
         got = {}
         for line in report:
-            if line["kind"] == "deliver" and start <= line["t"] <= end:
+            # Hover follows every pointer motion; a step checks it only under `hover`.
+            if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
                 label = line.get("within") or line["target"]
                 key = f"{line['event']}@{label}"
                 got[key] = got.get(key, 0) + 1
@@ -103,6 +110,20 @@ def check_step(index, step, result, report, start, failures):
             fail(f"{leaked} input events reached another client")
         if delivered != expect["delivered"]:
             fail(f"compositor delivered {delivered}, expected exactly {expect['delivered']}")
+    if "popup_events" in expect:
+        # Popup lifecycle (open, reposition, close, dismissed) in this step, exactly.
+        got = {}
+        for line in report:
+            if line["kind"] == "popup" and start <= line["t"] <= end:
+                key = f"{line['event']}@{line.get('view', line['surface'])}"
+                got[key] = got.get(key, 0) + 1
+        if got != expect["popup_events"]:
+            fail(f"popup events {got}, expected exactly {expect['popup_events']}")
+    if "popup_size" in expect:
+        rects = result.get("popups", [])
+        sizes = [rect[2:] for rect in rects]
+        if sizes != [expect["popup_size"]]:
+            fail(f"popup sizes {sizes}, expected [{expect['popup_size']}]")
     if "popups" in expect:
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:

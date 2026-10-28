@@ -43,10 +43,23 @@ if [ ! -e text/usr/include/harfbuzz/hb.h ]; then
   done
 fi
 
-# Hermes V1 at the revision React Native pins. Unicode-lite: no ICU, as on Android.
+# ICU headers (the libraries are part of the Debian base), for Hermes' Unicode support.
+if [ ! -e icu/usr/include/unicode/uchar.h ]; then
+  mkdir -p debs/icu && (cd debs/icu && apt-get download libicu-dev)
+  for deb in debs/icu/*.deb; do dpkg -x "$deb" icu; done
+  for lib in icuuc icui18n icudata; do
+    so=$(ls /usr/lib/x86_64-linux-gnu/lib$lib.so.[0-9]* | head -1)
+    rm -f "icu/usr/lib/x86_64-linux-gnu/lib$lib.so" && ln -s "$so" "icu/usr/lib/x86_64-linux-gnu/lib$lib.so"
+  done
+fi
+
+# Hermes V1 at the revision React Native pins, with ICU for case mapping and normalisation.
+# Unicode-lite (Android's build) leaves String.prototype.toLocaleLowerCase and normalize() as
+# identity functions without the platform's Java ICU behind them; OxyOS has no Java, so Hermes
+# links the system ICU instead. Intl stays off: Hermes' Linux Intl is a stub.
 [ -d hermes ] || git clone -q --depth 1 --branch "$HERMES_TAG" https://github.com/facebook/hermes.git hermes
 cmake -S hermes -B hermes-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHERMES_ENABLE_INTL=OFF \
-  -DHERMES_UNICODE_LITE=ON -DHERMES_ENABLE_TEST_SUITE=OFF >/dev/null
+  -DHERMES_UNICODE_LITE=OFF -DICU_ROOT="$WORK/icu/usr" -DHERMES_ENABLE_TEST_SUITE=OFF >/dev/null
 ninja -C hermes-build -j "$JOBS" lib/libhermesvm.so bin/hermes bin/hermesc
 
 # React Native's pinned third-party sources (versions from its gradle/libs.versions.toml).

@@ -85,6 +85,8 @@ void PointerInput::handle(const OxyEvent& event) {
   if (!down_) content_ = *content;
   x_ = x;
   y_ = y;
+  if (event.detail == OXY_POINTER_ENTER || event.detail == OXY_POINTER_MOTION) hover(*content, x, y);
+  if (event.detail == OXY_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
   switch (event.detail) {
     case OXY_POINTER_PRESS:
       if (event.code == kPrimaryButton && !down_) {
@@ -114,6 +116,45 @@ void PointerInput::handle(const OxyEvent& event) {
     default:
       break;
   }
+}
+
+void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, float y) {
+  std::vector<Tag> now;
+  if (content) {
+    Tag target = hitTest(tree_, *content, x, y);
+    if (target >= 0) now = ancestry(tree_, target);
+  }
+  uint32_t surface = content ? content->surface : hoveredSurface_;
+  size_t common = 0;
+  while (common < now.size() && common < hovered_.size() && now[common] == hovered_[common]) ++common;
+  Point page = content ? Point{content->origin.x + x, content->origin.y + y} : Point{x, y};
+  auto send = [&](Tag tag, bool enter) {
+    auto it = tree_.views().find(tag);
+    if (it == tree_.views().end()) return;
+    auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
+    if (!emitter) return;
+    Point origin = windowFrame(tree_, tag).value_or(Rect{}).origin;
+    PointerEvent event{};
+    event.pointerId = 1;
+    event.pointerType = "mouse";
+    event.isPrimary = true;
+    event.clientPoint = page;
+    event.screenPoint = page;
+    event.offsetPoint = {page.x - origin.x, page.y - origin.y};
+    event.width = 1;
+    event.height = 1;
+    event.buttons = down_ ? 1 : 0;
+    if (enter) {
+      emitter->onPointerEnter(event);
+    } else {
+      emitter->onPointerLeave(event);
+    }
+    Report::get().deliver(enter ? "pointerEnter" : "pointerLeave", surface, it->second.view);
+  };
+  for (size_t i = hovered_.size(); i > common; --i) send(hovered_[i - 1], false);
+  for (size_t i = common; i < now.size(); ++i) send(now[i], true);
+  hovered_ = std::move(now);
+  hoveredSurface_ = surface;
 }
 
 void PointerInput::scroll(float dx, float dy) {

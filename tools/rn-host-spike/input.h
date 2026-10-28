@@ -43,6 +43,10 @@ class PointerInput {
 
  private:
   void scroll(float dx, float dy);
+  // Moves the hover to the views under (x, y) of `content` (none for nullopt): pointer leave
+  // events for the views left, innermost first, then enter events for the views entered,
+  // outermost first, as W3C pointer events do. Pressability's hover is built on them.
+  void hover(const std::optional<SurfaceContent>& content, float x, float y);
 
   enum class Phase { Start, Move, End, Cancel };
   void dispatch(Phase phase, float x, float y);
@@ -50,6 +54,8 @@ class PointerInput {
   const ViewTree& tree_;
   Surfaces surfaces_;
   SurfaceContent content_{};  // the surface the pointer is over
+  std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
+  uint32_t hoveredSurface_ = 0;
   bool down_ = false;
   facebook::react::Tag target_ = -1;
   int identifier_ = 0;

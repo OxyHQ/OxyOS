@@ -58,9 +58,12 @@ class PopupHost {
   // The tree changed: every popup draws again once its previous frame is answered.
   void changed();
   // Draws and presents each configured popup that has changed since its last frame.
-  void present(facebook::react::Tag caret, const std::string& focus);
+  void present(const TextInputEdit& edit, const std::string& focus);
   // A compositor dismissal (PopupDone): the view's onDismiss, and the surface is destroyed.
   void dismissed(const OxyEvent& event);
+  // A key press or committed text sent to a popup's surface: the view's onKey, one event per key
+  // with its W3C `KeyboardEvent.key` name (ArrowDown, Enter, Escape, …, or the character).
+  void key(const OxyEvent& event);
 
   // The surface a view is drawn on: its popup's, or the toplevel's.
   uint32_t surfaceOf(facebook::react::Tag view) const;
@@ -70,7 +73,11 @@ class PopupHost {
  private:
   struct Popup {
     uint32_t surface = 0;
+    OxyPositioner placed{};  // the positioner last sent
     bool dirty = true;
+    // The configure its last frame was drawn for: a new one (a reposition that resized it, or a
+    // scale change) needs a new frame, and the compositor discards one drawn for an older size.
+    uint64_t drawnFor = 0;
     bool dismissed = false;  // closed by the compositor; the view is still mounted
   };
   const ViewTree& tree_;

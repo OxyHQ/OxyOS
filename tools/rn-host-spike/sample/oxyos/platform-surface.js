@@ -22,10 +22,23 @@ const OxyPopupView = NativeComponentRegistry.get('OxyPopupView', () => ({
   },
   directEventTypes: {
     topDismiss: { registrationName: 'onDismiss' },
+    topKey: { registrationName: 'onKey' },
   },
 }));
 
-function PopupSurface({ anchorRef, side, align, sideOffset, alignOffset, role, label, onDismiss, testID, children }) {
+function PopupSurface({
+  anchorRef,
+  side,
+  align,
+  sideOffset,
+  alignOffset,
+  role,
+  label,
+  onDismiss,
+  onKey,
+  testID,
+  children,
+}) {
   // The anchor is a mounted view; its tag is known once the trigger has committed.
   const [anchorTag, setAnchorTag] = React.useState(null);
   React.useLayoutEffect(() => {
@@ -42,6 +55,8 @@ function PopupSurface({ anchorRef, side, align, sideOffset, alignOffset, role, l
       accessibilityRole={role}
       accessibilityLabel={label}
       onDismiss={(event) => onDismiss(event.nativeEvent.reason)}
+      // Keys the compositor sends to the popup while it has keyboard focus, as W3C key names.
+      onKey={onKey ? (event) => onKey(event.nativeEvent.key) : undefined}
       testID={testID}
       collapsable={false}
       // Out of the window's layout: the panel sizes itself, the compositor places it.

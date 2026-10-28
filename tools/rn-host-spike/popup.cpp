@@ -5,6 +5,7 @@
 #include <react/renderer/core/propsConversions.h>
 
 #include <algorithm>
+#include <cstring>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -48,7 +49,9 @@ bool tracing() {
 }  // namespace
 
 OxyPositioner positioner(const OxyPopupViewProps& props, Rect anchor, Size size) {
-  OxyPositioner p{};
+  // Zero-filled (padding included) so positioners compare bytewise.
+  OxyPositioner p;
+  std::memset(&p, 0, sizeof p);
   p.anchor_x = static_cast<int32_t>(std::floor(anchor.origin.x));
   p.anchor_y = static_cast<int32_t>(std::floor(anchor.origin.y));
   p.anchor_width = static_cast<uint32_t>(std::max(1.0f, std::ceil(anchor.size.width)));
@@ -84,15 +87,33 @@ void PopupHost::sync(uint64_t serial) {
     const auto& view = entry.view;
     if (std::string(view.componentName ? view.componentName : "") != kPopupComponent) continue;
     mounted.insert(tag);
-    if (popups_.count(tag)) continue;
+    if (auto open = popups_.find(tag); open != popups_.end()) {
+      // An open popup follows its anchor and its content's size: place it again when either
+      // changed (an inline submenu expanding, the window laid out anew).
+      auto& popup = open->second;
+      auto props = std::static_pointer_cast<const OxyPopupViewProps>(view.props);
+      auto anchor = windowFrame(tree_, props->anchorTag);
+      if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
+      auto placed = positioner(*props, *anchor, view.layoutMetrics.frame.size);
+      if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
+        window_.reposition(popup.surface, placed);
+        popup.placed = placed;
+        popup.dirty = true;
+        Report::get().popup("reposition", popup.surface, &view,
+                            folly::dynamic::object("width", placed.width)("height", placed.height)(
+                                "anchor_x", placed.anchor_x)("anchor_y", placed.anchor_y));
+      }
+      continue;
+    }
     auto props = std::static_pointer_cast<const OxyPopupViewProps>(view.props);
     auto anchor = windowFrame(tree_, props->anchorTag);
     Size size = view.layoutMetrics.frame.size;
     // Opened once its anchor is mounted and its content laid out.
     if (!anchor || size.width <= 0 || size.height <= 0) continue;
     uint32_t surface = nextSurface_++;
-    window_.openPopup(surface, Window::kToplevel, positioner(*props, *anchor, size), serial);
-    popups_[tag] = Popup{.surface = surface};
+    auto placed = positioner(*props, *anchor, size);
+    window_.openPopup(surface, Window::kToplevel, placed, serial);
+    popups_[tag] = Popup{.surface = surface, .placed = placed};
     Report::get().popup("open", surface, &view,
                         folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(
                             "width", size.width)("height", size.height));
@@ -117,18 +138,20 @@ void PopupHost::changed() {
   for (auto& [tag, popup] : popups_) popup.dirty = true;
 }
 
-void PopupHost::present(Tag caret, const std::string& focus) {
+void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
   for (auto& [tag, popup] : popups_) {
-    if (popup.dismissed || !popup.dirty || !window_.ready(popup.surface)) continue;
+    if (popup.dismissed || !window_.ready(popup.surface)) continue;
     const auto* surface = window_.surface(popup.surface);
+    if (!popup.dirty && surface->configure == popup.drawnFor) continue;
     Canvas canvas;
     auto started = std::chrono::steady_clock::now();
-    auto stats = drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, caret);
+    auto stats = drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, edit);
     double renderMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, renderMs, stats.textContent, focus);
     popup.dirty = false;
+    popup.drawnFor = surface->configure;
   }
 }
 
@@ -154,6 +177,55 @@ uint32_t PopupHost::surfaceOf(Tag view) const {
     if (it != popups_.end()) return it->second.surface;
   }
   return Window::kToplevel;
+}
+
+namespace {
+
+// W3C key names for the Linux input codes a popup's content can act on.
+const char* keyName(uint32_t code) {
+  switch (code) {
+    case 1: return "Escape";
+    case 15: return "Tab";
+    case 28: case 96: return "Enter";
+    case 57: return " ";
+    case 102: return "Home";
+    case 103: return "ArrowUp";
+    case 104: return "PageUp";
+    case 105: return "ArrowLeft";
+    case 106: return "ArrowRight";
+    case 107: return "End";
+    case 108: return "ArrowDown";
+    case 109: return "PageDown";
+    default: return nullptr;
+  }
+}
+
+}  // namespace
+
+void PopupHost::key(const OxyEvent& event) {
+  for (auto& [tag, popup] : popups_) {
+    if (popup.surface != event.surface || popup.dismissed) continue;
+    auto it = tree_.views().find(tag);
+    if (it == tree_.views().end()) return;
+    auto send = [&](const std::string& key) {
+      it->second.view.eventEmitter->dispatchEvent("key", folly::dynamic::object("key", key));
+      Report::get().deliver("key", popup.surface, it->second.view, folly::dynamic::object("key", key));
+    };
+    if (event.kind == OXY_EVENT_KEY && event.flag) {
+      if (const char* name = keyName(event.code)) send(name);
+    } else if (event.kind == OXY_EVENT_TEXT) {
+      // One key per character of the committed text (UTF-8 sequences kept whole).
+      std::string text(event.text);
+      for (size_t i = 0; i < text.size();) {
+        size_t length = 1;
+        auto byte = static_cast<unsigned char>(text[i]);
+        if (byte >= 0xf0) length = 4; else if (byte >= 0xe0) length = 3; else if (byte >= 0xc0) length = 2;
+        send(text.substr(i, length));
+        i += length;
+      }
+    }
+    return;
+  }
 }
 
 std::optional<SurfaceContent> PopupHost::content(uint32_t surface) const {

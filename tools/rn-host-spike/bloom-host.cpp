@@ -65,6 +65,9 @@ using Clock = std::chrono::steady_clock;
 class Flags : public ReactNativeFeatureFlagsDefaults {
  public:
   bool enableBridgelessArchitecture() override { return true; }
+  // A desktop pointer hovers: Pressability's hover (onHoverIn/Out) is built on W3C pointer
+  // events when this is on, and absent otherwise on React Native's Android path.
+  bool shouldPressibilityUseW3CPointerEventsForHover() override { return true; }
 };
 
 // The JS thread is this process's only thread: tasks run when the loop drains the queue.
@@ -400,7 +403,19 @@ int main(int argc, char** argv) {
       if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.surface = surface, .view = tree.root()};
       return popups.content(surface);
     });
-    oxy::TextEditing editing(tree, [&](facebook::react::Tag view) { return popups.surfaceOf(view); });
+    oxy::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxy::Placement> {
+      auto frame = oxy::windowFrame(tree, view);
+      if (!frame) return std::nullopt;
+      uint32_t surface = popups.surfaceOf(view);
+      // A popup's content is drawn relative to its popup view.
+      if (surface != oxy::Window::kToplevel) {
+        auto content = popups.content(surface);
+        if (!content) return std::nullopt;
+        frame->origin.x -= content->origin.x;
+        frame->origin.y -= content->origin.y;
+      }
+      return oxy::Placement{.surface = surface, .frame = *frame};
+    });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
       return it == tree.views().end() ? std::string() : oxy::Report::name(it->second.view);
@@ -417,6 +432,8 @@ int main(int argc, char** argv) {
         r.input(event.flag ? "key.press" : "key.release", event.surface, folly::dynamic::object("code", event.code));
       } else if (event.kind == OXY_EVENT_TEXT) {
         r.input("text", event.surface, folly::dynamic::object("text", std::string(event.text)));
+      } else if (event.kind == OXY_EVENT_PREEDIT) {
+        r.input("preedit", event.surface, folly::dynamic::object("text", std::string(event.text))("cursor", event.detail));
       } else if (event.kind == OXY_EVENT_SCROLL) {
         r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
       } else if (event.kind == OXY_EVENT_FOCUS) {
@@ -427,7 +444,7 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
-    facebook::react::Tag caret = -1;
+    oxy::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
@@ -446,14 +463,15 @@ int main(int argc, char** argv) {
               }
               report(event);
               if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
+              if (event.kind == OXY_EVENT_KEY || event.kind == OXY_EVENT_TEXT) popups.key(event);
               pointer.handle(event);
               editing.handle(event);
             })) {
           break;
         }
-        // Focus moves draw (or remove) a caret even when the tree did not change.
-        if (editing.focused() != caret) {
-          caret = editing.focused();
+        // Focus, caret and selection moves draw even when the tree did not change.
+        if (editing.edit() != drawn) {
+          drawn = editing.edit();
           dirty = true;
           popups.changed();
         }
@@ -471,14 +489,14 @@ int main(int argc, char** argv) {
         if (dirty && window->ready(oxy::Window::kToplevel)) {
           oxy::Canvas canvas;
           auto started = Clock::now();
-          auto stats = oxy::draw(tree, display, canvas, caret);
+          auto stats = oxy::draw(tree, display, canvas, drawn);
           double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
           window->present(oxy::Window::kToplevel, canvas);
           oxy::Report::get().frame(oxy::Window::kToplevel, renderMs, stats.textContent, focusName());
           dirty = false;
           busy = true;
         }
-        popups.present(caret, focusName());
+        popups.present(drawn, focusName());
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

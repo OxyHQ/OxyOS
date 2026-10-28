@@ -51,16 +51,30 @@ struct Canvas {
   std::vector<uint32_t> pixels;
 };
 
+// The focused text input's editing state, drawn over its text (textinput.h owns it). Offsets
+// are UTF-8 byte offsets into the input's text.
+struct TextInputEdit {
+  facebook::react::Tag tag = -1;
+  size_t selectionStart = 0, selectionEnd = 0;  // the caret when equal
+  size_t composeStart = 0, composeEnd = 0;      // the composition, underlined; empty if equal
+  bool operator==(const TextInputEdit&) const = default;
+};
+
+// A text input's caret geometry: the content-local x of byte offset `offset` of `text`, and the
+// offset nearest a content-local x. Single-line inputs (multiline ones use their last line).
+float textInputCaretX(const facebook::react::ShadowView& view, const std::string& text, size_t offset);
+size_t textInputOffsetAt(const facebook::react::ShadowView& view, const std::string& text, float x);
+
 // Component whose subtree is shown in a popup of its own (popup.h), never in the window.
 inline constexpr const char* kPopupComponent = "OxyPopupView";
 
-// Draws the window: the tree without popup subtrees. `caret` is the text input that has focus
-// (-1 for none); its caret is drawn after its text.
-RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, facebook::react::Tag caret = -1);
+// Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
+// selection and composition, drawn with its text.
+RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit = {});
 // Draws a popup view's children, relative to the popup, onto a transparent canvas of `display`'s
 // size (the popup's configured size).
 RenderStats drawPopup(const ViewTree& tree, facebook::react::Tag popup, const Display& display, Canvas& canvas,
-                      facebook::react::Tag caret = -1);
+                      const TextInputEdit& edit = {});
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);

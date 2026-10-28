@@ -179,13 +179,30 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "AndroidTextInput", "AndroidHorizontalScrollContentView",
                                             "Image"};
 
-// A text input's text, or its placeholder when empty, and the caret when it has focus. A
-// single-line input centres its line vertically, as Android's EditText does.
-void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity, bool focused,
-                   Painter& painter) {
+// The input's text laid out as it is drawn: single-line inputs do not wrap.
+ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
+  float maxWidth = props.multiline ? width : std::numeric_limits<float>::infinity();
+  return TextEngine::shared().layout(text, props.paragraphAttributes, maxWidth);
+}
+
+AttributedString inputText(const AndroidTextInputProps& props, const std::string& text) {
+  AttributedString string;
+  string.setBaseTextAttributes(props.getEffectiveTextAttributes(1));
+  if (!text.empty()) {
+    string.appendFragment({.string = text, .textAttributes = string.getBaseTextAttributes(), .parentShadowView = {}});
+  }
+  return string;
+}
+
+// A text input's text, or its placeholder when empty. When it has focus (`edit`): the selection
+// behind the text, the composition underlined, and the caret. A single-line input centres its
+// line vertically, as Android's EditText does.
+void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity,
+                   const TextInputEdit* edit, Painter& painter) {
   const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   AttributedString text = data.attributedStringBox.getValue();
+  std::string value = text.getString();
   if (text.isEmpty() && !props->placeholder.empty()) {
     auto attributes = props->getEffectiveTextAttributes(1);
     attributes.foregroundColor = props->placeholderTextColor ? props->placeholderTextColor
@@ -193,34 +210,44 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
     text.appendFragment({.string = props->placeholder, .textAttributes = attributes, .parentShadowView = {}});
   }
   auto content = view.layoutMetrics.getContentFrame();
-  float maxWidth = props->multiline ? content.size.width : std::numeric_limits<float>::infinity();
-  auto layout = TextEngine::shared().layout(text, props->paragraphAttributes, maxWidth);
+  auto layout = layoutInput(*props, text, content.size.width);
   float top = y + content.origin.y;
   if (!props->multiline) top += (content.size.height - layout.height) / 2;
+  float left = x + content.origin.x;
   Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
-  painter.glyphs(layout, x + content.origin.x, top, inside, opacity);
-  if (!focused) return;
-  // The caret follows the last line of the input's own text (not of its placeholder).
-  float caretX = 0, caretTop = 0;
-  float caretHeight = props->getEffectiveTextAttributes(1).fontSize;
-  if (std::isnan(caretHeight)) caretHeight = 14;
-  if (!data.attributedStringBox.getValue().isEmpty() && !layout.lines.empty()) {
-    const auto& last = layout.lines.back();
-    caretX = last.x + last.width;
-    caretTop = last.top;
-    caretHeight = last.height;
-  } else if (!layout.lines.empty()) {
-    caretTop = layout.lines.front().top;
-    caretHeight = layout.lines.front().height;
+  float lineTop = layout.lines.empty() ? 0 : layout.lines.front().top;
+  float lineHeight = props->getEffectiveTextAttributes(1).fontSize;
+  if (std::isnan(lineHeight)) lineHeight = 14;
+  if (!layout.lines.empty()) lineHeight = layout.lines.front().height;
+  SharedColor textColor = props->getEffectiveTextAttributes(1).foregroundColor;
+
+  if (edit && edit->selectionStart != edit->selectionEnd && !value.empty()) {
+    float from = textInputCaretX(view, value, edit->selectionStart);
+    float to = textInputCaretX(view, value, edit->selectionEnd);
+    Rgba selection = props->selectionColor ? rgba(props->selectionColor) : Rgba{0.25f, 0.45f, 1.0f, 0.3f};
+    selection.a *= opacity;
+    painter.fill(left + from, top + lineTop, to - from, lineHeight, BorderRadii{}, selection, inside);
   }
-  SharedColor color = props->cursorColor ? props->cursorColor : props->getEffectiveTextAttributes(1).foregroundColor;
-  Rgba caret = color ? rgba(color) : Rgba{0, 0, 0, 1};
-  caret.a *= opacity;
-  painter.fill(x + content.origin.x + caretX, top + caretTop, 1.5f, caretHeight, BorderRadii{}, caret, inside);
+  painter.glyphs(layout, left, top, inside, opacity);
+  if (!edit) return;
+  Rgba ink = textColor ? rgba(textColor) : Rgba{0, 0, 0, 1};
+  ink.a *= opacity;
+  if (edit->composeStart != edit->composeEnd && !value.empty()) {
+    float from = textInputCaretX(view, value, edit->composeStart);
+    float to = textInputCaretX(view, value, edit->composeEnd);
+    float baseline = layout.lines.empty() ? lineHeight : layout.lines.front().top + layout.lines.front().ascent;
+    painter.fill(left + from, top + baseline + 2, to - from, 1, BorderRadii{}, ink, inside);
+  }
+  if (edit->selectionStart == edit->selectionEnd) {
+    float caretX = value.empty() ? 0 : textInputCaretX(view, value, edit->selectionEnd);
+    Rgba caret = props->cursorColor ? rgba(props->cursorColor) : ink;
+    caret.a *= opacity;
+    painter.fill(left + caretX, top + lineTop, 1.5f, lineHeight, BorderRadii{}, caret, inside);
+  }
 }
 
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
-              RenderStats& stats, Tag caret) {
+              RenderStats& stats, const TextInputEdit& edit) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
@@ -290,7 +317,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
-    drawTextInput(view, x, y, w, h, clip, opacity, tag == caret, painter);
+    drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
     ++stats.texts;
     if (visible) {
       const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
@@ -313,7 +340,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   for (Tag child : it->second.children) {
-    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, caret);
+    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, edit);
   }
 }
 
@@ -339,17 +366,42 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 
 }  // namespace
 
-RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, Tag caret) {
+float textInputCaretX(const ShadowView& view, const std::string& text, size_t offset) {
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  float width = view.layoutMetrics.getContentFrame().size.width;
+  auto prefix = layoutInput(*props, inputText(*props, text.substr(0, std::min(offset, text.size()))), width);
+  if (prefix.lines.empty()) return 0;
+  const auto& last = prefix.lines.back();
+  return last.x + last.advance;
+}
+
+size_t textInputOffsetAt(const ShadowView& view, const std::string& text, float x) {
+  // The character boundary whose caret position is nearest x.
+  size_t best = 0;
+  float bestDistance = std::abs(x - textInputCaretX(view, text, 0));
+  for (size_t i = 1; i <= text.size(); ++i) {
+    if (i < text.size() && (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80) continue;
+    float distance = std::abs(x - textInputCaretX(view, text, i));
+    if (distance < bestDistance) {
+      best = i;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0xffffffff);
   Painter painter(canvas, display.scale);
   RenderStats stats;
-  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, caret);
+  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
   return stats;
 }
 
-RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, Canvas& canvas, Tag caret) {
+RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, Canvas& canvas,
+                      const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
@@ -358,7 +410,7 @@ RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, C
   auto it = tree.views().find(popup);
   if (it == tree.views().end()) return stats;
   for (Tag child : it->second.children) {
-    drawView(tree, child, 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, caret);
+    drawView(tree, child, 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
   }
   return stats;
 }

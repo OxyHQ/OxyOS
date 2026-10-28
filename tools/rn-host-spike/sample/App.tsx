@@ -11,6 +11,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@oxy.so/bloom/dropdown-menu';
 import { oxyosSurfaces } from './oxyos/platform-surface';
@@ -84,6 +87,17 @@ function Detail() {
                 {action}
               </DropdownMenuItem>
             ))}
+            {/* An inline submenu: expanding it grows the menu, which the compositor re-places. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger testID="more-actions">More actions</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {['Copy link', 'Print'].map((action) => (
+                  <DropdownMenuItem key={action} testID={`action-${action}`} onPress={() => setChoice(action)}>
+                    {action}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
         <Muted>{choice ? `Chosen: ${choice}` : 'Nothing chosen'}</Muted>

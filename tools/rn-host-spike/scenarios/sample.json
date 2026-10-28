@@ -39,7 +39,7 @@
       "do": ["press", [686, 372]],
       "expect": {
         "focus_input": "reply",
-        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1}
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
       }
     },
     {
@@ -48,7 +48,7 @@
       "expect": {
         "texts": ["Reply: Hola OxyOS!"],
         "focus_input": "reply",
-        "react": {"keyPress@reply": 1, "change@reply": 1},
+        "react": {"change@reply": 1, "selectionChange@reply": 1},
         "delivered": {"1": {"text": 1}},
         "latency_ms": 250
       }
@@ -59,7 +59,7 @@
       "expect": {
         "texts": ["Reply: Hola OxyOS"],
         "absent": ["Reply: Hola OxyOS!"],
-        "react": {"keyPress@reply": 1, "change@reply": 1},
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
         "delivered": {"1": {"key.press": 1, "key.release": 1}}
       }
     },
@@ -83,7 +83,10 @@
         "latency_ms": 250
       }
     },
-    {"name": "the menu reaches beyond the window", "do": ["expect-popup", null]},
+    {
+      "name": "the menu reaches beyond the window",
+      "do": ["expect-popup", null]
+    },
     {
       "name": "choose Archive in the menu",
       "do": ["press-popup", [60, 110]],
@@ -98,22 +101,30 @@
     {
       "name": "focus the reply field again",
       "do": ["press", [686, 372]],
-      "expect": {"focus_input": "reply", "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1}}
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
+      }
     },
     {
       "name": "reopen the menu, the field keeping its focus",
       "do": ["press", [797, 452]],
-      "expect": {"popups": 1, "focus_surface": 3, "focus_input": "reply", "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}}
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "focus_input": "reply",
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
     },
     {
-      "name": "text typed into the open menu does not reach the field behind it",
+      "name": "text typed into the open menu goes to the menu (typeahead), not the field behind it",
       "do": ["type", "zz"],
       "allow_unchanged": true,
       "expect": {
         "popups": 1,
         "texts": ["Reply: Hola OxyOS"],
         "absent": ["Reply: Hola OxyOSzz"],
-        "react": {},
+        "react": {"key@message-actions": 2},
         "delivered": {"3": {"text": 1}}
       }
     },
@@ -125,6 +136,225 @@
         "focus_surface": 1,
         "texts": ["Chosen: Archive", "Pressed 2 times"],
         "react": {}
+      }
+    },
+    {
+      "name": "open the menu from the keyboard's side",
+      "do": ["press", [797, 452]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 4,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "ArrowDown highlights the first row",
+      "do": ["key", 108],
+      "expect": {
+        "popups": 1,
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "three more rows down",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "and down",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "and down to Move to folder",
+      "do": ["key", 108],
+      "expect": {
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "Enter chooses the highlighted row and closes the menu",
+      "do": ["key", 28],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Move to folder"],
+        "absent": ["Chosen: Archive"],
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "reopen",
+      "do": ["press", [797, 452]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 5
+      }
+    },
+    {
+      "name": "Escape closes it without choosing",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Move to folder"],
+        "absent": ["Mark as unread"],
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "reopen again",
+      "do": ["press", [797, 452]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 6
+      }
+    },
+    {
+      "name": "typing d finds Delete",
+      "do": ["type", "d"],
+      "expect": {
+        "popups": 1,
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "Enter chooses it",
+      "do": ["key", 28],
+      "expect": {
+        "popups": 0,
+        "texts": ["Chosen: Delete"],
+        "react": {"key@message-actions": 1}
+      }
+    },
+    {
+      "name": "a press at the start of the focused reply moves the caret there",
+      "do": ["press", [532, 372]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "typed text goes in at the caret",
+      "do": ["type", "¡"],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyOS"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "End moves the caret to the end",
+      "do": ["key", 107],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyOS"],
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Shift+Left selects the last character",
+      "do": ["key", [42, 105]],
+      "expect": {
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Delete removes the selection, with no key press (as on Android)",
+      "do": ["key", 111],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyO"],
+        "absent": ["Reply: ¡Hola OxyOS"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "Ctrl+A selects everything",
+      "do": ["key", [29, 30]],
+      "expect": {
+        "texts": ["Reply: ¡Hola OxyO"],
+        "react": {"selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a commit replaces the selection, a word being no key press",
+      "do": ["type", "Hola "],
+      "expect": {
+        "texts": ["Reply: Hola"],
+        "absent": ["Reply: ¡Hola"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a composition is part of the text while it lasts",
+      "do": ["preedit", "mun"],
+      "expect": {
+        "texts": ["Reply: Hola mun"],
+        "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "its commit replaces the composition",
+      "do": ["type", "mundo"],
+      "expect": {
+        "texts": ["Reply: Hola mundo"],
+        "absent": ["munmundo"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "a drag from the start across the text selects it",
+      "do": ["drag", [532, 372, 840, 372]],
+      "expect": {
+        "focus_input": "reply",
+        "react": {"touchStart@reply": 1, "touchMove@reply": 2, "touchEnd@reply": 1, "selectionChange@reply": 2}
+      }
+    },
+    {
+      "name": "typing replaces the dragged selection",
+      "do": ["type", "Adiós"],
+      "expect": {
+        "texts": ["Reply: Adiós"],
+        "absent": ["mundo"],
+        "react": {"change@reply": 1, "selectionChange@reply": 1}
+      }
+    },
+    {
+      "name": "open the menu again",
+      "do": ["press", [797, 452]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 7,
+        "popup_size": [266, 338],
+        "absent": ["Copy link"],
+        "popup_events": {"open@message-actions": 1},
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "More actions expands inline: the popup grows and is placed again",
+      "do": ["press-popup", [60, 307]],
+      "expect": {
+        "popups": 1,
+        "texts": ["Copy link", "Print"],
+        "popup_events": {"reposition@message-actions": 1},
+        "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
+        "popup_size": [266, 428]
+      }
+    },
+    {
+      "name": "choose Print in the expanded submenu",
+      "do": ["press-popup", [60, 399]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Print"],
+        "absent": ["Chosen: Delete", "Copy link"],
+        "popup_events": {"close@7": 1},
+        "react": {"touchStart@action-Print": 1, "touchEnd@action-Print": 1}
       }
     }
   ]
