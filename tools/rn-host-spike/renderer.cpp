@@ -175,7 +175,7 @@ class Painter {
 };
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
-                                            "AndroidTextInput",
+                                            "AndroidTextInput", "AndroidHorizontalScrollContentView",
                                             "Image"};
 
 // A text input's text, or its placeholder when empty, and the caret when it has focus. A

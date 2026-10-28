@@ -162,8 +162,17 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
   -Wno-unused-variable -Wno-unused-but-set-variable
   "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 
+# React Native's portable Android-only core components, in their own target: their headers sit
+# beside Android's ScrollView props, which must not replace the cxx platform's elsewhere.
+set(SCROLLVIEW_ANDROID ${REACT_COMMON_DIR}/react/renderer/components/scrollview/platform/android)
+add_library(oxy_android_components OBJECT android-components.cpp
+  ${SCROLLVIEW_ANDROID}/react/renderer/components/scrollview/AndroidHorizontalScrollContentViewShadowNode.cpp)
+target_include_directories(oxy_android_components PRIVATE ${SCROLLVIEW_ANDROID})
+target_link_libraries(oxy_android_components reactnative)
+target_compile_options(oxy_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
+
 add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp worklets-host.cpp
-  reanimated-host.cpp window.cpp input.cpp textinput.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp input.cpp textinput.cpp $<TARGET_OBJECTS:oxy_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS

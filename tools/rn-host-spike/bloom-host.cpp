@@ -1,6 +1,7 @@
 // OxyOS React Native host: Hermes + bridgeless ReactInstance + Fabric on Linux, single-threaded.
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
+#include "android-components.h"
 #include "host-modules.h"
 #include "input.h"
 #include "renderer.h"
@@ -327,6 +328,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxy::TextInputComponentDescriptor>());
+  oxy::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
     auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
