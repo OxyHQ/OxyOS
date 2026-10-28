@@ -1,6 +1,8 @@
 //! Composes frames written by `oxy-offscreen --launch --dump-frames DIR` again, on the CPU
 //! reference and on the best Vulkan device here, and checks that every frame matches byte for
-//! byte. Reports the device and the composition times (Vulkan: upload, dispatch and readback).
+//! byte. Reports the device and the composition times: the CPU's, Vulkan's from the host
+//! (upload, composition and readback), an empty frame's, and the device's own composing time
+//! (GPU timestamps).
 //!
 //!     cargo run --release -p oxy-gpu --example replay -- DIR
 
@@ -16,6 +18,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     files.sort();
     let mut gpu = oxy_gpu::VulkanCompositor::new()?;
     let (mut cpu_ms, mut gpu_ms, mut mismatches) = (Vec::new(), Vec::new(), Vec::new());
+    // The device's own time composing (GPU timestamps), without uploads and readback.
+    let mut device_ms = Vec::new();
     for path in &files {
         let frame =
             oxy_gpu::frame_file::read(&mut std::io::BufReader::new(std::fs::File::open(path)?))?;
@@ -26,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let started = Instant::now();
         let vulkan = gpu.compose(frame.width, frame.height, frame.background, &layers)?;
         gpu_ms.push(started.elapsed().as_secs_f64() * 1e3);
+        device_ms.extend(gpu.last_gpu_ms());
         if vulkan != cpu {
             mismatches.push(path.display().to_string());
         }
@@ -43,14 +48,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         values.get(values.len() / 2).copied().unwrap_or(0.0)
     };
     println!(
-        "{{\"device\":{:?},\"kind\":\"{:?}\",\"frames\":{},\"mismatches\":{},\"cpu_ms_median\":{:.2},\"vulkan_ms_median\":{:.2},\"vulkan_empty_frame_ms_median\":{:.2}}}",
+        "{{\"device\":{:?},\"kind\":\"{:?}\",\"frames\":{},\"mismatches\":{},\"cpu_ms_median\":{:.2},\"vulkan_ms_median\":{:.2},\"vulkan_empty_frame_ms_median\":{:.2},\"device_compose_ms_median\":{:.3}}}",
         gpu.device_name(),
         gpu.device_kind(),
         files.len(),
         mismatches.len(),
         median(&mut cpu_ms),
         median(&mut gpu_ms),
-        median(&mut empty_ms)
+        median(&mut empty_ms),
+        median(&mut device_ms)
     );
     for path in &mismatches {
         eprintln!("differs: {path}");

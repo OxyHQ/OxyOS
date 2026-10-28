@@ -48,15 +48,21 @@ The WSL2 development machine reaches its GPU only through Windows. The procedure
 
 Result on the NVIDIA GeForce RTX 5090: 56 of 56 frames identical, three runs out of three.
 
-Timing:
+Timing (median per frame, three runs):
 
-| Composition | Median per frame |
-| --- | --- |
-| CPU reference | about 1.3 ms |
-| Vulkan, a whole frame | about 23 ms |
-| Vulkan, an empty frame | about 22 ms |
+| Composition | First version | Now |
+| --- | --- | --- |
+| CPU reference | about 1.3 ms | about 1.3 ms |
+| Vulkan, a whole frame from the host (upload, composition, readback) | about 23 ms | about 1.1–1.2 ms |
+| Vulkan, an empty frame from the host | about 22 ms | about 0.8–0.9 ms |
+| The GPU's own composing time (timestamps) | not measured | about 6 µs |
 
-The empty frame costs nearly all of it: the background is uploaded, an empty submission is waited for, and the output is read back, all through host-visible memory. That is this slice's design, not the GPU's composition time. Step 2 removes that cost: images in device memory, and no readback once the output is scanned out. Composition on the GPU is about 1 ms of the total.
+In the first version, the shader read and wrote host-visible memory, and the host read the output back from it. Now the buffers the shader uses live in device memory:
+- pixels arrive by a staging copy;
+- the background is filled on the device;
+- the output is copied back into host-cached memory.
+
+What remains is transfer, which a scanned-out output does not need. Sampled images and DMA-BUF import are still step 2.
 
 ## Consequences
 
@@ -67,4 +73,4 @@ The empty frame costs nearly all of it: the background is uploaded, an empty sub
   - fence-waited completion;
   - readback.
 - **What only real hardware proves:** DMA-BUF import, modifiers, synchronization with clients' GPU work, and KMS output. A machine with DRM/KMS is required, and they are #32's open items. The RTX 5090 run proves composition on a GPU through its vendor's Vulkan driver, but on Windows: no DRM, no DMA-BUF.
-- **This slice still copies.** Client pixels are copied into a storage buffer per frame; sampled images and zero-copy import replace that in step 2.
+- **This slice still copies.** Client pixels are copied through a staging buffer into a device-local storage buffer per frame; sampled images and zero-copy import replace that in step 2.
