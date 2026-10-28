@@ -1,13 +1,13 @@
 # Feasibility spike: React Native 0.88 ReactCommon (cxx platform) + Hermes V1 on Linux x86_64.
 cmake_minimum_required(VERSION 3.13)
-project(oxy_rn_spike C CXX)
+project(oxyos_rn_spike C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Several React Native headers use <cstdint> types without including it; libc++ (Android, Apple)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
-    REANIMATED_CODEGEN_DIR OXY_CLIENT_LIB TEXTINPUT_DIR)
+    REANIMATED_CODEGEN_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -101,9 +101,9 @@ add_library(reactnative SHARED ${reactnative_OBJECTS})
 target_link_libraries(reactnative PUBLIC ${reactnative_LINKS} hermes-engine::hermesvm folly_runtime glog fmt
   double-conversion yogacore atomic)
 
-add_executable(oxy-rn-spike host.cpp)
-target_link_libraries(oxy-rn-spike reactnative)
-target_compile_options(oxy-rn-spike PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
+add_executable(oxyos-rn-spike host.cpp)
+target_link_libraries(oxyos-rn-spike reactnative)
+target_compile_options(oxyos-rn-spike PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # ---- OxyOS host: real text layout and the Bloom host executable -------------------------------
 foreach(var TEXT_SYSROOT ICU_SYSROOT)
@@ -167,33 +167,33 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
 # React Native's portable Android-only core components, in their own target: their headers sit
 # beside Android's ScrollView props, which must not replace the cxx platform's elsewhere.
 set(SCROLLVIEW_ANDROID ${REACT_COMMON_DIR}/react/renderer/components/scrollview/platform/android)
-add_library(oxy_android_components OBJECT android-components.cpp
+add_library(oxyos_android_components OBJECT android-components.cpp
   ${SCROLLVIEW_ANDROID}/react/renderer/components/scrollview/AndroidHorizontalScrollContentViewShadowNode.cpp)
-target_include_directories(oxy_android_components PRIVATE ${SCROLLVIEW_ANDROID})
-target_link_libraries(oxy_android_components reactnative)
-target_compile_options(oxy_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
+target_include_directories(oxyos_android_components PRIVATE ${SCROLLVIEW_ANDROID})
+target_link_libraries(oxyos_android_components reactnative)
+target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
 
-add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp images.cpp network.cpp worklets-host.cpp
-  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp $<TARGET_OBJECTS:oxy_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
-target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
+add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp images.cpp network.cpp worklets-host.cpp
+  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
   "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
-# The Oxy display protocol client: the workspace's Rust crates behind a C ABI
-# (crates/oxy-client-ffi), linked statically.
-target_include_directories(oxy-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxy-client-ffi/include)
-target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview ${OXY_CLIENT_LIB} gcc_s util rt pthread m dl)
+# The OxyOS display protocol client: the workspace's Rust crates behind a C ABI
+# (crates/oxyos-client-ffi), linked statically.
+target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxyos-client-ffi/include)
+target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview ${OXYOS_CLIENT_LIB} gcc_s util rt pthread m dl)
 # Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
 # Hermes already links.
-target_include_directories(oxy-bloom-host PRIVATE ${ICU_SYSROOT}/include)
-target_link_libraries(oxy-bloom-host ${ICU_SYSROOT}/lib/x86_64-linux-gnu/libicuuc.so)
-target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
+target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)
+target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/x86_64-linux-gnu/libicuuc.so)
+target_compile_options(oxyos-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
-# Debug aid: OXY_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.
-option(OXY_ASAN "AddressSanitizer for the OxyOS host code" OFF)
-if(OXY_ASAN)
-  foreach(target oxy-bloom-host worklets_core reanimated_core)
+# Debug aid: OXYOS_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.
+option(OXYOS_ASAN "AddressSanitizer for the OxyOS host code" OFF)
+if(OXYOS_ASAN)
+  foreach(target oxyos-bloom-host worklets_core reanimated_core)
     target_compile_options(${target} PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
   endforeach()
-  target_link_options(oxy-bloom-host PRIVATE -fsanitize=address)
+  target_link_options(oxyos-bloom-host PRIVATE -fsanitize=address)
 endif()

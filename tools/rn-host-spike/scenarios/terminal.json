@@ -1,5 +1,5 @@
 {
-  "about": "The compositor's terminal (oxy-vt), on a real display through the devices only (regress.py --kms CARD --uinput): Ctrl+Alt+F5 leaves for terminal 5 with the display and the devices, Ctrl+Alt with the compositor's own terminal's key comes back from there, and the application hears only the modifiers. Pointer and keyboard work again after the return. The compositor's own terminal must have no login (one past logind's NAutoVTs, such as 8); terminal 5 may be any console, a login prompt included.",
+  "about": "The compositor's terminal (oxyos-vt), on a real display through the devices only (regress.py --kms CARD --uinput): Ctrl+Alt+F5 leaves for terminal 5 with the display and the devices, Ctrl+Alt with the compositor's own terminal's key comes back from there, and the application hears only the modifiers. Pointer and keyboard work again after the return. The compositor's own terminal must have no login (one past logind's NAutoVTs, such as 8); terminal 5 may be any console, a login prompt included.",
   "window": [1024, 640],
   "layout": "us",
   "steps": [

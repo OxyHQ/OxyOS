@@ -21,7 +21,7 @@ TextMeasurement TextLayoutManager::measure(
     const TextLayoutContext& /*layoutContext*/,
     const LayoutConstraints& layoutConstraints) const {
   const auto& text = attributedStringBox.getValue();
-  auto layout = oxy::TextEngine::shared().layout(
+  auto layout = oxyos::TextEngine::shared().layout(
       text, paragraphAttributes, layoutConstraints.maximumSize.width);
   TextMeasurement::Attachments attachments;
   for (const auto& fragment : text.getFragments()) {
@@ -48,7 +48,7 @@ LinesMeasurements TextLayoutManager::measureLines(
     const AttributedStringBox& attributedStringBox,
     const ParagraphAttributes& paragraphAttributes,
     const Size& size) const {
-  auto layout = oxy::TextEngine::shared().layout(attributedStringBox.getValue(), paragraphAttributes, size.width);
+  auto layout = oxyos::TextEngine::shared().layout(attributedStringBox.getValue(), paragraphAttributes, size.width);
   LinesMeasurements lines;
   for (const auto& line : layout.lines) {
     lines.emplace_back(line.text, Rect{{line.x, line.top}, {line.width, line.height}}, line.descent, line.capHeight,

@@ -1,0 +1,12 @@
+[package]
+name = "oxyos-compositor-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-protocol = { path = "../oxyos-protocol" }
+
+[lints]
+workspace = true

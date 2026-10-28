@@ -19,7 +19,7 @@
 
 using namespace facebook;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -88,7 +88,7 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
     std::weak_ptr<reanimated::ReanimatedModuleProxy> weak = proxy_;
     scheduler->addEventListener(std::make_shared<react::EventListener>([weak](const react::RawEvent& event) {
       auto proxy = weak.lock();
-      if (proxy && std::getenv("OXY_HOST_TRACE") && event.eventTarget) {
+      if (proxy && std::getenv("OXYOS_HOST_TRACE") && event.eventTarget) {
         std::string type = event.type.rfind("top", 0) == 0 ? "on" + event.type.substr(3) : event.type;
         std::cerr << "[reanimated] event " << event.type << " tag " << event.eventTarget->getTag() << " handled "
                   << proxy->isAnyHandlerWaitingForEvent(type, event.eventTarget->getTag()) << "\n";
@@ -115,4 +115,4 @@ bool ReanimatedHost::tick() {
   return rendered;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

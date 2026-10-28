@@ -1,4 +1,4 @@
-// Popups for Bloom: the `OxyPopupView` host component (sample/oxyos/platform-surface.js renders it
+// Popups for Bloom: the `OxyOSPopupView` host component (sample/oxyos/platform-surface.js renders it
 // as the OxyOS adapter's PopupSurface) and the compositor popup each mounted one becomes.
 //
 // The popup view stays in the app's React tree, like React Native's Modal: providers and state
@@ -22,12 +22,12 @@
 
 namespace facebook::react {
 
-extern const char OxyPopupViewComponentName[];
+extern const char OxyOSPopupViewComponentName[];
 
-class OxyPopupViewProps final : public ViewProps {
+class OxyOSPopupViewProps final : public ViewProps {
  public:
-  OxyPopupViewProps() = default;
-  OxyPopupViewProps(const PropsParserContext& context, const OxyPopupViewProps& sourceProps, const RawProps& rawProps);
+  OxyOSPopupViewProps() = default;
+  OxyOSPopupViewProps(const PropsParserContext& context, const OxyOSPopupViewProps& sourceProps, const RawProps& rawProps);
 
   // The anchor view's tag, and Bloom's placement against it.
   Tag anchorTag{-1};
@@ -37,16 +37,16 @@ class OxyPopupViewProps final : public ViewProps {
   Float alignOffset{0};
 };
 
-using OxyPopupViewShadowNode = ConcreteViewShadowNode<OxyPopupViewComponentName, OxyPopupViewProps>;
-using OxyPopupViewComponentDescriptor = ConcreteComponentDescriptor<OxyPopupViewShadowNode>;
+using OxyOSPopupViewShadowNode = ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps>;
+using OxyOSPopupViewComponentDescriptor = ConcreteComponentDescriptor<OxyOSPopupViewShadowNode>;
 
 }  // namespace facebook::react
 
-namespace oxy {
+namespace oxyos {
 
 // Bloom's placement as the protocol's positioner (docs/adr/0002): flip on the side axis, slide on
 // both. `anchor` is the anchor's window-local frame.
-OxyPositioner positioner(const facebook::react::OxyPopupViewProps& props, facebook::react::Rect anchor,
+OxyOSPositioner positioner(const facebook::react::OxyOSPopupViewProps& props, facebook::react::Rect anchor,
                          facebook::react::Size size);
 
 class PopupHost {
@@ -63,10 +63,10 @@ class PopupHost {
   // Draws the popups that changed, and publishes their accessibility.
   void present(const TextInputEdit& edit, const std::string& focus);
   // A compositor dismissal (PopupDone): the view's onDismiss, and the surface is destroyed.
-  void dismissed(const OxyEvent& event);
+  void dismissed(const OxyOSEvent& event);
   // A key press or committed text sent to a popup's surface: the view's onKey, one event per key
   // with its W3C `KeyboardEvent.key` name (ArrowDown, Enter, Escape, …, or the character).
-  void key(const OxyEvent& event);
+  void key(const OxyOSEvent& event);
 
   // The surface a view is drawn on: its popup's, or the toplevel's.
   uint32_t surfaceOf(facebook::react::Tag view) const;
@@ -76,7 +76,7 @@ class PopupHost {
  private:
   struct Popup {
     uint32_t surface = 0;
-    OxyPositioner placed{};  // the positioner last sent
+    OxyOSPositioner placed{};  // the positioner last sent
     bool dirty = true;
     // The configure its last frame was drawn for: a new one (a reposition that resized it, or a
     // scale change) needs a new frame, and the compositor discards one drawn for an older size.
@@ -90,4 +90,4 @@ class PopupHost {
   uint32_t nextSurface_ = Window::kToplevel + 1;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

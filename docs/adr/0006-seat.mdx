@@ -6,17 +6,17 @@ order: 15
 
 # ADR 0006: The compositor's seat through logind
 
-Status: **accepted; implemented in the development compositor** (`oxy-offscreen --launch --kms --seat`). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0004](./0004-gpu-composition).
+Status: **accepted; implemented in the development compositor** (`oxyos-offscreen --launch --kms --seat`). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0004](./0004-gpu-composition).
 
 ## Problem
 
-The development compositor ran as root. It opened the DRM card and the input devices itself, took DRM master, and took the terminal with ioctls (`oxy-vt`). The architecture keeps the compositor outside root where device and session delegation allows ([Native platform architecture](../native-architecture), *Session and security*).
+The development compositor ran as root. It opened the DRM card and the input devices itself, took DRM master, and took the terminal with ioctls (`oxyos-vt`). The architecture keeps the compositor outside root where device and session delegation allows ([Native platform architecture](../native-architecture), *Session and security*).
 
 seatd was part of the retired desktop stack, and the image check refuses it ([Retired desktop stack](../retired-desktop-stack)). The Debian base runs systemd, whose logind already manages seats, sessions and their devices.
 
 ## Decision
 
-The compositor runs as the user of a logind session on a seat, and logind hands it the session's devices (`crates/oxy-seat`, D-Bus through `zbus`, safe Rust):
+The compositor runs as the user of a logind session on a seat, and logind hands it the session's devices (`crates/oxyos-seat`, D-Bus through `zbus`, safe Rust):
 
 1. **Control of the session.** `TakeControl` on the caller's session (`XDG_SESSION_ID`, or the process's session); the session must be on a seat. logind then owns the session's terminal: graphics mode, keyboard off, switches by request. The compositor no longer touches the terminal.
 2. **Devices.** The DRM card and every input device come from `TakeDevice`.
@@ -26,7 +26,7 @@ The compositor runs as the user of a logind session on a seat, and logind hands 
    - **On the card's pause**, the compositor completes the frame on its way (bounded, since the flip may never come), stops showing frames, suspends libinput and acknowledges the pause (`PauseDeviceComplete`).
    - **On the card's resume**, it resumes libinput (devices are opened anew) and shows the frame again with a modeset.
    - **Ctrl+Alt+Fn**, from the keymap as before, becomes `Seat.SwitchTo`.
-4. **The root path stays.** Without `--seat`, the development compositor runs as root and takes the terminal itself (`oxy-vt`), for machines and tests without a session.
+4. **The root path stays.** Without `--seat`, the development compositor runs as root and takes the terminal itself (`oxyos-vt`), for machines and tests without a session.
 
 ## Results
 
@@ -43,7 +43,7 @@ The test machine needs two grants that the design does not:
 
 - The compositor needs no privilege of its own: logind decides which session has the seat.
 - **Its D-Bus connection lives as long as the process.** zbus keeps its own threads and descriptors, so the development compositor takes its seat before it counts descriptors. What it opens through logind is closed before the count is checked.
-- **The session program exists:** `oxy-session` runs the compositor on the seat of the caller's session, from a terminal login ([The session](../native-foundation#the-session)).
+- **The session program exists:** `oxyos-session` runs the compositor on the seat of the caller's session, from a terminal login ([The session](../native-foundation#the-session)).
 - **Not decided here:**
   - a graphical login that starts it (a greeter is retired; an Oxy session needs its own launcher and authentication, [Oxy account and session on OxyOS](../account-session));
   - hotplugged cards;

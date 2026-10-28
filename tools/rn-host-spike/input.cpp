@@ -17,7 +17,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -71,12 +71,12 @@ Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float 
   return -1;
 }
 
-void PointerInput::handle(const OxyEvent& event) {
+void PointerInput::handle(const OxyOSEvent& event) {
   // Protocol positions and distances are in 1/256 logical pixels.
-  if (event.kind != OXY_EVENT_SCROLL && event.kind != OXY_EVENT_POINTER) return;
+  if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER) return;
   auto content = surfaces_(event.surface);
   if (!content) return;
-  if (event.kind == OXY_EVENT_SCROLL) {
+  if (event.kind == OXYOS_EVENT_SCROLL) {
     content_ = *content;
     return scroll(event.x / 256.0f, event.y / 256.0f);
   }
@@ -85,10 +85,10 @@ void PointerInput::handle(const OxyEvent& event) {
   if (!down_) content_ = *content;
   x_ = x;
   y_ = y;
-  if (event.detail == OXY_POINTER_ENTER || event.detail == OXY_POINTER_MOTION) hover(*content, x, y);
-  if (event.detail == OXY_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
+  if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) hover(*content, x, y);
+  if (event.detail == OXYOS_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
   switch (event.detail) {
-    case OXY_POINTER_PRESS:
+    case OXYOS_POINTER_PRESS:
       if (event.code == kPrimaryButton && !down_) {
         target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
@@ -97,17 +97,17 @@ void PointerInput::handle(const OxyEvent& event) {
         dispatch(Phase::Start, x, y);
       }
       break;
-    case OXY_POINTER_MOTION:
+    case OXYOS_POINTER_MOTION:
       if (down_) dispatch(Phase::Move, x, y);
       break;
-    case OXY_POINTER_RELEASE:
+    case OXYOS_POINTER_RELEASE:
       if (event.code == kPrimaryButton && down_) {
         dispatch(Phase::End, x, y);
         down_ = false;
       }
       break;
-    case OXY_POINTER_LEAVE:
-    case OXY_POINTER_CANCEL:
+    case OXYOS_POINTER_LEAVE:
+    case OXYOS_POINTER_CANCEL:
       if (down_) {
         dispatch(Phase::Cancel, x, y);
         down_ = false;
@@ -190,7 +190,7 @@ void PointerInput::scroll(float dx, float dy) {
       emitter->onScroll(event);
     }
     Report::get().deliver("scroll", content_.surface, view, folly::dynamic::object("x", next.x)("y", next.y));
-    if (std::getenv("OXY_HOST_TRACE")) {
+    if (std::getenv("OXYOS_HOST_TRACE")) {
       std::cerr << "[input] scroll view " << *at << " to " << next.x << "," << next.y << " of " << content.width
                 << "x" << content.height << "\n";
     }
@@ -234,7 +234,7 @@ void PointerInput::dispatch(Phase phase, float x, float y) {
     Report::get().deliver(events[static_cast<int>(phase)], content_.surface, it->second.view,
                           folly::dynamic::object("x", page.x)("y", page.y)("within", within));
   }
-  if (std::getenv("OXY_HOST_TRACE")) {
+  if (std::getenv("OXYOS_HOST_TRACE")) {
     static const char* names[] = {"start", "move", "end", "cancel"};
     std::cerr << "[input] touch " << names[static_cast<int>(phase)] << " target " << target_ << " at " << x << ","
               << y << "\n";
@@ -255,4 +255,4 @@ void PointerInput::dispatch(Phase phase, float x, float y) {
   }
 }
 
-}  // namespace oxy
+}  // namespace oxyos

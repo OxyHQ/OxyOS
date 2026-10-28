@@ -14,7 +14,7 @@ OxyOS is being rebuilt as a native Linux platform: a custom Oxy display composit
 
 | Path | Contents |
 | --- | --- |
-| `Cargo.toml`, `crates/`, `tools/` | Native foundation: `oxy-protocol`, `oxy-compositor-core`, `oxy-platform-probe` |
+| `Cargo.toml`, `crates/`, `tools/` | Native foundation: `oxyos-protocol`, `oxyos-compositor-core`, `oxyos-platform-probe` |
 | `config/` | live-build configuration of the Debian Trixie base system |
 | `scripts/` | `check-native-boundary.py` (Cargo graph), `check-image-config.py` (image config and CI) |
 | `docs/` | Architecture, audits and guides; published at https://oxy.so/os |
@@ -26,7 +26,7 @@ cargo fmt --all --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 scripts/check-native-boundary.py
-cargo run --locked -p oxy-platform-probe
+cargo run --locked -p oxyos-platform-probe
 python3 scripts/check-image-config.py
 ```
 

@@ -1,0 +1,25 @@
+[package]
+name = "oxyos-gpu"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Vulkan, loaded at run time: no link-time dependency on a driver (docs/adr/0004).
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+
+[build-dependencies]
+# Compiles the WGSL compute shader to SPIR-V at build time.
+naga = { version = "26", default-features = false, features = ["wgsl-in", "spv-out"] }
+
+# The workspace forbids `unsafe`. Vulkan needs it, so this crate denies it instead and allows it
+# item by item; every unsafe block states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -86,20 +86,20 @@ size_t completeUtf8(const std::string& bytes) {
 
 }  // namespace
 
-Networking::Networking(BlobStore& blobs, Emit emit) : blobs_(blobs), emit_(std::move(emit)), net_(oxy_net_new()) {
-  if (!net_) throw std::runtime_error(std::string("the network cannot start: ") + oxy_last_error());
+Networking::Networking(BlobStore& blobs, Emit emit) : blobs_(blobs), emit_(std::move(emit)), net_(oxyos_net_new()) {
+  if (!net_) throw std::runtime_error(std::string("the network cannot start: ") + oxyos_last_error());
 }
 
-Networking::~Networking() { oxy_net_free(net_); }
+Networking::~Networking() { oxyos_net_free(net_); }
 
 void Networking::send(Request request) {
-  std::vector<OxyNetHeader> headers;
+  std::vector<OxyOSNetHeader> headers;
   for (const auto& [name, value] : request.headers) {
     headers.push_back({name.data(), name.size(), value.data(), value.size()});
   }
   // Only a text body is answered as it arrives, as on Android.
   bool incremental = request.incremental && request.responseType == "text";
-  OxyNetRequest native{
+  OxyOSNetRequest native{
       .id = request.id,
       .method = request.method.data(),
       .method_length = request.method.size(),
@@ -114,7 +114,7 @@ void Networking::send(Request request) {
       .with_credentials = request.withCredentials,
       .incremental = incremental,
   };
-  if (oxy_net_send(net_, &native) != 0) return reject(request.id, oxy_last_error());
+  if (oxyos_net_send(net_, &native) != 0) return reject(request.id, oxyos_last_error());
   live_[request.id] = Live{.responseType = request.responseType, .incremental = incremental};
 }
 
@@ -123,12 +123,12 @@ void Networking::reject(int64_t id, const std::string& error) {
 }
 
 void Networking::abort(int64_t id) {
-  oxy_net_abort(net_, id);
+  oxyos_net_abort(net_, id);
   live_.erase(id);
   std::erase_if(rejected_, [id](const auto& rejected) { return rejected.first == id; });
 }
 
-void Networking::clearCookies() { oxy_net_clear_cookies(net_); }
+void Networking::clearCookies() { oxyos_net_clear_cookies(net_); }
 
 void Networking::complete(int64_t id, const std::string& error, bool timedOut) {
   live_.erase(id);
@@ -141,15 +141,15 @@ void Networking::complete(int64_t id, const std::string& error, bool timedOut) {
 bool Networking::deliver() {
   bool delivered = !rejected_.empty();
   for (auto rejected = std::exchange(rejected_, {}); auto& [id, error] : rejected) complete(id, error, false);
-  OxyNetAnswer answer;
-  while (oxy_net_answer(net_, &answer) == OXY_NET_ANSWER) {
+  OxyOSNetAnswer answer;
+  while (oxyos_net_answer(net_, &answer) == OXYOS_NET_ANSWER) {
     delivered = true;
     auto live = live_.find(answer.id);
     if (live == live_.end()) continue;  // aborted while it was queued
     folly::dynamic id = answer.id;
     std::string bytes = view(reinterpret_cast<const char*>(answer.bytes), answer.length);
     switch (answer.kind) {
-      case OXY_NET_RESPONSE: {
+      case OXYOS_NET_RESPONSE: {
         folly::dynamic headers = folly::dynamic::object;
         for (size_t i = 0; i < answer.header_count; ++i) {
           const auto& header = answer.headers[i];
@@ -159,7 +159,7 @@ bool Networking::deliver() {
                                                                  view(answer.url, answer.url_length)));
         break;
       }
-      case OXY_NET_CHUNK: {
+      case OXYOS_NET_CHUNK: {
         Live& request = live->second;
         std::string text = std::exchange(request.partial, {}) + bytes;
         size_t complete = completeUtf8(text);
@@ -171,7 +171,7 @@ bool Networking::deliver() {
               folly::dynamic::array(id, text, static_cast<int64_t>(request.progress), request.total));
         break;
       }
-      case OXY_NET_DATA: {
+      case OXYOS_NET_DATA: {
         const std::string& type = live->second.responseType;
         if (type == "base64") {
           emit_("didReceiveNetworkData", folly::dynamic::array(id, base64Encode(bytes)));
@@ -188,7 +188,7 @@ bool Networking::deliver() {
         }
         break;
       }
-      case OXY_NET_COMPLETE: {
+      case OXYOS_NET_COMPLETE: {
         Live& request = live->second;
         // A body that ended inside a character still delivers its bytes.
         if (!request.partial.empty()) {
@@ -204,4 +204,4 @@ bool Networking::deliver() {
   return delivered;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

@@ -1,11 +1,11 @@
-// The host's surfaces on the Oxy compositor, through the protocol client (crates/oxy-client-ffi):
+// The host's surfaces on the OxyOS compositor, through the protocol client (crates/oxyos-client-ffi):
 // its toplevel window and the popups it opens. The compositor configures each surface's size; the
 // host draws into a buffer and presents it, one frame in flight per surface.
 #pragma once
 
 #include "renderer.h"
 
-#include <oxy_client.h>
+#include <oxyos_client.h>
 
 #include <cstdint>
 #include <functional>
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 class Window {
  public:
@@ -30,7 +30,7 @@ class Window {
   // Handles every queued compositor event. Configures and frame feedback update the surfaces;
   // input and popup dismissals go to `input`. Returns false once the compositor closed the
   // connection; throws on a protocol error.
-  bool dispatch(const std::function<void(const OxyEvent&)>& input);
+  bool dispatch(const std::function<void(const OxyOSEvent&)>& input);
 
   struct Surface {
     uint64_t configure = 0;  // serial of the latest configure; 0 until the first
@@ -54,23 +54,23 @@ class Window {
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
   // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
-  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyRect>& damage = {});
+  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
 
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it). Throws on failure.
-  void openPopup(uint32_t id, uint32_t parent, const OxyPositioner& positioner, uint64_t serial);
+  void openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial);
   // Places an open popup again (its anchor moved or its content resized).
-  void reposition(uint32_t id, const OxyPositioner& positioner);
+  void reposition(uint32_t id, const OxyOSPositioner& positioner);
   void destroy(uint32_t id);
   // Publishes a surface's accessibility snapshot (ADR 0003). Throws on failure.
-  void publishAccessibility(uint32_t id, const std::vector<OxyAccessibleNode>& nodes);
+  void publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes);
 
   uint64_t presented() const { return presented_; }
 
  private:
-  OxyClient* client_ = nullptr;
+  OxyOSClient* client_ = nullptr;
   std::map<uint32_t, Surface> surfaces_;
   uint64_t presented_ = 0;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

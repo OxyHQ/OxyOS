@@ -17,7 +17,7 @@ class WorkletsModuleProxy;
 class WorkletsModuleProxyInitializer;
 }  // namespace worklets
 
-namespace oxy {
+namespace oxyos {
 
 class WorkletsHost {
  public:
@@ -45,4 +45,4 @@ class WorkletsHost {
   double lastFrame_ = 0;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

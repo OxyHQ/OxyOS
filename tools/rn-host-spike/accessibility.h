@@ -1,12 +1,12 @@
 // The accessibility of what each surface shows, from React Native's accessibility props, as
 // Android exposes a view hierarchy to TalkBack: the host publishes it to the compositor (the
-// Oxy display protocol's accessibility snapshots, ADR 0003), where an assistive technology reads
+// OxyOS display protocol's accessibility snapshots, ADR 0003), where an assistive technology reads
 // it, and performs the assistive technology's actions. It also reports it (report.h).
 #pragma once
 
 #include "renderer.h"
 
-#include <oxy_client.h>
+#include <oxyos_client.h>
 
 #include <folly/dynamic.h>
 
@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 class Window;
 
@@ -54,10 +54,10 @@ class AccessibilityBridge {
 
   // Publishes `surface`'s snapshot (its content under `root`) if it changed, and reports it.
   void publish(uint32_t surface, facebook::react::Tag root);
-  // An assistive technology's action (OXY_EVENT_ACCESSIBILITY_ACTION): activate is what
+  // An assistive technology's action (OXYOS_EVENT_ACCESSIBILITY_ACTION): activate is what
   // TalkBack's activation does, React Native's accessibility click (Pressability's onPress);
   // focus moves accessibility focus. Returns whether the focus changed (a new snapshot is due).
-  bool act(const OxyEvent& event);
+  bool act(const OxyOSEvent& event);
   // The surface went away (a popup closed).
   void forget(uint32_t surface) {
     published_.erase(surface);
@@ -73,4 +73,4 @@ class AccessibilityBridge {
   std::map<uint32_t, std::vector<facebook::react::Tag>> nodes_;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

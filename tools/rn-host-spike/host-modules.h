@@ -17,7 +17,7 @@
 #include <set>
 #include <string>
 
-namespace oxy {
+namespace oxyos {
 
 using facebook::react::CallInvoker;
 using facebook::react::TurboModule;
@@ -90,4 +90,4 @@ std::shared_ptr<facebook::react::TurboModule> createHostModule(
     const Display& display,
     HostServices& services);
 
-}  // namespace oxy
+}  // namespace oxyos

@@ -1,6 +1,6 @@
 ---
 title: "ADR 0001: Native platform boundaries, surface roles and popup policy"
-description: Process and privilege split, ownership and dependency direction, surface roles, coordinates, input/focus ownership, buffer lifetime and the popup and lock policies of the Oxy display protocol.
+description: Process and privilege split, ownership and dependency direction, surface roles, coordinates, input/focus ownership, buffer lifetime and the popup and lock policies of the OxyOS display protocol.
 order: 10
 ---
 
@@ -8,13 +8,13 @@ order: 10
 
 Status: accepted for protocol version 2 (experimental wire format). Issues: [#32](https://github.com/OxyHQ/OxyOS/issues/32) (protocol/compositor), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups), with constraints from [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime) and [#35](https://github.com/OxyHQ/OxyOS/issues/35) (account/session). Parent index: [#30](https://github.com/OxyHQ/OxyOS/issues/30).
 
-This records decisions that the code in `crates/oxy-protocol` and `crates/oxy-compositor-core` implements and tests headlessly. It does not claim a hardware path, a native Bloom host or a login: those gates are open (see [Status](#status)).
+This records decisions that the code in `crates/oxyos-protocol` and `crates/oxyos-compositor-core` implements and tests headlessly. It does not claim a hardware path, a native Bloom host or a login: those gates are open (see [Status](#status)).
 
 ## Process and privilege split
 
 | Process | Owns | Never owns |
 | --- | --- | --- |
-| Compositor (`oxy-compositor-core` policy, future backend) | Outputs, global geometry, stacking, focus, pointer/touch routing, popup grabs, lock enforcement, frame scheduling, buffer release | JavaScript, network, Oxy tokens, application callbacks |
+| Compositor (`oxyos-compositor-core` policy, future backend) | Outputs, global geometry, stacking, focus, pointer/touch routing, popup grabs, lock enforcement, frame scheduling, buffer release | JavaScript, network, Oxy tokens, application callbacks |
 | Session authority (#35) | Authenticated enrollment/unlock, mapping peers to grants, launching shell and lock roles, calling `Scene::unlock` | Drawing, Bloom visuals |
 | Application runtime (#33), one process per app | React/Bloom tree, layout, text, accessibility tree, its own buffers | Global window list, other apps' input, privileged roles |
 | Shell (#36) | Bloom shell UI on granted shell roles | Lock authority, unlock, implicit privileges |
@@ -30,9 +30,9 @@ Grants (`Grants { shell, lock, shortcuts }`) are attached by the session authori
 | --- | --- | --- |
 | Oxy SDK: `@oxy.so/contracts`, `@oxy.so/core`, `@oxy.so/services` | Account, device session (`SessionClient`), OAuth/PKCE, `OxyProvider`, API clients | `@oxy.so/bloom` (`OxyProvider` mounts Bloom `SurfaceProvider`/`ToastOutlet`) |
 | Bloom (`@oxy.so/bloom`) | Components, layout/panel engine, tokens, motion, overlay/menu families, future platform-facing popup/window API | React Native; never the Oxy SDK, never OxyOS |
-| OxyOS runtime adapter (#33) | Implements Bloom's platform seam with native surfaces | Bloom (interface), `oxy-protocol` (internal IPC) |
-| `oxy-protocol` | Wire schema, codec, connection state machines | std only |
-| `oxy-compositor-core` | Policy and presentation state | `oxy-protocol` |
+| OxyOS runtime adapter (#33) | Implements Bloom's platform seam with native surfaces | Bloom (interface), `oxyos-protocol` (internal IPC) |
+| `oxyos-protocol` | Wire schema, codec, connection state machines | std only |
+| `oxyos-compositor-core` | Policy and presentation state | `oxyos-protocol` |
 
 The arrows are acyclic: SDK → Bloom ← OxyOS adapter → protocol ← compositor. Bloom components never send protocol messages; an adapter injected at Bloom's shared owner does (the same pattern as `BloomProvider`'s `scrollAdapter`). No new npm package or export is approved by this ADR. The Bloom-side API name is a design task for #33; any sketch is a proposal until it ships in Bloom.
 
@@ -126,7 +126,7 @@ Dialog maps to the modal `Dialog` role only when it is a separate native window;
 
 | Implemented and tested headlessly | Pending (owner) |
 | --- | --- |
-| Protocol v2 schema, codec, state machines, fuzzing (`oxy-protocol`) | DMA-BUF import, modifiers and fences (#32) |
-| Seqpacket transport, kernel peer credentials, descriptor passing, sealed shared-memory import, buffer registry, bounded outboxes (`oxy-ipc`, `oxy-offscreen`) | Session authority launch records mapping credentials to shell/lock grants (#35) |
-| Roles, grants, ownership, quotas, placement, stacking, grabs, focus, outside-press policy, dismissal, lock primitive, buffer release ordering, resource settling (`oxy-compositor-core`) | DRM/KMS + Vulkan on a reference GPU, fences, per-consumer release, real compositor process (#32) |
+| Protocol v2 schema, codec, state machines, fuzzing (`oxyos-protocol`) | DMA-BUF import, modifiers and fences (#32) |
+| Seqpacket transport, kernel peer credentials, descriptor passing, sealed shared-memory import, buffer registry, bounded outboxes (`oxyos-ipc`, `oxyos-offscreen`) | Session authority launch records mapping credentials to shell/lock grants (#35) |
+| Roles, grants, ownership, quotas, placement, stacking, grabs, focus, outside-press policy, dismissal, lock primitive, buffer release ordering, resource settling (`oxyos-compositor-core`) | DRM/KMS + Vulkan on a reference GPU, fences, per-consumer release, real compositor process (#32) |
 | Two-process probe (metadata) and a CPU offscreen compositor whose composed pixels show a test client's menu beyond all four window edges over another client | Native Bloom host and adapter (#33), real Bloom menu pixels and accessibility tree (#34), account/session (#35), shell (#36) |

@@ -17,7 +17,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -124,7 +124,7 @@ AttributedString attributed(const AndroidTextInputProps& props, const std::strin
 }
 
 bool tracing() {
-  static const bool trace = std::getenv("OXY_HOST_TRACE") != nullptr;
+  static const bool trace = std::getenv("OXYOS_HOST_TRACE") != nullptr;
   return trace;
 }
 
@@ -253,13 +253,13 @@ void TextEditing::blur() {
   if (tracing()) std::cerr << "[text] blur " << tag << "\n";
 }
 
-void TextEditing::handle(const OxyEvent& event) {
-  if (event.kind == OXY_EVENT_POINTER) return pointer(event);
-  if (event.kind == OXY_EVENT_KEY && (event.code == kLeftShift || event.code == kRightShift)) shift_ = event.flag;
-  if (event.kind == OXY_EVENT_KEY && (event.code == kLeftCtrl || event.code == kRightCtrl)) ctrl_ = event.flag;
-  if (event.kind == OXY_EVENT_FOCUS && !event.flag) shift_ = ctrl_ = false;
+void TextEditing::handle(const OxyOSEvent& event) {
+  if (event.kind == OXYOS_EVENT_POINTER) return pointer(event);
+  if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftShift || event.code == kRightShift)) shift_ = event.flag;
+  if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftCtrl || event.code == kRightCtrl)) ctrl_ = event.flag;
+  if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) shift_ = ctrl_ = false;
   if (focused_ < 0) return;
-  if (event.kind != OXY_EVENT_TEXT && event.kind != OXY_EVENT_KEY && event.kind != OXY_EVENT_PREEDIT) return;
+  if (event.kind != OXYOS_EVENT_TEXT && event.kind != OXYOS_EVENT_KEY && event.kind != OXYOS_EVENT_PREEDIT) return;
   auto placement = locate_(focused_);
   if (!placement || event.surface != placement->surface) return;
   size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
@@ -271,10 +271,10 @@ void TextEditing::handle(const OxyEvent& event) {
   // Key presses follow Android's input connection (ReactEditTextInputConnectionWrapper): a commit
   // of one character (two UTF-16 units at most) is that key, and a longer one none; a
   // composition is the character before its caret, or Backspace when the caret went back.
-  if (event.kind == OXY_EVENT_TEXT) {
+  if (event.kind == OXYOS_EVENT_TEXT) {
     std::string committed(event.text, strnlen(event.text, sizeof(event.text)));
     replace(from, to, committed, utf16Length(committed) <= 2 ? committed : "");
-  } else if (event.kind == OXY_EVENT_PREEDIT) {
+  } else if (event.kind == OXYOS_EVENT_PREEDIT) {
     std::string composition(event.text, strnlen(event.text, sizeof(event.text)));
     size_t before = caret_;
     bool selected = anchor_ != caret_;
@@ -375,9 +375,9 @@ std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, 
       .offsetAt(x - frame.origin.x - content.origin.x + scroll.x, y - frame.origin.y - content.origin.y + scroll.y);
 }
 
-void TextEditing::pointer(const OxyEvent& event) {
+void TextEditing::pointer(const OxyOSEvent& event) {
   float x = event.x / 256.0f, y = event.y / 256.0f;
-  if (event.detail == OXY_POINTER_PRESS && event.code == kPrimaryButton) {
+  if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton) {
     press_ = {event.surface, Point{x, y}};
     // A press in the focused input moves its caret (Shift extends the selection) and starts a
     // drag; a press in an unfocused input waits for its focus.
@@ -387,10 +387,10 @@ void TextEditing::pointer(const OxyEvent& event) {
       select(*at, shift_);
       dragging_ = true;
     }
-  } else if (event.detail == OXY_POINTER_MOTION && dragging_) {
+  } else if (event.detail == OXYOS_POINTER_MOTION && dragging_) {
     if (auto at = offsetAt(event.surface, x, y, false)) select(*at, true);
-  } else if ((event.detail == OXY_POINTER_RELEASE && event.code == kPrimaryButton) ||
-             event.detail == OXY_POINTER_CANCEL || event.detail == OXY_POINTER_LEAVE) {
+  } else if ((event.detail == OXYOS_POINTER_RELEASE && event.code == kPrimaryButton) ||
+             event.detail == OXYOS_POINTER_CANCEL || event.detail == OXYOS_POINTER_LEAVE) {
     dragging_ = false;
   }
 }
@@ -638,4 +638,4 @@ void TextEditing::submit() {
   if (props->submitBehavior != SubmitBehavior::Submit) blur();
 }
 
-}  // namespace oxy
+}  // namespace oxyos

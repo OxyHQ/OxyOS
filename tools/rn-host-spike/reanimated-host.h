@@ -18,7 +18,7 @@ namespace reanimated {
 class ReanimatedModuleProxy;
 }
 
-namespace oxy {
+namespace oxyos {
 
 class WorkletsHost;
 
@@ -43,4 +43,4 @@ class ReanimatedHost {
   double lastFrame_ = 0;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

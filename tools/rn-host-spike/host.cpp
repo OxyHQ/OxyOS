@@ -102,7 +102,7 @@ class Printer : public SchedulerDelegate {
 
 int main(int argc, char** argv) {
   if (argc != 2) {
-    std::cerr << "usage: oxy-rn-spike SCRIPT.js\n";
+    std::cerr << "usage: oxyos-rn-spike SCRIPT.js\n";
     return 2;
   }
   std::ifstream file(argv[1]);

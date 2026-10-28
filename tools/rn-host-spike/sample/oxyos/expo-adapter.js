@@ -1,14 +1,14 @@
 /**
  * OxyOS side of the Expo modules Bloom reaches (expo-font, and expo-asset beneath it).
  * expo-modules-core's own global polyfill provides the module classes; the native work is done
- * by the host's OxyFontRegistry TurboModule. Anything OxyOS cannot do fails loudly.
+ * by the host's OxyOSFontRegistry TurboModule. Anything OxyOS cannot do fails loudly.
  */
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { TurboModuleRegistry } from 'react-native';
 
 installExpoGlobalPolyfill();
 
-const fonts = TurboModuleRegistry.getEnforcing('OxyFontRegistry');
+const fonts = TurboModuleRegistry.getEnforcing('OxyOSFontRegistry');
 const loaded = new Set();
 
 globalThis.expo.modules.ExpoFontLoader = {

@@ -2,7 +2,7 @@
  * The OxyOS platform adapter for Bloom (`BloomProvider platform={oxyosSurfaces}`): Bloom's popups
  * become compositor popups, which may extend beyond the application window.
  *
- * `PopupSurface` renders the `OxyPopupView` host component. Its subtree stays in this React tree;
+ * `PopupSurface` renders the `OxyOSPopupView` host component. Its subtree stays in this React tree;
  * the native host draws it in a popup surface of its own, placed by the compositor from the
  * anchor's frame and Bloom's placement (side, align, offsets). The compositor's dismissal comes
  * back as `onDismiss`.
@@ -11,8 +11,8 @@ import * as React from 'react';
 import { findNodeHandle } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 
-const OxyPopupView = NativeComponentRegistry.get('OxyPopupView', () => ({
-  uiViewClassName: 'OxyPopupView',
+const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
+  uiViewClassName: 'OxyOSPopupView',
   validAttributes: {
     anchorTag: true,
     side: true,
@@ -46,7 +46,7 @@ function PopupSurface({
   }, [anchorRef]);
   if (anchorTag == null) return null;
   return (
-    <OxyPopupView
+    <OxyOSPopupView
       anchorTag={anchorTag}
       side={side}
       align={align}
@@ -63,7 +63,7 @@ function PopupSurface({
       style={{ position: 'absolute', left: 0, top: 0 }}
     >
       {children}
-    </OxyPopupView>
+    </OxyOSPopupView>
   );
 }
 

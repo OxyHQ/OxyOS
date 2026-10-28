@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace oxy {
+namespace oxyos {
 
 struct Glyph {
   uint32_t id;
@@ -75,4 +75,4 @@ class TextEngine {
   std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace oxy
+}  // namespace oxyos

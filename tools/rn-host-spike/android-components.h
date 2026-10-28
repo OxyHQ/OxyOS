@@ -4,9 +4,9 @@
 
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 
-namespace oxy {
+namespace oxyos {
 
 // Registers them as Android's CoreComponentsRegistry does.
 void addAndroidComponents(facebook::react::ComponentDescriptorProviderRegistry& providers);
 
-}  // namespace oxy
+}  // namespace oxyos

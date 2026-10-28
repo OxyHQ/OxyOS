@@ -9,7 +9,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -80,8 +80,8 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
       if (then.picture != seen.picture) damage.push_back(seen.at);
       bool props = !drawsTheSame(then.view, seen.view);
       bool state = then.view.state != seen.view.state;
-      // OXY_DAMAGE_TRACE: what drew a subtree again, and why.
-      static const bool trace = std::getenv("OXY_DAMAGE_TRACE") != nullptr;
+      // OXYOS_DAMAGE_TRACE: what drew a subtree again, and why.
+      static const bool trace = std::getenv("OXYOS_DAMAGE_TRACE") != nullptr;
       if (props || state) {
         if (trace) {
           std::fprintf(stderr, "[damage] %s tag=%d %.0fx%.0f:%s%s\n",
@@ -157,9 +157,9 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
     if (std::find(kept.begin(), kept.end(), inside) == kept.end()) kept.push_back(inside);
   }
   if (kept.size() > kMaxRects) kept = {bounding(kept)};
-  // OXY_DAMAGE_NEGATIVE_CONTROL: every rectangle 2 pixels short on each side, so that the check
-  // (OXY_HOST_DAMAGE_CHECK) can be seen to fail. Never set outside that test.
-  if (std::getenv("OXY_DAMAGE_NEGATIVE_CONTROL")) {
+  // OXYOS_DAMAGE_NEGATIVE_CONTROL: every rectangle 2 pixels short on each side, so that the check
+  // (OXYOS_HOST_DAMAGE_CHECK) can be seen to fail. Never set outside that test.
+  if (std::getenv("OXYOS_DAMAGE_NEGATIVE_CONTROL")) {
     for (auto& rect : kept) {
       rect = Rect{{rect.origin.x + 2, rect.origin.y + 2},
                   {std::max<Float>(0, rect.size.width - 4), std::max<Float>(0, rect.size.height - 4)}};
@@ -168,4 +168,4 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
   return kept;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

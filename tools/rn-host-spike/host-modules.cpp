@@ -18,7 +18,7 @@
 using namespace facebook;
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -94,7 +94,7 @@ Body requestBody(const BlobStore& blobs, const folly::dynamic& data) {
       body.bytes = *bytes;
     }
   } else if (data.count("formData") && data["formData"].isArray()) {
-    std::string boundary = oxy::boundary();
+    std::string boundary = oxyos::boundary();
     for (const auto& part : data["formData"]) {
       if (!part.count("string")) {
         body.error = "file parts in multipart bodies are not supported on OxyOS yet";
@@ -146,7 +146,7 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "DeviceInfo") {
     module->constants(folly::dynamic::object("Dimensions", folly::dynamic::object("window", window)("screen", window)));
   } else if (name == "SourceCode") {
-    const char* url = std::getenv("OXY_SCRIPT_URL");
+    const char* url = std::getenv("OXYOS_SCRIPT_URL");
     module->constants(folly::dynamic::object("scriptURL", url ? url : ""));
   } else if (name == "I18nManager") {
     module->constants(folly::dynamic::object("isRTL", false)("doLeftAndRightSwapInRTL", true)(
@@ -216,15 +216,15 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "KeyboardObserver") {
     module->listeners();
   } else if (name == "ImageLoader") {
-    // Image sizes from the files' headers (images.h resolves the sources, oxy-image reads them):
+    // Image sizes from the files' headers (images.h resolves the sources, oxyos-image reads them):
     // a promise of {width, height} in pixels, or of true for a prefetch.
     auto sized = [](bool prefetch) {
       return [prefetch](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
         auto source = resolveImageSource(count > 0 ? text(rt, args[0]) : "");
         if (!source.error.empty()) return rejected(rt, source.error);
         uint32_t width = 0, height = 0;
-        if (oxy_image_size(source.path.data(), source.path.size(), &width, &height) != 0) {
-          return rejected(rt, oxy_last_error());
+        if (oxyos_image_size(source.path.data(), source.path.size(), &width, &height) != 0) {
+          return rejected(rt, oxyos_last_error());
         }
         // A local image needs no fetching: it is ready if it can be read.
         if (prefetch) return resolved(rt, jsi::Value(true));
@@ -339,7 +339,7 @@ std::shared_ptr<TurboModule> createHostModule(
                              : "application/octet-stream";
       return resolved(rt, jsi::String::createFromUtf8(rt, "data:" + type + ";base64," + base64Encode(*bytes)));
     });
-  } else if (name == "OxyFontRegistry") {
+  } else if (name == "OxyOSFontRegistry") {
     // Registers a font file under a family name with the host's text engine.
     module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       if (count < 2) return jsi::Value(false);
@@ -353,4 +353,4 @@ std::shared_ptr<TurboModule> createHostModule(
   return module;
 }
 
-}  // namespace oxy
+}  // namespace oxyos

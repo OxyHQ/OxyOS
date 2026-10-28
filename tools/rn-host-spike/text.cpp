@@ -17,7 +17,7 @@
 
 using namespace facebook::react;
 
-namespace oxy {
+namespace oxyos {
 
 namespace {
 
@@ -348,4 +348,4 @@ const TextEngine::Bitmap& TextEngine::rasterize(void* face, uint32_t glyph) {
   return impl_->bitmaps[key] = std::move(bitmap);
 }
 
-}  // namespace oxy
+}  // namespace oxyos
