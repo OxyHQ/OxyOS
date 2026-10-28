@@ -43,7 +43,8 @@ The test machine needs two grants that the design does not:
 
 - The compositor needs no privilege of its own: logind decides which session has the seat.
 - **Its D-Bus connection lives as long as the process.** zbus keeps its own threads and descriptors, so the development compositor takes its seat before it counts descriptors. What it opens through logind is closed before the count is checked.
+- **The session program exists:** `oxy-session` runs the compositor on the seat of the caller's session, from a terminal login ([The session](../native-foundation#the-session)).
 - **Not decided here:**
-  - the session process that runs the compositor in a real login (a greeter is retired; an Oxy session needs its own launcher and authentication, [Oxy account and session on OxyOS](../account-session));
+  - a graphical login that starts it (a greeter is retired; an Oxy session needs its own launcher and authentication, [Oxy account and session on OxyOS](../account-session));
   - hotplugged cards;
   - the lock across a switch.

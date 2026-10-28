@@ -46,6 +46,8 @@ Expected result:
 | `tools/oxy-kms-probe` | Reads what each card offers, as JSON; read-only, it leaves a running session alone |
 | `tools/oxy-kms-show` | Shows frames dumped by `oxy-offscreen --launch --dump-frames` on a real output, one per refresh, and reports the flip intervals and missed refreshes. `--gpu` composes on Vulkan straight into DMA-BUF scanout buffers. Needs DRM master (a free virtual terminal) |
 | `tools/oxy-platform-probe` | Two-process protocol v2 metadata exercise with synthetic completion |
+| `crates/oxy-compositor` | The compositor itself: client connections, input routed through the scene, frames composed with only the output's damage on the CPU or on a Vulkan device straight into scanout buffers, the DRM/KMS display, libinput devices, and the seat from logind or the terminal. `oxy-offscreen` and `oxy-session` drive it |
+| `tools/oxy-session` | The OxyOS session: the compositor on a real seat running the application it launches, as the user of a logind session ([The session](#the-session)) |
 | `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; `--launch` runs one application process (the Bloom host) and presses scripted points; writes PNG snapshots |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
 | `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
@@ -148,6 +150,18 @@ With `--gpu-only`, frames are composed on the Vulkan device alone, with no CPU r
 With `--gpu`, every composed frame is also composed on the best Vulkan device present and must match the CPU composition byte for byte. Any difference fails the run, and the summary names the device and its kind. On a machine without a Vulkan driver, Mesa's lavapipe (`mesa-vulkan-drivers`, a CPU device) runs it: that proves the Vulkan path and the semantics, not a GPU.
 
 Without `--kms` and `--input`, this is the headless development path: no DRM/KMS output, scripted input injected into the scene, and synthetic feedback timestamps. With them it is still a development fixture with one application and scripted steps, not a session. The test clients draw flat rectangles.
+
+## The session
+
+`oxy-session [--layout LAYOUT] -- COMMAND [ARGS]...` runs the compositor on the seat of the caller's logind session, as its user: start it from a login on a text terminal.
+- **Display:** the first card with a connected output, at that output's size.
+- **Composition:** on the GPU straight into the display's scanout buffers where Vulkan exports DMA-BUF, otherwise on the CPU, only what changed ([ADR 0005](./adr/0005-damage)). Frames are never read back, and no per-frame measurement is kept.
+- **Input:** the seat's devices through logind and libinput, with the keymap of `--layout` and its dead keys.
+- **Switching:** Ctrl+Alt+Fn switches terminals, and logind's switches are followed ([ADR 0006](./adr/0006-seat)).
+- **The application:** COMMAND runs with `OXY_COMPOSITOR_SOCKET` naming the compositor's socket, in `XDG_RUNTIME_DIR`.
+- **The end:** the session ends when COMMAND exits, on Ctrl+Alt+Backspace (XKB's `terminate:ctrl_alt_bksp`), or on SIGINT or SIGTERM. The application is asked to stop (SIGTERM, then SIGKILL after two seconds), and the display, devices and seat are given back.
+
+It is a session program, not yet a desktop. It runs one application, and there is no shell, launcher, lock or login of its own. It is not in the image: the image rules require boot acceptance tests and a package audit first ([Base image configuration](./iso-build)).
 
 ## Core state transitions
 

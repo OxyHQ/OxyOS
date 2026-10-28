@@ -822,6 +822,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxy-session"
+version = "0.1.0"
+dependencies = [
+ "oxy-compositor",
+ "oxy-compositor-core",
+ "oxy-gpu",
+ "oxy-input",
+ "oxy-ipc",
+ "oxy-kms",
+ "oxy-protocol",
+ "oxy-seat",
+ "rustix",
+ "signal-hook",
+]
+
+[[package]]
 name = "oxy-vt"
 version = "0.1.0"
 dependencies = [

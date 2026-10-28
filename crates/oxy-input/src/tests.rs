@@ -40,6 +40,7 @@ fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
             text
         }
         Typed::SwitchTerminal(number) => panic!("a terminal switch to {number}, not text"),
+        Typed::Terminate => panic!("the end of the session, not text"),
         Typed::Nothing => panic!("a press is always someone's"),
     }
 }
@@ -201,4 +202,19 @@ fn ctrl_alt_and_a_function_key_switch_terminals_and_are_no_applications_key() {
     // Alone, the function key is a key.
     assert_eq!(us.key(F2, true), Typed::Key(None));
     assert_eq!(us.key(F2, false), Typed::Key(None));
+}
+
+#[test]
+fn ctrl_alt_backspace_ends_the_session_and_is_no_applications_key() {
+    const CTRL: u32 = 29;
+    const ALT: u32 = 56;
+    let mut us = composing("us");
+    assert_eq!(us.key(CTRL, true), Typed::Key(None));
+    assert_eq!(us.key(ALT, true), Typed::Key(None));
+    assert_eq!(us.key(BACKSPACE, true), Typed::Terminate);
+    assert_eq!(us.key(BACKSPACE, false), Typed::Nothing);
+    assert_eq!(us.key(ALT, false), Typed::Key(None));
+    assert_eq!(us.key(CTRL, false), Typed::Key(None));
+    // Alone, Backspace is a key.
+    assert_eq!(tap(&mut us, BACKSPACE), None);
 }

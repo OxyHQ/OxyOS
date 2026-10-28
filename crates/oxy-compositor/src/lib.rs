@@ -57,6 +57,15 @@ pub struct Compositor {
     pub gpu_only: bool,
     /// The frame just shown was kept on the device for `framebuffer_from_gpu`.
     pub shown_kept: bool,
+    /// With `gpu_only`: whether every frame shown is read back into `framebuffer`, as the
+    /// development compositor's checks need. A session never reads its frames back.
+    pub reads_back: bool,
+    /// Whether per-frame measurements are kept (flips, composition times, damage, the
+    /// device's times), as the development compositor reports them. A session keeps none:
+    /// they would grow with every frame.
+    pub records: bool,
+    /// The user ended the session (Ctrl+Alt+Backspace): the session's program stops.
+    pub ending: bool,
     /// With `--dump-frames`: the latest composed frame, as `oxy_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -139,6 +148,9 @@ impl Compositor {
             gpu: None,
             gpu_only: false,
             shown_kept: false,
+            reads_back: true,
+            records: true,
+            ending: false,
             keep_frame: false,
             last_frame: Vec::new(),
             display: None,
@@ -395,10 +407,12 @@ impl Compositor {
                 .map(|rect| u64::from(rect.width) * u64::from(rect.height))
                 .sum::<u64>()
         };
-        self.damaged.push(match &damage {
-            Some(rects) => (area(rects) as f64 / area(&[output_rect]) as f64).min(1.0),
-            None => 1.0,
-        });
+        if self.records {
+            self.damaged.push(match &damage {
+                Some(rects) => (area(rects) as f64 / area(&[output_rect]) as f64).min(1.0),
+                None => 1.0,
+            });
+        }
         // Each surface's pixels, read from its shared buffer, and the covers.
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
@@ -447,8 +461,10 @@ impl Compositor {
                 }
             }
         }
-        self.reads
-            .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
+        if self.records {
+            self.reads
+                .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
+        }
         let layers: Vec<oxy_gpu::Layer<'_>> = contents
             .iter()
             .map(
@@ -535,7 +551,7 @@ impl Compositor {
         }
         self.scene.end_frame(0, Clock::Synthetic);
         self.retire();
-        if self.gpu_only {
+        if self.gpu_only && self.reads_back {
             self.flush();
             self.framebuffer_from_gpu(&layers);
         }
@@ -572,7 +588,9 @@ impl Compositor {
                 (0, Clock::Synthetic)
             }
             Ok(Some(flip)) => {
-                self.flips.push((submitted, flip));
+                if self.records {
+                    self.flips.push((submitted, flip));
+                }
                 (
                     u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
                     Clock::Monotonic,
@@ -592,7 +610,7 @@ impl Compositor {
         if clock == Clock::Monotonic {
             self.flipped = self.scene.render_list();
         }
-        if self.gpu_only && clock == Clock::Monotonic {
+        if self.gpu_only && self.reads_back && clock == Clock::Monotonic {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
@@ -729,6 +747,7 @@ impl Compositor {
                         self.scene.text(&text);
                     }
                 }
+                oxy_input::Action::Terminate => self.ending = true,
                 oxy_input::Action::SwitchTerminal(number) => {
                     if let Some(seat) = &self.seat {
                         if Some(u32::from(number)) != seat.vt() {
@@ -833,7 +852,7 @@ impl Compositor {
                     .collect()
             });
             let back = self.scanout_back;
-            let composed = if self.gpu_only {
+            let composed = if self.gpu_only && self.reads_back {
                 self.shown_kept = true;
                 gpu.compositor
                     .compose_to_scanout_kept(back, DESKTOP, &shifted, damage.as_deref())
@@ -842,13 +861,15 @@ impl Compositor {
                     .compose_to_scanout(back, DESKTOP, &shifted, damage.as_deref())
             }
             .map_err(|error| std::io::Error::other(error.to_string()));
-            gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
-            gpu.host_ms.push(gpu.compositor.last_host_ms());
-            gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
-            gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
             let submitted = monotonic();
-            self.compositions
-                .push((submitted - self.composing_since).as_secs_f64() * 1e3);
+            if self.records {
+                gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
+                gpu.host_ms.push(gpu.compositor.last_host_ms());
+                gpu.uploaded.push(gpu.compositor.last_uploaded_bytes());
+                gpu.phases_ms.extend(gpu.compositor.last_gpu_phases());
+                self.compositions
+                    .push((submitted - self.composing_since).as_secs_f64() * 1e3);
+            }
             let presented = composed.and_then(|()| display.present_framebuffer(self.scanout[back]));
             self.scanout_back = 1 - back;
             return self.handed_over(presented, submitted);
@@ -870,8 +891,10 @@ impl Compositor {
         }
         let drawn = display.draw(&pixels);
         let submitted = monotonic();
-        self.compositions
-            .push((submitted - self.composing_since).as_secs_f64() * 1e3);
+        if self.records {
+            self.compositions
+                .push((submitted - self.composing_since).as_secs_f64() * 1e3);
+        }
         let presented = drawn.and_then(|()| display.present());
         self.handed_over(presented, submitted)
     }

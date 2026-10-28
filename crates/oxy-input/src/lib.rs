@@ -46,6 +46,9 @@ pub enum Action {
     /// The keymap's terminal switch (Ctrl+Alt+Fn on the default keymaps), which no application
     /// sees as a key: the compositor asks for terminal `n`.
     SwitchTerminal(u16),
+    /// The keymap's end of the session (Ctrl+Alt+Backspace, XKB's `terminate:ctrl_alt_bksp`),
+    /// which no application sees as a key.
+    Terminate,
 }
 
 /// What a key does.
@@ -60,7 +63,10 @@ pub enum Typed {
     },
     /// A press of the keymap's terminal switch (see [`Action::SwitchTerminal`]).
     SwitchTerminal(u16),
-    /// The release of a key the compose table or a terminal switch took: nothing for anyone.
+    /// A press of the keymap's end of the session (see [`Action::Terminate`]).
+    Terminate,
+    /// The release of a key the compose table, a terminal switch or the end of the session took:
+    /// nothing for anyone.
     Nothing,
 }
 
@@ -171,7 +177,8 @@ impl Keyboard {
             "",
             layout,
             "",
-            None,
+            // Ctrl+Alt+Backspace ends the session (Terminate_Server).
+            Some("terminate:ctrl_alt_bksp".to_string()),
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         )
         .ok_or_else(|| {
@@ -214,12 +221,16 @@ impl Keyboard {
             }
         } else {
             let keysym = self.state.key_get_one_sym(keycode);
-            let switch = xkb::keysym_get_name(keysym)
+            let name = xkb::keysym_get_name(keysym);
+            let switch = name
                 .strip_prefix("XF86Switch_VT_")
                 .and_then(|number| number.parse().ok());
             if let Some(number) = switch {
                 self.taken.push(code);
                 Typed::SwitchTerminal(number)
+            } else if name == "Terminate_Server" {
+                self.taken.push(code);
+                Typed::Terminate
             } else {
                 match self
                     .compose
@@ -421,6 +432,7 @@ impl Input {
                         Typed::SwitchTerminal(number) => {
                             actions.push(Action::SwitchTerminal(number))
                         }
+                        Typed::Terminate => actions.push(Action::Terminate),
                         Typed::Nothing => {}
                     }
                 }
