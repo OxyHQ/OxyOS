@@ -6,7 +6,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Several React Native headers use <cstdint> types without including it; libc++ (Android, Apple)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
-foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR)
+foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
+    REANIMATED_CODEGEN_DIR)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -100,3 +101,76 @@ target_link_libraries(reactnative PUBLIC ${reactnative_LINKS} hermes-engine::her
 add_executable(oxy-rn-spike host.cpp)
 target_link_libraries(oxy-rn-spike reactnative)
 target_compile_options(oxy-rn-spike PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
+
+# ---- OxyOS host: real text layout and the Bloom host executable -------------------------------
+if(NOT DEFINED TEXT_SYSROOT)
+  message(FATAL_ERROR "TEXT_SYSROOT is required; run build.sh")
+endif()
+set(TEXT_INCLUDES ${TEXT_SYSROOT}/include/freetype2 ${TEXT_SYSROOT}/include/harfbuzz)
+set(TEXT_LIBS ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libfreetype.so ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libharfbuzz.so)
+
+# Replace the cxx platform's measurement stub with the host text engine.
+get_target_property(tlm_sources react_renderer_textlayoutmanager SOURCES)
+list(FILTER tlm_sources EXCLUDE REGEX "platform/cxx/react/renderer/textlayoutmanager/TextLayoutManager.cpp$")
+list(APPEND tlm_sources ${CMAKE_CURRENT_SOURCE_DIR}/TextLayoutManager.cpp ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
+set_property(TARGET react_renderer_textlayoutmanager PROPERTY SOURCES ${tlm_sources})
+target_include_directories(react_renderer_textlayoutmanager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${TEXT_INCLUDES})
+target_link_libraries(reactnative PUBLIC ${TEXT_LIBS})
+
+# The cores report their package versions.
+foreach(package WORKLETS REANIMATED)
+  file(READ ${${package}_DIR}/package.json manifest)
+  string(JSON ${package}_VERSION GET "${manifest}" version)
+endforeach()
+
+# react-native-worklets: its platform-independent C++ core, built unchanged, plus OxyOS glue
+# (worklets-host.cpp).
+file(GLOB_RECURSE worklets_SRC CONFIGURE_DEPENDS ${WORKLETS_DIR}/Common/cpp/worklets/*.cpp)
+add_library(worklets_core OBJECT ${worklets_SRC})
+target_include_directories(worklets_core PUBLIC ${WORKLETS_DIR}/Common/cpp
+  PRIVATE ${REACT_COMMON_DIR} ${REACT_COMMON_DIR}/react/nativemodule/core/ReactCommon
+  ${REACT_COMMON_DIR}/callinvoker ${REACT_COMMON_DIR}/runtimeexecutor ${REACT_COMMON_DIR}/jsiexecutor
+  ${REACT_COMMON_DIR}/react/renderer/graphics/platform/cxx)
+target_link_libraries(worklets_core jsi folly_runtime glog hermes-engine::hermesvm react_nativemodule_core
+  react_renderer_uimanager react_renderer_scheduler react_utils)
+target_compile_options(worklets_core PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1
+  -DHERMES_V1_ENABLED=1 -DWORKLETS_VERSION=${WORKLETS_VERSION} -DNDEBUG -Wno-deprecated-declarations
+  "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/linux-compat.h")
+
+# react-native-reanimated: its C++ core, built unchanged on the Fabric-only path with no JNI
+# (ANDROID stays undefined), its codegen'd component specs and a minimal <android/log.h>.
+file(GLOB_RECURSE reanimated_SRC CONFIGURE_DEPENDS ${REANIMATED_DIR}/Common/cpp/reanimated/*.cpp
+  ${REANIMATED_CODEGEN_DIR}/react/renderer/components/rnreanimated/*.cpp)
+add_library(reanimated_core OBJECT ${reanimated_SRC})
+# Warnings stay visible but do not fail the third-party core (RN targets propagate -Werror).
+set_source_files_properties(${reanimated_SRC} PROPERTIES COMPILE_OPTIONS "-Wno-error")
+target_include_directories(reanimated_core PUBLIC ${REANIMATED_DIR}/Common/cpp
+  ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components
+  PRIVATE ${WORKLETS_DIR}/Common/cpp ${CMAKE_CURRENT_SOURCE_DIR}/android-shim ${REACT_COMMON_DIR}
+  ${REACT_COMMON_DIR}/react/nativemodule/core/ReactCommon ${REACT_COMMON_DIR}/callinvoker
+  ${REACT_COMMON_DIR}/runtimeexecutor ${REACT_COMMON_DIR}/react/renderer/graphics/platform/cxx)
+target_link_libraries(reanimated_core jsi folly_runtime glog hermes-engine::hermesvm react_nativemodule_core
+  react_renderer_uimanager react_renderer_scheduler react_renderer_mounting react_renderer_core
+  react_renderer_animations react_utils rrc_view rrc_text rrc_scrollview yoga)
+target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1
+  -DHERMES_V1_ENABLED=1 -DREANIMATED_VERSION=${REANIMATED_VERSION} -DNDEBUG -Wno-deprecated-declarations
+  -Wno-unused-variable -Wno-unused-but-set-variable
+  "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
+
+add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp worklets-host.cpp
+  reanimated-host.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
+  ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
+set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
+  "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
+target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview)
+target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
+
+# Debug aid: OXY_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.
+option(OXY_ASAN "AddressSanitizer for the OxyOS host code" OFF)
+if(OXY_ASAN)
+  foreach(target oxy-bloom-host worklets_core reanimated_core)
+    target_compile_options(${target} PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
+  endforeach()
+  target_link_options(oxy-bloom-host PRIVATE -fsanitize=address)
+endif()
