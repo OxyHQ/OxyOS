@@ -112,6 +112,33 @@ class Painter {
     dst = channel(24, 1.0f) | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
   }
 
+  // A colour as a fully covered pixel takes it: premultiplied 8-bit channels, packed when opaque.
+  struct Solid {
+    uint32_t a, r, g, b;
+    bool opaque;
+    uint32_t packed;
+  };
+  static Solid solid(Rgba color) {
+    auto c = [](float v) { return static_cast<uint32_t>(std::lround(std::clamp(v, 0.0f, 1.0f) * 255)); };
+    float a = std::clamp(color.a, 0.0f, 1.0f);
+    Solid s{c(a), c(color.r * a), c(color.g * a), c(color.b * a), a >= 1, 0};
+    s.packed = 0xff000000u | c(color.r) << 16 | c(color.g) << 8 | c(color.b);
+    return s;
+  }
+  // Source-over of a fully covered pixel, in integers: the inside of a fill, where most of a
+  // frame's pixels are, costs one store when opaque.
+  static void blendSolid(uint32_t& dst, const Solid& s) {
+    if (s.opaque) {
+      dst = s.packed;
+      return;
+    }
+    uint32_t keep = 255 - s.a;
+    auto channel = [&](int shift, uint32_t src) {
+      return (src + (((dst >> shift) & 0xff) * keep + 127) / 255) << shift;
+    };
+    dst = channel(24, s.a) | channel(16, s.r) | channel(8, s.g) | channel(0, s.b);
+  }
+
   // Whether a point lies in a rectangle with circular corner radii (logical units).
   static bool insideRounded(float px, float py, float x, float y, float w, float h, const BorderRadii& r) {
     if (px < x || py < y || px > x + w || py > y + h) return false;
@@ -138,8 +165,9 @@ class Painter {
     int x0 = static_cast<int>(std::floor(box.x0 * scale_)), x1 = static_cast<int>(std::ceil(box.x1 * scale_));
     int y0 = static_cast<int>(std::floor(box.y0 * scale_)), y1 = static_cast<int>(std::ceil(box.y1 * scale_));
     // Only the pixels painted are visited; each one's coverage is the whole frame's.
-    x0 = std::max(x0, region_[0]), y0 = std::max(y0, region_[1]);
-    x1 = std::min(x1, region_[2]), y1 = std::min(y1, region_[3]);
+    x0 = std::max({x0, region_[0], 0}), y0 = std::max({y0, region_[1], 0});
+    x1 = std::min({x1, region_[2], canvas_.width}), y1 = std::min({y1, region_[3], canvas_.height});
+    Solid full = solid(color);
     bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
                    radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0 || holeRadii;
     for (int py = y0; py < y1; ++py) {
@@ -157,7 +185,11 @@ class Painter {
           float cy = std::min(ly + 1 / scale_, box.y1) - std::max(ly, box.y0);
           coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
         }
-        blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
+        if (coverage >= 1) {
+          blendSolid(canvas_.pixels[static_cast<size_t>(py) * canvas_.width + px], full);
+        } else {
+          blend(px, py, color, std::clamp(coverage, 0.0f, 1.0f));
+        }
       }
     }
   }
