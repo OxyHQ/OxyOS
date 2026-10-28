@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of the `config/` image configuration. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies protocol, policy and ownership state; it draws no pixels.
+The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code and loads no display toolkit. It currently verifies protocol, policy and ownership state; it draws no pixels.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -16,6 +16,7 @@ cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 scripts/check-native-boundary.py
 cargo run --locked -p oxy-platform-probe
+cargo run --locked -p oxy-offscreen -- --out target/oxy-offscreen
 ```
 
 The probe launches two independent client processes that speak protocol version 2 over Unix sockets to one shared compositor `Scene`. Each creates a toplevel and presents three frames; one also opens a popup larger than its window, checks that the compositor placed it beyond all four parent edges, and waits for its buffer to be released after destroying it. The probe then requires that no surface, client or held buffer remains. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. Completion is synthetic and labeled `Clock::Synthetic`. The probe is a finite developer tool, not an installed service or authenticated compositor.
@@ -34,7 +35,9 @@ Expected result:
 | `crates/oxy-compositor-core/src/placement.rs` | Popup positioner: anchor/gravity/offset, flip/slide/resize against one output, RTL, overflow-safe |
 | `crates/oxy-compositor-core/src/scene.rs` | Roles, grants, ownership, quotas, stacking, input routing, popup grabs, focus, lock primitive, outputs, frame lifecycle and buffer release |
 | `crates/oxy-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
-| `tools/oxy-platform-probe` | Two-process protocol v2 exercise with synthetic completion |
+| `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send |
+| `tools/oxy-platform-probe` | Two-process protocol v2 metadata exercise with synthetic completion |
+| `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; writes PNG snapshots |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
 | `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
 
@@ -64,6 +67,8 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 | Request | 12 | BeginMove | 13 |
 | Request | 13 | SetFullscreen | 6 |
 | Request | 14 | Goodbye | 1 |
+| Request | 15 | AttachBuffer | 29 |
+| Request | 16 | DestroyBuffer | 9 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -77,7 +82,23 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 
-Not yet in the contract: file-descriptor passing and buffer import, formats/modifiers, GPU fences, per-consumer release, keyboard keymaps, IME, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, keyboard keymaps, IME, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+
+## Transport and buffers
+
+`oxy-ipc` carries one protocol message per `SOCK_SEQPACKET` packet, so a descriptor always arrives with its message and oversized or concatenated packets are rejected. Only `AttachBuffer` carries a descriptor, exactly one; any other descriptor is closed and the message rejected. Peer credentials are read from the kernel (`SO_PEERCRED`); the session authority turns them into grants, never the peer's own claims.
+
+Shared-memory buffers must be regular files sealed against shrinking (`memfd` with `F_SEAL_SHRINK`) and at least as large as their layout (`offset + stride × (height − 1) + row`, checked arithmetic, 256 MiB cap, 4-byte aligned stride and offset). The compositor reads them with `pread`, so a client cannot fault it. `Scene` keeps a per-client buffer registry (128 per client): submissions must name a registered buffer of the submitted extent, a buffer backs one surface at a time, and `DestroyBuffer` on a displayed buffer defers retirement until it is replaced. `Released` means the client may reuse a buffer; `drain_retired` means the backend may close its descriptor.
+
+## Offscreen development compositor
+
+`oxy-offscreen` runs the protocol, transport and scene with real processes and memory: a `poll` loop that never blocks on a client, bounded per-client outboxes (1,024 unread events disconnect the client), CPU composition of the in-flight frame (`Scene::frame_list`) and recomposition when the scene changes. A scripted director injects synthetic input: one client opens a context menu larger than its window; the fixture samples composed pixels beyond all four window edges over the other client, presses a menu row outside the window, presses outside the menu, and checks that the other client received no press, that no menu pixels remain, and that scene resources and the process's open descriptors return to their starting counts. It writes four PNG snapshots.
+
+```json
+{"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}
+```
+
+This is the headless development path. It is not DRM/KMS, Vulkan, a session or Bloom, its input is scripted and its feedback timestamps are synthetic. The test clients draw flat rectangles.
 
 ## Core state transitions
 

@@ -1,8 +1,8 @@
 use oxy_compositor_core::{ClientId, Grants, Output, Scene};
 use oxy_protocol::{
     read_event, read_request, write_event, write_request, Adjust, Anchor, ClientConnection, Clock,
-    Event, Gravity, Outcome, Positioner, Rect, Request, ServerConnection, Size, MIN_VERSION,
-    VERSION,
+    Event, Format, Gravity, Outcome, Positioner, Rect, Request, ServerConnection, Size,
+    MIN_VERSION, VERSION,
 };
 use std::collections::HashMap;
 use std::error::Error;
@@ -84,6 +84,18 @@ fn present(
     configure: u64,
     rect: Rect,
 ) -> Result<()> {
+    // Metadata only: the stream transport carries no descriptors, so the buffer is registered
+    // without memory behind it. `oxy-offscreen` exercises real shared-memory buffers.
+    write_request(
+        stream,
+        &Request::AttachBuffer {
+            buffer,
+            format: Format::Xrgb8888,
+            extent: Size::new(rect.width, rect.height),
+            stride: rect.width * 4,
+            offset: 0,
+        },
+    )?;
     write_request(
         stream,
         &Request::Submit {

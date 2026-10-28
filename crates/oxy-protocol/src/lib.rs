@@ -14,8 +14,8 @@ mod wire;
 
 pub use schema::{Event, Request};
 pub use wire::{
-    Adjust, Anchor, Clock, DismissReason, ErrorCode, Gravity, Outcome, PanelEdge, PointerKind,
-    Positioner, Rect, ShellKind, Size, TouchKind,
+    Adjust, Anchor, BufferLayout, Clock, DismissReason, ErrorCode, Format, Gravity, Outcome,
+    PanelEdge, PointerKind, Positioner, Rect, ShellKind, Size, TouchKind, MAX_BUFFER_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.

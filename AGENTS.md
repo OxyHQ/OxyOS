@@ -8,7 +8,7 @@ Bloom's application-layout compositor is distinct from the OS display compositor
 
 ## Checks
 
-Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxy-platform-probe`. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
+Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxy-platform-probe`; `oxy-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 
 Image: `python3 scripts/check-image-config.py`. The boundary script audits Cargo only; the image script audits `config/` and workflows only. Neither is a built-image or dependency-closure audit.
 

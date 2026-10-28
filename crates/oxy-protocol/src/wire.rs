@@ -72,6 +72,10 @@ wire_enum! {
     Gravity: u8 { Center = 0, Top = 1, Bottom = 2, Left = 3, Right = 4, TopLeft = 5, BottomLeft = 6, TopRight = 7, BottomRight = 8 }
 }
 wire_enum! {
+    /// Pixel formats as DRM fourcc codes, so shared-memory and future DMA-BUF buffers agree.
+    Format: u32 { Xrgb8888 = 0x3432_5258, Argb8888 = 0x3432_5241 }
+}
+wire_enum! {
     /// Privileged shell roles. Each requires a session grant; the label alone authorizes nothing.
     ShellKind: u8 { Background = 1, Panel = 2, Overlay = 3, Notification = 4 }
 }
@@ -311,5 +315,39 @@ impl Wire for Positioner {
             return Err(invalid("invalid positioner"));
         }
         Ok(positioner)
+    }
+}
+
+/// Largest accepted buffer, in bytes, including any offset.
+pub const MAX_BUFFER_BYTES: u64 = 256 << 20;
+
+impl Format {
+    pub const fn bytes_per_pixel(self) -> u32 {
+        4
+    }
+}
+
+/// Layout of a client buffer inside its shared memory object.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BufferLayout {
+    pub format: Format,
+    pub extent: Size,
+    pub stride: u32,
+    pub offset: u32,
+}
+
+impl BufferLayout {
+    /// Bytes the memory object must contain, or None if the layout is invalid: stride shorter
+    /// than a row, misaligned stride/offset or more than `MAX_BUFFER_BYTES`.
+    pub fn required_bytes(&self) -> Option<u64> {
+        let row = u64::from(self.extent.width) * u64::from(self.format.bytes_per_pixel());
+        let stride = u64::from(self.stride);
+        if !self.extent.is_valid() || stride < row || stride % 4 != 0 || self.offset % 4 != 0 {
+            return None;
+        }
+        let total = u64::from(self.offset)
+            .checked_add(stride.checked_mul(u64::from(self.extent.height) - 1)?)?
+            .checked_add(row)?;
+        (total <= MAX_BUFFER_BYTES).then_some(total)
     }
 }
