@@ -142,8 +142,9 @@ impl Keyboard {
         Self::with_locale(layout, &locale)
     }
 
-    /// The same with the compose table of `locale`. Without one (on Debian the tables are in
-    /// `libx11-data`), dead keys type nothing.
+    /// The same with the compose table of `locale`, from xkbcommon's directory (`XLOCALEDIR`,
+    /// `/usr/share/X11/locale` by default; the image ships the UTF-8 tables there). Without one,
+    /// dead keys type nothing.
     pub fn with_locale(layout: &str, locale: &OsStr) -> io::Result<Self> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
         let keymap = xkb::Keymap::new_from_names(
