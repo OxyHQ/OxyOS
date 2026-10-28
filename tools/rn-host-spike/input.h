@@ -40,6 +40,11 @@ class PointerInput {
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
   // touch; a cancel or the pointer leaving cancels it.
   void handle(const OxyEvent& event);
+  // Scrolls a text input's text by (dx, dy) if it can still move that way (textinput.h); true
+  // if it moved. A text input under the pointer takes the wheel before the scroll views around it.
+  void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
+    scrollText_ = std::move(scrollText);
+  }
 
  private:
   void scroll(float dx, float dy);
@@ -53,6 +58,7 @@ class PointerInput {
 
   const ViewTree& tree_;
   Surfaces surfaces_;
+  std::function<bool(facebook::react::Tag, float, float)> scrollText_;
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;

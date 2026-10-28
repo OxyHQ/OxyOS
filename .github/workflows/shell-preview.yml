@@ -1,0 +1,35 @@
+name: Shell preview
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps/**', 'tools/shell-preview/**', 'assets/wallpapers/**', '.github/workflows/shell-preview.yml']
+  pull_request:
+    paths: ['apps/**', 'tools/shell-preview/**', 'assets/wallpapers/**', '.github/workflows/shell-preview.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shell-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+# Browser-host checks only. This does not build a desktop session or an ISO.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/shell-preview
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

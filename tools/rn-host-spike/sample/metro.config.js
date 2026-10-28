@@ -44,7 +44,9 @@ function bloomEntry(moduleName) {
 const { withReactNativeCSS } = bloomRequire('react-native-css/metro');
 
 module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
-  watchFolders: [BLOOM, NODE_MODULES, __dirname],
+  // The repository's own images (wallpapers, the shell's app artwork) for the image probe.
+  watchFolders: [BLOOM, NODE_MODULES, __dirname, path.resolve(__dirname, '../../../assets'),
+    path.resolve(__dirname, '../../shell-preview/assets')],
   resolver: {
     platforms: [PLATFORM, 'android', 'ios', 'native', 'web'],
     // The Bloom checkout's own worktrees are not part of the app.
