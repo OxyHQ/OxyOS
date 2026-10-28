@@ -106,8 +106,24 @@ With `--gpu` as well, the live compositor composes each frame on the Iris Xe str
 - handover to flip is about 6.5–7 ms median (max 17.5 ms);
 - 0, 0 and 1 flips later than one refresh.
 
-Input to the answer on screen is about 52 ms here, because this validation mode composes each frame three times: the CPU reference the director reads, the GPU copy for the comparison, and the scanout. Still to do:
-- real input (evdev/libinput) instead of the director;
+Input to the answer on screen is about 52 ms here, because this validation mode composes each frame three times: the CPU reference the director reads, the GPU copy for the comparison, and the scanout.
+
+**Real input.** With `--uinput`, the director's steps go through the kernel: a virtual wheel mouse and keyboard (uinput), read by the compositor through libinput (seat0) with an XKB keymap. Every step then reaches the scene as a real device's input does. The regression states exact counts for that path (`expect_devices`): one event per key and per wheel notch, so a duplicated or leaked event still fails it. The whole regression passes on the ThinkPad:
+
+| Run | Result | Input to the answer on screen (median / max) |
+| --- | --- | --- |
+| `--gpu --uinput --layout es` | 56 of 56 steps, four runs out of four; every GPU frame identical; 0 flips later than one refresh | about 52 / 103 ms |
+| `--uinput --layout us` (CPU composition) | 56 of 56 | about 39 / 102 ms |
+
+On `es`, 'ó' needs a dead key and there is no compose support yet, so the director commits it as text and the summary counts it.
+
+Driving real devices found two bugs. The fixture had to change for both:
+- **A whole step sent at once overflowed the kernel's buffer.** The director wrote a step's keys before the compositor read any. The kernel holds 64 events for each reader of a device; "Hola OxyOS!" with its Shift presses is exactly 64, so the kernel dropped them all and libinput resynchronised to keys already up. Now the compositor reads each event as it is sent, as its event loop does with a person's input.
+- **Middle-button emulation held each press.** libinput emulates a middle button on any pointer with left and right buttons and no middle one, and that setting is not configurable. It holds each left press until the release or a timeout while motion passes, so a drag pressed where it ended. The virtual pointer is now a wheel mouse with the wheel's button.
+
+Still to do:
+- grabbing the devices (today keys also reach the virtual terminal underneath) and VT switching;
+- compose sequences and dead keys;
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
