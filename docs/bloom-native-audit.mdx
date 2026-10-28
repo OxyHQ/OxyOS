@@ -142,11 +142,18 @@ Defects found and fixed at their source:
 - **React Native:** `AndroidTextInputProps` and `AndroidTextInputState` use Android's serialisation API without the `#ifdef RN_SERIALIZABLE_STATE` guard every other component has, so they do not build off Android. `tools/rn-host-spike/patches/react-native-androidtextinput-props.patch` adds the guard. `build.sh` applies it to a private copy; the React Native package is never modified. Upstream `main` still lacks the guard.
 - **Bloom:** `FontLoader` gated rendering on `useFonts`' `loaded` alone, so one font that failed to load left the whole app blank, on every platform. Fixed in Bloom 15.59.4: the app renders in the system font and the failure is reported.
 
+- **A Bloom menu beyond the window:** with the OxyOS platform adapter (`sample/oxyos/platform-surface.js`, [ADR 0002](./adr/0002-bloom-platform-surface-api)), Bloom's native `DropdownMenu` renders its rows in `OxyPopupView`. The host leaves that subtree out of the window and opens a protocol popup positioned from the anchor's frame and Bloom's placement, grabbed with the press that opened it. It is drawn in premultiplied ARGB, so the rounded corners are transparent. In the sample, the menu opens 96 px beyond the window's right edge and 40 px beyond its bottom; choosing a row closes it and updates the app; an outside press closes it through `PopupDone` and `onDismiss`.
+
+Bloom fixes found on the way:
+- **Fonts (15.60.1):** one font that failed to load left the whole app blank.
+- **Accessibility (15.60.2):** focus moves used the deprecated `setAccessibilityFocus`, which throws on bridgeless Android when the legacy UIManager constants are absent.
+
 Known gaps:
 - The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
 - Text input has no selection, caret movement, IME composition or clipboard yet.
 - Touch-drag scrolling, Gesture Handler, images, `expo-blur`, modals and accessibility are not implemented.
-- Opening a Bloom menu as a compositor popup is the next step.
+- Popups are not repositioned when their content resizes (`Reposition` is not exposed yet).
+- Native keyboard navigation inside a popup menu, and the other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`), still need the native popup panel.
 
 
 ## Platform capability matrix
@@ -155,9 +162,9 @@ Known gaps:
 | --- | --- | --- | --- | --- | --- |
 | Bloom support today | Supported (Expo/RN) | Supported (Expo/RN) | Supported (react-native-web) | Not a declared Bloom target: no `.macos` files, one `Platform.OS === 'macos'` check; Astro consumes Bloom through react-native-macos 0.81 | In progress (#32–#36) |
 | Anchored menu/popover/select | Bottom sheet in an RN `Modal` (own window) | Same | DOM portal into `#bloom-portal-root`, placed inside the browser viewport | Not assessed | Compositor popup surface beyond the window ([ADR 0001](./adr/0001-native-platform-boundaries)); protocol, policy and offscreen pixels done, Bloom host pending |
-| Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated with a test client offscreen |
+| Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated offscreen with a test client and with Bloom's own `DropdownMenu` through the native host |
 | Separate modal window | RN `Modal` | RN `Modal` | In-page dialog | Not assessed | `Dialog` role (modal), policy done |
-| Capability discovery | None (implicit) | None | None | None | Proposed adapter API ([ADR 0002](./adr/0002-bloom-platform-surface-api)) |
+| Capability discovery | None (implicit) | None | None | None | `BloomProvider platform={…}` adapter ([ADR 0002](./adr/0002-bloom-platform-surface-api), Bloom 15.61.0 pending merge) |
 
 A macOS adapter is not supported just because Astro has one. Supporting it needs its own adapter, build and tests. Unsupported capabilities are reported by the adapter, never simulated.
 

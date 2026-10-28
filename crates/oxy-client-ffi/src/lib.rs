@@ -7,7 +7,7 @@
 
 use oxy_client::{Client, Poll};
 use oxy_protocol::{
-    Adjust, Anchor, Event, Gravity, Positioner, Rect, Request, Size, TEXT_CHUNK_BYTES,
+    Adjust, Anchor, Event, Format, Gravity, Positioner, Rect, Request, Size, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -28,6 +28,10 @@ pub const OXY_EVENT_FEEDBACK: u32 = 8;
 pub const OXY_EVENT_RELEASED: u32 = 9;
 pub const OXY_EVENT_SCROLL: u32 = 11;
 pub const OXY_EVENT_TEXT: u32 = 12;
+
+/// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
+pub const OXY_FORMAT_XRGB8888: u32 = 0x3432_5258;
+pub const OXY_FORMAT_ARGB8888: u32 = 0x3432_5241;
 
 /// Results of `oxy_client_poll`.
 pub const OXY_POLL_EVENT: c_int = 1;
@@ -437,9 +441,10 @@ pub unsafe extern "C" fn oxy_client_destroy_surface(client: *mut OxyClient, surf
     }
 }
 
-/// Presents `pixels` (XRGB8888: little-endian B, G, R, X; rows of `width * 4` bytes, `height`
-/// rows) on `surface` in answer to the configure with serial `configure`. Returns the frame's
-/// sequence number, or -1 on failure.
+/// Presents `pixels` (rows of `width * 4` bytes, `height` rows) on `surface` in answer to the
+/// configure with serial `configure`. `format` is a DRM fourcc: `OXY_FORMAT_XRGB8888` (opaque,
+/// little-endian B, G, R, X) or `OXY_FORMAT_ARGB8888` (premultiplied B, G, R, A). Returns the
+/// frame's sequence number, or -1 on failure.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxy_client_connect`; `pixels` points to `length` readable
@@ -452,6 +457,7 @@ pub unsafe extern "C" fn oxy_client_present(
     configure: u64,
     width: u32,
     height: u32,
+    format: u32,
     pixels: *const u8,
     length: usize,
 ) -> i64 {
@@ -466,7 +472,11 @@ pub unsafe extern "C" fn oxy_client_present(
     };
     // SAFETY: the caller guarantees `length` readable bytes at `pixels`.
     let pixels = unsafe { std::slice::from_raw_parts(pixels, length) };
-    match client.present(surface, configure, Size::new(width, height), pixels) {
+    let Some(format) = Format::from_raw(format) else {
+        fail("unknown pixel format");
+        return -1;
+    };
+    match client.present_format(surface, configure, Size::new(width, height), format, pixels) {
         Ok(sequence) => i64::try_from(sequence).unwrap_or(-1),
         Err(error) => {
             fail(error);

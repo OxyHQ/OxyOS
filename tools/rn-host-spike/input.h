@@ -11,18 +11,30 @@
 #include <react/renderer/core/ReactPrimitives.h>
 
 #include <chrono>
+#include <functional>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
 namespace oxy {
 
-// The deepest view under a window-local logical point that takes touches, honouring
+// What a protocol surface shows: the window shows the root (popup subtrees excluded); a popup
+// shows its popup view's children. `origin` is where that content sits in root coordinates, the
+// space React Native measures in.
+struct SurfaceContent {
+  facebook::react::Tag view = -1;
+  bool popup = false;
+  facebook::react::Point origin{};
+};
+
+// The deepest view under a surface-local logical point that takes touches, honouring
 // `pointerEvents`, clipping and scroll offsets as they are drawn. -1 if none does.
-facebook::react::Tag hitTest(const ViewTree& tree, float x, float y);
+facebook::react::Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y);
 
 class PointerInput {
  public:
-  explicit PointerInput(const ViewTree& tree) : tree_(tree) {}
+  using Surfaces = std::function<std::optional<SurfaceContent>(uint32_t surface)>;
+  PointerInput(const ViewTree& tree, Surfaces surfaces) : tree_(tree), surfaces_(std::move(surfaces)) {}
 
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
   // touch; a cancel or the pointer leaving cancels it.
@@ -35,10 +47,12 @@ class PointerInput {
   void dispatch(Phase phase, float x, float y);
 
   const ViewTree& tree_;
+  Surfaces surfaces_;
+  SurfaceContent content_{};  // the surface the pointer is over
   bool down_ = false;
   facebook::react::Tag target_ = -1;
   int identifier_ = 0;
-  float x_ = 0, y_ = 0;  // last pointer position, window-local logical
+  float x_ = 0, y_ = 0;  // last pointer position, surface-local logical
   // Offsets this host gave each scroll view; the state commit that carries one may still be
   // pending when the next scroll arrives.
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;

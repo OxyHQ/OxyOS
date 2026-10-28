@@ -29,6 +29,7 @@ struct Buffer {
     surface: u32,
     fd: OwnedFd,
     extent: Size,
+    format: Format,
     busy: bool,
 }
 
@@ -85,8 +86,21 @@ impl Client {
         extent: Size,
         pixels: &[u8],
     ) -> io::Result<u64> {
+        self.present_format(surface, configure, extent, Format::Xrgb8888, pixels)
+    }
+
+    /// [`Client::present`] in a chosen format. ARGB8888 is premultiplied (little-endian B, G, R,
+    /// A): what a popup with rounded corners or a shadow needs.
+    pub fn present_format(
+        &mut self,
+        surface: u32,
+        configure: u64,
+        extent: Size,
+        format: Format,
+        pixels: &[u8],
+    ) -> io::Result<u64> {
         let layout = BufferLayout {
-            format: Format::Xrgb8888,
+            format,
             extent,
             stride: extent.width * 4,
             offset: 0,
@@ -100,21 +114,21 @@ impl Client {
                 "pixels do not match the extent",
             ));
         }
-        // Idle buffers of another size will not be used again.
+        // Idle buffers of another size or format will not be used again.
         let stale: Vec<u64> = self
             .buffers
             .iter()
-            .filter(|b| b.surface == surface && !b.busy && b.extent != extent)
+            .filter(|b| {
+                b.surface == surface && !b.busy && (b.extent != extent || b.format != format)
+            })
             .map(|b| b.id)
             .collect();
         for id in stale {
             self.destroy_buffer(id)?;
         }
-        let index = match self
-            .buffers
-            .iter()
-            .position(|b| b.surface == surface && !b.busy && b.extent == extent)
-        {
+        let index = match self.buffers.iter().position(|b| {
+            b.surface == surface && !b.busy && b.extent == extent && b.format == format
+        }) {
             Some(index) => index,
             None => {
                 self.next_buffer += 1;
@@ -134,6 +148,7 @@ impl Client {
                     surface,
                     fd,
                     extent,
+                    format,
                     busy: false,
                 });
                 self.buffers.len() - 1

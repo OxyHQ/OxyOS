@@ -41,6 +41,10 @@ typedef struct OxyClient OxyClient;
 #define OXY_OUTCOME_PRESENTED 1
 #define OXY_OUTCOME_DISCARDED 2
 
+/* Pixel formats (DRM fourcc codes). ARGB8888 is premultiplied. */
+#define OXY_FORMAT_XRGB8888 0x34325258
+#define OXY_FORMAT_ARGB8888 0x34325241
+
 /* oxy_client_poll results. */
 #define OXY_POLL_EVENT 1
 #define OXY_POLL_EMPTY 0
@@ -106,10 +110,11 @@ int oxy_client_create_popup(OxyClient* client, uint32_t surface, uint32_t parent
 int oxy_client_grab_popup(OxyClient* client, uint32_t surface, uint64_t serial);
 int oxy_client_destroy_surface(OxyClient* client, uint32_t surface);
 
-/* Presents XRGB8888 pixels (little-endian B, G, R, X; rows of width * 4 bytes) on a surface in
- * answer to the configure with serial `configure`. Returns the frame's sequence number, or -1. */
+/* Presents pixels (rows of width * 4 bytes) on a surface in answer to the configure with serial
+ * `configure`: OXY_FORMAT_XRGB8888 is opaque (little-endian B, G, R, X), OXY_FORMAT_ARGB8888 is
+ * premultiplied (B, G, R, A). Returns the frame's sequence number, or -1. */
 int64_t oxy_client_present(OxyClient* client, uint32_t surface, uint64_t configure, uint32_t width,
-                           uint32_t height, const uint8_t* pixels, size_t length);
+                           uint32_t height, uint32_t format, const uint8_t* pixels, size_t length);
 
 /* Takes one queued event without blocking. */
 int oxy_client_poll(OxyClient* client, OxyEvent* out);

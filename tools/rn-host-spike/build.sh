@@ -113,8 +113,11 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 # The same app in a window: the offscreen compositor launches the host as its own process, which
 # presents its frames through the display protocol (sealed shared-memory buffers). Then, at
 # window-local points: press the sample's Bloom Button twice, scroll the inbox by 400 px, focus the
-# Bloom TextField, type, delete a character and submit with Enter. Each step must change the window.
+# Bloom TextField, type, delete a character and submit with Enter, then open the Bloom DropdownMenu
+# (a compositor popup that must extend beyond the window) and choose its third row. Each step must
+# change the output. The menu needs Bloom 15.61.0 or later (BloomProvider's platform adapter).
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" "$REPO/target/release/oxy-offscreen" --launch \
   --out "$WORK/window" --press 686,324 --press 686,324 --scroll 170,300,400 \
-  --press 686,372 --type "Hola OxyOS!" --key 14 --key 28 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640
+  --press 686,372 --type "Hola OxyOS!" --key 14 --key 28 \
+  --press 797,452 --expect-popup --press-popup 60,110 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640

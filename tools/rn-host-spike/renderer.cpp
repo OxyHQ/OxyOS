@@ -81,12 +81,13 @@ class Painter {
     if (x < 0 || y < 0 || x >= canvas_.width || y >= canvas_.height) return;
     float a = std::clamp(color.a * coverage, 0.0f, 1.0f);
     if (a <= 0) return;
+    // Premultiplied source-over: an opaque canvas stays opaque, a transparent one gains alpha.
     uint32_t& dst = canvas_.pixels[static_cast<size_t>(y) * canvas_.width + x];
     auto channel = [&](int shift, float src) {
       float d = ((dst >> shift) & 0xff) / 255.0f;
       return static_cast<uint32_t>(std::lround((src * a + d * (1 - a)) * 255)) << shift;
     };
-    dst = 0xff000000 | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
+    dst = channel(24, 1.0f) | channel(16, color.r) | channel(8, color.g) | channel(0, color.b);
   }
 
   // Whether a point lies in a rectangle with circular corner radii (logical units).
@@ -226,6 +227,8 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   const auto& frame = view.layoutMetrics.frame;
   float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
+  // A popup's subtree is drawn in its own surface (drawPopup), never in the window.
+  if (name == kPopupComponent) return;
   ++stats.views;
   if (!kImplemented.count(name)) {
     ++stats.unimplemented;
@@ -336,6 +339,46 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, T
   RenderStats stats;
   drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, caret);
   return stats;
+}
+
+RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, Canvas& canvas, Tag caret) {
+  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
+  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
+  Painter painter(canvas, display.scale);
+  RenderStats stats;
+  auto it = tree.views().find(popup);
+  if (it == tree.views().end()) return stats;
+  for (Tag child : it->second.children) {
+    drawView(tree, child, 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, caret);
+  }
+  return stats;
+}
+
+namespace {
+
+std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offset) {
+  auto it = tree.views().find(at);
+  if (it == tree.views().end()) return std::nullopt;
+  const auto& view = it->second.view;
+  Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
+  if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
+  Point children = position;
+  if (std::string(view.componentName ? view.componentName : "") == "ScrollView" && view.state) {
+    const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
+    children.x -= state.contentOffset.x;
+    children.y -= state.contentOffset.y;
+  }
+  for (Tag child : it->second.children) {
+    if (auto found = frameUnder(tree, tag, child, children)) return found;
+  }
+  return std::nullopt;
+}
+
+}  // namespace
+
+std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
+  return tree.root() < 0 ? std::nullopt : frameUnder(tree, tag, tree.root(), {0, 0});
 }
 
 bool writePng(const Canvas& canvas, const std::string& path) {

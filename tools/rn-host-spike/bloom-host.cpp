@@ -4,6 +4,7 @@
 #include "android-components.h"
 #include "host-modules.h"
 #include "input.h"
+#include "popup.h"
 #include "renderer.h"
 #include "text.h"
 #include "textinput.h"
@@ -328,6 +329,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxy::TextInputComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyPopupViewComponentDescriptor>());
   oxy::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
@@ -392,8 +394,14 @@ int main(int argc, char** argv) {
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
     int status = 0;
-    oxy::PointerInput pointer(tree);
+    oxy::PopupHost popups(tree, *window);
+    oxy::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxy::SurfaceContent> {
+      if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.view = tree.root()};
+      return popups.content(surface);
+    });
     oxy::TextEditing editing(tree);
+    // The latest press or key press: the input a popup opened by it cites for its grab.
+    uint64_t lastPress = 0;
     facebook::react::Tag caret = -1;
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
@@ -407,6 +415,11 @@ int main(int argc, char** argv) {
         worklets.tick();
         busy |= reanimated.tick();
         if (!window->dispatch([&](const OxyEvent& event) {
+              if ((event.kind == OXY_EVENT_POINTER && event.detail == OXY_POINTER_PRESS) ||
+                  (event.kind == OXY_EVENT_KEY && event.flag)) {
+                lastPress = event.serial;
+              }
+              if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
               pointer.handle(event);
               editing.handle(event);
             })) {
@@ -416,6 +429,7 @@ int main(int argc, char** argv) {
         if (editing.focused() != caret) {
           caret = editing.focused();
           dirty = true;
+          popups.changed();
         }
         if (window->resized()) {
           display = oxy::Display{window->width(), window->height(), window->scale()};
@@ -425,14 +439,17 @@ int main(int argc, char** argv) {
         if (mounter.takeChanged()) {
           dirty = true;
           busy = true;
+          popups.changed();
         }
-        if (dirty && window->ready()) {
+        popups.sync(lastPress);
+        if (dirty && window->ready(oxy::Window::kToplevel)) {
           oxy::Canvas canvas;
           oxy::draw(tree, display, canvas, caret);
-          window->present(canvas);
+          window->present(oxy::Window::kToplevel, canvas);
           dirty = false;
           busy = true;
         }
+        popups.present(caret);
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

@@ -153,3 +153,34 @@ fn a_compositor_that_closes_with_requests_unread_is_a_closed_connection() {
     assert_eq!(client.poll().unwrap(), Poll::Closed);
     assert_eq!(client.next_event().unwrap(), None);
 }
+
+#[test]
+fn a_frame_in_another_format_takes_a_buffer_of_that_format() {
+    let (mut client, server) = connected();
+    let extent = Size::new(2, 2);
+    client.present(1, 1, extent, &pixels(extent, 1)).unwrap();
+    let (opaque, _, _) = submitted(&server);
+    server
+        .send_event(&Event::Released {
+            surface: 1,
+            buffer: opaque,
+        })
+        .unwrap();
+    client.poll().unwrap();
+    client
+        .present_format(1, 1, extent, Format::Argb8888, &pixels(extent, 2))
+        .unwrap();
+    assert_eq!(
+        server.recv_request().unwrap().0,
+        Request::DestroyBuffer { buffer: opaque }
+    );
+    let (attach, fd) = server.recv_request().unwrap();
+    assert!(fd.is_some());
+    assert!(matches!(
+        attach,
+        Request::AttachBuffer {
+            format: Format::Argb8888,
+            ..
+        }
+    ));
+}

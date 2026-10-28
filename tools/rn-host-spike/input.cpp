@@ -22,25 +22,6 @@ namespace {
 // Linux input code of the primary (left) button.
 constexpr uint32_t kPrimaryButton = 272;
 
-// Window-local origin of every view, as the renderer places it.
-std::optional<Point> origin(const ViewTree& tree, Tag tag, Tag at, Point offset) {
-  auto it = tree.views().find(at);
-  if (it == tree.views().end()) return std::nullopt;
-  const auto& view = it->second.view;
-  Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
-  if (at == tag) return position;
-  Point children = position;
-  if (std::string(view.componentName ? view.componentName : "") == "ScrollView" && view.state) {
-    const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
-    children.x -= state.contentOffset.x;
-    children.y -= state.contentOffset.y;
-  }
-  for (Tag child : it->second.children) {
-    if (auto found = origin(tree, tag, child, children)) return found;
-  }
-  return std::nullopt;
-}
-
 Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return -1;
@@ -52,6 +33,8 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;
   if (mode == PointerEventsMode::None) return -1;
   std::string name = view.componentName ? view.componentName : "";
+  // A popup's subtree is in its own surface, not under the window's pointer.
+  if (name == kPopupComponent) return -1;
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {
@@ -88,21 +71,37 @@ std::vector<Tag> ancestry(const ViewTree& tree, Tag at, Tag tag) {
 
 }  // namespace
 
-Tag hitTest(const ViewTree& tree, float x, float y) {
-  return tree.root() < 0 ? -1 : hit(tree, tree.root(), x, y);
+Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y) {
+  if (!content.popup) return content.view < 0 ? -1 : hit(tree, content.view, x, y);
+  // A popup's children are laid out relative to the popup, which is its surface's origin.
+  auto it = tree.views().find(content.view);
+  if (it == tree.views().end()) return -1;
+  const auto& children = it->second.children;
+  for (auto child = children.rbegin(); child != children.rend(); ++child) {
+    Tag found = hit(tree, *child, x, y);
+    if (found >= 0) return found;
+  }
+  return -1;
 }
 
 void PointerInput::handle(const OxyEvent& event) {
   // Protocol positions and distances are in 1/256 logical pixels.
-  if (event.kind == OXY_EVENT_SCROLL) return scroll(event.x / 256.0f, event.y / 256.0f);
-  if (event.kind != OXY_EVENT_POINTER) return;
+  if (event.kind != OXY_EVENT_SCROLL && event.kind != OXY_EVENT_POINTER) return;
+  auto content = surfaces_(event.surface);
+  if (!content) return;
+  if (event.kind == OXY_EVENT_SCROLL) {
+    content_ = *content;
+    return scroll(event.x / 256.0f, event.y / 256.0f);
+  }
   float x = event.x / 256.0f, y = event.y / 256.0f;
+  // A touch stays with the surface it started on.
+  if (!down_) content_ = *content;
   x_ = x;
   y_ = y;
   switch (event.detail) {
     case OXY_POINTER_PRESS:
       if (event.code == kPrimaryButton && !down_) {
-        target_ = hitTest(tree_, x, y);
+        target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
         down_ = true;
         ++identifier_;
@@ -131,7 +130,7 @@ void PointerInput::handle(const OxyEvent& event) {
 }
 
 void PointerInput::scroll(float dx, float dy) {
-  Tag target = hitTest(tree_, x_, y_);
+  Tag target = hitTest(tree_, content_, x_, y_);
   if (target < 0) return;
   auto path = ancestry(tree_, tree_.root(), target);
   // The innermost scroll view that can still move in the scroll's direction takes it, as nested
@@ -173,11 +172,14 @@ void PointerInput::dispatch(Phase phase, float x, float y) {
   if (it == tree_.views().end()) return;
   auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
   if (!emitter) return;
-  Point targetOrigin = origin(tree_, target_, tree_.root(), {0, 0}).value_or(Point{0, 0});
+  // Touches are reported in root coordinates, where React Native measures views; a popup's
+  // content sits at its popup view's place in the tree.
+  Point page{content_.origin.x + x, content_.origin.y + y};
+  Point targetOrigin = windowFrame(tree_, target_).value_or(Rect{}).origin;
   Touch touch{};
-  touch.pagePoint = {x, y};
-  touch.screenPoint = {x, y};
-  touch.offsetPoint = {x - targetOrigin.x, y - targetOrigin.y};
+  touch.pagePoint = page;
+  touch.screenPoint = page;
+  touch.offsetPoint = {page.x - targetOrigin.x, page.y - targetOrigin.y};
   touch.identifier = identifier_;
   touch.target = target_;
   touch.force = phase == Phase::End || phase == Phase::Cancel ? 0 : 1;

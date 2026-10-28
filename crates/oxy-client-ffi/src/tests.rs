@@ -13,11 +13,15 @@ fn define(name: &str) -> i64 {
         .lines()
         .find(|line| line.split_whitespace().nth(1) == Some(name))
         .unwrap_or_else(|| panic!("{name} is not defined in oxy_client.h"));
-    let value = line.split_whitespace().nth(2).unwrap();
-    value
-        .trim_matches(|c| c == '(' || c == ')')
-        .parse()
+    let value = line
+        .split_whitespace()
+        .nth(2)
         .unwrap()
+        .trim_matches(|c| c == '(' || c == ')');
+    match value.strip_prefix("0x") {
+        Some(hex) => i64::from_str_radix(hex, 16).unwrap(),
+        None => value.parse().unwrap(),
+    }
 }
 
 /// A C struct field: its name, element size and element count (1 unless an array).
@@ -98,6 +102,8 @@ fn the_header_matches_the_abi() {
             "OXY_OUTCOME_DISCARDED",
             oxy_protocol::Outcome::Discarded as i64,
         ),
+        ("OXY_FORMAT_XRGB8888", OXY_FORMAT_XRGB8888.into()),
+        ("OXY_FORMAT_ARGB8888", OXY_FORMAT_ARGB8888.into()),
         ("OXY_POLL_EVENT", OXY_POLL_EVENT.into()),
         ("OXY_POLL_EMPTY", OXY_POLL_EMPTY.into()),
         ("OXY_POLL_CLOSED", OXY_POLL_CLOSED.into()),
@@ -318,7 +324,16 @@ fn a_session_through_the_c_abi() {
         );
         let pixels = [1u8, 2, 3, 0, 4, 5, 6, 0];
         let present = |width, height| {
-            oxy_client_present(client, 1, 5, width, height, pixels.as_ptr(), pixels.len())
+            oxy_client_present(
+                client,
+                1,
+                5,
+                width,
+                height,
+                OXY_FORMAT_XRGB8888,
+                pixels.as_ptr(),
+                pixels.len(),
+            )
         };
         assert_eq!(present(2, 1), 1);
         // A frame whose pixels do not match its size is refused, with a reason.

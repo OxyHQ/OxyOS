@@ -102,7 +102,13 @@ Shared-memory buffers must be regular files sealed against shrinking (`memfd` wi
 
 `oxy-offscreen` runs the protocol, transport and scene with real processes and memory: a `poll` loop that never blocks on a client, bounded per-client outboxes (1,024 unread events disconnect the client), CPU composition of the in-flight frame (`Scene::frame_list`) and recomposition when the scene changes. A scripted director injects synthetic input: one client opens a context menu larger than its window; the fixture samples composed pixels beyond all four window edges over the other client, presses a menu row outside the window, presses outside the menu, and checks that the other client received no press, that no menu pixels remain, and that scene resources and the process's open descriptors return to their starting counts. It writes four PNG snapshots.
 
-`oxy-offscreen --launch [--press X,Y | --scroll X,Y,DY | --type TEXT | --key CODE]... -- COMMAND` launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the window's frames stay unchanged for 750 ms. It then runs each step in order: a left-button press at a window-local point, a scroll with the pointer at a point, committed text, or a key press and release. A step passes only when the application answers with a new frame that changes the window's pixels. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
+`oxy-offscreen --launch [--press X,Y | --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --key CODE | --expect-popup]... -- COMMAND` launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the application's surfaces stay unchanged for 750 ms, then runs each step in order:
+- a left-button press at a window-local point, or at a point of the application's popup;
+- a scroll with the pointer at a point;
+- committed text;
+- a key press and release.
+
+An input step passes only when the application answers with changed pixels anywhere on the output (its window or a popup). `--expect-popup` asserts that a popup of the application is shown, and reports how far it extends beyond the window on each edge; it fails if the popup stays inside. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
 
 ```json
 {"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}

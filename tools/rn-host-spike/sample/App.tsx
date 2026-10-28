@@ -7,6 +7,15 @@ import { PageHeader } from '@oxy.so/bloom/page-header';
 import { Card, CardDescription, CardHeader, CardTitle } from '@oxy.so/bloom/card';
 import { Button } from '@oxy.so/bloom/button';
 import { TextField, TextFieldInput } from '@oxy.so/bloom/text-field';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@oxy.so/bloom/dropdown-menu';
+import { oxyosSurfaces } from './oxyos/platform-surface';
+
+const ACTIONS = ['Reply', 'Forward', 'Archive', 'Move to folder', 'Mark as unread', 'Delete'];
 import { H3, Muted, P } from '@oxy.so/bloom/typography';
 
 const MESSAGES = [
@@ -42,6 +51,7 @@ function Inbox() {
 function Detail() {
   const [presses, setPresses] = React.useState(0);
   const [reply, setReply] = React.useState('');
+  const [choice, setChoice] = React.useState<string | null>(null);
   return (
     <Screen header={<PageHeader title="Native Bloom on OxyOS" />}>
       <ScreenScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
@@ -58,6 +68,20 @@ function Detail() {
           <TextFieldInput placeholder="Write a reply" value={reply} onChangeText={setReply} />
         </TextField>
         <Muted>{reply ? `Reply: ${reply}` : 'No reply yet'}</Muted>
+        {/* Opens to the right of its trigger, past the window's edge: a compositor popup. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild style={{ alignSelf: 'flex-end' }}>
+            <Button appearance="outline">Open menu</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="start" label="Message actions">
+            {ACTIONS.map((action) => (
+              <DropdownMenuItem key={action} onPress={() => setChoice(action)}>
+                {action}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Muted>{choice ? `Chosen: ${choice}` : 'Nothing chosen'}</Muted>
       </ScreenScrollView>
     </Screen>
   );
@@ -65,7 +89,7 @@ function Detail() {
 
 export default function App() {
   return (
-    <BloomProvider>
+    <BloomProvider platform={oxyosSurfaces}>
       <BloomScope size="md">
         <AppShell
           panelLayout={{
