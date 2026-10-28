@@ -85,4 +85,5 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
     babelTransformerPath: bloomRequire.resolve('@react-native/metro-babel-transformer'),
   },
   projectRoot: __dirname,
-}), { disableTypeScriptGeneration: true });
+  // As @oxy.so/app-preset configures it: 1rem = 16px, variables resolved at runtime.
+}), { disableTypeScriptGeneration: true, inlineRem: 16, inlineVariables: false });

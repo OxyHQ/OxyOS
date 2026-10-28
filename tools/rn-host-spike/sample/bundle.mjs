@@ -14,6 +14,13 @@ const { getAndroidResourceFolderName, getAndroidResourceIdentifier } = require(
 );
 const [entry = 'index.js', outDir = 'build'] = process.argv.slice(2);
 
+// The app's stylesheet imports `@oxy.so/bloom` and scans its source as an app's does from its
+// node_modules (global.css): link the Bloom checkout there.
+const linked = path.resolve('node_modules/@oxy.so/bloom');
+fs.mkdirSync(path.dirname(linked), { recursive: true });
+fs.rmSync(linked, { force: true });
+fs.symlinkSync(bloom, linked);
+
 // Transform output depends on config (asset registry, platform resolution): never reuse a cache.
 const config = await Metro.loadConfig({ config: path.resolve('metro.config.js'), resetCache: true });
 const out = path.resolve(outDir, 'index.js');

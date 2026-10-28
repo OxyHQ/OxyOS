@@ -1,0 +1,11 @@
+/* The app's stylesheet, as an Oxy app's global.css (@oxy.so/app-preset/css/base.css): Tailwind
+   and Bloom's theme. Bloom maps its `className`s to styles through react-native-css, so without
+   it every class-styled part of Bloom (menu rows, layout utilities) silently loses its style.
+   `node_modules/@oxy.so/bloom` is the Bloom checkout (bundle.mjs links it). */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+@import "@oxy.so/bloom/design-tokens/theme.css";
+
+@source "./*.tsx";
+@source "./node_modules/@oxy.so/bloom/src/**/*.{ts,tsx}";

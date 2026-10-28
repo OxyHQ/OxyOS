@@ -4,7 +4,7 @@
   "steps": [
     {
       "name": "press the Bloom Button",
-      "do": ["press", [686, 324]],
+      "do": ["press", [686, 359]],
       "expect": {
         "texts": ["Pressed 1 time"],
         "absent": ["Press me"],
@@ -15,7 +15,7 @@
     },
     {
       "name": "press it again",
-      "do": ["press", [686, 324]],
+      "do": ["press", [686, 359]],
       "expect": {
         "texts": ["Pressed 2 times"],
         "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
@@ -36,7 +36,7 @@
     },
     {
       "name": "focus the reply field",
-      "do": ["press", [686, 372]],
+      "do": ["press", [686, 407]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
@@ -74,7 +74,7 @@
     },
     {
       "name": "open the menu",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 2,
@@ -100,7 +100,7 @@
     },
     {
       "name": "focus the reply field again",
-      "do": ["press", [686, 372]],
+      "do": ["press", [686, 407]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
@@ -108,7 +108,7 @@
     },
     {
       "name": "reopen the menu, the field keeping its focus",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 3,
@@ -140,7 +140,7 @@
     },
     {
       "name": "open the menu from the keyboard's side",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 4,
@@ -189,7 +189,7 @@
     },
     {
       "name": "reopen",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 5
@@ -208,7 +208,7 @@
     },
     {
       "name": "reopen again",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 6
@@ -233,7 +233,7 @@
     },
     {
       "name": "a press at the start of the focused reply moves the caret there",
-      "do": ["press", [532, 372]],
+      "do": ["press", [533, 407]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "selectionChange@reply": 1}
@@ -307,7 +307,7 @@
     },
     {
       "name": "a drag from the start across the text selects it",
-      "do": ["drag", [532, 372, 840, 372]],
+      "do": ["drag", [533, 407, 840, 407]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchMove@reply": 2, "touchEnd@reply": 1, "selectionChange@reply": 2}
@@ -324,7 +324,7 @@
     },
     {
       "name": "open the menu again",
-      "do": ["press", [797, 452]],
+      "do": ["press", [797, 487]],
       "expect": {
         "popups": 1,
         "focus_surface": 7,
@@ -342,7 +342,7 @@
         "texts": ["Copy link", "Print"],
         "popup_events": {"reposition@message-actions": 1},
         "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
-        "popup_size": [266, 428]
+        "popup_size": [266, 430]
       }
     },
     {
