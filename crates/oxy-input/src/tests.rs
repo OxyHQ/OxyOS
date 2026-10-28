@@ -38,6 +38,7 @@ fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
             );
             text
         }
+        Typed::SwitchTerminal(number) => panic!("a terminal switch to {number}, not text"),
         Typed::Nothing => panic!("a press is always someone's"),
     }
 }
@@ -181,4 +182,22 @@ fn a_composition_shows_its_sequence_and_its_keys_are_no_applications() {
     // Plain keys are the application's again, press and release.
     assert_eq!(es.key(O, true), Typed::Key(Some("o".to_string())));
     assert_eq!(es.key(O, false), Typed::Key(None));
+}
+
+#[test]
+fn ctrl_alt_and_a_function_key_switch_terminals_and_are_no_applications_key() {
+    const CTRL: u32 = 29;
+    const ALT: u32 = 56;
+    const F2: u32 = 60;
+    let mut us = composing("us");
+    // The modifiers stay the application's keys; the function key is the switch.
+    assert_eq!(us.key(CTRL, true), Typed::Key(None));
+    assert_eq!(us.key(ALT, true), Typed::Key(None));
+    assert_eq!(us.key(F2, true), Typed::SwitchTerminal(2));
+    assert_eq!(us.key(F2, false), Typed::Nothing);
+    assert_eq!(us.key(ALT, false), Typed::Key(None));
+    assert_eq!(us.key(CTRL, false), Typed::Key(None));
+    // Alone, the function key is a key.
+    assert_eq!(us.key(F2, true), Typed::Key(None));
+    assert_eq!(us.key(F2, false), Typed::Key(None));
 }

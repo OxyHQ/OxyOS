@@ -43,6 +43,9 @@ pub enum Action {
         composition: String,
         text: Option<String>,
     },
+    /// The keymap's terminal switch (Ctrl+Alt+Fn on the default keymaps), which no application
+    /// sees as a key: the compositor asks for terminal `n`.
+    SwitchTerminal(u16),
 }
 
 /// What a key does.
@@ -55,7 +58,9 @@ pub enum Typed {
         composition: String,
         text: Option<String>,
     },
-    /// The release of a key the compose table took: nothing for anyone.
+    /// A press of the keymap's terminal switch (see [`Action::SwitchTerminal`]).
+    SwitchTerminal(u16),
+    /// The release of a key the compose table or a terminal switch took: nothing for anyone.
     Nothing,
 }
 
@@ -81,7 +86,8 @@ pub struct Keyboard {
     compose: Option<compose::State>,
     /// The sequence so far, as it is shown.
     composition: String,
-    /// Keys whose press the compose table took, so their release is no application's either.
+    /// Keys whose press the compose table or a terminal switch took, so their release is no
+    /// application's either.
     taken: Vec<u32>,
 }
 
@@ -189,35 +195,43 @@ impl Keyboard {
             }
         } else {
             let keysym = self.state.key_get_one_sym(keycode);
-            match self
-                .compose
-                .as_mut()
-                .map(|compose| (compose.feed(keysym), compose))
-            {
-                Some((compose::FeedResult::Accepted, compose))
-                    if compose.status() != compose::Status::Nothing =>
+            let switch = xkb::keysym_get_name(keysym)
+                .strip_prefix("XF86Switch_VT_")
+                .and_then(|number| number.parse().ok());
+            if let Some(number) = switch {
+                self.taken.push(code);
+                Typed::SwitchTerminal(number)
+            } else {
+                match self
+                    .compose
+                    .as_mut()
+                    .map(|compose| (compose.feed(keysym), compose))
                 {
-                    self.taken.push(code);
-                    let text = match compose.status() {
-                        compose::Status::Composing => {
-                            self.composition.push_str(&shown(keysym));
-                            None
+                    Some((compose::FeedResult::Accepted, compose))
+                        if compose.status() != compose::Status::Nothing =>
+                    {
+                        self.taken.push(code);
+                        let text = match compose.status() {
+                            compose::Status::Composing => {
+                                self.composition.push_str(&shown(keysym));
+                                None
+                            }
+                            status => {
+                                self.composition.clear();
+                                let text = (status == compose::Status::Composed)
+                                    .then(|| compose.utf8())
+                                    .flatten();
+                                compose.reset();
+                                text
+                            }
+                        };
+                        Typed::Compose {
+                            composition: self.composition.clone(),
+                            text: text.filter(|text| typable(text)),
                         }
-                        status => {
-                            self.composition.clear();
-                            let text = (status == compose::Status::Composed)
-                                .then(|| compose.utf8())
-                                .flatten();
-                            compose.reset();
-                            text
-                        }
-                    };
-                    Typed::Compose {
-                        composition: self.composition.clone(),
-                        text: text.filter(|text| typable(text)),
                     }
+                    _ => Typed::Key(Some(self.state.key_get_utf8(keycode)).filter(|t| typable(t))),
                 }
-                _ => Typed::Key(Some(self.state.key_get_utf8(keycode)).filter(|t| typable(t))),
             }
         };
         self.state.update_key(
@@ -311,6 +325,19 @@ impl Input {
         self.keyboard.composes()
     }
 
+    /// Closes the devices while another session has the seat (a terminal switch). libinput
+    /// releases the keys and buttons still down, which the next dispatch reports.
+    pub fn suspend(&mut self) {
+        self.libinput.suspend();
+    }
+
+    /// Opens the devices again after [`suspend`](Self::suspend).
+    pub fn resume(&mut self) -> io::Result<()> {
+        self.libinput
+            .resume()
+            .map_err(|()| io::Error::other("libinput cannot resume"))
+    }
+
     /// What has happened since the last call; never blocks.
     pub fn dispatch(&mut self) -> io::Result<Vec<Action>> {
         self.libinput.dispatch()?;
@@ -353,6 +380,9 @@ impl Input {
                         }),
                         Typed::Compose { composition, text } => {
                             actions.push(Action::Compose { composition, text })
+                        }
+                        Typed::SwitchTerminal(number) => {
+                            actions.push(Action::SwitchTerminal(number))
                         }
                         Typed::Nothing => {}
                     }

@@ -124,6 +124,20 @@ impl Display {
         )
     }
 
+    /// Lets go of the output for another session (a terminal switch): drops DRM master. Wait for
+    /// the last flip first. The next frame presented after [`resume`](Self::resume) modesets
+    /// again, since the other session may have changed the output.
+    pub fn suspend(&mut self) -> io::Result<()> {
+        self.card.release_master_lock()?;
+        self.configured = false;
+        Ok(())
+    }
+
+    /// Takes DRM master again after [`suspend`](Self::suspend).
+    pub fn resume(&mut self) -> io::Result<()> {
+        self.card.acquire_master_lock()
+    }
+
     /// Writes `pixels` (0x00RRGGBB, row by row at the display's size) into the back buffer.
     pub fn draw(&mut self, pixels: &[u32]) -> io::Result<()> {
         let (width, height) = self.size();
@@ -194,6 +208,27 @@ impl Display {
                 ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
             ] {
                 request.add_property(self.plane, property_handle(card, self.plane, name)?, value);
+            }
+            // Planes another session left on the CRTC (a cursor, an overlay) are turned off.
+            for plane in card.plane_handles()? {
+                if plane == self.plane {
+                    continue;
+                }
+                let on_crtc = card
+                    .get_plane(plane)
+                    .is_ok_and(|info| info.crtc() == Some(self.crtc));
+                if on_crtc {
+                    request.add_property(
+                        plane,
+                        property_handle(card, plane, "CRTC_ID")?,
+                        property::Value::CRTC(None),
+                    );
+                    request.add_property(
+                        plane,
+                        property_handle(card, plane, "FB_ID")?,
+                        property::Value::Framebuffer(None),
+                    );
+                }
             }
             self.mode_blob = Some(blob);
             flags |= AtomicCommitFlags::ALLOW_MODESET;

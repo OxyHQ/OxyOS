@@ -45,7 +45,7 @@ import tempfile
 
 # The fields of a director record that repeat the step's own instruction (oxy-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "drag", "key", "move_window",
-             "resize_window", "scale", "a11y_action", "expect_popup"}
+             "resize_window", "scale", "a11y_action", "expect_popup", "switch_terminal"}
 
 
 def director_args(step):
@@ -70,6 +70,8 @@ def director_args(step):
         return args + ["--a11y-action", f"{value[0]},{value[1]}"]
     if kind == "scale":
         return args + ["--scale", str(value)]
+    if kind == "switch-terminal":
+        return args + ["--switch-terminal", str(value)]
     if kind == "expect-popup":
         return ["--expect-popup"]
     raise ValueError(f"unknown step {kind}")

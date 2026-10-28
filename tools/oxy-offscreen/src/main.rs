@@ -80,6 +80,11 @@ struct Compositor {
     /// For every frame shown: when it was handed to the display and when it flipped
     /// (CLOCK_MONOTONIC).
     flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// With `--kms`: the terminal the display is on (graphics mode, switches by request and,
+    /// with `--input`, its keyboard off). Dropped after the display and the devices.
+    terminal: Option<oxy_vt::Terminal>,
+    /// Another terminal has the display and the devices: frames complete without being shown.
+    away: bool,
 }
 
 struct Gpu {
@@ -342,6 +347,49 @@ impl Compositor {
         self.retire();
     }
 
+    /// With `--kms`: lets go of the display and the devices when the kernel switches to another
+    /// terminal, and takes them back when it returns; the frame is then shown again.
+    fn follow_terminal(&mut self) -> Result<()> {
+        let Some(terminal) = self.terminal.as_mut() else {
+            return Ok(());
+        };
+        for switch in terminal.switches()? {
+            match switch {
+                oxy_vt::Switch::Release if !self.away => {
+                    if let Some(display) = &mut self.display {
+                        display.suspend()?;
+                    }
+                    if let Some(input) = &mut self.input {
+                        input.suspend();
+                    }
+                    // libinput released what was still down: applications hear it now.
+                    self.read_input();
+                    self.away = true;
+                    if let Some(terminal) = &self.terminal {
+                        terminal.release()?;
+                    }
+                }
+                oxy_vt::Switch::Acquire if self.away => {
+                    if let Some(terminal) = &self.terminal {
+                        terminal.acquired()?;
+                    }
+                    if let Some(display) = &mut self.display {
+                        display.resume()?;
+                    }
+                    if let Some(input) = &mut self.input {
+                        input.resume()?;
+                    }
+                    self.away = false;
+                    // Composed again, and shown with a modeset.
+                    self.composed.clear();
+                }
+                // A release while away, or an acquire while here: nothing to give or take.
+                oxy_vt::Switch::Release | oxy_vt::Switch::Acquire => {}
+            }
+        }
+        Ok(())
+    }
+
     /// With `--input`: what the seat's devices did since the last turn, applied to the scene.
     /// Positions arrive in the display's pixels; the output is centred on the display.
     fn read_input(&mut self) {
@@ -383,6 +431,15 @@ impl Compositor {
                         self.scene.text(&text);
                     }
                 }
+                oxy_input::Action::SwitchTerminal(number) => {
+                    if let Some(terminal) = &self.terminal {
+                        if number != terminal.number() {
+                            if let Err(error) = terminal.activate(number) {
+                                eprintln!("[vt] switching to {number}: {error}");
+                            }
+                        }
+                    }
+                }
                 // What a sequence composes replaces its composition when committed.
                 oxy_input::Action::Compose { composition, text } => match text {
                     Some(text) => self.scene.text(&text),
@@ -399,6 +456,9 @@ impl Compositor {
     /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
     /// error ends display output.
     fn show(&mut self, layers: &[oxy_gpu::Layer<'_>]) -> Option<std::time::Duration> {
+        if self.away {
+            return None;
+        }
         let display = self.display.as_mut()?;
         let (width, height) = display.size();
         if let (Some(gpu), false) = (&mut self.gpu, self.scanout.is_empty()) {
@@ -490,6 +550,7 @@ impl Compositor {
     /// One turn of the compositor: accepts connections, handles every readable client, composes
     /// a frame and sends events. Waits at most 5 ms for input.
     fn serve(&mut self, listener: &Listener) -> Result<()> {
+        self.follow_terminal()?;
         self.read_input();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener and every client; never block on any one of them.
@@ -685,6 +746,8 @@ impl Session {
             scanout: Vec::new(),
             scanout_back: 0,
             flips: Vec::new(),
+            terminal: None,
+            away: false,
         };
         Ok(Self {
             compositor,

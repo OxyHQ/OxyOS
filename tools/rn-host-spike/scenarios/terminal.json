@@ -1,0 +1,38 @@
+{
+  "about": "The compositor's terminal (oxy-vt), on a real display through the devices only (regress.py --kms CARD --uinput): Ctrl+Alt+F5 leaves for terminal 5 with the display and the devices, Ctrl+Alt with the compositor's own terminal's key comes back from there, and the application hears only the modifiers. Pointer and keyboard work again after the return. Terminal 5 must be free (a console).",
+  "window": [1024, 640],
+  "layout": "us",
+  "steps": [
+    {
+      "name": "press the Bloom Button",
+      "do": ["press", [686, 359]],
+      "expect": {"texts": ["Pressed 1 time"], "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1}, "focus_surface": 1}
+    },
+    {
+      "name": "away to terminal 5 and back: the application hears Ctrl and Alt, never the function keys or the return chord",
+      "do": ["switch-terminal", 5],
+      "expect": {"focus_surface": 1, "popups": 0, "react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}}
+    },
+    {
+      "name": "the pointer works after the return",
+      "do": ["press", [686, 359]],
+      "expect": {"texts": ["Pressed 2 times"], "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1}, "delivered": {"1": {"press": 1, "release": 1}}}
+    },
+    {
+      "name": "focus the reply field",
+      "do": ["press", [686, 407]],
+      "expect": {"focus_input": "reply"}
+    },
+    {
+      "name": "the keyboard works after the return, and Enter submits",
+      "do": ["type", "back"],
+      "expect": {"texts": ["Reply: back"], "focus_input": "reply"},
+      "expect_devices": {"delivered": {"1": {"key.press": 4, "key.release": 4, "text": 4}}}
+    },
+    {
+      "name": "Enter completes a line, which the console would count if it had the keyboard",
+      "do": ["key", 28],
+      "expect": {"focus_input": null, "texts": ["Reply: back"]}
+    }
+  ]
+}
