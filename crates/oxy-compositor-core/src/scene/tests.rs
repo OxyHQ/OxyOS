@@ -17,6 +17,9 @@ struct Harness {
     log: Vec<(ClientId, Event)>,
     next_buffer: u64,
     next_sequence: HashMap<SurfaceKey, u64>,
+    /// Released buffers each client may reuse, with their extent.
+    free: HashMap<ClientId, Vec<(u64, Size)>>,
+    extents: HashMap<(ClientId, u64), Size>,
 }
 
 fn key(client: ClientId, id: u32) -> SurfaceKey {
@@ -61,6 +64,8 @@ impl Harness {
             log: Vec::new(),
             next_buffer: 1,
             next_sequence: HashMap::new(),
+            free: HashMap::new(),
+            extents: HashMap::new(),
         };
         harness.scene.set_shortcuts([SUPER]);
         harness
@@ -80,6 +85,14 @@ impl Harness {
                 self.configures
                     .insert(key(*client, *surface), (*serial, *rect, *scale_120));
             }
+            if let Event::Released { buffer, .. } = event {
+                if let Some(extent) = self.extents.get(&(*client, *buffer)) {
+                    self.free
+                        .entry(*client)
+                        .or_default()
+                        .push((*buffer, *extent));
+                }
+            }
         }
         self.log.extend(events.iter().copied());
         events
@@ -91,19 +104,55 @@ impl Harness {
         result
     }
 
+    /// Registers a new buffer as if the transport had validated its memory object.
+    fn attach(&mut self, client: ClientId, buffer: u64, extent: Size) {
+        self.request(
+            client,
+            Request::AttachBuffer {
+                buffer,
+                format: oxy_protocol::Format::Xrgb8888,
+                extent,
+                stride: extent.width * 4,
+                offset: 0,
+            },
+        )
+        .unwrap();
+        self.extents.insert((client, buffer), extent);
+    }
+
+    /// A buffer of `extent`: a released one when available, otherwise a new one.
+    fn buffer(&mut self, client: ClientId, extent: Size) -> u64 {
+        let free = self.free.entry(client).or_default();
+        if let Some(index) = free.iter().position(|(_, e)| *e == extent) {
+            return free.swap_remove(index).0;
+        }
+        let buffer = self.next_buffer;
+        self.next_buffer += 1;
+        self.attach(client, buffer, extent);
+        buffer
+    }
+
+    /// Destroys every released buffer, as a client does when it shrinks its pool.
+    fn destroy_free(&mut self, client: ClientId) {
+        for (buffer, _) in self.free.remove(&client).unwrap_or_default() {
+            self.request(client, Request::DestroyBuffer { buffer })
+                .unwrap();
+        }
+    }
+
     fn submit(&mut self, surface: SurfaceKey) -> u64 {
         self.pump();
         let (serial, rect, scale) = self.configures[&surface];
+        let extent = physical(Size::new(rect.width, rect.height), scale);
+        let buffer = self.buffer(surface.client, extent);
         let sequence = self.next_sequence.entry(surface).or_insert(0);
         *sequence += 1;
-        let buffer = self.next_buffer;
-        self.next_buffer += 1;
         let request = Request::Submit {
             surface: surface.id,
             sequence: *sequence,
             buffer,
             configure: serial,
-            extent: physical(Size::new(rect.width, rect.height), scale),
+            extent,
         };
         self.request(surface.client, request).unwrap();
         buffer
@@ -873,6 +922,8 @@ fn repeated_lifecycles_settle_resource_counts() {
         h.pump();
         h.log.clear();
     }
+    h.destroy_free(APP);
+    h.scene.drain_retired();
     let after = h.scene.stats();
     assert_eq!(after, baseline);
     assert_eq!(after.surfaces, 1);
@@ -890,7 +941,7 @@ fn repeated_lifecycles_settle_resource_counts() {
         h.pump();
     }
     let retired = h.scene.drain_retired();
-    assert!(retired.iter().all(|(k, _)| k.client >= 100));
+    assert!(retired.iter().all(|(client, _)| *client >= 100));
     assert_eq!(
         retired.len(),
         200 * 3,
@@ -1112,6 +1163,7 @@ fn stale_configures_are_discarded_and_last_content_is_kept_during_resize() {
         },
     )
     .unwrap();
+    h.attach(APP, 900, Size::new(400, 300));
     h.clear_log();
     // The client was mid-frame for the old size.
     h.request(
@@ -1154,6 +1206,8 @@ fn stale_configures_are_discarded_and_last_content_is_kept_during_resize() {
     )));
     // A current-serial submission with the wrong extent or a reused sequence is a violation.
     let (serial, _, _) = h.configures[&window];
+    h.attach(APP, 901, Size::new(10, 10));
+    h.attach(APP, 902, Size::new(1920, 1080));
     assert_eq!(
         h.request(
             APP,
@@ -1310,6 +1364,7 @@ fn output_scale_change_reconfigures_and_output_removal_dismisses_popups() {
         "logical geometry is unchanged; old content stays"
     );
     // The new buffer is twice as dense.
+    h.attach(APP, 500, Size::new(800, 600));
     h.request(
         APP,
         Request::Submit {
@@ -1671,6 +1726,9 @@ fn a_buffer_awaiting_release_cannot_be_queued_again() {
     let window = h.toplevel(APP, 1, 400, 300);
     let (serial, _, _) = h.configures[&window];
     let size = Size::new(400, 300);
+    for buffer in [500, 501] {
+        h.attach(APP, buffer, size);
+    }
     h.scene.begin_frame();
     let submit = |sequence, buffer| Request::Submit {
         surface: 1,
@@ -1769,4 +1827,172 @@ fn a_lock_surface_never_shows_through_another_outputs_cover() {
         }),
         "output 2's cover is on top of output 1's lock surface"
     );
+}
+
+#[test]
+fn buffers_are_owned_per_connection_and_retired_only_when_unused() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let (serial, _, _) = h.configures[&window];
+    let submit = |buffer, sequence, extent| Request::Submit {
+        surface: 1,
+        sequence,
+        buffer,
+        configure: serial,
+        extent,
+    };
+    let size = Size::new(400, 300);
+    // Unregistered buffer ids, including another client's, are invalid.
+    assert_eq!(
+        h.request(APP, submit(777, 10, size)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    h.attach(APP, 50, size);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let other_serial = h.configures[&other].0;
+    assert_eq!(
+        h.request(
+            OTHER,
+            Request::Submit {
+                surface: 1,
+                sequence: 10,
+                buffer: 50,
+                configure: other_serial,
+                extent: size
+            }
+        ),
+        Err(ErrorCode::InvalidBuffer),
+        "APP's buffer 50 does not exist for OTHER"
+    );
+    // Layout and duplicate checks.
+    let attach = |buffer, stride| Request::AttachBuffer {
+        buffer,
+        format: oxy_protocol::Format::Argb8888,
+        extent: size,
+        stride,
+        offset: 0,
+    };
+    assert_eq!(
+        h.request(APP, attach(51, 1599)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    assert_eq!(
+        h.request(APP, attach(50, 1600)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    // The buffer's extent must match the submission.
+    h.attach(APP, 52, Size::new(10, 10));
+    assert_eq!(
+        h.request(APP, submit(52, 10, size)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    // A buffer cannot back two surfaces at once.
+    h.request(APP, submit(50, 10, size)).unwrap();
+    h.frame();
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 10, 10), 400, 300));
+    let popup_serial = h.configures[&popup].0;
+    assert_eq!(
+        h.request(
+            APP,
+            Request::Submit {
+                surface: 2,
+                sequence: 1,
+                buffer: 50,
+                configure: popup_serial,
+                extent: size
+            }
+        ),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    // Destroying a displayed buffer defers retirement until it is replaced.
+    h.scene.drain_retired();
+    h.request(APP, Request::DestroyBuffer { buffer: 50 })
+        .unwrap();
+    assert!(h.scene.drain_retired().is_empty(), "still on screen");
+    assert_eq!(
+        h.request(APP, submit(50, 11, size)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    assert_eq!(
+        h.request(APP, Request::DestroyBuffer { buffer: 50 }),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    h.next_sequence.insert(window, 20);
+    h.present(window);
+    assert_eq!(h.scene.drain_retired(), vec![(APP, 50)]);
+    // An unused buffer is retired immediately.
+    h.request(APP, Request::DestroyBuffer { buffer: 52 })
+        .unwrap();
+    assert_eq!(h.scene.drain_retired(), vec![(APP, 52)]);
+}
+
+#[test]
+fn buffer_registrations_are_bounded_per_client() {
+    let mut h = Harness::new();
+    for buffer in 1..=MAX_BUFFERS_PER_CLIENT as u64 {
+        h.attach(OTHER, buffer, Size::new(1, 1));
+    }
+    assert_eq!(
+        h.request(
+            OTHER,
+            Request::AttachBuffer {
+                buffer: 9999,
+                format: oxy_protocol::Format::Xrgb8888,
+                extent: Size::new(1, 1),
+                stride: 4,
+                offset: 0
+            }
+        ),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    h.toplevel(APP, 1, 10, 10);
+    h.scene.disconnect(OTHER);
+    assert_eq!(h.scene.drain_retired().len(), MAX_BUFFERS_PER_CLIENT);
+    assert_eq!(h.scene.stats().registered_buffers, 1);
+}
+
+#[test]
+fn the_frame_list_shows_in_flight_content_with_its_own_geometry() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let shown = h.rect(window);
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    let buffer = h.submit(window);
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 10, 10), 50, 50));
+    h.submit(popup);
+    h.scene.begin_frame();
+    let frame: Vec<(SurfaceKey, Rect, u64)> = h
+        .scene
+        .frame_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, rect, frame } => Some((key, rect, frame.buffer)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        frame[0],
+        (window, SCREEN, buffer),
+        "new size and buffer together"
+    );
+    assert_eq!(
+        frame[1].0, popup,
+        "a first frame is composed in the frame that maps it"
+    );
+    assert_eq!(
+        h.rect(window),
+        shown,
+        "displayed state is unchanged until completion"
+    );
+    assert!(!h.rendered(popup));
+    h.scene.end_frame(1, Clock::Synthetic);
+    assert_eq!(h.rect(window), SCREEN);
+    assert!(h.rendered(popup));
 }
