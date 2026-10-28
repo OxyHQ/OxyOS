@@ -1007,7 +1007,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         return Err("the window shows nothing".into());
     }
     let mut output = session.compositor.framebuffer.clone();
-    let mut snapshots = vec![session.compositor.snapshot(out, "launch-1.png")?];
+    let mut snapshots = vec![snapshot(&session.compositor, out, "launch-1.png")?];
     let dump = |compositor: &Compositor, index: usize| -> Result<()> {
         if let Some(dir) = &launch.dump_frames {
             fs::write(
@@ -1112,11 +1112,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             answer.window.height,
             accessibility_json(&session.compositor),
         ));
-        snapshots.push(
-            session
-                .compositor
-                .snapshot(out, &format!("launch-{}.png", index + 2))?,
-        );
+        snapshots.push(snapshot(
+            &session.compositor,
+            out,
+            &format!("launch-{}.png", index + 2),
+        )?);
         dump(&session.compositor, index + 2)?;
         output = now;
     }
