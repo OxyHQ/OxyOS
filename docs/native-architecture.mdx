@@ -64,7 +64,7 @@ Keep the protocol experimental until a native renderer, compositor and Astro cli
 7. Frame callbacks follow output scheduling and report presented/discarded outcomes honestly. Do not equate a React commit, CPU submission or probe timestamp with physical display time.
 8. Client failure and slow JavaScript cannot block compositor-owned move/focus/cursor behavior. Runtime animation and compositor animation have separate ownership and clocks with explicit mapping.
 
-The current core models a bounded single-surface/single-output state machine. Its caller supplies already-ready, validated metadata; it imports no GPU buffers. The probe's completion is synthetic. These tests establish state semantics, not visual smoothness or graphics synchronization.
+The current core models compositor policy (roles, grabs, focus, lock, outputs) and per-surface presentation state for a single composition target. Its caller supplies already-ready, validated metadata; it imports no GPU buffers. The probe's completion is synthetic. These tests establish state semantics, not visual smoothness or graphics synchronization. Surface roles, coordinates, grab authorization and the popup lifecycle are decided in [ADR 0001](./adr/0001-native-platform-boundaries).
 
 ## Session and security
 
@@ -84,7 +84,8 @@ Astro will need an Oxy platform integration. Chromium's Ozone layer is the candi
 
 | Gate | Required evidence |
 | --- | --- |
-| Foundation (this change) | Bounded protocol codec, deterministic presentation tests and two independent metadata-client processes; no display backend in the workspace |
+| Foundation (done) | Bounded protocol codec, deterministic presentation tests and two independent metadata-client processes; no display backend in the workspace |
+| Contracts (headless, done) | Protocol v2 from one schema with fuzzing; tested role/grant/popup/input/lock policy; ADR 0001 |
 | Graphics feasibility | Real render/import/present on the selected GPU, fences and ownership verified; startup and resize traces; no X11/Wayland |
 | Bloom host | Actual pinned BloomProvider → BloomScope(md) → AppShell.panelLayout → Screen rendered natively, with text, scroll and controls |
 | Independent clients | Two real Bloom applications; move/resize/focus, busy JS, stalled/crashed app; no dependency on another app's event loop |

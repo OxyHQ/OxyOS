@@ -12,7 +12,7 @@ OxyOS is being rebuilt as a native Linux platform: an Oxy display compositor and
 
 ## Status
 
-- The root Rust workspace is a headless foundation: a bounded experimental protocol codec, a single-surface presentation state machine and a two-process metadata probe. It draws no pixels, imports no GPU buffers and does not render Bloom.
+- The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 2), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. It draws no pixels, imports no GPU buffers and does not render Bloom.
 - `config/` builds a console-only Debian base system. There is no graphical session, and no OxyOS image is published until the native session and its boot acceptance tests exist.
 - The earlier React/Tauri shell on labwc/greetd is retired. See [Retired desktop stack](./retired-desktop-stack).
 
@@ -23,8 +23,9 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 1. [Native platform architecture](./native-architecture): decision, process boundaries, display contract, security and delivery gates.
 2. [BloomUI native integration audit](./bloom-native-audit): Bloom contracts to preserve and the native runtime work they need.
 3. [Build and verify the native foundation](./native-foundation): checks, the experimental wire contract and core state transitions.
-4. [Base image configuration](./iso-build): the live-build base system and why image publication is retired.
-5. [Retired desktop stack](./retired-desktop-stack): what was removed, what replaced each responsibility, open follow-ups.
+4. [ADR 0001: Native platform boundaries](./adr/0001-native-platform-boundaries): process split, ownership, surface roles, coordinates, grabs, popup and lock policy.
+5. [Base image configuration](./iso-build): the live-build base system and why image publication is retired.
+6. [Retired desktop stack](./retired-desktop-stack): what was removed, what replaced each responsibility, open follow-ups.
 
 ## Checks
 

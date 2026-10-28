@@ -3,9 +3,9 @@ name: Native foundation
 on:
   push:
     branches: [main]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', '.github/workflows/native-ci.yml']
+    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml']
   pull_request:
-    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', '.github/workflows/native-ci.yml']
+    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml']
   workflow_dispatch:
 
 permissions:
