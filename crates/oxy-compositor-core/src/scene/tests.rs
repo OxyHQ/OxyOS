@@ -1,11 +1,16 @@
 use super::*;
-use oxy_protocol::{Adjust, Anchor, Gravity};
+use oxy_protocol::{
+    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
+    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, NO_ACCESSIBLE_PARENT,
+};
 use std::collections::HashMap;
 
 const APP: ClientId = 1;
 const OTHER: ClientId = 2;
 const SHELL: ClientId = 3;
 const LOCKER: ClientId = 4;
+/// An assistive technology (a screen reader), connected by the tests that need one.
+const READER: ClientId = 5;
 const SCREEN: Rect = Rect::new(0, 0, 1920, 1080);
 const BUTTON: u32 = 272;
 const ESCAPE: u32 = 1;
@@ -45,7 +50,7 @@ impl Harness {
                 Grants {
                     shell: true,
                     shortcuts: true,
-                    lock: false,
+                    ..Grants::default()
                 },
             ),
             (
@@ -2242,4 +2247,344 @@ fn preedit_goes_to_the_focused_surface_and_rejects_what_does_not_fit() {
     assert!(!h.scene.preedit("ab", 3));
     assert!(!h.scene.preedit("に", 1));
     assert!(h.pump().is_empty());
+}
+
+// ---- accessibility (ADR 0003) ----------------------------------------------------------------
+
+fn reader() -> Grants {
+    Grants {
+        accessibility: true,
+        ..Grants::default()
+    }
+}
+
+/// Publishes a menu-like snapshot on `surface`: a root and two children, one focused.
+fn publish(h: &mut Harness, surface: SurfaceKey, label: &str) {
+    let state = |bits| AccessibleState::new(bits).unwrap();
+    h.request(
+        surface.client,
+        Request::AccessibilityBegin {
+            surface: surface.id,
+            nodes: 3,
+        },
+    )
+    .unwrap();
+    for (index, parent, role, bits, rect) in [
+        (
+            0,
+            NO_ACCESSIBLE_PARENT,
+            AccessibleRole::Menu,
+            0,
+            Rect::new(0, 0, 200, 100),
+        ),
+        (
+            1,
+            0,
+            AccessibleRole::MenuItem,
+            AccessibleState::FOCUSED,
+            Rect::new(8, 8, 184, 40),
+        ),
+        (
+            2,
+            0,
+            AccessibleRole::MenuItem,
+            AccessibleState::DISABLED,
+            Rect::new(8, 52, 184, 40),
+        ),
+    ] {
+        h.request(
+            surface.client,
+            Request::AccessibleNode {
+                surface: surface.id,
+                index,
+                parent,
+                role,
+                state: state(bits),
+                rect,
+            },
+        )
+        .unwrap();
+    }
+    let long = "a name longer than one thirty-two byte chunk, ñ included";
+    for (index, text) in [(0, label), (1, long), (2, "Delete")] {
+        for chunk in TextChunk::split(text) {
+            h.request(
+                surface.client,
+                Request::AccessibleText {
+                    surface: surface.id,
+                    index,
+                    field: AccessibleField::Name,
+                    text: chunk,
+                },
+            )
+            .unwrap();
+        }
+    }
+    h.request(
+        surface.client,
+        Request::AccessibilityCommit {
+            surface: surface.id,
+        },
+    )
+    .unwrap();
+}
+
+/// What a reader received about `surface`, rebuilt: (role, name, global rect, state bits).
+fn read_tree(h: &Harness, surface: SurfaceKey) -> Vec<(AccessibleRole, String, Rect, u16)> {
+    let mut nodes: Vec<(AccessibleRole, String, Rect, u16)> = Vec::new();
+    for event in h.events_for(READER) {
+        match event {
+            Event::AccessibilityTree {
+                client,
+                surface: id,
+                ..
+            } if client == surface.client && id == surface.id => nodes.clear(),
+            Event::AccessibleNode {
+                client,
+                surface: id,
+                role,
+                state,
+                rect,
+                ..
+            } if client == surface.client && id == surface.id => {
+                nodes.push((role, String::new(), rect, state.bits()))
+            }
+            Event::AccessibleText {
+                client,
+                surface: id,
+                index,
+                field: AccessibleField::Name,
+                text,
+            } if client == surface.client && id == surface.id => {
+                nodes[index as usize].1.push_str(text.as_str())
+            }
+            Event::AccessibilityRemoved {
+                client,
+                surface: id,
+            } if client == surface.client && id == surface.id => nodes.clear(),
+            _ => {}
+        }
+    }
+    nodes
+}
+
+fn is_accessibility(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::AccessibilityTree { .. }
+            | Event::AccessibleNode { .. }
+            | Event::AccessibleText { .. }
+            | Event::AccessibilityCommitted { .. }
+            | Event::AccessibilityRemoved { .. }
+    )
+}
+
+#[test]
+fn a_reader_receives_committed_trees_and_ordinary_clients_never_do() {
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.clear_log();
+    publish(&mut h, window, "Message actions");
+    let tree = read_tree(&h, window);
+    assert_eq!(tree.len(), 3);
+    assert_eq!(tree[0].0, AccessibleRole::Menu);
+    assert_eq!(tree[0].1, "Message actions");
+    assert_eq!(
+        tree[1].1,
+        "a name longer than one thirty-two byte chunk, ñ included"
+    );
+    // Global rectangles for the reader.
+    assert_eq!(tree[1].2, Rect::new(w.x + 8, w.y + 8, 184, 40));
+    assert_eq!(tree[1].3, AccessibleState::FOCUSED);
+    assert_eq!(tree[2].3, AccessibleState::DISABLED);
+    for client in [APP, OTHER, SHELL, LOCKER] {
+        assert!(
+            !h.events_for(client).iter().any(is_accessibility),
+            "client {client} saw an accessibility tree"
+        );
+    }
+    // The compositor keeps surface-local rectangles.
+    let snapshot = h.scene.accessibility_snapshot(window).unwrap();
+    assert_eq!(snapshot[1].rect, Rect::new(8, 8, 184, 40));
+    assert_eq!(snapshot[2].name, "Delete");
+}
+
+#[test]
+fn malformed_snapshots_are_protocol_errors() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let node = |index, parent| Request::AccessibleNode {
+        surface: 1,
+        index,
+        parent,
+        role: AccessibleRole::Button,
+        state: AccessibleState::default(),
+        rect: Rect::new(0, 0, 10, 10),
+    };
+    let begin = |nodes| Request::AccessibilityBegin { surface: 1, nodes };
+    assert_eq!(
+        h.request(APP, begin(MAX_ACCESSIBLE_NODES + 1)),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    assert_eq!(
+        h.request(
+            APP,
+            Request::AccessibilityBegin {
+                surface: 9,
+                nodes: 1
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    // Nodes before a snapshot began, and a commit without one.
+    assert_eq!(
+        h.request(APP, node(0, NO_ACCESSIBLE_PARENT)),
+        Err(ErrorCode::InvalidOrder)
+    );
+    assert_eq!(
+        h.request(APP, Request::AccessibilityCommit { surface: 1 }),
+        Err(ErrorCode::InvalidOrder)
+    );
+    h.request(APP, begin(2)).unwrap();
+    // A parent must come first: no self-parent, no forward parent, no cycle.
+    assert_eq!(h.request(APP, node(1, 1)), Err(ErrorCode::InvalidMessage));
+    assert_eq!(h.request(APP, node(0, 1)), Err(ErrorCode::InvalidMessage));
+    assert_eq!(h.request(APP, node(2, 0)), Err(ErrorCode::InvalidMessage));
+    h.request(APP, node(0, NO_ACCESSIBLE_PARENT)).unwrap();
+    assert_eq!(
+        h.request(APP, node(0, NO_ACCESSIBLE_PARENT)),
+        Err(ErrorCode::InvalidMessage),
+        "each node once"
+    );
+    // Text for a node not sent yet; a commit with a node missing.
+    let text = |index| Request::AccessibleText {
+        surface: 1,
+        index,
+        field: AccessibleField::Value,
+        text: TextChunk::new("x").unwrap(),
+    };
+    assert_eq!(h.request(APP, text(1)), Err(ErrorCode::InvalidOrder));
+    assert_eq!(
+        h.request(APP, Request::AccessibilityCommit { surface: 1 }),
+        Err(ErrorCode::InvalidOrder)
+    );
+    // Text is bounded per field.
+    h.request(APP, begin(1)).unwrap();
+    h.request(APP, node(0, NO_ACCESSIBLE_PARENT)).unwrap();
+    let chunk = TextChunk::new(&"y".repeat(32)).unwrap();
+    let field = Request::AccessibleText {
+        surface: 1,
+        index: 0,
+        field: AccessibleField::Name,
+        text: chunk,
+    };
+    for _ in 0..MAX_ACCESSIBLE_TEXT_BYTES / 32 {
+        h.request(APP, field).unwrap();
+    }
+    assert_eq!(h.request(APP, field), Err(ErrorCode::QuotaExceeded));
+    // Nothing was committed by any of this.
+    assert!(h.scene.accessibility_snapshot(window).is_none());
+}
+
+#[test]
+fn reader_actions_reach_the_owner_and_nobody_else_can_act() {
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    publish(&mut h, window, "Menu");
+    h.clear_log();
+    let act = |index, action| Request::AccessibilityAction {
+        client: APP,
+        surface: 1,
+        index,
+        action,
+    };
+    h.request(READER, act(1, AccessibleAction::Activate))
+        .unwrap();
+    let Some(Event::AccessibilityAction {
+        surface,
+        serial,
+        index,
+        action,
+    }) = h.events_for(APP).last().copied()
+    else {
+        panic!("no action delivered");
+    };
+    assert_eq!((surface, index, action), (1, 1, AccessibleAction::Activate));
+    // An activation is the user's input: the menu it opens may grab with its serial.
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(popup);
+    assert_eq!(h.scene.grab_chain(), &[popup]);
+    h.scene.key(ESCAPE, true);
+    h.pump();
+    // A focus move is navigation: its serial authorizes no grab.
+    h.clear_log();
+    h.request(READER, act(2, AccessibleAction::Focus)).unwrap();
+    let Some(Event::AccessibilityAction { serial, action, .. }) = h.events_for(APP).last().copied()
+    else {
+        panic!("no action delivered");
+    };
+    assert_eq!(action, AccessibleAction::Focus);
+    let popup = h.popup(window, 3, menu(Rect::new(0, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 3, serial })
+        .unwrap();
+    h.pump();
+    assert_eq!(h.dismissed(popup), Some(DismissReason::GrabDenied));
+    // An ordinary client cannot act on another client's nodes.
+    assert_eq!(
+        h.request(OTHER, act(1, AccessibleAction::Activate)),
+        Err(ErrorCode::Unauthorized)
+    );
+    // A node the snapshot does not have, or a surface that is gone, is answered with nothing.
+    h.clear_log();
+    h.request(READER, act(3, AccessibleAction::Activate))
+        .unwrap();
+    h.request(
+        READER,
+        Request::AccessibilityAction {
+            client: APP,
+            surface: 7,
+            index: 0,
+            action: AccessibleAction::Activate,
+        },
+    )
+    .unwrap();
+    // While locked, only lock surfaces can be acted on.
+    h.scene.lock();
+    h.request(READER, act(1, AccessibleAction::Activate))
+        .unwrap();
+    assert!(
+        !h.events_for(APP)
+            .iter()
+            .any(|e| matches!(e, Event::AccessibilityAction { .. })),
+        "{:?}",
+        h.events_for(APP)
+    );
+}
+
+#[test]
+fn readers_follow_moves_removals_and_join_late() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    publish(&mut h, window, "Menu");
+    // A reader that connects later receives the current snapshot.
+    h.scene.connect(READER, reader()).unwrap();
+    h.pump();
+    assert_eq!(read_tree(&h, window)[0].2, Rect::new(w.x, w.y, 200, 100));
+    // The window moves: the reader receives the tree again with the new global rectangles.
+    h.scene.move_window_to(window, (w.x + 50, w.y + 20));
+    h.pump();
+    assert_eq!(
+        read_tree(&h, window)[1].2,
+        Rect::new(w.x + 58, w.y + 28, 184, 40)
+    );
+    // The surface goes away: the reader drops it.
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert!(read_tree(&h, window).is_empty());
+    assert!(h.scene.accessibility_snapshot(window).is_none());
 }

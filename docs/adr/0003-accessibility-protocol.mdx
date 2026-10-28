@@ -1,0 +1,71 @@
+---
+title: "ADR 0003: Accessibility in the Oxy display protocol"
+description: How applications publish their accessibility trees to the compositor, how an assistive technology reads them and acts on them, and what stays out of reach.
+order: 12
+---
+
+# ADR 0003: Accessibility in the Oxy display protocol
+
+Status: **accepted; first slice implemented** (protocol, compositor, the Bloom host's publication and actions). Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33), [#34](https://github.com/OxyHQ/OxyOS/issues/34). Builds on [ADR 0001](./0001-native-platform-boundaries).
+
+## Problem
+
+A screen reader must read and operate every application on OxyOS. OxyOS has no X11 or Wayland, and the Linux accessibility bus (AT-SPI over D-Bus) is not part of the session. Each surface's accessibility tree must reach the assistive technology from the application that owns the surface, crossing process boundaries the same way pixels do.
+
+An application must not see another application's tree. An ordinary client must not be able to read or operate other clients.
+
+## Decision
+
+The display protocol carries accessibility, as it carries buffers. The compositor is the broker. It knows the surfaces, their geometry, their stacking and the session's grants.
+
+1. **Applications publish one snapshot per surface.** The application sends:
+   - `AccessibilityBegin { surface, nodes }`;
+   - one `AccessibleNode { surface, index, parent, role, state, rect }` per node;
+   - `AccessibleText { surface, index, field, text }` chunks for each node's name and value;
+   - `AccessibilityCommit { surface }`.
+
+   The committed snapshot replaces the previous one atomically.
+
+   Messages stay within the protocol's fixed 64-byte packets, and text travels in the same whole-character chunks as `Text`.
+
+   Rules for a snapshot:
+   - Nodes are in reading order, each parent before its children (`parent < index`, or none for a root).
+   - Rectangles are surface-local and logical.
+   - The node with the application's accessibility focus carries the `focused` state.
+
+   Limits:
+   - 4096 nodes per surface;
+   - 1024 bytes per text field;
+   - roles and states from fixed sets.
+
+   A malformed snapshot is a protocol error, like any other malformed request.
+2. **Only an assistive technology reads trees.** A client whose credentials the session authority grants `accessibility` receives every surface's committed snapshot:
+   - `AccessibilityTree { client, surface, parent, nodes }`;
+   - the nodes, with rectangles in global coordinates;
+   - their text;
+   - `AccessibilityCommitted { client, surface }`.
+
+   When the surface goes away it receives `AccessibilityRemoved { client, surface }`. A newly connected assistive technology receives the current snapshots.
+
+   Ordinary clients never receive any of these events, and clients still never learn each other's geometry.
+3. **Actions go back to the owner.** The assistive technology sends `AccessibilityAction { client, surface, index, action }`. The compositor checks it:
+   - the target exists;
+   - the node is in its committed snapshot;
+   - the session is not locked, unless the target is a lock surface.
+
+   It then sends `AccessibilityAction { surface, serial, index, action }` to the owning application. An activation's serial is the user's input, as a key press's is, so a menu it opens may grab with it. A focus move is navigation and authorizes nothing. Actions:
+   - **activate:** what a double tap on the node does;
+   - **focus:** move accessibility focus to the node.
+
+   The application performs the action as its platform would. The Bloom host dispatches React Native's accessibility click, which Pressability turns into `onPress` (as TalkBack's activation on Android), and moves its accessibility focus.
+4. **What applications must not publish.** Secure text (`secureTextEntry`) values are never sent. The name of a secure field is its label.
+
+## Consequences
+
+- The screen reader is an ordinary protocol client with a grant, like the shell. It can be written for OxyOS without D-Bus. An AT-SPI bridge remains possible as such a client if Orca support is wanted later.
+- Applications other than the Bloom host publish nothing until they implement the messages. A surface without a snapshot is presented to the assistive technology as empty, never guessed from pixels.
+- Not in this slice:
+  - announcements (live regions);
+  - actions beyond activate and focus (scroll, increment, dismiss);
+  - text navigation and selection by the assistive technology;
+  - hiding unlocked applications' trees from the assistive technology while the session is locked (actions on them are refused).

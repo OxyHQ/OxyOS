@@ -112,6 +112,25 @@ wire_enum! {
     Clock: u8 { Synthetic = 1, Monotonic = 2 }
 }
 wire_enum! {
+    /// What an accessible node is, for an assistive technology (ADR 0003). Unknown roles are
+    /// published as `Generic`, never guessed.
+    AccessibleRole: u8 {
+        Generic = 0, Button = 1, Link = 2, Text = 3, Heading = 4, Image = 5, TextInput = 6,
+        Menu = 7, MenuItem = 8, CheckBox = 9, Radio = 10, Switch = 11, Tab = 12, TabList = 13,
+        List = 14, ListItem = 15, Dialog = 16, Alert = 17, ProgressBar = 18, Slider = 19,
+        Search = 20, Toolbar = 21, ScrollView = 22, Group = 23, ComboBox = 24, Summary = 25,
+        Grid = 26,
+    }
+}
+wire_enum! {
+    /// Which text of an accessible node a chunk belongs to.
+    AccessibleField: u8 { Name = 1, Value = 2 }
+}
+wire_enum! {
+    /// What an assistive technology asks an application to do with a node.
+    AccessibleAction: u8 { Activate = 1, Focus = 2 }
+}
+wire_enum! {
     ErrorCode: u16 {
         InvalidMessage = 1, InvalidOrder = 2, UnsupportedVersion = 3, Unauthorized = 4,
         UnknownSurface = 5, SurfaceExists = 6, InvalidParent = 7, InvalidPositioner = 8,
@@ -203,6 +222,52 @@ impl Wire for Rect {
             return Err(invalid("rectangle out of range"));
         }
         Ok(rect)
+    }
+}
+
+/// An accessible node's states, as bits. Unknown bits are invalid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AccessibleState(u16);
+
+impl AccessibleState {
+    pub const DISABLED: u16 = 1 << 0;
+    pub const SELECTED: u16 = 1 << 1;
+    pub const CHECKED: u16 = 1 << 2;
+    /// Checked and unchecked at once (a partly checked group).
+    pub const MIXED: u16 = 1 << 3;
+    pub const EXPANDED: u16 = 1 << 4;
+    /// Expandable and not expanded.
+    pub const COLLAPSED: u16 = 1 << 5;
+    pub const BUSY: u16 = 1 << 6;
+    /// The node with the application's accessibility focus.
+    pub const FOCUSED: u16 = 1 << 7;
+    const ALL: u16 = (1 << 8) - 1;
+
+    /// The state with these bits, if every bit is known.
+    pub const fn new(bits: u16) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn contains(self, bit: u16) -> bool {
+        self.0 & bit == bit
+    }
+}
+
+impl Wire for AccessibleState {
+    const SIZE: usize = 2;
+    fn put(&self, out: &mut Vec<u8>) {
+        self.0.put(out);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible state"))
     }
 }
 

@@ -47,6 +47,9 @@ pub struct Grants {
     pub shell: bool,
     pub lock: bool,
     pub shortcuts: bool,
+    /// An assistive technology: reads every surface's accessibility snapshot and acts on
+    /// nodes (ADR 0003).
+    pub accessibility: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,6 +215,7 @@ pub struct Scene {
     retired: Vec<(ClientId, u64)>,
     frame_in_flight: bool,
     deferred: Vec<(SurfaceKey, u64)>,
+    accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -438,6 +442,9 @@ impl Scene {
         }
         self.clients.insert(client, grants);
         self.activation.insert(client, self.serial);
+        if grants.accessibility {
+            self.replay_accessibility(client);
+        }
         Ok(())
     }
 
@@ -488,6 +495,7 @@ impl Scene {
         grants.shell &= !revoked.shell;
         grants.lock &= !revoked.lock;
         grants.shortcuts &= !revoked.shortcuts;
+        grants.accessibility &= !revoked.accessibility;
         let keys: Vec<SurfaceKey> = self
             .nodes
             .iter()
@@ -746,6 +754,54 @@ impl Scene {
                     });
                     self.set_pointer_focus(None);
                 }
+                Ok(())
+            }
+            Request::AccessibilityBegin { surface, nodes } => {
+                self.accessibility_begin(key(surface), nodes)
+            }
+            Request::AccessibleNode {
+                surface,
+                index,
+                parent,
+                role,
+                state,
+                rect,
+            } => self.accessibility_node(
+                key(surface),
+                index,
+                AccessibleNode {
+                    parent,
+                    role,
+                    state,
+                    rect,
+                    name: String::new(),
+                    value: String::new(),
+                },
+            ),
+            Request::AccessibleText {
+                surface,
+                index,
+                field,
+                text,
+            } => self.accessibility_text(key(surface), index, field, text),
+            Request::AccessibilityCommit { surface } => self.accessibility_commit(key(surface)),
+            Request::AccessibilityAction {
+                client: target,
+                surface,
+                index,
+                action,
+            } => {
+                if !grants.accessibility {
+                    return Err(ErrorCode::Unauthorized);
+                }
+                self.accessibility_action(
+                    SurfaceKey {
+                        client: target,
+                        id: surface,
+                    },
+                    index,
+                    action,
+                );
                 Ok(())
             }
             Request::SetFullscreen { surface, enabled } => {
@@ -1369,6 +1425,7 @@ impl Scene {
         }
         self.roots.retain(|root| *root != key);
         self.nodes.remove(&key);
+        self.forget_accessibility(key);
         if self.focus == Some(key) {
             self.focus = None;
             self.focus_next();
@@ -1915,6 +1972,7 @@ impl Scene {
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
         }
+        self.refresh_accessibility_geometry();
     }
 
     /// Assigns `output` to a window and its dialogs, asking for buffers at the new scale when it
@@ -2313,6 +2371,7 @@ impl Scene {
         for key in resized {
             self.reconstrain_children(key);
         }
+        self.refresh_accessibility_geometry();
         for key in newly_mapped {
             let node = &self.nodes[&key];
             if node.parent.is_none() || node.role == Role::Dialog {
@@ -2381,6 +2440,9 @@ impl Scene {
         }
     }
 }
+
+mod accessibility;
+pub use accessibility::AccessibleNode;
 
 #[cfg(test)]
 mod tests;

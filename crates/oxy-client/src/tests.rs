@@ -184,3 +184,74 @@ fn a_frame_in_another_format_takes_a_buffer_of_that_format() {
         }
     ));
 }
+
+#[test]
+fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
+    let (client, server) = connected();
+    let long = "ñ".repeat(600); // 1200 bytes: cut to 1024 at a character boundary
+    let nodes = [
+        Accessible {
+            parent: oxy_protocol::NO_ACCESSIBLE_PARENT,
+            role: AccessibleRole::Menu,
+            state: AccessibleState::default(),
+            rect: Rect::new(0, 0, 200, 100),
+            name: "Message actions",
+            value: "",
+        },
+        Accessible {
+            parent: 0,
+            role: AccessibleRole::TextInput,
+            state: AccessibleState::new(AccessibleState::FOCUSED).unwrap(),
+            rect: Rect::new(8, 8, 184, 40),
+            name: "Reply",
+            value: &long,
+        },
+    ];
+    client.publish_accessibility(3, &nodes).unwrap();
+    let mut requests = Vec::new();
+    loop {
+        let (request, _) = server.recv_request().unwrap();
+        let done = matches!(request, Request::AccessibilityCommit { .. });
+        requests.push(request);
+        if done {
+            break;
+        }
+    }
+    assert_eq!(
+        requests[0],
+        Request::AccessibilityBegin {
+            surface: 3,
+            nodes: 2
+        }
+    );
+    assert!(matches!(
+        requests[1],
+        Request::AccessibleNode {
+            surface: 3,
+            index: 0,
+            role: AccessibleRole::Menu,
+            ..
+        }
+    ));
+    let mut value = String::new();
+    for request in &requests {
+        if let Request::AccessibleText {
+            index: 1,
+            field: AccessibleField::Value,
+            text,
+            ..
+        } = request
+        {
+            value.push_str(text.as_str());
+        }
+    }
+    assert_eq!(value, "ñ".repeat(512));
+    let too_many = vec![nodes[0]; MAX_ACCESSIBLE_NODES as usize + 1];
+    assert_eq!(
+        client
+            .publish_accessibility(3, &too_many)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidInput
+    );
+}

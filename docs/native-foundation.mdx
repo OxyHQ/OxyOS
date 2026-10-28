@@ -57,6 +57,10 @@ Input semantics:
 - **Scroll** goes to the surface under the pointer, like motion. It is not a press: it authorizes no popup grab and activates nothing. Positive distances move the view right and down.
 - **Text** carries committed text for the focused surface: 1 to 32 bytes of UTF-8 that never split a character, with longer text arriving as consecutive chunks. The compositor turns keys into text through its keymap (and, later, an input method), so clients never translate key codes. `Key` stays for layout-independent keys such as Backspace, Enter, Tab, Escape and the arrows.
 - **Preedit** carries the input method's composition for the focused surface: its current text (0 to 32 bytes of whole characters, empty to end it) and the composing cursor as a byte offset. Each `Preedit` replaces the previous one; the composition's result arrives as `Text`.
+- **Accessibility** ([ADR 0003](./adr/0003-accessibility-protocol)):
+  - **Publishing:** an application publishes one snapshot per surface (`AccessibilityBegin`, `AccessibleNode`s in reading order with parents first, `AccessibleText` chunks for names and values, then `AccessibilityCommit`). Limits are 4096 nodes and 1024 bytes per text, with closed sets of roles and states.
+  - **Reading:** only a client granted `accessibility` receives committed snapshots, with global rectangles, and their removal.
+  - **Acting:** that client's `AccessibilityAction` (activate, focus) reaches the owning application as an event. Its serial is the user's activation, as a key press's is, so an activation can open a grabbing popup; a focus move authorizes nothing.
 
 | Direction | Opcode | Message | Payload bytes |
 | --- | --- | --- | --- |
@@ -76,6 +80,11 @@ Input semantics:
 | Request | 14 | Goodbye | 1 |
 | Request | 15 | AttachBuffer | 29 |
 | Request | 16 | DestroyBuffer | 9 |
+| Request | 17 | AccessibilityBegin | 9 |
+| Request | 18 | AccessibleNode | 32 |
+| Request | 19 | AccessibleText | 43 |
+| Request | 20 | AccessibilityCommit | 5 |
+| Request | 21 | AccessibilityAction | 14 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -89,6 +98,12 @@ Input semantics:
 | Event | 11 | Scroll | 21 |
 | Event | 12 | Text | 46 |
 | Event | 13 | Preedit | 47 |
+| Event | 14 | AccessibilityAction | 18 |
+| Event | 15 | AccessibilityTree | 17 |
+| Event | 16 | AccessibleNode | 36 |
+| Event | 17 | AccessibleText | 47 |
+| Event | 18 | AccessibilityCommitted | 9 |
+| Event | 19 | AccessibilityRemoved | 9 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 

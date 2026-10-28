@@ -5,9 +5,10 @@
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
 //! each with the caller contract it relies on.
 
-use oxy_client::{Client, Poll};
+use oxy_client::{Accessible, Client, Poll};
 use oxy_protocol::{
-    Adjust, Anchor, Event, Format, Gravity, Positioner, Rect, Request, Size, TEXT_CHUNK_BYTES,
+    AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, Positioner, Rect,
+    Request, Size, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -29,6 +30,7 @@ pub const OXY_EVENT_RELEASED: u32 = 9;
 pub const OXY_EVENT_SCROLL: u32 = 11;
 pub const OXY_EVENT_TEXT: u32 = 12;
 pub const OXY_EVENT_PREEDIT: u32 = 13;
+pub const OXY_EVENT_ACCESSIBILITY_ACTION: u32 = 14;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXY_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -93,6 +95,21 @@ pub struct OxyPositioner {
     pub adjust: u8,
     pub offset_x: i32,
     pub offset_y: i32,
+}
+
+/// One node of a surface's accessibility snapshot, as `oxy_client_publish_accessibility` takes it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyAccessibleNode {
+    pub parent: u32,
+    pub role: u8,
+    pub state: u16,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub name: *const c_char,
+    pub value: *const c_char,
 }
 
 /// An opaque connection, owned by the caller between `oxy_client_connect` and
@@ -278,6 +295,27 @@ pub fn convert(event: &Event) -> Option<OxyEvent> {
                 ..out
             }
         }
+        Event::AccessibilityAction {
+            surface,
+            serial,
+            index,
+            action,
+        } => {
+            out = OxyEvent {
+                kind: OXY_EVENT_ACCESSIBILITY_ACTION,
+                surface,
+                serial,
+                detail: action as u32,
+                code: index,
+                ..out
+            }
+        }
+        // Sent only to assistive technologies, which do not use this ABI.
+        Event::AccessibilityTree { .. }
+        | Event::AccessibleNode { .. }
+        | Event::AccessibleText { .. }
+        | Event::AccessibilityCommitted { .. }
+        | Event::AccessibilityRemoved { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
     }
     Some(out)
@@ -455,6 +493,61 @@ pub unsafe extern "C" fn oxy_client_reposition(
                 positioner,
             },
         )
+    }
+}
+
+/// Publishes a surface's accessibility snapshot (ADR 0003). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxy_client_connect`; `nodes` points to `count` nodes (or is
+/// NULL with `count` 0), whose `name` and `value` are NULL or NUL-terminated strings.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxy_client_publish_accessibility(
+    client: *mut OxyClient,
+    surface: u32,
+    nodes: *const OxyAccessibleNode,
+    count: usize,
+) -> c_int {
+    let nodes: &[OxyAccessibleNode] = if count == 0 {
+        &[]
+    } else if nodes.is_null() {
+        return fail("null nodes");
+    } else {
+        // SAFETY: the caller passes `count` valid nodes.
+        unsafe { std::slice::from_raw_parts(nodes, count) }
+    };
+    let text = |pointer: *const c_char| -> Option<&str> {
+        if pointer.is_null() {
+            Some("")
+        } else {
+            // SAFETY: the caller passes NULL or NUL-terminated strings that outlive the call.
+            unsafe { CStr::from_ptr(pointer) }.to_str().ok()
+        }
+    };
+    let mut accessible = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        let (Some(role), Some(state), Some(name), Some(value)) = (
+            AccessibleRole::from_raw(node.role),
+            AccessibleState::new(node.state),
+            text(node.name),
+            text(node.value),
+        ) else {
+            return fail("invalid accessible node");
+        };
+        accessible.push(Accessible {
+            parent: node.parent,
+            role,
+            state,
+            rect: Rect::new(node.x, node.y, node.width, node.height),
+            name,
+            value,
+        });
+    }
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.publish_accessibility(surface, &accessible)),
+        None => fail("null client"),
     }
 }
 

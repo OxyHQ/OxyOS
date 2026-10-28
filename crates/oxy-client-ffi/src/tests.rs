@@ -2,7 +2,9 @@
 
 use super::*;
 use oxy_ipc::{Listener, SharedBuffer};
-use oxy_protocol::{DismissReason, PointerKind, ServerConnection};
+use oxy_protocol::{
+    AccessibleAction, DismissReason, PointerKind, ServerConnection, NO_ACCESSIBLE_PARENT,
+};
 use std::mem::{offset_of, size_of};
 
 const HEADER: &str = include_str!("../include/oxy_client.h");
@@ -39,11 +41,16 @@ fn fields(name: &str) -> Vec<Field> {
     body.split(';')
         .filter_map(|field| {
             let mut words = field.split_whitespace();
-            let (kind, declarator) = (words.next()?, words.next()?);
+            let mut kind = words.next()?;
+            if kind == "const" {
+                kind = words.next()?;
+            }
+            let declarator = words.next()?;
             let size = match kind {
                 "uint8_t" | "char" => 1,
+                "uint16_t" => 2,
                 "int32_t" | "uint32_t" => 4,
-                "uint64_t" => 8,
+                "uint64_t" | "char*" => 8,
                 other => panic!("unexpected field type {other}"),
             };
             let (name, count) = match declarator.split_once('[') {
@@ -89,6 +96,21 @@ fn the_header_matches_the_abi() {
         ("OXY_EVENT_SCROLL", OXY_EVENT_SCROLL.into()),
         ("OXY_EVENT_TEXT", OXY_EVENT_TEXT.into()),
         ("OXY_EVENT_PREEDIT", OXY_EVENT_PREEDIT.into()),
+        (
+            "OXY_EVENT_ACCESSIBILITY_ACTION",
+            OXY_EVENT_ACCESSIBILITY_ACTION.into(),
+        ),
+        ("OXY_ACTION_ACTIVATE", AccessibleAction::Activate as i64),
+        ("OXY_ACTION_FOCUS", AccessibleAction::Focus as i64),
+        ("OXY_NO_ACCESSIBLE_PARENT", NO_ACCESSIBLE_PARENT.into()),
+        ("OXY_STATE_DISABLED", AccessibleState::DISABLED.into()),
+        ("OXY_STATE_SELECTED", AccessibleState::SELECTED.into()),
+        ("OXY_STATE_CHECKED", AccessibleState::CHECKED.into()),
+        ("OXY_STATE_MIXED", AccessibleState::MIXED.into()),
+        ("OXY_STATE_EXPANDED", AccessibleState::EXPANDED.into()),
+        ("OXY_STATE_COLLAPSED", AccessibleState::COLLAPSED.into()),
+        ("OXY_STATE_BUSY", AccessibleState::BUSY.into()),
+        ("OXY_STATE_FOCUSED", AccessibleState::FOCUSED.into()),
         ("OXY_POINTER_ENTER", PointerKind::Enter as i64),
         ("OXY_POINTER_LEAVE", PointerKind::Leave as i64),
         ("OXY_POINTER_MOTION", PointerKind::Motion as i64),
@@ -112,6 +134,50 @@ fn the_header_matches_the_abi() {
     ] {
         assert_eq!(define(name), value, "{name}");
     }
+
+    // Every role, in both directions: the header's names and the protocol's values agree.
+    let roles: Vec<(&str, i64)> = HEADER
+        .lines()
+        .filter_map(|line| line.strip_prefix("#define OXY_ROLE_"))
+        .map(|rest| {
+            let (name, value) = rest.split_once(' ').unwrap();
+            (name, value.parse().unwrap())
+        })
+        .collect();
+    for (name, value) in &roles {
+        let role = AccessibleRole::from_raw(*value as u8).unwrap_or_else(|| panic!("{name}"));
+        let rust: String = format!("{role:?}")
+            .chars()
+            .flat_map(|c| {
+                let upper = c.is_ascii_uppercase();
+                [(upper).then_some('_'), Some(c.to_ascii_uppercase())]
+            })
+            .flatten()
+            .collect();
+        assert_eq!(rust.trim_start_matches('_'), *name);
+    }
+    assert!(AccessibleRole::from_raw(roles.len() as u8).is_none());
+
+    let node = fields("OxyAccessibleNode");
+    assert_eq!(
+        names(&node),
+        ["parent", "role", "state", "x", "y", "width", "height", "name", "value"]
+    );
+    let rust = [
+        offset_of!(OxyAccessibleNode, parent),
+        offset_of!(OxyAccessibleNode, role),
+        offset_of!(OxyAccessibleNode, state),
+        offset_of!(OxyAccessibleNode, x),
+        offset_of!(OxyAccessibleNode, y),
+        offset_of!(OxyAccessibleNode, width),
+        offset_of!(OxyAccessibleNode, height),
+        offset_of!(OxyAccessibleNode, name),
+        offset_of!(OxyAccessibleNode, value),
+    ];
+    assert_eq!(
+        c_offsets(&node),
+        (rust.to_vec(), size_of::<OxyAccessibleNode>())
+    );
 
     let event = fields("OxyEvent");
     let rust = [
@@ -361,6 +427,119 @@ fn a_session_through_the_c_abi() {
 }
 
 #[test]
+fn accessibility_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxy-client-ffi-a11y-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap())
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::AccessibilityCommit { .. });
+            requests.push(request);
+            if done {
+                break;
+            }
+        }
+        server
+            .send_event(&Event::AccessibilityAction {
+                surface: 1,
+                serial: 77,
+                index: 1,
+                action: AccessibleAction::Activate,
+            })
+            .unwrap();
+        requests
+    });
+
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let menu = CString::new("Message actions").unwrap();
+    let reply = CString::new("Reply").unwrap();
+    let node = |parent, role, state, name: &CString| OxyAccessibleNode {
+        parent,
+        role,
+        state,
+        x: 8,
+        y: 8,
+        width: 184,
+        height: 40,
+        name: name.as_ptr(),
+        value: std::ptr::null(),
+    };
+    let nodes = [
+        node(NO_ACCESSIBLE_PARENT, AccessibleRole::Menu as u8, 0, &menu),
+        node(
+            0,
+            AccessibleRole::MenuItem as u8,
+            AccessibleState::FOCUSED,
+            &reply,
+        ),
+    ];
+    // SAFETY: the client pointer comes from oxy_client_connect and is closed once; `nodes`
+    // and the strings they point to outlive the calls.
+    unsafe {
+        let client = oxy_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // An unknown role is refused before anything is sent.
+        let bad = [node(NO_ACCESSIBLE_PARENT, 200, 0, &menu)];
+        assert_eq!(
+            oxy_client_publish_accessibility(client, 1, bad.as_ptr(), 1),
+            OXY_ERROR
+        );
+        assert_eq!(
+            oxy_client_publish_accessibility(client, 1, nodes.as_ptr(), 2),
+            0
+        );
+        let mut event = OxyEvent::default();
+        let action = loop {
+            match oxy_client_poll(client, &mut event) {
+                OXY_POLL_EVENT => break event,
+                OXY_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        assert_eq!(
+            (
+                action.kind,
+                action.surface,
+                action.serial,
+                action.code,
+                action.detail
+            ),
+            (
+                OXY_EVENT_ACCESSIBILITY_ACTION,
+                1,
+                77,
+                1,
+                AccessibleAction::Activate as u32
+            )
+        );
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests[0],
+            Request::AccessibilityBegin {
+                surface: 1,
+                nodes: 2
+            }
+        );
+        assert!(requests.iter().any(|r| matches!(
+            r,
+            Request::AccessibleText { index: 1, text, .. } if text.as_str() == "Reply"
+        )));
+        oxy_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn null_arguments_fail_instead_of_crashing() {
     // SAFETY: NULL is accepted by every entry point and reported as an error.
     unsafe {
@@ -376,6 +555,14 @@ fn null_arguments_fail_instead_of_crashing() {
         );
         assert_eq!(
             oxy_client_reposition(std::ptr::null_mut(), 2, std::ptr::null()),
+            OXY_ERROR
+        );
+        assert_eq!(
+            oxy_client_publish_accessibility(std::ptr::null_mut(), 1, std::ptr::null(), 0),
+            OXY_ERROR
+        );
+        assert_eq!(
+            oxy_client_publish_accessibility(std::ptr::null_mut(), 1, std::ptr::null(), 3),
             OXY_ERROR
         );
         oxy_client_close(std::ptr::null_mut());

@@ -6,7 +6,9 @@
 
 use oxy_ipc::{create_shared_memory, write_at, Connection};
 use oxy_protocol::{
-    BufferLayout, ClientConnection, Event, Format, Request, Size, MIN_VERSION, VERSION,
+    AccessibleField, AccessibleRole, AccessibleState, BufferLayout, ClientConnection, Event,
+    Format, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
+    MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -184,6 +186,46 @@ impl Client {
         Ok(())
     }
 
+    /// Publishes a surface's accessibility snapshot (ADR 0003), replacing the previous one:
+    /// nodes in reading order, each parent before its children. Text longer than the protocol
+    /// allows is cut at a character boundary; more nodes than it allows is an error.
+    pub fn publish_accessibility(&self, surface: u32, nodes: &[Accessible<'_>]) -> io::Result<()> {
+        let count = u32::try_from(nodes.len())
+            .ok()
+            .filter(|count| *count <= MAX_ACCESSIBLE_NODES)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "too many accessible nodes")
+            })?;
+        self.send(&Request::AccessibilityBegin {
+            surface,
+            nodes: count,
+        })?;
+        for (index, node) in (0..).zip(nodes) {
+            self.send(&Request::AccessibleNode {
+                surface,
+                index,
+                parent: node.parent,
+                role: node.role,
+                state: node.state,
+                rect: node.rect,
+            })?;
+            for (field, text) in [
+                (AccessibleField::Name, node.name),
+                (AccessibleField::Value, node.value),
+            ] {
+                for text in TextChunk::split(truncate(text, MAX_ACCESSIBLE_TEXT_BYTES)) {
+                    self.send(&Request::AccessibleText {
+                        surface,
+                        index,
+                        field,
+                        text,
+                    })?;
+                }
+            }
+        }
+        self.send(&Request::AccessibilityCommit { surface })
+    }
+
     /// The compositor retires a destroyed buffer once no frame reads it.
     fn destroy_buffer(&mut self, id: u64) -> io::Result<()> {
         self.buffers.retain(|b| b.id != id);
@@ -234,4 +276,29 @@ impl AsFd for Client {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.connection.as_fd()
     }
+}
+
+/// One node of a surface's accessibility snapshot (`Client::publish_accessibility`).
+#[derive(Clone, Copy, Debug)]
+pub struct Accessible<'a> {
+    /// Index of the parent node, earlier in the list; `NO_ACCESSIBLE_PARENT` for a root.
+    pub parent: u32,
+    pub role: AccessibleRole,
+    pub state: AccessibleState,
+    /// Surface-local, logical.
+    pub rect: Rect,
+    pub name: &'a str,
+    pub value: &'a str,
+}
+
+/// The longest prefix of `text` within `limit` bytes that ends at a character boundary.
+fn truncate(text: &str, limit: usize) -> &str {
+    if text.len() <= limit {
+        return text;
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
