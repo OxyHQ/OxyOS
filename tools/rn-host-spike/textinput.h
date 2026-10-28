@@ -48,10 +48,11 @@ struct Placement {
 };
 
 // The editing a focused input receives, as Android's EditText does it: a caret and selection
-// (arrows, by word with Ctrl, Up and Down across lines, Home and End, Shift to extend, Ctrl+A,
-// the pointer), deletion by character or word, committed text that replaces the selection, an
-// input method's composition (preedit), which is part of the text while it lasts, and undo and
-// redo (Ctrl+Z, Ctrl+Shift+Z).
+// (arrows, by word with Ctrl, Up and Down across lines, Page Up and Page Down, Home and End,
+// Shift to extend, Ctrl+A, the pointer), deletion by character or word, committed text that
+// replaces the selection, an input method's composition (preedit), which is part of the text
+// while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), and text scrolled to keep the caret in
+// view.
 class TextEditing {
  public:
   // `locate` places a view: text, keys and pointer input reach the focused input only on its
@@ -116,8 +117,11 @@ class TextEditing {
   void keyPress(const std::string& key);
   // Moves the selection; `extend` keeps the anchor.
   void select(size_t caret, bool extend);
-  // Up or Down: the caret to the line above or below.
-  void vertical(bool up);
+  // Up or Down: the caret to the line above or below; with `page`, a content box's height away
+  // (Page Up, Page Down).
+  void vertical(bool up, bool page);
+  // Scrolls the focused input's text so that its caret is inside the content box.
+  void reveal();
   void selectionChanged();
   void submit();
 
@@ -136,6 +140,8 @@ class TextEditing {
   std::map<facebook::react::Tag, History> histories_;
   bool merging_ = false;
   std::optional<Snapshot> composeBefore_;
+  // How far each input's text is scrolled (TextInputEdit::scrolls); none if not at all.
+  std::map<facebook::react::Tag, facebook::react::Point> scrolls_;
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;

@@ -6,6 +6,7 @@
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
 //   {"t":…,"kind":"a11y_event","event":"focus","target":"open-menu","within":"open-menu"}
+//   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxy-offscreen stamps its steps with, so the
@@ -44,6 +45,8 @@ class Report {
   // An event delivered to React (touch, text, scroll, …) on `view`.
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
+  // How far a text input's text is now scrolled within it (textinput.h).
+  void textScroll(const facebook::react::ShadowView& view, float x, float y);
   // A popup's lifecycle.
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());

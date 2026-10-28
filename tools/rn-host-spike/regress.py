@@ -163,6 +163,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
         if offsets != expect["scroll_offset"]:
             fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "text_scroll" in expect:
+        # How far each text input's text was scrolled in this step, by testID: the last value.
+        scrolls = {}
+        for line in report:
+            if line["kind"] == "text_scroll" and start <= line["t"] <= end:
+                scrolls[line["target"]] = [line["x"], line["y"]]
+        if scrolls != expect["text_scroll"]:
+            fail(f"text scrolls {scrolls}, expected exactly {expect['text_scroll']}")
     if "a11y" in expect or "a11y_nodes" in expect or "a11y_order" in expect:
         # The latest accessibility tree of the window and of each open popup (accessibility.h).
         trees = {}

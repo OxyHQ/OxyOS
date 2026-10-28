@@ -85,6 +85,11 @@ void Report::input(const char* event, uint32_t surface, const folly::dynamic& ex
   write(std::move(line));
 }
 
+void Report::textScroll(const ShadowView& view, float x, float y) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "text_scroll")("target", name(view))("x", x)("y", y));
+}
+
 void Report::deliver(const std::string& event, uint32_t surface, const ShadowView& view, const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

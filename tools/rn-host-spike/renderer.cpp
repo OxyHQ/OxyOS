@@ -233,6 +233,7 @@ ParagraphLayout layoutInput(const AndroidTextInputProps& props, const Attributed
 // A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
 // fields do; its text is never drawn or reported.
 constexpr const char* kSecureBullet = "\u2022";
+constexpr float kCaretWidth = 1.5f;
 
 bool isContinuation(const std::string& text, size_t i) {
   return (static_cast<unsigned char>(text[i]) & 0xc0) == 0x80;
@@ -270,7 +271,8 @@ AttributedString inputText(const AndroidTextInputProps& props, const std::string
 // behind the text, the composition underlined, and the caret. A single-line input centres its
 // line vertically, as Android's EditText does.
 void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity,
-                   const TextInputEdit* edit, Painter& painter) {
+                   const TextInputEdit& editing, Painter& painter) {
+  const TextInputEdit* edit = view.tag == editing.tag ? &editing : nullptr;
   const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
   AttributedString text = data.attributedStringBox.getValue();
@@ -284,15 +286,26 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
   }
   auto content = view.layoutMetrics.getContentFrame();
   auto layout = layoutInput(*props, text, content.size.width);
-  float top = y + content.origin.y;
+  // Text scrolled within the input is cut at its content box on the axis it scrolls, as Android's
+  // TextView clips to its padding.
+  Point scroll{};
+  if (auto it = editing.scrolls.find(view.tag); it != editing.scrolls.end()) {
+    scroll = TextInputGeometry(view, value).clamp(it->second, content.size);
+  }
+  float top = y + content.origin.y - scroll.y;
   if (!props->multiline) top += (content.size.height - layout.height) / 2;
-  float left = x + content.origin.x;
+  float left = x + content.origin.x - scroll.x;
   Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
+  if (scroll.x != 0 || scroll.y != 0 || props->multiline) {
+    float boxLeft = x + content.origin.x, boxTop = y + content.origin.y;
+    inside = props->multiline ? inside.intersect(Clip{x, boxTop, x + w, boxTop + content.size.height})
+                              : inside.intersect(Clip{boxLeft, y, boxLeft + content.size.width, y + h});
+  }
   SharedColor textColor = props->getEffectiveTextAttributes(1).foregroundColor;
   std::optional<TextInputGeometry> geometry;
   if (edit) geometry.emplace(view, value);
-  // The geometry's positions are relative to the content box.
-  float boxTop = y + content.origin.y;
+  // The geometry's positions are relative to the content box, before scrolling.
+  float boxTop = y + content.origin.y - scroll.y;
 
   if (edit && edit->selectionStart != edit->selectionEnd) {
     Rgba selection = props->selectionColor ? rgba(props->selectionColor) : Rgba{0.25f, 0.45f, 1.0f, 0.3f};
@@ -317,7 +330,7 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
     auto caret = geometry->caret(edit->selectionEnd);
     Rgba color = props->cursorColor ? rgba(props->cursorColor) : ink;
     color.a *= opacity;
-    painter.fill(left + caret.x, boxTop + caret.top, 1.5f, caret.height, BorderRadii{}, color, inside);
+    painter.fill(left + caret.x, boxTop + caret.top, kCaretWidth, caret.height, BorderRadii{}, color, inside);
   }
 }
 
@@ -395,7 +408,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   bool visible = !clip.intersect(Clip{x, y, x + w, y + h}).empty() && opacity > 0.001f;
   if (name == "AndroidTextInput" && view.state) {
     if (painter.touches(x, y, w, h)) {
-      drawTextInput(view, x, y, w, h, clip, opacity, tag == edit.tag ? &edit : nullptr, painter);
+      drawTextInput(view, x, y, w, h, clip, opacity, edit, painter);
     }
     ++stats.texts;
     if (visible) {
@@ -538,6 +551,21 @@ size_t TextInputGeometry::offsetAt(float x, float y) const {
   size_t index = 0;
   while (index + 1 < lines_.size() && y >= lines_[index + 1].top) ++index;
   return offsetOnLine(index, x);
+}
+
+float TextInputGeometry::width() const {
+  float width = 0;
+  for (const auto& line : lines_) width = std::max(width, xOn(line, line.end));
+  return width;
+}
+
+float TextInputGeometry::height() const { return lines_.back().top + lines_.back().height; }
+
+Point TextInputGeometry::clamp(Point scroll, Size size) const {
+  bool multiline = props_->multiline;
+  float x = multiline ? 0 : std::clamp(scroll.x, 0.0f, std::max(0.0f, width() + kCaretWidth - size.width));
+  float y = multiline ? std::clamp(scroll.y, 0.0f, std::max(0.0f, height() - size.height)) : 0;
+  return Point{x, y};
 }
 
 std::vector<Rect> TextInputGeometry::span(size_t from, size_t to) const {

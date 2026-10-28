@@ -29,8 +29,11 @@ constexpr uint32_t kKeypadEnter = 96;
 constexpr uint32_t kA = 30, kZ = 44;
 constexpr uint32_t kLeftCtrl = 29, kRightCtrl = 97;
 constexpr uint32_t kLeftShift = 42, kRightShift = 54;
-constexpr uint32_t kHome = 102, kUp = 103, kLeft = 105, kRight = 106, kEnd = 107, kDown = 108, kDelete = 111;
+constexpr uint32_t kHome = 102, kUp = 103, kPageUp = 104, kLeft = 105, kRight = 106, kEnd = 107, kDown = 108,
+                   kPageDown = 109, kDelete = 111;
 constexpr uint32_t kPrimaryButton = 272;
+// As the renderer draws it.
+constexpr float kCaretWidth = 1.5f;
 
 using TextInputState = ConcreteState<AndroidTextInputState>;
 
@@ -197,7 +200,8 @@ TextInputEdit TextEditing::edit() const {
                        .selectionStart = std::min(anchor_, caret_),
                        .selectionEnd = std::max(anchor_, caret_),
                        .composeStart = composeStart_,
-                       .composeEnd = composeEnd_};
+                       .composeEnd = composeEnd_,
+                       .scrolls = scrolls_};
 }
 
 void TextEditing::focus(Tag tag) {
@@ -320,7 +324,10 @@ void TextEditing::key(uint32_t code) {
       return select(shift_ ? nextBoundary(text_, caret_) : selected ? to : nextBoundary(text_, caret_), shift_);
     case kUp:
     case kDown:
-      return vertical(code == kUp);
+      return vertical(code == kUp, false);
+    case kPageUp:
+    case kPageDown:
+      return vertical(code == kPageUp, true);
     case kHome:
     case kEnd: {
       // The caret's line's edge; with Ctrl, the text's.
@@ -362,8 +369,10 @@ std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, 
     return std::nullopt;
   }
   auto content = it->second.view.layoutMetrics.getContentFrame();
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
   return TextInputGeometry(it->second.view, text_)
-      .offsetAt(x - frame.origin.x - content.origin.x, y - frame.origin.y - content.origin.y);
+      .offsetAt(x - frame.origin.x - content.origin.x + scroll.x, y - frame.origin.y - content.origin.y + scroll.y);
 }
 
 void TextEditing::pointer(const OxyEvent& event) {
@@ -386,7 +395,7 @@ void TextEditing::pointer(const OxyEvent& event) {
   }
 }
 
-void TextEditing::vertical(bool up) {
+void TextEditing::vertical(bool up, bool page) {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;
   // As Android's Selection.moveUp and moveDown: without Shift a selection collapses to the side
@@ -402,11 +411,40 @@ void TextEditing::vertical(bool up) {
     target = 0;
   } else if (!up && caret.line + 1 >= geometry.lineCount()) {
     target = text_.size();
+  } else if (page) {
+    // A page is what the input shows: the line a content box's height away, or the text's edge.
+    float height = it->second.view.layoutMetrics.getContentFrame().size.height;
+    float y = caret.top + caret.height / 2 + (up ? -height : height);
+    target = y < 0 ? 0 : y >= geometry.height() ? text_.size() : geometry.offsetAt(column, y);
   } else {
     target = geometry.offsetOnLine(up ? caret.line - 1 : caret.line + 1, column);
   }
   select(target, shift_);
   column_ = column;
+}
+
+void TextEditing::reveal() {
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  // Android's TextView scrolls its text so that the caret stays inside its content box.
+  auto size = it->second.view.layoutMetrics.getContentFrame().size;
+  TextInputGeometry geometry(it->second.view, text_);
+  auto caret = geometry.caret(caret_);
+  auto kept = scrolls_.find(focused_);
+  Point was = kept != scrolls_.end() ? kept->second : Point{};
+  Point scroll = was;
+  if (caret.x < scroll.x) scroll.x = caret.x;
+  if (caret.x + kCaretWidth > scroll.x + size.width) scroll.x = caret.x + kCaretWidth - size.width;
+  if (caret.top < scroll.y) scroll.y = caret.top;
+  if (caret.top + caret.height > scroll.y + size.height) scroll.y = caret.top + caret.height - size.height;
+  scroll = geometry.clamp(scroll, size);
+  if (scroll == was) return;
+  if (scroll.x == 0 && scroll.y == 0) {
+    scrolls_.erase(focused_);
+  } else {
+    scrolls_[focused_] = scroll;
+  }
+  Report::get().textScroll(it->second.view, scroll.x, scroll.y);
 }
 
 void TextEditing::select(size_t caret, bool extend) {
@@ -423,6 +461,7 @@ void TextEditing::select(size_t caret, bool extend) {
 void TextEditing::selectionChanged() {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;
+  reveal();
   int start = utf16Length(text_, std::min(anchor_, caret_));
   int end = utf16Length(text_, std::max(anchor_, caret_));
   folly::dynamic selection = folly::dynamic::object("start", start)("end", end);
@@ -483,7 +522,11 @@ void TextEditing::update(std::string text, size_t anchor, size_t caret) {
     Report::get().deliver("change", 0, view, folly::dynamic::object("text", logged(text_))("eventCount", eventCount_));
     if (tracing()) std::cerr << "[text] " << focused_ << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
   }
-  if (moved) selectionChanged();
+  if (moved) {
+    selectionChanged();
+  } else {
+    reveal();
+  }
 }
 
 void TextEditing::record(const Snapshot& before, Edit kind) {

@@ -4,6 +4,7 @@
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -63,6 +64,9 @@ struct TextInputEdit {
   facebook::react::Tag tag = -1;
   size_t selectionStart = 0, selectionEnd = 0;  // the caret when equal
   size_t composeStart = 0, composeEnd = 0;      // the composition, underlined; empty if equal
+  // How far each input's text is scrolled within its content box: across for a single-line input,
+  // down for a multiline one. An input keeps it when it loses focus, as an EditText does.
+  std::map<facebook::react::Tag, facebook::react::Point> scrolls;
   bool operator==(const TextInputEdit&) const = default;
 };
 
@@ -88,6 +92,12 @@ class TextInputGeometry {
   // the character at which it wrapped, since the offset after it is drawn on the next line.
   std::pair<size_t, size_t> lineEdges(size_t line) const;
   size_t lineCount() const { return lines_.size(); }
+  // The text's extent: its widest line's right edge, and its last line's bottom.
+  float width() const;
+  float height() const;
+  // `scroll` kept within what the text's extent allows in a content box of `size`, with room
+  // for the caret at the end of a line.
+  facebook::react::Point clamp(facebook::react::Point scroll, facebook::react::Size size) const;
   // Rectangles covering [from, to): one per line it touches; a hard break inside it shows as a
   // little width past its line's end.
   std::vector<facebook::react::Rect> span(size_t from, size_t to) const;
