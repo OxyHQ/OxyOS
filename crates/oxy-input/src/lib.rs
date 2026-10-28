@@ -340,7 +340,11 @@ impl Input {
 
     /// What has happened since the last call; never blocks.
     pub fn dispatch(&mut self) -> io::Result<Vec<Action>> {
-        self.libinput.dispatch()?;
+        match self.libinput.dispatch() {
+            // A signal interrupted libinput's wait for its devices: what it has is still read.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            result => result?,
+        }
         let mut actions = Vec::new();
         while let Some(event) = self.libinput.next() {
             match event {

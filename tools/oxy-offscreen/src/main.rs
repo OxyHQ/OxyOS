@@ -563,14 +563,17 @@ impl Compositor {
                     PollFlags::IN,
                 ));
             }
-            poll(
-                &mut fds,
-                Some(&rustix::event::Timespec {
-                    tv_sec: 0,
-                    tv_nsec: 5_000_000,
-                }),
-            )?;
-            fds.iter().map(|fd| !fd.revents().is_empty()).collect()
+            let timeout = rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 5_000_000,
+            };
+            match poll(&mut fds, Some(&timeout)) {
+                Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
+                // A signal (the terminal's switch requests) interrupts poll, which is never
+                // restarted: nothing was ready this turn.
+                Err(rustix::io::Errno::INTR) => vec![false; fds.len()],
+                Err(error) => return Err(error.into()),
+            }
         };
         if readable[0] {
             self.accept(listener)?;
