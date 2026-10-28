@@ -1,4 +1,0 @@
-#!/bin/sh
-set -e
-# Regenerate grub.cfg to include GRUB_INIT_TUNE
-update-grub 2>/dev/null || true

@@ -1,73 +1,37 @@
 # OxyOS
 
-The new native platform is being built in the root Rust workspace: a custom display protocol/compositor foundation for Linux and a planned native BloomUI host, without X11, XWayland or Wayland. The current foundation is headless and does not yet render Bloom or boot a graphical session.
+OxyOS is being rebuilt as a native Linux platform: a custom Oxy display compositor and protocol with BloomUI applications, and no X11, XWayland or Wayland in the target session.
+
+**Status:** the root Rust workspace is a headless foundation. It draws no pixels, does not render Bloom and does not boot a graphical session. No OxyOS image is built or published from this repository until a native session and its boot acceptance tests exist.
 
 - [Architecture and boundaries](docs/native-architecture.mdx)
 - [BloomUI source audit and integration plan](docs/bloom-native-audit.mdx)
 - [Build and verify the foundation](docs/native-foundation.mdx)
-- [Retired-stack cleanup assignment #27](https://github.com/OxyHQ/OxyOS/issues/27)
+- [Base image configuration](docs/iso-build.mdx): the Debian live-build config, console only
+- [Retired desktop stack](docs/retired-desktop-stack.mdx): the removed React/Tauri shell and labwc/greetd session
 
-`shell/`, the existing ISO configuration, and the instructions below describe the superseded prototype pending that cleanup. They are not the implementation or a fallback for the new architecture.
+## Layout
 
----
+| Path | Contents |
+| --- | --- |
+| `Cargo.toml`, `crates/`, `tools/` | Native foundation: `oxy-protocol`, `oxy-compositor-core`, `oxy-platform-probe` |
+| `config/` | live-build configuration of the Debian Trixie base system |
+| `scripts/` | `check-native-boundary.py` (Cargo graph), `check-image-config.py` (image config and CI) |
+| `docs/` | Architecture, audits and guides; published at https://oxy.so/os |
 
-## Previous prototype
-# OxyOS - A lightweight desktop Linux project.
+## Checks
 
-OxyOS is a lightweight, elegant desktop Linux distribution built on Debian.
-
-Over the years, under-the-hood updates have included systemd transitions, display/login stack changes, and GTK updates while keeping a fast-and-minimal experience as intact as possible.
-
-Official website: https://oxy.so/os — ISO downloads are listed at https://oxy.so/os/downloads.
-
-Lastly, we'd like to thank Philip for all his hard work through the years, the legacy he's created, and the bar he's set for sleek high-performance distros.
-
-### The ISO
-
-In this repository, you'll find the sources used to generate the actual system image, with installer, along with some configurations.
-
-### Codebase Layout
-
-This repository is the live-build configuration for assembling OxyOS installation media, plus the desktop shell.
-
-- `shell/` - OxyOS desktop shell (React + Tauri v2, native multi-window architecture). See [shell/README.md](shell/README.md).
-- `config/package-lists/` - package selections installed into the live system.
-- `config/includes.chroot_after_packages/` - files copied into the target root filesystem after package installation.
-- `config/includes.installer/` - installer-time assets and configuration.
-- `config/bootloaders/` - boot splash and bootloader-specific resources.
-- `config/hooks/` - live-build hook scripts used during image creation.
-- `config/preseed/` - Debian installer automation defaults.
-- `config/archives/` - apt source list fragments used during build/install stages.
-
-Build internals use `oxyos` identifiers throughout.
-
-### Building
-
-While you can certainly build the ISO natively, it's easiest and very tidy to use Docker, as below.
-
-```
-$ docker run --privileged --cap-add=ALL -v /proc:/proc -v /sys:/sys -v $PWD:/build -w /build -it --rm debian:trixie /bin/sh -c 'apt-get update && apt-get install -y live-build && mkdir -p .build && touch .build/config && lb build'
+```sh
+cargo fmt --all --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+python3 scripts/check-native-boundary.py
+cargo run --locked -p oxy-platform-probe
+python3 scripts/check-image-config.py
 ```
 
-If you don't want to run Docker, you can run the same commands that get passed to the shell (as root, or with sudo):
+## Acknowledgements
 
-```
-# apt-get update && apt-get install -y live-build && mkdir .build && touch .build/config && lb build
-```
+The original live-build configuration carried this thanks, kept here: we'd like to thank Philip for all his hard work through the years, the legacy he's created, and the bar he's set for sleek high-performance distros.
 
-### OxyOS Project Sources
-
-The OxyOS project is split across several repositories. The current public source list is:
-
-- [OxyOS-menu](https://github.com/OxyHQ/OxyOS-menu) - Menu tooling for OxyOS (Python, updated Aug 22, 2025)
-- [OxyOS-apps](https://github.com/OxyHQ/OxyOS-apps) - OxyOS apps package sources (Python, MIT License, updated Aug 22, 2025)
-- [OxyOS-welcome](https://github.com/OxyHQ/OxyOS-welcome) - Optional post-installation script for OxyOS (Shell, updated Aug 22, 2025)
-- [OxyOS-wallpapers](https://github.com/OxyHQ/OxyOS-wallpapers) - A selection of wallpapers (updated Aug 22, 2025)
-- [OxyOS-ui-theme](https://github.com/OxyHQ/OxyOS-ui-theme) - OxyOS user interface theme assets (CSS, updated Aug 22, 2025)
-- [OxyOS-pipemenus](https://github.com/OxyHQ/OxyOS-pipemenus) - Openbox pipemenus for OxyOS (Shell, updated Aug 22, 2025)
-- [OxyOS-metapackage](https://github.com/OxyHQ/OxyOS-metapackage) - Basic metapackage for OxyOS (updated Aug 22, 2025)
-- [OxyOS-lxdm-theme](https://github.com/OxyHQ/OxyOS-lxdm-theme) - OxyOS LXDM theme resources (CSS, updated Aug 22, 2025)
-- [OxyOS-icon-theme](https://github.com/OxyHQ/OxyOS-icon-theme) - Default icon themes for OxyOS (updated Aug 22, 2025)
-- [OxyOS-exit](https://github.com/OxyHQ/OxyOS-exit) - Script prompt for system power-state options (Python, updated Aug 22, 2025)
-- [OxyOS-configs](https://github.com/OxyHQ/OxyOS-configs) - Various configuration files for use with OxyOS (Shell, updated Aug 22, 2025)
-- [OxyOS](https://github.com/OxyHQ/OxyOS) - Main OxyOS build and integration repository (Shell, updated Aug 22, 2025)
+The repository has no licence file yet. Its licence and asset provenance must be resolved before any release.

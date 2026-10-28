@@ -1,0 +1,8 @@
+# Keep the retired display stack out of the image even when a dependency
+# would pull it in: a hard dependency then fails the build instead of shipping
+# it silently. xauth is only an openssh-client Recommends (X11 forwarding).
+# Build-time only; there is no matching .pref.binary, so this does not pin the
+# installed system's apt.
+Package: xserver-xorg* xwayland labwc greetd lxdm xauth x11-common
+Pin: release *
+Pin-Priority: -1

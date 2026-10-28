@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of `shell/` and `config/`. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies metadata and ownership state; it draws no pixels.
+The root Rust workspace is independent of the `config/` image configuration. It has no third-party Cargo dependencies and does not load a display toolkit. It currently verifies metadata and ownership state; it draws no pixels.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -65,4 +65,4 @@ The caller must establish GPU readiness before begin and actual output completio
 
 Not implemented: DRM/KMS, Vulkan, buffer FD import, input, text, Bloom host, graphics, secure session, bootable image or hardware performance evidence. No empty renderer/service crates or success-returning stubs are included.
 
-Next gate: implement and measure the first hardware render/import/present path and the Bloom host feasibility sample described in the architecture and audit documents. Cleanup remains in [#27](https://github.com/OxyHQ/OxyOS/issues/27); it must not turn this probe into the session executable.
+Next gate: implement and measure the first hardware render/import/present path and the Bloom host feasibility sample described in the architecture and audit documents. The image must not turn this probe into the session executable ([Base image configuration](./iso-build)).

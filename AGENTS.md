@@ -2,68 +2,22 @@
 
 > Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
 
-Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom Oxy compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the new foundation; it currently draws no pixels. Never install the headless probe as a compositor/session or claim it renders Bloom.
+Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom Oxy compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the foundation; it currently draws no pixels. Never install the headless probe as a compositor/session or claim it renders Bloom.
 
-Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded. Retired-stack removal belongs to #27; keep its scope separate from new foundation work.
+Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded. Website: https://oxy.so/os (served by OxyHQ/website).
 
-Native checks: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxy-platform-probe`. Use `rust-toolchain.toml`; the boundary script audits Cargo only, not the ISO. Root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
+## Checks
 
-The following layout/build notes describe the retired prototype pending #27. Website: https://oxy.so/os (served by OxyHQ/website).
+Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxy-platform-probe`. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 
-## Layout
+Image: `python3 scripts/check-image-config.py`. The boundary script audits Cargo only; the image script audits `config/` and workflows only. Neither is a built-image or dependency-closure audit.
 
-```
-config/
-  package-lists/              # apt packages installed into the live system
-  includes.chroot_after_packages/  # files copied into target rootfs post-install
-  includes.installer/         # installer-time assets
-  bootloaders/                # boot splash and bootloader resources
-  hooks/                      # live-build hook scripts
-  preseed/                    # Debian installer automation defaults
-  archives/                   # apt source list fragments
-shell/                        # OxyOS desktop shell (React + Tauri v2, see below)
-```
+## Image rules (`config/`, see `docs/iso-build.mdx`)
 
-## Building the ISO
-
-Requires Docker (recommended — keeps the build environment clean):
-
-```bash
-docker run --privileged --cap-add=ALL \
-  -v /proc:/proc -v /sys:/sys \
-  -v $PWD:/build -w /build \
-  -it --rm debian:trixie \
-  /bin/sh -c 'apt-get update && apt-get install -y live-build && mkdir -p .build && touch .build/config && lb build'
-```
-
-Or natively as root: `apt-get install live-build && lb build`
-
-## Desktop shell (`shell/`)
-
-Separate React + Vite + Tauri v2 app. Stack: React 19, Vite 8, Tailwind v4, xterm.js (terminal widget), Zustand. Multi-window via Tauri native APIs.
-
-```bash
-cd shell
-bun install
-bun run dev          # web preview (Vite only)
-bun run build        # Tauri desktop build
-bun run build:web    # web-only build
-bun run lint         # Biome check (format + lint) + ESLint; CI runs `bunx biome ci .` and `bun run lint:react`
-bun run lint:react   # ESLint: React Compiler rules only
-bun run lint:fix     # Biome check --write (safe fixes + format)
-bun run format       # Biome format --write
-```
-
-Biome (pinned `@biomejs/biome` in `shell/package.json`) is the formatter and main linter; config is
-`shell/biome.json`. Its scope is the shell's TS/TSX/CSS/JSON only: `src-tauri/` (Rust side and
-Tauri JSON), SVG assets and everything outside `shell/` (notably `config/`, which is copied into
-the ISO chroot byte for byte) are deliberately not covered. Do not add Prettier. ESLint
-(`shell/eslint.config.js`) runs ONLY the React Compiler rules of `eslint-plugin-react-hooks` 7,
-which Biome has no equivalent for; never add a rule there that Biome can enforce.
-
-## Notes
-
-- The ISO build is NOT a bun/Node project — `live-build` is a Debian tool. No JS in the build pipeline.
-- `shell/` is self-contained; it has its own `bun.lock` and is NOT part of a bun workspace.
-- Build identifiers use the `oxyos` prefix throughout live-build config.
-- Alia uses `@alia.onl/sdk/text` under the shared `OxyProvider`; the shell owns window chrome only. Never construct or persist a bearer token or conversation stream in shell code.
+- `config/` is a live-build config for a console-only Debian Trixie base. It is not the OxyOS desktop and is never published as one.
+- No workflow builds or publishes an ISO. Image publication returns only with a real compositor/runtime, boot acceptance tests and a final package-contents audit. No fake binaries, placeholder login, missing-binary success, fallback session or compatibility launcher.
+- Never add X.org, XWayland, Wayland compositors, greeters, GTK/Qt/WebKit runtimes or desktop apps to the manifest, and never export `DISPLAY`/`WAYLAND_DISPLAY`/`GDK_BACKEND`/`QT_QPA_PLATFORM` from session or build paths. The retired React/Tauri shell is gone; recover history from `6c35e60`, do not reintroduce it (`docs/retired-desktop-stack.mdx`).
+- `package-lists/live.list.chroot` is the one package manifest. PipeWire is the one audio stack.
+- `config/oxyos.conf` and `includes.chroot_after_packages/etc/oxyos/oxyos.conf` stay identical. Build identifiers use the `oxyos` prefix.
+- Hooks are POSIX `sh`; no device-group grants or pre-created accounts (live-config owns the live user).
+- The ISO build is not a bun/Node project; there is no JS in the build pipeline.

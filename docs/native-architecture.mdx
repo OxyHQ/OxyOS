@@ -8,7 +8,7 @@ order: 1
 
 Decision: build an Oxy display compositor, display protocol and application runtime on Linux. The target graphical session has no X11, XWayland or Wayland dependency. BloomUI remains the shared application interface and layout system. Do not introduce Petal or copy Bloom's layout engine into this repository.
 
-This decision replaces the Wayland/Petal portions of issue #9. It does not claim that a graphical session exists. Cleanup of the old desktop and image paths is assigned separately in [#27](https://github.com/OxyHQ/OxyOS/issues/27).
+This decision replaces the Wayland/Petal portions of issue #9. It does not claim that a graphical session exists. The old desktop and image paths were removed in [#27](https://github.com/OxyHQ/OxyOS/issues/27); see [Retired desktop stack](./retired-desktop-stack).
 
 ## Responsibilities
 
@@ -70,7 +70,7 @@ The current core models a bounded single-surface/single-output state machine. It
 
 Ordinary clients receive no global window list, screenshots, input injection or lock capability by default. Shell and authentication roles are granted by the session authority, not protocol labels. Validate messages according to connection state and bound resources independently for each peer.
 
-The lock state belongs to the compositor/session authority. Cover all outputs and block delivery of protected content/input before acknowledging lock. A failed/crashed UI must leave the session protected. Authentication success arrives through a narrow trusted path. Do not ship the current web password screen as a lock implementation.
+The lock state belongs to the compositor/session authority. Cover all outputs and block delivery of protected content/input before acknowledging lock. A failed/crashed UI must leave the session protected. Authentication success arrives through a narrow trusted path. Do not revive the retired web password screen as a lock implementation.
 
 Keep the compositor outside root where device/session delegation allows. Privileged services remain independently authorized. A shell restart must not terminate clients; a compositor crash may terminate the session and needs a separate recovery design. Never promise transparent recovery from both.
 
@@ -95,7 +95,7 @@ Graphics/runtime work should prove a small vertical slice before adding shell fe
 
 ## Image and release policy
 
-The new foundation is not a bootable OS. Existing image definitions still describe the retired labwc/Tauri stack until #27 lands. Do not ship that stack as the implementation of this architecture or install the probe as a session binary. Cleanup should retire old publication paths before destructive image rewiring. Build eventual system binaries against the target userspace, validate dynamic libraries and package contents, then boot-test before release.
+The new foundation is not a bootable OS. The labwc/Tauri stack and its ISO publication were removed in #27; `config/` now builds a console-only Debian base and no workflow publishes an image ([Base image configuration](./iso-build)). Do not install the probe as a session binary. Build eventual system binaries against the target userspace, validate dynamic libraries and package contents, then boot-test before release.
 
 A native update/recovery ADR, signing/provenance and source-license/asset review remain release prerequisites. Do not infer that the root workspace creates an atomic updater, sandbox or secure session.
 
