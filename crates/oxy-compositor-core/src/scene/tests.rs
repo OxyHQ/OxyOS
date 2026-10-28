@@ -2089,3 +2089,73 @@ fn an_in_flight_buffer_of_a_destroyed_surface_cannot_back_another_surface() {
         .events_for(APP)
         .contains(&Event::Released { surface: 1, buffer }));
 }
+
+#[test]
+fn scrolls_go_to_the_surface_under_the_pointer_without_activating_it() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    // Both are centered; the smaller one, on top, covers only the middle of the window.
+    let other = h.toplevel(OTHER, 1, 200, 100);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.pump();
+    h.clear_log();
+    let focus = h.scene.focus();
+    h.scene.pointer_scroll(0, -256 * 40);
+    let events = h.pump();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        events[0],
+        (
+            APP,
+            Event::Scroll {
+                surface: 1,
+                dx: 0,
+                dy: -10240,
+                ..
+            }
+        )
+    ));
+    // Scrolling is not a press: focus and stacking are unchanged.
+    assert_eq!(h.scene.focus(), focus);
+
+    // Over a popup grab, scrolls outside the grab reach nobody.
+    let menu_popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 4, 4), 50, 50),
+    );
+    let o = h.rect(other);
+    h.scene.pointer_motion(o.x + 10, o.y + 10);
+    h.pump();
+    h.scene.pointer_scroll(0, 256);
+    assert!(!h
+        .pump()
+        .iter()
+        .any(|(_, e)| matches!(e, Event::Scroll { .. })));
+    assert_eq!(h.scene.grab_chain(), &[menu_popup]);
+}
+
+#[test]
+fn text_goes_to_the_focused_surface_in_whole_character_chunks() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    h.pump();
+    let text = format!("{}é!", "a".repeat(31));
+    h.scene.text(&text);
+    let chunks: Vec<String> = h
+        .pump()
+        .into_iter()
+        .filter_map(|(client, event)| match event {
+            Event::Text {
+                surface: 1, text, ..
+            } if client == APP => Some(text.as_str().to_string()),
+            _ => None,
+        })
+        .collect();
+    // 31 bytes, then the two-byte character does not fit the 32-byte chunk.
+    assert_eq!(chunks, [&text[..31], &text[31..]]);
+    assert_eq!(chunks.concat(), text);
+}

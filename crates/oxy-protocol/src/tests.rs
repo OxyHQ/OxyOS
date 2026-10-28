@@ -130,6 +130,17 @@ fn events() -> Vec<Event> {
             timestamp_ns: 99,
             clock: Clock::Synthetic,
         },
+        Event::Scroll {
+            surface: 1,
+            serial: 7,
+            dx: 0,
+            dy: -256 * 40,
+        },
+        Event::Text {
+            surface: 1,
+            serial: 8,
+            text: TextChunk::new("héllo").unwrap(),
+        },
         Event::Released {
             surface: 1,
             buffer: 2,
@@ -456,4 +467,45 @@ fn buffer_layouts_are_checked_without_overflow() {
     }
     .carries_fd());
     assert!(!Request::Goodbye {}.carries_fd());
+}
+
+#[test]
+fn text_chunks_hold_whole_characters_of_valid_utf8() {
+    assert!(TextChunk::new("").is_none());
+    assert!(TextChunk::new(&"a".repeat(TEXT_CHUNK_BYTES + 1)).is_none());
+    // Splitting never cuts a character: 11 three-byte characters are 33 bytes.
+    let text = "€".repeat(11);
+    let chunks = TextChunk::split(&text);
+    assert_eq!(
+        chunks.iter().map(|c| c.as_str().len()).collect::<Vec<_>>(),
+        [30, 3]
+    );
+    assert_eq!(chunks.iter().map(|c| c.as_str()).collect::<String>(), text);
+
+    let encoded = |text: TextChunk| {
+        let mut out = Vec::new();
+        write_event(
+            &mut out,
+            &Event::Text {
+                surface: 1,
+                serial: 1,
+                text,
+            },
+        )
+        .unwrap();
+        out
+    };
+    let valid = encoded(TextChunk::new("ok").unwrap());
+    // Text starts after the length prefix, opcode, surface and serial.
+    let text_at = 4 + 1 + 4 + 8;
+    for (offset, value, reason) in [
+        (text_at, 0, "zero length"),
+        (text_at, 33, "length beyond the chunk"),
+        (text_at + 1, 0xff, "invalid UTF-8"),
+        (text_at + 1 + 2, b'x', "nonzero padding"),
+    ] {
+        let mut packet = valid.clone();
+        packet[offset] = value;
+        assert!(read_event(&mut Cursor::new(packet)).is_err(), "{reason}");
+    }
 }

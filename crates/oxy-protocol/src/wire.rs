@@ -206,6 +206,78 @@ impl Wire for Rect {
     }
 }
 
+/// Bytes of UTF-8 one `Text` event carries.
+pub const TEXT_CHUNK_BYTES: usize = 32;
+
+/// Committed text: 1 to 32 bytes of UTF-8 that never split a character. Longer text is sent as
+/// consecutive chunks.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TextChunk {
+    length: u8,
+    bytes: [u8; TEXT_CHUNK_BYTES],
+}
+
+impl TextChunk {
+    /// The chunk holding `text`, if it is 1 to 32 bytes long.
+    pub fn new(text: &str) -> Option<Self> {
+        if text.is_empty() || text.len() > TEXT_CHUNK_BYTES {
+            return None;
+        }
+        let mut bytes = [0; TEXT_CHUNK_BYTES];
+        bytes[..text.len()].copy_from_slice(text.as_bytes());
+        Some(Self {
+            length: text.len() as u8,
+            bytes,
+        })
+    }
+
+    /// Splits `text` into chunks at character boundaries.
+    pub fn split(text: &str) -> Vec<Self> {
+        let mut chunks = Vec::new();
+        let mut rest = text;
+        while !rest.is_empty() {
+            let mut end = rest.len().min(TEXT_CHUNK_BYTES);
+            while !rest.is_char_boundary(end) {
+                end -= 1;
+            }
+            chunks.push(Self::new(&rest[..end]).expect("1 to 32 bytes"));
+            rest = &rest[end..];
+        }
+        chunks
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..usize::from(self.length)]).expect("validated UTF-8")
+    }
+}
+
+impl std::fmt::Debug for TextChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(f)
+    }
+}
+
+impl Wire for TextChunk {
+    const SIZE: usize = 1 + TEXT_CHUNK_BYTES;
+    fn put(&self, out: &mut Vec<u8>) {
+        out.push(self.length);
+        out.extend(self.bytes);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        let length = usize::from(bytes[0]);
+        if !(1..=TEXT_CHUNK_BYTES).contains(&length) {
+            return Err(invalid("text length out of range"));
+        }
+        let text = &bytes[1..=length];
+        // Unused bytes are zero, so every chunk has one encoding.
+        if bytes[1 + length..].iter().any(|&b| b != 0) {
+            return Err(invalid("text padding is not zero"));
+        }
+        let text = std::str::from_utf8(text).map_err(|_| invalid("text is not UTF-8"))?;
+        Ok(Self::new(text).expect("checked length"))
+    }
+}
+
 /// Logical or physical size; both dimensions within 1..=MAX_DIMENSION.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Size {

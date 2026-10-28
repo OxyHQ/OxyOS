@@ -1,10 +1,13 @@
 #include "input.h"
 
+#include <react/renderer/components/scrollview/ScrollViewEventEmitter.h>
+#include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/view/TouchEventEmitter.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteState.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -68,6 +71,21 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
   return inside && mode != PointerEventsMode::BoxNone ? tag : -1;
 }
 
+// The chain of views from the root to `tag`.
+std::vector<Tag> ancestry(const ViewTree& tree, Tag at, Tag tag) {
+  if (at == tag) return {tag};
+  auto it = tree.views().find(at);
+  if (it == tree.views().end()) return {};
+  for (Tag child : it->second.children) {
+    auto path = ancestry(tree, child, tag);
+    if (!path.empty()) {
+      path.insert(path.begin(), at);
+      return path;
+    }
+  }
+  return {};
+}
+
 }  // namespace
 
 Tag hitTest(const ViewTree& tree, float x, float y) {
@@ -75,9 +93,12 @@ Tag hitTest(const ViewTree& tree, float x, float y) {
 }
 
 void PointerInput::handle(const OxyEvent& event) {
+  // Protocol positions and distances are in 1/256 logical pixels.
+  if (event.kind == OXY_EVENT_SCROLL) return scroll(event.x / 256.0f, event.y / 256.0f);
   if (event.kind != OXY_EVENT_POINTER) return;
-  // Protocol positions are in 1/256 logical pixels.
   float x = event.x / 256.0f, y = event.y / 256.0f;
+  x_ = x;
+  y_ = y;
   switch (event.detail) {
     case OXY_POINTER_PRESS:
       if (event.code == kPrimaryButton && !down_) {
@@ -106,6 +127,44 @@ void PointerInput::handle(const OxyEvent& event) {
       break;
     default:
       break;
+  }
+}
+
+void PointerInput::scroll(float dx, float dy) {
+  Tag target = hitTest(tree_, x_, y_);
+  if (target < 0) return;
+  auto path = ancestry(tree_, tree_.root(), target);
+  // The innermost scroll view that can still move in the scroll's direction takes it, as nested
+  // scroll views do on Android.
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    const auto& view = tree_.views().at(*at).view;
+    if (std::string(view.componentName ? view.componentName : "") != "ScrollView" || !view.state) continue;
+    auto props = std::dynamic_pointer_cast<const ScrollViewProps>(view.props);
+    if (props && !props->scrollEnabled) continue;
+    const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);
+    Size viewport = view.layoutMetrics.frame.size;
+    Size content = state->getData().getContentSize();
+    Point current = offsets_.count(*at) ? offsets_[*at] : state->getData().contentOffset;
+    Point next{std::clamp(current.x + dx, 0.0f, std::max(0.0f, content.width - viewport.width)),
+               std::clamp(current.y + dy, 0.0f, std::max(0.0f, content.height - viewport.height))};
+    if (next == current) continue;
+    offsets_[*at] = next;
+    auto data = state->getData();
+    data.contentOffset = next;
+    state->updateState(std::move(data));
+    if (auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter)) {
+      ScrollEvent event;
+      event.contentSize = content;
+      event.contentOffset = next;
+      event.containerSize = viewport;
+      event.zoomScale = 1;
+      emitter->onScroll(event);
+    }
+    if (std::getenv("OXY_HOST_TRACE")) {
+      std::cerr << "[input] scroll view " << *at << " to " << next.x << "," << next.y << " of " << content.width
+                << "x" << content.height << "\n";
+    }
+    return;
   }
 }
 

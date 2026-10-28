@@ -6,7 +6,9 @@
 //! each with the caller contract it relies on.
 
 use oxy_client::{Client, Poll};
-use oxy_protocol::{Adjust, Anchor, Event, Gravity, Positioner, Rect, Request, Size};
+use oxy_protocol::{
+    Adjust, Anchor, Event, Gravity, Positioner, Rect, Request, Size, TEXT_CHUNK_BYTES,
+};
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
@@ -24,6 +26,8 @@ pub const OXY_EVENT_FOCUS: u32 = 6;
 pub const OXY_EVENT_TOUCH: u32 = 7;
 pub const OXY_EVENT_FEEDBACK: u32 = 8;
 pub const OXY_EVENT_RELEASED: u32 = 9;
+pub const OXY_EVENT_SCROLL: u32 = 11;
+pub const OXY_EVENT_TEXT: u32 = 12;
 
 /// Results of `oxy_client_poll`.
 pub const OXY_POLL_EVENT: c_int = 1;
@@ -33,7 +37,7 @@ pub const OXY_ERROR: c_int = -2;
 
 /// One compositor event. Which fields are meaningful depends on `kind`; see `oxy_client.h`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OxyEvent {
     pub kind: u32,
     pub surface: u32,
@@ -46,6 +50,27 @@ pub struct OxyEvent {
     pub detail: u32,
     pub code: u32,
     pub flag: u8,
+    /// A text event's UTF-8, NUL-terminated.
+    pub text: [u8; TEXT_CHUNK_BYTES + 1],
+}
+
+impl Default for OxyEvent {
+    fn default() -> Self {
+        Self {
+            kind: 0,
+            surface: 0,
+            serial: 0,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            scale_120: 0,
+            detail: 0,
+            code: 0,
+            flag: 0,
+            text: [0; TEXT_CHUNK_BYTES + 1],
+        }
+    }
 }
 
 /// A popup's placement, as the protocol's `Positioner`.
@@ -200,6 +225,35 @@ pub fn convert(event: &Event) -> Option<OxyEvent> {
                 kind: OXY_EVENT_RELEASED,
                 surface,
                 serial: buffer,
+                ..out
+            }
+        }
+        Event::Scroll {
+            surface,
+            serial,
+            dx,
+            dy,
+        } => {
+            out = OxyEvent {
+                kind: OXY_EVENT_SCROLL,
+                surface,
+                serial,
+                x: dx,
+                y: dy,
+                ..out
+            }
+        }
+        Event::Text {
+            surface,
+            serial,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyEvent {
+                kind: OXY_EVENT_TEXT,
+                surface,
+                serial,
                 ..out
             }
         }

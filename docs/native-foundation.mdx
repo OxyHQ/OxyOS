@@ -51,7 +51,11 @@ Tests cover: every message round trip; every truncation; length mismatches; 200,
 
 Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width little-endian fields. Payload length is 1–64 bytes. Requests (client → compositor) and events (compositor → client) have separate opcode spaces and decoders. The table is generated from `crates/oxy-protocol/src/schema.rs`; a test fails if this table and the schema differ.
 
-Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; booleans are 0 or 1; enums and adjustment flags reject unknown values; anchor rectangles have a positive size; surface id 0 is invalid. Encoders run the decoder's validation, so a peer never emits what it would reject. Pointer and touch coordinates are surface-local logical pixels in 24.8 fixed point. Scale is in 120ths.
+Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; booleans are 0 or 1; enums and adjustment flags reject unknown values; anchor rectangles have a positive size; surface id 0 is invalid. Encoders run the decoder's validation, so a peer never emits what it would reject. Pointer and touch coordinates, and scroll distances, are surface-local logical pixels in 24.8 fixed point. Scale is in 120ths.
+
+Input semantics:
+- **Scroll** goes to the surface under the pointer, like motion. It is not a press: it authorizes no popup grab and activates nothing. Positive distances move the view right and down.
+- **Text** carries committed text for the focused surface: 1 to 32 bytes of UTF-8 that never split a character, with longer text arriving as consecutive chunks. The compositor turns keys into text through its keymap (and, later, an input method), so clients never translate key codes. `Key` stays for layout-independent keys such as Backspace, Enter, Tab, Escape and the arrows.
 
 | Direction | Opcode | Message | Payload bytes |
 | --- | --- | --- | --- |
@@ -81,10 +85,12 @@ Field rules: sizes are 1–16,384; coordinates and offsets are within ±2^20; bo
 | Event | 8 | Feedback | 23 |
 | Event | 9 | Released | 13 |
 | Event | 10 | ProtocolError | 3 |
+| Event | 11 | Scroll | 21 |
+| Event | 12 | Text | 46 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels, file descriptors or privileges.
 
-Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, keyboard keymaps, IME, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
+Not yet in the contract: DMA-BUF import, modifiers, GPU fences, per-consumer release, the compositor's keymap and IME (offscreen sends text directly), composition (preedit) text, clipboard, accessibility bridging and output enumeration events. Do not freeze version 2 as an SDK ABI.
 
 ## Transport and buffers
 
@@ -96,7 +102,7 @@ Shared-memory buffers must be regular files sealed against shrinking (`memfd` wi
 
 `oxy-offscreen` runs the protocol, transport and scene with real processes and memory: a `poll` loop that never blocks on a client, bounded per-client outboxes (1,024 unread events disconnect the client), CPU composition of the in-flight frame (`Scene::frame_list`) and recomposition when the scene changes. A scripted director injects synthetic input: one client opens a context menu larger than its window; the fixture samples composed pixels beyond all four window edges over the other client, presses a menu row outside the window, presses outside the menu, and checks that the other client received no press, that no menu pixels remain, and that scene resources and the process's open descriptors return to their starting counts. It writes four PNG snapshots.
 
-`oxy-offscreen --launch [--press X,Y]... -- COMMAND` launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the window's frames stay unchanged for 750 ms, then presses each window-local point with the left button. A press passes only when the application answers with a new frame that changes the window's pixels. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
+`oxy-offscreen --launch [--press X,Y | --scroll X,Y,DY | --type TEXT | --key CODE]... -- COMMAND` launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the window's frames stay unchanged for 750 ms. It then runs each step in order: a left-button press at a window-local point, a scroll with the pointer at a point, committed text, or a key press and release. A step passes only when the application answers with a new frame that changes the window's pixels. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
 
 ```json
 {"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}

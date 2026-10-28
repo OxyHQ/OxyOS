@@ -13,6 +13,12 @@ const MESSAGES = [
   { id: 'b', title: 'Popups beyond windows', body: 'The compositor places menus outside the app.' },
   { id: 'c', title: 'No X11 or Wayland', body: 'A custom display protocol carries every frame.' },
   { id: 'd', title: 'One React tree', body: 'Panels share providers, theme and state.' },
+  { id: 'e', title: 'Native scrolling', body: 'The host owns each scroll offset, as Android does.' },
+  { id: 'f', title: 'Touch events', body: 'Pointer presses reach Pressability unchanged.' },
+  { id: 'g', title: 'Shared memory', body: 'Frames travel in sealed buffers, read with pread.' },
+  { id: 'h', title: 'One frame in flight', body: 'The host waits for feedback before drawing again.' },
+  { id: 'i', title: 'Worklets', body: 'Animations run on the UI runtime, committed by Fabric.' },
+  { id: 'j', title: 'Last message', body: 'Scrolled into view by the wheel.' },
 ];
 
 function Inbox() {

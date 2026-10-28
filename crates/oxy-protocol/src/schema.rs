@@ -3,7 +3,7 @@
 
 use crate::wire::{
     Clock, DismissReason, ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, Rect,
-    ShellKind, Size, TouchKind, Wire,
+    ShellKind, Size, TextChunk, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -102,6 +102,8 @@ messages! {
         8 => Feedback { surface: u32, sequence: u64, outcome: Outcome, timestamp_ns: u64, clock: Clock },
         9 => Released { surface: u32, buffer: u64 },
         10 => ProtocolError { code: ErrorCode },
+        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32 },
+        12 => Text { surface: u32, serial: u64, text: TextChunk },
     }
 }
 

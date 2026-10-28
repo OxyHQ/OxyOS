@@ -105,7 +105,8 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 
 # The same app in a window: the offscreen compositor launches the host as its own process, which
 # presents its frames through the display protocol (sealed shared-memory buffers). It then presses
-# the sample's Bloom Button twice (window-local point); each press must change the window.
+# the sample's Bloom Button twice and scrolls the inbox by 400 px (window-local points); each step
+# must change the window.
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" "$REPO/target/release/oxy-offscreen" --launch \
-  --out "$WORK/window" --press 686,324 --press 686,324 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640
+  --out "$WORK/window" --press 686,324 --press 686,324 --scroll 170,300,400 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640

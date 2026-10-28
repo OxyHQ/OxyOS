@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <cstdio>
+#include <cstdlib>
 #include <set>
 
 using namespace facebook::react;
@@ -190,6 +192,22 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  // Debug aid: OXY_HOST_DUMP=1 prints every drawn view, indented by depth.
+  static const bool dump = std::getenv("OXY_HOST_DUMP") != nullptr;
+  static int depth = 0;
+  struct Depth {
+    bool entered;
+    ~Depth() {
+      if (entered) --depth;
+    }
+  } scope{dump};
+  if (dump) {
+    Rgba bg = props ? rgba(props->backgroundColor) : Rgba{0, 0, 0, 0};
+    std::fprintf(stderr, "[tree] %*s%s tag=%d frame=(%.0f,%.0f %.0fx%.0f) at=(%.0f,%.0f) bg=%.2f,%.2f,%.2f,%.2f opacity=%.2f\n",
+                 depth * 2, "", name.c_str(), tag, frame.origin.x, frame.origin.y, w, h, x, y, bg.r, bg.g, bg.b, bg.a,
+                 props ? props->opacity : 1.0f);
+    ++depth;
+  }
   Clip childClip = clip;
   float childOx = x, childOy = y;
   if (props) {

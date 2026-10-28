@@ -20,34 +20,53 @@ fn define(name: &str) -> i64 {
         .unwrap()
 }
 
-/// The fields of `typedef struct NAME { ... }` with their C sizes, in order.
-fn fields(name: &str) -> Vec<(String, usize)> {
+/// A C struct field: its name, element size and element count (1 unless an array).
+struct Field {
+    name: String,
+    size: usize,
+    count: usize,
+}
+
+/// The fields of `typedef struct NAME { ... }`, in order.
+fn fields(name: &str) -> Vec<Field> {
     let start = HEADER.find(&format!("typedef struct {name} {{")).unwrap();
     let body = &HEADER[start..];
     let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
     body.split(';')
         .filter_map(|field| {
             let mut words = field.split_whitespace();
-            let (kind, name) = (words.next()?, words.next()?);
+            let (kind, declarator) = (words.next()?, words.next()?);
             let size = match kind {
-                "uint8_t" => 1,
+                "uint8_t" | "char" => 1,
                 "int32_t" | "uint32_t" => 4,
                 "uint64_t" => 8,
                 other => panic!("unexpected field type {other}"),
             };
-            Some((name.to_string(), size))
+            let (name, count) = match declarator.split_once('[') {
+                Some((name, count)) => (name, count.trim_end_matches(']').parse().unwrap()),
+                None => (declarator, 1),
+            };
+            Some(Field {
+                name: name.to_string(),
+                size,
+                count,
+            })
         })
         .collect()
 }
 
-/// C offsets of fields laid out in order with natural alignment.
-fn c_offsets(fields: &[(String, usize)]) -> (Vec<usize>, usize) {
-    let (mut offsets, mut at, mut align): (Vec<usize>, usize, usize) = (Vec::new(), 0, 1);
-    for (_, size) in fields {
-        at = at.next_multiple_of(*size);
+fn names(fields: &[Field]) -> Vec<&str> {
+    fields.iter().map(|field| field.name.as_str()).collect()
+}
+
+/// C offsets of fields laid out in order with natural alignment, and the struct's size.
+fn c_offsets(fields: &[Field]) -> (Vec<usize>, usize) {
+    let (mut offsets, mut at, mut align) = (Vec::new(), 0_usize, 1);
+    for field in fields {
+        at = at.next_multiple_of(field.size);
         offsets.push(at);
-        at += size;
-        align = align.max(*size);
+        at += field.size * field.count;
+        align = align.max(field.size);
     }
     (offsets, at.next_multiple_of(align))
 }
@@ -63,6 +82,8 @@ fn the_header_matches_the_abi() {
         ("OXY_EVENT_TOUCH", OXY_EVENT_TOUCH.into()),
         ("OXY_EVENT_FEEDBACK", OXY_EVENT_FEEDBACK.into()),
         ("OXY_EVENT_RELEASED", OXY_EVENT_RELEASED.into()),
+        ("OXY_EVENT_SCROLL", OXY_EVENT_SCROLL.into()),
+        ("OXY_EVENT_TEXT", OXY_EVENT_TEXT.into()),
         ("OXY_POINTER_ENTER", PointerKind::Enter as i64),
         ("OXY_POINTER_LEAVE", PointerKind::Leave as i64),
         ("OXY_POINTER_MOTION", PointerKind::Motion as i64),
@@ -98,10 +119,11 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyEvent, detail),
         offset_of!(OxyEvent, code),
         offset_of!(OxyEvent, flag),
+        offset_of!(OxyEvent, text),
     ];
-    let names: Vec<&str> = event.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(event.last().map(|f| f.count), Some(TEXT_CHUNK_BYTES + 1));
     assert_eq!(
-        names,
+        names(&event),
         [
             "kind",
             "surface",
@@ -113,15 +135,15 @@ fn the_header_matches_the_abi() {
             "scale_120",
             "detail",
             "code",
-            "flag"
+            "flag",
+            "text"
         ]
     );
     assert_eq!(c_offsets(&event), (rust.to_vec(), size_of::<OxyEvent>()));
 
     let positioner = fields("OxyPositioner");
-    let names: Vec<&str> = positioner.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(
-        names,
+        names(&positioner),
         [
             "anchor_x",
             "anchor_y",
@@ -185,6 +207,28 @@ fn events_convert_field_by_field() {
     })
     .unwrap();
     assert_eq!(done.detail, DismissReason::OutsidePress as u32);
+    let text = convert(&Event::Text {
+        surface: 1,
+        serial: 3,
+        text: oxy_protocol::TextChunk::new("héllo").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(text.kind, OXY_EVENT_TEXT);
+    assert_eq!(
+        CStr::from_bytes_until_nul(&text.text).unwrap().to_str(),
+        Ok("héllo")
+    );
+    let scroll = convert(&Event::Scroll {
+        surface: 1,
+        serial: 4,
+        dx: 0,
+        dy: 512,
+    })
+    .unwrap();
+    assert_eq!(
+        (scroll.kind, scroll.x, scroll.y),
+        (OXY_EVENT_SCROLL, 0, 512)
+    );
     assert_eq!(convert(&Event::Welcome { version: 2 }), None);
 }
 

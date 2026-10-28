@@ -16,7 +16,8 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxy_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, Rect, Request, ShellKind, Size, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    Positioner, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
+    MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -2011,6 +2012,45 @@ impl Scene {
         }
         self.swallowed_releases = self.buttons_down;
         self.moving = None;
+    }
+
+    /// A wheel or touchpad scroll, in 1/256 logical pixels, for the surface under the pointer
+    /// (or holding its capture). It is not a press: it authorizes no grab and activates nothing.
+    pub fn pointer_scroll(&mut self, dx: i32, dy: i32) {
+        let Some(target) = self.pointer_target() else {
+            return;
+        };
+        let serial = self.next_serial();
+        self.emit(
+            target.client,
+            Event::Scroll {
+                surface: target.id,
+                serial,
+                dx,
+                dy,
+            },
+        );
+    }
+
+    /// Text committed by the keyboard layout or input method, for the focused surface. It counts
+    /// as user input, like a key press. Long text arrives as consecutive chunks.
+    pub fn text(&mut self, text: &str) {
+        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
+            return;
+        };
+        for chunk in TextChunk::split(text) {
+            let serial = self.next_serial();
+            self.last_user_serial = serial;
+            self.record_press(serial, target, false);
+            self.emit(
+                target.client,
+                Event::Text {
+                    surface: target.id,
+                    serial,
+                    text: chunk,
+                },
+            );
+        }
     }
 
     pub fn key(&mut self, key: u32, pressed: bool) {

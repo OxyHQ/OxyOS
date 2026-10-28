@@ -26,6 +26,8 @@ typedef struct OxyClient OxyClient;
 #define OXY_EVENT_TOUCH 7
 #define OXY_EVENT_FEEDBACK 8
 #define OXY_EVENT_RELEASED 9
+#define OXY_EVENT_SCROLL 11
+#define OXY_EVENT_TEXT 12
 
 /* Pointer kinds (OxyEvent.detail of a pointer event). */
 #define OXY_POINTER_ENTER 1
@@ -55,7 +57,10 @@ typedef struct OxyClient OxyClient;
  *   FOCUS       flag: focused.
  *   TOUCH       serial; x, y as POINTER; detail: touch kind; code: touch id.
  *   FEEDBACK    serial: frame sequence; detail: outcome.
- *   RELEASED    serial: buffer id (the client reuses it; informational). */
+ *   RELEASED    serial: buffer id (the client reuses it; informational).
+ *   SCROLL      serial; x, y: horizontal and vertical scroll distance in 1/256 logical pixels
+ *               (positive moves the content's view right and down).
+ *   TEXT        serial; text: committed UTF-8 (whole characters), NUL-terminated. */
 typedef struct OxyEvent {
   uint32_t kind;
   uint32_t surface;
@@ -68,6 +73,7 @@ typedef struct OxyEvent {
   uint32_t detail;
   uint32_t code;
   uint8_t flag;
+  char text[33];
 } OxyEvent;
 
 /* A popup's placement: anchor rectangle in parent-local logical coordinates, the popup's logical

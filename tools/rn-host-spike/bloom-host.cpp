@@ -282,7 +282,7 @@ int main(int argc, char** argv) {
   auto invoker = instance->createJSCallInvoker();
   oxy::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
-  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler->getUIManager(); });
+  oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
     // console.* in React Native writes through nativeLoggingHook(message, level).
     rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
