@@ -99,13 +99,20 @@ All 56 steps pass, three runs out of three.
 | Input to the answer on screen (median / max) | about 39 / 88 ms |
 | The host's CPU render per frame | about 19–20 ms |
 
-The few late flips coincide with the host's CPU rendering on the same machine. Still to do:
+The few late flips coincide with the host's CPU rendering on the same machine.
+
+With `--gpu` as well, the live compositor composes each frame on the Iris Xe straight into DMA-BUF scanout buffers (zero copy), and also checks it byte for byte against the CPU reference. All 56 steps pass, three runs out of three:
+- every GPU frame is identical to the reference (164–167 per run);
+- handover to flip is about 6.5–7 ms median (max 17.5 ms);
+- 0, 0 and 1 flips later than one refresh.
+
+Input to the answer on screen is about 52 ms here, because this validation mode composes each frame three times: the CPU reference the director reads, the GPU copy for the comparison, and the scanout. Still to do:
 - real input (evdev/libinput) instead of the director;
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
-- the GPU path in the live compositor (`--kms` composes on the CPU; `oxy-kms-show --gpu` shows zero-copy composition with replayed frames).
+- composing once (GPU scanout only) outside validation, which needs the director's checks to read from the scanout instead of a CPU reference.
 
 ## Consequences
 
