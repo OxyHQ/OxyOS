@@ -32,8 +32,11 @@ pub enum Step {
     PressPopup { x: i32, y: i32 },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
-    /// Text committed to the focused surface, as a keyboard layout or input method would.
+    /// Text typed into the focused surface: committed as it is, or, through the virtual
+    /// devices, typed key by key on the layout.
     Type(String),
+    /// Text an input method commits to the focused surface: committed as it is, never typed.
+    Commit(String),
     /// The input method's composition (preedit) for the focused surface, cursor at its end.
     Preedit(String),
     /// Left-button drag in the window: press at the first point, move to the second, release.
@@ -65,6 +68,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Type(text) => format!("typing {text:?}"),
+            Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
@@ -82,6 +86,7 @@ impl Step {
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
+            Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
             Step::Drag { from, to } => {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
@@ -130,7 +135,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -264,6 +269,10 @@ impl Launch {
                 Some("--preedit") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
+                }
+                Some("--commit") => {
+                    let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    Step::Commit(text.to_string())
                 }
                 Some("--") => {
                     let command: Vec<_> = args.cloned().collect();
@@ -599,7 +608,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             compositor.scene.pointer_motion(window.x + x, window.y + y);
             compositor.scene.pointer_scroll(0, dy.saturating_mul(256));
         }
-        Step::Type(text) => compositor.scene.text(text),
+        Step::Type(text) | Step::Commit(text) => compositor.scene.text(text),
         Step::Preedit(text) => {
             if !compositor.scene.preedit(text, text.len()) {
                 return Err(format!("preedit {text:?} does not fit one chunk").into());
@@ -957,6 +966,8 @@ mod tests {
             "3,4,-50",
             "--type",
             "hi",
+            "--commit",
+            "mundo",
             "--key",
             "14",
             "--key",
@@ -986,7 +997,7 @@ mod tests {
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
             allowed,
-            [false, false, false, false, false, false, false, false, false, false, true]
+            [false, false, false, false, false, false, false, false, false, false, false, true]
         );
         assert_eq!(
             steps,
@@ -998,6 +1009,7 @@ mod tests {
                     dy: -50
                 },
                 Step::Type("hi".into()),
+                Step::Commit("mundo".into()),
                 Step::Key(vec![14]),
                 Step::Key(vec![42, 106]),
                 Step::Drag {

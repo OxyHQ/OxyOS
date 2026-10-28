@@ -35,6 +35,10 @@
         "delivered": {"1": {"scroll": 1}},
         "latency_ms": 250,
         "scroll_offset": {"inbox": [0, 346]}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 24},
+        "delivered": {"1": {"scroll": 27}}
       }
     },
     {
@@ -56,6 +60,10 @@
         "latency_ms": 250,
         "a11y": {"window": [{"role": "textinput", "name": "Write a reply", "value": "Hola OxyOS!", "id": "reply"}]},
         "at": {"window": [{"role": "TextInput", "name": "Write a reply", "value": "Hola OxyOS!"}]}
+      },
+      "expect_devices": {
+        "react": {"keyPress@reply": 11, "change@reply": 11, "selectionChange@reply": 11},
+        "delivered": {"1": {"key.press": 16, "key.release": 16, "text": 11}}
       }
     },
     {
@@ -136,6 +144,9 @@
         "absent": ["Reply: Hola OxyOSzz"],
         "react": {"key@message-actions": 2},
         "delivered": {"3": {"text": 1}}
+      },
+      "expect_devices": {
+        "delivered": {"3": {"key.press": 2, "key.release": 2, "text": 2}}
       }
     },
     {
@@ -293,7 +304,7 @@
     },
     {
       "name": "a commit replaces the selection, a word being no key press",
-      "do": ["type", "Hola "],
+      "do": ["commit", "Hola "],
       "expect": {
         "texts": ["Reply: Hola"],
         "absent": ["Reply: ¡Hola"],
@@ -310,7 +321,7 @@
     },
     {
       "name": "its commit replaces the composition",
-      "do": ["type", "mundo"],
+      "do": ["commit", "mundo"],
       "expect": {
         "texts": ["Reply: Hola mundo"],
         "absent": ["munmundo"],
@@ -332,6 +343,9 @@
         "texts": ["Reply: Adiós"],
         "absent": ["mundo"],
         "react": {"change@reply": 1, "selectionChange@reply": 1}
+      },
+      "expect_devices": {
+        "react": {"keyPress@reply": 5, "change@reply": 5, "selectionChange@reply": 5}
       }
     },
     {
@@ -422,6 +436,10 @@
         "scroll_offset": {"inbox": [0, 246]},
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 7},
+        "delivered": {"1": {"scroll": 7}}
       }
     },
     {
@@ -431,6 +449,9 @@
         "scroll_offset": {"inbox": [0, 0]},
         "texts": ["Rendered by Fabric and Hermes on Linux."],
         "react": {"scroll@inbox": 1}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 17}
       }
     },
     {
@@ -441,6 +462,9 @@
         "scroll_offset": {},
         "react": {},
         "delivered": {"1": {"scroll": 1}}
+      },
+      "expect_devices": {
+        "delivered": {"1": {"scroll": 4}}
       }
     },
     {

@@ -17,6 +17,12 @@ Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its
 - latency_ms: budget from injecting the input to the first changed frame.
   (Pointer enter/leave, which follow every motion, are left out of `react`.)
 
+A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
+virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
+notch at a time: what React and the client receive is then counted per key and per notch. A
+`commit` step is an input method's committed text, which no keyboard types, so it is the same on
+both paths.
+
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
 
@@ -37,7 +43,7 @@ import tempfile
 
 
 # The fields of a director record that repeat the step's own instruction (oxy-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "scroll", "type", "preedit", "drag", "key", "move_window",
+STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "drag", "key", "move_window",
              "resize_window", "scale", "a11y_action", "expect_popup"}
 
 
@@ -55,8 +61,8 @@ def director_args(step):
         return args + ["--key", "+".join(map(str, value)) if isinstance(value, list) else str(value)]
     if kind == "drag":
         return args + ["--drag", ",".join(map(str, value))]
-    if kind == "preedit":
-        return args + ["--preedit", value]
+    if kind in ("preedit", "commit"):
+        return args + [f"--{kind}", value]
     if kind in ("move-window", "resize-window"):
         return args + [f"--{kind}", ",".join(map(str, value))]
     if kind == "a11y-action":
@@ -77,8 +83,10 @@ def latest_frames(report, until, closed_before):
     return {s: f for s, f in frames.items() if s not in closed_before}
 
 
-def check_step(index, step, result, report, start, failures):
+def check_step(index, step, result, report, start, failures, through_devices=False):
     expect = step.get("expect", {})
+    if through_devices:
+        expect = {**expect, **step.get("expect_devices", {})}
     name = f"step {index + 1} ({step.get('name', step['do'][0])})"
     end = result.get("t_settled")
     # A popup surface id is never reused: its last lifecycle event says whether it is open.
@@ -271,7 +279,7 @@ def main():
     failures = []
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
-        start = check_step(index, step, result, report, start, failures)
+        start = check_step(index, step, result, report, start, failures, options.uinput)
     if "final" in scenario:
         last = max(line["t"] for line in report)
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
