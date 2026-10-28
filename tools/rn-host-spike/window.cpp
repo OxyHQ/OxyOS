@@ -114,6 +114,12 @@ void Window::reposition(uint32_t id, const OxyPositioner& positioner) {
   if (oxy_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
 }
 
+void Window::publishAccessibility(uint32_t id, const std::vector<OxyAccessibleNode>& nodes) {
+  if (oxy_client_publish_accessibility(client_, id, nodes.data(), nodes.size()) != 0) {
+    failed("cannot publish accessibility");
+  }
+}
+
 void Window::destroy(uint32_t id) {
   if (surfaces_.erase(id) == 0) return;
   if (oxy_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");

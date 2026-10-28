@@ -163,10 +163,22 @@ Before the painter's fast paths, a window frame took about 57 ms and latency was
 
 Both give exactly what sampling gave: every regression frame is byte-identical before and after. GPU composition is #32's.
 
-**Accessibility (host side).** OxyOS has no assistive-technology bridge yet. The host builds each surface's accessibility tree from React Native's accessibility props, as Android exposes a view hierarchy to TalkBack (`accessibility.h`):
+**Accessibility.** Accessibility crosses processes through the display protocol ([ADR 0003](./adr/0003-accessibility-protocol)), the way pixels do. The host builds each surface's accessibility tree from React Native's accessibility props, as Android exposes a view hierarchy to TalkBack (`accessibility.h`):
 - **Elements:** a view that is `accessible`, has a role or a label, or is a text input. Its name is its label, or else the text it contains.
 - **Merging and hiding:** text inside an accessible element is part of it. `accessibilityElementsHidden` and `importantForAccessibility="no-hide-descendants"` hide a subtree.
 - **Popups:** a popup's content belongs to the popup's surface.
+
+The host publishes each surface's snapshot to the compositor whenever it changes:
+- its nodes, in reading order with parents first;
+- each node's role and state, in the protocol's sets;
+- surface-local rectangles;
+- names, and a text input's value (never a secure field's).
+
+Only a client granted `accessibility`, the screen reader, receives the snapshots, with global rectangles. Its actions come back to the host:
+- **activate:** React Native's accessibility click, which Pressability turns into `onPress`, as TalkBack's activation on Android. Its serial is the user's activation, so a menu it opens grabs like one opened from the keyboard.
+- **focus:** moves the host's accessibility focus.
+
+The director plays the screen reader in the regression. With the menu closed, it activates "Open menu" by name, then moves focus to "Archive" and activates it. The steps check what the compositor holds for each surface, which is what a screen reader receives: the menu, its focused first row, the expanded trigger, then the chosen row and the trigger focused again.
 
 The host also keeps accessibility focus, as Android does apart from input focus. `AccessibilityInfo.sendAccessibilityEvent(view, 'focus')` moves it, to the view or to the first node inside it (the behaviour Bloom's focus moves rely on). The tree marks the focused node. The host reports the tree whenever it changes, and each focus event as it happens; the regression checks both. For example, the trigger reads `button "Open menu"` with `expanded` false or true as the menu closes or opens, the popup reads `menu "Message actions"` and then its `menuitem`s, and an expanded submenu row reads `expanded`. Focus moves into an open menu (its first row) and back to the trigger when the menu closes, whether a row is chosen, Escape is pressed or an outside press dismisses it. The tree and focus checks found three Bloom defects, all fixed at the source:
 - **Duplicate label:** the popup's menu name was announced twice (the panel inside the labelled popup was labelled again). Fixed in Bloom #507.
@@ -197,7 +209,10 @@ Bloom fixes found on the way:
 Known gaps:
 - The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
 - Text input: no clipboard, word-wise movement, undo or vertical caret movement; the caret and selection are drawn on single-line inputs only.
-- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility is host-side: a tree and accessibility focus, with no assistive-technology bridge (AT-SPI or OxyOS's own), so nothing speaks, and there are no accessibility actions or announcements.
+- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility:
+- **No screen reader yet.** The protocol and the Bloom host's side exist, but no screen reader client has been written, so nothing speaks.
+- **Not in the protocol yet:** announcements, and actions other than activate and focus.
+- **Not covered by a regression:** a secure field's value is never published, but no step has a secure field.
 - Keyboard navigation inside a popup menu needs Bloom's `popup-navigation` (Bloom #507, unreleased). The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
 
 

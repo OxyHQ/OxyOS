@@ -54,6 +54,8 @@ def director_args(step):
         return args + ["--preedit", value]
     if kind in ("move-window", "resize-window"):
         return args + [f"--{kind}", ",".join(map(str, value))]
+    if kind == "a11y-action":
+        return args + ["--a11y-action", f"{value[0]},{value[1]}"]
     if kind == "scale":
         return args + ["--scale", str(value)]
     if kind == "expect-popup":
@@ -175,6 +177,14 @@ def check_step(index, step, result, report, start, failures):
                 if at < 0:
                     fail(f"{role} reading order {names} does not read {wanted} in order")
                     break
+    if "at" in expect:
+        # What the assistive technology has: the compositor's committed snapshots (ADR 0003).
+        held = result.get("a11y", {})
+        for role, wanted in expect["at"].items():
+            nodes = [n for s, tree in held.items() if (s == "1") == (role == "window") for n in tree]
+            for node in wanted:
+                if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
+                    fail(f"the assistive technology has no {role} node {node}")
     if "frame_px" in expect:
         # The size in pixels of the latest frame of the window and of each open popup.
         for role, size in expect["frame_px"].items():

@@ -7,6 +7,7 @@
 // Bloom's placement. The compositor's dismissal is sent back as the view's `onDismiss`.
 #pragma once
 
+#include "accessibility.h"
 #include "input.h"
 #include "renderer.h"
 #include "window.h"
@@ -50,7 +51,8 @@ OxyPositioner positioner(const facebook::react::OxyPopupViewProps& props, facebo
 
 class PopupHost {
  public:
-  PopupHost(const ViewTree& tree, Window& window) : tree_(tree), window_(window) {}
+  PopupHost(const ViewTree& tree, Window& window, AccessibilityBridge& accessibility)
+      : tree_(tree), window_(window), accessibility_(accessibility) {}
 
   // Opens a popup for each newly mounted popup view (grabbed with `serial`, the input that opened
   // it) and destroys the popups whose view went away.
@@ -58,7 +60,8 @@ class PopupHost {
   // The tree changed: every popup draws again once its previous frame is answered.
   void changed();
   // Draws and presents each configured popup that has changed since its last frame.
-  void present(const TextInputEdit& edit, const std::string& focus, facebook::react::Tag accessibilityFocus = -1);
+  // Draws the popups that changed, and publishes their accessibility.
+  void present(const TextInputEdit& edit, const std::string& focus);
   // A compositor dismissal (PopupDone): the view's onDismiss, and the surface is destroyed.
   void dismissed(const OxyEvent& event);
   // A key press or committed text sent to a popup's surface: the view's onKey, one event per key
@@ -82,6 +85,7 @@ class PopupHost {
   };
   const ViewTree& tree_;
   Window& window_;
+  AccessibilityBridge& accessibility_;
   std::map<facebook::react::Tag, Popup> popups_;
   uint32_t nextSurface_ = Window::kToplevel + 1;
 };

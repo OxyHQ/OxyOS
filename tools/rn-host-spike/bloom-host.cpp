@@ -404,7 +404,8 @@ int main(int argc, char** argv) {
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
     int status = 0;
-    oxy::PopupHost popups(tree, *window);
+    oxy::AccessibilityBridge accessibility(tree, *window);
+    oxy::PopupHost popups(tree, *window, accessibility);
     oxy::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxy::SurfaceContent> {
       if (surface == oxy::Window::kToplevel) return oxy::SurfaceContent{.surface = surface, .view = tree.root()};
       return popups.content(surface);
@@ -444,6 +445,8 @@ int main(int argc, char** argv) {
         r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
       } else if (event.kind == OXY_EVENT_FOCUS) {
         r.input(event.flag ? "focus.in" : "focus.out", event.surface);
+      } else if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION) {
+        r.input("a11y.action", event.surface, folly::dynamic::object("index", event.code)("action", event.detail));
       } else if (event.kind == OXY_EVENT_POPUP_DONE) {
         r.input("popup.done", event.surface, folly::dynamic::object("reason", event.detail));
       }
@@ -456,7 +459,6 @@ int main(int argc, char** argv) {
     };
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
     // view a screen reader would be on. No assistive technology reads it yet; the tree marks it.
-    facebook::react::Tag accessibilityFocus = -1;
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
       std::string within;
       auto path = oxy::ancestry(tree, view.tag);
@@ -466,7 +468,7 @@ int main(int argc, char** argv) {
       }
       oxy::Report::get().accessibilityEvent(type, view, within);
       if (type == "focus") {
-        accessibilityFocus = view.tag;
+        accessibility.focus(view.tag);
         dirty = true;
         popups.changed();
       }
@@ -481,11 +483,17 @@ int main(int argc, char** argv) {
         busy |= reanimated.tick();
         if (!window->dispatch([&](const OxyEvent& event) {
               if ((event.kind == OXY_EVENT_POINTER && event.detail == OXY_POINTER_PRESS) ||
-                  (event.kind == OXY_EVENT_KEY && event.flag)) {
+                  (event.kind == OXY_EVENT_KEY && event.flag) ||
+                  (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && event.detail == OXY_ACTION_ACTIVATE)) {
                 lastPress = event.serial;
               }
               report(event);
               if (event.kind == OXY_EVENT_POPUP_DONE) popups.dismissed(event);
+              // An assistive technology's action; a focus move needs new snapshots.
+              if (event.kind == OXY_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
+                dirty = true;
+                popups.changed();
+              }
               if (event.kind == OXY_EVENT_KEY || event.kind == OXY_EVENT_TEXT) popups.key(event);
               pointer.handle(event);
               editing.handle(event);
@@ -520,14 +528,11 @@ int main(int argc, char** argv) {
           window->present(oxy::Window::kToplevel, canvas);
           oxy::Report::get().frame(oxy::Window::kToplevel, canvas.width, canvas.height, renderMs, stats.textContent,
                                    focusName());
-          if (oxy::Report::get().enabled()) {
-            oxy::Report::get().accessibility(oxy::Window::kToplevel,
-                                             oxy::toDynamic(oxy::accessibilityTree(tree, tree.root(), accessibilityFocus)));
-          }
+          accessibility.publish(oxy::Window::kToplevel, tree.root());
           dirty = false;
           busy = true;
         }
-        popups.present(drawn, focusName(), accessibilityFocus);
+        popups.present(drawn, focusName());
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

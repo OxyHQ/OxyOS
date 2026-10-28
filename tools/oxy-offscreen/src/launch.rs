@@ -10,6 +10,7 @@
 //! application answered it with new pixels.
 
 use super::*;
+use oxy_protocol::{AccessibleAction, AccessibleState};
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
@@ -18,6 +19,9 @@ const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
 /// Each step's answer must settle inside this budget.
 const STEP_DEADLINE: Duration = Duration::from_secs(30);
 const CLIENT: ClientId = 1;
+/// The assistive technology the director plays: a client of the scene only, granted
+/// `accessibility`, reading what the compositor holds and sending actions (ADR 0003).
+const READER: ClientId = ClientId::MAX;
 const WINDOW: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,6 +45,12 @@ pub enum Step {
     MoveWindow { dx: i32, dy: i32 },
     /// The shell resizes the window, as maximizing or tiling does.
     ResizeWindow { width: u32, height: u32 },
+    /// The assistive technology acts on the application's node named `name` (the topmost
+    /// surface first): activate or focus.
+    Accessibility {
+        action: AccessibleAction,
+        name: String,
+    },
     /// The output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
     /// on it for buffers at the new scale; logical geometry is unchanged.
     Scale(u32),
@@ -60,6 +70,7 @@ impl Step {
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
+            Step::Accessibility { action, name } => format!("assistive {action:?} on {name:?}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
         }
@@ -79,6 +90,9 @@ impl Step {
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
             Step::ResizeWindow { width, height } => {
                 format!("\"resize_window\":[{width},{height}]")
+            }
+            Step::Accessibility { action, name } => {
+                format!("\"a11y_action\":[\"{action:?}\",{}]", json_string(name))
             }
             Step::Scale(scale) => format!("\"scale\":{scale}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
@@ -101,7 +115,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -180,6 +194,19 @@ impl Launch {
                     Step::ResizeWindow {
                         width: u32::try_from(n[0])?,
                         height: u32::try_from(n[1])?,
+                    }
+                }
+                Some("--a11y-action") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    let (action, name) = value.split_once(',').ok_or(USAGE)?;
+                    let action = match action {
+                        "activate" => AccessibleAction::Activate,
+                        "focus" => AccessibleAction::Focus,
+                        _ => return Err(format!("unknown action {action:?}\n{USAGE}").into()),
+                    };
+                    Step::Accessibility {
+                        action,
+                        name: name.to_string(),
                     }
                 }
                 Some("--scale") => {
@@ -323,6 +350,62 @@ fn delivered_json(compositor: &Compositor) -> String {
     format!("{{{}}}", fields.join(","))
 }
 
+fn json_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// What the assistive technology has for each of the application's shown surfaces: the
+/// compositor's committed snapshots, as {surface: [{role, name, value, state}]}.
+fn accessibility_json(compositor: &Compositor) -> String {
+    let states = [
+        (AccessibleState::DISABLED, "disabled"),
+        (AccessibleState::SELECTED, "selected"),
+        (AccessibleState::CHECKED, "checked"),
+        (AccessibleState::MIXED, "mixed"),
+        (AccessibleState::EXPANDED, "expanded"),
+        (AccessibleState::COLLAPSED, "collapsed"),
+        (AccessibleState::BUSY, "busy"),
+        (AccessibleState::FOCUSED, "focused"),
+    ];
+    let surfaces: Vec<String> = shown(compositor)
+        .into_iter()
+        .filter_map(|(id, _, _)| {
+            let nodes = compositor
+                .scene
+                .accessibility_snapshot(SurfaceKey { client: CLIENT, id })?;
+            let nodes: Vec<String> = nodes
+                .iter()
+                .map(|node| {
+                    let state: Vec<String> = states
+                        .iter()
+                        .filter(|(bit, _)| node.state.contains(*bit))
+                        .map(|(_, name)| format!("\"{name}\""))
+                        .collect();
+                    format!(
+                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}]}}",
+                        node.role,
+                        json_string(&node.name),
+                        json_string(&node.value),
+                        state.join(",")
+                    )
+                })
+                .collect();
+            Some(format!("\"{id}\":[{}]", nodes.join(",")))
+        })
+        .collect();
+    format!("{{{}}}", surfaces.join(","))
+}
+
 /// The application's popups now shown, as [x, y, width, height] on the output.
 fn popups_json(compositor: &Compositor) -> String {
     let popups: Vec<String> = shown(compositor)
@@ -404,6 +487,29 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             },
             oxy_protocol::Size::new(*width, *height),
         ),
+        Step::Accessibility { action, name } => {
+            // Popups (later surfaces) are above the window: the topmost node with that name.
+            let found = shown(compositor).into_iter().rev().find_map(|(id, _, _)| {
+                let key = SurfaceKey { client: CLIENT, id };
+                let nodes = compositor.scene.accessibility_snapshot(key)?;
+                let index = nodes.iter().position(|node| node.name == *name)?;
+                Some((id, index as u32))
+            });
+            let (surface, index) =
+                found.ok_or_else(|| format!("no accessible node named {name:?}"))?;
+            compositor
+                .scene
+                .handle(
+                    READER,
+                    Request::AccessibilityAction {
+                        client: CLIENT,
+                        surface,
+                        index,
+                        action: *action,
+                    },
+                )
+                .map_err(|code| format!("accessibility action: {code:?}"))?;
+        }
         Step::Scale(scale) => compositor
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
@@ -416,6 +522,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
     let mut session = Session::start()?;
+    session
+        .compositor
+        .scene
+        .connect(
+            READER,
+            Grants {
+                accessibility: true,
+                ..Grants::default()
+            },
+        )
+        .map_err(|code| format!("the assistive technology: {code:?}"))?;
     let mut children = Children(vec![Command::new(&launch.command[0])
         .args(&launch.command[1..])
         .env("OXY_COMPOSITOR_SOCKET", &session.socket)
@@ -494,7 +611,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => "null".to_string(),
         };
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}]}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -504,6 +621,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             answer.window.y,
             answer.window.width,
             answer.window.height,
+            accessibility_json(&session.compositor),
         ));
         snapshots.push(
             session
@@ -514,6 +632,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
 
     let frames = session.compositor.frames;
+    // The assistive technology leaves with the session, like every other client.
+    session.compositor.scene.disconnect(READER);
     session.finish(&mut children)?;
     println!(
         "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",

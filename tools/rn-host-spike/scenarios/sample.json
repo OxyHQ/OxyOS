@@ -54,7 +54,8 @@
         "react": {"change@reply": 1, "selectionChange@reply": 1},
         "delivered": {"1": {"text": 1}},
         "latency_ms": 250,
-        "a11y": {"window": [{"role": "textinput", "name": "Hola OxyOS!", "id": "reply"}]}
+        "a11y": {"window": [{"role": "textinput", "name": "Write a reply", "value": "Hola OxyOS!", "id": "reply"}]},
+        "at": {"window": [{"role": "TextInput", "name": "Write a reply", "value": "Hola OxyOS!"}]}
       }
     },
     {
@@ -515,6 +516,37 @@
         "focus_surface": 1,
         "texts": ["Chosen: Archive"],
         "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    },
+    {
+      "name": "a screen reader activates Open menu, as a double tap does",
+      "do": ["a11y-action", ["activate", "Open menu"]],
+      "expect": {
+        "popups": 1,
+        "react": {"click@open-menu": 1},
+        "a11y_events": {"focus@message-actions": 1},
+        "at": {"popup": [{"role": "Menu", "name": "Message actions"}, {"role": "MenuItem", "name": "Reply", "state": ["focused"]}], "window": [{"role": "Button", "name": "Open menu", "state": ["expanded"]}]}
+      }
+    },
+    {
+      "name": "the screen reader moves its focus to Archive",
+      "do": ["a11y-action", ["focus", "Archive"]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "react": {},
+        "at": {"popup": [{"role": "MenuItem", "name": "Archive", "state": ["focused"]}, {"role": "MenuItem", "name": "Reply", "state": []}]}
+      }
+    },
+    {
+      "name": "and activates it: the row is chosen and focus returns to the trigger",
+      "do": ["a11y-action", ["activate", "Archive"]],
+      "expect": {
+        "popups": 0,
+        "texts": ["Chosen: Archive"],
+        "react": {"click@action-Archive": 1},
+        "a11y_events": {"focus@open-menu": 1},
+        "at": {"window": [{"role": "Button", "name": "Open menu", "state": ["collapsed", "focused"]}]}
       }
     }
   ]

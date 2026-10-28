@@ -11,6 +11,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace oxy {
 
@@ -60,6 +61,8 @@ class Window {
   // Places an open popup again (its anchor moved or its content resized).
   void reposition(uint32_t id, const OxyPositioner& positioner);
   void destroy(uint32_t id);
+  // Publishes a surface's accessibility snapshot (ADR 0003). Throws on failure.
+  void publishAccessibility(uint32_t id, const std::vector<OxyAccessibleNode>& nodes);
 
   uint64_t presented() const { return presented_; }
 
