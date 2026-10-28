@@ -109,7 +109,14 @@ class Timers : public PlatformTimerRegistry {
     return !due.empty();
   }
 
-  bool pending() const { return !timers_.empty(); }
+  // Whether a one-shot timer falls due before `deadline`: the app is not settled until it fires.
+  // Recurring timers never settle, so they do not hold the loop.
+  bool oneShotDueBefore(Clock::time_point deadline) const {
+    for (const auto& [id, timer] : timers_) {
+      if (!timer.repeat && timer.at < deadline) return true;
+    }
+    return false;
+  }
 
  private:
   struct Timer {
@@ -329,7 +336,8 @@ int main(int argc, char** argv) {
       LayoutContext{.pointScaleFactor = display.scale});
   surface.start();
 
-  // Run until the app settles: no queued work for a while, or a hard deadline.
+  // Run until the app settles (no queued work and no one-shot timer due for a while) or a hard
+  // deadline passes.
   auto deadline = Clock::now() + std::chrono::seconds(10);
   auto quietSince = Clock::now();
   while (Clock::now() < deadline) {
@@ -339,7 +347,7 @@ int main(int argc, char** argv) {
     busy |= timers->fire(*timerManager);
     worklets.tick();
     busy |= reanimated.tick();
-    if (busy) {
+    if (busy || timers->oneShotDueBefore(deadline)) {
       quietSince = Clock::now();
     } else if (Clock::now() - quietSince > std::chrono::milliseconds(500)) {
       break;
@@ -352,11 +360,12 @@ int main(int argc, char** argv) {
   std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"bridgeless\":true,\"transactions\":"
             << mounter.transactions << ",\"views\":" << stats.views << ",\"texts\":" << stats.texts
             << ",\"unimplemented\":" << stats.unimplemented << ",\"js_errors\":" << jsErrors
-            << ",\"output\":\"" << outPath << "\"}\n";
+            << ",\"output\":\"" << outPath << "\",\"written\":" << (stats.written ? "true" : "false") << "}\n";
+  if (!stats.written) std::cerr << "[host] could not write " << outPath << "\n";
 
   surface.stop();
   scheduler->unregisterSurface(surface);
   loop->drain();
   scheduler.reset();
-  return jsErrors == 0 && mounter.transactions > 0 ? 0 : 1;
+  return jsErrors == 0 && mounter.transactions > 0 && stats.written ? 0 : 1;
 }

@@ -37,6 +37,7 @@ struct RenderStats {
   int texts = 0;
   int unimplemented = 0;
   std::vector<std::string> unimplementedNames;
+  bool written = false;  // whether render() saved the PNG
 };
 
 // Pixels are 0xAARRGGBB, opaque, row-major, `width * scale` by `height * scale`.
@@ -46,8 +47,8 @@ struct Canvas {
 };
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas);
-// Draws, writes a PNG and returns the stats.
+// Draws, writes a PNG and returns the stats; `written` reports whether the PNG was saved.
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath);
-void writePng(const Canvas& canvas, const std::string& path);
+bool writePng(const Canvas& canvas, const std::string& path);
 
 }  // namespace oxy

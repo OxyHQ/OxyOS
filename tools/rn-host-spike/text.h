@@ -36,8 +36,9 @@ class TextEngine {
  public:
   static TextEngine& shared();
 
-  // Registers a font file under a family name (variable fonts cover every weight).
-  void registerFamily(const std::string& family, const std::string& path);
+  // Registers a font file under a family name (variable fonts cover every weight). Returns false,
+  // and registers nothing, when FreeType cannot open the file.
+  bool registerFamily(const std::string& family, const std::string& path);
   // Used for code points the requested family lacks.
   void addFallback(const std::string& path);
 

@@ -227,7 +227,10 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     const auto& state = static_cast<const ConcreteState<ParagraphState>&>(*view.state).getData();
     auto content = view.layoutMetrics.getContentFrame();
     auto layout = TextEngine::shared().layout(state.attributedString, state.paragraphAttributes, content.size.width);
-    painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip, opacity);
+    // Glyphs stay within the paragraph's frame (a word wider than the paragraph is cut, not
+    // painted over its neighbours), as a view's content is clipped to its bounds on Android.
+    painter.glyphs(layout, x + content.origin.x, y + content.origin.y, clip.intersect(Clip{x, y, x + w, y + h}),
+                   opacity);
     ++stats.texts;
   }
 
@@ -268,7 +271,7 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas) {
   return stats;
 }
 
-void writePng(const Canvas& canvas, const std::string& path) {
+bool writePng(const Canvas& canvas, const std::string& path) {
   std::vector<uint8_t> raw;
   raw.reserve(static_cast<size_t>(canvas.width * 3 + 1) * canvas.height);
   for (int y = 0; y < canvas.height; ++y) {
@@ -304,13 +307,16 @@ void writePng(const Canvas& canvas, const std::string& path) {
   chunk(png, "IHDR", header);
   chunk(png, "IDAT", zlib);
   chunk(png, "IEND", {});
-  std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(png.data()), static_cast<long>(png.size()));
+  std::ofstream file(path, std::ios::binary);
+  file.write(reinterpret_cast<const char*>(png.data()), static_cast<long>(png.size()));
+  file.close();
+  return !file.fail();
 }
 
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath) {
   Canvas canvas;
   auto stats = draw(tree, display, canvas);
-  writePng(canvas, pngPath);
+  stats.written = writePng(canvas, pngPath);
   return stats;
 }
 

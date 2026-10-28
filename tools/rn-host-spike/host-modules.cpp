@@ -139,8 +139,7 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 2) return jsi::Value(false);
       std::string family = text(rt, args[0]), uri = text(rt, args[1]);
       if (uri.rfind("file://", 0) == 0) uri = uri.substr(7);
-      TextEngine::shared().registerFamily(family, uri);
-      return jsi::Value(true);
+      return jsi::Value(TextEngine::shared().registerFamily(family, uri));
     });
   } else {
     return nullptr;

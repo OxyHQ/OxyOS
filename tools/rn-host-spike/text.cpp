@@ -103,9 +103,16 @@ TextEngine::TextEngine() : impl_(std::make_unique<Impl>()) {
   FT_Init_FreeType(&impl_->library);
 }
 
-void TextEngine::registerFamily(const std::string& family, const std::string& path) {
+bool TextEngine::registerFamily(const std::string& family, const std::string& path) {
   std::lock_guard lock(impl_->mutex);
+  FT_Face face = nullptr;
+  if (FT_New_Face(impl_->library, path.c_str(), 0, &face) != 0) {
+    std::cerr << "[text] cannot open font " << path << " for " << family << "\n";
+    return false;
+  }
+  FT_Done_Face(face);
   impl_->families[family] = path;
+  return true;
 }
 
 void TextEngine::addFallback(const std::string& path) {
@@ -219,22 +226,27 @@ ParagraphLayout TextEngine::layout(
     std::vector<const Token*> tokens;
     float width = 0, ink = 0, ascent = 0, descent = 0, height = 0;
   };
+  // An empty line (before a hard break, or after one at the end) takes the break's metrics; the
+  // first word on a line replaces them with its own.
+  auto emptyLineMetrics = [](Line& line, const Token& token) {
+    line.ascent = token.ascent;
+    line.descent = token.descent;
+    line.height = std::isnan(token.lineHeight) ? token.ascent + token.descent : token.lineHeight;
+  };
   std::vector<Line> lines(1);
   for (const auto& token : tokens) {
     Line* line = &lines.back();
     if (token.newline) {
-      if (line->tokens.empty()) {
-        line->ascent = token.ascent;
-        line->descent = token.descent;
-        line->height = std::isnan(token.lineHeight) ? token.ascent + token.descent : token.lineHeight;
-      }
+      if (line->tokens.empty()) emptyLineMetrics(*line, token);
       lines.emplace_back();
+      emptyLineMetrics(lines.back(), token);
       continue;
     }
     if (!line->tokens.empty() && std::isfinite(maxWidth) && line->width + token.inkWidth > maxWidth + 0.01f) {
       lines.emplace_back();
       line = &lines.back();
     }
+    if (line->tokens.empty()) line->ascent = line->descent = line->height = 0;
     line->ink = line->width + token.inkWidth;
     line->width += token.width;
     line->tokens.push_back(&token);
@@ -251,7 +263,8 @@ ParagraphLayout TextEngine::layout(
 
   ParagraphLayout result;
   for (const auto& line : lines) result.width = std::max(result.width, line.ink);
-  float boxWidth = std::isfinite(maxWidth) ? std::min(maxWidth, result.width) : result.width;
+  // Lines align within the available width; without one, within the widest line.
+  float boxWidth = std::isfinite(maxWidth) ? maxWidth : result.width;
   float top = 0;
   for (const auto& line : lines) {
     float offset = 0;
