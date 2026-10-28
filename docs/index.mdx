@@ -29,11 +29,12 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 7. [ADR 0004: GPU composition and output](./adr/0004-gpu-composition): Vulkan composition checked against the CPU reference, and the order of work toward DMA-BUF, synchronization and DRM/KMS output.
 8. [ADR 0005: Damage](./adr/0005-damage): composing, uploading and drawing only what changed, from the output's damage to the protocol's and the Bloom host's.
 9. [ADR 0006: The compositor's seat through logind](./adr/0006-seat): the compositor as the user of a session, its display, input and terminal handed over by systemd-logind.
-10. [Oxy account and session on OxyOS](./account-session): SDK owners to reuse, gaps and open decisions for the required account.
-11. [React Native's Android implementation on OxyOS](./react-native-android-adaptation): what the Bloom host reuses from React Native's Android implementation, what it implements and what it does not provide.
-12. [Base image configuration](./iso-build): the live-build base system and why image publication is retired.
-13. [Retired desktop stack](./retired-desktop-stack): what was removed, what replaced each responsibility, open follow-ups.
-14. [Shell development preview](./shell-preview): edit real Bloom interfaces in a browser on macOS or Linux, independently of the native session.
+10. [ADR 0007: The clipboard](./adr/0007-clipboard) (accepted, not implemented yet): copy and paste between applications through offers and pipes, readable only when the user pastes.
+11. [Oxy account and session on OxyOS](./account-session): SDK owners to reuse, gaps and open decisions for the required account.
+12. [React Native's Android implementation on OxyOS](./react-native-android-adaptation): what the Bloom host reuses from React Native's Android implementation, what it implements and what it does not provide.
+13. [Base image configuration](./iso-build): the live-build base system and why image publication is retired.
+14. [Retired desktop stack](./retired-desktop-stack): what was removed, what replaced each responsibility, open follow-ups.
+15. [Shell development preview](./shell-preview): edit real Bloom interfaces in a browser on macOS or Linux, independently of the native session.
 
 ## Checks
 
