@@ -39,6 +39,76 @@ The factory assembly in `src/app-shell/index.ts` (`createAppShell`, `createPanel
 
 The web implementation uses DOM, CSS, container queries and browser scrolling. It is not the implementation path for the new OS. Native host support should be reusable at shared owners; do not add per-app patches that emulate missing platform behavior.
 
+## Reachable graph of the minimal application
+
+Reproduce with `node scripts/audit-bloom-graph.mjs <bloom-checkout>` (uses that checkout's esbuild, writes nothing). It resolves like Metro for a native target (`.native.*` first, the `react-native` export condition) from the entry points the minimal OxyOS application and the menu families need. Result at Bloom `658d69a6` (15.56.0, current `main` on 2026-10-28), React Native 0.88.0, Reanimated 4.7.1, Gesture Handler 3.3.0, Expo 58 dev pins:
+
+| Entry | Bloom source files | Third-party packages |
+| --- | --- | --- |
+| BloomProvider | 132 | `expo-blur`, `expo-font`, `expo-haptics`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-webview` |
+| BloomScope | 5 | `react` |
+| AppShell | 515 | `expo-blur`, `expo-font`, `expo-haptics`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-gesture-handler`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-svg`, `react-native-webview` |
+| Screen | 119 | `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context` |
+| Surface | 95 | `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css` |
+| Portal | 69 | `expo-font`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-safe-area-context` |
+| Dialog | 286 | `expo-blur`, `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-gesture-handler`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-svg` |
+| DropdownMenu | 219 | `expo-blur`, `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-gesture-handler`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-svg` |
+| Popover | 215 | `expo-blur`, `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-gesture-handler`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-svg` |
+| Select | 221 | `expo-blur`, `expo-font`, `expo-image`, `expo-router`, `nativewind`, `react`, `react-native`, `react-native-css`, `react-native-gesture-handler`, `react-native-keyboard-controller`, `react-native-reanimated`, `react-native-safe-area-context`, `react-native-svg` |
+| Motion | 5 | `react`, `react-native`, `react-native-reanimated` |
+
+| Package | Declared | How | Reached from |
+| --- | --- | --- | --- |
+| `expo-blur` | peer * | static | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Select |
+| `expo-font` | peer * (optional) | static | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Portal, Screen, Select, Surface |
+| `expo-haptics` | peer * (optional) | require | AppShell, BloomProvider |
+| `expo-image` | peer * | require | AppShell, Dialog, DropdownMenu, Popover, Screen, Select, Surface |
+| `expo-router` | peer >=3.0.0 (optional) | require | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Portal, Screen, Select, Surface |
+| `nativewind` | peer >=5.0.0 || 5.0.0-rc.0 (optional) | require | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Portal, Screen, Select, Surface |
+| `react` | peer >=18.0.0 | static | AppShell, BloomProvider, BloomScope, Dialog, DropdownMenu, Motion, Popover, Portal, Screen, Select, Surface |
+| `react-native` | peer >=0.73.0 | static | AppShell, BloomProvider, Dialog, DropdownMenu, Motion, Popover, Portal, Screen, Select, Surface |
+| `react-native-css` | dependency 3.1.0-rc.0 | static | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Portal, Screen, Select, Surface |
+| `react-native-gesture-handler` | peer >=2.16.1 | static | AppShell, Dialog, DropdownMenu, Popover, Select |
+| `react-native-keyboard-controller` | peer >=1.11.4 (optional) | require | AppShell, Dialog, DropdownMenu, Popover, Screen, Select |
+| `react-native-reanimated` | peer >=3.13.0 | static | AppShell, BloomProvider, Dialog, DropdownMenu, Motion, Popover, Screen, Select |
+| `react-native-safe-area-context` | peer >=5.0.0 | static | AppShell, BloomProvider, Dialog, DropdownMenu, Popover, Portal, Screen, Select |
+| `react-native-svg` | peer >=13.0.0 | static | AppShell, Dialog, DropdownMenu, Popover, Select |
+| `react-native-webview` | peer >=13.0.0 (optional) | require | AppShell, BloomProvider |
+
+react-native value imports (26): `AccessibilityInfo`, `ActivityIndicator`, `Animated`, `AppState`, `Appearance`, `BackHandler`, `FlatList`, `I18nManager`, `Image`, `Keyboard`, `Linking`, `Modal`, `PanResponder`, `PixelRatio`, `Platform`, `Pressable`, `ScrollView`, `StatusBar`, `StyleSheet`, `Text`, `TextInput`, `View`, `findNodeHandle`, `processColor`, `useColorScheme`, `useWindowDimensions`
+
+`require` rows are Metro optional dependencies: each sits as a direct statement of a `try` block and degrades when the module is absent (verified in `src/hooks/haptics-module.ts`, `src/image/expo-image-module.ts`, `src/theme/color-scope/style-builder.ts`, `src/theme/adaptive-colors.native.ts`, `src/screen/keyboard-components.ts`, `src/agent-avatar/character-webview.ts`). `static` rows are hard requirements of the OxyOS host.
+
+| Class | Modules | OxyOS host consequence |
+| --- | --- | --- |
+| Required native | `react-native` core (the 26 APIs above), `react-native-reanimated` (+ worklets), `react-native-gesture-handler`, `react-native-safe-area-context`, `react-native-svg`, `expo-font` (via `FontLoader.native.tsx`, reached from `BloomProvider`), `expo-blur` (`BlurTargetProvider`, `Overlay`, `ProgressiveBlur`) | Must be implemented on the Oxy runtime before `BloomProvider` mounts; `expo-font` and `expo-blur` also need `expo-modules-core` |
+| Required JS with native semantics | `react-native-css` (`styled` in `Surface`, `Button`, `Card`, …) | Real style support; unsupported properties need diagnostics |
+| Optional, degrades | `expo-image`, `expo-haptics`, `expo-router` (adaptive palette), `nativewind` (`vars`), `react-native-keyboard-controller`, `react-native-webview` (character avatar) | Absent on the first host: each loses only its feature. `react-native-webview` stays absent: no WebView in the native host |
+
+`Modal`, `BackHandler`, `StatusBar` and `Linking` are imported by reachable files; the host must either implement them or report them unsupported. On native, the menu families render through `SheetShell` → `BottomSheet` (an RN `Modal`); `FloatingPanel` and `useAnchorRect` are web-only. The OxyOS path needs a native anchored panel chosen when popup surfaces are available ([ADR 0002](./adr/0002-bloom-platform-surface-api)).
+
+## Native host feasibility findings
+
+- React Native 0.88 ships a generic C++ host platform (`platform/cxx`) for view, text, scroll view, modal, image manager, graphics and text layout, plus CMake files for 88 ReactCommon modules. A Linux build of Fabric and Yoga is therefore an extension of an upstream-maintained path, not a fork.
+- The `cxx` `TextLayoutManager` is a stub that returns the minimum constraint size. The Oxy host must provide real text measurement and rendering: shaping, font fallback, line breaking, selection and composition. These come from maintained libraries chosen in the spike, not new algorithms.
+- Hermes is not in the npm package (only `hermes-compiler`); the runtime must be built from the revision React Native 0.88 pins.
+- Reanimated, Gesture Handler, SVG, Safe Area and Expo modules have iOS/Android native halves only. Each needs a Linux implementation of its native interface on the Oxy host, and each is a scoped deliverable of #33.
+- Astro has no Linux React Native host to reuse: its Linux UI runs on react-native-web inside Chromium, which this platform must not use as the Bloom host.
+
+The feasibility gate is still open. This table is a starting inventory, not proof that the set builds. The first spike builds Hermes, Yoga and the Fabric `cxx` core on Linux x86_64, mounts a React tree and reports laid-out frames, then replaces the text stub.
+
+## Platform capability matrix
+
+| Capability | Android | iOS | Web | macOS | OxyOS |
+| --- | --- | --- | --- | --- | --- |
+| Bloom support today | Supported (Expo/RN) | Supported (Expo/RN) | Supported (react-native-web) | Not a declared Bloom target: no `.macos` files, one `Platform.OS === 'macos'` check; Astro consumes Bloom through react-native-macos 0.81 | In progress (#32–#36) |
+| Anchored menu/popover/select | Bottom sheet in an RN `Modal` (own window) | Same | DOM portal into `#bloom-portal-root`, placed inside the browser viewport | Not assessed | Compositor popup surface beyond the window ([ADR 0001](./adr/0001-native-platform-boundaries)); protocol, policy and offscreen pixels done, Bloom host pending |
+| Menu beyond the app window | No (sheet) | No (sheet) | No: web content cannot place desktop surfaces outside the browser window | Not assessed | Yes, by design; demonstrated with a test client offscreen |
+| Separate modal window | RN `Modal` | RN `Modal` | In-page dialog | Not assessed | `Dialog` role (modal), policy done |
+| Capability discovery | None (implicit) | None | None | None | Proposed adapter API ([ADR 0002](./adr/0002-bloom-platform-surface-api)) |
+
+A macOS adapter is not supported just because Astro has one. Supporting it needs its own adapter, build and tests. Unsupported capabilities are reported by the adapter, never simulated.
+
 ## Next implementation experiment
 
 1. Pin a compatible RN/Hermes/Fabric/Yoga/Bloom set in a disposable runtime spike and enumerate the full imported native-module graph. No invented production packages or versions before a successful build.

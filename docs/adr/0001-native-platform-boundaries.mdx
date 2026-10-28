@@ -114,13 +114,13 @@ A dismissed popup releases its content immediately (deferred while a backend fra
 
 ## Bloom components and native surfaces
 
-From the Bloom audit at `658d69a6`: on web, anchored menus are DOM portals into `#bloom-portal-root` placed by `overlay/dropdown-placement.ts`; on native they open as bottom sheets inside an RN `Modal`. The shared owners are `src/floating/` (`FloatingPanel`, `useAnchorRect`, menu keyboard, escape stack), `src/overlay/` and `src/portal/`.
+From the Bloom audit at `658d69a6`: on web, anchored menus are DOM portals into `#bloom-portal-root` placed by Bloom's own arithmetic (`floating/FloatingPanel.tsx`, `overlay/dropdown-placement.ts`); on native they open as bottom sheets inside an RN `Modal`. The shared owners are `src/floating/` (`FloatingPanel`, `useAnchorRect`, menu keyboard, escape stack), `src/overlay/` and `src/portal/`.
 
 | Needs an OxyOS popup surface | Stays in application layout |
 | --- | --- |
 | DropdownMenu, ContextMenu, Menubar (and their submenus), Select, Popover, HoverCard, ComposerPopover | Tooltip (initially), Toast, BottomSheet, Dialog drawers, inline panels, Command (a modal dialog) |
 
-Dialog maps to the modal `Dialog` role only when it is a separate native window; otherwise it stays in-window. The OxyOS adapter replaces the placement step of `FloatingPanel` with a positioner and renders the panel into the popup surface while keeping the React tree, providers, theme and controlled state in the same process (#33/#34). A React portal alone does not escape OS window clipping.
+Dialog maps to the modal `Dialog` role only when it is a separate native window; otherwise it stays in-window. `FloatingPanel` and `useAnchorRect` are web-only; the native variants render `dialog/SheetShell`. The OxyOS path is a native anchored panel at the same `src/floating/` owner. It turns Bloom's placement props into a positioner and renders into the popup surface, keeping the React tree, providers, theme and controlled state in one process ([ADR 0002](./0002-bloom-platform-surface-api), #33/#34). A React portal alone does not escape OS window clipping.
 
 ## Status
 
