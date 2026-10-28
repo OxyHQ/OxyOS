@@ -2,6 +2,8 @@
 
 #include "text.h"
 
+#include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
+#include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -13,6 +15,7 @@
 #include <fstream>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 #include <set>
 
 using namespace facebook::react;
@@ -172,10 +175,51 @@ class Painter {
 };
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
+                                            "AndroidTextInput",
                                             "Image"};
 
+// A text input's text, or its placeholder when empty, and the caret when it has focus. A
+// single-line input centres its line vertically, as Android's EditText does.
+void drawTextInput(const ShadowView& view, float x, float y, float w, float h, Clip clip, float opacity, bool focused,
+                   Painter& painter) {
+  const auto& data = static_cast<const ConcreteState<AndroidTextInputState>&>(*view.state).getData();
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
+  AttributedString text = data.attributedStringBox.getValue();
+  if (text.isEmpty() && !props->placeholder.empty()) {
+    auto attributes = props->getEffectiveTextAttributes(1);
+    attributes.foregroundColor = props->placeholderTextColor ? props->placeholderTextColor
+                                                             : colorFromComponents({0.5f, 0.5f, 0.5f, 1});
+    text.appendFragment({.string = props->placeholder, .textAttributes = attributes, .parentShadowView = {}});
+  }
+  auto content = view.layoutMetrics.getContentFrame();
+  float maxWidth = props->multiline ? content.size.width : std::numeric_limits<float>::infinity();
+  auto layout = TextEngine::shared().layout(text, props->paragraphAttributes, maxWidth);
+  float top = y + content.origin.y;
+  if (!props->multiline) top += (content.size.height - layout.height) / 2;
+  Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
+  painter.glyphs(layout, x + content.origin.x, top, inside, opacity);
+  if (!focused) return;
+  // The caret follows the last line of the input's own text (not of its placeholder).
+  float caretX = 0, caretTop = 0;
+  float caretHeight = props->getEffectiveTextAttributes(1).fontSize;
+  if (std::isnan(caretHeight)) caretHeight = 14;
+  if (!data.attributedStringBox.getValue().isEmpty() && !layout.lines.empty()) {
+    const auto& last = layout.lines.back();
+    caretX = last.x + last.width;
+    caretTop = last.top;
+    caretHeight = last.height;
+  } else if (!layout.lines.empty()) {
+    caretTop = layout.lines.front().top;
+    caretHeight = layout.lines.front().height;
+  }
+  SharedColor color = props->cursorColor ? props->cursorColor : props->getEffectiveTextAttributes(1).foregroundColor;
+  Rgba caret = color ? rgba(color) : Rgba{0, 0, 0, 1};
+  caret.a *= opacity;
+  painter.fill(x + content.origin.x + caretX, top + caretTop, 1.5f, caretHeight, BorderRadii{}, caret, inside);
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
-              RenderStats& stats) {
+              RenderStats& stats, Tag caret) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
@@ -241,6 +285,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     childOy -= state.getData().contentOffset.y;
   }
 
+  if (name == "AndroidTextInput" && view.state) {
+    drawTextInput(view, x, y, w, h, clip, opacity, tag == caret, painter);
+    ++stats.texts;
+  }
+
   if (name == "Paragraph" && view.state) {
     const auto& state = static_cast<const ConcreteState<ParagraphState>&>(*view.state).getData();
     auto content = view.layoutMetrics.getContentFrame();
@@ -253,7 +302,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   }
 
   for (Tag child : it->second.children) {
-    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats);
+    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, caret);
   }
 }
 
@@ -279,13 +328,13 @@ void chunk(std::vector<uint8_t>& out, const char* kind, const std::vector<uint8_
 
 }  // namespace
 
-RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas) {
+RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, Tag caret) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0xffffffff);
   Painter painter(canvas, display.scale);
   RenderStats stats;
-  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats);
+  drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, caret);
   return stats;
 }
 

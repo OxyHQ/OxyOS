@@ -25,11 +25,18 @@ struct GlyphRun {
   uint32_t color;  // 0xAARRGGBB
 };
 
+// One laid-out line, relative to the paragraph origin.
+struct LineLayout {
+  std::string text;
+  float x = 0, top = 0, width = 0, height = 0;
+  float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;
+};
+
 struct ParagraphLayout {
   std::vector<GlyphRun> runs;
+  std::vector<LineLayout> lines;
   float width = 0;
   float height = 0;
-  int lines = 0;
 };
 
 class TextEngine {

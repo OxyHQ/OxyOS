@@ -4,6 +4,10 @@
 
 #include "text.h"
 
+#include <react/debug/react_native_assert.h>
+
+#include <glog/logging.h>
+
 #include <algorithm>
 
 namespace facebook::react {
@@ -28,6 +32,29 @@ TextMeasurement TextLayoutManager::measure(
   return TextMeasurement{
       .size = layoutConstraints.clamp(Size{.width = std::ceil(layout.width), .height = std::ceil(layout.height)}),
       .attachments = attachments};
+}
+
+TextMeasurement TextLayoutManager::measureCachedSpannableById(
+    int64_t cacheId,
+    const ParagraphAttributes&,
+    const TextLayoutContext&,
+    const LayoutConstraints&) const {
+  react_native_assert(false && "OxyOS issues no cached spannable ids");
+  LOG(ERROR) << "measureCachedSpannableById(" << cacheId << ") on OxyOS, which caches no spannables";
+  return {};
+}
+
+LinesMeasurements TextLayoutManager::measureLines(
+    const AttributedStringBox& attributedStringBox,
+    const ParagraphAttributes& paragraphAttributes,
+    const Size& size) const {
+  auto layout = oxy::TextEngine::shared().layout(attributedStringBox.getValue(), paragraphAttributes, size.width);
+  LinesMeasurements lines;
+  for (const auto& line : layout.lines) {
+    lines.emplace_back(line.text, Rect{{line.x, line.top}, {line.width, line.height}}, line.descent, line.capHeight,
+                       line.ascent, line.xHeight);
+  }
+  return lines;
 }
 
 }  // namespace facebook::react

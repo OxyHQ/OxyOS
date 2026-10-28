@@ -5,6 +5,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_MULTIPLE_MASTERS_H
+#include FT_TRUETYPE_TABLES_H
 #include <hb-ft.h>
 #include <hb.h>
 
@@ -23,7 +24,7 @@ namespace {
 struct Face {
   FT_Face ft = nullptr;
   hb_font_t* hb = nullptr;
-  float ascent = 0, descent = 0;
+  float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;
 };
 
 uint32_t argb(const SharedColor& color) {
@@ -82,6 +83,12 @@ struct TextEngine::Impl {
     hb_ft_font_changed(entry.hb);
     entry.ascent = entry.ft->size->metrics.ascender / 64.0f;
     entry.descent = -entry.ft->size->metrics.descender / 64.0f;
+    // Cap and x heights come from the OS/2 table when the font has one (version 2 or later).
+    if (auto* os2 = static_cast<TT_OS2*>(FT_Get_Sfnt_Table(entry.ft, FT_SFNT_OS2)); os2 && os2->version >= 2) {
+      float scale = size / entry.ft->units_per_EM;
+      entry.capHeight = os2->sCapHeight * scale;
+      entry.xHeight = os2->sxHeight * scale;
+    }
     return faces[key] = entry;
   }
 
@@ -128,8 +135,10 @@ struct Token {
   float width = 0;          // including trailing spaces
   float inkWidth = 0;       // excluding trailing spaces
   float ascent = 0, descent = 0, lineHeight = NAN;
+  float capHeight = 0, xHeight = 0;
   uint32_t color = 0xff000000;
   bool newline = false;
+  std::string text;
 };
 
 }  // namespace
@@ -162,6 +171,8 @@ ParagraphLayout TextEngine::layout(
       token.lineHeight = attributes.lineHeight;
       token.ascent = primary.ascent;
       token.descent = primary.descent;
+      token.capHeight = primary.capHeight;
+      token.xHeight = primary.xHeight;
       if (s[i] == '\n') {
         token.newline = true;
         tokens.push_back(token);
@@ -217,6 +228,7 @@ ParagraphLayout TextEngine::layout(
         segment = end;
       }
       token.width = pen;
+      token.text = s.substr(start, i - start);
       tokens.push_back(std::move(token));
     }
   }
@@ -272,7 +284,12 @@ ParagraphLayout TextEngine::layout(
     if (alignment == TextAlignment::Right) offset = boxWidth - line.ink;
     float x = offset;
     float baseline = top + line.ascent;
+    LineLayout metrics{.x = offset, .top = top, .width = line.ink, .height = line.height, .ascent = line.ascent,
+                       .descent = line.descent};
     for (const Token* token : line.tokens) {
+      metrics.text += token->text;
+      metrics.capHeight = std::max(metrics.capHeight, token->capHeight);
+      metrics.xHeight = std::max(metrics.xHeight, token->xHeight);
       GlyphRun run;
       run.color = token->color;
       run.baseline = baseline;
@@ -280,10 +297,10 @@ ParagraphLayout TextEngine::layout(
       x += token->width;
       result.runs.push_back(std::move(run));
     }
+    result.lines.push_back(std::move(metrics));
     top += line.height;
   }
   result.height = top;
-  result.lines = static_cast<int>(lines.size());
   return result;
 }
 

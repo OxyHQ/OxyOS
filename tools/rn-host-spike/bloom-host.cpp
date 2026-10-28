@@ -5,6 +5,7 @@
 #include "input.h"
 #include "renderer.h"
 #include "text.h"
+#include "textinput.h"
 #include "window.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
@@ -196,7 +197,11 @@ class Mounter : public SchedulerDelegate {
   }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
-  void schedulerDidDispatchCommand(const ShadowView&, const std::string&, const folly::dynamic&) override {}
+  // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
+  std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
+  void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
+    if (onCommand) onCommand(view, name, args);
+  }
   void schedulerDidSendAccessibilityEvent(const ShadowView&, const std::string&) override {}
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag, const folly::dynamic&) override {}
@@ -321,6 +326,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<oxy::TextInputComponentDescriptor>());
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
     auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
@@ -385,6 +391,11 @@ int main(int argc, char** argv) {
     bool dirty = false;
     int status = 0;
     oxy::PointerInput pointer(tree);
+    oxy::TextEditing editing(tree);
+    facebook::react::Tag caret = -1;
+    mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
+      editing.command(view, name, args);
+    };
     try {
       while (true) {
         Beat::tickAll();
@@ -393,7 +404,17 @@ int main(int argc, char** argv) {
         busy |= timers->fire(*timerManager);
         worklets.tick();
         busy |= reanimated.tick();
-        if (!window->dispatch([&](const OxyEvent& event) { pointer.handle(event); })) break;
+        if (!window->dispatch([&](const OxyEvent& event) {
+              pointer.handle(event);
+              editing.handle(event);
+            })) {
+          break;
+        }
+        // Focus moves draw (or remove) a caret even when the tree did not change.
+        if (editing.focused() != caret) {
+          caret = editing.focused();
+          dirty = true;
+        }
         if (window->resized()) {
           display = oxy::Display{window->width(), window->height(), window->scale()};
           layOut();
@@ -405,7 +426,7 @@ int main(int argc, char** argv) {
         }
         if (dirty && window->ready()) {
           oxy::Canvas canvas;
-          oxy::draw(tree, display, canvas);
+          oxy::draw(tree, display, canvas, caret);
           window->present(canvas);
           dirty = false;
           busy = true;

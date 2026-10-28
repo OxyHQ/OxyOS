@@ -46,7 +46,8 @@ struct Canvas {
   std::vector<uint32_t> pixels;
 };
 
-RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas);
+// `caret` is the text input that has focus (-1 for none); its caret is drawn after its text.
+RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, facebook::react::Tag caret = -1);
 // Draws, writes a PNG and returns the stats; `written` reports whether the PNG was saved.
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath);
 bool writePng(const Canvas& canvas, const std::string& path);

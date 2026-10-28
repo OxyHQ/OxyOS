@@ -83,6 +83,12 @@ mkdir -p "$WORK/codegen-reanimated"
     --schemaPath "$WORK/codegen-reanimated/schema.json" --outputDir "$WORK/codegen-reanimated/out" \
     --libraryName rnreanimated --javaPackageName com.swmansion.reanimated)
 
+# React Native's text input component, patched to build off Android (see the patch's header). A
+# private copy: the React Native package is never modified.
+rm -rf "$WORK/textinput"
+cp -R "$RN_DIR/ReactCommon/react/renderer/components/textinput" "$WORK/textinput"
+patch -s -d "$WORK/textinput" -p1 < "$HERE/patches/react-native-androidtextinput-props.patch"
+
 # The display protocol client the host links (the repository's Cargo workspace).
 REPO=$(cd "$HERE/../.." && pwd)
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-client-ffi
@@ -92,7 +98,8 @@ CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=R
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
-  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" >/dev/null
+  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" \
+  -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
 ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
 
 # Fabric alone: a tree built through nativeFabricUIManager.
@@ -104,9 +111,10 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxy-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
 
 # The same app in a window: the offscreen compositor launches the host as its own process, which
-# presents its frames through the display protocol (sealed shared-memory buffers). It then presses
-# the sample's Bloom Button twice and scrolls the inbox by 400 px (window-local points); each step
-# must change the window.
+# presents its frames through the display protocol (sealed shared-memory buffers). Then, at
+# window-local points: press the sample's Bloom Button twice, scroll the inbox by 400 px, focus the
+# Bloom TextField, type, delete a character and submit with Enter. Each step must change the window.
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" "$REPO/target/release/oxy-offscreen" --launch \
-  --out "$WORK/window" --press 686,324 --press 686,324 --scroll 170,300,400 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640
+  --out "$WORK/window" --press 686,324 --press 686,324 --scroll 170,300,400 \
+  --press 686,372 --type "Hola OxyOS!" --key 14 --key 28 -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640

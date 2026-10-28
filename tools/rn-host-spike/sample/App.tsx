@@ -6,6 +6,7 @@ import { Screen, ScreenScrollView } from '@oxy.so/bloom/screen';
 import { PageHeader } from '@oxy.so/bloom/page-header';
 import { Card, CardDescription, CardHeader, CardTitle } from '@oxy.so/bloom/card';
 import { Button } from '@oxy.so/bloom/button';
+import { TextField, TextFieldInput } from '@oxy.so/bloom/text-field';
 import { H3, Muted, P } from '@oxy.so/bloom/typography';
 
 const MESSAGES = [
@@ -40,6 +41,7 @@ function Inbox() {
 
 function Detail() {
   const [presses, setPresses] = React.useState(0);
+  const [reply, setReply] = React.useState('');
   return (
     <Screen header={<PageHeader title="Native Bloom on OxyOS" />}>
       <ScreenScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
@@ -52,6 +54,10 @@ function Detail() {
         <Button onPress={() => setPresses((count) => count + 1)}>
           {presses === 0 ? 'Press me' : `Pressed ${presses} ${presses === 1 ? 'time' : 'times'}`}
         </Button>
+        <TextField>
+          <TextFieldInput placeholder="Write a reply" value={reply} onChangeText={setReply} />
+        </TextField>
+        <Muted>{reply ? `Reply: ${reply}` : 'No reply yet'}</Muted>
       </ScreenScrollView>
     </Screen>
   );

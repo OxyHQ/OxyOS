@@ -128,14 +128,26 @@ The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Blo
   - Drawn into a 1024×640 32-bit buffer and written as PNG.
   - 50 views, 14 paragraphs, no unimplemented components, no JS errors, deterministic across runs (byte-identical output), settled in about 1.4 s.
 
-Not yet shown:
-- presenting the buffer through the Oxy display protocol;
-- input (pointer, keyboard, text input and composition);
-- Gesture Handler, SVG, images and `expo-blur`;
-- scrolling, modals and popups from Bloom;
-- accessibility.
+### Spike result: Bloom in a window, with pointer, scrolling and text input
 
-These are the remaining #33 deliverables; Bloom renders, but it is not interactive yet.
+`oxy-bloom-host --window` is a client of the Oxy display protocol (`crates/oxy-client` through the C ABI in `crates/oxy-client-ffi`). `oxy-offscreen --launch` runs it as its own process and drives it with scripted input; `build.sh` does both. Every step must change the window's pixels:
+- **Presenting:** the host lays out at the configured size and presents its view tree in sealed shared-memory buffers, one frame in flight, reusing released buffers.
+- **Pointer:** pointer events become React Native touch events on the view under the pointer (hit-tested like the renderer draws: frames, scroll offsets, clipping, `pointerEvents`), as Android delivers them. Pressability is unchanged; Bloom's `Button` counts presses.
+- **Scrolling:** the protocol's `Scroll` event moves the innermost enabled scroll view that can still move. The host owns the offset, as a native scroll view does: it updates the ScrollView's Fabric state and emits `onScroll`. Reanimated sees every Fabric event through a Scheduler event listener (as on iOS), so Bloom's scroll-linked header animation runs on the worklet runtime.
+- **Text input:** Bloom's `TextField` is React Native's Android text input (props, state and shadow node built unchanged) with an OxyOS descriptor and the native editing side Android's EditText provides. Focus and blur come from JavaScript commands. Committed text arrives in the protocol's `Text` event, and Backspace and Enter as keys. Edits update the input's state and emit Android's events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`); Bloom's focus ring and a controlled `value` follow.
+
+**React Native core runs its Android implementation on OxyOS.** The host implements React Native's Android interfaces: TurboModule specs, component names and commands. So modules inside the `react-native` package get its own `Platform.android.js` and take their Android branches, and assets follow Android's resource layout. Everything else, including the `Platform` that `react-native` exports to apps and Bloom, reports `oxyos` (`sample/metro.config.js`). Before this rule, the 46 core modules that branch on `Platform.OS` took neither branch on `oxyos`; `TextInput` rendered nothing at all.
+
+Defects found and fixed at their source:
+- **React Native:** `AndroidTextInputProps` and `AndroidTextInputState` use Android's serialisation API without the `#ifdef RN_SERIALIZABLE_STATE` guard every other component has, so they do not build off Android. `tools/rn-host-spike/patches/react-native-androidtextinput-props.patch` adds the guard. `build.sh` applies it to a private copy; the React Native package is never modified. Upstream `main` still lacks the guard.
+- **Bloom:** `FontLoader` gated rendering on `useFonts`' `loaded` alone, so one font that failed to load left the whole app blank, on every platform. Fixed in Bloom 15.59.4: the app renders in the system font and the failure is reported.
+
+Known gaps:
+- The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
+- Text input has no selection, caret movement, IME composition or clipboard yet.
+- Touch-drag scrolling, Gesture Handler, images, `expo-blur`, modals and accessibility are not implemented.
+- Opening a Bloom menu as a compositor popup is the next step.
+
 
 ## Platform capability matrix
 
