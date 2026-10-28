@@ -92,6 +92,7 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 | Lock | Grab and all non-lock popups `PopupDone(Locked)`; new grabs denied |
 | Grant revoked | Dependent surfaces `PopupDone(AuthorizationRevoked)` |
 | Parent moved | Popups keep their parent-relative position in the same frame (no detached jump); after the move, popups whose constrained geometry changed are reconfigured, or dismissed if unplaceable |
+| Parent resized | Popups keep their relative position until the parent's new size is presented, then are re-placed (or dismissed) if their constrained geometry changed |
 | Output scale change | Logical geometry kept; affected surfaces reconfigured at the new scale; old content shown until ready |
 | Output removed | Popups and output-bound shell/lock surfaces `PopupDone(OutputRemoved)`; windows move to a remaining output |
 
