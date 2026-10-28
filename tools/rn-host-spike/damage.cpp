@@ -54,7 +54,9 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
   std::unordered_map<Tag, const View*> views;
   collect(tree, tree.root(), 0, 0, at, views);
   Views now;
-  for (const auto& [tag, rect] : at) now[tag] = Seen{views[tag]->view, rect, views[tag]->children};
+  for (const auto& [tag, rect] : at) {
+    now[tag] = Seen{views[tag]->view, rect, views[tag]->children, views[tag]->picture};
+  }
 
   bool same = display_ && display_->width == display.width && display_->height == display.height &&
               display_->scale == display.scale;
@@ -74,6 +76,8 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
         continue;
       }
       const auto& then = old->second;
+      // A new picture changes the view's own drawing, under its children.
+      if (then.picture != seen.picture) damage.push_back(seen.at);
       bool props = !drawsTheSame(then.view, seen.view);
       if (props || then.view.state != seen.view.state || then.children != seen.children) {
         // OXY_DAMAGE_TRACE: what drew a subtree again, and why.

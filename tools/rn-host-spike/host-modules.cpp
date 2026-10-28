@@ -1,5 +1,6 @@
 #include "host-modules.h"
 
+#include "images.h"
 #include "text.h"
 
 #include <folly/dynamic.h>
@@ -22,6 +23,11 @@ jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& 
     callback.asObject(rt).asFunction(rt).call(rt, argument);
   }
   return jsi::Value::undefined();
+}
+
+// A promise resolved with `value`.
+jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
 }
 
 // A promise rejected with an Error carrying `message`.
@@ -130,13 +136,29 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "KeyboardObserver") {
     module->listeners();
   } else if (name == "ImageLoader") {
-    // No image pipeline on OxyOS yet: requests fail explicitly.
-    for (const char* method : {"getSize", "getSizeWithHeaders", "prefetchImage", "queryCache"}) {
-      module->method(method, [method](jsi::Runtime& rt, const jsi::Value*, size_t) {
-        return rejected(rt, std::string("ImageLoader.") + method + " is not supported on OxyOS yet");
-      });
-    }
-    module->unsupported({"abortRequest"});
+    // Image sizes from the files' headers (images.h resolves the sources, oxy-image reads them):
+    // a promise of {width, height} in pixels, or of true for a prefetch.
+    auto sized = [](bool prefetch) {
+      return [prefetch](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        auto source = resolveImageSource(count > 0 ? text(rt, args[0]) : "");
+        if (!source.error.empty()) return rejected(rt, source.error);
+        uint32_t width = 0, height = 0;
+        if (oxy_image_size(source.path.data(), source.path.size(), &width, &height) != 0) {
+          return rejected(rt, oxy_last_error());
+        }
+        // A local image needs no fetching: it is ready if it can be read.
+        if (prefetch) return resolved(rt, jsi::Value(true));
+        return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object("width", width)("height", height)));
+      };
+    };
+    module->method("getSize", sized(false));
+    module->method("getSizeWithHeaders", sized(false));
+    module->method("prefetchImage", sized(true));
+    module->method("queryCache", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return resolved(rt, jsi::Object(rt));
+    });
+    // A prefetch has finished when it returns: there is nothing to abort.
+    module->method("abortRequest", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
   } else if (name == "RNCSafeAreaContext") {
     // An OxyOS window has no system insets.
     folly::dynamic zero = folly::dynamic::object("top", 0)("right", 0)("bottom", 0)("left", 0);

@@ -1,0 +1,28 @@
+{
+  "about": "React Native's Image on OxyOS (images.h, sample/ImageProbe.tsx): a wallpaper frame of the repository (a 5120 x 2880 JPEG with a Display P3 profile) covering its box, an app icon of the shell (a 192 x 192 PNG with transparency) contained in a rounded box and the same icon tinted, each reporting its load with the bitmap's size as Android does; a remote image and a missing file failing with their reasons; and Image.getSize on the wallpaper. The output is checked at four points: the wallpaper's centre in sRGB, the icon's centre, the tinted icon (exactly its tint) and the remote image's box (nothing drawn).",
+  "module": "ImageProbe",
+  "window": [
+    800,
+    480
+  ],
+  "steps": [],
+  "final": {
+    "texts": [
+      "wallpaper: loaded 5120x2880",
+      "icon: loaded 192x192",
+      "tinted: loaded 192x192",
+      "remote: error: remote images are not supported on OxyOS yet",
+      "missing: error: cannot read the image: No such file or directory (os error 2)",
+      "getSize: 5120x2880"
+    ],
+    "absent": [
+      "pending"
+    ],
+    "pixels": {
+      "176,116": "#4b7fff",
+      "396,116": "#ac7fab",
+      "480,116": "#294ab4",
+      "540,116": "#ffffff"
+    }
+  }
+}

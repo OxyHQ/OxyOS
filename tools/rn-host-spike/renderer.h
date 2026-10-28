@@ -17,15 +17,29 @@ struct Display {
   float scale;
 };
 
+// A decoded image an Image view shows (images.h): `width` × `height` premultiplied RGBA pixels,
+// sRGB, and the size it is drawn at by `center` and `repeat`, in logical pixels.
+struct Picture {
+  int width = 0, height = 0;
+  std::vector<uint8_t> pixels;
+  float naturalWidth = 0, naturalHeight = 0;
+};
+
 struct View {
   facebook::react::ShadowView view;
   std::vector<facebook::react::Tag> children;
+  // What an Image view shows, as Android's ReactImageView holds its bitmap; none until loaded.
+  std::shared_ptr<const Picture> picture;
 };
 
 class ViewTree {
  public:
   void apply(const facebook::react::ShadowViewMutationList& mutations);
   const std::unordered_map<facebook::react::Tag, View>& views() const { return views_; }
+  // Gives an existing view the picture it shows (none for nullptr).
+  void setPicture(facebook::react::Tag tag, std::shared_ptr<const Picture> picture) {
+    if (auto it = views_.find(tag); it != views_.end()) it->second.picture = std::move(picture);
+  }
   facebook::react::Tag root() const { return root_; }
 
  private:

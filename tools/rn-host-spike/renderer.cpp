@@ -4,6 +4,7 @@
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
+#include <react/renderer/components/image/ImageProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
@@ -14,6 +15,8 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iostream>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -188,6 +191,66 @@ class Painter {
     return hits / 16.0f;
   }
 
+  // Draws `picture` stretched over the logical rectangle (dx, dy, dw, dh), sampled bilinearly,
+  // within `clip`, rounded by `radii` over the box (bx, by, bw, bh). With `tint`, each pixel takes
+  // the tint's colour and keeps its own alpha (Android's SRC_IN colour filter).
+  void image(const Picture& picture, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+             float bw, float bh, const BorderRadii& radii, float opacity, const std::optional<Rgba>& tint) {
+    if (picture.width <= 0 || picture.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+    Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+    if (box.empty()) return;
+    int x0 = std::max(static_cast<int>(std::floor(box.x0 * scale_)), region_[0]);
+    int y0 = std::max(static_cast<int>(std::floor(box.y0 * scale_)), region_[1]);
+    int x1 = std::min(static_cast<int>(std::ceil(box.x1 * scale_)), region_[2]);
+    int y1 = std::min(static_cast<int>(std::ceil(box.y1 * scale_)), region_[3]);
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0), x1 = std::min(x1, canvas_.width), y1 = std::min(y1, canvas_.height);
+    bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
+                   radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0;
+    const float s = 1 / scale_;
+    auto texel = [&](int tx, int ty, int c) {
+      tx = std::clamp(tx, 0, picture.width - 1), ty = std::clamp(ty, 0, picture.height - 1);
+      return picture.pixels[(static_cast<size_t>(ty) * picture.width + tx) * 4 + c] / 255.0f;
+    };
+    for (int py = y0; py < y1; ++py) {
+      for (int px = x0; px < x1; ++px) {
+        float lx = px * s, ly = py * s;
+        // The share of this device pixel inside the destination and the clip.
+        float cx = std::min(lx + s, box.x1) - std::max(lx, box.x0);
+        float cy = std::min(ly + s, box.y1) - std::max(ly, box.y0);
+        float coverage = std::clamp(cx * scale_, 0.0f, 1.0f) * std::clamp(cy * scale_, 0.0f, 1.0f);
+        if (rounded && coverage > 0) coverage *= roundedCoverage(lx, ly, s, bx, by, bw, bh, radii);
+        if (coverage <= 0) continue;
+        // The picture's point under this pixel's centre, between texel centres.
+        float u = ((lx + s / 2 - dx) / dw) * picture.width - 0.5f;
+        float v = ((ly + s / 2 - dy) / dh) * picture.height - 0.5f;
+        int u0 = static_cast<int>(std::floor(u)), v0 = static_cast<int>(std::floor(v));
+        float fu = u - u0, fv = v - v0;
+        float sample[4];
+        for (int c = 0; c < 4; ++c) {
+          float top = texel(u0, v0, c) * (1 - fu) + texel(u0 + 1, v0, c) * fu;
+          float bottom = texel(u0, v0 + 1, c) * (1 - fu) + texel(u0 + 1, v0 + 1, c) * fu;
+          sample[c] = top * (1 - fv) + bottom * fv;
+        }
+        float alpha = sample[3] * opacity * coverage;
+        if (alpha <= 0) continue;
+        float r, g, b;  // premultiplied by `alpha`
+        if (tint) {
+          r = tint->r * alpha * tint->a, g = tint->g * alpha * tint->a, b = tint->b * alpha * tint->a;
+          alpha *= tint->a;
+        } else {
+          float k = opacity * coverage;
+          r = sample[0] * k, g = sample[1] * k, b = sample[2] * k;
+        }
+        uint32_t& dst = canvas_.pixels[static_cast<size_t>(py) * canvas_.width + px];
+        auto channel = [&](int shift, float src) {
+          float d = ((dst >> shift) & 0xff) / 255.0f;
+          return static_cast<uint32_t>(std::lround(std::clamp(src + d * (1 - alpha), 0.0f, 1.0f) * 255)) << shift;
+        };
+        dst = channel(24, alpha) | channel(16, r) | channel(8, g) | channel(0, b);
+      }
+    }
+  }
+
   void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
     auto& engine = TextEngine::shared();
     for (const auto& run : layout.runs) {
@@ -319,6 +382,60 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
   }
 }
 
+// An Image view's picture within its content box, as React Native's resizeMode places it, rounded
+// with the view's corners and tinted with its tintColor.
+void drawImage(const ShadowView& view, const Picture& picture, float x, float y, float w, float h, Clip clip,
+               float opacity, Painter& painter) {
+  auto props = std::static_pointer_cast<const ImageProps>(view.props);
+  if (props->blurRadius > 0) {
+    static bool reported = false;
+    if (!reported) std::cerr << "[host] unsupported on OxyOS: Image blurRadius (drawn unblurred)\n";
+    reported = true;
+  }
+  auto content = view.layoutMetrics.getContentFrame();
+  float cx = x + content.origin.x, cy = y + content.origin.y, cw = content.size.width, ch = content.size.height;
+  if (cw <= 0 || ch <= 0) return;
+  // The picture's own proportions, and its size at its scale (center, repeat, none).
+  float aspect = static_cast<float>(picture.width) / std::max(1, picture.height);
+  float nw = picture.naturalWidth > 0 ? picture.naturalWidth : picture.width;
+  float nh = picture.naturalHeight > 0 ? picture.naturalHeight : picture.height;
+  auto within = [&](float w0, float h0) {
+    float shrink = std::min(1.0f, std::min(cw / w0, ch / h0));
+    return std::pair{w0 * shrink, h0 * shrink};
+  };
+  Clip inside = clip.intersect(Clip{cx, cy, cx + cw, cy + ch});
+  auto border = props->resolveBorderMetrics(view.layoutMetrics);
+  std::optional<Rgba> tint;
+  if (props->tintColor && *props->tintColor) tint = rgba(*props->tintColor);
+  auto draw = [&](float dx, float dy, float dw, float dh) {
+    painter.image(picture, dx, dy, dw, dh, inside, x, y, w, h, border.borderRadii, opacity, tint);
+  };
+  switch (props->resizeMode) {
+    case ImageResizeMode::Stretch:
+      return draw(cx, cy, cw, ch);
+    case ImageResizeMode::Cover:
+    case ImageResizeMode::Contain: {
+      bool cover = props->resizeMode == ImageResizeMode::Cover;
+      float dw = cw, dh = cw / aspect;
+      if (cover ? dh < ch : dh > ch) dh = ch, dw = ch * aspect;
+      return draw(cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
+    }
+    case ImageResizeMode::Center: {
+      auto [dw, dh] = within(nw, nh);
+      return draw(cx + (cw - dw) / 2, cy + (ch - dh) / 2, dw, dh);
+    }
+    case ImageResizeMode::None:
+      return draw(cx, cy, nw, nh);
+    case ImageResizeMode::Repeat: {
+      auto [dw, dh] = within(nw, nh);
+      for (float ty = cy; ty < cy + ch; ty += dh) {
+        for (float tx = cx; tx < cx + cw; tx += dw) draw(tx, ty, dw, dh);
+      }
+      return;
+    }
+  }
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
               RenderStats& stats, const TextInputEdit& edit) {
   auto it = tree.views().find(tag);
@@ -402,6 +519,10 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
       auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
       stats.textContent.push_back(value.empty() ? props->placeholder : shownText(*props, value));
     }
+  }
+
+  if (name == "Image" && it->second.picture && painter.touches(x, y, w, h)) {
+    drawImage(view, *it->second.picture, x, y, w, h, clip, opacity, painter);
   }
 
   if (name == "Paragraph" && view.state) {
