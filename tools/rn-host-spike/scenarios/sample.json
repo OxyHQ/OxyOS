@@ -31,7 +31,8 @@
         "absent": ["Rendered by Fabric and Hermes on Linux."],
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}},
-        "latency_ms": 250
+        "latency_ms": 250,
+        "scroll_offset": {"inbox": [0, 346]}
       }
     },
     {
@@ -355,6 +356,109 @@
         "absent": ["Chosen: Delete", "Copy link"],
         "popup_events": {"close@7": 1},
         "react": {"touchStart@action-Print": 1, "touchEnd@action-Print": 1}
+      }
+    },
+    {
+      "name": "open the menu once more",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 8,
+        "popup_size": [266, 338],
+        "frame_px": {"window": [1024, 640], "popup": [266, 338]},
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "the output's scale becomes 1.5: both surfaces are drawn again at it, nothing moves",
+      "do": ["scale", 180],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 8,
+        "popup_size": [266, 338],
+        "frame_px": {"window": [1536, 960], "popup": [399, 507]},
+        "texts": ["Reply", "Move to folder", "Chosen: Print"],
+        "popup_events": {},
+        "react": {}
+      }
+    },
+    {
+      "name": "the menu still takes presses in logical coordinates",
+      "do": ["press-popup", [60, 110]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Archive"],
+        "absent": ["Chosen: Print"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    },
+    {
+      "name": "back to scale 1",
+      "do": ["scale", 120],
+      "expect": {
+        "popups": 0,
+        "frame_px": {"window": [1024, 640]},
+        "texts": ["Chosen: Archive"],
+        "react": {}
+      }
+    },
+    {
+      "name": "the wheel scrolls the inbox back by 100",
+      "do": ["scroll", [170, 300, -100]],
+      "expect": {
+        "scroll_offset": {"inbox": [0, 246]},
+        "react": {"scroll@inbox": 1},
+        "delivered": {"1": {"scroll": 1}}
+      }
+    },
+    {
+      "name": "scrolling past the top stops at it",
+      "do": ["scroll", [170, 300, -1000]],
+      "expect": {
+        "scroll_offset": {"inbox": [0, 0]},
+        "texts": ["Rendered by Fabric and Hermes on Linux."],
+        "react": {"scroll@inbox": 1}
+      }
+    },
+    {
+      "name": "at the top the wheel moves nothing and React hears nothing",
+      "do": ["scroll", [170, 300, -50]],
+      "allow_unchanged": true,
+      "expect": {
+        "scroll_offset": {},
+        "react": {},
+        "delivered": {"1": {"scroll": 1}}
+      }
+    },
+    {
+      "name": "open the menu to test the wheel behind it",
+      "do": ["press", [797, 487]],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 9,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
+      }
+    },
+    {
+      "name": "the wheel over the window behind an open menu reaches no client and scrolls nothing",
+      "do": ["scroll", [170, 300, 200]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "scroll_offset": {},
+        "react": {},
+        "texts": ["Rendered by Fabric and Hermes on Linux."],
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "react": {"key@message-actions": 1}
       }
     }
   ]

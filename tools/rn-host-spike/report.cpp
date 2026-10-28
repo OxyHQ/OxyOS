@@ -47,12 +47,13 @@ void Report::write(folly::dynamic&& line) {
   std::fflush(file_);
 }
 
-void Report::frame(uint32_t surface, double renderMs, const std::vector<std::string>& texts,
+void Report::frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
                    const std::string& focus) {
   if (!file_) return;
   folly::dynamic list = folly::dynamic::array;
   for (const auto& text : texts) list.push_back(text);
-  write(folly::dynamic::object("kind", "frame")("surface", surface)("render_ms", renderMs)("texts", std::move(list))(
+  write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
+      "render_ms", renderMs)("texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus)));
 }
 

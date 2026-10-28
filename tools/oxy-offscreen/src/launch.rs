@@ -37,6 +37,9 @@ pub enum Step {
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
+    /// The output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
+    /// on it for buffers at the new scale; logical geometry is unchanged.
+    Scale(u32),
     /// No input: a popup of the application must be shown, extending beyond its window.
     ExpectPopup,
 }
@@ -51,6 +54,7 @@ impl Step {
             Step::Preedit(text) => format!("composing {text:?}"),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
+            Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
         }
     }
@@ -66,6 +70,7 @@ impl Step {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
+            Step::Scale(scale) => format!("\"scale\":{scale}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
         }
     }
@@ -86,7 +91,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -156,6 +161,10 @@ impl Launch {
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
+                Some("--scale") => {
+                    let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Scale(scale.parse()?)
+                }
                 Some("--preedit") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
@@ -360,6 +369,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 compositor.scene.key(*code, false);
             }
         }
+        Step::Scale(scale) => compositor
+            .scene
+            .set_output_scale(OUTPUT_ID, *scale)
+            .map_err(|code| format!("scale {scale}: {code:?}"))?,
         Step::ExpectPopup => {}
     }
     Ok(())
@@ -503,6 +516,8 @@ mod tests {
             "42+106",
             "--drag",
             "1,2,3,4",
+            "--scale",
+            "180",
             "--expect-popup",
             "--allow-unchanged",
             "--press-popup",
@@ -517,7 +532,7 @@ mod tests {
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
             allowed,
-            [false, false, false, false, false, false, false, true]
+            [false, false, false, false, false, false, false, false, true]
         );
         assert_eq!(
             steps,
@@ -535,6 +550,7 @@ mod tests {
                     from: (1, 2),
                     to: (3, 4)
                 },
+                Step::Scale(180),
                 Step::ExpectPopup,
                 Step::PressPopup { x: 5, y: 6 },
             ]

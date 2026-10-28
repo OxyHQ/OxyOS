@@ -1,7 +1,7 @@
 // What the host showed and delivered, for regression checks (tools/rn-host-spike/regress.py):
 // with OXY_HOST_REPORT=<path>, one JSON object per line.
 //
-//   {"t":…,"kind":"frame","surface":1,"render_ms":…,"texts":[…],"focus":"reply"}
+//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
@@ -29,8 +29,9 @@ class Report {
   static Report& get();
   bool enabled() const { return file_ != nullptr; }
 
-  // A presented frame and the text it shows, in drawing order.
-  void frame(uint32_t surface, double renderMs, const std::vector<std::string>& texts, const std::string& focus);
+  // A presented frame (its size in pixels) and the text it shows, in drawing order.
+  void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
+             const std::string& focus);
   // A compositor event as received.
   void input(const char* event, uint32_t surface, const folly::dynamic& extra = folly::dynamic::object());
   // An event delivered to React (touch, text, scroll, …) on `view`.

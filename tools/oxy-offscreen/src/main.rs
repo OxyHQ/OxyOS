@@ -14,7 +14,7 @@ mod launch;
 mod png;
 
 use client::*;
-use oxy_compositor_core::{ClientId, Grants, Output, RenderItem, Scene, SurfaceKey};
+use oxy_compositor_core::{ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey};
 use oxy_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxy_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection};
 use rustix::event::{poll, PollFd, PollFlags};
@@ -30,6 +30,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
 const OUTPUT: Rect = Rect::new(0, 0, 1280, 720);
+const OUTPUT_ID: OutputId = 1;
 const DEADLINE: Duration = Duration::from_secs(10);
 /// Events a client may leave unread before it is disconnected as unresponsive.
 const MAX_OUTBOX: usize = 1024;
@@ -490,7 +491,7 @@ impl Session {
         let mut scene = Scene::new();
         scene
             .add_output(Output {
-                id: 1,
+                id: OUTPUT_ID,
                 rect: OUTPUT,
                 scale_120: 120,
                 refresh_mhz: 60_000,

@@ -52,6 +52,8 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind == "preedit":
         return args + ["--preedit", value]
+    if kind == "scale":
+        return args + ["--scale", str(value)]
     if kind == "expect-popup":
         return ["--expect-popup"]
     raise ValueError(f"unknown step {kind}")
@@ -124,6 +126,20 @@ def check_step(index, step, result, report, start, failures):
         sizes = [rect[2:] for rect in rects]
         if sizes != [expect["popup_size"]]:
             fail(f"popup sizes {sizes}, expected [{expect['popup_size']}]")
+    if "scroll_offset" in expect:
+        # The offset the host gave each scroll view in this step, by testID.
+        offsets = {}
+        for line in report:
+            if line["kind"] == "deliver" and line["event"] == "scroll" and start <= line["t"] <= end:
+                offsets[line.get("within") or line["target"]] = [line["x"], line["y"]]
+        if offsets != expect["scroll_offset"]:
+            fail(f"scroll offsets {offsets}, expected exactly {expect['scroll_offset']}")
+    if "frame_px" in expect:
+        # The size in pixels of the latest frame of the window and of each open popup.
+        for role, size in expect["frame_px"].items():
+            got = [[f["width"], f["height"]] for s, f in frames.items() if (s == 1) == (role == "window")]
+            if got != [size]:
+                fail(f"{role} frames are {got} px, expected [{size}]")
     if "popups" in expect:
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:

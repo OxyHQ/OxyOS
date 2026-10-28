@@ -478,6 +478,9 @@ int main(int argc, char** argv) {
         if (window->resized()) {
           display = oxy::Display{window->width(), window->height(), window->scale()};
           layOut();
+          // A new size or scale needs a new frame even when the layout does not change (a
+          // scale change keeps every logical frame); the old one would be discarded.
+          dirty = true;
           busy = true;
         }
         if (mounter.takeChanged()) {
@@ -492,7 +495,8 @@ int main(int argc, char** argv) {
           auto stats = oxy::draw(tree, display, canvas, drawn);
           double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
           window->present(oxy::Window::kToplevel, canvas);
-          oxy::Report::get().frame(oxy::Window::kToplevel, renderMs, stats.textContent, focusName());
+          oxy::Report::get().frame(oxy::Window::kToplevel, canvas.width, canvas.height, renderMs, stats.textContent,
+                                   focusName());
           dirty = false;
           busy = true;
         }
