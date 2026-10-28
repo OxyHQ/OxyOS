@@ -121,9 +121,15 @@ pub struct Launch {
     /// `--kms CARD`: show every composed frame on the card's first connected output (needs DRM
     /// master); frames complete at their flip times.
     pub kms: Option<PathBuf>,
+    /// `--input`: the seat's devices through libinput drive the scene; `--uinput` also makes
+    /// the director point, scroll and type through virtual devices instead of the scene.
+    pub input: bool,
+    pub uinput: bool,
+    /// `--layout LAYOUT`: the XKB layout keys are typed and read with (`us` by default).
+    pub layout: String,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -148,6 +154,7 @@ impl Launch {
         let mut gpu = false;
         let mut dump_frames = None;
         let mut kms = None;
+        let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -162,6 +169,23 @@ impl Launch {
                 Some("--launch") => continue,
                 Some("--gpu") => {
                     gpu = true;
+                    continue;
+                }
+                Some("--input") => {
+                    input = true;
+                    continue;
+                }
+                Some("--uinput") => {
+                    input = true;
+                    uinput = true;
+                    continue;
+                }
+                Some("--layout") => {
+                    layout = args
+                        .next()
+                        .and_then(|l| l.to_str())
+                        .ok_or(USAGE)?
+                        .to_string();
                     continue;
                 }
                 Some("--kms") => {
@@ -254,6 +278,9 @@ impl Launch {
                             gpu,
                             dump_frames,
                             kms,
+                            input,
+                            uinput,
+                            layout,
                         },
                     ));
                 }
@@ -449,6 +476,84 @@ fn popups_json(compositor: &Compositor) -> String {
     format!("[{}]", popups.join(","))
 }
 
+/// Injects a step through the virtual devices (`--uinput`): pointer steps as an absolute
+/// pointer and wheel, keys and text as a keyboard. Returns how many characters no key types
+/// and were sent as committed text instead, or `None` for a step the devices do not make.
+fn inject_through(
+    devices: &mut crate::uinput::Devices,
+    compositor: &mut Compositor,
+    window: Rect,
+    step: &Step,
+) -> Result<Option<usize>> {
+    let (ox, oy) = compositor.display_offset;
+    let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
+        if rect.contains_point(rect.x + x, rect.y + y) {
+            Ok(())
+        } else {
+            Err(format!("({x}, {y}) is outside {rect:?}").into())
+        }
+    };
+    // Output coordinates to the display's pixels.
+    let at = |x: i32, y: i32| (x + ox, y + oy);
+    let press = |devices: &mut crate::uinput::Devices, (x, y): (i32, i32)| -> Result<()> {
+        devices.move_to(x, y)?;
+        devices.button(true)?;
+        devices.button(false)?;
+        Ok(())
+    };
+    match step {
+        Step::Press { x, y } => {
+            inside(window, *x, *y)?;
+            press(devices, at(window.x + x, window.y + y))?;
+        }
+        Step::PressPopup { x, y } => {
+            let popup = popup(compositor).ok_or("no popup is shown")?;
+            inside(popup, *x, *y)?;
+            press(devices, at(popup.x + x, popup.y + y))?;
+        }
+        Step::Scroll { x, y, dy } => {
+            inside(window, *x, *y)?;
+            let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            devices.wheel(*dy)?;
+        }
+        Step::Drag { from, to } => {
+            inside(window, from.0, from.1)?;
+            inside(window, to.0, to.1)?;
+            let (fx, fy) = at(window.x + from.0, window.y + from.1);
+            let (tx, ty) = at(window.x + to.0, window.y + to.1);
+            devices.move_to(fx, fy)?;
+            devices.button(true)?;
+            devices.move_to((fx + tx) / 2, (fy + ty) / 2)?;
+            devices.move_to(tx, ty)?;
+            devices.button(false)?;
+        }
+        Step::Key(codes) => {
+            for code in codes {
+                devices.key(*code as u16, true)?;
+            }
+            for code in codes.iter().rev() {
+                devices.key(*code as u16, false)?;
+            }
+        }
+        Step::Type(text) => {
+            let mut as_text = 0;
+            for character in text.chars() {
+                if !devices.type_char(character)? {
+                    // The keys sent so far reach the scene first, then this character.
+                    std::thread::sleep(Duration::from_millis(50));
+                    compositor.read_input();
+                    compositor.scene.text(&character.to_string());
+                    as_text += 1;
+                }
+            }
+            return Ok(Some(as_text));
+        }
+        _ => return Ok(None),
+    }
+    Ok(Some(0))
+}
+
 /// Injects one step's input into the scene.
 fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> {
     let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
@@ -575,6 +680,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         );
         session.compositor.display = Some(display);
     }
+    // Real input: the display's pixels (or the output's, without a display), the output centred.
+    let mut devices = None;
+    if launch.input {
+        let bounds = match &session.compositor.display {
+            Some(display) => display.size(),
+            None => (OUTPUT.width, OUTPUT.height),
+        };
+        session.compositor.display_offset = (
+            (bounds.0.saturating_sub(OUTPUT.width) / 2) as i32,
+            (bounds.1.saturating_sub(OUTPUT.height) / 2) as i32,
+        );
+        if launch.uinput {
+            devices = Some(crate::uinput::Devices::new(bounds, &launch.layout)?);
+            // udev announces the new devices before libinput can open them.
+            std::thread::sleep(Duration::from_millis(500));
+        }
+        session.compositor.input = Some(oxy_input::Input::open(bounds, &launch.layout)?);
+        eprintln!("[input] libinput on seat0, layout {}", launch.layout);
+    }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;
         session.compositor.keep_frame = true;
@@ -673,7 +797,21 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         let before = shown(&session.compositor);
         let injected_ns = monotonic_ns();
-        inject(&mut session.compositor, window, step)?;
+        let typed_as_text = match devices.as_mut() {
+            Some(devices) => {
+                match inject_through(devices, &mut session.compositor, window, step)? {
+                    Some(count) => count,
+                    None => {
+                        inject(&mut session.compositor, window, step)?;
+                        0
+                    }
+                }
+            }
+            None => {
+                inject(&mut session.compositor, window, step)?;
+                0
+            }
+        };
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
         let answer = settle(
             &mut session,
@@ -696,7 +834,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => "null".to_string(),
         };
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

@@ -12,6 +12,7 @@
 mod client;
 mod launch;
 mod png;
+mod uinput;
 
 use client::*;
 use oxy_compositor_core::{ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey};
@@ -68,6 +69,10 @@ struct Compositor {
     last_frame: Vec<u8>,
     /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
     display: Option<oxy_kms::Display>,
+    /// With `--input`: the seat's devices through libinput, and where the output sits on the
+    /// display (its top-left corner, in the display's pixels).
+    input: Option<oxy_input::Input>,
+    display_offset: (i32, i32),
     /// With `--kms` and `--gpu`: the display's framebuffers, imported from the Vulkan
     /// compositor's DMA-BUF scanout targets, and the one composed next.
     scanout: Vec<oxy_kms::Framebuffer>,
@@ -337,6 +342,47 @@ impl Compositor {
         self.retire();
     }
 
+    /// With `--input`: what the seat's devices did since the last turn, applied to the scene.
+    /// Positions arrive in the display's pixels; the output is centred on the display.
+    fn read_input(&mut self) {
+        let Some(input) = self.input.as_mut() else {
+            return;
+        };
+        let actions = match input.dispatch() {
+            Ok(actions) => actions,
+            Err(error) => {
+                eprintln!("[input] {error}; input stops");
+                self.input = None;
+                return;
+            }
+        };
+        let (dx, dy) = self.display_offset;
+        for action in actions {
+            match action {
+                oxy_input::Action::Motion { x, y } => self
+                    .scene
+                    .pointer_motion(x.round() as i32 - dx, y.round() as i32 - dy),
+                oxy_input::Action::Button { code, pressed } => {
+                    self.scene.pointer_button(code, pressed)
+                }
+                // libinput's units are logical pixels; the protocol's are 1/256 of one.
+                oxy_input::Action::Scroll { dx, dy } => self
+                    .scene
+                    .pointer_scroll((dx * 256.0).round() as i32, (dy * 256.0).round() as i32),
+                oxy_input::Action::Key {
+                    code,
+                    pressed,
+                    text,
+                } => {
+                    self.scene.key(code, pressed);
+                    if let Some(text) = text {
+                        self.scene.text(&text);
+                    }
+                }
+            }
+        }
+    }
+
     /// With `--kms`: shows the composed output centred on the display and waits for its flip;
     /// returns the flip's CLOCK_MONOTONIC time. With `--gpu` too, the frame is composed on the
     /// Vulkan device straight into a scanout buffer, with no copy through the CPU. A display
@@ -433,6 +479,7 @@ impl Compositor {
     /// One turn of the compositor: accepts connections, handles every readable client, composes
     /// a frame and sends events. Waits at most 5 ms for input.
     fn serve(&mut self, listener: &Listener) -> Result<()> {
+        self.read_input();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener and every client; never block on any one of them.
         let readable: Vec<bool> = {
@@ -622,6 +669,8 @@ impl Session {
             keep_frame: false,
             last_frame: Vec::new(),
             display: None,
+            input: None,
+            display_offset: (0, 0),
             scanout: Vec::new(),
             scanout_back: 0,
             flips: Vec::new(),
