@@ -480,10 +480,11 @@ fn popups_json(compositor: &Compositor) -> String {
 /// pointer and wheel, keys and text as a keyboard. Returns how many characters no key types
 /// and were sent as committed text instead, or `None` for a step the devices do not make.
 ///
-/// The compositor reads each character's keys and each wheel notch before the next is sent, as
-/// its event loop would from a person: the kernel holds 64 events for each reader of a device
-/// and, past that, drops them all and libinput resynchronises to keys that are already up. The
-/// devices deliver synchronously, so what was sent is there to read.
+/// The compositor reads each pointer event, each character's keys and each wheel notch before
+/// the next is sent, as its event loop would from a person. Sent at once, a step could overflow
+/// what the kernel holds for each reader of a device (64 events): past that it drops them all,
+/// and libinput resynchronises to keys that are already up. The devices deliver synchronously,
+/// so what was sent is there to read.
 fn inject_through(
     devices: &mut crate::uinput::Devices,
     compositor: &mut Compositor,
@@ -500,26 +501,32 @@ fn inject_through(
     };
     // Output coordinates to the display's pixels.
     let at = |x: i32, y: i32| (x + ox, y + oy);
-    let press = |devices: &mut crate::uinput::Devices, (x, y): (i32, i32)| -> Result<()> {
+    let press = |devices: &mut crate::uinput::Devices,
+                 compositor: &mut Compositor,
+                 (x, y): (i32, i32)|
+     -> Result<()> {
         devices.move_to(x, y)?;
+        compositor.read_input();
         devices.button(true)?;
+        compositor.read_input();
         devices.button(false)?;
         Ok(())
     };
     match step {
         Step::Press { x, y } => {
             inside(window, *x, *y)?;
-            press(devices, at(window.x + x, window.y + y))?;
+            press(devices, compositor, at(window.x + x, window.y + y))?;
         }
         Step::PressPopup { x, y } => {
             let popup = popup(compositor).ok_or("no popup is shown")?;
             inside(popup, *x, *y)?;
-            press(devices, at(popup.x + x, popup.y + y))?;
+            press(devices, compositor, at(popup.x + x, popup.y + y))?;
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
+            compositor.read_input();
             devices.wheel(*dy, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
@@ -528,17 +535,23 @@ fn inject_through(
             let (fx, fy) = at(window.x + from.0, window.y + from.1);
             let (tx, ty) = at(window.x + to.0, window.y + to.1);
             devices.move_to(fx, fy)?;
+            compositor.read_input();
             devices.button(true)?;
+            compositor.read_input();
             devices.move_to((fx + tx) / 2, (fy + ty) / 2)?;
+            compositor.read_input();
             devices.move_to(tx, ty)?;
+            compositor.read_input();
             devices.button(false)?;
         }
         Step::Key(codes) => {
             for code in codes {
                 devices.key(*code as u16, true)?;
+                compositor.read_input();
             }
             for code in codes.iter().rev() {
                 devices.key(*code as u16, false)?;
+                compositor.read_input();
             }
         }
         Step::Type(text) => {

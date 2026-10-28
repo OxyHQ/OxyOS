@@ -24,7 +24,10 @@ pub struct Devices {
 
 impl Devices {
     /// A keyboard typing with `layout`, and an absolute pointer whose axes span the display's
-    /// pixels exactly (libinput maps a range of `0..size` onto `size` pixels one to one).
+    /// pixels exactly (libinput maps a range of `0..size` onto `size` pixels one to one). The
+    /// pointer is a wheel mouse with the wheel's button: libinput emulates a middle button on a
+    /// pointer without one, holding each left press until its release or a timeout, so a drag
+    /// would press where it ends.
     pub fn new(display: (u32, u32), layout: &str) -> io::Result<Self> {
         let mut keys = AttributeSet::<KeyCode>::new();
         for code in 1..248 {
@@ -37,6 +40,7 @@ impl Devices {
         let mut buttons = AttributeSet::<KeyCode>::new();
         buttons.insert(KeyCode::BTN_LEFT);
         buttons.insert(KeyCode::BTN_RIGHT);
+        buttons.insert(KeyCode::BTN_MIDDLE);
         let mut wheel = AttributeSet::<RelativeAxisCode>::new();
         wheel.insert(RelativeAxisCode::REL_WHEEL);
         wheel.insert(RelativeAxisCode::REL_WHEEL_HI_RES);
