@@ -721,8 +721,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             // udev announces the new devices before libinput can open them.
             std::thread::sleep(Duration::from_millis(500));
         }
-        session.compositor.input = Some(oxy_input::Input::open(bounds, &launch.layout)?);
-        eprintln!("[input] libinput on seat0, layout {}", launch.layout);
+        let input = oxy_input::Input::open(bounds, &launch.layout)?;
+        eprintln!(
+            "[input] libinput on seat0, layout {}, {}",
+            launch.layout,
+            if input.composes() {
+                "composing with the locale's table"
+            } else {
+                "no compose table: dead keys type nothing"
+            }
+        );
+        session.compositor.input = Some(input);
     }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;

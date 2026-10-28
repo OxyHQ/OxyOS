@@ -28,8 +28,9 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.version }}
           components: rustfmt, clippy
-      # oxy-input links libinput, libudev and xkbcommon (and reads xkb-data for its keymap tests).
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data
+      # oxy-input links libinput, libudev and xkbcommon; its tests read the keymaps (xkb-data) and
+      # compose tables (libx11-data, data files only).
+      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libx11-data
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings

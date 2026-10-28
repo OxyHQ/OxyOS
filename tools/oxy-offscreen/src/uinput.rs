@@ -107,20 +107,22 @@ impl Devices {
             .emit(&[InputEvent::new(EV_KEY, code, i32::from(pressed))])
     }
 
-    /// Types `character` with the key that types it on the layout; `false` if none does (a
-    /// dead key and a letter, for one), and nothing was sent.
+    /// Types `character` with the keys that type it on the layout: one key, or a dead key and
+    /// the key it composes with. `false` if none do, and nothing was sent.
     pub fn type_char(&mut self, character: char) -> io::Result<bool> {
-        let Some((code, shifted)) = self.layout.key_for(character) else {
+        let Some(strokes) = self.layout.key_for(character) else {
             return Ok(false);
         };
-        let code = code as u16;
-        if shifted {
-            self.key(LEFT_SHIFT, true)?;
-        }
-        self.key(code, true)?;
-        self.key(code, false)?;
-        if shifted {
-            self.key(LEFT_SHIFT, false)?;
+        for (code, shifted) in strokes {
+            let code = code as u16;
+            if shifted {
+                self.key(LEFT_SHIFT, true)?;
+            }
+            self.key(code, true)?;
+            self.key(code, false)?;
+            if shifted {
+                self.key(LEFT_SHIFT, false)?;
+            }
         }
         Ok(true)
     }
