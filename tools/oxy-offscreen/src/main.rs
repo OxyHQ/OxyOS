@@ -16,7 +16,7 @@ mod png;
 use client::*;
 use oxy_compositor_core::{ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey};
 use oxy_ipc::{Connection, Credentials, Listener, SharedBuffer};
-use oxy_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection};
+use oxy_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection, Size};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::AsFd;
 use std::collections::{HashMap, VecDeque};
@@ -60,6 +60,15 @@ struct Compositor {
     /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
     input_log: Vec<(ClientId, u32, &'static str)>,
     log_input: bool,
+    /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
+    /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
+    gpu: Option<Gpu>,
+}
+
+struct Gpu {
+    compositor: oxy_gpu::VulkanCompositor,
+    frames: u64,
+    mismatches: u64,
 }
 
 impl Compositor {
@@ -239,16 +248,51 @@ impl Compositor {
             self.scene.end_frame(0, Clock::Synthetic);
             return;
         }
-        self.framebuffer.fill(DESKTOP);
+        // Each surface's pixels, read from its shared buffer, and the covers.
         let mut unreadable = Vec::new();
+        let mut contents = Vec::new();
         for item in list.iter().copied() {
             match item {
-                RenderItem::Surface { key, rect, frame } => {
-                    if !self.blit(key, rect, frame.buffer) {
-                        unreadable.push(key.client);
+                RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
+                    Some((extent, format, pixels)) => {
+                        contents.push((rect, extent, Some(format), pixels))
                     }
+                    None => unreadable.push(key.client),
+                },
+                RenderItem::Cover { rect, .. } => {
+                    contents.push((rect, Size::new(1, 1), None, Vec::new()))
                 }
-                RenderItem::Cover { rect, .. } => self.fill(rect, 0),
+            }
+        }
+        let layers: Vec<oxy_gpu::Layer<'_>> = contents
+            .iter()
+            .map(|(rect, extent, format, pixels)| oxy_gpu::Layer {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                extent: (extent.width, extent.height),
+                paint: match format {
+                    Some(oxy_protocol::Format::Xrgb8888) => oxy_gpu::Paint::Opaque(pixels),
+                    Some(oxy_protocol::Format::Argb8888) => oxy_gpu::Paint::Premultiplied(pixels),
+                    None => oxy_gpu::Paint::Fill(0),
+                },
+            })
+            .collect();
+        // The output is at the origin of the global space.
+        self.framebuffer = oxy_gpu::compose_cpu(OUTPUT.width, OUTPUT.height, DESKTOP, &layers);
+        if let Some(gpu) = &mut self.gpu {
+            gpu.frames += 1;
+            match gpu
+                .compositor
+                .compose(OUTPUT.width, OUTPUT.height, DESKTOP, &layers)
+            {
+                Ok(pixels) if pixels == self.framebuffer => {}
+                Ok(_) => gpu.mismatches += 1,
+                Err(error) => {
+                    eprintln!("[gpu] {error}");
+                    gpu.mismatches += 1;
+                }
             }
         }
         // A buffer that could not be read is never reported as presented: its client is
@@ -262,61 +306,21 @@ impl Compositor {
         self.retire();
     }
 
-    fn fill(&mut self, rect: Rect, color: u32) {
-        for y in rect.y.max(0)..(rect.bottom().min(OUTPUT.bottom()) as i32) {
-            for x in rect.x.max(0)..(rect.right().min(OUTPUT.right()) as i32) {
-                self.framebuffer[(y as u32 * OUTPUT.width + x as u32) as usize] = color;
-            }
-        }
-    }
-
-    /// Nearest-neighbour copy of a client buffer into its logical rectangle, clipped to the
-    /// output. XRGB8888 is opaque; ARGB8888 is premultiplied.
-    /// Returns false if the client's buffer could not be read.
-    fn blit(&mut self, key: SurfaceKey, rect: Rect, buffer: u64) -> bool {
-        let Some(shared) = self
-            .peers
-            .get(&key.client)
-            .and_then(|p| p.buffers.get(&buffer))
-        else {
-            return false;
-        };
+    /// A client buffer's pixels (tightly packed rows), size and format; `None` if the
+    /// client's buffer could not be read.
+    fn pixels(
+        &self,
+        key: SurfaceKey,
+        buffer: u64,
+    ) -> Option<(Size, oxy_protocol::Format, Vec<u8>)> {
+        let shared = self.peers.get(&key.client)?.buffers.get(&buffer)?;
         let layout = shared.layout();
-        let mut row = vec![0; layout.extent.width as usize * 4];
-        let mut loaded = None;
-        for y in rect.y.max(0)..(rect.bottom().min(OUTPUT.bottom()) as i32) {
-            let source_y = (u64::from((y - rect.y) as u32) * u64::from(layout.extent.height)
-                / u64::from(rect.height)) as u32;
-            if loaded != Some(source_y) {
-                if shared.read_row(source_y, &mut row).is_err() {
-                    return false;
-                }
-                loaded = Some(source_y);
-            }
-            for x in rect.x.max(0)..(rect.right().min(OUTPUT.right()) as i32) {
-                let source_x = (u64::from((x - rect.x) as u32) * u64::from(layout.extent.width)
-                    / u64::from(rect.width)) as usize;
-                let [b, g, r, a] = row[source_x * 4..source_x * 4 + 4] else {
-                    unreachable!()
-                };
-                let index = (y as u32 * OUTPUT.width + x as u32) as usize;
-                let source = u32::from_be_bytes([0, r, g, b]);
-                self.framebuffer[index] = match layout.format {
-                    oxy_protocol::Format::Xrgb8888 => source,
-                    oxy_protocol::Format::Argb8888 => {
-                        let keep = 255 - u32::from(a);
-                        let under = self.framebuffer[index];
-                        let channel = |shift: u32| {
-                            let s = (source >> shift) & 0xff;
-                            let d = (under >> shift) & 0xff;
-                            (s + d * keep / 255).min(255) << shift
-                        };
-                        channel(16) | channel(8) | channel(0)
-                    }
-                };
-            }
+        let row = layout.extent.width as usize * 4;
+        let mut pixels = vec![0; row * layout.extent.height as usize];
+        for (y, out) in pixels.chunks_exact_mut(row).enumerate() {
+            shared.read_row(y as u32, out).ok()?;
         }
-        true
+        Some((layout.extent, layout.format, pixels))
     }
 
     /// One turn of the compositor: accepts connections, handles every readable client, composes
@@ -507,6 +511,7 @@ impl Session {
             frames: 0,
             input_log: Vec::new(),
             log_input: false,
+            gpu: None,
         };
         Ok(Self {
             compositor,

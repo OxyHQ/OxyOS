@@ -146,9 +146,9 @@ The same `build.sh` builds `oxy-bloom-host` and runs it. On 2026-10-28, with Blo
 - the accessibility tree (below): nodes that must be present with their role, name and state, a surface's exact node list, and reading order;
 - a latency budget.
 
-The director can also send key chords (`--key 42+106` is Shift+Right), a pointer drag and a composition (`--preedit`). The 39 steps cover the button, wheel scrolling, the reply field (typing, Backspace, submit, caret keys, Shift selection, Delete, Ctrl+A, composition and its commit, press-to-place and drag selection), the menu by pointer and keyboard (arrows, Enter, Escape, typeahead), and an inline submenu that grows the open popup, which the compositor then places again within the output. They also cover an output scale change with the menu open (both surfaces drawn again at 1.5×, nothing moved, the menu still pressable in logical coordinates) and the wheel: exact offsets, clamping at the top, no event when nothing can move, and nothing delivered behind an open menu. The 53 steps, including the window move and resize below, pass three times out of three. Disabling the host's surface check for text makes the leak step fail on both its text and its React events.
+The director can also send key chords (`--key 42+106` is Shift+Right), a pointer drag and a composition (`--preedit`). The 39 steps cover the button, wheel scrolling, the reply field (typing, Backspace, submit, caret keys, Shift selection, Delete, Ctrl+A, composition and its commit, press-to-place and drag selection), the menu by pointer and keyboard (arrows, Enter, Escape, typeahead), and an inline submenu that grows the open popup, which the compositor then places again within the output. They also cover an output scale change with the menu open (both surfaces drawn again at 1.5×, nothing moved, the menu still pressable in logical coordinates) and the wheel: exact offsets, clamping at the top, no event when nothing can move, and nothing delivered behind an open menu. The 56 steps, including the window move and resize and the screen reader steps below, pass three times out of three. Disabling the host's surface check for text makes the leak step fail on both its text and its React events.
 
-Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 53-step run):
+Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 56-step run):
 
 | Measure | Value |
 | --- | --- |
@@ -156,6 +156,8 @@ Measured (offscreen CPU, WSL2 x86-64, Release host, 1024×640, the 53-step run):
 | Input-to-first-frame latency | about 25 ms median; max about 60 ms (the 1.5× frame) |
 | Drawing a full window frame | about 15 ms median; max about 46 ms (1.5×: 2.25× the pixels) |
 | Drawing a popup | about 2 ms |
+
+**GPU composition.** The compositor's composition now has one definition (`oxy-gpu::compose_cpu`). The same frames composed on a Vulkan device by a compute shader match it byte for byte: all 173 frames of the 56-step run, with `--gpu`. In this environment (WSL2) the only Vulkan device is lavapipe (`llvmpipe`, kind `Cpu`), so this proves the Vulkan path, not a GPU. DRM/KMS output, DMA-BUF import and synchronization need hardware with DRM ([ADR 0004](./adr/0004-gpu-composition)).
 
 Before the painter's fast paths, a window frame took about 57 ms and latency was about 68 ms. Two cases are now handled directly:
 - **Opaque, fully covered pixels** are written without blending.

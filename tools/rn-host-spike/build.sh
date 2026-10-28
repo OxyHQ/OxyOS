@@ -132,7 +132,9 @@ OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
 # steps need Bloom 15.61.0 or later (the platform adapter, OxyHQ/Bloom#507, and the text field's
 # reading order, #511): Bloom's main has both; point BLOOM_DIR at such a checkout.
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
-python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" --offscreen "$REPO/target/release/oxy-offscreen" \
+# With OXY_GPU=1 every frame is also composed on a Vulkan device and must match the CPU
+# composition byte for byte (docs/adr/0004-gpu-composition.mdx).
+python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" ${OXY_GPU:+--gpu} --offscreen "$REPO/target/release/oxy-offscreen" \
   --host "$WORK/host-build/oxy-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
 # A secure field's text is drawn as bullets and never reported or published to an assistive
 # technology (docs/adr/0003-accessibility-protocol.mdx).

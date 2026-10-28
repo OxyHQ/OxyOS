@@ -1,0 +1,50 @@
+---
+title: "ADR 0004: GPU composition and output"
+description: How the compositor moves from CPU composition to Vulkan composition and DRM/KMS output, what the first slice proves and what only real hardware can.
+order: 13
+---
+
+# ADR 0004: GPU composition and output
+
+Status: **accepted; first slice implemented** (Vulkan composition, checked byte for byte against the CPU reference). Issue: [#32](https://github.com/OxyHQ/OxyOS/issues/32). Builds on [ADR 0001](./0001-native-platform-boundaries).
+
+## Problem
+
+The compositor composes on the CPU (`oxy-offscreen`) and has no display output. #32 asks for:
+- Vulkan composition on a named reference GPU;
+- DRM/KMS atomic output;
+- explicit synchronization and format/modifier compatibility, proven before the buffer ABI is frozen.
+
+The development machine available today (WSL2) has no DRM device (`/dev/dri`), and its Debian Mesa offers no Vulkan driver for the GPU behind `/dev/dxg`. The only Vulkan device there is lavapipe, Mesa's CPU implementation.
+
+## Decision
+
+1. **Vulkan directly** (`ash`, loading `libvulkan.so.1` at run time), not a portable wrapper. A compositor needs:
+   - DMA-BUF import with modifiers (`VK_EXT_image_drm_format_modifier`);
+   - external memory and semaphores (sync files, DRM syncobj);
+   - control of queues and memory.
+
+   Wrappers do not expose these. GL is not used.
+2. **One composition semantics.**
+   - `oxy-gpu::compose_cpu` is the reference: nearest-neighbour scaling into each surface's logical rectangle, clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
+   - `oxy-offscreen` composes with it.
+   - The Vulkan compositor implements the same arithmetic in a compute shader (WGSL, compiled to SPIR-V by `naga` at build time). It must match the reference byte for byte. `oxy-offscreen --gpu` checks every composed frame against it.
+3. **Order of work toward real output:**
+   1. composition on a Vulkan device, checked against the reference (this slice);
+   2. client buffers as Vulkan images (sampled), then DMA-BUF import with modifiers;
+   3. explicit synchronization (acquire and release fences per consumer);
+   4. DRM/KMS atomic modesetting and page flips on a named reference GPU, with scanout of an unobstructed fullscreen surface where `Scene::scanout_candidate` allows.
+
+   The buffer ABI is not frozen before step 4 has run on that hardware.
+4. **Honest reporting.** The Vulkan compositor reports the device it composes on and its type. A CPU device (lavapipe) proves the Vulkan path and the semantics, never GPU performance or hardware validation.
+
+## Consequences
+
+- **What the first slice proves.** It runs on any Vulkan 1.1 device; in development that is lavapipe. It proves:
+  - device selection (a GPU before a CPU device);
+  - upload;
+  - composition order and blending;
+  - fence-waited completion;
+  - readback.
+- **What only real hardware proves:** GPU timing, DMA-BUF import, modifiers, synchronization with clients' GPU work, and KMS output. A reference GPU and a machine with DRM/KMS are required, and they are #32's open items.
+- **This slice still copies.** Client pixels are copied into a storage buffer per frame; sampled images and zero-copy import replace that in step 2.

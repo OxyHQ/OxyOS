@@ -225,6 +225,8 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--gpu", action="store_true",
+                        help="also compose every frame on a Vulkan device; any difference fails")
     options = parser.parse_args()
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
@@ -234,7 +236,7 @@ def main():
     bundle = pathlib.Path(options.bundle).resolve() / "index.js"
     width, height = scenario.get("window", [1024, 640])
 
-    command = [options.offscreen, "--launch", "--out", str(out)]
+    command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
     for step in scenario["steps"]:
         command += director_args(step)
     command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width), str(height)]
@@ -265,6 +267,7 @@ def main():
     metrics = {
         "steps": len(summary["steps"]),
         "first_frame_ms": summary["first_frame_ms"],
+        "gpu": summary.get("gpu"),
         "frames": len(renders),
         "render_ms": {
             "median": round(statistics.median(renders), 2) if renders else None,

@@ -112,9 +112,12 @@ pub struct Launch {
     pub command: Vec<std::ffi::OsString>,
     /// Each step, and whether it may leave the output unchanged (`--allow-unchanged` before it).
     pub steps: Vec<(Step, bool)>,
+    /// `--gpu`: compose every frame on a Vulkan device too; any difference from the CPU
+    /// reference fails the run.
+    pub gpu: bool,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -136,6 +139,7 @@ impl Launch {
         let mut steps: Vec<(Step, bool)> = Vec::new();
         // `--allow-unchanged` applies to the step after it.
         let mut allow = false;
+        let mut gpu = false;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -148,6 +152,10 @@ impl Launch {
                     continue;
                 }
                 Some("--launch") => continue,
+                Some("--gpu") => {
+                    gpu = true;
+                    continue;
+                }
                 Some("--press") => {
                     let n = numbers(args.next(), 2)?;
                     Step::Press { x: n[0], y: n[1] }
@@ -222,7 +230,14 @@ impl Launch {
                     if command.is_empty() {
                         return Err("no command after --".into());
                     }
-                    return Ok((out, Self { command, steps }));
+                    return Ok((
+                        out,
+                        Self {
+                            command,
+                            steps,
+                            gpu,
+                        },
+                    ));
                 }
                 _ => return Err(format!("unexpected argument {arg:?}\n{USAGE}").into()),
             };
@@ -533,6 +548,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    if launch.gpu {
+        let compositor = oxy_gpu::VulkanCompositor::new()?;
+        eprintln!(
+            "[gpu] composing on {} ({:?})",
+            compositor.device_name(),
+            compositor.device_kind()
+        );
+        session.compositor.gpu = Some(Gpu {
+            compositor,
+            frames: 0,
+            mismatches: 0,
+        });
+    }
     let mut children = Children(vec![Command::new(&launch.command[0])
         .args(&launch.command[1..])
         .env("OXY_COMPOSITOR_SOCKET", &session.socket)
@@ -634,9 +662,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let frames = session.compositor.frames;
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);
+    let gpu = match session.compositor.gpu.take() {
+        Some(gpu) if gpu.mismatches > 0 => {
+            return Err(format!(
+                "Vulkan composition differed from the CPU reference in {} of {} frames",
+                gpu.mismatches, gpu.frames
+            )
+            .into())
+        }
+        Some(gpu) => format!(
+            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"identical\":true}}",
+            json_string(gpu.compositor.device_name()),
+            gpu.compositor.device_kind(),
+            gpu.frames
+        ),
+        None => "null".to_string(),
+    };
     session.finish(&mut children)?;
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
@@ -661,6 +705,7 @@ mod tests {
     fn steps_parse_in_order() {
         let (out, launch) = Launch::parse(&args(&[
             "--launch",
+            "--gpu",
             "--out",
             "o",
             "--press",
@@ -691,6 +736,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(out, PathBuf::from("o"));
+        assert!(launch.gpu);
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
