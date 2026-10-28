@@ -293,6 +293,50 @@ int oxy_net_clear_cookies(OxyNet* net);
 /* Takes one answer without blocking: OXY_NET_ANSWER with *out filled, or OXY_NET_EMPTY. */
 int oxy_net_answer(OxyNet* net, OxyNetAnswer* out);
 
+/* Images (crates/oxy-image): PNG and JPEG decoded into sRGB (from an embedded ICC profile),
+ * premultiplied RGBA, reduced to the size they are drawn at, each load on a thread of its own.
+ * Paths are a pointer and a length. A loader is used by one thread at a time. */
+typedef struct OxyImages OxyImages;
+
+/* How oxy_images_load fits an image to its box: within it (resizeMode contain), or covering it
+ * (cover, stretch). */
+#define OXY_IMAGE_FIT_WITHIN 0
+#define OXY_IMAGE_FIT_COVERING 1
+
+/* Results of oxy_images_answer. */
+#define OXY_IMAGE_ANSWER 1
+#define OXY_IMAGE_EMPTY 0
+
+/* `width` x `height` premultiplied RGBA pixels, reduced from the image's natural size; `pixels` is
+ * NULL when the load failed, `error` NULL when it did not. Its pointers stay valid until the next
+ * oxy_images_answer or oxy_images_free. */
+typedef struct OxyImageAnswer {
+  uint64_t id;
+  uint32_t width;
+  uint32_t height;
+  uint32_t natural_width;
+  uint32_t natural_height;
+  const uint8_t* pixels;
+  size_t length;
+  const char* error;
+  size_t error_length;
+} OxyImageAnswer;
+
+/* The size in pixels of the image at `path`, from its headers alone. */
+int oxy_image_size(const char* path, size_t path_length, uint32_t* width, uint32_t* height);
+/* A loader, or NULL. */
+OxyImages* oxy_images_new(void);
+/* Frees the loader; loads still running end unheard. NULL is ignored. */
+void oxy_images_free(OxyImages* images);
+/* Readable while answers are queued (for poll/epoll). */
+int oxy_images_fd(OxyImages* images);
+/* Starts decoding the image at `path`, reduced as far as `fit` allows for a box of width x height
+ * pixels (0 for either keeps its size), never enlarged; its answer, with `id`, follows. */
+int oxy_images_load(OxyImages* images, uint64_t id, const char* path, size_t path_length, uint32_t width,
+                    uint32_t height, uint32_t fit);
+/* Takes one answer without blocking: OXY_IMAGE_ANSWER with *out filled, or OXY_IMAGE_EMPTY. */
+int oxy_images_answer(OxyImages* images, OxyImageAnswer* out);
+
 #ifdef __cplusplus
 }
 #endif

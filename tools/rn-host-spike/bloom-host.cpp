@@ -5,8 +5,9 @@
 #include "android-components.h"
 #include "damage.h"
 #include "host-modules.h"
-#include "network.h"
+#include "images.h"
 #include "input.h"
+#include "network.h"
 #include "popup.h"
 #include "report.h"
 #include "renderer.h"
@@ -370,6 +371,8 @@ int main(int argc, char** argv) {
 
   oxy::ViewTree tree;
   Mounter mounter(tree);
+  // What Image views show (images.h), loaded at the size they are drawn.
+  oxy::Images images(tree);
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
@@ -527,7 +530,8 @@ int main(int argc, char** argv) {
           dirty = true;
           popups.changed();
         }
-        if (window->resized()) {
+        bool resized = window->resized();
+        if (resized) {
           display = oxy::Display{window->width(), window->height(), window->scale()};
           layOut();
           // A new size or scale needs a new frame even when the layout does not change (a
@@ -535,7 +539,15 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
         }
-        if (mounter.takeChanged()) {
+        bool mounted = mounter.takeChanged();
+        if (mounted) {
+          dirty = true;
+          busy = true;
+          popups.changed();
+        }
+        // Images load at the size they are drawn; a picture arriving draws its view again.
+        if (resized || mounted) images.sync(display.scale);
+        if (images.deliver()) {
           dirty = true;
           busy = true;
           popups.changed();
@@ -619,6 +631,8 @@ int main(int argc, char** argv) {
     busy |= timers->fire(*timerManager);
     worklets.tick();
     busy |= reanimated.tick();
+    if (busy) images.sync(display.scale);
+    busy |= images.deliver();
     busy |= networking.deliver();
     if (busy || timers->oneShotDueBefore(deadline)) {
       quietSince = Clock::now();

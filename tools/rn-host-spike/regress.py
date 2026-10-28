@@ -14,7 +14,9 @@ Runs `oxy-offscreen --launch` with a scenario's steps, with the host writing its
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`,
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
-- latency_ms: budget from injecting the input to the first changed frame.
+- latency_ms: budget from injecting the input to the first changed frame;
+- pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
+  scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
   (Pointer enter/leave, which follow every motion, are left out of `react`.)
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
@@ -35,6 +37,8 @@ Usage: regress.py SCENARIO.json --offscreen BIN --host BIN --bundle DIR [--out D
 
 import argparse
 import json
+import struct
+import zlib
 import os
 import pathlib
 import socket
@@ -151,7 +155,45 @@ def latest_frames(report, until, closed_before):
     return {s: f for s, f in frames.items() if s not in closed_before}
 
 
-def check_step(index, step, result, report, start, failures, through_devices=False):
+def png_pixel_reader(path):
+    """A function giving the RGB colour at (x, y) of a PNG the director wrote (oxy-offscreen's
+    png.rs): 8-bit RGB rows, none filtered. Any other PNG is refused."""
+    data = pathlib.Path(path).read_bytes()
+    width, height, depth, kind = struct.unpack(">IIBB", data[16:26])
+    if depth != 8 or kind != 2:
+        raise ValueError(f"{path}: not the director's PNG (depth {depth}, colour type {kind})")
+    compressed, at = b"", 8
+    while at < len(data):
+        length, chunk = struct.unpack(">I4s", data[at:at + 8])
+        if chunk == b"IDAT":
+            compressed += data[at + 8:at + 8 + length]
+        at += 12 + length
+    raw, stride = zlib.decompress(compressed), width * 3 + 1
+
+    def pixel(x, y):
+        if not (0 <= x < width and 0 <= y < height):
+            raise ValueError(f"{path}: ({x}, {y}) is outside {width}x{height}")
+        if raw[y * stride] != 0:
+            raise ValueError(f"{path}: row {y} is filtered")
+        at = y * stride + 1 + x * 3
+        return tuple(raw[at:at + 3])
+
+    return pixel
+
+
+def check_pixels(name, expect, screenshot, window, fail):
+    """The step's `pixels`, against its screenshot of the output, the window at `window`."""
+    pixel = png_pixel_reader(screenshot)
+    tolerance = expect.get("pixel_tolerance", 3)
+    for point, colour in expect["pixels"].items():
+        x, y = (int(value) for value in point.split(","))
+        want = tuple(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+        got = pixel(window[0] + x, window[1] + y)
+        if any(abs(a - b) > tolerance for a, b in zip(got, want)):
+            fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected {colour}")
+
+
+def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None):
     expect = step.get("expect", {})
     if through_devices:
         expect = {**expect, **step.get("expect_devices", {})}
@@ -296,6 +338,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:
             fail(f"{count} popups shown, expected {expect['popups']}")
+    if "pixels" in expect:
+        check_pixels(name, expect, screenshot, result.get("window"), fail)
     if "latency_ms" in expect and result.get("latency_ms") is not None:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
@@ -377,15 +421,19 @@ def main():
     failures = []
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
-        start = check_step(index, step, result, report, start, failures, options.uinput)
+        start = check_step(index, step, result, report, start, failures, options.uinput,
+                           out / f"launch-{index + 2}.png")
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":
             failures.append(f"the host's frame drawn from its damage differs in {line['pixels']} pixels")
     if "final" in scenario:
         last = max(line["t"] for line in report)
+        # The output after the last step (or at launch, without steps), the window where it was then.
+        window = (summary["steps"][-1] if summary["steps"] else summary)["window"]
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
-                   {"t_settled": last}, report, start, failures)
+                   {"t_settled": last, "window": window}, report, start, failures,
+                   screenshot=out / f"launch-{len(scenario['steps']) + 1}.png")
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
     renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]

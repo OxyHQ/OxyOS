@@ -1,0 +1,16 @@
+[package]
+name = "oxy-image"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# PNG and JPEG decoding in Rust (image-rs's png, zune-jpeg), and colour management (moxcms) to turn
+# an image's embedded ICC profile (Display P3, say) into the sRGB the compositor composes.
+png = "0.18"
+zune-jpeg = "0.5"
+moxcms = "0.7"
+
+[lints]
+workspace = true

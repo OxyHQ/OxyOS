@@ -22,6 +22,7 @@ class WindowDamage {
   //   subtree both before and after (a view draws its subtree with its opacity and clip);
   // - children drawn in a new order, with their subtrees (children added or removed are new or
   //   gone views; a popup view is drawn elsewhere);
+  // - an Image view showing another picture;
   // - the text input whose caret, selection or composition moved.
   // Nothing (`std::nullopt`) means everything: the first frame, or a new size or scale.
   std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, const Display& display,
@@ -32,6 +33,7 @@ class WindowDamage {
     facebook::react::ShadowView view;
     facebook::react::Rect at;  // window-local, as drawn (scroll offsets applied)
     std::vector<facebook::react::Tag> children;
+    std::shared_ptr<const Picture> picture;
   };
   using Views = std::unordered_map<facebook::react::Tag, Seen>;
   Views seen_;

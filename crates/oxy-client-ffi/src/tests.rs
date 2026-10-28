@@ -854,3 +854,136 @@ fn a_malformed_request_is_refused_and_sends_nothing() {
     // SAFETY: a network from oxy_net_new, freed once.
     unsafe { oxy_net_free(network) };
 }
+
+#[test]
+fn the_header_matches_the_image_abi() {
+    use images::*;
+    assert_eq!(define("OXY_IMAGE_ANSWER"), OXY_IMAGE_ANSWER.into());
+    assert_eq!(define("OXY_IMAGE_EMPTY"), OXY_IMAGE_EMPTY.into());
+    assert_eq!(define("OXY_IMAGE_FIT_WITHIN"), OXY_IMAGE_FIT_WITHIN.into());
+    assert_eq!(
+        define("OXY_IMAGE_FIT_COVERING"),
+        OXY_IMAGE_FIT_COVERING.into()
+    );
+    let answer = fields("OxyImageAnswer");
+    assert_eq!(
+        names(&answer),
+        [
+            "id",
+            "width",
+            "height",
+            "natural_width",
+            "natural_height",
+            "pixels",
+            "length",
+            "error",
+            "error_length"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyImageAnswer, id),
+        offset_of!(OxyImageAnswer, width),
+        offset_of!(OxyImageAnswer, height),
+        offset_of!(OxyImageAnswer, natural_width),
+        offset_of!(OxyImageAnswer, natural_height),
+        offset_of!(OxyImageAnswer, pixels),
+        offset_of!(OxyImageAnswer, length),
+        offset_of!(OxyImageAnswer, error),
+        offset_of!(OxyImageAnswer, error_length),
+    ];
+    assert_eq!(
+        c_offsets(&answer),
+        (rust.to_vec(), size_of::<OxyImageAnswer>())
+    );
+}
+
+#[test]
+fn an_image_loads_through_the_c_abi() {
+    use images::*;
+    let wallpaper = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/wallpapers/solar-gradients/frames/frame-08.jpg"
+    );
+    let missing = "/nonexistent/oxy.png";
+    let (mut width, mut height) = (0, 0);
+    // SAFETY: the path is valid for its length; the sizes are writable.
+    let sized = unsafe {
+        oxy_image_size(
+            wallpaper.as_ptr().cast(),
+            wallpaper.len(),
+            &mut width,
+            &mut height,
+        )
+    };
+    assert_eq!((sized, width, height), (0, 5120, 2880));
+    let images = oxy_images_new();
+    assert!(!images.is_null());
+    // SAFETY: a live loader, and paths valid for their lengths.
+    unsafe {
+        assert_eq!(
+            oxy_images_load(
+                images,
+                1,
+                wallpaper.as_ptr().cast(),
+                wallpaper.len(),
+                640,
+                640,
+                OXY_IMAGE_FIT_COVERING
+            ),
+            0
+        );
+        assert_eq!(
+            oxy_images_load(
+                images,
+                2,
+                missing.as_ptr().cast(),
+                missing.len(),
+                0,
+                0,
+                OXY_IMAGE_FIT_WITHIN
+            ),
+            0
+        );
+    }
+    let mut got = std::collections::BTreeMap::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while got.len() < 2 && std::time::Instant::now() < deadline {
+        let mut answer = OxyImageAnswer::default();
+        // SAFETY: a live loader and a writable answer.
+        match unsafe { oxy_images_answer(images, &mut answer) } {
+            OXY_IMAGE_ANSWER => {
+                let error = if answer.error.is_null() {
+                    None
+                } else {
+                    // SAFETY: valid for error_length until the next answer.
+                    let bytes = unsafe {
+                        std::slice::from_raw_parts(answer.error.cast::<u8>(), answer.error_length)
+                    };
+                    Some(String::from_utf8_lossy(bytes).into_owned())
+                };
+                got.insert(
+                    answer.id,
+                    (
+                        answer.width,
+                        answer.height,
+                        answer.length,
+                        answer.pixels.is_null(),
+                        error,
+                    ),
+                );
+            }
+            OXY_IMAGE_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            other => panic!("answer failed: {other}"),
+        }
+    }
+    // SAFETY: a loader from oxy_images_new, freed once.
+    unsafe { oxy_images_free(images) };
+    assert_eq!(got[&1], (1138, 640, 1138 * 640 * 4, false, None));
+    let (_, _, _, no_pixels, error) = &got[&2];
+    assert!(
+        *no_pixels
+            && error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("cannot read the image"))
+    );
+}

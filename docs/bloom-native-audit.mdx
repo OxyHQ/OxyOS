@@ -215,7 +215,7 @@ Bloom fixes found on the way:
 Known gaps:
 - The header's edge scrim is a `react-native-svg` gradient, so it is not drawn until SVG support lands.
 - Text input: no clipboard yet (between applications it needs the protocol: one offers its selection, another receives it). Carets are placed left to right: right-to-left text is not handled.
-- Touch-drag scrolling, Gesture Handler, images, `expo-blur` and modals are not implemented. Accessibility is **not complete**. What exists: the protocol and the Bloom host's side (publication, accessibility focus, activate and focus actions), checked by the regression. **Parked**, by decision, while desktop interaction, the open PRs and GPU output come first:
+- Touch-drag scrolling, Gesture Handler, SVG (`react-native-svg`), remote images, `expo-blur` and modals are not implemented; local PNG and JPEG images are ([React Native's Android implementation on OxyOS](./react-native-android-adaptation)). Accessibility is **not complete**. What exists: the protocol and the Bloom host's side (publication, accessibility focus, activate and focus actions), checked by the regression. **Parked**, by decision, while desktop interaction, the open PRs and GPU output come first:
 - a screen reader client: nothing speaks yet;
 - announcements (live regions);
 - actions other than activate and focus (scroll, increment and decrement, dismiss);

@@ -156,3 +156,7 @@ python3 "$HERE/regress.py" "$HERE/scenarios/text-editing.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \
   --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-network"
+# Images: a wallpaper frame and the shell's app artwork, their load events and the output's pixels.
+python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
+  --offscreen "$REPO/target/release/oxy-offscreen" --host "$WORK/host-build/oxy-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-images"

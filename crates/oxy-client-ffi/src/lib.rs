@@ -1,7 +1,8 @@
 //! C ABI over `oxy-client` for native runtimes written in C or C++ (the React Native host that
-//! runs Bloom), and over `oxy-net` for their HTTP ([`net`]). The protocol, transport, buffer
-//! handling and network stay in the safe Rust crates; this layer only converts between C values
-//! and theirs. `include/oxy_client.h` declares it.
+//! runs Bloom), and over `oxy-net` for their HTTP ([`net`]) and `oxy-image` for their images
+//! ([`images`]). The protocol, transport, buffer handling, network and decoding stay in the safe
+//! Rust crates; this layer only converts between C values and theirs. `include/oxy_client.h`
+//! declares it.
 //!
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
 //! each with the caller contract it relies on.
@@ -16,6 +17,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::Path;
 
+pub mod images;
 pub mod net;
 #[cfg(test)]
 mod tests;
