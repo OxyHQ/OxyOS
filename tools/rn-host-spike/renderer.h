@@ -71,6 +71,15 @@ inline constexpr const char* kPopupComponent = "OxyPopupView";
 // Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
 // selection and composition, drawn with its text.
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit = {});
+// Whether two versions of a view are drawn the same (damage.h): the props `drawView` reads are
+// equal (background, opacity, borders, clipping), whatever new props object a re-render made.
+// A text input, whose drawing reads many of its props, is the same only with the same props.
+bool drawsTheSame(const facebook::react::ShadowView& before, const facebook::react::ShadowView& after);
+// Draws only the window's `damage` (window-local logical rectangles) onto `canvas`, which holds
+// the previous frame at this size: each rectangle is drawn again as a whole frame draws it. The
+// stats are the whole window's. A canvas of another size is drawn whole.
+RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
+                        const std::vector<facebook::react::Rect>& damage);
 // Draws a popup view's children, relative to the popup, onto a transparent canvas of `display`'s
 // size (the popup's configured size).
 RenderStats drawPopup(const ViewTree& tree, facebook::react::Tag popup, const Display& display, Canvas& canvas,

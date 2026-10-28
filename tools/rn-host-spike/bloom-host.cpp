@@ -3,6 +3,7 @@
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
 #include "accessibility.h"
 #include "android-components.h"
+#include "damage.h"
 #include "host-modules.h"
 #include "input.h"
 #include "popup.h"
@@ -44,6 +45,7 @@
 #include <react/utils/ContextContainer.h>
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -455,6 +457,11 @@ int main(int argc, char** argv) {
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
     oxy::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
+    // The window's frame as last drawn: the next one draws only what changed (damage.h).
+    oxy::Canvas windowCanvas;
+    oxy::WindowDamage windowDamage;
+    // OXY_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
+    static const bool checkDamage = std::getenv("OXY_HOST_DAMAGE_CHECK") != nullptr;
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
@@ -522,13 +529,42 @@ int main(int argc, char** argv) {
         }
         popups.sync(lastPress);
         if (dirty && window->ready(oxy::Window::kToplevel)) {
-          oxy::Canvas canvas;
           auto started = Clock::now();
-          auto stats = oxy::draw(tree, display, canvas, drawn);
+          auto damage = windowDamage.update(tree, display, drawn);
+          // Nothing visible changed (a focus name, say): drawn whole, as a frame without damage.
+          if (damage && damage->empty()) damage.reset();
+          auto stats = damage ? oxy::drawDamaged(tree, display, windowCanvas, drawn, *damage)
+                              : oxy::draw(tree, display, windowCanvas, drawn);
           double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
-          window->present(oxy::Window::kToplevel, canvas);
-          oxy::Report::get().frame(oxy::Window::kToplevel, canvas.width, canvas.height, renderMs, stats.textContent,
-                                   focusName());
+          if (checkDamage && damage) {
+            oxy::Canvas whole;
+            oxy::draw(tree, display, whole, drawn);
+            size_t differing = 0;
+            for (size_t i = 0; i < whole.pixels.size() && i < windowCanvas.pixels.size(); ++i) {
+              differing += whole.pixels[i] != windowCanvas.pixels[i];
+            }
+            if (differing) {
+              std::cerr << "[host] a frame drawn from its damage differs in " << differing << " pixels\n";
+              oxy::Report::get().damageMismatch(oxy::Window::kToplevel, differing);
+            }
+          }
+          // The damage in the canvas's pixels, rounded outward.
+          std::vector<OxyRect> pixels;
+          for (const auto& rect : damage.value_or(std::vector<facebook::react::Rect>{})) {
+            auto x0 = static_cast<int32_t>(std::floor(rect.origin.x * display.scale));
+            auto y0 = static_cast<int32_t>(std::floor(rect.origin.y * display.scale));
+            auto x1 = static_cast<int32_t>(std::ceil((rect.origin.x + rect.size.width) * display.scale));
+            auto y1 = static_cast<int32_t>(std::ceil((rect.origin.y + rect.size.height) * display.scale));
+            pixels.push_back(OxyRect{x0, y0, static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)});
+          }
+          window->present(oxy::Window::kToplevel, windowCanvas, pixels);
+          // The share of the window drawn again (overlaps counted once per rectangle, at most 1).
+          double area = 0;
+          for (const auto& rect : pixels) area += static_cast<double>(rect.width) * rect.height;
+          double whole = static_cast<double>(windowCanvas.width) * windowCanvas.height;
+          double damaged = pixels.empty() ? 1.0 : std::min(1.0, area / std::max(whole, 1.0));
+          oxy::Report::get().frame(oxy::Window::kToplevel, windowCanvas.width, windowCanvas.height, renderMs,
+                                   stats.textContent, focusName(), damaged);
           accessibility.publish(oxy::Window::kToplevel, tree.root());
           dirty = false;
           busy = true;

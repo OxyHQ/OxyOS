@@ -244,6 +244,8 @@ def main():
                         help="write the frame after each step as layers (oxy-gpu's replay example)")
     parser.add_argument("--gpu", action="store_true",
                         help="also compose every frame on a Vulkan device; any difference fails")
+    parser.add_argument("--check-damage", action="store_true",
+                        help="the host draws every frame whole too; a frame drawn from its damage that differs fails")
     parser.add_argument("--gpu-only", action="store_true",
                         help="compose on the Vulkan device alone, with no CPU reference (measures it)")
     options = parser.parse_args()
@@ -274,6 +276,8 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXY_HOST_REPORT=str(report_path), OXY_SCRIPT_URL=f"file://{bundle}")
+    if options.check_damage:
+        env["OXY_HOST_DAMAGE_CHECK"] = "1"
     run = subprocess.run(command, env=env, capture_output=True, text=True)
     (out / "director.log").write_text(run.stdout + run.stderr)
     if run.returncode != 0:
@@ -287,12 +291,18 @@ def main():
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput)
+    # A frame the host drew from its damage that differs from the frame drawn whole.
+    for line in report:
+        if line["kind"] == "damage_mismatch":
+            failures.append(f"the host's frame drawn from its damage differs in {line['pixels']} pixels")
     if "final" in scenario:
         last = max(line["t"] for line in report)
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last}, report, start, failures)
 
     renders = [line["render_ms"] for line in report if line["kind"] == "frame"]
+    # The share of each window frame the host drew again (1 when drawn whole).
+    damaged = [line.get("damaged", 1.0) for line in report if line["kind"] == "frame" and line["surface"] == 1]
     latencies = [s["latency_ms"] for s in summary["steps"] if s.get("latency_ms") is not None]
     # On a display: input to the kernel's flip of the first frame showing the answer.
     flips = [s["flip_latency_ms"] for s in summary["steps"] if s.get("flip_latency_ms") is not None]
@@ -302,6 +312,10 @@ def main():
         "gpu": summary.get("gpu"),
         "display": summary.get("drm"),
         "frames": len(renders),
+        "damaged": {
+            "median": round(statistics.median(damaged), 3) if damaged else None,
+            "whole": sum(1 for share in damaged if share >= 1.0),
+        },
         "render_ms": {
             "median": round(statistics.median(renders), 2) if renders else None,
             "max": round(max(renders), 2) if renders else None,
