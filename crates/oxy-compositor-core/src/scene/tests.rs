@@ -1996,3 +1996,59 @@ fn the_frame_list_shows_in_flight_content_with_its_own_geometry() {
     assert_eq!(h.rect(window), SCREEN);
     assert!(h.rendered(popup));
 }
+
+#[test]
+fn an_output_attached_while_locked_is_covered_immediately() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(
+        LOCKER,
+        Request::CreateLockSurface {
+            surface: 1,
+            output: 1,
+        },
+    )
+    .unwrap();
+    h.present(key(LOCKER, 1));
+    h.scene.lock();
+    let second = Rect::new(1920, 0, 1280, 720);
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: second,
+            scale_120: 120,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    // The new output shows a compositor cover, never application content, before any lock UI
+    // exists for it.
+    let list = h.scene.render_list();
+    assert!(list.contains(&RenderItem::Cover {
+        output: 2,
+        rect: second
+    }));
+    assert!(!h.rendered(window));
+    // Moving the pointer onto it and pressing delivers nothing to applications.
+    h.clear_log();
+    h.click(2000, 100);
+    assert!(h.events_for(APP).is_empty());
+    // A lock surface for the new output replaces the cover once it has content.
+    h.request(
+        LOCKER,
+        Request::CreateLockSurface {
+            surface: 2,
+            output: 2,
+        },
+    )
+    .unwrap();
+    assert!(h.scene.render_list().contains(&RenderItem::Cover {
+        output: 2,
+        rect: second
+    }));
+    h.present(key(LOCKER, 2));
+    assert!(!h
+        .scene
+        .render_list()
+        .iter()
+        .any(|item| matches!(item, RenderItem::Cover { .. })));
+}
