@@ -78,7 +78,8 @@ pub struct Terminal {
 
 impl Terminal {
     /// Takes the active terminal (needs root, or the seat's session): graphics mode, switches by
-    /// request and, with `keyboard_off`, its keyboard off.
+    /// request and, with `keyboard_off`, its keyboard off. A terminal another session has (a
+    /// login prompt) is refused: it would read the keyboard too, and hang the terminal up.
     pub fn take(keyboard_off: bool) -> io::Result<Self> {
         let console = open(
             "/dev/tty0",
@@ -94,6 +95,15 @@ impl Terminal {
             OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
             Mode::empty(),
         )?;
+        if let Ok(session) = rustix::termios::tcgetsid(&tty) {
+            return Err(io::Error::new(
+                io::ErrorKind::ResourceBusy,
+                format!(
+                    "terminal {number} belongs to session {} (a login prompt?); use a free one",
+                    session.as_raw_nonzero()
+                ),
+            ));
+        }
         let (release, release_signal) = UnixStream::pair()?;
         let (acquire, acquire_signal) = UnixStream::pair()?;
         release.set_nonblocking(true)?;
