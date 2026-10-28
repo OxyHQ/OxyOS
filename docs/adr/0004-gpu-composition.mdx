@@ -121,8 +121,20 @@ Driving real devices found two bugs. The fixture had to change for both:
 - **A whole step sent at once overflowed the kernel's buffer.** The director wrote a step's keys before the compositor read any. The kernel holds 64 events for each reader of a device; "Hola OxyOS!" with its Shift presses is exactly 64, so the kernel dropped them all and libinput resynchronised to keys already up. Now the compositor reads each event as it is sent, as its event loop does with a person's input.
 - **Middle-button emulation held each press.** libinput emulates a middle button on any pointer with left and right buttons and no middle one, and that setting is not configurable. It holds each left press until the release or a timeout while motion passes, so a drag pressed where it ended. The virtual pointer is now a wheel mouse with the wheel's button.
 
+**The terminal.** With `--kms`, the compositor takes the terminal it shows on (`oxy-vt`). The console draws nothing over the frames, its keyboard is off with device input, and switches go by request. On a switch away, the compositor releases DRM master and closes the devices. On return, it takes both back, modesets, and shows the frame again. Ctrl+Alt+Fn comes from the keymap and reaches no application.
+
+`scenarios/terminal.json` checks it on the ThinkPad with device input only. Terminal 8 has no login, and the test leaves for terminal 5 and comes back with that terminal's own Ctrl+Alt+F8. The app hears Ctrl and Alt and never the function keys, and the pointer and keyboard work after the return. Three runs out of three pass, away for 143–243 ms.
+
+Every run reports what the console counted. It is 0 bytes in every run, including the full regression, which presses Enter. With the keyboard left on, the same scenario fails with "5 bytes typed reached the console".
+
+Validating it found three problems:
+- **The validation terminal had a login prompt.** logind had started agetty on it, which read the keyboard and hung the terminal up. The compositor now refuses a terminal another session has, found through `/proc`, because `TIOCGSID` answers only a session's own members.
+- **A switch request could fail the turn.** The requests are signals, and `poll` is never restarted after one, so a request arriving during the wait failed it. A signal now means a turn with nothing ready.
+- **The other terminal's planes.** The modeset after a return turns off any plane another session left on the CRTC.
+
+The full regression on terminal 8 passes three out of three with real input, and once each with CPU composition and scripted input.
+
 Still to do:
-- grabbing the devices (today keys also reach the virtual terminal underneath) and VT switching;
 - the image's compose tables: they come from `libx11-data` (data files, no X11 code), so adding it to the manifest, or shipping the tables another way, is a decision for the image rules;
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
