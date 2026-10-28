@@ -135,7 +135,6 @@ Validating it found three problems:
 The full regression on terminal 8 passes three out of three with real input, and once each with CPU composition and scripted input.
 
 Still to do:
-- the image's compose tables: they come from `libx11-data` (data files, no X11 code), so adding it to the manifest, or shipping the tables another way, is a decision for the image rules;
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
