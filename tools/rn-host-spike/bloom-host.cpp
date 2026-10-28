@@ -5,6 +5,7 @@
 #include "android-components.h"
 #include "damage.h"
 #include "host-modules.h"
+#include "network.h"
 #include "input.h"
 #include "popup.h"
 #include "report.h"
@@ -299,6 +300,13 @@ int main(int argc, char** argv) {
 
   oxy::Display display{width, height, 1.0f};
   auto invoker = instance->createJSCallInvoker();
+  // Blobs and the network (network.h): answers reach JavaScript as RCTDeviceEventEmitter events,
+  // from the loop below, each with its arguments as one array, as Android emits them.
+  oxy::BlobStore blobs;
+  oxy::Networking networking(blobs, [&instance](const std::string& event, folly::dynamic args) {
+    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
+  });
+  oxy::HostServices services{blobs, networking};
   oxy::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
   oxy::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
@@ -317,7 +325,7 @@ int main(int argc, char** argv) {
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
           if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
-          if (auto module = oxy::createHostModule(name, invoker, display)) return module;
+          if (auto module = oxy::createHostModule(name, invoker, display, services)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
           std::cerr << "[host] TurboModule unavailable: " << name << "\n";
           return nullptr;
@@ -489,6 +497,7 @@ int main(int argc, char** argv) {
         busy |= timers->fire(*timerManager);
         worklets.tick();
         busy |= reanimated.tick();
+        busy |= networking.deliver();
         if (!window->dispatch([&](const OxyEvent& event) {
               if ((event.kind == OXY_EVENT_POINTER && event.detail == OXY_POINTER_PRESS) ||
                   (event.kind == OXY_EVENT_KEY && event.flag) ||
@@ -598,6 +607,7 @@ int main(int argc, char** argv) {
     busy |= timers->fire(*timerManager);
     worklets.tick();
     busy |= reanimated.tick();
+    busy |= networking.deliver();
     if (busy || timers->oneShotDueBefore(deadline)) {
       quietSince = Clock::now();
     } else if (Clock::now() - quietSince > std::chrono::milliseconds(500)) {
