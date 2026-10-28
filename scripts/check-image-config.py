@@ -108,10 +108,14 @@ def check_hooks():
 
 def check_image_settings():
     violations = []
-    binary = (CONFIG / "binary").read_text()
     # The graphical debian-installer runs an X.org server from the install media.
-    if 'LB_DEBIAN_INSTALLER_GUI="false"' not in binary:
-        violations.append('config/binary: LB_DEBIAN_INSTALLER_GUI must be "false"')
+    # Source the file as live-build does, so only the effective value counts.
+    gui = subprocess.run(
+        ["sh", "-c", '. "$1" && printf %s "$LB_DEBIAN_INSTALLER_GUI"', "sh", str(CONFIG / "binary")],
+        capture_output=True, text=True, env={},
+    ).stdout
+    if gui != "false":
+        violations.append(f'config/binary: LB_DEBIAN_INSTALLER_GUI is "{gui}", must be "false"')
     source = CONFIG / "oxyos.conf"
     installed = CONFIG / "includes.chroot_after_packages" / "etc" / "oxyos" / "oxyos.conf"
     if source.read_bytes() != installed.read_bytes():
