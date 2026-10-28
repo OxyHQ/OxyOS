@@ -145,6 +145,7 @@ impl Connection {
     fn recv_packet(
         &self,
         storage: &mut [u8; PACKET_CAPACITY],
+        flags: RecvFlags,
     ) -> io::Result<(usize, Vec<OwnedFd>)> {
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(FD_CAPACITY))];
         let mut control = RecvAncillaryBuffer::new(&mut space);
@@ -152,7 +153,7 @@ impl Connection {
             &self.fd,
             &mut [IoSliceMut::new(storage)],
             &mut control,
-            RecvFlags::CMSG_CLOEXEC,
+            RecvFlags::CMSG_CLOEXEC | flags,
         )?;
         let mut fds = Vec::new();
         for message in control.drain() {
@@ -185,7 +186,7 @@ impl Connection {
     /// any mismatch closes the received descriptors and is an error.
     pub fn recv_request(&self) -> io::Result<(Request, Option<OwnedFd>)> {
         let mut storage = [0; PACKET_CAPACITY];
-        let (length, mut fds) = self.recv_packet(&mut storage)?;
+        let (length, mut fds) = self.recv_packet(&mut storage, RecvFlags::empty())?;
         let mut cursor = Cursor::new(&storage[..length]);
         let request = read_request(&mut cursor)?;
         if cursor.position() as usize != length {
@@ -225,8 +226,22 @@ impl Connection {
     }
 
     pub fn recv_event(&self) -> io::Result<Event> {
+        self.receive_event(RecvFlags::empty())
+    }
+
+    /// Receives an event without blocking: `Ok(None)` if none is queued, so a client can serve
+    /// the compositor from its own loop.
+    pub fn try_recv_event(&self) -> io::Result<Option<Event>> {
+        match self.receive_event(RecvFlags::DONTWAIT) {
+            Ok(event) => Ok(Some(event)),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn receive_event(&self, flags: RecvFlags) -> io::Result<Event> {
         let mut storage = [0; PACKET_CAPACITY];
-        let (length, fds) = self.recv_packet(&mut storage)?;
+        let (length, fds) = self.recv_packet(&mut storage, flags)?;
         if !fds.is_empty() {
             return Err(invalid("events carry no descriptors"));
         }

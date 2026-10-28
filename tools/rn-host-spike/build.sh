@@ -83,11 +83,16 @@ mkdir -p "$WORK/codegen-reanimated"
     --schemaPath "$WORK/codegen-reanimated/schema.json" --outputDir "$WORK/codegen-reanimated/out" \
     --libraryName rnreanimated --javaPackageName com.swmansion.reanimated)
 
+# The display protocol client the host links (the repository's Cargo workspace).
+REPO=$(cd "$HERE/../.." && pwd)
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-client-ffi
+OXY_CLIENT_LIB="$REPO/target/release/liboxy_client_ffi.a"
+
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DRN_DIR="$RN_DIR" -DHERMES_SRC="$WORK/hermes" -DHERMES_BUILD="$WORK/hermes-build" \
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
-  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" >/dev/null
+  -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXY_CLIENT_LIB="$OXY_CLIENT_LIB" >/dev/null
 ninja -C host-build -j "$JOBS" oxy-rn-spike oxy-bloom-host
 
 # Fabric alone: a tree built through nativeFabricUIManager.
@@ -97,3 +102,9 @@ host-build/oxy-rn-spike "$HERE/tree.js"
 (cd "$HERE/sample" && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
 OXY_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxy-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
+
+# The same app in a window: the offscreen compositor launches the host as its own process, which
+# presents its frames through the display protocol (sealed shared-memory buffers).
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxy-offscreen
+OXY_SCRIPT_URL="file://$WORK/sample/index.js" "$REPO/target/release/oxy-offscreen" --launch \
+  --out "$WORK/window" -- "$WORK/host-build/oxy-bloom-host" "$WORK/sample/index.js" OxyBloom --window 1024 640

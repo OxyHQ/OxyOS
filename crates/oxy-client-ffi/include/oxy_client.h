@@ -1,0 +1,115 @@
+/* C ABI of the Oxy display protocol client (crates/oxy-client-ffi). The protocol, transport and
+ * shared-memory buffers are implemented once, in Rust; this header only declares the calls a
+ * native runtime written in C or C++ makes. Keep it in step with src/lib.rs (its tests check the
+ * constants and layouts below).
+ *
+ * A client is used by one thread at a time. Calls returning int give 0 (or a documented positive
+ * value) on success and OXY_ERROR on failure; oxy_last_error() then describes the failure. */
+#ifndef OXY_CLIENT_H
+#define OXY_CLIENT_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct OxyClient OxyClient;
+
+/* Event kinds (the protocol's event opcodes). */
+#define OXY_EVENT_CONFIGURE 2
+#define OXY_EVENT_POPUP_DONE 3
+#define OXY_EVENT_POINTER 4
+#define OXY_EVENT_KEY 5
+#define OXY_EVENT_FOCUS 6
+#define OXY_EVENT_TOUCH 7
+#define OXY_EVENT_FEEDBACK 8
+#define OXY_EVENT_RELEASED 9
+
+/* Pointer kinds (OxyEvent.detail of a pointer event). */
+#define OXY_POINTER_ENTER 1
+#define OXY_POINTER_LEAVE 2
+#define OXY_POINTER_MOTION 3
+#define OXY_POINTER_PRESS 4
+#define OXY_POINTER_RELEASE 5
+#define OXY_POINTER_CANCEL 6
+
+/* Feedback outcomes (OxyEvent.detail of a feedback event). */
+#define OXY_OUTCOME_PRESENTED 1
+#define OXY_OUTCOME_DISCARDED 2
+
+/* oxy_client_poll results. */
+#define OXY_POLL_EVENT 1
+#define OXY_POLL_EMPTY 0
+#define OXY_POLL_CLOSED (-1)
+#define OXY_ERROR (-2)
+
+/* One compositor event. Fields by kind:
+ *   CONFIGURE   serial; x, y, width, height: the rect (logical; a popup's is relative to its
+ *               parent); scale_120: scale * 120; flag: fullscreen.
+ *   POPUP_DONE  detail: dismiss reason.
+ *   POINTER     serial; x, y: surface-local position in 1/256 logical pixels; detail: pointer
+ *               kind; code: button (Linux input code, 272 = left).
+ *   KEY         serial; code: key (Linux input code); flag: pressed.
+ *   FOCUS       flag: focused.
+ *   TOUCH       serial; x, y as POINTER; detail: touch kind; code: touch id.
+ *   FEEDBACK    serial: frame sequence; detail: outcome.
+ *   RELEASED    serial: buffer id (the client reuses it; informational). */
+typedef struct OxyEvent {
+  uint32_t kind;
+  uint32_t surface;
+  uint64_t serial;
+  int32_t x;
+  int32_t y;
+  uint32_t width;
+  uint32_t height;
+  uint32_t scale_120;
+  uint32_t detail;
+  uint32_t code;
+  uint8_t flag;
+} OxyEvent;
+
+/* A popup's placement: anchor rectangle in parent-local logical coordinates, the popup's logical
+ * size, anchor and gravity (0 center, 1 top, 2 bottom, 3 left, 4 right, 5 top-left,
+ * 6 bottom-left, 7 top-right, 8 bottom-right), adjustment flags (1 slide x, 2 slide y, 4 flip x,
+ * 8 flip y, 16 resize x, 32 resize y, 64 right-to-left) and an offset. */
+typedef struct OxyPositioner {
+  int32_t anchor_x;
+  int32_t anchor_y;
+  uint32_t anchor_width;
+  uint32_t anchor_height;
+  uint32_t width;
+  uint32_t height;
+  uint8_t anchor;
+  uint8_t gravity;
+  uint8_t adjust;
+  int32_t offset_x;
+  int32_t offset_y;
+} OxyPositioner;
+
+const char* oxy_last_error(void);
+
+OxyClient* oxy_client_connect(const char* path);
+void oxy_client_close(OxyClient* client);
+int oxy_client_fd(OxyClient* client);
+
+int oxy_client_create_toplevel(OxyClient* client, uint32_t surface, uint32_t width, uint32_t height);
+int oxy_client_create_popup(OxyClient* client, uint32_t surface, uint32_t parent,
+                            const OxyPositioner* positioner);
+int oxy_client_grab_popup(OxyClient* client, uint32_t surface, uint64_t serial);
+int oxy_client_destroy_surface(OxyClient* client, uint32_t surface);
+
+/* Presents XRGB8888 pixels (little-endian B, G, R, X; rows of width * 4 bytes) on a surface in
+ * answer to the configure with serial `configure`. Returns the frame's sequence number, or -1. */
+int64_t oxy_client_present(OxyClient* client, uint32_t surface, uint64_t configure, uint32_t width,
+                           uint32_t height, const uint8_t* pixels, size_t length);
+
+/* Takes one queued event without blocking. */
+int oxy_client_poll(OxyClient* client, OxyEvent* out);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* OXY_CLIENT_H */

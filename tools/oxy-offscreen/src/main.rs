@@ -2,10 +2,15 @@
 //! protocol transport and scene policy, composed on the CPU into PNG snapshots.
 //!
 //! This is the development path the architecture allows for headless machines. It is not
-//! DRM/KMS, not Vulkan, not a session and not Bloom; input is injected by a scripted director,
-//! and feedback timestamps are labeled synthetic because nothing is displayed.
+//! DRM/KMS, not Vulkan and not a session; input is injected by a scripted director, and feedback
+//! timestamps are labeled synthetic because nothing is displayed.
+//!
+//! Without arguments it runs two first-party test clients through the popup scenario.
+//! `--launch -- COMMAND` instead launches one application process (such as the native Bloom
+//! host), passing the socket in `OXY_COMPOSITOR_SOCKET`, and presses the points `--press` names.
 
 mod client;
+mod launch;
 mod png;
 
 use client::*;
@@ -305,6 +310,43 @@ impl Compositor {
         true
     }
 
+    /// One turn of the compositor: accepts connections, handles every readable client, composes
+    /// a frame and sends events. Waits at most 5 ms for input.
+    fn serve(&mut self, listener: &Listener) -> Result<()> {
+        let clients: Vec<ClientId> = self.peers.keys().copied().collect();
+        // Poll the listener and every client; never block on any one of them.
+        let readable: Vec<bool> = {
+            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 1);
+            fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
+            for client in &clients {
+                fds.push(PollFd::from_borrowed_fd(
+                    self.peers[client].connection.as_fd(),
+                    PollFlags::IN,
+                ));
+            }
+            poll(
+                &mut fds,
+                Some(&rustix::event::Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 5_000_000,
+                }),
+            )?;
+            fds.iter().map(|fd| !fd.revents().is_empty()).collect()
+        };
+        if readable[0] {
+            self.accept(listener)?;
+        }
+        for (index, client) in clients.iter().enumerate() {
+            if readable[index + 1] {
+                self.receive(*client);
+            }
+        }
+        self.expire_pending();
+        self.frame();
+        self.flush();
+        Ok(())
+    }
+
     fn pixel(&self, x: i32, y: i32) -> u32 {
         self.framebuffer[(y as u32 * OUTPUT.width + x as u32) as usize]
     }
@@ -388,36 +430,89 @@ enum Step {
     Done,
 }
 
+/// A compositor listening on a private socket, with one output.
+struct Session {
+    compositor: Compositor,
+    listener: Listener,
+    socket: PathBuf,
+    baseline_fds: usize,
+    _cleanup: TempDir,
+}
+
+impl Session {
+    fn start() -> Result<Self> {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
+        let directory =
+            std::env::temp_dir().join(format!("oxy-offscreen-{}-{nonce}", std::process::id()));
+        DirBuilder::new().mode(0o700).create(&directory)?;
+        let cleanup = TempDir(directory.clone());
+        let socket = directory.join("s");
+        let listener = Listener::bind(&socket)?;
+        listener.set_nonblocking(true)?;
+        let baseline_fds = open_descriptors()?;
+
+        let mut scene = Scene::new();
+        scene
+            .add_output(Output {
+                id: 1,
+                rect: OUTPUT,
+                scale_120: 120,
+                refresh_mhz: 60_000,
+            })
+            .map_err(|code| format!("output: {code:?}"))?;
+        let compositor = Compositor {
+            scene,
+            peers: HashMap::new(),
+            next_client: 0,
+            own_uid: fs::metadata(&directory).map(|m| std::os::unix::fs::MetadataExt::uid(&m))?,
+            framebuffer: vec![DESKTOP; (OUTPUT.width * OUTPUT.height) as usize],
+            composed: Vec::new(),
+            frames: 0,
+        };
+        Ok(Self {
+            compositor,
+            listener,
+            socket,
+            baseline_fds,
+            _cleanup: cleanup,
+        })
+    }
+
+    /// Closes every connection, waits for the clients to exit, and checks that no scene
+    /// resource or descriptor remains.
+    fn finish(mut self, children: &mut Children) -> Result<()> {
+        let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
+        for client in clients {
+            self.compositor.disconnect(client);
+        }
+        for child in &mut children.0 {
+            let status = child.wait()?;
+            if !status.success() {
+                return Err("client failed".into());
+            }
+        }
+        let stats = self.compositor.scene.stats();
+        if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
+            return Err(format!("scene resources left: {stats:?}").into());
+        }
+        let fds = open_descriptors()?;
+        if fds != self.baseline_fds {
+            return Err(format!(
+                "descriptors leaked: {} before, {fds} after",
+                self.baseline_fds
+            )
+            .into());
+        }
+        Ok(())
+    }
+}
+
 fn run(out: &Path) -> Result<()> {
     fs::create_dir_all(out)?;
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
-    let directory =
-        std::env::temp_dir().join(format!("oxy-offscreen-{}-{nonce}", std::process::id()));
-    DirBuilder::new().mode(0o700).create(&directory)?;
-    let _cleanup = TempDir(directory.clone());
-    let socket = directory.join("s");
-    let listener = Listener::bind(&socket)?;
-    listener.set_nonblocking(true)?;
-    let baseline_fds = open_descriptors()?;
-
-    let mut scene = Scene::new();
-    scene
-        .add_output(Output {
-            id: 1,
-            rect: OUTPUT,
-            scale_120: 120,
-            refresh_mhz: 60_000,
-        })
-        .map_err(|code| format!("output: {code:?}"))?;
-    let mut compositor = Compositor {
-        scene,
-        peers: HashMap::new(),
-        next_client: 0,
-        own_uid: fs::metadata(&directory).map(|m| std::os::unix::fs::MetadataExt::uid(&m))?,
-        framebuffer: vec![DESKTOP; (OUTPUT.width * OUTPUT.height) as usize],
-        composed: Vec::new(),
-        frames: 0,
-    };
+    let mut session = Session::start()?;
+    let socket = session.socket.clone();
+    let listener = &session.listener;
+    let compositor = &mut session.compositor;
     let mut children = Children(vec![spawn("--other", &socket)?]);
     let (other, app) = (1, 2);
     let deadline = Instant::now() + DEADLINE;
@@ -436,37 +531,7 @@ fn run(out: &Path) -> Result<()> {
                 }
             }
         }
-        let clients: Vec<ClientId> = compositor.peers.keys().copied().collect();
-        // Poll the listener and every client; never block on any one of them.
-        let readable: Vec<bool> = {
-            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 1);
-            fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
-            for client in &clients {
-                fds.push(PollFd::from_borrowed_fd(
-                    compositor.peers[client].connection.as_fd(),
-                    PollFlags::IN,
-                ));
-            }
-            poll(
-                &mut fds,
-                Some(&rustix::event::Timespec {
-                    tv_sec: 0,
-                    tv_nsec: 5_000_000,
-                }),
-            )?;
-            fds.iter().map(|fd| !fd.revents().is_empty()).collect()
-        };
-        if readable[0] {
-            compositor.accept(&listener)?;
-        }
-        for (index, client) in clients.iter().enumerate() {
-            if readable[index + 1] {
-                compositor.receive(*client);
-            }
-        }
-        compositor.expire_pending();
-        compositor.frame();
-        compositor.flush();
+        compositor.serve(listener)?;
 
         match step {
             Step::WaitOther => {
@@ -493,7 +558,7 @@ fn run(out: &Path) -> Result<()> {
                 if let Some(menu) = compositor.surface_rect(app, 2) {
                     let window = compositor.surface_rect(app, 1).expect("parent shown");
                     let base = compositor.surface_rect(other, 1).expect("other shown");
-                    checks.verify_menu(&compositor, window, menu, base)?;
+                    checks.verify_menu(compositor, window, menu, base)?;
                     snapshots.push(compositor.snapshot(out, "2-menu-open.png")?);
                     // Press a row inside the menu but outside the window, over the other app.
                     let point = (menu.x + 20, menu.y + menu.height as i32 - 20);
@@ -559,28 +624,11 @@ fn run(out: &Path) -> Result<()> {
     }
 
     // Close every connection; clients exit on EOF. Then nothing may remain.
-    let clients: Vec<ClientId> = compositor.peers.keys().copied().collect();
-    for client in clients {
-        compositor.disconnect(client);
-    }
-    for child in &mut children.0 {
-        let status = child.wait()?;
-        if !status.success() {
-            return Err("client failed".into());
-        }
-    }
-    let stats = compositor.scene.stats();
-    if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
-        return Err(format!("scene resources left: {stats:?}").into());
-    }
-    let fds = open_descriptors()?;
-    if fds != baseline_fds {
-        return Err(format!("descriptors leaked: {baseline_fds} before, {fds} after").into());
-    }
-    drop(listener);
+    let frames = compositor.frames;
+    session.finish(&mut children)?;
     println!(
         "{{\"mode\":\"offscreen-cpu\",\"drm\":false,\"gpu\":false,\"bloom\":false,\"clients\":2,\"frames\":{},\"popup_beyond_parent_edges\":{},\"menu_row_pressed_over_other_client\":{},\"outside_presses_delivered\":{},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
-        compositor.frames,
+        frames,
         checks.edges,
         checks.highlight_over_other,
         checks.outside_presses_delivered,
@@ -648,6 +696,13 @@ fn main() -> Result<()> {
         [flag, path] if flag == "--out" => run(Path::new(path)),
         [flag, path] if flag == "--app" => Ok(app(Path::new(path))?),
         [flag, path] if flag == "--other" => Ok(other(Path::new(path))?),
-        _ => Err("usage: oxy-offscreen [--out DIR]".into()),
+        _ if args.iter().any(|arg| arg == "--launch") => {
+            let (out, launch) = launch::Launch::parse(&args)?;
+            launch::run(&out, &launch)
+        }
+        _ => Err(
+            "usage: oxy-offscreen [--out DIR]\n       oxy-offscreen --launch [--out DIR] [--press X,Y]... -- COMMAND [ARGS]..."
+                .into(),
+        ),
     }
 }

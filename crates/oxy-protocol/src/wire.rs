@@ -48,16 +48,24 @@ macro_rules! wire_enum {
         #[repr($repr)]
         pub enum $name { $($variant = $value),* }
 
+        impl $name {
+            /// The variant with this wire value, if there is one.
+            pub fn from_raw(value: $repr) -> Option<Self> {
+                match value {
+                    $($value => Some(Self::$variant),)*
+                    _ => None,
+                }
+            }
+        }
+
         impl Wire for $name {
             const SIZE: usize = std::mem::size_of::<$repr>();
             fn put(&self, out: &mut Vec<u8>) {
                 (*self as $repr).put(out);
             }
             fn get(bytes: &[u8]) -> io::Result<Self> {
-                match <$repr>::get(bytes)? {
-                    $($value => Ok(Self::$variant),)*
-                    _ => Err(invalid(concat!("invalid ", stringify!($name)))),
-                }
+                Self::from_raw(<$repr>::get(bytes)?)
+                    .ok_or_else(|| invalid(concat!("invalid ", stringify!($name))))
             }
         }
     };
@@ -257,6 +265,15 @@ impl Adjust {
     pub const fn has(self, other: Adjust) -> bool {
         self.0 & other.0 == other.0
     }
+
+    /// The flags with these bits, if every bit is a known flag.
+    pub const fn from_bits(bits: u8) -> Option<Adjust> {
+        if bits & !Adjust::ALL.0 == 0 {
+            Some(Adjust(bits))
+        } else {
+            None
+        }
+    }
 }
 
 impl Wire for Adjust {
@@ -265,11 +282,7 @@ impl Wire for Adjust {
         out.push(self.0);
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
-        if bytes[0] & !Adjust::ALL.0 == 0 {
-            Ok(Adjust(bytes[0]))
-        } else {
-            Err(invalid("unknown adjustment flags"))
-        }
+        Adjust::from_bits(bytes[0]).ok_or_else(|| invalid("unknown adjustment flags"))
     }
 }
 

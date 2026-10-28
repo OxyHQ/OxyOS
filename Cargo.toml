@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxy-protocol", "crates/oxy-compositor-core", "crates/oxy-ipc", "tools/oxy-platform-probe", "tools/oxy-offscreen"]
+members = ["crates/oxy-protocol", "crates/oxy-compositor-core", "crates/oxy-ipc", "crates/oxy-client", "crates/oxy-client-ffi", "tools/oxy-platform-probe", "tools/oxy-offscreen"]
 resolver = "2"
 
 [workspace.package]

@@ -7,7 +7,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
-    REANIMATED_CODEGEN_DIR)
+    REANIMATED_CODEGEN_DIR OXY_CLIENT_LIB)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -158,12 +158,15 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
   "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 
 add_executable(oxy-bloom-host bloom-host.cpp renderer.cpp host-modules.cpp worklets-host.cpp
-  reanimated-host.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxy-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
   "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
-target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview)
+# The Oxy display protocol client: the workspace's Rust crates behind a C ABI
+# (crates/oxy-client-ffi), linked statically.
+target_include_directories(oxy-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxy-client-ffi/include)
+target_link_libraries(oxy-bloom-host reactnative rrc_unimplementedview ${OXY_CLIENT_LIB} gcc_s util rt pthread m dl)
 target_compile_options(oxy-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # Debug aid: OXY_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.

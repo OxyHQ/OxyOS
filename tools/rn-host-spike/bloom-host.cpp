@@ -4,6 +4,7 @@
 #include "host-modules.h"
 #include "renderer.h"
 #include "text.h"
+#include "window.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
@@ -180,9 +181,17 @@ class Mounter : public SchedulerDelegate {
         // mount hooks. Reanimated resumes its own commits there.
         if (scheduler_) scheduler_->reportMount(surface);
         mounted = true;
+        changed_ = true;
       }
     }
     return mounted;
+  }
+  // Whether the tree changed since the last call, whether the mount came from the host's loop or
+  // from the Scheduler's own callback.
+  bool takeChanged() {
+    bool changed = changed_;
+    changed_ = false;
+    return changed;
   }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
@@ -198,6 +207,7 @@ class Mounter : public SchedulerDelegate {
  private:
   oxy::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
+  bool changed_ = false;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
@@ -224,12 +234,20 @@ void stage(const char* name) {
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::cerr << "usage: oxy-bloom-host BUNDLE.js MODULE OUT.png [WIDTH HEIGHT] [--fonts DIR]\n";
+    std::cerr << "usage: oxy-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
+                 "  OUT.png   run until the app settles, then draw it into OUT.png\n"
+                 "  --window  present it in a window on the compositor at $OXY_COMPOSITOR_SOCKET\n";
     return 2;
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
+  const bool windowed = outPath == "--window";
+  const char* socket = std::getenv("OXY_COMPOSITOR_SOCKET");
+  if (windowed && !socket) {
+    std::cerr << "--window needs OXY_COMPOSITOR_SOCKET\n";
+    return 2;
+  }
   const float width = argc > 5 ? std::stof(argv[4]) : 1024;
   const float height = argc > 5 ? std::stof(argv[5]) : 640;
 
@@ -325,16 +343,87 @@ int main(int argc, char** argv) {
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
 
+  // In a window, the compositor's configure decides the size the app lays out at.
+  std::unique_ptr<oxy::Window> window;
+  if (windowed) {
+    try {
+      window = std::make_unique<oxy::Window>(socket, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+      while (!window->configured()) {
+        if (!window->dispatch([](const OxyEvent&) {})) {
+          std::cerr << "[host] the compositor closed the connection before configuring the window\n";
+          return 1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      window->resized();
+      display = oxy::Display{window->width(), window->height(), window->scale()};
+    } catch (const std::exception& error) {
+      std::cerr << "[host] " << error.what() << "\n";
+      return 1;
+    }
+  }
+
   stage("load script");
   instance->loadScript(std::make_unique<JSBigStdString>(readFile(bundlePath)), bundlePath);
 
   stage("surface");
   SurfaceHandler surface(moduleName, 1);
   scheduler->registerSurface(surface);
-  surface.constraintLayout(
-      LayoutConstraints{.minimumSize = {width, height}, .maximumSize = {width, height}},
-      LayoutContext{.pointScaleFactor = display.scale});
+  auto layOut = [&] {
+    Size size{display.width, display.height};
+    surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
+                             LayoutContext{.pointScaleFactor = display.scale});
+  };
+  layOut();
   surface.start();
+
+  if (window) {
+    // Serve the compositor until it closes the connection: lay out for each configured size,
+    // and present whenever the tree changed and the previous frame was answered.
+    // The first frame is the first mounted tree, never an empty window.
+    bool dirty = false;
+    int status = 0;
+    try {
+      while (true) {
+        Beat::tickAll();
+        bool busy = loop->drain();
+        busy |= mounter.pull();
+        busy |= timers->fire(*timerManager);
+        worklets.tick();
+        busy |= reanimated.tick();
+        if (!window->dispatch([](const OxyEvent&) {})) break;
+        if (window->resized()) {
+          display = oxy::Display{window->width(), window->height(), window->scale()};
+          layOut();
+          busy = true;
+        }
+        if (mounter.takeChanged()) {
+          dirty = true;
+          busy = true;
+        }
+        if (dirty && window->ready()) {
+          oxy::Canvas canvas;
+          oxy::draw(tree, display, canvas);
+          window->present(canvas);
+          dirty = false;
+          busy = true;
+        }
+        if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+    } catch (const std::exception& error) {
+      std::cerr << "[host] " << error.what() << "\n";
+      status = 1;
+    }
+    std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
+              << mounter.transactions << ",\"presented\":" << window->presented()
+              << ",\"js_errors\":" << jsErrors << "}\n";
+    window.reset();
+    surface.stop();
+    scheduler->unregisterSurface(surface);
+    loop->drain();
+    scheduler.reset();
+    return status == 0 && jsErrors == 0 ? 0 : 1;
+  }
 
   // Run until the app settles (no queued work and no one-shot timer due for a while) or a hard
   // deadline passes.

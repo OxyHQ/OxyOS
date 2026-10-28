@@ -6,7 +6,7 @@ order: 3
 
 # Build and verify the native foundation
 
-The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code and loads no display toolkit. It currently verifies protocol, policy and ownership state; it draws no pixels.
+The root Rust workspace is independent of the `config/` image configuration. Its only third-party Cargo dependency is `rustix` (safe system-call bindings, with `bitflags` and `linux-raw-sys`); the workspace forbids `unsafe` code, except for the C ABI in `crates/oxy-client-ffi`, which denies it and allows it item by item, each with its safety contract. It loads no display toolkit. The compositor core verifies protocol, policy and ownership state and draws no pixels; the offscreen fixture composes client buffers on the CPU.
 
 Requirements: Rust from `rust-toolchain.toml`, a native linker and Python 3. Linux is the target. Unix socket tests also run on macOS for development; Windows is not currently supported.
 
@@ -35,9 +35,11 @@ Expected result:
 | `crates/oxy-compositor-core/src/placement.rs` | Popup positioner: anchor/gravity/offset, flip/slide/resize against one output, RTL, overflow-safe |
 | `crates/oxy-compositor-core/src/scene.rs` | Roles, grants, ownership, quotas, stacking, input routing, popup grabs, focus, lock primitive, outputs, frame lifecycle and buffer release |
 | `crates/oxy-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
-| `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send |
+| `crates/oxy-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send and receive |
+| `crates/oxy-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), non-blocking event polling |
+| `crates/oxy-client-ffi` | C ABI over `oxy-client` (`include/oxy_client.h`) for native runtimes in C/C++, such as the Bloom host; tests check the header against the Rust layouts |
 | `tools/oxy-platform-probe` | Two-process protocol v2 metadata exercise with synthetic completion |
-| `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; writes PNG snapshots |
+| `tools/oxy-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; `--launch` runs one application process (the Bloom host) and presses scripted points; writes PNG snapshots |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
 | `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux |
 
@@ -93,6 +95,8 @@ Shared-memory buffers must be regular files sealed against shrinking (`memfd` wi
 ## Offscreen development compositor
 
 `oxy-offscreen` runs the protocol, transport and scene with real processes and memory: a `poll` loop that never blocks on a client, bounded per-client outboxes (1,024 unread events disconnect the client), CPU composition of the in-flight frame (`Scene::frame_list`) and recomposition when the scene changes. A scripted director injects synthetic input: one client opens a context menu larger than its window; the fixture samples composed pixels beyond all four window edges over the other client, presses a menu row outside the window, presses outside the menu, and checks that the other client received no press, that no menu pixels remain, and that scene resources and the process's open descriptors return to their starting counts. It writes four PNG snapshots.
+
+`oxy-offscreen --launch [--press X,Y]... -- COMMAND` launches one application process instead, passing the socket in `OXY_COMPOSITOR_SOCKET`. It waits until the window's frames stay unchanged for 750 ms, then presses each window-local point with the left button. A press passes only when the application answers with a new frame that changes the window's pixels. The same descriptor and scene-resource checks apply at the end. `tools/rn-host-spike/build.sh` uses it to run the native Bloom host in a window.
 
 ```json
 {"mode":"offscreen-cpu","drm":false,"gpu":false,"bloom":false,"clients":2,"frames":5,"popup_beyond_parent_edges":4,"menu_row_pressed_over_other_client":true,"outside_presses_delivered":0,"descriptors_settled":true,"snapshots":["..."],"status":"passed"}

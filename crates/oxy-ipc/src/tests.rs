@@ -209,3 +209,19 @@ fn a_client_that_stops_reading_never_blocks_the_sender() {
     assert_eq!(client.recv_event().unwrap(), event);
     assert!(server.try_send_event(&event).unwrap());
 }
+
+#[test]
+fn a_client_polls_for_events_without_blocking() {
+    let (client, server) = Connection::pair().unwrap();
+    assert_eq!(client.try_recv_event().unwrap(), None);
+    let event = Event::Focus {
+        surface: 1,
+        focused: true,
+    };
+    server.send_event(&event).unwrap();
+    assert_eq!(client.try_recv_event().unwrap(), Some(event));
+    assert_eq!(client.try_recv_event().unwrap(), None);
+    drop(server);
+    let closed = client.try_recv_event().unwrap_err();
+    assert_eq!(closed.kind(), io::ErrorKind::UnexpectedEof);
+}
