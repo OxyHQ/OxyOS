@@ -15,8 +15,16 @@
       "Appearance.getColorScheme: ok \"light\"",
       "Dimensions.window: ok 800",
       "I18nManager.isRTL: ok false",
-      "PlatformConstants.getAndroidID: unavailable (OxyOS has no Android ID)"
+      "PlatformConstants.getAndroidID: unavailable (OxyOS has no Android ID)",
+      "Alert.alert: unavailable (Alert.alert is unavailable on OxyOS",
+      "Alert.prompt: unavailable (Alert.prompt is unavailable on OxyOS",
+      "Image.getSize: rejected: ImageLoader.getSize is not supported on OxyOS yet",
+      "AppState.currentState: ok \"active\"",
+      "StatusBar.setHidden: ok",
+      "I18nManager.forceRTL: ok",
+      "Appearance.setColorScheme: ok",
+      "AccessibilityInfo.announceForAccessibility: ok"
     ],
-    "absent": ["pending", "running"]
+    "absent": ["pending", "running", "Alert.alert: ok", "Alert.prompt: ok"]
   }
 }

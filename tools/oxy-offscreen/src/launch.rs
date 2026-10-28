@@ -127,6 +127,10 @@ pub struct Launch {
     /// `--gpu`: compose every frame on a Vulkan device too; any difference from the CPU
     /// reference fails the run.
     pub gpu: bool,
+    /// `--gpu-only`: compose on the Vulkan device alone, with no CPU reference (on a display,
+    /// once, straight into the scanout buffer); the director checks the frame the device
+    /// composed, read back after it is shown. Measures the compositor as it would run.
+    pub gpu_only: bool,
     /// `--dump-frames DIR`: the frame shown at launch and after each step, as layers
     /// (`oxy_gpu::frame_file`), to compose again elsewhere (`oxy-gpu`'s `replay` example).
     pub dump_frames: Option<PathBuf>,
@@ -141,7 +145,7 @@ pub struct Launch {
     pub layout: String,
 }
 
-const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxy-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -163,7 +167,7 @@ impl Launch {
         let mut steps: Vec<(Step, bool)> = Vec::new();
         // `--allow-unchanged` applies to the step after it.
         let mut allow = false;
-        let mut gpu = false;
+        let (mut gpu, mut gpu_only) = (false, false);
         let mut dump_frames = None;
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
@@ -181,6 +185,11 @@ impl Launch {
                 Some("--launch") => continue,
                 Some("--gpu") => {
                     gpu = true;
+                    continue;
+                }
+                Some("--gpu-only") => {
+                    gpu = true;
+                    gpu_only = true;
                     continue;
                 }
                 Some("--input") => {
@@ -296,6 +305,7 @@ impl Launch {
                             command,
                             steps,
                             gpu,
+                            gpu_only,
                             dump_frames,
                             kms,
                             input,
@@ -336,6 +346,12 @@ fn popup(compositor: &Compositor) -> Option<Rect> {
 }
 
 /// CLOCK_MONOTONIC in nanoseconds, the clock the application's report (OXY_HOST_REPORT) uses.
+fn median(values: &[f64]) -> Option<f64> {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    sorted.get(sorted.len() / 2).copied()
+}
+
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
@@ -345,6 +361,8 @@ fn monotonic_ns() -> i64 {
 struct Settled {
     window: Rect,
     first_frame_ns: Option<i64>,
+    /// On a display: the kernel's flip time of the first frame showing the answer.
+    first_flip_ns: Option<i64>,
     settled_ns: i64,
 }
 
@@ -361,6 +379,10 @@ fn settle(
 ) -> Result<Settled> {
     let mut last = (before.to_vec(), Instant::now());
     let mut first_frame_ns = None;
+    let mut first_flip_ns = None;
+    let shown_before = session.compositor.flips.len();
+    // The flip that will show the answer, when it was not yet shown as it appeared.
+    let mut answer_flip = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -372,14 +394,41 @@ fn settle(
         }
         session.compositor.serve(&session.listener)?;
         let now = shown(&session.compositor);
-        if now != last.0 {
-            first_frame_ns.get_or_insert_with(monotonic_ns);
+        let changed = now != last.0;
+        if changed {
+            if first_frame_ns.is_none() {
+                first_frame_ns = Some(monotonic_ns());
+                let compositor = &session.compositor;
+                if compositor.flipped == compositor.scene.render_list() {
+                    // The last flip shows the answer: its completion made it.
+                    first_flip_ns = compositor.flips[shown_before..]
+                        .last()
+                        .map(|(_, flip)| flip.as_nanos() as i64);
+                } else {
+                    // Not on screen yet (a surface went away, say): the frame on its way shows it
+                    // if it was composed with it, or else the next one.
+                    let composed_with_it = compositor.pending_flip.is_some()
+                        && compositor.composed == compositor.scene.frame_list();
+                    answer_flip = Some(
+                        compositor.flips.len()
+                            + usize::from(compositor.pending_flip.is_some() && !composed_with_it),
+                    );
+                }
+            }
             last = (now, Instant::now());
-        } else if (now != before || may_stay) && last.1.elapsed() >= SETTLE {
+        }
+        if let Some(index) = answer_flip {
+            if let Some((_, flip)) = session.compositor.flips.get(index) {
+                first_flip_ns = Some(flip.as_nanos() as i64);
+                answer_flip = None;
+            }
+        }
+        if !changed && (last.0 != before || may_stay) && last.1.elapsed() >= SETTLE {
             if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
                 return Ok(Settled {
                     window,
                     first_frame_ns,
+                    first_flip_ns,
                     settled_ns: monotonic_ns(),
                 });
             }
@@ -853,10 +902,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
             eprintln!("[kms] zero-copy: composing into the display's DMA-BUF framebuffers");
         }
+        session.compositor.gpu_only = launch.gpu_only;
+        if launch.gpu_only {
+            eprintln!("[gpu] composing on the device alone, with no CPU reference");
+        }
         session.compositor.gpu = Some(Gpu {
             compositor,
             frames: 0,
             mismatches: 0,
+            device_ms: Vec::new(),
+            readback_ms: Vec::new(),
+            host_ms: Vec::new(),
+            phases_ms: Vec::new(),
         });
     }
     let mut children = Children(vec![Command::new(&launch.command[0])
@@ -969,12 +1026,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 format!("step {} ({}) changed no pixel", index + 1, step.describe()).into(),
             );
         }
-        let latency = match answer.first_frame_ns {
+        let since_input = |ns: Option<i64>| match ns {
             Some(ns) => format!("{:.2}", (ns - injected_ns) as f64 / 1e6),
             None => "null".to_string(),
         };
+        let latency = since_input(answer.first_frame_ns);
+        let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1003,17 +1062,39 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.scene.disconnect(READER);
     let gpu = match session.compositor.gpu.take() {
         Some(gpu) if gpu.mismatches > 0 => {
-            return Err(format!(
-                "Vulkan composition differed from the CPU reference in {} of {} frames",
-                gpu.mismatches, gpu.frames
-            )
+            return Err(if launch.gpu_only {
+                format!(
+                    "Vulkan composition failed in {} of {} frames",
+                    gpu.mismatches, gpu.frames
+                )
+            } else {
+                format!(
+                    "Vulkan composition differed from the CPU reference in {} of {} frames",
+                    gpu.mismatches, gpu.frames
+                )
+            }
             .into())
         }
         Some(gpu) => format!(
-            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"identical\":true}}",
+            "{{\"device\":{},\"kind\":\"{:?}\",\"frames\":{},\"device_ms_median\":{},\"readback_ms_median\":{},\"upload_copy_ms_median\":{},\"submit_to_fence_ms_median\":{},\"device_before_ms_median\":{},\"device_after_ms_median\":{},{}}}",
             json_string(gpu.compositor.device_name()),
             gpu.compositor.device_kind(),
-            gpu.frames
+            gpu.frames,
+            median(&gpu.device_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.readback_ms).map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.host_ms.iter().map(|t| t.0).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.host_ms.iter().map(|t| t.1).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.phases_ms.iter().map(|t| t.0).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            median(&gpu.phases_ms.iter().map(|t| t.1).collect::<Vec<_>>())
+                .map_or("null".to_string(), |ms| format!("{ms:.2}")),
+            if launch.gpu_only {
+                "\"reference\":false"
+            } else {
+                "\"reference\":true,\"identical\":true"
+            }
         ),
         None => "null".to_string(),
     };
@@ -1025,6 +1106,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if console_input > 0 {
         return Err(format!("{console_input} bytes typed reached the console").into());
     }
+    // The last frame on its way to the display completes before the display is closed.
+    session.compositor.complete_flip(true);
     let display = match session.compositor.display.take() {
         Some(display) => {
             // A frame is handed over at any point of a refresh and should flip at the next
@@ -1038,11 +1121,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .collect();
             let missed = waits.iter().filter(|&&ms| ms > refresh_ms * 1.05).count();
             waits.sort_by(f64::total_cmp);
+            let compositions = &session.compositor.compositions;
+            let reads = &session.compositor.reads;
             format!(
-                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
+                "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"read_ms_median\":{:.2},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
                 if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
+                median(compositions).unwrap_or(0.0),
+                compositions.iter().copied().fold(0.0, f64::max),
+                median(reads).unwrap_or(0.0),
                 waits.get(waits.len() / 2).copied().unwrap_or(0.0),
                 waits.last().copied().unwrap_or(0.0)
             )
@@ -1078,7 +1166,7 @@ mod tests {
     fn steps_parse_in_order() {
         let (out, launch) = Launch::parse(&args(&[
             "--launch",
-            "--gpu",
+            "--gpu-only",
             "--dump-frames",
             "frames",
             "--kms",
@@ -1117,7 +1205,7 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(out, PathBuf::from("o"));
-        assert!(launch.gpu);
+        assert!(launch.gpu && launch.gpu_only);
         assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
         assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();

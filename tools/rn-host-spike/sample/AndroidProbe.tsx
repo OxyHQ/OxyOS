@@ -52,6 +52,16 @@ const PROBES: Record<string, () => unknown> = {
   'I18nManager.isRTL': () => require('react-native').I18nManager.isRTL,
   'PlatformConstants.getAndroidID': () =>
     require('react-native/Libraries/Utilities/NativePlatformConstantsAndroid').default.getAndroidID(),
+  'Alert.alert': () => require('react-native').Alert.alert('probe', 'probe', [{ text: 'OK' }]),
+  'Alert.prompt': () => require('react-native').Alert.prompt('probe'),
+  'Image.getSize': () => require('react-native').Image.getSize('https://oxy.so/probe.png'),
+  'AppState.currentState': () => require('react-native').AppState.currentState,
+  // Accepted with no effect: nothing to apply on OxyOS, or a capability it does not have yet.
+  'StatusBar.setHidden': () => require('react-native').StatusBar.setHidden(true),
+  'I18nManager.forceRTL': () => require('react-native').I18nManager.forceRTL(true),
+  'Appearance.setColorScheme': () => require('react-native').Appearance.setColorScheme('dark'),
+  'AccessibilityInfo.announceForAccessibility': () =>
+    require('react-native').AccessibilityInfo.announceForAccessibility('probe'),
 };
 
 export default function AndroidProbe() {
