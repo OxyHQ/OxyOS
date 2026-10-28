@@ -6,7 +6,7 @@ order: 16
 
 # ADR 0007: The clipboard
 
-Status: **accepted; step 1 implemented** (the protocol, the compositor and `oxyos-client`; see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
+Status: **accepted; implemented** in the protocol, the compositor, `oxyos-client`, the C ABI and the Bloom host's text inputs (see [Results](#results)); `expo-clipboard` is not answered yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
 
 ## Problem
 
@@ -76,7 +76,17 @@ What a clipboard needs is a protocol matter, not a host one:
   - the quotas.
 - A test through real sockets has one application copy and another paste "hola OxyOS" through the pipe; it passes ten runs in ten. Without the compositor passing the pipe, it fails, and so does the refusals test without the focus rule.
 
-The C ABI and the Bloom host (steps 2 and 3) are next; until then the ABI skips clipboard events.
+**Steps 2 and 3** (the client library, the C ABI and the Bloom host):
+- `oxyos-client` holds what its client copied (`Client::copy`, the latest four offers) and answers each paste of it itself, writing the content into the pipe from a thread of its own. A pipe for an offer it does not hold stays the program's (`take_descriptor`).
+- The C ABI gains the clipboard's events (`CLIPBOARD_TYPES`, `CLIPBOARD_TYPE`, `CLIPBOARD_EMPTY`) and `oxyos_client_copy_text`, `oxyos_client_paste` (the pipe's read end) and `oxyos_client_clear_clipboard`.
+- The Bloom host's text inputs:
+  - Ctrl+C copies the selection and Ctrl+X cuts it, as one undoable edit; neither does anything in a secure field.
+  - Ctrl+V pastes `text/plain;charset=utf-8` at the selection, as an edit of its own and with no key press, as on Android; a single-line input takes a line break as a space.
+  - A paste is read from the host's loop as it arrives, within 5 seconds and 16 MiB. The host ignores `SIGPIPE`, so a receiver that goes away is an error on that write, not the end of the app.
+- `scenarios/text-editing.json` copies a word from one field and pastes it into another, undoes the paste, and cuts and pastes back, with exact events (71 steps). Without the host's paste, the Ctrl+V step fails.
+- A second test through real sockets has the library answer the paste. Without the library's write it reads nothing and fails; the program's own pipe still works.
+
+`expo-clipboard` (`getStringAsync`, `setStringAsync`, `hasStringAsync`) is not answered yet: it needs the serial of the input behind each call.
 
 ## Consequences
 

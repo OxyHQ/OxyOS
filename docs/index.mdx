@@ -29,7 +29,7 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 7. [ADR 0004: GPU composition and output](./adr/0004-gpu-composition): Vulkan composition checked against the CPU reference, and the order of work toward DMA-BUF, synchronization and DRM/KMS output.
 8. [ADR 0005: Damage](./adr/0005-damage): composing, uploading and drawing only what changed, from the output's damage to the protocol's and the Bloom host's.
 9. [ADR 0006: The compositor's seat through logind](./adr/0006-seat): the compositor as the user of a session, its display, input and terminal handed over by systemd-logind.
-10. [ADR 0007: The clipboard](./adr/0007-clipboard) (accepted; in the protocol and the compositor): copy and paste between applications through offers and pipes, readable only when the user pastes.
+10. [ADR 0007: The clipboard](./adr/0007-clipboard) (accepted; implemented, `expo-clipboard` not yet): copy and paste between applications through offers and pipes, readable only when the user pastes.
 11. [ADR 0008: Input methods](./adr/0008-input-method) (accepted, not implemented yet): how text fields describe themselves, how an input method composes into them as transactions, and what it may see.
 12. [Oxy account and session on OxyOS](./account-session): SDK owners to reuse, gaps and open decisions for the required account.
 13. [React Native's Android implementation on OxyOS](./react-native-android-adaptation): what the Bloom host reuses from React Native's Android implementation, what it implements and what it does not provide.

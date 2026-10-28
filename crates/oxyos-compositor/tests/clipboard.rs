@@ -48,9 +48,51 @@ fn type_key(compositor: &mut Compositor) {
     compositor.scene.key(30, false);
 }
 
+/// How the owner copies "hola OxyOS" with the serial of a key typed into it: by its own
+/// requests, writing the content into the pipe itself when asked, or through `Client::copy`,
+/// whose library writes it from a thread of its own.
+fn copy_by_hand(client: &mut Client, serial: u64) {
+    for request in [
+        Request::ClipboardOffer { offer: 1, serial },
+        Request::ClipboardType {
+            offer: 1,
+            mime: TextChunk::new(PLAIN).unwrap(),
+        },
+        Request::ClipboardCommit { offer: 1 },
+    ] {
+        client.send(&request).unwrap();
+    }
+}
+
+fn copy_through_the_library(client: &mut Client, serial: u64) {
+    client
+        .copy(
+            serial,
+            vec![(TextChunk::new(PLAIN).unwrap(), b"hola OxyOS".to_vec())],
+        )
+        .unwrap();
+}
+
 #[test]
 fn a_copy_in_one_application_is_pasted_in_another_through_a_pipe() {
-    let directory = std::env::temp_dir().join(format!("oxyos-clipboard-{}", std::process::id()));
+    assert_eq!(paste_between_two_applications(copy_by_hand), "hola OxyOS");
+}
+
+#[test]
+fn the_client_library_answers_a_paste_of_what_it_copied() {
+    assert_eq!(
+        paste_between_two_applications(copy_through_the_library),
+        "hola OxyOS"
+    );
+}
+
+/// One application copies with `copy`, another pastes: what the paste read.
+fn paste_between_two_applications(copy: fn(&mut Client, u64)) -> String {
+    // Each run a directory of its own: the tests run at once.
+    static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-clipboard-{}-{run}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let socket: PathBuf = directory.join("compositor");
     let listener = Listener::bind(&socket).unwrap();
@@ -87,26 +129,16 @@ fn a_copy_in_one_application_is_pasted_in_another_through_a_pipe() {
                     serial,
                     ..
                 } => {
-                    for request in [
-                        Request::ClipboardOffer { offer: 1, serial },
-                        Request::ClipboardType {
-                            offer: 1,
-                            mime: TextChunk::new(PLAIN).unwrap(),
-                        },
-                        Request::ClipboardCommit { offer: 1 },
-                    ] {
-                        client.send(&request).unwrap();
-                    }
+                    copy(&mut client, serial);
                     owner_copied.send(()).unwrap();
                 }
                 Event::ClipboardSend { offer: 1, mime } => {
                     assert_eq!(mime.as_str(), PLAIN);
-                    let pipe = client
-                        .take_descriptor()
-                        .expect("the pipe comes with the event");
-                    std::fs::File::from(pipe)
-                        .write_all("hola OxyOS".as_bytes())
-                        .unwrap();
+                    // Copied by hand, the pipe is the owner's to write; through the library, the
+                    // library took it and writes it.
+                    if let Some(pipe) = client.take_descriptor() {
+                        std::fs::File::from(pipe).write_all(b"hola OxyOS").unwrap();
+                    }
                     return;
                 }
                 _ => {}
@@ -188,6 +220,7 @@ fn a_copy_in_one_application_is_pasted_in_another_through_a_pipe() {
         receiver.is_finished() && owner.is_finished()
     });
     owner.join().unwrap();
-    assert_eq!(receiver.join().unwrap(), "hola OxyOS");
+    let pasted = receiver.join().unwrap();
     std::fs::remove_dir_all(&directory).unwrap();
+    pasted
 }

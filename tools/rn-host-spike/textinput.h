@@ -60,6 +60,14 @@ class TextEditing {
   TextEditing(const ViewTree& tree, std::function<std::optional<Placement>(facebook::react::Tag)> locate)
       : tree_(tree), locate_(std::move(locate)) {}
 
+  // The clipboard (clipboard.h): copying text with the serial of the key that asked, and pasting
+  // with it, the text arriving later (nothing if the clipboard holds none).
+  struct ClipboardAccess {
+    std::function<void(uint64_t serial, const std::string& text)> copy;
+    std::function<void(uint64_t serial, std::function<void(std::string)> done)> paste;
+  };
+  void useClipboard(ClipboardAccess clipboard) { clipboard_ = std::move(clipboard); }
+
   // A view command from JavaScript (`focus`, `blur`, `setTextAndSelection`).
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
@@ -81,7 +89,9 @@ class TextEditing {
  private:
   void focus(facebook::react::Tag tag);
   void blur();
-  void key(uint32_t code);
+  void key(uint32_t code, uint64_t serial);
+  // Ctrl+V's text arriving for the input `tag`: replaces its selection, as one edit.
+  void pasted(facebook::react::Tag tag, std::string text);
   void pointer(const OxyOSEvent& event);
   // The byte offset under a surface-local x, for the focused input.
   std::optional<size_t> offsetAt(uint32_t surface, float x, float y, bool inside) const;
@@ -149,6 +159,7 @@ class TextEditing {
   std::optional<Snapshot> composeBefore_;
   // How far each input's text is scrolled (TextInputEdit::scrolls); none if not at all.
   std::map<facebook::react::Tag, facebook::react::Point> scrolls_;
+  ClipboardAccess clipboard_;
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;

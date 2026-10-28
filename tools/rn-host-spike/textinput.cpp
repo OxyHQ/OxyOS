@@ -10,6 +10,7 @@
 #include <unicode/ubrk.h>
 #include <unicode/utext.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -26,7 +27,7 @@ namespace {
 constexpr uint32_t kBackspace = 14;
 constexpr uint32_t kEnter = 28;
 constexpr uint32_t kKeypadEnter = 96;
-constexpr uint32_t kA = 30, kZ = 44;
+constexpr uint32_t kA = 30, kZ = 44, kX = 45, kC = 46, kV = 47;
 constexpr uint32_t kLeftCtrl = 29, kRightCtrl = 97;
 constexpr uint32_t kLeftShift = 42, kRightShift = 54;
 constexpr uint32_t kHome = 102, kUp = 103, kPageUp = 104, kLeft = 105, kRight = 106, kEnd = 107, kDown = 108,
@@ -289,11 +290,11 @@ void TextEditing::handle(const OxyOSEvent& event) {
     bool back = caret_ < before || caret_ == 0 || (selected && caret_ == before);
     keyPress(back ? "Backspace" : text_.substr(previousBoundary(text_, caret_), caret_ - previousBoundary(text_, caret_)));
   } else if (event.flag) {
-    key(event.code);
+    key(event.code, event.serial);
   }
 }
 
-void TextEditing::key(uint32_t code) {
+void TextEditing::key(uint32_t code, uint64_t serial) {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
@@ -336,6 +337,25 @@ void TextEditing::key(uint32_t code) {
       auto [first, last] = geometry.lineEdges(geometry.caret(caret_).line);
       return select(code == kHome ? first : last, shift_);
     }
+    case kC:
+    case kX:
+      // Copy, and cut: copy and delete as one edit. Never from a secure field, as Android's
+      // TextView refuses (pasting into one is allowed).
+      if (!ctrl_ || !selected || secure || !clipboard_.copy) return;
+      clipboard_.copy(serial, text_.substr(from, to - from));
+      if (code == kX) {
+        merging_ = false;
+        replace(from, to, "", "");
+        merging_ = false;
+      }
+      return;
+    case kV:
+      // The text arrives later, from the clipboard's owner; it goes into this input if it still
+      // has focus then.
+      if (ctrl_ && clipboard_.paste) {
+        clipboard_.paste(serial, [this, tag = focused_](std::string text) { pasted(tag, std::move(text)); });
+      }
+      return;
     case kZ:
       // Ctrl+Z undoes, Ctrl+Shift+Z redoes, as Android's TextView takes them.
       if (ctrl_) undo(shift_);
@@ -421,6 +441,23 @@ void TextEditing::vertical(bool up, bool page) {
   }
   select(target, shift_);
   column_ = column;
+}
+
+void TextEditing::pasted(Tag tag, std::string text) {
+  if (tag != focused_ || text.empty()) return;
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  // A single-line input shows a pasted line break as a space, as Android's single-line
+  // transformation does; here it becomes one.
+  if (!props->multiline) std::replace(text.begin(), text.end(), '\n', ' ');
+  endComposition();
+  size_t from = std::min(anchor_, caret_), to = std::max(anchor_, caret_);
+  // A paste is an edit of its own: typing before or after it is undone separately. Android's
+  // paste is no key press.
+  merging_ = false;
+  replace(from, to, text, "");
+  merging_ = false;
 }
 
 void TextEditing::reveal() {

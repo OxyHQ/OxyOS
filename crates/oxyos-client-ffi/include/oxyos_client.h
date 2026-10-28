@@ -30,6 +30,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_TEXT 12
 #define OXYOS_EVENT_PREEDIT 13
 #define OXYOS_EVENT_ACCESSIBILITY_ACTION 14
+#define OXYOS_EVENT_CLIPBOARD_TYPES 20
+#define OXYOS_EVENT_CLIPBOARD_TYPE 21
+#define OXYOS_EVENT_CLIPBOARD_EMPTY 22
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1
@@ -71,7 +74,12 @@ typedef struct OxyOSClient OxyOSClient;
  *               composing cursor, a byte offset into text.
  *   ACCESSIBILITY_ACTION  serial; code: the node's index in the surface's snapshot; detail:
  *               OXYOS_ACTION_*. An assistive technology asks the application to perform it; an
- *               activation's serial may be cited by a popup's grab, as a key press's may. */
+ *               activation's serial may be cited by a popup's grab, as a key press's may.
+ *   CLIPBOARD_TYPES  serial: the content's selection (for oxyos_client_paste); detail: how many
+ *               types follow. Sent to the client with keyboard focus when the clipboard changes
+ *               or focus reaches it.
+ *   CLIPBOARD_TYPE   serial: the selection; text: one of its media types, NUL-terminated.
+ *   CLIPBOARD_EMPTY  the clipboard holds nothing. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -207,6 +215,19 @@ int64_t oxyos_client_present_damaged(OxyOSClient* client, uint32_t surface, uint
 
 /* Takes one queued event without blocking. */
 int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
+
+/* The clipboard (docs/adr/0007-clipboard.mdx). Copies `length` bytes of UTF-8 text as the
+ * clipboard (text/plain;charset=utf-8) with the serial of the user input that asked for it; the
+ * client library keeps it and answers pastes itself. The compositor refuses a copy whose serial
+ * is not a recent input of this client, or made without keyboard focus. */
+int oxyos_client_copy_text(OxyOSClient* client, uint64_t serial, const char* text, size_t length);
+/* Empties the clipboard if this client's copy is what it holds. */
+int oxyos_client_clear_clipboard(OxyOSClient* client, uint64_t serial);
+/* Pastes `mime` of the content CLIPBOARD_TYPES named `selection`, with the serial of the user input
+ * that asked for it: returns the read end of a pipe the content arrives through (read it to its
+ * end and close it; it ends at once, empty, if the paste was refused), or OXYOS_ERROR. */
+int oxyos_client_paste(OxyOSClient* client, uint32_t selection, const char* mime, size_t mime_length,
+                       uint64_t serial);
 
 /* HTTP (crates/oxyos-net): the engine behind React Native's networking. Each request runs on a
  * thread of its own (TLS through rustls against the system's certificates, redirects, gzip and

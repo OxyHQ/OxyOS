@@ -101,6 +101,18 @@ fn the_header_matches_the_abi() {
             "OXYOS_EVENT_ACCESSIBILITY_ACTION",
             OXYOS_EVENT_ACCESSIBILITY_ACTION.into(),
         ),
+        (
+            "OXYOS_EVENT_CLIPBOARD_TYPES",
+            OXYOS_EVENT_CLIPBOARD_TYPES.into(),
+        ),
+        (
+            "OXYOS_EVENT_CLIPBOARD_TYPE",
+            OXYOS_EVENT_CLIPBOARD_TYPE.into(),
+        ),
+        (
+            "OXYOS_EVENT_CLIPBOARD_EMPTY",
+            OXYOS_EVENT_CLIPBOARD_EMPTY.into(),
+        ),
         ("OXYOS_ACTION_ACTIVATE", AccessibleAction::Activate as i64),
         ("OXYOS_ACTION_FOCUS", AccessibleAction::Focus as i64),
         ("OXYOS_NO_ACCESSIBLE_PARENT", NO_ACCESSIBLE_PARENT.into()),

@@ -48,6 +48,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -255,6 +256,9 @@ void stage(const char* name) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  // A pipe or socket whose reader went away (a paste's receiver, a server) is an error on that
+  // write, never a signal that ends the app.
+  std::signal(SIGPIPE, SIG_IGN);
   if (argc < 4) {
     std::cerr << "usage: oxyos-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
                  "  OUT.png   run until the app settles, then draw it into OUT.png\n"
@@ -439,6 +443,12 @@ int main(int argc, char** argv) {
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });
+    editing.useClipboard({
+        .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
+        .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
+          window->pasteText(serial, std::move(done));
+        },
+    });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
       return it == tree.views().end() ? std::string() : oxyos::Report::name(it->second.view);
@@ -552,6 +562,8 @@ int main(int argc, char** argv) {
           busy = true;
           popups.changed();
         }
+        // A paste's text arriving is an edit of the focused input.
+        if (window->deliverPastes()) busy = true;
         popups.sync(lastPress);
         if (dirty && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();

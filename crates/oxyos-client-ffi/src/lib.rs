@@ -10,7 +10,7 @@
 use oxyos_client::{Accessible, Client, Poll};
 use oxyos_protocol::{
     AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, Positioner, Rect,
-    Request, Size, TEXT_CHUNK_BYTES,
+    Request, Size, TextChunk, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -21,6 +21,9 @@ pub mod images;
 pub mod net;
 #[cfg(test)]
 mod tests;
+
+/// The type text is copied and pasted as.
+pub const CLIPBOARD_TEXT: &str = "text/plain;charset=utf-8";
 
 /// Event kinds; the values are the protocol's event opcodes.
 pub const OXYOS_EVENT_CONFIGURE: u32 = 2;
@@ -35,6 +38,9 @@ pub const OXYOS_EVENT_SCROLL: u32 = 11;
 pub const OXYOS_EVENT_TEXT: u32 = 12;
 pub const OXYOS_EVENT_PREEDIT: u32 = 13;
 pub const OXYOS_EVENT_ACCESSIBILITY_ACTION: u32 = 14;
+pub const OXYOS_EVENT_CLIPBOARD_TYPES: u32 = 20;
+pub const OXYOS_EVENT_CLIPBOARD_TYPE: u32 = 21;
+pub const OXYOS_EVENT_CLIPBOARD_EMPTY: u32 = 22;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -321,12 +327,27 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibilityCommitted { .. }
         | Event::AccessibilityRemoved { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
-        // The clipboard reaches this ABI with ADR 0007's second step; until then its events are
-        // skipped, and a ClipboardSend's pipe is closed, so a paste reads an empty end at once.
-        Event::ClipboardTypes { .. }
-        | Event::ClipboardType { .. }
-        | Event::ClipboardEmpty {}
-        | Event::ClipboardSend { .. } => return None,
+        // What the clipboard holds, for the client with keyboard focus (ADR 0007).
+        Event::ClipboardTypes { selection, count } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CLIPBOARD_TYPES,
+                serial: selection.into(),
+                detail: count.into(),
+                ..out
+            }
+        }
+        Event::ClipboardType { selection, mime } => {
+            let bytes = mime.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CLIPBOARD_TYPE,
+                serial: selection.into(),
+                ..out
+            }
+        }
+        Event::ClipboardEmpty {} => out.kind = OXYOS_EVENT_CLIPBOARD_EMPTY,
+        // Answered by the client library, which holds what this client copied.
+        Event::ClipboardSend { .. } => return None,
     }
     Some(out)
 }
@@ -645,6 +666,93 @@ pub struct OxyOSRect {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+}
+
+/// Copies `length` bytes of UTF-8 text at `text` as the clipboard (`text/plain;charset=utf-8`),
+/// with the serial of the user input that asked for it (ADR 0007). The client library keeps the
+/// text and writes it into each paste itself. 0 on success; the compositor may still refuse the
+/// copy (a serial that is not a recent input of this client, or keyboard focus lost).
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_copy_text(
+    client: *mut OxyOSClient,
+    serial: u64,
+    text: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if text.is_null() && length > 0 {
+        return fail("null text");
+    }
+    let bytes = if length == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: per the contract, `text` points to `length` readable bytes.
+        unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length) }.to_vec()
+    };
+    if std::str::from_utf8(&bytes).is_err() {
+        return fail("text is not UTF-8");
+    }
+    let mime = TextChunk::new(CLIPBOARD_TEXT).expect("a short type");
+    status(client.copy(serial, vec![(mime, bytes)]))
+}
+
+/// Empties the clipboard if this client's copy is what it holds. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_clear_clipboard(
+    client: *mut OxyOSClient,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.clear_clipboard(serial)),
+        None => fail("null client"),
+    }
+}
+
+/// Pastes `mime` (`mime_length` bytes, at most 32) of the clipboard content the compositor
+/// named `selection` (a CLIPBOARD_TYPES event's serial), with the serial of the user input that
+/// asked for it. Returns the read end of a pipe the content arrives through, which the caller
+/// reads to its end and closes; it ends at once, empty, if the paste was refused. OXYOS_ERROR on
+/// failure.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `mime` points to `mime_length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_paste(
+    client: *mut OxyOSClient,
+    selection: u32,
+    mime: *const c_char,
+    mime_length: usize,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if mime.is_null() {
+        return fail("null type");
+    }
+    // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(mime.cast::<u8>(), mime_length) };
+    let Some(mime) = std::str::from_utf8(bytes).ok().and_then(TextChunk::new) else {
+        return fail("a type is UTF-8 of 1 to 32 bytes");
+    };
+    match client.receive_clipboard(selection, mime, serial) {
+        Ok(pipe) => std::os::fd::IntoRawFd::into_raw_fd(pipe),
+        Err(error) => fail(error),
+    }
 }
 
 /// [`oxyos_client_present`] for a frame of which only `count` rectangles at `damage` changed
