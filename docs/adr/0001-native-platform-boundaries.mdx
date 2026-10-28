@@ -110,7 +110,7 @@ A dismissed popup releases its content immediately (deferred while a backend fra
 
 ## Lock primitive
 
-`Scene::lock` protects the session at once: popups and grabs are dismissed, input to ordinary surfaces stops and only lock surfaces render; an output without a ready lock surface gets a compositor-drawn cover. If the lock UI crashes the session stays locked and covered. No protocol request unlocks; only the session authority's trusted path calls `Scene::unlock` after the account-bound verification defined in #35. Bloom draws the lock UI but never decides the result.
+`Scene::lock` protects the session at once: popups and grabs are dismissed, input to ordinary surfaces stops and only lock surfaces render; an output without a ready lock surface gets a compositor-drawn cover, drawn above everything so overlapping (cloned) outputs never show another output's lock surface. If the lock UI crashes the session stays locked and covered. No protocol request unlocks; only the session authority's trusted path calls `Scene::unlock` after the account-bound verification defined in #35. Bloom draws the lock UI but never decides the result.
 
 ## Bloom components and native surfaces
 

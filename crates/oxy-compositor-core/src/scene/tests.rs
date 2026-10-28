@@ -1737,3 +1737,36 @@ fn unencodable_popup_offsets_are_unplaceable() {
         oxy_protocol::write_event(&mut bytes, event).unwrap();
     }
 }
+
+#[test]
+fn a_lock_surface_never_shows_through_another_outputs_cover() {
+    let mut h = Harness::new();
+    // A cloned output overlapping the first one exactly.
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: SCREEN,
+            scale_120: 120,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    h.request(
+        LOCKER,
+        Request::CreateLockSurface {
+            surface: 1,
+            output: 1,
+        },
+    )
+    .unwrap();
+    h.present(key(LOCKER, 1));
+    h.scene.lock();
+    let list = h.scene.render_list();
+    assert_eq!(
+        list.last(),
+        Some(&RenderItem::Cover {
+            output: 2,
+            rect: SCREEN
+        }),
+        "output 2's cover is on top of output 1's lock surface"
+    );
+}

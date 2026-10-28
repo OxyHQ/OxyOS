@@ -1353,6 +1353,9 @@ impl Scene {
             self.push_tree(*root, &mut out);
         }
         if self.locked {
+            // Covers go above everything: an output without its own ready lock surface shows
+            // nothing else, not even another output's lock surface where outputs overlap.
+            let mut covers = Vec::new();
             for output in &self.outputs {
                 let covered = out.iter().any(|item| match item {
                     RenderItem::Surface { key, .. } => {
@@ -1361,15 +1364,13 @@ impl Scene {
                     RenderItem::Cover { .. } => false,
                 });
                 if !covered {
-                    out.insert(
-                        0,
-                        RenderItem::Cover {
-                            output: output.id,
-                            rect: output.rect,
-                        },
-                    );
+                    covers.push(RenderItem::Cover {
+                        output: output.id,
+                        rect: output.rect,
+                    });
                 }
             }
+            out.extend(covers);
         }
         out
     }
