@@ -351,9 +351,6 @@ impl Compositor {
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time.
         let flip = self.show(&layers);
-        if self.gpu_only {
-            self.framebuffer_from_gpu(&layers);
-        }
         let (timestamp_ns, clock) = match flip {
             Some(flip) => (
                 u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
@@ -363,6 +360,12 @@ impl Compositor {
         };
         self.scene.end_frame(timestamp_ns, clock);
         self.retire();
+        if self.gpu_only {
+            // The clients hear the frame was shown before the director reads it back, so its
+            // check delays no client's next frame.
+            self.flush();
+            self.framebuffer_from_gpu(&layers);
+        }
     }
 
     /// With `--kms`: lets go of the display and the devices when the kernel switches to another
