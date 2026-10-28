@@ -236,6 +236,8 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--seat", action="store_true",
+                        help="with --kms: run in the caller's logind session, devices through logind")
     parser.add_argument("--uinput", action="store_true",
                         help="point, scroll and type through virtual devices read by libinput")
     parser.add_argument("--kms", default=None,
@@ -262,6 +264,8 @@ def main():
         command += ["--gpu-only"]
     if options.uinput:
         command += ["--uinput"]
+    if options.seat:
+        command += ["--seat"]
     if options.uinput:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
         command += ["--layout", scenario.get("layout", "us")]

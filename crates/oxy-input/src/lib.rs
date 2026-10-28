@@ -64,19 +64,37 @@ pub enum Typed {
     Nothing,
 }
 
-/// Opens devices for libinput as the compositor (root, or the seat's session).
-struct Opener;
+/// How libinput opens and closes devices: directly (root), or through the session's seat
+/// manager (`Input::open_with`).
+pub type Open = Box<dyn FnMut(&Path) -> io::Result<OwnedFd>>;
+pub type Close = Box<dyn FnMut(OwnedFd)>;
+
+struct Opener {
+    open: Option<Open>,
+    close: Option<Close>,
+}
 
 impl LibinputInterface for Opener {
     fn open_restricted(&mut self, path: &Path, flags: i32) -> Result<OwnedFd, i32> {
+        if let Some(open) = &mut self.open {
+            return open(path).map_err(|error| -error.raw_os_error().unwrap_or(eio()));
+        }
         use rustix::fs::{open, Mode, OFlags};
         let flags = OFlags::from_bits_retain(flags as u32) | OFlags::CLOEXEC | OFlags::NONBLOCK;
         open(path, flags, Mode::empty()).map_err(|error| -error.raw_os_error())
     }
 
     fn close_restricted(&mut self, fd: OwnedFd) {
-        drop(fd);
+        match &mut self.close {
+            Some(close) => close(fd),
+            None => drop(fd),
+        }
     }
+}
+
+/// EIO, for an open that failed without an OS error.
+fn eio() -> i32 {
+    rustix::io::Errno::IO.raw_os_error()
 }
 
 /// A keymap and its state: Linux key codes in, text out. With a compose table, dead keys and
@@ -308,7 +326,21 @@ impl Input {
     /// Opens seat0's devices (hotplugged ones too) for an output of `bounds` logical pixels; the
     /// pointer starts at its centre.
     pub fn open(bounds: (u32, u32), layout: &str) -> io::Result<Self> {
-        let mut libinput = Libinput::new_with_udev(Opener);
+        Self::open_with(bounds, layout, None)
+    }
+
+    /// The same, opening and closing devices with `devices` (the session's seat manager)
+    /// instead of directly.
+    pub fn open_with(
+        bounds: (u32, u32),
+        layout: &str,
+        devices: Option<(Open, Close)>,
+    ) -> io::Result<Self> {
+        let (open, close) = match devices {
+            Some((open, close)) => (Some(open), Some(close)),
+            None => (None, None),
+        };
+        let mut libinput = Libinput::new_with_udev(Opener { open, close });
         libinput
             .udev_assign_seat("seat0")
             .map_err(|()| io::Error::other("libinput cannot assign seat0"))?;

@@ -34,6 +34,17 @@ impl Display {
     /// Takes DRM master and prepares the first connected connector at its preferred mode.
     pub fn open(card: Card) -> io::Result<Self> {
         card.acquire_master_lock()?;
+        Self::prepare(card)
+    }
+
+    /// The same with a card the session's seat manager opened and made DRM master (logind's
+    /// `TakeDevice`): master is the seat manager's to drop and restore, and the kernel refuses
+    /// the request to anyone but the card's opener.
+    pub fn open_from_seat(card: Card) -> io::Result<Self> {
+        Self::prepare(card)
+    }
+
+    fn prepare(card: Card) -> io::Result<Self> {
         let resources = card.resource_handles()?;
         let (connector, mode) = resources
             .connectors()
@@ -131,6 +142,12 @@ impl Display {
         self.card.release_master_lock()?;
         self.configured = false;
         Ok(())
+    }
+
+    /// The output was another session's meanwhile, its DRM master handled by the seat manager
+    /// (logind drops and restores it): the next frame presented modesets again.
+    pub fn taken_back(&mut self) {
+        self.configured = false;
     }
 
     /// Takes DRM master again after [`suspend`](Self::suspend).

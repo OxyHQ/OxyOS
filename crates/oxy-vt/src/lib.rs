@@ -86,6 +86,30 @@ fn controlled_by(stat: &str, tty_nr: u64) -> Option<String> {
     (fields.get(4)?.parse::<u64>().ok()? == tty_nr).then(|| name.to_string())
 }
 
+/// A terminal's input queue, read without taking the terminal: whether typing reached the
+/// console while a seat manager (logind) had its keyboard off.
+pub struct Console {
+    tty: OwnedFd,
+}
+
+impl Console {
+    /// Opens `/dev/ttyN` to read and drops what was typed there before.
+    pub fn open(number: u32) -> io::Result<Self> {
+        let tty = open(
+            format!("/dev/tty{number}"),
+            OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        rustix::termios::tcflush(&tty, rustix::termios::QueueSelector::IFlush)?;
+        Ok(Self { tty })
+    }
+
+    /// Input the console received since it was opened, in bytes of completed lines.
+    pub fn input(&self) -> io::Result<u64> {
+        Ok(rustix::io::ioctl_fionread(&self.tty)?)
+    }
+}
+
 /// What the kernel asks of the compositor about its terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Switch {
