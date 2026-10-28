@@ -130,7 +130,7 @@ Driving real devices found two bugs. The fixture had to change for both:
 | GPU only (`--gpu-only`) | 46–50 ms across runs | about 5.3 ms | 0.5 ms | about 7.7–8.5 ms |
 
 What the numbers say:
-- **Composition is not where the time goes.** The device composes a frame in 0.5 ms. Most of the 5.3 ms is uploading every client's whole buffer from shared memory each frame; client buffers stay shared memory until they are imported as DMA-BUF.
+- **The composition pass is not where the time goes.** The device's compute pass takes 0.5 ms. The rest of the 5.3 ms is reading the clients' buffers, uploading them, filling the whole output and submitting the work; #46 measures each part.
 - **The app and the refresh set the latency.** The host renders a frame in about 20 ms on the CPU, the handover waits for the next refresh, and many answers take more than one frame.
 - **Neither path is faster end to end.** Paired step by step over two runs of each (108 steps), GPU-only minus CPU is a median of −1.2 ms and a mean of +1.7 ms.
 - **Key presses miss a refresh more often with `--gpu-only`.** Their median is about 10 ms higher, while presses, popups, scrolling and window changes are within a few ms. The cause is the refresh, not composition: answers land in clusters one refresh apart (about 20, 36, 51 and 68 ms). Over 40 key answers, the CPU path put 19 near 36 ms and 13 near 51 ms; `--gpu-only` put 10 and 23. Within a cluster, `--gpu-only` is slightly earlier. These answers are ready close to a refresh, so the small extra work in each submission (the kept copy and the fence wait) is enough to miss it. The director's readback takes 2.6 ms and runs after the clients hear the frame was shown, so it is not the cause. Composing against the refresh is frame scheduling, which the fixture does not do: it waits for each flip.
@@ -138,7 +138,18 @@ What the numbers say:
 **Frames flip without blocking.** The compositor used to wait for every flip (8–10 ms on average) and serve nothing meanwhile. Now it hands a frame to the display and goes on reading input and clients. The frame completes at its flip, in the turn that finds the card readable, with one frame on the display at a time. It still waits before giving the display to another terminal, and at the end of a run.
 - **Latency is unchanged.** For one application it changes nothing measurable: two runs of each mode give medians of 38.6 and 39.7 ms (CPU) and 47.0 and 49.2 ms (`--gpu-only`), and GPU-only minus CPU is a median of −1.5 ms over 108 paired steps.
 - **What it gives.** The compositor stays responsive while a frame waits for the refresh, which matters once there is more than one client.
-- **What still decides a missed refresh** is how long a frame takes from the client's commit to the handover.
+- **What still decides a missed refresh** is how long a frame takes from the client's commit to the handover. With `--gpu-only` that is about 5.3 ms per frame (medians):
+
+| Part of a frame | Time |
+| --- | --- |
+| Reading the clients' buffers (shared memory) | 0.75 ms |
+| Copying them into the upload buffer (host) | 0.24 ms |
+| On the device, before composing: the uploads and filling the whole 1920×1200 output | 2.16 ms |
+| The composition pass | 0.5 ms |
+| On the device, after it: the copy kept for the director's check and the release to the display | 0.79 ms |
+| Submission and the device waking (submit to fence, less the device's time) | about 0.75 ms |
+
+Filling the whole output every frame and uploading every client's whole buffer are the parts a compositor can remove: only what changed needs either. The kept copy is the price of checking each frame, not of composing it.
 - **The measurement had to follow it.** An answer that is a surface going away (a menu closing) changes the scene before any frame shows it. The compositor now records what each flip showed, and such an answer is measured to the frame composed with it.
 
 Measuring found one bug in the fixture. With `--gpu-only`, the director's readback ran before the frame completed, so every client's next frame waited for the check. Clients now hear that the frame was shown first.
@@ -162,8 +173,13 @@ Still to do:
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
 - client buffers as images and DMA-BUF import from clients;
+<<<<<<< HEAD
 - uploading only what changed, then importing client buffers as DMA-BUF, which removes the per-frame upload that dominates composition;
 - composing at a deadline before the refresh (flips no longer block; frames are still composed when they arrive).
+=======
+- uploading only what changed, then importing client buffers as DMA-BUF;
+- frame scheduling: non-blocking flips and composing at a deadline before the refresh, instead of composing when a frame arrives and waiting for its flip.
+>>>>>>> origin/feat/gpu-only
 
 ## Consequences
 
