@@ -15,8 +15,8 @@
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxy_protocol::{
-    Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind, Positioner, Rect,
-    Request, ShellKind, Size, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
+    Positioner, Rect, Request, ShellKind, Size, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,6 +28,7 @@ pub const MAX_SURFACES_PER_CLIENT: usize = 64;
 pub const MAX_POPUP_DEPTH: usize = 8;
 pub const MAX_OUTPUTS: usize = 16;
 pub const MAX_TOUCH_POINTS: usize = 10;
+pub const MAX_BUFFERS_PER_CLIENT: usize = 128;
 /// Output scale is expressed in 120ths: 120 = 1x, 180 = 1.5x.
 pub const SCALE_DENOMINATOR: u32 = 120;
 const MIN_VISIBLE: i64 = 64;
@@ -109,6 +110,31 @@ impl Node {
     fn is_popup(&self) -> bool {
         matches!(self.role, Role::Popup(_))
     }
+
+    /// Content and geometry as displayed, or (`in_flight`) as they will be once the frame
+    /// between `begin_frame` and `end_frame` completes.
+    fn view(&self, in_flight: bool) -> Option<(Frame, (i32, i32), Size)> {
+        if in_flight {
+            if let Some(frame) = self.presentation.presenting() {
+                let (origin, size) = match self.pending {
+                    Some((serial, origin, size)) if serial == frame.configure => (origin, size),
+                    _ => (self.origin, self.size),
+                };
+                return Some((frame, origin, size));
+            }
+        }
+        self.presentation
+            .displayed()
+            .map(|frame| (frame, self.origin, self.size))
+    }
+}
+
+/// A client buffer the transport has validated (file type, seals, size) and registered.
+#[derive(Clone, Copy, Debug)]
+struct BufferEntry {
+    layout: BufferLayout,
+    /// The client destroyed it while still held; it is retired once released.
+    destroyed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -148,6 +174,7 @@ pub struct Stats {
     pub touch_points: usize,
     pub pending_events: usize,
     pub retired_buffers: usize,
+    pub registered_buffers: usize,
 }
 
 #[derive(Debug, Default)]
@@ -178,7 +205,10 @@ pub struct Scene {
     shortcuts: BTreeSet<u32>,
     shortcut_target: Option<SurfaceKey>,
     events: Vec<(ClientId, Event)>,
-    retired: Vec<(SurfaceKey, u64)>,
+    buffers: BTreeMap<(ClientId, u64), BufferEntry>,
+    /// Buffers no consumer will read again and the client cannot reuse: the backend may drop
+    /// their memory and file descriptors.
+    retired: Vec<(ClientId, u64)>,
     frame_in_flight: bool,
     deferred: Vec<(SurfaceKey, u64)>,
 }
@@ -425,6 +455,22 @@ impl Scene {
         for key in keys.iter().rev() {
             self.remove_node(*key);
         }
+        let owned: Vec<u64> = self
+            .buffers
+            .range((client, 0)..=(client, u64::MAX))
+            .map(|(&(_, buffer), _)| buffer)
+            .collect();
+        for buffer in owned {
+            self.buffers.remove(&(client, buffer));
+            // Buffers still read by an in-flight frame are retired when it ends.
+            if !self
+                .deferred
+                .iter()
+                .any(|(k, b)| k.client == client && *b == buffer)
+            {
+                self.retired.push((client, buffer));
+            }
+        }
         self.events.retain(|(target, _)| *target != client);
         self.activation.remove(&client);
         if self.last_press.is_some_and(|press| press.client == client) {
@@ -634,6 +680,38 @@ impl Scene {
                     extent,
                 },
             ),
+            Request::AttachBuffer { buffer, .. } => {
+                let layout = request.buffer_layout().expect("attach carries a layout");
+                if buffer == 0 || layout.required_bytes().is_none() {
+                    return Err(ErrorCode::InvalidBuffer);
+                }
+                if self.buffers.contains_key(&(client, buffer)) {
+                    return Err(ErrorCode::InvalidBuffer);
+                }
+                let owned = self.buffers.range((client, 0)..=(client, u64::MAX)).count();
+                if owned >= MAX_BUFFERS_PER_CLIENT {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                self.buffers.insert(
+                    (client, buffer),
+                    BufferEntry {
+                        layout,
+                        destroyed: false,
+                    },
+                );
+                Ok(())
+            }
+            Request::DestroyBuffer { buffer } => {
+                match self.buffers.get_mut(&(client, buffer)) {
+                    Some(entry) if !entry.destroyed => entry.destroyed = true,
+                    _ => return Err(ErrorCode::InvalidBuffer),
+                }
+                if !self.buffer_held(client, buffer) {
+                    self.buffers.remove(&(client, buffer));
+                    self.retired.push((client, buffer));
+                }
+                Ok(())
+            }
             Request::Destroy { surface } => {
                 if !self.nodes.contains_key(&key(surface)) {
                     return Err(ErrorCode::UnknownSurface);
@@ -1034,8 +1112,34 @@ impl Scene {
         Ok(())
     }
 
+    fn buffer_held(&self, client: ClientId, buffer: u64) -> bool {
+        self.nodes
+            .iter()
+            .filter(|(key, _)| key.client == client)
+            .any(|(_, node)| node.presentation.held_buffers().any(|f| f.buffer == buffer))
+            || self
+                .deferred
+                .iter()
+                .any(|(key, b)| key.client == client && *b == buffer)
+    }
+
+    /// The registered layout of a client buffer, for the backend that reads it.
+    pub fn buffer_layout(&self, client: ClientId, buffer: u64) -> Option<BufferLayout> {
+        self.buffers
+            .get(&(client, buffer))
+            .map(|entry| entry.layout)
+    }
+
     fn submit(&mut self, key: SurfaceKey, frame: Frame) -> Result<(), ErrorCode> {
-        // A buffer whose release is waiting for the in-flight frame is still being read.
+        if !self.nodes.contains_key(&key) {
+            return Err(ErrorCode::UnknownSurface);
+        }
+        match self.buffers.get(&(key.client, frame.buffer)) {
+            Some(entry) if !entry.destroyed && entry.layout.extent == frame.extent => {}
+            _ => return Err(ErrorCode::InvalidBuffer),
+        }
+        // A buffer whose release is waiting for the in-flight frame is still being read, on
+        // whichever surface it was.
         if self
             .deferred
             .iter()
@@ -1043,7 +1147,19 @@ impl Scene {
         {
             return Err(ErrorCode::InvalidBuffer);
         }
-        let node = self.nodes.get_mut(&key).ok_or(ErrorCode::UnknownSurface)?;
+        // A buffer may be attached to only one surface at a time.
+        let elsewhere = self.nodes.iter().any(|(other, node)| {
+            other.client == key.client
+                && *other != key
+                && node
+                    .presentation
+                    .held_buffers()
+                    .any(|f| f.buffer == frame.buffer)
+        });
+        if elsewhere {
+            return Err(ErrorCode::InvalidBuffer);
+        }
+        let node = self.nodes.get_mut(&key).expect("checked");
         if node.dismissed {
             self.discard(key, frame);
             return Ok(());
@@ -1091,7 +1207,6 @@ impl Scene {
             self.deferred.push((key, buffer));
             return;
         }
-        self.retired.push((key, buffer));
         self.emit(
             key.client,
             Event::Released {
@@ -1099,6 +1214,15 @@ impl Scene {
                 buffer,
             },
         );
+        match self.buffers.get(&(key.client, buffer)) {
+            Some(entry) if entry.destroyed && !self.buffer_held(key.client, buffer) => {
+                self.buffers.remove(&(key.client, buffer));
+                self.retired.push((key.client, buffer));
+            }
+            // The client is gone and its registry entries with it.
+            None => self.retired.push((key.client, buffer)),
+            Some(_) => {}
+        }
     }
 
     fn release_all(&mut self, key: SurfaceKey) {
@@ -1263,12 +1387,17 @@ impl Scene {
     // ---- visibility, stacking and focus ---------------------------------------------------
 
     fn visible(&self, key: SurfaceKey) -> bool {
+        self.visible_in(key, false)
+    }
+
+    fn visible_in(&self, key: SurfaceKey, in_flight: bool) -> bool {
         let mut current = key;
         loop {
             let Some(node) = self.nodes.get(&current) else {
                 return false;
             };
-            if node.dismissed || node.hidden || !node.mapped {
+            let mapped = node.mapped || in_flight && node.presentation.is_presenting();
+            if node.dismissed || node.hidden || !mapped {
                 return false;
             }
             match node.parent {
@@ -1285,11 +1414,18 @@ impl Scene {
     }
 
     fn global_origin(&self, key: SurfaceKey) -> Option<(i64, i64)> {
+        self.origin_in(key, false)
+    }
+
+    fn origin_in(&self, key: SurfaceKey, in_flight: bool) -> Option<(i64, i64)> {
         let node = self.nodes.get(&key)?;
-        let (x, y) = (i64::from(node.origin.0), i64::from(node.origin.1));
+        let origin = node
+            .view(in_flight)
+            .map_or(node.origin, |(_, origin, _)| origin);
+        let (x, y) = (i64::from(origin.0), i64::from(origin.1));
         match node.parent {
             Some(parent) => {
-                let (px, py) = self.global_origin(parent)?;
+                let (px, py) = self.origin_in(parent, in_flight)?;
                 Some((px + x, py + y))
             }
             None => Some((x, y)),
@@ -1332,25 +1468,40 @@ impl Scene {
         ))
     }
 
-    fn push_tree(&self, key: SurfaceKey, out: &mut Vec<RenderItem>) {
-        if !self.visible(key) {
+    fn push_tree(&self, key: SurfaceKey, out: &mut Vec<RenderItem>, in_flight: bool) {
+        if !self.visible_in(key, in_flight) {
             return;
         }
         let node = &self.nodes[&key];
-        if let (Some(rect), Some(frame)) = (self.global_rect(key), node.presentation.displayed()) {
-            out.push(RenderItem::Surface { key, rect, frame });
+        if let (Some((x, y)), Some((frame, _, size))) =
+            (self.origin_in(key, in_flight), node.view(in_flight))
+        {
+            if let (Ok(x), Ok(y)) = (i32::try_from(x), i32::try_from(y)) {
+                let rect = Rect::new(x, y, size.width, size.height);
+                out.push(RenderItem::Surface { key, rect, frame });
+            }
         }
         for child in &node.children {
-            self.push_tree(*child, out);
+            self.push_tree(*child, out, in_flight);
         }
     }
 
     /// Ready content bottom to top. Only presented frames appear: a surface without one is not
     /// drawn at all, never as an empty rectangle. While locked only lock surfaces and covers.
     pub fn render_list(&self) -> Vec<RenderItem> {
+        self.list(false)
+    }
+
+    /// What the backend composes between `begin_frame` and `end_frame`: in-flight frames with
+    /// the geometry they were rendered for, displayed content elsewhere.
+    pub fn frame_list(&self) -> Vec<RenderItem> {
+        self.list(true)
+    }
+
+    fn list(&self, in_flight: bool) -> Vec<RenderItem> {
         let mut out = Vec::new();
         for root in &self.roots {
-            self.push_tree(*root, &mut out);
+            self.push_tree(*root, &mut out, in_flight);
         }
         if self.locked {
             // Covers go above everything: an output without its own ready lock surface shows
@@ -2080,7 +2231,7 @@ impl Scene {
     }
 
     /// Buffers the backend may now drop: no compositor or output consumer refers to them.
-    pub fn drain_retired(&mut self) -> Vec<(SurfaceKey, u64)> {
+    pub fn drain_retired(&mut self) -> Vec<(ClientId, u64)> {
         std::mem::take(&mut self.retired)
     }
 
@@ -2114,6 +2265,7 @@ impl Scene {
             touch_points: self.touches.len(),
             pending_events: self.events.len(),
             retired_buffers: self.retired.len(),
+            registered_buffers: self.buffers.len(),
         }
     }
 }

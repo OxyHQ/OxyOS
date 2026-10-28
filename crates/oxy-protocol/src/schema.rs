@@ -2,8 +2,8 @@
 //! `schema_table_matches_documentation` test keeps them in step.
 
 use crate::wire::{
-    Clock, DismissReason, ErrorCode, Outcome, PanelEdge, PointerKind, Positioner, Rect, ShellKind,
-    Size, TouchKind, Wire,
+    Clock, DismissReason, ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, Rect,
+    ShellKind, Size, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -83,6 +83,8 @@ messages! {
         12 => BeginMove { surface: u32, serial: u64 },
         13 => SetFullscreen { surface: u32, enabled: bool },
         14 => Goodbye {},
+        15 => AttachBuffer { buffer: u64, format: Format, extent: Size, stride: u32, offset: u32 },
+        16 => DestroyBuffer { buffer: u64 },
     }
 }
 
@@ -100,6 +102,33 @@ messages! {
         8 => Feedback { surface: u32, sequence: u64, outcome: Outcome, timestamp_ns: u64, clock: Clock },
         9 => Released { surface: u32, buffer: u64 },
         10 => ProtocolError { code: ErrorCode },
+    }
+}
+
+impl Request {
+    /// Whether this request must carry exactly one file descriptor; every other request must
+    /// carry none.
+    pub fn carries_fd(&self) -> bool {
+        matches!(self, Request::AttachBuffer { .. })
+    }
+
+    /// The validated buffer layout of an AttachBuffer.
+    pub fn buffer_layout(&self) -> Option<crate::BufferLayout> {
+        match *self {
+            Request::AttachBuffer {
+                format,
+                extent,
+                stride,
+                offset,
+                ..
+            } => Some(crate::BufferLayout {
+                format,
+                extent,
+                stride,
+                offset,
+            }),
+            _ => None,
+        }
     }
 }
 

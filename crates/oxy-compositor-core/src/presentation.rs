@@ -82,6 +82,10 @@ impl Presentation {
         .collect()
     }
 
+    pub fn presenting(&self) -> Option<Frame> {
+        self.presenting
+    }
+
     pub fn is_presenting(&self) -> bool {
         self.presenting.is_some()
     }
