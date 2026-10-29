@@ -291,9 +291,10 @@ class Painter {
   // Draws `layer`, a subtree drawn on its own at `layerScale` device pixels per logical pixel over
   // `area` (in the subtree's own coordinates), mapped onto the canvas through `map`, within `clip`:
   // each device pixel takes the layer's bilinear sample under its centre, transparent outside it, so
-  // a turned edge is smoothed as the layer's pixels are.
-  void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip) {
-    if (layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f) return;
+  // a turned edge is smoothed as the layer's pixels are. The layer is drawn at `opacity`.
+  void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
+             float opacity = 1) {
+    if (layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f || opacity <= 0) return;
     Rect drawn = map.bounds(area);
     Clip box = Clip{drawn.origin.x, drawn.origin.y, drawn.getMaxX(), drawn.getMaxY()}.intersect(clip);
     if (box.empty()) return;
@@ -321,7 +322,7 @@ class Painter {
         // Premultiplied channels, interpolated as they are.
         auto sample = [&](int shift) {
           auto c = [&](uint32_t t) { return ((t >> shift) & 0xff) / 255.0f; };
-          return (c(t00) * (1 - fu) + c(t10) * fu) * (1 - fv) + (c(t01) * (1 - fu) + c(t11) * fu) * fv;
+          return ((c(t00) * (1 - fu) + c(t10) * fu) * (1 - fv) + (c(t01) * (1 - fu) + c(t11) * fu) * fv) * opacity;
         };
         float alpha = sample(24);
         if (alpha <= 0) continue;
@@ -930,14 +931,39 @@ void collectModals(const ViewTree& tree, Tag tag, std::vector<Tag>& out) {
 
 // The modals shown, over the window's content: each its children at the window's origin, an
 // opaque one (not `transparent`) on white, as Android's dialog window for it.
+void drawModalOnto(const ViewTree& tree, Tag modal, const Display& display, Painter& painter, RenderStats& stats,
+                   const TextInputEdit& edit) {
+  Clip window{0, 0, display.width, display.height};
+  const auto& entry = tree.views().at(modal);
+  auto props = std::static_pointer_cast<const ModalHostViewProps>(entry.view.props);
+  if (!props->transparent) painter.fill(0, 0, display.width, display.height, {}, Rgba{1, 1, 1, 1}, window);
+  for (Tag child : entry.children) drawView(tree, child, 0, 0, window, 1.0f, painter, stats, edit);
+}
+
+// The modals over the window's content; one animating in is drawn as its window is, moved and
+// faded, and those animating out after them, from their last frames.
 void drawModals(const ViewTree& tree, const Display& display, Painter& painter, RenderStats& stats,
                 const TextInputEdit& edit) {
   Clip window{0, 0, display.width, display.height};
+  Rect area{{0, 0}, {display.width, display.height}};
   for (Tag modal : modals(tree)) {
-    const auto& entry = tree.views().at(modal);
-    auto props = std::static_pointer_cast<const ModalHostViewProps>(entry.view.props);
-    if (!props->transparent) painter.fill(0, 0, display.width, display.height, {}, Rgba{1, 1, 1, 1}, window);
-    for (Tag child : entry.children) drawView(tree, child, 0, 0, window, 1.0f, painter, stats, edit);
+    ModalPresentation presented = tree.presentation(modal);
+    if (presented == ModalPresentation{}) {
+      drawModalOnto(tree, modal, display, painter, stats, edit);
+      continue;
+    }
+    Canvas layer;
+    layer.width = static_cast<int>(std::lround(display.width * display.scale));
+    layer.height = static_cast<int>(std::lround(display.height * display.scale));
+    layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+    Painter inside(layer, display.scale);
+    drawModalOnto(tree, modal, display, inside, stats, edit);
+    painter.layer(layer, display.scale, area, Affine::translation(0, presented.offset), window, presented.alpha);
+  }
+  for (const auto& leaving : tree.leaving()) {
+    if (!leaving.frame || leaving.frame->width <= 0) continue;
+    painter.layer(*leaving.frame, leaving.frame->width / display.width, area,
+                  Affine::translation(0, leaving.presentation.offset), window, leaving.presentation.alpha);
   }
 }
 
@@ -947,6 +973,18 @@ std::vector<Tag> modals(const ViewTree& tree) {
   std::vector<Tag> out;
   if (tree.root() >= 0) collectModals(tree, tree.root(), out);
   return out;
+}
+
+RenderStats drawModal(const ViewTree& tree, Tag modal, const Display& display, Canvas& canvas,
+                      const TextInputEdit& edit) {
+  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
+  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
+  RenderStats stats;
+  if (!tree.views().count(modal)) return stats;
+  Painter painter(canvas, display.scale);
+  drawModalOnto(tree, modal, display, painter, stats, edit);
+  return stats;
 }
 
 Rect Affine::bounds(const Rect& rect) const {

@@ -201,3 +201,19 @@ python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/clipboard.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-clipboard"
+# Bloom's bottom sheet in React Native's Modal, closed by its pan (gesture handler) and by Escape.
+python3 "$HERE/regress.py" "$HERE/scenarios/sheet.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-sheet"
+# The shell's overview: a window's card dragged onto another workspace.
+python3 "$HERE/regress.py" "$HERE/scenarios/shell-overview.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-shell-overview"
+# Transforms: views moved, scaled and turned, drawn and pressed where they are drawn.
+python3 "$HERE/regress.py" "$HERE/scenarios/transform.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-transform"
+# Modal's animationType: its window sliding and fading in and out, frame by frame.
+python3 "$HERE/regress.py" "$HERE/scenarios/modal.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-modal"

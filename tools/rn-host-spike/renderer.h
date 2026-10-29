@@ -34,6 +34,16 @@ struct Picture {
   float naturalWidth = 0, naturalHeight = 0;
 };
 
+struct Canvas;
+
+// How a modal is presented while its window animates in or out (modal.h), as Android's window
+// animations move and fade a dialog's window: moved down by `offset` logical pixels, drawn at
+// `alpha`.
+struct ModalPresentation {
+  float offset = 0, alpha = 1;
+  bool operator==(const ModalPresentation&) const = default;
+};
+
 struct View {
   facebook::react::ShadowView view;
   std::vector<facebook::react::Tag> children;
@@ -51,9 +61,34 @@ class ViewTree {
   }
   facebook::react::Tag root() const { return root_; }
 
+  // A modal animating in (modal.h): how it is presented; none when it is not animating.
+  void present(facebook::react::Tag modal, std::optional<ModalPresentation> presentation) {
+    if (presentation) {
+      presenting_[modal] = *presentation;
+    } else {
+      presenting_.erase(modal);
+    }
+  }
+  ModalPresentation presentation(facebook::react::Tag modal) const {
+    auto it = presenting_.find(modal);
+    return it == presenting_.end() ? ModalPresentation{} : it->second;
+  }
+  // Modals gone from the tree whose windows are still animating out, as Android animates a
+  // dismissed dialog's window: each one's last frame, at the window's size, and how it is
+  // presented, drawn over the window in this order.
+  struct Leaving {
+    std::shared_ptr<const Canvas> frame;
+    ModalPresentation presentation;
+    bool operator==(const Leaving&) const = default;
+  };
+  std::vector<Leaving>& leaving() { return leaving_; }
+  const std::vector<Leaving>& leaving() const { return leaving_; }
+
  private:
   std::unordered_map<facebook::react::Tag, View> views_;
   facebook::react::Tag root_ = -1;
+  std::map<facebook::react::Tag, ModalPresentation> presenting_;
+  std::vector<Leaving> leaving_;
 };
 
 struct RenderStats {
@@ -185,6 +220,10 @@ Affine viewTransform(const facebook::react::ShadowView& view);
 facebook::react::Point transformOffset(const facebook::react::ShadowView& view);
 // The modals shown in the window, in the order they are drawn: the last is on top.
 std::vector<facebook::react::Tag> modals(const ViewTree& tree);
+// Draws one modal alone, as its window shows it, onto a transparent canvas at the window's size:
+// on white unless it is `transparent`.
+RenderStats drawModal(const ViewTree& tree, facebook::react::Tag modal, const Display& display, Canvas& canvas,
+                      const TextInputEdit& edit = {});
 
 // Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
 // selection and composition, drawn with its text.

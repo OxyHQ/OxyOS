@@ -150,6 +150,15 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     for (const auto& [tag, seen] : seen_) {
       if (!now.count(tag)) damage.push_back(seen.at);
     }
+  }
+  std::vector<std::pair<Tag, ModalPresentation>> presented;
+  for (Tag modal : modals(tree)) presented.emplace_back(modal, tree.presentation(modal));
+  if (same && (presented != presented_ || tree.leaving() != leaving_)) {
+    damage.push_back(Rect{{0, 0}, {display.width, display.height}});
+  }
+  presented_ = std::move(presented);
+  leaving_ = tree.leaving();
+  if (same) {
     if (!(edit == edit_)) {
       std::vector<Tag> changed{edit_.tag, edit.tag};
       // An input whose text scrolled, focused or not (the wheel scrolls any input under it).
