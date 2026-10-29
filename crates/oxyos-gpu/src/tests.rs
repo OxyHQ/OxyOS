@@ -33,6 +33,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             paint: Paint::Opaque(window),
             source: None,
             changed: None,
+            opacity: 255,
         },
         Layer {
             x: 70,
@@ -43,6 +44,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             paint: Paint::Premultiplied(popup),
             source: None,
             changed: None,
+            opacity: 255,
         },
         Layer {
             x: 100,
@@ -53,6 +55,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             paint: Paint::Fill(0x0012_3456),
             source: None,
             changed: None,
+            opacity: 255,
         },
     ]
 }
@@ -97,6 +100,7 @@ fn invalid_layers_are_skipped() {
             paint: Paint::Opaque(&short),
             source: None,
             changed: None,
+            opacity: 255,
         },
         Layer {
             x: 0,
@@ -107,6 +111,7 @@ fn invalid_layers_are_skipped() {
             paint: Paint::Fill(1),
             source: None,
             changed: None,
+            opacity: 255,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -416,6 +421,7 @@ fn changed_rows_alone_are_uploaded() {
             paint: Paint::Opaque(pixels),
             source: Some(Source { key: 7, version }),
             changed,
+            opacity: 255,
         }
     }
     let first = pixels(&words(1));
@@ -482,4 +488,102 @@ fn frames_round_trip_through_a_file() {
         compose_cpu(120, 90, 0x0011_2233, &layers)
     );
     assert!(frame_file::read(&mut &b"NOTAFRAME"[..]).is_err());
+}
+
+/// A layer of one pixel at (0, 0) with `paint` at `opacity`.
+fn dot(paint: Paint<'_>, opacity: u8) -> Layer<'_> {
+    Layer {
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        extent: (1, 1),
+        paint,
+        source: None,
+        changed: None,
+        opacity,
+    }
+}
+
+#[test]
+fn a_layer_at_an_opacity_is_scaled_then_blended() {
+    const UNDER: u32 = 0x0010_2030;
+    let opaque = pixels(&[0xff_ff_80_00]);
+    let compose = |layer: Layer<'_>| compose_cpu(1, 1, UNDER, &[layer])[0];
+    // Half: the pixel scaled to 128/255, over the background kept at 127/255:
+    // 255·128/255 + 16·127/255 = 128 + 7, 128·128/255 + 32·127/255 = 64 + 15, 0 + 48·127/255.
+    assert_eq!(compose(dot(Paint::Opaque(&opaque), 128)), 0x0087_4f17);
+    assert_eq!(compose(dot(Paint::Fill(0x00ff_8000), 128)), 0x0087_4f17);
+    // A translucent premultiplied pixel: its alpha too is scaled (0x80·128/255 = 64, so 191 of
+    // the background is kept): 0x40·128/255 + 16·191/255 = 32 + 11, 0x20·128/255 + 32·191/255
+    // = 16 + 23, 0x10·128/255 + 48·191/255 = 8 + 35.
+    let translucent = pixels(&[0x80_40_20_10]);
+    assert_eq!(
+        compose(dot(Paint::Premultiplied(&translucent), 128)),
+        0x002b_272b
+    );
+    // Nothing at 0; at 255 as without an opacity.
+    assert_eq!(compose(dot(Paint::Opaque(&opaque), 0)), UNDER);
+    assert_eq!(compose(dot(Paint::Opaque(&opaque), 255)), 0x00ff_8000);
+    assert_eq!(
+        compose(dot(Paint::Premultiplied(&translucent), 255)),
+        0x0040_2010 + 0x0007_0f17
+    );
+}
+
+#[test]
+fn vulkan_matches_the_reference_at_every_opacity() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    for opacity in [0u8, 1, 64, 127, 128, 200, 254, 255] {
+        let layers: Vec<Layer<'_>> = layers(&window, &popup)
+            .into_iter()
+            .map(|layer| Layer { opacity, ..layer })
+            .collect();
+        let cpu = compose_cpu(120, 90, 0x0011_2233, &layers);
+        let vulkan = gpu.compose(120, 90, 0x0011_2233, &layers).unwrap();
+        assert_eq!(vulkan, cpu, "opacity {opacity}");
+    }
+}
+
+#[test]
+fn a_frame_file_keeps_each_layers_opacity_and_reads_the_first_format() {
+    let (window, popup) = frame();
+    let layers: Vec<Layer<'_>> = layers(&window, &popup)
+        .into_iter()
+        .enumerate()
+        .map(|(index, layer)| Layer {
+            opacity: 90 + index as u8 * 40,
+            ..layer
+        })
+        .collect();
+    let mut bytes = Vec::new();
+    frame_file::write(&mut bytes, 120, 90, 0x0011_2233, &layers).unwrap();
+    let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
+    assert_eq!(
+        frame.layers().iter().map(|l| l.opacity).collect::<Vec<_>>(),
+        layers.iter().map(|l| l.opacity).collect::<Vec<_>>()
+    );
+    // A file from before opacities: the same without the byte, every layer whole.
+    let mut first = b"OXYFRAME1".to_vec();
+    for value in [1u32, 1, 0, 1] {
+        first.extend(value.to_le_bytes());
+    }
+    first.extend(0i32.to_le_bytes());
+    first.extend(0i32.to_le_bytes());
+    for value in [1u32, 1, 0, 0] {
+        first.extend(value.to_le_bytes());
+    }
+    first.push(2);
+    first.extend(0x00ab_cdefu32.to_le_bytes());
+    first.extend(0u64.to_le_bytes());
+    let frame = frame_file::read(&mut first.as_slice()).unwrap();
+    assert_eq!(frame.layers()[0].opacity, 255);
+    assert_eq!(compose_cpu(1, 1, 0, &frame.layers()), vec![0x00ab_cdef]);
 }

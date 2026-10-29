@@ -91,6 +91,7 @@ struct Push {
     base_y: u32,
     count_x: u32,
     count_y: u32,
+    opacity: u32,
 }
 
 impl Push {
@@ -122,7 +123,7 @@ impl Push {
         })
     }
 
-    fn bytes(&self) -> [u8; 60] {
+    fn bytes(&self) -> [u8; 64] {
         let words = [
             self.x as u32,
             self.y as u32,
@@ -139,8 +140,9 @@ impl Push {
             self.base_y,
             self.count_x,
             self.count_y,
+            self.opacity,
         ];
-        let mut bytes = [0; 60];
+        let mut bytes = [0; 64];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
             chunk.copy_from_slice(&word.to_ne_bytes());
         }
@@ -335,7 +337,30 @@ impl VulkanCompositor {
             last_uploaded: 0,
         };
         this.build(opened.family)?;
+        // A device can name DMA-BUF export and still be unable to allocate memory it exports
+        // (Mesa's lavapipe without a render node): it exports DMA-BUF only if a buffer can be
+        // made and handed out as one, so a session composes on the CPU there instead of failing.
+        if this.dma_buf && this.export_probe().is_err() {
+            this.dma_buf = false;
+        }
         Ok(this)
+    }
+
+    /// Makes one small exportable buffer, exports it as DMA-BUF and frees both.
+    fn export_probe(&mut self) -> Result<(), Error> {
+        use std::os::fd::FromRawFd;
+        let buffer = self.buffer(Role::Scanout, 4096)?;
+        let loader = ash::khr::external_memory_fd::Device::new(&self.instance, &self.device);
+        let info = vk::MemoryGetFdInfoKHR::default()
+            .memory(buffer.memory)
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+        // SAFETY: the memory was allocated exportable as DMA-BUF and is live.
+        let exported = unsafe { loader.get_memory_fd(&info) }
+            // SAFETY: vkGetMemoryFdKHR returns a new descriptor that the caller owns; it is
+            // closed at once.
+            .map(|fd| drop(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) }));
+        self.free(buffer);
+        exported.map_err(Error::from)
     }
 
     /// The best device with a compute queue, and that queue.
@@ -442,7 +467,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(60)];
+                .size(64)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -775,6 +800,7 @@ impl VulkanCompositor {
                 src_height: layer.extent.1,
                 out_width: width,
                 out_height: height,
+                opacity: u32::from(layer.opacity),
                 ..Push::default()
             };
             match layer.paint {
@@ -874,6 +900,7 @@ impl VulkanCompositor {
                         out_height: height,
                         mode: 2,
                         color: background,
+                        opacity: 255,
                         ..Push::default()
                     }
                     .whole();

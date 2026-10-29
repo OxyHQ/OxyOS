@@ -1,0 +1,44 @@
+---
+title: "ADR 0011: Transitions"
+description: How surfaces appear and go in an OxyOS session — the compositor animates their arrival and departure, applications animate their own content — and what composition needs for it.
+order: 20
+---
+
+# ADR 0011: Transitions
+
+Status: **accepted**; step 1 implemented. Builds on [ADR 0004](./0004-gpu-composition) (composition on the CPU and a Vulkan device, byte for byte), [ADR 0005](./0005-damage) (damage) and [ADR 0009](./0009-session-shell) (the shell's surfaces).
+
+## Problem
+
+Every surface appears and goes at once: a window is there on the frame its first buffer is, a menu vanishes on the frame after it is dismissed, the launcher and the lock screen cut in. A Mac never does this: windows open and close with a short zoom and fade, menus fade out as they are chosen, Launchpad zooms in, the lock screen fades. Doing it in each application would make every application implement it, differently, and could not animate a surface after its client destroyed it. Composition today cannot do it either: a layer is drawn at a size (scaled, nearest neighbour) but always whole, with no opacity.
+
+## Decision
+
+1. **The compositor animates arrivals and departures; applications animate their content.** As the macOS window server animates windows and menus while AppKit and the application animate what is inside them. The compositor owns:
+   - **Windows and dialogs:** when a toplevel or a dialog is first shown, its frame grows from 96 % to its size and fades in, 180 ms, easing out; when it goes (destroyed, its client gone, minimized), its last frame shrinks to 96 % and fades out, 150 ms.
+   - **Popups (menus):** they appear at once, as a Mac's do; they fade out, 150 ms, when dismissed or destroyed.
+   - **The shell's overlays** (the launcher, the overview): they fade in and settle from 104 % to their size, 200 ms; they fade out, 150 ms.
+   - **The lock** ([ADR 0010](./0010-lock-screen)): the covers are opaque on the next frame, as they are now: protection is never animated. The lock screen's surface fades in over them, 250 ms; on unlock it fades out, 250 ms, over the desktop shown again.
+   - **The shell's panels**, when the session starts: they fade in, 250 ms.
+
+   What a surface shows is never changed by its transition: it is drawn whole, scaled about its centre, at an opacity. Input goes by a surface's real geometry from its first frame, and never to a surface going away; a transition never delays a configure, a frame's feedback or an event. Applications keep animating their own content (Bloom, Reanimated, the host's modal windows as on Android); nothing is added to the protocol.
+
+2. **Composition draws a layer at an opacity.** `oxyos_gpu::Layer` gains an opacity (0 to 255; 255 is as now): its pixels, premultiplied, are scaled by it before they are blended, on the CPU reference and in the Vulkan shader with the same integer arithmetic, so the two still agree byte for byte. A layer at 255 is composed exactly as before.
+
+3. **A surface going away keeps its last frame for its transition.** When a departing transition begins, the compositor copies the surface's displayed pixels, once; the scene forgets the surface at once (its client's resources are freed, its buffers released) and the copy is drawn until the transition ends. The copy is the compositor's alone and is dropped when the transition ends.
+
+4. **Transitions run on the display's time.** They are measured on `CLOCK_MONOTONIC`; while one runs, the compositor composes a frame for every refresh (its turn wakes for the next), and a transitioning surface's rectangle is damaged on each. They ease out (cubic). A future accessibility setting, reduce motion, makes every duration zero; this decision leaves room for it and no more.
+
+## Steps
+
+1. **Opacity in composition.** `Layer::opacity` in `oxyos-gpu`, on the CPU and in the shader, with the frame file carrying it; tested byte for byte against the reference on the Vulkan device, and at 255 against frames composed before.
+
+   *Done.* The pixel, premultiplied (an opaque one or a fill with alpha 255), and its alpha are scaled by `opacity / 255`, then blended source-over, in integers on both sides; at 255 that is the copy and the blend there were. The frame file is `OXYFRAME2` (an opacity byte per layer); `OXYFRAME1` files read with every layer at 255. Tests: exact values at half opacity worked by hand, nothing at 0, the Vulkan device against the reference at eight opacities, the file in both formats. On the ThinkPad's Intel Iris Xe every Vulkan test passes; there they caught a damaged region's background fill left at opacity 0, which no test without a device could see, so CI now installs Mesa's lavapipe and runs them.
+2. **Transitions in the compositor.** Their state per surface, the departing copies, pacing and damage; tested on the scene's and the compositor's clocks: the opacities and sizes a transition goes through, input never reaching a departing surface, the lock's covers never late.
+3. **Scenarios and the ThinkPad.** The development compositor reports each step's transitions (frames, first and last opacity); scenarios check them, and on the ThinkPad every transition's frames are on time at 60 Hz.
+
+## Not in this decision
+
+- Minimizing into the dock (a Mac's genie), notifications sliding in, switching workspaces with a slide: each a transition of its own, on this mechanism.
+- The reduce-motion setting itself.
+- Transitions an application asks for: none is needed yet.
