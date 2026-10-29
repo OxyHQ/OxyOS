@@ -171,6 +171,20 @@ On the ThinkPad, `--gpu --check-damage` passes with every GPU frame identical to
 
 The values gather a refresh apart (about 20 and 36 ms at 60 Hz): an answer that misses one flip waits for the next. The slowest are the presses that open or change a menu (88 ms, as before) and a scale change, which draws everything again at the new scale.
 
+**The shell, its overview and Bloom's sheets (`main` at `60c621e`: gesture handler, `Modal`, `expo-blur`, the shell's own classes), on the same ThinkPad and setup**, all through the virtual devices (`--uinput`): `shell.json`, `session-shell.json`, `shell-windows.json`, `shell-overview.json` and `sheet.json` ran three times each. All fifteen runs pass. Every GPU frame was identical to the CPU reference, and no frame drawn from its damage differed from the frame drawn whole. One frame missed its display deadline (`sheet.json`, first run, composition at most 20.4 ms). Input to flip by kind of step, over every run (ms):
+
+| Step | Count | Median | Max |
+| --- | --- | --- | --- |
+| Press in an application (sheet buttons, backdrop) | 15 | 30.7 | 37.1 |
+| Sheet dragged down to close (gesture handler, eight moves) | 6 | 36.1 | 38.4 |
+| Escape closing a sheet (`Modal`'s `onRequestClose`) | 3 | 45.0 | 55.5 |
+| Press in the window beside the shell's panels | 6 | 52.5 | 56.7 |
+| Press on the dock restoring a window | 3 | 60.1 | 63.3 |
+| Overview card dragged to another desktop (eight moves, the window moved) | 3 | 86.6 | 89.9 |
+| Window minimized by the compositor | 3 | 20.0 | 20.3 |
+
+Answers drawn only in the shell's own surfaces have no flip time yet: the director times flips for the application's window. Input to the first answering frame, composed, for those: presses opening and closing the launcher and the top bar's menu, 44.9 / 56.3 ms (12); the dock's overview button and Nuevo escritorio, 54.1 / 59.6 ms (6). The host draws a frame in 1.2 to 3.4 ms (medians). Its slowest are the shell's first full frames at the panel's size, about 52 ms. The composition takes 9.1 ms (median of the runs' medians).
+
 ## Consequences
 
 - **Compatibility.** A client that never sends `Damage` behaves as today. The compositor still composes only the output's damage for it.
