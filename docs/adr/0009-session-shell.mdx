@@ -1,0 +1,58 @@
+---
+title: "ADR 0009: The session shell"
+description: How the OxyOS shell, one React tree, becomes the compositor's background, panels and overlays, and how it shows and manages the compositor's windows and workspaces.
+order: 18
+---
+
+# ADR 0009: The session shell
+
+Status: **accepted** (decisions 1 and 2, chosen with the shell's author); not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (roles, grants, isolation), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and the shell surfaces of the protocol (`CreateShellSurface`).
+
+## Problem
+
+The OxyOS shell (`apps/shell`) is one React tree: the wallpaper, the top bar, the dock, and the overview and launcher that open over everything. It renders from a `ShellSnapshot` (applications, folders, windows, workspaces, the active workspace and application, the active application's menus) and sends `ShellActions` (activate an application, focus or close a window, switch, add and move to workspaces, a menu command). Its browser preview fakes both.
+
+On OxyOS it runs in the Bloom host, which so far makes one toplevel window (`sample/ShellProbe.tsx`). A session needs more:
+
+- **Layers.** The wallpaper must be below every window, the top bar and dock above them with the space they take kept out of where windows are placed, and the overview and launcher above everything. One window cannot be all of these. The protocol already has the roles: background, panel (with an edge and an exclusive zone) and overlay shell surfaces, granted by the session.
+- **Windows and workspaces.** Nothing tells the shell which windows exist, which application each belongs to, its title or its workspace. The compositor has no workspaces.
+
+## Decision
+
+1. **One tree, wrapped regions.** The shell stays one React tree. Its root is the background surface: the Bloom host, started as the shell, makes a background shell surface where an application makes its window, and lays the tree out at its size, the output's. So the wallpaper, drawn in the root, needs no wrapper. Each other region that is a surface of its own is wrapped in a `ShellSurface` element (`kind`: `panel` or `overlay`; for a panel, its `edge` and whether it keeps its `exclusive` zone). On OxyOS it renders a host component, `OxyOSShellSurface`, whose subtree the Bloom host draws in a shell surface of its own, as it draws Bloom's popups (`OxyOSPopupView`), and leaves out of the root's drawing. Everywhere else (the browser preview) it renders its children in place. The regions:
+   - the top bar: a panel at the top edge;
+   - the dock: a panel at the bottom edge;
+   - the overview and the launcher: an overlay, which exists only while one is open.
+
+   Each region stays where the shell's layout puts it. A panel is the strip of the output from its edge to the far side of its region, which is drawn at its own place in it; that strip is kept out of the work area. An overlay covers the output, with the region at its own place. Each surface takes input only over its region (`SetInputRegion`), so the rest of a strip or of an overlay is transparent and lets presses through. Presses, focus, popups (the top bar's menus) and accessibility work per surface as in any window. The edits in `apps/shell` are the three wrappers and the component itself; the shell's own layout does not change.
+
+   The shell is a Bloom host started by the session with the `shell` grant, as the session's own program, never by an application.
+
+2. **The compositor owns workspaces and windows.** Each toplevel window belongs to a workspace; only the active workspace's windows are shown, take input and can have focus. A new window opens on the active workspace. Workspaces are numbered, at least one, at most a session limit; removing one moves its windows to its neighbour.
+
+   A privileged protocol, for clients with the `shell` grant, tells the shell what the compositor holds and takes its actions:
+   - events: a window, identified by a number the compositor gives it (never a client's surface id), with its application id, title, workspace and state (minimized, focused), when it appears or changes, and its removal; the workspaces and the active one;
+   - requests: focus (and restore) a window, close it (the application is asked, `CloseRequested`, and may refuse), minimize it, move it to a workspace, switch to a workspace, add one, remove one.
+
+   The shell shows what the compositor confirmed: a move or a switch is an intent until the next event says it happened, as the shell's model already says (`moveWindowToWorkspace` is "intent only").
+
+   Applications say their title (`SetTitle`) and application id (`SetAppId`) on their toplevels. The application id is the application's own claim until the session's launch records (#35) give each launched process its id; the shell shows it, and nothing is authorized by it.
+
+3. **Not decided here.** Each needs its own decision when its turn comes:
+   - **The active application's menus** in the top bar: applications publishing their menus, commands sent back.
+   - **Window thumbnails** in the overview: the compositor sharing scaled copies of windows' frames with the shell.
+   - **Launching applications** from the dock and the launcher, and the application registry: the session's launch records (#35).
+
+   Until then the shell gets no menus, no thumbnails (it shows each window's icon and title), and `activateApp` focuses the application's newest window if it has one, and otherwise does nothing.
+
+## Order of work
+
+1. **Shell surfaces in the Bloom host.** Shell surfaces and input regions in the C ABI; a host started as the shell (the root a background surface at the output's size); `OxyOSShellSurface`; and `ShellSurface` with its three wrappers in `apps/shell`. The development compositor launches the shell with the `shell` grant and an application window; a scenario checks each region is its own surface in its layer, the work area excludes the panels, and an application's window is placed between them.
+2. **Workspaces in the scene.** Windows on workspaces, switching, moving, visibility, focus and input, with scene tests.
+3. **The shell protocol.** Its events and requests, titles and application ids, `CloseRequested`; in the shell, the snapshot built from the events and the actions sent as requests, with a scenario that drives both directions.
+
+## Consequences
+
+- The shell is the session's own Bloom program in the compositor's real layers, and the shell's author keeps one React tree.
+- Workspaces are the compositor's: input and focus never reach a window the user cannot see, and the shell cannot hide windows the compositor thinks are shown.
+- The shell sees every window's application, title and workspace, and acts on any window. That is why only the `shell` grant opens the protocol.
