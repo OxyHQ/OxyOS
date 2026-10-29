@@ -33,6 +33,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CLIPBOARD_TYPES 20
 #define OXYOS_EVENT_CLIPBOARD_TYPE 21
 #define OXYOS_EVENT_CLIPBOARD_EMPTY 22
+#define OXYOS_EVENT_TEXT_INPUT 29
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1
@@ -79,7 +80,10 @@ typedef struct OxyOSClient OxyOSClient;
  *               types follow. Sent to the client with keyboard focus when the clipboard changes
  *               or focus reaches it.
  *   CLIPBOARD_TYPE   serial: the selection; text: one of its media types, NUL-terminated.
- *   CLIPBOARD_EMPTY  the clipboard holds nothing. */
+ *   CLIPBOARD_EMPTY  the clipboard holds nothing.
+ *   TEXT_INPUT  serial: the input's (a user input when it commits text, as a key press);
+ *               detail: the field's commit serial it was made for. A transaction for a field with
+ *               text input enabled is complete: oxyos_client_text_transaction gives it. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -228,6 +232,82 @@ int oxyos_client_clear_clipboard(OxyOSClient* client, uint64_t serial);
  * end and close it; it ends at once, empty, if the paste was refused), or OXYOS_ERROR. */
 int oxyos_client_paste(OxyOSClient* client, uint32_t selection, const char* mime, size_t mime_length,
                        uint64_t serial);
+
+/* Text input (docs/adr/0008-input-method.mdx). What a field is for. */
+#define OXYOS_PURPOSE_NORMAL 0
+#define OXYOS_PURPOSE_DIGITS 1
+#define OXYOS_PURPOSE_NUMBER 2
+#define OXYOS_PURPOSE_PHONE 3
+#define OXYOS_PURPOSE_URL 4
+#define OXYOS_PURPOSE_EMAIL 5
+#define OXYOS_PURPOSE_NAME 6
+#define OXYOS_PURPOSE_PASSWORD 7
+#define OXYOS_PURPOSE_PIN 8
+#define OXYOS_PURPOSE_DATE 9
+#define OXYOS_PURPOSE_TIME 10
+/* Its hints (bits). */
+#define OXYOS_HINT_NO_PREDICTION 1
+#define OXYOS_HINT_NO_CAPITALIZATION 2
+#define OXYOS_HINT_SENSITIVE 4
+#define OXYOS_HINT_MULTILINE 8
+/* How a segment of a composition is drawn (OxyOSPreeditSegment.style). */
+#define OXYOS_PREEDIT_COMPOSING 1
+#define OXYOS_PREEDIT_CONVERTING 2
+#define OXYOS_PREEDIT_ERROR 3
+
+/* A focused text field: purpose, hints, its text (`length` bytes of UTF-8, the composition left
+ * out) with the selection's byte offsets in it, and its caret's rectangle in surface-local logical
+ * coordinates when `has_caret`. */
+typedef struct OxyOSTextField {
+  uint8_t purpose;
+  uint32_t hints;
+  const char* text;
+  size_t length;
+  uint32_t anchor;
+  uint32_t cursor;
+  uint8_t has_caret;
+  int32_t caret_x;
+  int32_t caret_y;
+  uint32_t caret_width;
+  uint32_t caret_height;
+} OxyOSTextField;
+
+/* Tells the compositor about the field focused in `surface`, or that none is (`field` NULL); only
+ * what changed is sent. A non-zero `new_field` describes another field than the one told before.
+ * Returns the commit serial transactions for this state carry (0 once disabled), or -1. */
+int64_t oxyos_client_text_input(OxyOSClient* client, uint32_t surface, const OxyOSTextField* field,
+                                uint8_t new_field);
+
+/* One styled segment of a composition, in bytes of it. */
+typedef struct OxyOSPreeditSegment {
+  uint32_t begin;
+  uint32_t end;
+  uint8_t style;
+} OxyOSPreeditSegment;
+
+/* One change for a field, applied whole: delete `delete_before` bytes before the selection and
+ * `delete_after` after it, insert `commit` at it, then show `preedit` as the composition (none if
+ * empty) with [cursor_begin, cursor_end) as the selection within it, and its segments. `serial`
+ * and `commit_serial` are the TEXT_INPUT event's. Strings are not NUL-terminated; they and the
+ * segments stay valid until the next oxyos_client_poll. */
+typedef struct OxyOSTextTransaction {
+  uint32_t surface;
+  uint32_t delete_before;
+  uint32_t delete_after;
+  uint32_t cursor_begin;
+  uint32_t cursor_end;
+  uint32_t commit_serial;
+  uint64_t serial;
+  const char* commit;
+  size_t commit_length;
+  const char* preedit;
+  size_t preedit_length;
+  const OxyOSPreeditSegment* segments;
+  size_t segment_count;
+} OxyOSTextTransaction;
+
+/* The transaction the TEXT_INPUT event just returned completed: 1 with `*out` filled, or 0. */
+int oxyos_client_text_transaction(OxyOSClient* client, OxyOSTextTransaction* out);
 
 /* HTTP (crates/oxyos-net): the engine behind React Native's networking. Each request runs on a
  * thread of its own (TLS through rustls against the system's certificates, redirects, gzip and

@@ -7,10 +7,10 @@
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
 //! each with the caller contract it relies on.
 
-use oxyos_client::{Accessible, Client, Poll};
+use oxyos_client::{Accessible, Client, Field, Poll};
 use oxyos_protocol::{
     AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, Positioner, Rect,
-    Request, Size, TextChunk, TEXT_CHUNK_BYTES,
+    Request, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -41,6 +41,9 @@ pub const OXYOS_EVENT_ACCESSIBILITY_ACTION: u32 = 14;
 pub const OXYOS_EVENT_CLIPBOARD_TYPES: u32 = 20;
 pub const OXYOS_EVENT_CLIPBOARD_TYPE: u32 = 21;
 pub const OXYOS_EVENT_CLIPBOARD_EMPTY: u32 = 22;
+/// A transaction for a field with text input enabled is complete (its Done's opcode); its
+/// contents come from `oxyos_client_text_transaction`.
+pub const OXYOS_EVENT_TEXT_INPUT: u32 = 29;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -122,10 +125,58 @@ pub struct OxyOSAccessibleNode {
     pub value: *const c_char,
 }
 
+/// A focused text field, as `oxyos_client_text_input` takes it (ADR 0008).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSTextField {
+    pub purpose: u8,
+    pub hints: u32,
+    pub text: *const c_char,
+    pub length: usize,
+    pub anchor: u32,
+    pub cursor: u32,
+    pub has_caret: u8,
+    pub caret_x: i32,
+    pub caret_y: i32,
+    pub caret_width: u32,
+    pub caret_height: u32,
+}
+
+/// One styled segment of a composition, in bytes of it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OxyOSPreeditSegment {
+    pub begin: u32,
+    pub end: u32,
+    pub style: u8,
+}
+
+/// A transaction for a field, as `oxyos_client_text_transaction` gives it. Its strings and
+/// segments stay valid until the next `oxyos_client_poll`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSTextTransaction {
+    pub surface: u32,
+    pub delete_before: u32,
+    pub delete_after: u32,
+    pub cursor_begin: u32,
+    pub cursor_end: u32,
+    pub commit_serial: u32,
+    pub serial: u64,
+    pub commit: *const c_char,
+    pub commit_length: usize,
+    pub preedit: *const c_char,
+    pub preedit_length: usize,
+    pub segments: *const OxyOSPreeditSegment,
+    pub segment_count: usize,
+}
+
 /// An opaque connection, owned by the caller between `oxyos_client_connect` and
 /// `oxyos_client_close`.
 pub struct OxyOSClient {
     client: Client,
+    /// The segments of the transaction last completed, as C reads them.
+    segments: Vec<OxyOSPreeditSegment>,
 }
 
 thread_local! {
@@ -348,14 +399,25 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::ClipboardEmpty {} => out.kind = OXYOS_EVENT_CLIPBOARD_EMPTY,
         // Answered by the client library, which holds what this client copied.
         Event::ClipboardSend { .. } => return None,
-        // Only to a surface with text input enabled, which the C ABI cannot ask for yet (ADR
-        // 0008, step 2).
+        // A transaction's parts are collected by the client library; its Done completes it.
         Event::TextInputDelete { .. }
         | Event::TextInputCommitText { .. }
         | Event::TextInputPreeditText { .. }
         | Event::TextInputPreeditCursor { .. }
-        | Event::TextInputPreeditSegment { .. }
-        | Event::TextInputDone { .. } => return None,
+        | Event::TextInputPreeditSegment { .. } => return None,
+        Event::TextInputDone {
+            surface,
+            serial,
+            commit,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_TEXT_INPUT,
+                surface,
+                serial,
+                detail: commit,
+                ..out
+            }
+        }
     }
     Some(out)
 }
@@ -400,7 +462,10 @@ pub unsafe extern "C" fn oxyos_client_connect(path: *const c_char) -> *mut OxyOS
         return std::ptr::null_mut();
     };
     match Client::connect(Path::new(path)) {
-        Ok(client) => Box::into_raw(Box::new(OxyOSClient { client })),
+        Ok(client) => Box::into_raw(Box::new(OxyOSClient {
+            client,
+            segments: Vec::new(),
+        })),
         Err(error) => {
             fail(error);
             std::ptr::null_mut()
@@ -859,4 +924,132 @@ pub unsafe extern "C" fn oxyos_client_poll(
             Err(error) => return fail(error),
         }
     }
+}
+
+/// Tells the compositor about the text field focused in `surface` (ADR 0008), or that none is
+/// (`field` NULL): its purpose (OXYOS_PURPOSE_*), hints (OXYOS_HINT_* bits), its text (`length`
+/// bytes of UTF-8, the composition left out) with the selection's byte offsets in it, and its
+/// caret's rectangle in surface coordinates if `has_caret`. Only what changed is sent. A
+/// non-zero `new_field` describes another field than the one told before. Returns the commit
+/// serial transactions for this state carry (0 once disabled), or -1 on failure.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `field` is NULL or points to a
+/// valid `OxyOSTextField` whose `text` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_text_input(
+    client: *mut OxyOSClient,
+    surface: u32,
+    field: *const OxyOSTextField,
+    new_field: u8,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return -1;
+    };
+    // SAFETY: the caller passes NULL or a valid field.
+    let result = match unsafe { field.as_ref() } {
+        None => client.text_input(surface, None, new_field != 0),
+        Some(field) => {
+            let bytes = if field.length == 0 {
+                &[][..]
+            } else if field.text.is_null() {
+                fail("null text");
+                return -1;
+            } else {
+                // SAFETY: per the contract, `text` points to `length` readable bytes.
+                unsafe { std::slice::from_raw_parts(field.text.cast::<u8>(), field.length) }
+            };
+            let (Some(purpose), Some(hints), Ok(text)) = (
+                TextPurpose::from_raw(field.purpose),
+                TextHints::new(field.hints),
+                std::str::from_utf8(bytes),
+            ) else {
+                fail("invalid purpose, hints or text");
+                return -1;
+            };
+            let (anchor, cursor) = (field.anchor as usize, field.cursor as usize);
+            if !text.is_char_boundary(anchor) || !text.is_char_boundary(cursor) {
+                fail("selection outside the text or inside a character");
+                return -1;
+            }
+            let caret = (field.has_caret != 0).then(|| {
+                Rect::new(
+                    field.caret_x,
+                    field.caret_y,
+                    field.caret_width,
+                    field.caret_height,
+                )
+            });
+            let field = Field {
+                purpose,
+                hints,
+                text,
+                anchor,
+                cursor,
+                caret,
+            };
+            client.text_input(surface, Some(&field), new_field != 0)
+        }
+    };
+    match result {
+        Ok(serial) => serial.into(),
+        Err(error) => {
+            fail(error);
+            -1
+        }
+    }
+}
+
+/// Fills `*out` with the transaction the TEXT_INPUT event just returned completed: 1, or 0 if
+/// the last event was not one. Its strings (not NUL-terminated) and segments stay valid until the
+/// next `oxyos_client_poll`.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `out` points to a writable
+/// `OxyOSTextTransaction`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_text_transaction(
+    client: *mut OxyOSClient,
+    out: *mut OxyOSTextTransaction,
+) -> c_int {
+    // SAFETY: per the contract, a non-null pointer is a live, exclusively used OxyOSClient.
+    let Some(wrapper) = (unsafe { client.as_mut() }) else {
+        return fail("null client");
+    };
+    // SAFETY: the caller passes a writable transaction or NULL.
+    let Some(out) = (unsafe { out.as_mut() }) else {
+        return fail("null transaction");
+    };
+    let Some(transaction) = wrapper.client.transaction() else {
+        return 0;
+    };
+    wrapper.segments = transaction
+        .segments
+        .iter()
+        .map(|&(begin, end, style)| OxyOSPreeditSegment {
+            begin,
+            end,
+            style: style as u8,
+        })
+        .collect();
+    *out = OxyOSTextTransaction {
+        surface: transaction.surface,
+        delete_before: transaction.delete_before,
+        delete_after: transaction.delete_after,
+        cursor_begin: transaction.cursor.0,
+        cursor_end: transaction.cursor.1,
+        commit_serial: transaction.commit_serial,
+        serial: transaction.serial,
+        commit: transaction.commit.as_ptr().cast(),
+        commit_length: transaction.commit.len(),
+        preedit: transaction.preedit.as_ptr().cast(),
+        preedit_length: transaction.preedit.len(),
+        segments: wrapper.segments.as_ptr(),
+        segment_count: wrapper.segments.len(),
+    };
+    1
 }

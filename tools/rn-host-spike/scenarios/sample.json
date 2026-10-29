@@ -57,14 +57,14 @@
         "texts": ["Reply: Hola OxyOS!"],
         "focus_input": "reply",
         "react": {"change@reply": 1, "selectionChange@reply": 1},
-        "delivered": {"1": {"text": 1}},
+        "delivered": {"1": {"text_input": 1}},
         "latency_ms": 250,
         "a11y": {"window": [{"role": "textinput", "name": "Write a reply", "value": "Hola OxyOS!", "id": "reply"}]},
         "at": {"window": [{"role": "TextInput", "name": "Write a reply", "value": "Hola OxyOS!"}]}
       },
       "expect_devices": {
         "react": {"keyPress@reply": 11, "change@reply": 11, "selectionChange@reply": 11},
-        "delivered": {"1": {"key.press": 16, "key.release": 16, "text": 11}}
+        "delivered": {"1": {"key.press": 16, "key.release": 16, "text_input": 11}}
       }
     },
     {
@@ -83,7 +83,7 @@
       "expect": {
         "focus_input": null,
         "texts": ["Reply: Hola OxyOS"],
-        "react": {"submitEditing@reply": 1, "blur@reply": 1}
+        "react": {"submitEditing@reply": 1, "blur@reply": 1, "endEditing@reply": 1}
       }
     },
     {
@@ -362,7 +362,7 @@
         "texts": ["Reply: Adiós´"],
         "focus_input": "reply",
         "react": {"keyPress@reply": 1, "change@reply": 1, "selectionChange@reply": 1},
-        "delivered": {"1": {"preedit": 1}}
+        "delivered": {"1": {"text_input": 1}}
       }
     },
     {
@@ -378,7 +378,7 @@
         "texts": ["Reply: Adiósó"],
         "absent": ["´"],
         "react": {"keyPress@reply": 1, "change@reply": 1},
-        "delivered": {"1": {"text": 1}}
+        "delivered": {"1": {"text_input": 1}}
       }
     },
     {

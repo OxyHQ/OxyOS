@@ -6,6 +6,7 @@ import AndroidProbe from './AndroidProbe';
 import ClipboardProbe from './ClipboardProbe';
 import EditingProbe from './EditingProbe';
 import ImageProbe from './ImageProbe';
+import ImeProbe from './ImeProbe';
 import SecureProbe from './SecureProbe';
 import NetworkProbe from './NetworkProbe';
 
@@ -15,4 +16,5 @@ AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
 AppRegistry.registerComponent('EditingProbe', () => EditingProbe);
 AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
+AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
 AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);

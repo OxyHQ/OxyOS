@@ -1,0 +1,370 @@
+{
+  "about": "Input-method transactions in Bloom fields (sample/ImeProbe.tsx, ADR 0008): each focused field tells the compositor its purpose, text, selection and caret, and an input method's changes reach it as transactions applied whole, as Android's input connection applies a batch: a composition longer than one chunk, a converted segment selected, a commit with the next composition, deletions around the composition, undo of a composition as one edit; the events React receives for each, exactly; and a password field that never tells its text.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "steps": [
+    {
+      "name": "focus the line: it tells the compositor what it is, empty, with its caret",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "surface": 1,
+          "purpose": "Normal",
+          "hints": 0,
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        }
+      }
+    },
+    {
+      "name": "typing is one transaction, and the field tells its new text",
+      "do": [
+        "type",
+        "abc"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc\" [3,3]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "a composition longer than one chunk (33 bytes) arrives whole; the field tells its text without it",
+      "do": [
+        "transaction",
+        {
+          "preedit": "にほんごのにゅうりょく"
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abcにほんごのにゅうりょく\" [14,14]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "converting it: the converted text replaces the composition, its first segment selected (Backspace, as Android)",
+      "do": [
+        "transaction",
+        {
+          "preedit": "日本語の入力",
+          "cursor": [
+            0,
+            9
+          ],
+          "segments": [
+            [
+              0,
+              9,
+              "converting"
+            ],
+            [
+              9,
+              18,
+              "composing"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc日本語の入力\" [3,6]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "a commit and the next composition in one transaction: one change, the composition's key after it",
+      "do": [
+        "transaction",
+        {
+          "commit": "日本語の入力",
+          "preedit": "で"
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc日本語の入力で\" [10,10]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "field": {
+          "text": "abc日本語の入力",
+          "anchor": 21,
+          "cursor": 21
+        }
+      }
+    },
+    {
+      "name": "a deletion before the composition with it ended, as one edit: Backspace for each call",
+      "do": [
+        "transaction",
+        {
+          "delete": [
+            6,
+            0
+          ]
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc日本語の\" [7,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 2
+        },
+        "field": {
+          "text": "abc日本語の",
+          "anchor": 15,
+          "cursor": 15
+        }
+      }
+    },
+    {
+      "name": "a deletion alone",
+      "do": [
+        "transaction",
+        {
+          "delete": [
+            3,
+            0
+          ]
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc日本語\" [6,6]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "field": {
+          "text": "abc日本語",
+          "anchor": 12,
+          "cursor": 12
+        }
+      }
+    },
+    {
+      "name": "undo takes back the deletion",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc日本語の\" [7,7]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "text": "abc日本語の",
+          "cursor": 15
+        }
+      }
+    },
+    {
+      "name": "and then the whole composition, one edit from the text before it began",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"abc\" [3,3]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "text": "abc",
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "focus moves to the email field: it is another field, for an email, not capitalised",
+      "do": [
+        "press",
+        [
+          400,
+          90
+        ]
+      ],
+      "expect": {
+        "focus_input": "email",
+        "react": {
+          "touchStart@email": 1,
+          "touchEnd@email": 1,
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@email": 1,
+          "selectionChange@email": 1
+        },
+        "field": {
+          "purpose": "Email",
+          "hints": 2,
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            81,
+            2,
+            18
+          ]
+        }
+      }
+    },
+    {
+      "name": "typing an address",
+      "do": [
+        "type",
+        "nate@oxy.so"
+      ],
+      "expect": {
+        "texts": [
+          "Email: \"nate@oxy.so\" [11,11]"
+        ],
+        "react": {
+          "change@email": 1,
+          "selectionChange@email": 1
+        },
+        "field": {
+          "text": "nate@oxy.so",
+          "cursor": 11
+        }
+      }
+    },
+    {
+      "name": "the password field is a password, and tells neither its text nor its caret",
+      "do": [
+        "press",
+        [
+          400,
+          138
+        ]
+      ],
+      "expect": {
+        "focus_input": "password",
+        "react": {
+          "touchStart@password": 1,
+          "touchEnd@password": 1,
+          "blur@email": 1,
+          "endEditing@email": 1,
+          "focus@password": 1,
+          "selectionChange@password": 1
+        },
+        "field": {
+          "purpose": "Password",
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": null
+        }
+      }
+    },
+    {
+      "name": "what is typed into it reaches the application and nowhere else",
+      "do": [
+        "type",
+        "secreto"
+      ],
+      "expect": {
+        "texts": [
+          "Password: 7 characters"
+        ],
+        "react": {
+          "change@password": 1,
+          "selectionChange@password": 1
+        },
+        "field": {
+          "purpose": "Password",
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "never": [
+          "secreto"
+        ]
+      }
+    }
+  ]
+}

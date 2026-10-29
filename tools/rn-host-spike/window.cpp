@@ -123,6 +123,12 @@ void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessible
   }
 }
 
+uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField) {
+  int64_t serial = oxyos_client_text_input(client_, surface, field, newField ? 1 : 0);
+  if (serial < 0) failed("cannot tell the text field");
+  return static_cast<uint32_t>(serial);
+}
+
 void Window::destroy(uint32_t id) {
   if (surfaces_.erase(id) == 0) return;
   if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");

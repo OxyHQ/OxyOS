@@ -10,7 +10,8 @@
 //! application answered it with new pixels.
 
 use super::*;
-use oxyos_protocol::{AccessibleAction, AccessibleState};
+use oxyos_compositor_core::TextTransaction;
+use oxyos_protocol::{AccessibleAction, AccessibleState, PreeditStyle};
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
@@ -39,6 +40,15 @@ pub enum Step {
     Commit(String),
     /// The input method's composition (preedit) for the focused surface, cursor at its end.
     Preedit(String),
+    /// One change as an input method makes it (ADR 0008): bytes deleted before and after the
+    /// selection, committed text, then a composition with its cursor range and styled segments.
+    Transaction {
+        delete: (u32, u32),
+        commit: String,
+        preedit: String,
+        cursor: (u32, u32),
+        segments: Vec<(u32, u32, PreeditStyle)>,
+    },
     /// Left-button drag in the window: press at the first point, move to the second, release.
     Drag { from: (i32, i32), to: (i32, i32) },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
@@ -75,6 +85,14 @@ impl Step {
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
+            Step::Transaction {
+                delete,
+                commit,
+                preedit,
+                ..
+            } => format!(
+                "a transaction deleting {delete:?}, committing {commit:?}, composing {preedit:?}"
+            ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
@@ -94,6 +112,30 @@ impl Step {
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
+            Step::Transaction {
+                delete,
+                commit,
+                preedit,
+                cursor,
+                segments,
+            } => {
+                let segments: Vec<String> = segments
+                    .iter()
+                    .map(|(begin, end, style)| {
+                        format!("[{begin},{end},\"{}\"]", style_name(*style))
+                    })
+                    .collect();
+                format!(
+                    "\"transaction\":{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"cursor\":[{},{}],\"segments\":[{}]}}",
+                    delete.0,
+                    delete.1,
+                    json_string(commit),
+                    json_string(preedit),
+                    cursor.0,
+                    cursor.1,
+                    segments.join(",")
+                )
+            }
             Step::Drag { from, to } => {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
@@ -110,6 +152,37 @@ impl Step {
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
         }
     }
+}
+
+fn style_name(style: PreeditStyle) -> &'static str {
+    match style {
+        PreeditStyle::Composing => "composing",
+        PreeditStyle::Converting => "converting",
+        PreeditStyle::Error => "error",
+    }
+}
+
+/// `B-E:STYLE;...` (or `-` for none): a transaction's styled segments.
+fn segments(value: &str) -> Result<Vec<(u32, u32, PreeditStyle)>> {
+    if value == "-" {
+        return Ok(Vec::new());
+    }
+    value
+        .split(';')
+        .map(|segment| {
+            let (range, style) = segment.split_once(':').ok_or(USAGE)?;
+            let (begin, end) = range.split_once('-').ok_or(USAGE)?;
+            let style = [
+                PreeditStyle::Composing,
+                PreeditStyle::Converting,
+                PreeditStyle::Error,
+            ]
+            .into_iter()
+            .find(|s| style_name(*s) == style)
+            .ok_or_else(|| format!("unknown segment style {style:?}"))?;
+            Ok((begin.parse()?, end.parse()?, style))
+        })
+        .collect()
 }
 
 fn chord(codes: &[u32]) -> String {
@@ -149,7 +222,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -293,6 +366,20 @@ impl Launch {
                 Some("--preedit") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
+                }
+                Some("--transaction") => {
+                    let delete = numbers(args.next(), 2)?;
+                    let mut text = || args.next().and_then(|t| t.to_str()).ok_or(USAGE);
+                    let (commit, preedit) = (text()?.to_string(), text()?.to_string());
+                    let cursor = numbers(args.next(), 2)?;
+                    let styled = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    Step::Transaction {
+                        delete: (u32::try_from(delete[0])?, u32::try_from(delete[1])?),
+                        commit,
+                        preedit,
+                        cursor: (u32::try_from(cursor[0])?, u32::try_from(cursor[1])?),
+                        segments: segments(styled)?,
+                    }
                 }
                 Some("--switch-terminal") => {
                     let number = args.next().and_then(|n| n.to_str()).ok_or(USAGE)?;
@@ -462,6 +549,29 @@ fn focus_json(compositor: &Compositor) -> String {
         Some(key) if key.client == CLIENT => key.id.to_string(),
         _ => "null".to_string(),
     }
+}
+
+/// What the application's focused surface told of its text field (ADR 0008), or null.
+fn field_json(compositor: &Compositor) -> String {
+    let Some(key) = compositor.scene.focus().filter(|key| key.client == CLIENT) else {
+        return "null".to_string();
+    };
+    let Some(field) = compositor.scene.text_input(key) else {
+        return "null".to_string();
+    };
+    let caret = field.caret.map_or("null".to_string(), |rect| {
+        format!("[{},{},{},{}]", rect.x, rect.y, rect.width, rect.height)
+    });
+    format!(
+        "{{\"surface\":{},\"purpose\":\"{:?}\",\"hints\":{},\"text\":{},\"anchor\":{},\"cursor\":{},\"caret\":{caret},\"serial\":{}}}",
+        key.id,
+        field.purpose,
+        field.hints.bits(),
+        json_string(&field.surrounding),
+        field.anchor,
+        field.cursor,
+        field.serial,
+    )
 }
 
 /// The input routed during a step: for the application, counts per surface and kind; for any
@@ -754,6 +864,25 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::Preedit(text) => {
             if !compositor.scene.preedit(text, text.len()) {
                 return Err(format!("preedit {text:?} is not a valid composition").into());
+            }
+        }
+        Step::Transaction {
+            delete,
+            commit,
+            preedit,
+            cursor,
+            segments,
+        } => {
+            let change = TextTransaction {
+                delete_before: delete.0,
+                delete_after: delete.1,
+                commit,
+                preedit,
+                cursor: *cursor,
+                segments,
+            };
+            if !compositor.scene.text_transaction(&change) {
+                return Err(format!("{change:?} is not a valid transaction").into());
             }
         }
         Step::Drag { from, to } => {
@@ -1100,7 +1229,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1111,6 +1240,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             answer.window.width,
             answer.window.height,
             accessibility_json(&session.compositor),
+            field_json(&session.compositor),
         ));
         snapshots.push(snapshot(
             &session.compositor,
@@ -1261,6 +1391,12 @@ mod tests {
             "hi",
             "--commit",
             "mundo",
+            "--transaction",
+            "3,0",
+            "日本",
+            "ごが",
+            "3,6",
+            "0-3:composing;3-6:converting",
             "--switch-terminal",
             "5",
             "--key",
@@ -1295,7 +1431,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                true
+                false, true
             ]
         );
         assert_eq!(
@@ -1309,6 +1445,16 @@ mod tests {
                 },
                 Step::Type("hi".into()),
                 Step::Commit("mundo".into()),
+                Step::Transaction {
+                    delete: (3, 0),
+                    commit: "日本".into(),
+                    preedit: "ごが".into(),
+                    cursor: (3, 6),
+                    segments: vec![
+                        (0, 3, PreeditStyle::Composing),
+                        (3, 6, PreeditStyle::Converting)
+                    ],
+                },
                 Step::SwitchTerminal(5),
                 Step::Key(vec![14]),
                 Step::Key(vec![42, 106]),

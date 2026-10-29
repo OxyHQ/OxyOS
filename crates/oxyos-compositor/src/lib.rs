@@ -1168,6 +1168,8 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         } => (surface, if pressed { "key.press" } else { "key.release" }),
         Event::Text { surface, .. } => (surface, "text"),
         Event::Preedit { surface, .. } => (surface, "preedit"),
+        // A transaction counts once, whatever parts it has.
+        Event::TextInputDone { surface, .. } => (surface, "text_input"),
         Event::Scroll { surface, .. } => (surface, "scroll"),
         Event::PopupDone { surface, .. } => (surface, "popup.done"),
         Event::Focus { surface, focused } => {

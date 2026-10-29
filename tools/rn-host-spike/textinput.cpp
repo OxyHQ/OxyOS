@@ -167,6 +167,7 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
     if (args[1].isString() && args[1].getString() != text_) {
       text_ = args[1].getString();
       composeStart_ = composeEnd_ = 0;
+      segments_.clear();
       composeBefore_.reset();
       // The application set another value: the edits recorded no longer apply to it.
       histories_.erase(focused_);
@@ -202,6 +203,7 @@ TextInputEdit TextEditing::edit() const {
                        .selectionEnd = std::max(anchor_, caret_),
                        .composeStart = composeStart_,
                        .composeEnd = composeEnd_,
+                       .segments = segments_,
                        .scrolls = scrolls_};
 }
 
@@ -217,6 +219,7 @@ void TextEditing::focus(Tag tag) {
   text_ = data.attributedStringBox.getValue().getString();
   eventCount_ = static_cast<int>(data.mostRecentEventCount);
   composeStart_ = composeEnd_ = 0;
+  segments_.clear();
   composeBefore_.reset();
   merging_ = false;
   // An input keeps its history while it is unfocused, unless its text changed meanwhile (the
@@ -251,6 +254,7 @@ void TextEditing::blur() {
   emitter->dispatchEvent("blur", folly::dynamic::object("target", tag));
   emitter->dispatchEvent("endEditing", folly::dynamic::object("target", tag)("text", text_));
   Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
+  Report::get().deliver("endEditing", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
   if (tracing()) std::cerr << "[text] blur " << tag << "\n";
 }
 
@@ -292,6 +296,151 @@ void TextEditing::handle(const OxyOSEvent& event) {
   } else if (event.flag) {
     key(event.code, event.serial);
   }
+}
+
+void TextEditing::transaction(const OxyOSTextTransaction& change, bool current) {
+  if (focused_ < 0) return;
+  auto placement = locate_(focused_);
+  if (!placement || change.surface != placement->surface) return;
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  if (!props->editable) return;
+  std::string commit(change.commit, change.commit_length), preedit(change.preedit, change.preedit_length);
+  bool wasComposing = composeStart_ != composeEnd_;
+  // The composition is replaced, or else the selection; the deletion is around it.
+  size_t from = wasComposing ? composeStart_ : std::min(anchor_, caret_);
+  size_t to = wasComposing ? composeEnd_ : std::max(anchor_, caret_);
+  size_t before = current ? change.delete_before : 0, after = current ? change.delete_after : 0;
+  size_t start = from - std::min(before, from), end = std::min(to + after, text_.size());
+  while (continuation(text_, start)) --start;
+  while (continuation(text_, end)) ++end;
+  // Android's calls for it: deleteSurroundingText, commitText, then setComposingText (also to
+  // end a composition with nothing committed).
+  bool deletes = start != from || end != to;
+  bool commits = !commit.empty();
+  bool composes = !preedit.empty() || (wasComposing && !commits);
+  if (!deletes && !commits && !composes) return;
+  bool replaces = commits || composes;
+  std::string text = text_.substr(0, start) + (replaces ? commit + preedit : text_.substr(from, to - from)) +
+                     text_.substr(end);
+  if (props->maxLength > 0 && utf16Length(text) > props->maxLength && text.size() > text_.size()) return;
+  // The selection before setComposingText: the caret after the commit, or the selection moved
+  // by the deletion.
+  size_t shift = from - start;
+  size_t selectedFrom = commits ? start + commit.size() : std::min(anchor_, caret_) - shift;
+  size_t selectedTo = commits ? selectedFrom : std::max(anchor_, caret_) - shift;
+  size_t anchor, caret;
+  size_t composeStart = start + commit.size();
+  if (!preedit.empty()) {
+    // The cursor range is the selection within the composition, as whole characters.
+    auto within = [&](uint32_t at) {
+      size_t offset = std::min<size_t>(at, preedit.size());
+      while (continuation(preedit, offset)) --offset;
+      return composeStart + offset;
+    };
+    anchor = within(change.cursor_begin);
+    caret = within(change.cursor_end);
+  } else if (replaces) {
+    anchor = caret = composeStart;
+  } else {
+    anchor = anchor_ - shift;
+    caret = caret_ - shift;
+  }
+  // Key presses as React Native's input connection wrapper reports them: deleteSurroundingText
+  // is Backspace at once; commitText of up to two UTF-16 units is that text, and setComposingText
+  // the character before the new selection, or Backspace when it went back. Inside a batch (more
+  // than one call) only the last of these two is reported, when the batch ends.
+  auto composingKey = [&]() -> std::string {
+    size_t now = std::min(anchor, caret);
+    bool back = now < selectedFrom || now == 0 || (selectedFrom != selectedTo && now == selectedFrom);
+    if (back) return "Backspace";
+    size_t at = previousBoundary(text, now);
+    return text.substr(at, now - at);
+  };
+  std::string commitKey = commits && utf16Length(commit) <= 2 ? commit : "";
+  bool batch = deletes + commits + composes > 1;
+  if (deletes) keyPress("Backspace");
+  if (!batch && commits) keyPress(commitKey);
+  // A composition is one edit, recorded when it ends, from the text before it began.
+  Snapshot snapshot = wasComposing && composeBefore_ ? *composeBefore_ : Snapshot{text_, anchor_, caret_};
+  bool composing = !preedit.empty();
+  if (composing && !wasComposing) composeBefore_ = snapshot;
+  if (!composing) composeBefore_.reset();
+  composeStart_ = composing ? composeStart : 0;
+  composeEnd_ = composing ? composeStart + preedit.size() : 0;
+  segments_.clear();
+  if (composing) {
+    for (size_t i = 0; i < change.segment_count; ++i) {
+      const auto& segment = change.segments[i];
+      size_t begin = std::min<size_t>(segment.begin, preedit.size());
+      size_t finish = std::min<size_t>(segment.end, preedit.size());
+      if (begin < finish) segments_.push_back({composeStart + begin, composeStart + finish, segment.style});
+    }
+  }
+  std::string key = batch ? (composes ? composingKey() : commitKey) : composes ? composingKey() : "";
+  update(std::move(text), anchor, caret);
+  keyPress(key);
+  if (!composing) {
+    Edit kind = wasComposing || deletes || (commits && from != to) ? Edit::Replace
+                : commits                                         ? Edit::Insert
+                                                                  : Edit::Delete;
+    record(snapshot, kind);
+  }
+}
+
+std::optional<TextEditing::Field> TextEditing::field() const {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement) return std::nullopt;
+  auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
+  Field field{.tag = focused_, .surface = placement->surface};
+  // What the field is for, from what Android's ReactTextInputManager makes of the same props.
+  const auto& type = props->keyboardType;
+  bool numeric = type == "numeric" || type == "number-pad" || type == "decimal-pad";
+  if (props->secureTextEntry || type == "visible-password") {
+    field.purpose = numeric ? OXYOS_PURPOSE_PIN : OXYOS_PURPOSE_PASSWORD;
+  } else if (type == "number-pad") {
+    field.purpose = OXYOS_PURPOSE_DIGITS;
+  } else if (numeric) {
+    field.purpose = OXYOS_PURPOSE_NUMBER;
+  } else if (type == "phone-pad") {
+    field.purpose = OXYOS_PURPOSE_PHONE;
+  } else if (type == "url") {
+    field.purpose = OXYOS_PURPOSE_URL;
+  } else if (type == "email-address") {
+    field.purpose = OXYOS_PURPOSE_EMAIL;
+  }
+  // `autoCorrect` is not told: these props cannot tell it unset from false.
+  if (props->autoCapitalize == "none") field.hints |= OXYOS_HINT_NO_CAPITALIZATION;
+  if (props->multiline) field.hints |= OXYOS_HINT_MULTILINE;
+  if (field.purpose == OXYOS_PURPOSE_PASSWORD || field.purpose == OXYOS_PURPOSE_PIN) return field;
+  // The composition belongs to the input method: the text is told without it, the caret where
+  // it begins.
+  bool composing = composeStart_ != composeEnd_;
+  field.text = composing ? text_.substr(0, composeStart_) + text_.substr(composeEnd_) : text_;
+  auto outside = [&](size_t at) {
+    if (!composing || at <= composeStart_) return at;
+    return at >= composeEnd_ ? at - (composeEnd_ - composeStart_) : composeStart_;
+  };
+  field.anchor = outside(anchor_);
+  field.cursor = outside(caret_);
+  return field;
+}
+
+std::optional<Rect> TextEditing::caretRect() const {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement) return std::nullopt;
+  const auto& view = it->second.view;
+  if (std::static_pointer_cast<const AndroidTextInputProps>(view.props)->secureTextEntry) return std::nullopt;
+  auto caret = TextInputGeometry(view, text_).caret(caret_);
+  auto content = view.layoutMetrics.getContentFrame();
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
+  return Rect{{placement->frame.origin.x + content.origin.x + caret.x - scroll.x,
+               placement->frame.origin.y + content.origin.y + caret.top - scroll.y},
+              {kCaretWidth, caret.height}};
 }
 
 void TextEditing::key(uint32_t code, uint64_t serial) {
@@ -553,6 +702,7 @@ void TextEditing::replace(size_t from, size_t to, const std::string& insert, con
   if (composing && !wasComposing) composeBefore_ = before;
   composeStart_ = composing && !insert.empty() ? from : 0;
   composeEnd_ = composing && !insert.empty() ? from + insert.size() : 0;
+  segments_.clear();
   if (!composing) composeBefore_.reset();
   size_t caret = from + insert.size();
   update(std::move(text), caret, caret);
@@ -624,6 +774,7 @@ void TextEditing::record(const Snapshot& before, Edit kind) {
 void TextEditing::endComposition() {
   if (composeStart_ == composeEnd_) return;
   composeStart_ = composeEnd_ = 0;
+  segments_.clear();
   // Its text stays, as Android's finishComposingText leaves it, and is one edit.
   if (composeBefore_) record(*composeBefore_, Edit::Replace);
   composeBefore_.reset();

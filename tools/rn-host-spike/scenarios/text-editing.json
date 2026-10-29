@@ -369,6 +369,7 @@
         ],
         "react": {
           "blur@line": 1,
+          "endEditing@line": 1,
           "touchStart@notes": 1,
           "touchEnd@notes": 1,
           "focus@notes": 1,
@@ -667,12 +668,12 @@
           "Notes: \"uno\\ndos\\ntres\\nuna frase bastante larga que no cabe\" [49,49]"
         ],
         "react": {
-          "change@notes": 2,
-          "selectionChange@notes": 2
+          "change@notes": 1,
+          "selectionChange@notes": 1
         },
         "delivered": {
           "1": {
-            "text": 2
+            "text_input": 1
           }
         }
       }
@@ -1004,6 +1005,7 @@
         ],
         "react": {
           "blur@notes": 1,
+          "endEditing@notes": 1,
           "touchStart@line": 1,
           "touchEnd@line": 1,
           "focus@line": 1,
@@ -1023,13 +1025,13 @@
           "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [112,112]"
         ],
         "react": {
-          "change@line": 4,
-          "selectionChange@line": 4,
+          "change@line": 1,
+          "selectionChange@line": 1,
           "scroll@line": 1
         },
         "delivered": {
           "1": {
-            "text": 4
+            "text_input": 1
           }
         },
         "text_scroll": {
@@ -1227,6 +1229,7 @@
         ],
         "react": {
           "blur@line": 1,
+          "endEditing@line": 1,
           "touchStart@notes": 1,
           "touchEnd@notes": 1,
           "focus@notes": 1,

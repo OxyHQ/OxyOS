@@ -3,6 +3,8 @@
 
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
+#include <oxyos_client.h>
+
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -78,6 +80,14 @@ struct TextInputEdit {
   facebook::react::Tag tag = -1;
   size_t selectionStart = 0, selectionEnd = 0;  // the caret when equal
   size_t composeStart = 0, composeEnd = 0;      // the composition, underlined; empty if equal
+  // Segments of the composition an input method styled: the one being converted is underlined
+  // more heavily on a background, as Android draws its selected composing span; an error in red.
+  struct Segment {
+    size_t start = 0, end = 0;
+    uint8_t style = OXYOS_PREEDIT_COMPOSING;
+    bool operator==(const Segment&) const = default;
+  };
+  std::vector<Segment> segments;
   // How far each input's text is scrolled within its content box: across for a single-line input,
   // down for a multiline one. An input keeps it when it loses focus, as an EditText does.
   std::map<facebook::react::Tag, facebook::react::Point> scrolls;

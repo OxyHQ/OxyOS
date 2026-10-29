@@ -1,6 +1,8 @@
 use super::*;
 use oxyos_ipc::SharedBuffer;
-use oxyos_protocol::ServerConnection;
+use oxyos_protocol::{
+    PreeditStyle, ServerConnection, TextHints, TextPurpose, MAX_SURROUNDING_BYTES,
+};
 
 /// A connected client and the compositor's end, past the handshake.
 fn connected() -> (Client, Connection) {
@@ -432,4 +434,219 @@ fn without_damage_or_history_a_buffer_is_written_whole() {
         .unwrap();
     until_submit(&server);
     assert_eq!(contents(&shared_a, extent), pixels(extent, 7));
+}
+
+// ---- text input (ADR 0008) -------------------------------------------------------------------
+
+/// The requests up to and including the next TextInputCommit.
+fn committed(server: &Connection) -> Vec<Request> {
+    let mut requests = Vec::new();
+    loop {
+        let (request, _) = server.recv_request().unwrap();
+        let done = matches!(request, Request::TextInputCommit { .. });
+        requests.push(request);
+        if done {
+            return requests;
+        }
+    }
+}
+
+fn field(text: &str, cursor: usize) -> Field<'_> {
+    Field {
+        purpose: TextPurpose::Normal,
+        hints: TextHints::default(),
+        text,
+        anchor: cursor,
+        cursor,
+        caret: Some(Rect::new(4, 2, 2, 18)),
+    }
+}
+
+#[test]
+fn a_field_is_told_whole_then_only_what_changed() {
+    let (mut client, server) = connected();
+    assert_eq!(
+        client
+            .text_input(1, Some(&field("hola", 4)), false)
+            .unwrap(),
+        1
+    );
+    let chunk = |text| TextChunk::new(text).unwrap();
+    assert_eq!(
+        committed(&server),
+        [
+            Request::TextInputEnable { surface: 1 },
+            Request::TextInputPurpose {
+                surface: 1,
+                purpose: TextPurpose::Normal,
+                hints: TextHints::default(),
+            },
+            Request::TextInputSurrounding {
+                surface: 1,
+                text: chunk("hola"),
+            },
+            Request::TextInputSelection {
+                surface: 1,
+                anchor: 4,
+                cursor: 4,
+            },
+            Request::TextInputCaret {
+                surface: 1,
+                rect: Rect::new(4, 2, 2, 18),
+            },
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 1,
+            },
+        ]
+    );
+    // Unchanged: nothing is sent, and the serial stays.
+    assert_eq!(
+        client
+            .text_input(1, Some(&field("hola", 4)), false)
+            .unwrap(),
+        1
+    );
+    // The caret moved: its selection and rectangle only.
+    let moved = Field {
+        caret: Some(Rect::new(1, 2, 2, 18)),
+        ..field("hola", 1)
+    };
+    assert_eq!(client.text_input(1, Some(&moved), false).unwrap(), 2);
+    assert_eq!(
+        committed(&server),
+        [
+            Request::TextInputSelection {
+                surface: 1,
+                anchor: 1,
+                cursor: 1,
+            },
+            Request::TextInputCaret {
+                surface: 1,
+                rect: Rect::new(1, 2, 2, 18),
+            },
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 2,
+            },
+        ]
+    );
+    // Another field of the surface is enabled anew; disabling commits once.
+    assert_eq!(client.text_input(1, Some(&moved), true).unwrap(), 3);
+    assert!(matches!(
+        committed(&server).as_slice(),
+        [
+            Request::TextInputEnable { surface: 1 },
+            ..,
+            Request::TextInputCommit { serial: 3, .. }
+        ]
+    ));
+    assert_eq!(client.text_input(1, None, false).unwrap(), 0);
+    assert_eq!(
+        committed(&server),
+        [
+            Request::TextInputDisable { surface: 1 },
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 4,
+            },
+        ]
+    );
+    assert_eq!(client.text_input(1, None, false).unwrap(), 0);
+    // Serials keep going up across enables.
+    assert_eq!(client.text_input(1, Some(&moved), false).unwrap(), 5);
+}
+
+#[test]
+fn a_long_text_is_told_around_its_selection() {
+    let (mut client, server) = connected();
+    // 6,000 bytes of two-byte characters, the caret in the middle.
+    let text = "ñ".repeat(3000);
+    client
+        .text_input(1, Some(&field(&text, 3000)), false)
+        .unwrap();
+    let mut told = String::new();
+    let mut selection = None;
+    for request in committed(&server) {
+        match request {
+            Request::TextInputSurrounding { text, .. } => told.push_str(text.as_str()),
+            Request::TextInputSelection { anchor, cursor, .. } => {
+                selection = Some((anchor, cursor))
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(told.len(), MAX_SURROUNDING_BYTES);
+    assert!(told.chars().all(|c| c == 'ñ'));
+    // The caret is told where it is within that part: in its middle.
+    assert_eq!(selection, Some((2000, 2000)));
+}
+
+#[test]
+fn a_transactions_parts_are_collected_until_done() {
+    let (mut client, server) = connected();
+    let chunk = |text| TextChunk::new(text).unwrap();
+    for event in [
+        Event::TextInputDelete {
+            surface: 1,
+            before: 3,
+            after: 0,
+        },
+        Event::TextInputCommitText {
+            surface: 1,
+            text: chunk(&"日".repeat(10)),
+        },
+        Event::TextInputCommitText {
+            surface: 1,
+            text: chunk("本"),
+        },
+        Event::TextInputPreeditText {
+            surface: 1,
+            text: chunk("ご"),
+        },
+        Event::TextInputPreeditCursor {
+            surface: 1,
+            begin: 0,
+            end: 3,
+        },
+        Event::TextInputPreeditSegment {
+            surface: 1,
+            begin: 0,
+            end: 3,
+            style: PreeditStyle::Converting,
+        },
+        Event::TextInputDone {
+            surface: 1,
+            serial: 9,
+            commit: 2,
+        },
+        Event::Focus {
+            surface: 1,
+            focused: false,
+        },
+    ] {
+        server.send_event(&event, None).unwrap();
+    }
+    let mut completed = Vec::new();
+    for _ in 0..8 {
+        client.next_event().unwrap();
+        completed.push(client.transaction().cloned());
+    }
+    // Only Done completes it, and the next event drops it.
+    assert!(completed[..6].iter().all(Option::is_none));
+    assert_eq!(
+        completed[6],
+        Some(Transaction {
+            surface: 1,
+            delete_before: 3,
+            delete_after: 0,
+            commit: format!("{}本", "日".repeat(10)),
+            preedit: "ご".to_string(),
+            cursor: (0, 3),
+            segments: vec![(0, 3, PreeditStyle::Converting)],
+            serial: 9,
+            commit_serial: 2,
+        })
+    );
+    assert_eq!(completed[7], None);
 }

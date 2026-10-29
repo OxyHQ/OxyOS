@@ -27,7 +27,7 @@
       "name": "the keyboard works after the return, and Enter submits",
       "do": ["type", "back"],
       "expect": {"texts": ["Reply: back"], "focus_input": "reply"},
-      "expect_devices": {"delivered": {"1": {"key.press": 4, "key.release": 4, "text": 4}}}
+      "expect_devices": {"delivered": {"1": {"key.press": 4, "key.release": 4, "text_input": 4}}}
     },
     {
       "name": "Enter completes a line, which the console would count if it had the keyboard",
