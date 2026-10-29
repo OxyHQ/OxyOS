@@ -19,13 +19,12 @@ On OxyOS it runs in the Bloom host, which so far makes one toplevel window (`sam
 
 ## Decision
 
-1. **One tree, wrapped regions.** The shell stays one React tree. Each region that is a surface of its own is wrapped in a `ShellSurface` element (`kind`: `background`, `panel` or `overlay`; for a panel, its `edge` and whether it keeps its `exclusive` zone). On OxyOS it renders a host component, `OxyOSShellSurface`, whose subtree the Bloom host draws in a shell surface of its own, as it draws Bloom's popups (`OxyOSPopupView`). Everywhere else (the browser preview) it renders its children in place. The regions:
-   - the wallpaper: the background;
-   - the top bar: a panel at the top edge, its height kept out of the work area;
-   - the dock: a panel at the bottom edge, its height kept out;
-   - the overview and the launcher: an overlay over the whole output, which exists only while one is open.
+1. **One tree, wrapped regions.** The shell stays one React tree. Its root is the background surface: the Bloom host, started as the shell, makes a background shell surface where an application makes its window, and lays the tree out at its size, the output's. So the wallpaper, drawn in the root, needs no wrapper. Each other region that is a surface of its own is wrapped in a `ShellSurface` element (`kind`: `panel` or `overlay`; for a panel, its `edge` and whether it keeps its `exclusive` zone). On OxyOS it renders a host component, `OxyOSShellSurface`, whose subtree the Bloom host draws in a shell surface of its own, as it draws Bloom's popups (`OxyOSPopupView`), and leaves out of the root's drawing. Everywhere else (the browser preview) it renders its children in place. The regions:
+   - the top bar: a panel at the top edge;
+   - the dock: a panel at the bottom edge;
+   - the overview and the launcher: an overlay, which exists only while one is open.
 
-   The shell's root lays out at the output's size, with no window of its own. A panel's thickness is its region's height as laid out. Presses, focus, popups (the top bar's menus) and accessibility work per surface as in any window. The edits in `apps/shell` are the four wrappers and the component itself; the shell's own layout does not change.
+   Each region stays where the shell's layout puts it. A panel is the strip of the output from its edge to the far side of its region, which is drawn at its own place in it; that strip is kept out of the work area. An overlay covers the output, with the region at its own place. Each surface takes input only over its region (`SetInputRegion`), so the rest of a strip or of an overlay is transparent and lets presses through. Presses, focus, popups (the top bar's menus) and accessibility work per surface as in any window. The edits in `apps/shell` are the three wrappers and the component itself; the shell's own layout does not change.
 
    The shell is a Bloom host started by the session with the `shell` grant, as the session's own program, never by an application.
 
@@ -48,7 +47,7 @@ On OxyOS it runs in the Bloom host, which so far makes one toplevel window (`sam
 
 ## Order of work
 
-1. **Shell surfaces in the Bloom host.** `OxyOSShellSurface`, a host started as the shell (no toplevel, the root at the output's size), and `ShellSurface` with its four wrappers in `apps/shell`. The development compositor launches the shell with the `shell` grant and an application window; a scenario checks each region is its own surface in its layer, the work area excludes the panels, and an application's window is placed between them.
+1. **Shell surfaces in the Bloom host.** Shell surfaces and input regions in the C ABI; a host started as the shell (the root a background surface at the output's size); `OxyOSShellSurface`; and `ShellSurface` with its three wrappers in `apps/shell`. The development compositor launches the shell with the `shell` grant and an application window; a scenario checks each region is its own surface in its layer, the work area excludes the panels, and an application's window is placed between them.
 2. **Workspaces in the scene.** Windows on workspaces, switching, moving, visibility, focus and input, with scene tests.
 3. **The shell protocol.** Its events and requests, titles and application ids, `CloseRequested`; in the shell, the snapshot built from the events and the actions sent as requests, with a scenario that drives both directions.
 
