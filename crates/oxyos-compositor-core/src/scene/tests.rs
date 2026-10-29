@@ -4104,7 +4104,13 @@ fn a_window_on_another_workspace_takes_no_input() {
     h.click(a.x + 10, a.y + 10);
     let events = logged(&mut h);
     assert!(events.iter().any(|(client, e)| *client == OTHER
-        && matches!(e, Event::Pointer { kind: PointerKind::Press, .. })));
+        && matches!(
+            e,
+            Event::Pointer {
+                kind: PointerKind::Press,
+                ..
+            }
+        )));
     assert!(!events.iter().any(|(client, _)| *client == APP));
     assert_eq!(h.scene.focus(), Some(below));
     // Keys go to the focused window shown, never to a hidden one.
@@ -4122,7 +4128,12 @@ fn leaving_a_workspace_closes_its_menus_and_moving_a_window_moves_focus() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
     let w = h.rect(window);
-    let popup = h.open_menu(window, 2, (w.x + 10, w.y + 10), menu(Rect::new(0, 0, 4, 4), 200, 100));
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 4, 4), 200, 100),
+    );
     assert_eq!(h.scene.grab_chain(), &[popup]);
     h.scene.add_workspace();
     assert!(h.scene.activate_workspace(1));
@@ -4191,4 +4202,275 @@ fn workspaces_stay_while_the_session_is_locked() {
     assert!(!h.scene.activate_workspace(1));
     assert!(!h.scene.remove_workspace(1));
     assert_eq!(h.scene.workspaces(), (2, 0));
+}
+
+// ---- the shell's windows and workspaces (ADR 0009) -------------------------------------------
+
+/// Names a window: its title and application id, each in one chunk.
+fn name(h: &mut Harness, window: SurfaceKey, title: &str, app_id: &str) {
+    for (app, text) in [(false, title), (true, app_id)] {
+        let text = PreeditText::new(text).unwrap();
+        let request = if app {
+            Request::SetAppId {
+                surface: window.id,
+                index: 0,
+                last: true,
+                text,
+            }
+        } else {
+            Request::SetTitle {
+                surface: window.id,
+                index: 0,
+                last: true,
+                text,
+            }
+        };
+        h.request(window.client, request).unwrap();
+    }
+}
+
+/// The windows a shell client was told of, by number: (workspace, minimized, focused, title, app
+/// id), from every event it received; and the workspaces last told.
+type ToldWindows = std::collections::BTreeMap<u32, (u32, bool, bool, String, String)>;
+fn told(events: &[(ClientId, Event)], client: ClientId) -> (ToldWindows, Option<(u32, u32)>) {
+    let mut windows = ToldWindows::new();
+    let mut workspaces = None;
+    let mut title = String::new();
+    let mut app = String::new();
+    for event in to(events, client) {
+        match event {
+            Event::WindowState {
+                window,
+                workspace,
+                minimized,
+                focused,
+            } => {
+                let entry = windows.entry(window).or_default();
+                (entry.0, entry.1, entry.2) = (workspace, minimized, focused);
+            }
+            Event::WindowTitle {
+                window,
+                index,
+                last,
+                text,
+            } => {
+                if index == 0 {
+                    title.clear();
+                }
+                title.push_str(text.as_str());
+                if last {
+                    windows.entry(window).or_default().3 = title.clone();
+                }
+            }
+            Event::WindowAppId {
+                window,
+                index,
+                last,
+                text,
+            } => {
+                if index == 0 {
+                    app.clear();
+                }
+                app.push_str(text.as_str());
+                if last {
+                    windows.entry(window).or_default().4 = app.clone();
+                }
+            }
+            Event::WindowClosed { window } => {
+                windows.remove(&window);
+            }
+            Event::Workspaces { count, active } => workspaces = Some((count, active)),
+            _ => {}
+        }
+    }
+    (windows, workspaces)
+}
+
+#[test]
+fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
+    let mut h = Harness::new();
+    // The shell is told the workspaces at once, before any window.
+    let first = logged(&mut h);
+    assert_eq!(told(&first, SHELL), (ToldWindows::new(), Some((1, 0))));
+    let inbox = h.toplevel(APP, 1, 400, 300);
+    name(&mut h, inbox, "Bandeja de entrada", "so.oxy.inbox");
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let events = logged(&mut h);
+    let (windows, workspaces) = told(&events, SHELL);
+    let (a, b) = (
+        h.scene.window_number(inbox).unwrap(),
+        h.scene.window_number(other).unwrap(),
+    );
+    assert_ne!(a, b);
+    assert_eq!(
+        windows[&a],
+        (
+            0,
+            false,
+            false,
+            "Bandeja de entrada".into(),
+            "so.oxy.inbox".into()
+        )
+    );
+    assert_eq!(windows[&b], (0, false, true, String::new(), String::new()));
+    assert_eq!(workspaces, None);
+    // Applications are never told of windows.
+    for client in [APP, OTHER] {
+        assert!(to(&events, client).iter().all(|e| !matches!(
+            e,
+            Event::WindowState { .. }
+                | Event::WindowTitle { .. }
+                | Event::WindowAppId { .. }
+                | Event::WindowClosed { .. }
+                | Event::Workspaces { .. }
+        )));
+    }
+    // Focus moving and a window going: what changed, and nothing else.
+    h.activate(inbox);
+    let events = logged(&mut h);
+    assert_eq!(
+        to(&events, SHELL),
+        [
+            Event::WindowState {
+                window: a,
+                workspace: 0,
+                minimized: false,
+                focused: true,
+            },
+            Event::WindowState {
+                window: b,
+                workspace: 0,
+                minimized: false,
+                focused: false,
+            },
+        ]
+    );
+    h.request(OTHER, Request::Destroy { surface: 1 }).unwrap();
+    let events = logged(&mut h);
+    assert_eq!(to(&events, SHELL), [Event::WindowClosed { window: b }]);
+    // A shell that connects later is told everything there is.
+    h.scene
+        .connect(
+            7,
+            Grants {
+                shell: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    let (windows, workspaces) = told(&logged(&mut h), 7);
+    assert_eq!(windows.keys().copied().collect::<Vec<_>>(), [a]);
+    assert_eq!(windows[&a].3, "Bandeja de entrada");
+    assert_eq!(workspaces, Some((1, 0)));
+}
+
+#[test]
+fn titles_come_in_order_within_their_limit_from_a_windows_owner() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    logged(&mut h);
+    let chunk = |text: &str| PreeditText::new(text).unwrap();
+    let title = |index: u8, last: bool, text: &str| Request::SetTitle {
+        surface: 1,
+        index,
+        last,
+        text: chunk(text),
+    };
+    // A title of two chunks.
+    h.request(APP, title(0, false, &"a".repeat(32))).unwrap();
+    h.request(APP, title(1, true, "b")).unwrap();
+    let (windows, _) = told(&logged(&mut h), SHELL);
+    let number = h.scene.window_number(window).unwrap();
+    assert_eq!(windows[&number].3, format!("{}b", "a".repeat(32)));
+    // A chunk out of order, a title too long, or a surface that is not a window.
+    h.request(APP, title(0, false, "x")).unwrap();
+    assert_eq!(
+        h.request(APP, title(2, true, "y")),
+        Err(ErrorCode::InvalidOrder)
+    );
+    let mut h = Harness::new();
+    h.toplevel(APP, 1, 400, 300);
+    for index in 0..8 {
+        h.request(APP, title(index, false, &"a".repeat(32)))
+            .unwrap();
+    }
+    assert_eq!(
+        h.request(APP, title(8, true, "a")),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let mut h = Harness::new();
+    let w = h.toplevel(APP, 1, 400, 300);
+    let r = h.rect(w);
+    h.open_menu(
+        w,
+        2,
+        (r.x + 10, r.y + 10),
+        menu(Rect::new(0, 0, 4, 4), 200, 100),
+    );
+    let on_popup = Request::SetTitle {
+        surface: 2,
+        index: 0,
+        last: true,
+        text: chunk("menu"),
+    };
+    assert_eq!(h.request(APP, on_popup), Err(ErrorCode::InvalidRole));
+    let missing = Request::SetTitle {
+        surface: 9,
+        index: 0,
+        last: true,
+        text: chunk("menu"),
+    };
+    assert_eq!(h.request(APP, missing), Err(ErrorCode::UnknownSurface));
+}
+
+#[test]
+fn the_shell_focuses_minimizes_moves_and_closes_windows_and_manages_workspaces() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let number = h.scene.window_number(window).unwrap();
+    let shell = |h: &mut Harness, request| h.request(SHELL, request).unwrap();
+    // Workspaces: add one, move the window there, switch to it.
+    shell(&mut h, Request::AddWorkspace {});
+    assert_eq!(h.scene.workspaces(), (2, 0));
+    shell(
+        &mut h,
+        Request::MoveWindowToWorkspace {
+            window: number,
+            workspace: 1,
+        },
+    );
+    assert!(!h.rendered(window));
+    // Minimized there, then focused from workspace 0: its workspace is shown, it is restored
+    // and focused.
+    shell(&mut h, Request::MinimizeWindow { window: number });
+    shell(&mut h, Request::FocusWindow { window: number });
+    assert_eq!(h.scene.workspaces(), (2, 1));
+    assert!(h.rendered(window) && !h.rendered(other));
+    assert_eq!(h.scene.focus(), Some(window));
+    let (windows, workspaces) = told(&logged(&mut h), SHELL);
+    assert_eq!(windows[&number].0, 1);
+    assert!(!windows[&number].1 && windows[&number].2);
+    assert_eq!(workspaces, Some((2, 1)));
+    // Close: the application is asked, and decides.
+    shell(&mut h, Request::CloseWindow { window: number });
+    assert_eq!(
+        to(&logged(&mut h), APP),
+        [Event::CloseRequested { surface: 1 }]
+    );
+    assert!(h.rendered(window));
+    // Removing the workspace takes the window to its neighbour.
+    shell(&mut h, Request::RemoveWorkspace { workspace: 1 });
+    assert_eq!(h.scene.workspaces(), (1, 0));
+    assert!(h.rendered(window) && h.rendered(other));
+    // A window that has gone is ignored; only the shell may ask.
+    shell(&mut h, Request::FocusWindow { window: 999 });
+    assert_eq!(
+        h.request(APP, Request::FocusWindow { window: number }),
+        Err(ErrorCode::Unauthorized)
+    );
+    assert_eq!(
+        h.request(APP, Request::AddWorkspace {}),
+        Err(ErrorCode::Unauthorized)
+    );
 }

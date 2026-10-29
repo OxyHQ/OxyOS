@@ -45,6 +45,26 @@ pub const OXYOS_EVENT_CLIPBOARD_EMPTY: u32 = 22;
 /// A transaction for a field with text input enabled is complete (its Done's opcode); its
 /// contents come from `oxyos_client_text_transaction`.
 pub const OXYOS_EVENT_TEXT_INPUT: u32 = 29;
+/// To the session's shell (ADR 0009): a window's state, a chunk of its title or application id,
+/// its closing, and the workspaces.
+pub const OXYOS_EVENT_WINDOW_STATE: u32 = 37;
+pub const OXYOS_EVENT_WINDOW_TITLE: u32 = 38;
+pub const OXYOS_EVENT_WINDOW_APP_ID: u32 = 39;
+pub const OXYOS_EVENT_WINDOW_CLOSED: u32 = 40;
+pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
+/// To an application: the shell asks it to close a window.
+pub const OXYOS_EVENT_CLOSE_REQUESTED: u32 = 42;
+/// A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event).
+pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
+pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
+/// What the shell asks of windows and workspaces (`oxyos_client_manage`).
+pub const OXYOS_MANAGE_FOCUS: u8 = 1;
+pub const OXYOS_MANAGE_CLOSE: u8 = 2;
+pub const OXYOS_MANAGE_MINIMIZE: u8 = 3;
+pub const OXYOS_MANAGE_MOVE: u8 = 4;
+pub const OXYOS_MANAGE_ACTIVATE_WORKSPACE: u8 = 5;
+pub const OXYOS_MANAGE_ADD_WORKSPACE: u8 = 6;
+pub const OXYOS_MANAGE_REMOVE_WORKSPACE: u8 = 7;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -414,6 +434,69 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::InputMethodSelection { .. }
         | Event::InputMethodDone { .. }
         | Event::InputMethodKey { .. } => return None,
+        Event::WindowState {
+            window,
+            workspace,
+            minimized,
+            focused,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_WINDOW_STATE,
+                code: window,
+                detail: workspace,
+                flag: u8::from(minimized) * OXYOS_WINDOW_MINIMIZED
+                    + u8::from(focused) * OXYOS_WINDOW_FOCUSED,
+                ..out
+            }
+        }
+        Event::WindowTitle {
+            window,
+            index,
+            last,
+            text,
+        }
+        | Event::WindowAppId {
+            window,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: if matches!(event, Event::WindowTitle { .. }) {
+                    OXYOS_EVENT_WINDOW_TITLE
+                } else {
+                    OXYOS_EVENT_WINDOW_APP_ID
+                },
+                code: window,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
+        Event::WindowClosed { window } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_WINDOW_CLOSED,
+                code: window,
+                ..out
+            }
+        }
+        Event::Workspaces { count, active } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_WORKSPACES,
+                detail: count,
+                code: active,
+                ..out
+            }
+        }
+        Event::CloseRequested { surface } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CLOSE_REQUESTED,
+                surface,
+                ..out
+            }
+        }
         Event::TextInputDone {
             surface,
             serial,
@@ -562,6 +645,66 @@ pub unsafe extern "C" fn oxyos_client_create_shell_surface(
         output,
         size: Size::new(width, height),
         exclusive,
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, request) }
+}
+
+/// Names a window (ADR 0009): its title, or with a non-zero `app_id` its application id
+/// (`length` bytes of UTF-8; at most 256 bytes for a title, 128 for an id). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_name_window(
+    client: *mut OxyOSClient,
+    surface: u32,
+    app_id: u8,
+    text: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let bytes = if length == 0 {
+        &[][..]
+    } else if text.is_null() {
+        return fail("null text");
+    } else {
+        // SAFETY: per the contract, `text` points to `length` readable bytes.
+        unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length) }
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return fail("a name is UTF-8");
+    };
+    status(client.name_window(surface, app_id != 0, text))
+}
+
+/// What the session's shell asks of windows and workspaces (ADR 0009, the `shell` grant):
+/// OXYOS_MANAGE_FOCUS, _CLOSE (the application is asked), _MINIMIZE or _MOVE (to `workspace`)
+/// `window`; _ACTIVATE_WORKSPACE, _ADD_WORKSPACE or _REMOVE_WORKSPACE. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_manage(
+    client: *mut OxyOSClient,
+    action: u8,
+    window: u32,
+    workspace: u32,
+) -> c_int {
+    let request = match action {
+        OXYOS_MANAGE_FOCUS => Request::FocusWindow { window },
+        OXYOS_MANAGE_CLOSE => Request::CloseWindow { window },
+        OXYOS_MANAGE_MINIMIZE => Request::MinimizeWindow { window },
+        OXYOS_MANAGE_MOVE => Request::MoveWindowToWorkspace { window, workspace },
+        OXYOS_MANAGE_ACTIVATE_WORKSPACE => Request::ActivateWorkspace { workspace },
+        OXYOS_MANAGE_ADD_WORKSPACE => Request::AddWorkspace {},
+        OXYOS_MANAGE_REMOVE_WORKSPACE => Request::RemoveWorkspace { workspace },
+        _ => return fail("unknown action"),
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }

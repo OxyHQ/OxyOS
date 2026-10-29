@@ -7,8 +7,8 @@
 use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::{
     AccessibleField, AccessibleRole, AccessibleState, BufferLayout, ClientConnection, Event,
-    Format, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
-    MIN_VERSION, VERSION,
+    Format, PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES,
+    MAX_ACCESSIBLE_TEXT_BYTES, MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -290,6 +290,38 @@ impl Client {
             .collect();
         for id in owned {
             self.destroy_buffer(id)?;
+        }
+        Ok(())
+    }
+
+    /// Names a window (ADR 0009): its title, or (`app_id`) its application id, in chunks.
+    pub fn name_window(&self, surface: u32, app_id: bool, text: &str) -> io::Result<()> {
+        let mut chunks: Vec<PreeditText> = TextChunk::split(text)
+            .iter()
+            .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
+            .collect();
+        if chunks.is_empty() {
+            chunks.push(PreeditText::new("").expect("empty"));
+        }
+        let count = chunks.len();
+        for (index, text) in chunks.into_iter().enumerate() {
+            let index = u8::try_from(index).map_err(|_| io::Error::other("name too long"))?;
+            let last = usize::from(index) + 1 == count;
+            self.send(&if app_id {
+                Request::SetAppId {
+                    surface,
+                    index,
+                    last,
+                    text,
+                }
+            } else {
+                Request::SetTitle {
+                    surface,
+                    index,
+                    last,
+                    text,
+                }
+            })?;
         }
         Ok(())
     }

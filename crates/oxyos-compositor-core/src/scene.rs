@@ -316,6 +316,7 @@ pub struct Scene {
     input_method: Option<input_method::InputMethod>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
+    shell_windows: shell::ShellWindows,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -568,6 +569,7 @@ impl Scene {
         }
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
+        self.forget_shell_client(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -695,6 +697,7 @@ impl Scene {
                     .map_or(0, |o| o.id);
                 let origin = self.centered(size, output);
                 self.insert(key(surface), Role::Toplevel, None, origin, size, output);
+                self.number_window(key(surface));
                 Ok(())
             }
             Request::CreateDialog {
@@ -892,6 +895,25 @@ impl Scene {
                 self.refresh_input_method();
                 Ok(())
             }
+            Request::SetTitle {
+                surface,
+                index,
+                last,
+                text,
+            } => self.name_window(key(surface), false, index, last, text),
+            Request::SetAppId {
+                surface,
+                index,
+                last,
+                text,
+            } => self.name_window(key(surface), true, index, last, text),
+            Request::FocusWindow { .. }
+            | Request::CloseWindow { .. }
+            | Request::MinimizeWindow { .. }
+            | Request::MoveWindowToWorkspace { .. }
+            | Request::ActivateWorkspace { .. }
+            | Request::AddWorkspace {}
+            | Request::RemoveWorkspace { .. } => self.shell_request(client, request),
             Request::InputMethodKeyHandled { .. }
             | Request::InputMethodDelete { .. }
             | Request::InputMethodCommitText { .. }
@@ -1758,6 +1780,7 @@ impl Scene {
         self.nodes.remove(&key);
         self.forget_accessibility(key);
         self.forget_text_input(key);
+        self.forget_window(key);
         if self.focus == Some(key) {
             self.focus = None;
             self.focus_next();
@@ -2741,6 +2764,8 @@ impl Scene {
     // ---- outputs for the transport/backend -----------------------------------------------
 
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
+        // The shell is told what changed of windows and workspaces since it was last told.
+        self.tell_shell();
         std::mem::take(&mut self.events)
     }
 
@@ -2792,6 +2817,8 @@ mod input_method;
 pub use input_method::MAX_PENDING_KEYS;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
+mod shell;
+pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 
 #[cfg(test)]
 mod tests;
