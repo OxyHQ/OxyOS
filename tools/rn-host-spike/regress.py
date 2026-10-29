@@ -69,7 +69,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "key", "move_window", "resize_window", "minimize_window", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal"}
@@ -84,6 +84,8 @@ def director_args(step):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
+    if kind == "pinch":
+        return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
     if kind == "key":
@@ -270,7 +272,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                shell_report=None):
     expect = step.get("expect", {})
     if through_devices:
-        expect = {**expect, **step.get("expect_devices", {})}
+        # What differs through the devices; a key set to null is not checked there.
+        expect = {key: value for key, value in {**expect, **step.get("expect_devices", {})}.items()
+                  if value is not None}
     name = f"step {index + 1} ({step.get('name', step['do'][0])})"
     end = result.get("t_settled")
     # A popup surface id is never reused: its last lifecycle event says whether it is open.

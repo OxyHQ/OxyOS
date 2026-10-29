@@ -8,7 +8,9 @@
 
 use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
-use oxyos_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection, Size};
+use oxyos_protocol::{
+    Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ServerConnection, Size,
+};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -870,6 +872,21 @@ impl Compositor {
                 oxyos_input::Action::Scroll { dx, dy } => self
                     .scene
                     .pointer_scroll((dx * 256.0).round() as i32, (dy * 256.0).round() as i32),
+                // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
+                oxyos_input::Action::Pinch {
+                    phase,
+                    scale,
+                    rotation,
+                } => self.scene.pointer_pinch(
+                    match phase {
+                        oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                        oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                        oxyos_input::GesturePhase::End => GesturePhase::End,
+                        oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                    },
+                    (scale.max(0.0) * 65536.0).round() as u32,
+                    (rotation * 256.0).round() as i32,
+                ),
                 oxyos_input::Action::Key {
                     code,
                     pressed,

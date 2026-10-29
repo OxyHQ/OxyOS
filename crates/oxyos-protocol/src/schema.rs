@@ -3,8 +3,9 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
-    ErrorCode, Format, Outcome, PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle,
-    PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
+    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape, Positioner,
+    PreeditStyle, PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
+    Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -218,6 +219,11 @@ messages! {
         41 => Workspaces { count: u32, active: u32 },
         // To an application: the shell asks it to close the window; it may refuse.
         42 => CloseRequested { surface: u32 },
+        // A touchpad pinch, to the surface under the pointer when it began, for as long as it
+        // lasts: at (x, y), the pointer (surface-local, as a Pointer event's), which a pinch does
+        // not move; `scale_65536` the fingers' spread over their spread when it began (65536 = as
+        // they started); `rotation_256` how far they turned since, in 1/256 degrees, clockwise.
+        43 => Pinch { surface: u32, serial: u64, phase: GesturePhase, x: i32, y: i32, scale_65536: u32, rotation_256: i32 },
     }
 }
 

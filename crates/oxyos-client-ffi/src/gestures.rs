@@ -41,6 +41,10 @@ pub const OXYOS_GESTURE_HAS_TRANSLATION: u8 = 2;
 pub const OXYOS_GESTURE_HAS_VELOCITY: u8 = 4;
 pub const OXYOS_GESTURE_HAS_DURATION: u8 = 8;
 pub const OXYOS_GESTURE_HAS_POINTER_INSIDE: u8 = 16;
+/// A pinch's `scale`, `focal_x`, `focal_y` and `rate` (its `velocity`).
+pub const OXYOS_GESTURE_HAS_SCALE: u8 = 32;
+/// A rotation's `rotation`, `anchor_x`, `anchor_y` and `rate` (its `velocity`).
+pub const OXYOS_GESTURE_HAS_ROTATION: u8 = 64;
 
 /// A setting: its key (`key_length` bytes of UTF-8) and value. A bool's or a number's is
 /// `number`; a list's (a hit slop's) is `list`, entry i set when bit i of `list_set` is; a text's
@@ -118,6 +122,13 @@ pub struct OxyOSGestureOutput {
     pub velocity_x: f32,
     pub velocity_y: f32,
     pub duration: u64,
+    pub scale: f32,
+    pub focal_x: f32,
+    pub focal_y: f32,
+    pub rotation: f32,
+    pub anchor_x: f32,
+    pub anchor_y: f32,
+    pub rate: f32,
 }
 
 /// The orchestrator, and what it produced not yet read.
@@ -683,5 +694,17 @@ fn fill(out: &mut OxyOSGestureOutput, data: &Data) {
     if let Some(inside) = data.pointer_inside {
         out.fields |= OXYOS_GESTURE_HAS_POINTER_INSIDE;
         out.pointer_inside = inside.into();
+    }
+    if let (Some(scale), Some((x, y))) = (data.scale, data.focal) {
+        out.fields |= OXYOS_GESTURE_HAS_SCALE;
+        out.scale = scale as f32;
+        (out.focal_x, out.focal_y) = (x, y);
+        out.rate = data.rate.unwrap_or(0.0) as f32;
+    }
+    if let (Some(rotation), Some((x, y))) = (data.rotation, data.anchor) {
+        out.fields |= OXYOS_GESTURE_HAS_ROTATION;
+        out.rotation = rotation as f32;
+        (out.anchor_x, out.anchor_y) = (x, y);
+        out.rate = data.rate.unwrap_or(0.0) as f32;
     }
 }

@@ -524,6 +524,11 @@ int main(int argc, char** argv) {
     pointer.feedsGestures([&gestures](int phase, const oxyos::SurfaceContent& content, float x, float y) {
       gestures->pointer(static_cast<oxyos::GestureHandlerHost::Phase>(phase), content, x, y);
     });
+    pointer.setScale(display.scale);
+    pointer.feedsFingers([&gestures](uint8_t action, size_t index, const oxyos::SurfaceContent& content,
+                                     const std::vector<facebook::react::Point>& fingers) {
+      gestures->fingers(action, index, content, fingers);
+    });
     gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
     gestures->onIntercept = [&editing] { editing.releaseDrag(); };
     editing.useClipboard({
@@ -699,6 +704,7 @@ int main(int argc, char** argv) {
         bool resized = window->resized();
         if (resized) {
           display = oxyos::Display{window->width(), window->height(), window->scale()};
+          pointer.setScale(display.scale);
           layOut();
           // A new size or scale needs a new frame even when the layout does not change (a
           // scale change keeps every logical frame); the old one would be discarded.
