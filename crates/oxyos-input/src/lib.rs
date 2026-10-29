@@ -180,8 +180,26 @@ fn shown(keysym: xkb::Keysym) -> String {
     accent.to_string()
 }
 
-/// One key of a sequence that types a character: a Linux key code, and whether Shift is held.
-pub type Stroke = (u32, bool);
+/// One key of a sequence that types a character: a Linux key code, and the modifier keys held
+/// while it is pressed (Shift, the layout's AltGr), in the order they are pressed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stroke {
+    pub code: u32,
+    pub held: Vec<u32>,
+}
+
+impl Stroke {
+    pub fn new(code: u32, held: &[u32]) -> Self {
+        Self {
+            code,
+            held: held.to_vec(),
+        }
+    }
+}
+
+/// The left Shift key's and the right Alt key's Linux input codes.
+const LEFT_SHIFT: u32 = 42;
+const RIGHT_ALT: u32 = 100;
 
 /// An XKB keymap by its names: a layout (`us`, `es`, ...), its variant and options.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -394,27 +412,41 @@ impl Keyboard {
     /// composes with. `None` if neither does (or there is no compose table and it needs one).
     pub fn key_for(&self, character: char) -> Option<Vec<Stroke>> {
         let keymap = self.state.get_keymap();
-        let shift = keymap.mod_get_index(xkb::MOD_NAME_SHIFT);
         let mut wanted = [0u8; 4];
         let wanted = character.encode_utf8(&mut wanted);
-        // Every key's symbol and text, unshifted first.
+        // The layout's AltGr, if it has one: a key whose symbol shifts to the third level, the
+        // right Alt where it is one (the keymap also gives it to keys no keyboard has).
+        let plain = xkb::State::new(&keymap);
+        let level3 = |code: &u32| {
+            xkb::keysym_get_name(plain.key_get_one_sym(xkb::Keycode::new(code + 8)))
+                == "ISO_Level3_Shift"
+        };
+        let altgr = Some(RIGHT_ALT)
+            .filter(level3)
+            .or_else(|| (1..248).find(level3));
+        let mut levels = vec![vec![], vec![LEFT_SHIFT]];
+        if let Some(altgr) = altgr {
+            levels.extend([vec![altgr], vec![LEFT_SHIFT, altgr]]);
+        }
+        // Every key's symbol and text at each level, with its modifiers held as a person holds
+        // them (pressed, not a mask), the fewest first.
         let mut keys = Vec::new();
-        for shifted in [false, true] {
+        for held in &levels {
             let mut state = xkb::State::new(&keymap);
-            if shifted {
-                state.update_mask(1 << shift, 0, 0, 0, 0, 0);
+            for &key in held {
+                state.update_key(xkb::Keycode::new(key + 8), xkb::KeyDirection::Down);
             }
-            for code in 1..248 {
+            for code in (1..248).filter(|code| !held.contains(code)) {
                 let keycode = xkb::Keycode::new(code + 8);
                 keys.push((
-                    (code, shifted),
+                    Stroke::new(code, held),
                     state.key_get_one_sym(keycode),
                     state.key_get_utf8(keycode),
                 ));
             }
         }
         if let Some((stroke, _, _)) = keys.iter().find(|(_, _, text)| text == wanted) {
-            return Some(vec![*stroke]);
+            return Some(vec![stroke.clone()]);
         }
         // A state of its own: cloning one only references it, and a composition may be under way.
         let table = self.compose.as_ref()?.compose_table();
@@ -430,7 +462,7 @@ impl Keyboard {
                 if compose.status() == compose::Status::Composed
                     && compose.utf8().as_deref() == Some(wanted)
                 {
-                    return Some(vec![*dead_stroke, *stroke]);
+                    return Some(vec![dead_stroke.clone(), stroke.clone()]);
                 }
             }
         }

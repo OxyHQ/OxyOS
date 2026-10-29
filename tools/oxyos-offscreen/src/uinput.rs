@@ -17,7 +17,6 @@ const EV_ABS: u16 = 3;
 /// millimetres, so a touchpad needs its resolution).
 const PAD: (i32, i32) = (4000, 2400);
 const PAD_RESOLUTION: i32 = 40;
-const LEFT_SHIFT: u16 = 42;
 /// One wheel notch in REL_WHEEL_HI_RES units; libinput turns a notch into 15 logical pixels.
 const NOTCH: i32 = 120;
 const PIXELS_PER_NOTCH: i32 = 15;
@@ -222,15 +221,15 @@ impl Devices {
         let Some(strokes) = self.layout.key_for(character) else {
             return Ok(false);
         };
-        for (code, shifted) in strokes {
-            let code = code as u16;
-            if shifted {
-                self.key(LEFT_SHIFT, true)?;
+        // The modifiers (Shift, AltGr) held around the key, as a person holds them.
+        for stroke in strokes {
+            for &key in &stroke.held {
+                self.key(key as u16, true)?;
             }
-            self.key(code, true)?;
-            self.key(code, false)?;
-            if shifted {
-                self.key(LEFT_SHIFT, false)?;
+            self.key(stroke.code as u16, true)?;
+            self.key(stroke.code as u16, false)?;
+            for &key in stroke.held.iter().rev() {
+                self.key(key as u16, false)?;
             }
         }
         Ok(true)

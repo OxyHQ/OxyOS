@@ -56,13 +56,13 @@ fn press(keyboard: &mut Keyboard, code: u32) -> Typed {
 /// Types what `key_for` returns for `character`, as a person would.
 fn type_with(keyboard: &mut Keyboard, strokes: &[Stroke]) -> Option<String> {
     let mut text = None;
-    for &(code, shifted) in strokes {
-        if shifted {
-            keyboard.key(SHIFT, true);
+    for stroke in strokes {
+        for &key in &stroke.held {
+            keyboard.key(key, true);
         }
-        text = tap(keyboard, code);
-        if shifted {
-            keyboard.key(SHIFT, false);
+        text = tap(keyboard, stroke.code);
+        for &key in stroke.held.iter().rev() {
+            keyboard.key(key, false);
         }
     }
     text
@@ -134,19 +134,25 @@ fn without_a_compose_table_dead_keys_type_nothing() {
 #[test]
 fn characters_map_back_to_their_keys() {
     let es = composing("es");
-    assert_eq!(es.key_for('a'), Some(vec![(A, false)]));
-    assert_eq!(es.key_for('H'), Some(vec![(35, true)]));
-    assert_eq!(es.key_for('!'), Some(vec![(ONE, true)]));
-    assert_eq!(es.key_for('ñ'), Some(vec![(SEMICOLON, false)]));
-    assert_eq!(es.key_for(' '), Some(vec![(SPACE, false)]));
+    let key = |code| Stroke::new(code, &[]);
+    let shifted = |code| Stroke::new(code, &[SHIFT]);
+    assert_eq!(es.key_for('a'), Some(vec![key(A)]));
+    assert_eq!(es.key_for('H'), Some(vec![shifted(35)]));
+    assert_eq!(es.key_for('!'), Some(vec![shifted(ONE)]));
+    assert_eq!(es.key_for('ñ'), Some(vec![key(SEMICOLON)]));
+    assert_eq!(es.key_for(' '), Some(vec![key(SPACE)]));
+    // AltGr (the right Alt on Spanish) and the key.
+    const ALTGR: u32 = 100;
+    assert_eq!(es.key_for('@'), Some(vec![Stroke::new(2 + 1, &[ALTGR])]));
+    assert_eq!(es.key_for('€'), Some(vec![Stroke::new(18, &[ALTGR])]));
     // A dead key and a vowel.
-    assert_eq!(es.key_for('ó'), Some(vec![(APOSTROPHE, false), (O, false)]));
-    assert_eq!(es.key_for('Ó'), Some(vec![(APOSTROPHE, false), (O, true)]));
+    assert_eq!(es.key_for('ó'), Some(vec![key(APOSTROPHE), key(O)]));
+    assert_eq!(es.key_for('Ó'), Some(vec![key(APOSTROPHE), shifted(O)]));
     // Nothing on the layout types it.
-    assert_eq!(es.key_for('ß'), None);
+    assert_eq!(es.key_for('中'), None);
     // Typing what is found for each character types that character.
     let mut typing = composing("es");
-    for character in "Hola OxyOS!¡Adiós Ñandú".chars() {
+    for character in "Hola OxyOS!¡Adiós Ñandú @#€[]{}|\\~".chars() {
         let strokes = es.key_for(character).unwrap();
         assert_eq!(
             type_with(&mut typing, &strokes),
@@ -267,6 +273,13 @@ fn caps_lock_locks_on_its_press_and_unlocks_on_the_next() {
     us.key(CAPS_LOCK, false);
     assert!(!us.caps_locked());
     assert_eq!(tap(&mut us, A), Some("a".into()));
+}
+
+#[test]
+fn a_layout_without_altgr_finds_no_third_level() {
+    let us = composing("us");
+    assert_eq!(us.key_for('@'), Some(vec![Stroke::new(3, &[SHIFT])]));
+    assert_eq!(us.key_for('€'), None);
 }
 
 #[test]
