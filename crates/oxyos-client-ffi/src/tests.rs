@@ -1921,12 +1921,12 @@ fn a_tap_is_recognized_through_the_c_abi() {
             0
         );
         assert_eq!(refused, [0, 1, 0]);
-        let pinch = "PinchGestureHandler";
+        let hover = "HoverGestureHandler";
         assert_eq!(
             oxyos_gestures_create(
                 gestures,
-                pinch.as_ptr().cast(),
-                pinch.len(),
+                hover.as_ptr().cast(),
+                hover.len(),
                 8,
                 config.as_ptr(),
                 0,

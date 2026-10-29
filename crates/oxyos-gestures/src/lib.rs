@@ -10,11 +10,16 @@
 //! so recognition never reads a clock.
 //!
 //! Ported: the orchestrator (recording, activation, waiting for failure, simultaneity, blocking,
-//! cancellation, cleanup), state changes from JavaScript, and the pan, tap, long-press, fling and
-//! manual handlers. Where OxyOS differs from Android, and the port says so:
+//! cancellation, cleanup), state changes from JavaScript, and the pan, tap, long-press, fling,
+//! manual, pinch and rotation handlers, the last two with react-native-gesture-handler's own
+//! `ScaleGestureDetector` and `RotationGestureDetector`. Where OxyOS differs from Android, and the
+//! port says so:
 //! - the native-view handler (`NativeViewGestureHandler`) needs a native view's own touch
 //!   handling, which the host does not have: it begins and fails, never taking over;
-//! - pinch, rotation and hover handlers are not ported: creating one fails;
+//! - the hover handler is not ported: creating one fails;
+//! - a pinch's detector has no anchored scale (a double tap then a drag, or a stylus button held),
+//!   which a pinch never sees on Android either: its detector is new with each gesture, so has no
+//!   earlier tap, and the host feeds no stylus buttons;
 //! - velocity is a least-squares fit like Android's default `VelocityTracker`, in `velocity.rs`;
 //! - the root view's own handler is not a handler here: what its cancellation does, taking the
 //!   gesture from the views under it, comes out as [`Output::Intercept`].
@@ -158,6 +163,17 @@ pub struct Data {
     pub duration: Option<u64>,
     /// A native view's.
     pub pointer_inside: Option<bool>,
+    /// A pinch's, since it activated.
+    pub scale: Option<f64>,
+    /// A pinch's focal point (`focalX`, `focalY`), in its view.
+    pub focal: Option<(f32, f32)>,
+    /// A rotation's since it activated, in radians, clockwise positive.
+    pub rotation: Option<f64>,
+    /// A rotation's anchor (`anchorX`, `anchorY`), in its view.
+    pub anchor: Option<(f32, f32)>,
+    /// A pinch's or a rotation's `velocity`: scale per second, or radians per millisecond (Android
+    /// divides a rotation by its detector's milliseconds, where iOS's is per second).
+    pub rate: Option<f64>,
 }
 
 /// What recognition produces, in order.

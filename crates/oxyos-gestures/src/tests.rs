@@ -86,6 +86,14 @@ impl World {
         self.send(Action::Move, index)
     }
 
+    /// Every pointer down moved at once, in one event, as two fingers move.
+    fn drag_all(&mut self, to: &[(f32, f32)]) -> Vec<String> {
+        for (pointer, &(x, y)) in self.down.iter_mut().zip(to) {
+            (pointer.x, pointer.y) = (x, y);
+        }
+        self.send(Action::Move, 0)
+    }
+
     fn lift(&mut self, id: u32) -> Vec<String> {
         let index = self.down.iter().position(|p| p.id == id).expect("down");
         let action = if self.down.len() == 1 {
@@ -764,8 +772,8 @@ fn a_handler_attached_elsewhere_leaves_its_old_view() {
 fn what_is_not_ported_is_refused_or_returned() {
     let mut o = Orchestrator::new();
     assert_eq!(
-        o.create("PinchGestureHandler", 1, &[]),
-        Err(Refused::Unsupported("PinchGestureHandler".into()))
+        o.create("HoverGestureHandler", 1, &[]),
+        Err(Refused::Unsupported("HoverGestureHandler".into()))
     );
     assert_eq!(
         o.create(
@@ -1086,5 +1094,330 @@ fn a_pointer_going_up_somewhere_new_moves_there_first() {
     );
     assert_eq!(touches(&w.last[0]).0, vec![point(0, 62.0, 60.0)]);
     w.down.clear();
+    w.settled();
+}
+
+// ---- pinch and rotation: two fingers, as the host feeds a touchpad's ----
+
+/// Two fingers `half` apart from `center` either way, along the line `angle` radians clockwise
+/// (y grows downwards) from the x axis: the first behind the center, the second ahead.
+fn fingers(center: (f32, f32), half: f32, angle: f64) -> [(f32, f32); 2] {
+    let (dx, dy) = (f64::from(half) * angle.cos(), f64::from(half) * angle.sin());
+    let (cx, cy) = (f64::from(center.0), f64::from(center.1));
+    [
+        ((cx - dx) as f32, (cy - dy) as f32),
+        ((cx + dx) as f32, (cy + dy) as f32),
+    ]
+}
+
+fn close(a: f64, b: f64, within: f64) -> bool {
+    (a - b).abs() <= within
+}
+
+/// Two fingers down on VIEW, `half` either side of `center` along `angle`.
+fn two_down(w: &mut World, center: (f32, f32), half: f32, angle: f64) -> Vec<String> {
+    let [a, b] = fingers(center, half, angle);
+    let mut out = w.press(0, a.0, a.1);
+    out.extend(w.after(10).press(1, b.0, b.1));
+    out
+}
+
+#[test]
+fn a_spread_activates_a_pinch_past_its_slops_and_scales_from_there() {
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    // Centered at (90, 110), (40, 60) in VIEW. The span is the fingers' distance: 20.
+    let center = (90.0, 110.0);
+    assert_eq!(w.press(0, 80.0, 110.0), strings(&[]));
+    assert_eq!(
+        w.after(10).press(1, 100.0, 110.0),
+        strings(&["1 Undetermined>Began"])
+    );
+    // It began before its detector saw the second finger: the focal point is the first's.
+    let began = data(&w.last[0]).clone();
+    assert_eq!(began.focal, Some((30.0, 60.0)));
+    assert_eq!(began.scale, Some(1.0));
+    assert_eq!(began.position, None);
+    // Span 40: past the detector's slop (16, twice the touch slop), its scale begins there.
+    let [a, b] = fingers(center, 20.0, 0.0);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    // Span 50: past the pinch's slop (8) from 40, it activates, its scale reset to 1.
+    let [a, b] = fingers(center, 25.0, 0.0);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        activated(&["1 Began>Active", "1 update"])
+    );
+    let update = data(&w.last[3]).clone();
+    assert_eq!(update.scale, Some(1.0));
+    assert_eq!(update.rate, Some(0.0));
+    assert_eq!(update.focal, Some((40.0, 60.0)));
+    assert_eq!(update.number_of_pointers, 2);
+    // Span 60: 60 / 50 in ten milliseconds.
+    let [a, b] = fingers(center, 30.0, 0.0);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&["1 update"]));
+    let update = data(&w.last[0]).clone();
+    let scale = update.scale.expect("a pinch's");
+    assert!(close(scale, 1.2, 1e-6), "{scale}");
+    let rate = update.rate.expect("a pinch's");
+    assert!(close(rate, 20.0, 1e-3), "{rate}");
+    assert_eq!(update.focal, Some((40.0, 60.0)));
+    // One finger up: it stays active, its focal point the finger left.
+    assert_eq!(w.after(10).lift(1), strings(&["1 update"]));
+    let update = data(&w.last[0]).clone();
+    assert_eq!(update.focal, Some((10.0, 60.0)));
+    assert_eq!(update.number_of_pointers, 1);
+    assert_eq!(w.after(10).lift(0), strings(&["1 Active>End"]));
+    let end = data(&w.last[0]).clone();
+    assert!(close(end.scale.expect("a pinch's"), 1.2, 1e-6));
+    w.settled();
+}
+
+#[test]
+fn a_pinch_in_scales_below_one() {
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    let center = (100.0, 100.0);
+    // Span 80, then 60 (its scale begins), 50 (it activates), 40: 40 / 50.
+    assert_eq!(
+        two_down(&mut w, center, 40.0, 0.0),
+        strings(&["1 Undetermined>Began"])
+    );
+    let [a, b] = fingers(center, 30.0, 0.0);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    let [a, b] = fingers(center, 25.0, 0.0);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        activated(&["1 Began>Active", "1 update"])
+    );
+    let [a, b] = fingers(center, 20.0, 0.0);
+    w.after(10).drag_all(&[a, b]);
+    let update = data(&w.last[0]).clone();
+    let scale = update.scale.expect("a pinch's");
+    assert!(close(scale, 0.8, 1e-6), "{scale}");
+    let rate = update.rate.expect("a pinch's");
+    assert!(close(rate, -20.0, 1e-3), "{rate}");
+    assert_eq!(update.focal, Some((50.0, 50.0)));
+}
+
+#[test]
+fn a_spread_within_the_detectors_slop_fails_the_pinch() {
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    let center = (100.0, 100.0);
+    two_down(&mut w, center, 10.0, 0.0);
+    // Span 20 to 30, then 36: 16 from where it was, not past the detector's slop.
+    for half in [15.0, 18.0] {
+        let [a, b] = fingers(center, half, 0.0);
+        assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    }
+    assert_eq!(w.after(10).lift(1), strings(&[]));
+    assert_eq!(w.after(10).lift(0), strings(&["1 Began>Failed"]));
+    w.settled();
+}
+
+#[test]
+fn one_finger_never_begins_a_pinch_or_a_rotation() {
+    for name in ["PinchGestureHandler", "RotationGestureHandler"] {
+        let mut w = World::new();
+        w.handler(name, 1, VIEW, &[]);
+        assert_eq!(w.press(0, 60.0, 60.0), strings(&[]));
+        assert_eq!(w.after(10).drag(0, 100.0, 100.0), strings(&[]));
+        // Cancelled before it began: JavaScript is told nothing.
+        assert_eq!(w.after(10).lift(0), strings(&[]));
+        w.settled();
+    }
+}
+
+#[test]
+fn a_clockwise_twist_activates_a_rotation_and_turns_positive() {
+    let mut w = World::new();
+    w.handler("RotationGestureHandler", 1, VIEW, &[]);
+    // Centered at (100, 100), (50, 50) in VIEW, the fingers 40 apart.
+    let center = (100.0, 100.0);
+    assert_eq!(
+        two_down(&mut w, center, 20.0, 0.0),
+        strings(&["1 Undetermined>Began"])
+    );
+    // It began before its detector saw the second finger, whose anchor is then the root's origin.
+    let began = data(&w.last[0]).clone();
+    assert_eq!(began.anchor, Some((-50.0, -50.0)));
+    assert_eq!(began.rotation, Some(0.0));
+    assert_eq!(began.position, None);
+    // The first move after the second finger down turns nothing, as Android's detector does.
+    let [a, b] = fingers(center, 20.0, 0.05);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    // A tenth of a radian, past five degrees: it activates, its rotation reset.
+    let [a, b] = fingers(center, 20.0, 0.15);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        activated(&["1 Began>Active", "1 update"])
+    );
+    let update = data(&w.last[3]).clone();
+    assert_eq!(update.rotation, Some(0.0));
+    assert_eq!(update.rate, Some(0.0));
+    assert_eq!(update.anchor, Some((50.0, 50.0)));
+    // Clockwise is positive: a tenth of a radian in ten milliseconds.
+    let [a, b] = fingers(center, 20.0, 0.25);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&["1 update"]));
+    let update = data(&w.last[0]).clone();
+    let rotation = update.rotation.expect("a rotation's");
+    assert!(close(rotation, 0.1, 1e-5), "{rotation}");
+    let rate = update.rate.expect("a rotation's");
+    assert!(close(rate, 0.01, 1e-6), "{rate}");
+    assert_eq!(update.anchor, Some((50.0, 50.0)));
+    // Back two tenths, anticlockwise: negative.
+    let [a, b] = fingers(center, 20.0, 0.05);
+    w.after(10).drag_all(&[a, b]);
+    let rotation = data(&w.last[0]).rotation.expect("a rotation's");
+    assert!(close(rotation, -0.1, 1e-5), "{rotation}");
+    // One finger up pauses it, still active; the last up ends it.
+    assert_eq!(w.after(10).lift(0), strings(&["1 update"]));
+    assert_eq!(w.after(10).lift(1), strings(&["1 Active>End"]));
+    w.settled();
+}
+
+#[test]
+fn a_twist_under_five_degrees_fails_the_rotation() {
+    let mut w = World::new();
+    w.handler("RotationGestureHandler", 1, VIEW, &[]);
+    let center = (100.0, 100.0);
+    two_down(&mut w, center, 20.0, 0.0);
+    // 0.08 rad turned in all, under 5 degrees (0.0873).
+    for angle in [0.02, 0.06, 0.1] {
+        let [a, b] = fingers(center, 20.0, angle);
+        assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    }
+    // Its detector finishes it once the last finger is up.
+    assert_eq!(w.after(10).lift(0), strings(&[]));
+    assert_eq!(w.after(10).lift(1), strings(&["1 Began>Failed"]));
+    w.settled();
+}
+
+#[test]
+fn a_pinch_and_a_rotation_simultaneous_both_activate() {
+    let center = (100.0, 100.0);
+    // Spreading and twisting at once: span 20, 40, 50, 60, and 0, 0.05, 0.15, 0.25 rad.
+    let steps = [(20.0, 0.05), (25.0, 0.15), (30.0, 0.25)];
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    w.handler("RotationGestureHandler", 2, VIEW, &[]);
+    w.o.relate(
+        1,
+        Relations {
+            simultaneous_with: vec![2],
+            ..Relations::default()
+        },
+    )
+    .expect("related");
+    assert_eq!(
+        two_down(&mut w, center, 10.0, 0.0),
+        strings(&["1 Undetermined>Began", "2 Undetermined>Began"])
+    );
+    let mut runs = Vec::new();
+    for (half, angle) in steps {
+        let [a, b] = fingers(center, half, angle);
+        runs.push(w.after(10).drag_all(&[a, b]));
+    }
+    assert_eq!(
+        runs,
+        vec![
+            strings(&[]),
+            strings(&[
+                "intercept",
+                "1 cancel-responder",
+                "1 Began>Active",
+                "1 update",
+                "2 cancel-responder",
+                "2 Began>Active",
+                "2 update"
+            ]),
+            // The one activated last first, as Android delivers.
+            strings(&["2 update", "1 update"]),
+        ]
+    );
+    let rotation = data(&w.last[0]).rotation.expect("a rotation's");
+    assert!(close(rotation, 0.1, 1e-5), "{rotation}");
+    let scale = data(&w.last[1]).scale.expect("a pinch's");
+    assert!(close(scale, 1.2, 1e-5), "{scale}");
+    w.after(10).lift(1);
+    assert_eq!(
+        w.after(10).lift(0),
+        strings(&["2 Active>End", "1 Active>End"])
+    );
+    w.settled();
+    // Not simultaneous: the pinch, activating first, cancels the rotation.
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    w.handler("RotationGestureHandler", 2, VIEW, &[]);
+    two_down(&mut w, center, 10.0, 0.0);
+    let [a, b] = fingers(center, steps[0].0, steps[0].1);
+    w.after(10).drag_all(&[a, b]);
+    let [a, b] = fingers(center, steps[1].0, steps[1].1);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        strings(&[
+            "2 Began>Cancelled",
+            "intercept",
+            "1 cancel-responder",
+            "1 Began>Active",
+            "1 update"
+        ])
+    );
+}
+
+#[test]
+fn a_pan_on_a_pinchs_view_activates_first_unless_it_waits() {
+    let center = (100.0, 100.0);
+    // The pan follows the last finger: 10 on at span 40, past its touch slop, while the pinch's
+    // scale has only begun.
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    w.handler("PanGestureHandler", 2, VIEW, &[]);
+    assert_eq!(
+        two_down(&mut w, center, 10.0, 0.0),
+        strings(&["2 Undetermined>Began", "1 Undetermined>Began"])
+    );
+    let [a, b] = fingers(center, 20.0, 0.0);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        strings(&[
+            "1 Began>Cancelled",
+            "intercept",
+            "2 cancel-responder",
+            "2 Began>Active",
+            "2 update"
+        ])
+    );
+    w.after(10).lift(1);
+    assert_eq!(w.after(10).lift(0), strings(&["2 Active>End"]));
+    w.settled();
+    // Waiting for the pinch: the pan is recognized and waits, the pinch activates, and its end
+    // cancels the pan.
+    let mut w = World::new();
+    w.handler("PinchGestureHandler", 1, VIEW, &[]);
+    w.handler("PanGestureHandler", 2, VIEW, &[]);
+    w.o.relate(
+        2,
+        Relations {
+            wait_for: vec![1],
+            ..Relations::default()
+        },
+    )
+    .expect("related");
+    two_down(&mut w, center, 10.0, 0.0);
+    let [a, b] = fingers(center, 20.0, 0.0);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&[]));
+    let [a, b] = fingers(center, 25.0, 0.0);
+    assert_eq!(
+        w.after(10).drag_all(&[a, b]),
+        activated(&["1 Began>Active", "1 update"])
+    );
+    let [a, b] = fingers(center, 30.0, 0.0);
+    assert_eq!(w.after(10).drag_all(&[a, b]), strings(&["1 update"]));
+    assert_eq!(w.after(10).lift(1), strings(&["1 update"]));
+    assert_eq!(
+        w.after(10).lift(0),
+        strings(&["2 Began>Cancelled", "1 Active>End"])
+    );
     w.settled();
 }
