@@ -53,6 +53,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --host BIN --bundle DIR [--out D
 
 import argparse
 import json
+import re
 import struct
 import zlib
 import os
@@ -242,7 +243,8 @@ def gesture_events(report, start, end):
     for line in report:
         if line["kind"] != "gesture" or not start <= line["t"] <= end:
             continue
-        who = f"{line.get('handler')}@{line.get('view')}"
+        # A view without a testID or label is named by its component: its tag is arbitrary.
+        who = f"{line.get('handler')}@{re.sub(r'#[0-9]+$', '', str(line.get('view')))}"
         if line["event"] == "state":
             events.append(f"{who} {line['oldState']}>{line['state']}")
         elif line["event"] == "update":

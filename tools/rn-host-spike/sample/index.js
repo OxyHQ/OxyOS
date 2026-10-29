@@ -8,6 +8,7 @@ import EditingProbe from './EditingProbe';
 import ImageProbe from './ImageProbe';
 import ImeProbe from './ImeProbe';
 import SecureProbe from './SecureProbe';
+import SheetProbe from './SheetProbe';
 import ShellProbe, { ShellSession } from './ShellProbe';
 import NetworkProbe from './NetworkProbe';
 
@@ -19,5 +20,6 @@ AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
 AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
 AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);
+AppRegistry.registerComponent('SheetProbe', () => SheetProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
 AppRegistry.registerComponent('OxyOSShell', () => ShellSession);
