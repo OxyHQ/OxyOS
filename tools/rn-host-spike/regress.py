@@ -50,6 +50,9 @@ through it (it gives the keys back), `compose_keys` steps have it compose them (
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
 before.
 
+A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
+that moment where that time zone is (ADR 0012).
+
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
 
@@ -620,6 +623,13 @@ def main():
         refusing.bind(("127.0.0.1", port + 1))
     if options.check_damage:
         env["OXYOS_HOST_DAMAGE_CHECK"] = "1"
+    if scenario.get("wallpaper"):
+        # The solar wallpaper (ADR 0012) at a moment and a time zone the scenario fixes: the
+        # wallpaper's folder (from the repository's root), "TZ" and "now" (unix seconds).
+        wallpaper = scenario["wallpaper"]
+        env["OXYOS_WALLPAPER"] = str(pathlib.Path(__file__).resolve().parents[2] / wallpaper["folder"])
+        env["TZ"] = wallpaper["tz"]
+        env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
     run = subprocess.run(command, env=env, capture_output=True, text=True)
     (out / "director.log").write_text(run.stdout + run.stderr)
     if run.returncode != 0:

@@ -2194,6 +2194,13 @@ fn declaration(name: &str) -> String {
             "size_t" => "usize".into(),
             "double" => "f64".into(),
             "int64_t" => "i64".into(),
+            "int64_t*" => "*mut i64".into(),
+            "uint32_t*" => "*mut u32".into(),
+            "int" => "i32".into(),
+            "const OxyOSSolarAnchor*" => format!(
+                "*const {}",
+                std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
+            ),
             other => panic!("unexpected type {other}"),
         }
     };
@@ -2578,6 +2585,31 @@ fn a_password_goes_in_chunks_then_is_submitted() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_solar_abi() {
+    use crate::solar::*;
+    assert_eq!(size_of::<OxyOSSolarAnchor>(), 24);
+    assert_eq!(
+        [
+            offset_of!(OxyOSSolarAnchor, frame),
+            offset_of!(OxyOSSolarAnchor, elevation),
+            offset_of!(OxyOSSolarAnchor, azimuth),
+        ],
+        [0, 8, 16]
+    );
+    type Frame =
+        unsafe extern "C" fn(*const OxyOSSolarAnchor, usize, i64, *mut u32, *mut i64) -> c_int;
+    assert_eq!(
+        declaration("oxyos_solar_frame"),
+        type_of(oxyos_solar_frame as Frame)
+    );
+    // No anchors: an error, nothing written.
+    let (mut frame, mut next) = (7u32, 7i64);
+    // SAFETY: a null array with a count of 0, and writable outputs.
+    let refused = unsafe { oxyos_solar_frame(std::ptr::null(), 0, 0, &mut frame, &mut next) };
+    assert_eq!((refused, frame, next), (OXYOS_ERROR, 7, 7));
 }
 
 #[test]

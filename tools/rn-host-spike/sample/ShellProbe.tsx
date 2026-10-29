@@ -87,12 +87,15 @@ function ProbeShell({
   act = actions,
   now = PROBE_TIME,
   lock,
+  wallpaper,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
   shown?: ShellSnapshot;
   act?: ShellActions;
   now?: Date;
   lock?: ShellLock;
+  /** The wallpaper the system chose (the solar wallpaper's frame now); the fixture's without. */
+  wallpaper?: string;
 }) {
   return (
       <SafeAreaProvider>
@@ -100,7 +103,7 @@ function ProbeShell({
           <Shell
             snapshot={shown}
             actions={act}
-            wallpaper={require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
+            wallpaper={wallpaper ? { uri: wallpaper } : require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
             now={now}
             lock={lock}
             platform={platform}
@@ -167,5 +170,7 @@ export function ShellSession() {
     authenticate: shell.authenticate,
     answer: shell.authentication ?? undefined,
   };
-  return <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} lock={lock} />;
+  return (
+    <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} lock={lock} wallpaper={state.wallpaper ?? undefined} />
+  );
 }
