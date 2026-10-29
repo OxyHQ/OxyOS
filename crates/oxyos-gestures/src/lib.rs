@@ -17,8 +17,8 @@
 //! - pinch, rotation and hover handlers are not ported: creating one fails;
 //! - touch events (`onTouchesDown` and the rest, `needsPointerData`) are not sent;
 //! - velocity is a least-squares fit like Android's default `VelocityTracker`, in `velocity.rs`;
-//! - the root view's own handler is not a handler here: what it does for React Native, taking the
-//!   gesture from it, comes out as [`Output::Intercept`].
+//! - the root view's own handler is not a handler here: what its cancellation does, taking the
+//!   gesture from the views under it, comes out as [`Output::Intercept`].
 
 use std::collections::BTreeMap;
 
@@ -154,11 +154,14 @@ pub enum Output {
     },
     /// `onGestureHandlerEvent`, while a handler is active.
     Update { tag: Tag, view: ViewTag, data: Data },
-    /// A handler activated: until every pointer is up, the rest of the gesture is not React
-    /// Native's, as Android's root view takes the gesture once its own handler is cancelled.
+    /// A handler activated while a pointer is down: until every pointer is up, the views' own
+    /// touch handling (a text input's drag selection) is given nothing more, as Android's root view
+    /// takes the gesture from the views under it once its own handler is cancelled. React Native's
+    /// JavaScript touch is [`Output::CancelResponder`]'s.
     Intercept,
     /// A handler activated and cancels React Native's touch responder (`cancelsJSResponder`):
-    /// React Native is told its touch is cancelled, as Android's root view does.
+    /// JavaScript is sent `touchcancel` and nothing more of the gesture, as Android's
+    /// `JSTouchDispatcher` does when a child starts a native gesture.
     CancelResponder { tag: Tag },
 }
 
@@ -205,8 +208,8 @@ impl Orchestrator {
         Self::default()
     }
 
-    /// `createGestureHandler`: a handler by its name, set to `config`. The keys of `config` it
-    /// does not take are returned, for the host to report.
+    /// `createGestureHandler`: a handler by its name, set to `config`. The keys whose values
+    /// OxyOS cannot honour are returned, for the host to report; keys Android ignores are ignored.
     pub fn create(
         &mut self,
         name: &str,
@@ -221,8 +224,8 @@ impl Orchestrator {
         self.configure(tag, config, true)
     }
 
-    /// `setGestureHandlerConfig` (`reset`) or `updateGestureHandlerConfig`: the keys it does not
-    /// take are returned.
+    /// `setGestureHandlerConfig` (`reset`) or `updateGestureHandlerConfig`: the keys whose values
+    /// OxyOS cannot honour are returned.
     pub fn configure(
         &mut self,
         tag: Tag,

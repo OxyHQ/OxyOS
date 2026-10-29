@@ -772,7 +772,7 @@ fn what_is_not_ported_is_refused_or_returned() {
                 ("mouseButton", n(2.0)),
             ]
         ),
-        Ok(strings(&["bogus", "needsPointerData", "mouseButton"]))
+        Ok(strings(&["needsPointerData", "mouseButton"]))
     );
     assert_eq!(
         o.create("PanGestureHandler", 1, &[]),

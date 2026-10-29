@@ -196,13 +196,16 @@ impl Handler {
         }
     }
 
-    /// `Factory.updateConfig`: the settings given change, the rest stay. The keys not taken are
-    /// returned.
+    /// `Factory.updateConfig`: the settings given change, the rest stay. Keys Android's handlers
+    /// do not read (iOS's and the web's) are ignored, as there; those whose values OxyOS cannot
+    /// honour are returned.
     pub(crate) fn update_config(&mut self, config: &[(&str, Value)]) -> Vec<String> {
-        let mut unknown = Vec::new();
+        let mut refused = Vec::new();
         for (key, value) in config {
-            if !self.set(key, value) && !self.kind.set(key, value) {
-                unknown.push((*key).to_string());
+            if refuses(key, value) {
+                refused.push((*key).to_string());
+            } else if !self.set(key, value) {
+                self.kind.set(key, value);
             }
         }
         if let Kind::Pan(pan) = &mut self.kind {
@@ -211,7 +214,7 @@ impl Handler {
                 pan.config.min_dist = None;
             }
         }
-        unknown
+        refused
     }
 
     /// A setting every handler has.
@@ -240,13 +243,6 @@ impl Handler {
                 self.hit_slop = slop;
                 Some(())
             }
-            "testID" => Some(()),
-            // Only the native and virtual detectors of the newer API read these.
-            "dispatchesAnimatedEvents" | "dispatchesReanimatedEvents" => Some(()),
-            // Touch events are not sent: only asking for none is taken.
-            "needsPointerData" => value.bool().filter(|b| !b).map(|_| ()),
-            // The primary button (0, the default, or 1) is the only one the host feeds.
-            "mouseButton" => value.whole().filter(|b| *b == 0 || *b == 1).map(|_| ()),
             _ => None,
         }
         .is_some()
@@ -386,6 +382,16 @@ impl Handler {
             Kind::Tap(_) | Kind::Fling(_) => {}
         }
         data
+    }
+}
+
+/// Settings Android honours that OxyOS cannot: touch events (`onTouchesDown` and the rest) are not
+/// sent, and the host feeds the primary button alone (0, the default, or 1).
+fn refuses(key: &str, value: &Value) -> bool {
+    match key {
+        "needsPointerData" => value.bool() == Some(true),
+        "mouseButton" => value.whole().is_some_and(|b| b != 0 && b != 1),
+        _ => false,
     }
 }
 
