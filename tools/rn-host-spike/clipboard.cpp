@@ -20,12 +20,29 @@ void Clipboard::observe(const OxyOSEvent& event) {
   if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES) {
     selection_ = static_cast<uint32_t>(event.serial);
     types_.clear();
+    expected_ = event.detail;
+    if (expected_ == 0) settled();
   } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPE && selection_ == static_cast<uint32_t>(event.serial)) {
     types_.emplace_back(event.text, strnlen(event.text, sizeof(event.text)));
+    if (types_.size() == expected_) settled();
   } else if (event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY) {
     selection_.reset();
     types_.clear();
+    expected_ = 0;
+    settled();
   }
+}
+
+void Clipboard::settled() {
+  bool first = !known_;
+  known_ = true;
+  if (selection_ == heard_) return;
+  heard_ = selection_;
+  if (!first && changed_) changed_();
+}
+
+bool Clipboard::hasText() const {
+  return selection_ && std::find(types_.begin(), types_.end(), kText) != types_.end();
 }
 
 bool Clipboard::copy(OxyOSClient* client, uint64_t serial, const std::string& text) {
@@ -35,11 +52,11 @@ bool Clipboard::copy(OxyOSClient* client, uint64_t serial, const std::string& te
 }
 
 void Clipboard::paste(OxyOSClient* client, uint64_t serial, std::function<void(std::string)> done) {
-  if (!selection_ || std::find(types_.begin(), types_.end(), kText) == types_.end()) return;
+  if (!hasText()) return done("");
   int fd = oxyos_client_paste(client, *selection_, kText, std::strlen(kText), serial);
   if (fd < 0) {
     std::cerr << "[host] paste not sent: " << oxyos_last_error() << "\n";
-    return;
+    return done("");
   }
   // Read from the host's loop as the content arrives; a slow owner never blocks the app.
   fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
@@ -65,6 +82,7 @@ bool Clipboard::deliver() {
     close(it->fd);
     if (failure) {
       std::cerr << "[host] paste failed: " << failure << "\n";
+      it->done("");
     } else {
       it->done(std::move(it->bytes));
     }
