@@ -10,6 +10,7 @@ import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
 import { Shell } from '../../../apps/shell/src/Shell';
+import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import type { ShellActions, ShellSnapshot } from '../../../apps/shell/src/model';
 
 const icon = (name: string) => {
@@ -76,15 +77,20 @@ const actions: ShellActions = {
   menuCommand: () => {},
 };
 
-/** The shell, its regions where `platform` draws them, showing `snapshot`. */
+// The window probe's fixed time: its regressions compare what the top bar shows.
+const PROBE_TIME = new Date(2026, 9, 29, 9, 41);
+
+/** The shell, its regions where `platform` draws them, showing `snapshot` at `now`. */
 function ProbeShell({
   platform,
   shown = snapshot,
   act = actions,
+  now = PROBE_TIME,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
   shown?: ShellSnapshot;
   act?: ShellActions;
+  now?: Date;
 }) {
   return (
       <SafeAreaProvider>
@@ -93,7 +99,7 @@ function ProbeShell({
             snapshot={shown}
             actions={act}
             wallpaper={require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
-            now={new Date(2026, 9, 29, 9, 41)}
+            now={now}
             platform={platform}
           />
         </BloomProvider>
@@ -113,8 +119,10 @@ export default function ShellProbe() {
  */
 export function ShellSession() {
   const shell = useOxyOSShell();
+  // The session's clock is the real one.
+  const now = useMinuteClock();
   const state = shell.state;
-  if (!state) return <ProbeShell platform={oxyosShell} />;
+  if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   const windows = state.windows.map((window: { id: number; appId: string; title: string; workspace: number; minimized: boolean }) => ({
     id: String(window.id),
     appId: window.appId,
@@ -147,5 +155,5 @@ export function ShellSession() {
     addWorkspace: () => shell.addWorkspace(),
     menuCommand: () => {},
   };
-  return <ProbeShell platform={oxyosShell} shown={shown} act={act} />;
+  return <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} />;
 }
