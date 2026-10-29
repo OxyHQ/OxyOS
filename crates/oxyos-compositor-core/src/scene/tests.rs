@@ -4895,6 +4895,66 @@ fn caps_lock_is_told_to_the_focused_surface_and_to_each_that_gains_focus() {
 }
 
 #[test]
+fn surfaces_arrive_with_their_first_frame_and_go_when_gone_not_when_hidden() {
+    use super::appearances::{Appearance, Kind};
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let gone = |key, kind| Appearance {
+        key,
+        kind,
+        arrived: false,
+    };
+    let came = |key, kind| Appearance {
+        key,
+        kind,
+        arrived: true,
+    };
+    // Its first frame, in the frame that composes it first.
+    assert_eq!(h.scene.take_appearances(), vec![came(window, Kind::Window)]);
+    // A popup arrives and, dismissed, goes.
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 40, 20), 200, 150),
+    );
+    assert_eq!(h.scene.take_appearances(), vec![came(popup, Kind::Popup)]);
+    h.click(w.x + 380, w.y + 290);
+    assert_eq!(h.scene.take_appearances(), vec![gone(popup, Kind::Popup)]);
+    // Minimized it goes; restored it arrives.
+    h.scene.minimize(window);
+    assert_eq!(h.scene.take_appearances(), vec![gone(window, Kind::Window)]);
+    h.scene.restore(window);
+    assert_eq!(h.scene.take_appearances(), vec![came(window, Kind::Window)]);
+    // Hidden with its workspace or under the lock, it neither arrives nor goes.
+    h.request(SHELL, Request::AddWorkspace {}).unwrap();
+    h.request(SHELL, Request::ActivateWorkspace { workspace: 1 })
+        .unwrap();
+    h.request(SHELL, Request::ActivateWorkspace { workspace: 0 })
+        .unwrap();
+    h.scene.lock();
+    let lock = h.lock_surface(1);
+    assert_eq!(h.scene.take_appearances(), vec![came(lock, Kind::Lock)]);
+    // Unlocked, the lock screen goes over the session shown again.
+    h.scene.unlock();
+    assert_eq!(h.scene.take_appearances(), vec![gone(lock, Kind::Lock)]);
+    // Destroyed, a shown window goes; one never shown does not.
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert_eq!(h.scene.take_appearances(), vec![gone(window, Kind::Window)]);
+    h.request(
+        APP,
+        Request::CreateToplevel {
+            surface: 3,
+            size: Size::new(100, 100),
+        },
+    )
+    .unwrap();
+    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    assert!(h.scene.take_appearances().is_empty());
+}
+
+#[test]
 fn a_reader_holds_only_the_lock_screen_while_locked() {
     let mut h = Harness::new();
     h.scene.connect(READER, reader()).unwrap();

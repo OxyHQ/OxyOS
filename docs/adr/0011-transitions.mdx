@@ -6,7 +6,7 @@ order: 20
 
 # ADR 0011: Transitions
 
-Status: **accepted**; step 1 implemented. Builds on [ADR 0004](./0004-gpu-composition) (composition on the CPU and a Vulkan device, byte for byte), [ADR 0005](./0005-damage) (damage) and [ADR 0009](./0009-session-shell) (the shell's surfaces).
+Status: **accepted**; steps 1 and 2 implemented. Builds on [ADR 0004](./0004-gpu-composition) (composition on the CPU and a Vulkan device, byte for byte), [ADR 0005](./0005-damage) (damage) and [ADR 0009](./0009-session-shell) (the shell's surfaces).
 
 ## Problem
 
@@ -35,6 +35,7 @@ Every surface appears and goes at once: a window is there on the frame its first
 
    *Done.* The pixel, premultiplied (an opaque one or a fill with alpha 255), and its alpha are scaled by `opacity / 255`, then blended source-over, in integers on both sides; at 255 that is the copy and the blend there were. The frame file is `OXYFRAME2` (an opacity byte per layer); `OXYFRAME1` files read with every layer at 255. Tests: exact values at half opacity worked by hand, nothing at 0, the Vulkan device against the reference at eight opacities, the file in both formats. On the ThinkPad's Intel Iris Xe every Vulkan test passes; there they caught a damaged region's background fill left at opacity 0, which no test without a device could see, so CI now installs Mesa's lavapipe and runs them.
 2. **Transitions in the compositor.** Their state per surface, the departing copies, pacing and damage; tested on the scene's and the compositor's clocks: the opacities and sizes a transition goes through, input never reaching a departing surface, the lock's covers never late.
+   *Done.* The scene reports what arrives and goes (`Scene::take_appearances`): a surface's first frame as it begins presenting (so the first frame composing it already draws it at 0), a window restored, and a surface destroyed, dismissed, minimized or, a lock surface, unlocked; a surface hidden with its workspace or under the lock is neither. The compositor (`transitions.rs`) keeps the last frame it composed of each surface shown (it reads every surface's pixels for each frame already, so keeping them costs memory, not copies) and draws one going from it. While anything runs, every frame is composed whole and the turn wakes for the next. Locked, nothing of the session going is drawn: what started going in the lock's own turn (a menu the lock dismisses, a window minimized) is dropped, and a surface destroyed under the lock has no frame to go from; a lock surface fading in does so over a cover. Tests: the curves and the motions, the scene's appearances (and none for a workspace or the lock), and through real sockets on the compositor's own clock the pixels of a window arriving (nothing on its first frame, 223/255 at 90 ms, whole at 180) and going (32/255 at 75 ms, gone at 150), and the lock showing nothing going (failing when the drop is removed). Every host scenario passes with them running.
 3. **Scenarios and the ThinkPad.** The development compositor reports each step's transitions (frames, first and last opacity); scenarios check them, and on the ThinkPad every transition's frames are on time at 60 Hz.
 
 ## Not in this decision

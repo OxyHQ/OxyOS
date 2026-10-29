@@ -18,6 +18,8 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+pub mod transitions;
+
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
 /// The desktop's colour, where no surface is.
@@ -156,6 +158,12 @@ pub struct Compositor {
     sleeping: bool,
     /// What logind was last told of the lock.
     hinted_locked: bool,
+    /// Surfaces arriving and going, animated (docs/adr/0011-transitions.mdx), and the last frame
+    /// composed of each surface shown, which one going is drawn from.
+    pub transitions: transitions::Transitions,
+    shown: HashMap<SurfaceKey, transitions::Snapshot>,
+    /// The time transitions run on: `CLOCK_MONOTONIC`, or a test's.
+    pub clock: Option<Duration>,
 }
 
 /// The session's authentication path (ADR 0010): it checks a lock surface's password off the
@@ -172,6 +180,36 @@ pub trait Authentication {
     fn as_fd(&self) -> BorrowedFd<'_>;
     /// The answer for the password being checked, once there is one.
     fn answer(&mut self) -> Option<(AuthOutcome, u32)>;
+}
+
+/// One layer's content as a frame composes it: a surface's pixels (`key`), a cover, or a
+/// surface going; `rect` is where the surface is, `placed` where its transition draws it.
+struct Content {
+    key: Option<SurfaceKey>,
+    rect: Rect,
+    placed: Rect,
+    extent: Size,
+    format: Option<oxyos_protocol::Format>,
+    pixels: Vec<u8>,
+    source: Option<oxyos_gpu::Source>,
+    changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
+    opacity: u8,
+}
+
+impl Content {
+    fn cover(rect: Rect) -> Self {
+        Self {
+            key: None,
+            rect,
+            placed: rect,
+            extent: Size::new(1, 1),
+            format: None,
+            pixels: Vec::new(),
+            source: None,
+            changed: None,
+            opacity: 255,
+        }
+    }
 }
 
 pub struct Gpu {
@@ -246,6 +284,9 @@ impl Compositor {
             shown_locked: false,
             sleeping: false,
             hinted_locked: false,
+            transitions: transitions::Transitions::default(),
+            shown: HashMap::new(),
+            clock: None,
         }
     }
 
@@ -505,7 +546,24 @@ impl Compositor {
         };
         let started = self.scene.begin_frame();
         let list = self.scene.frame_list();
-        if started == 0 && list == self.composed {
+        // Surfaces arriving start their transitions in this frame; those going are drawn from
+        // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
+        let now = self.now();
+        for appearance in self.scene.take_appearances() {
+            if appearance.arrived {
+                self.transitions
+                    .arrive(appearance.key, appearance.kind, now);
+            } else {
+                let snapshot = self.shown.remove(&appearance.key);
+                self.transitions
+                    .go(appearance.key, appearance.kind, now, snapshot);
+            }
+        }
+        if self.scene.is_locked() {
+            self.transitions.lock();
+        }
+        let animating = self.transitions.advance(now);
+        if started == 0 && list == self.composed && !animating {
             self.scene.end_frame(0, Clock::Synthetic);
             if pointer_moved {
                 self.present_pointer();
@@ -526,8 +584,9 @@ impl Compositor {
             ),
             _ => None,
         };
-        let damage =
-            (!self.composed.is_empty()).then(|| output_damage(&self.composed, &list, &drawn));
+        // While surfaces arrive or go, every frame is composed whole.
+        let damage = (!self.composed.is_empty() && !animating)
+            .then(|| output_damage(&self.composed, &list, &drawn));
         let output_rect = oxyos_gpu::Rect {
             x: self.output.x,
             y: self.output.y,
@@ -586,14 +645,41 @@ impl Compositor {
                         if let Some(source) = source {
                             self.shown_versions.insert(source.key, source.version);
                         }
-                        contents.push((rect, extent, Some(format), pixels, source, changed))
+                        // A lock surface fading in does so over the lock's cover.
+                        let arriving = self.transitions.arriving(key, now);
+                        if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
+                            contents.push(Content::cover(rect));
+                        }
+                        contents.push(Content {
+                            key: Some(key),
+                            rect,
+                            placed: arriving.place(rect),
+                            extent,
+                            format: Some(format),
+                            pixels,
+                            source,
+                            changed,
+                            opacity: arriving.opacity,
+                        })
                     }
                     None => unreadable.push(key.client),
                 },
-                RenderItem::Cover { rect, .. } => {
-                    contents.push((rect, Size::new(1, 1), None, Vec::new(), None, None))
-                }
+                RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
             }
+        }
+        // Surfaces going, over what stays, from their last frames.
+        for (snapshot, _, at) in self.transitions.going(now) {
+            contents.push(Content {
+                key: None,
+                rect: snapshot.rect,
+                placed: at.place(snapshot.rect),
+                extent: snapshot.extent,
+                format: Some(snapshot.format),
+                pixels: snapshot.pixels.clone(),
+                source: None,
+                changed: None,
+                opacity: at.opacity,
+            });
         }
         if self.records {
             self.reads
@@ -601,27 +687,28 @@ impl Compositor {
         }
         let layers: Vec<oxyos_gpu::Layer<'_>> = contents
             .iter()
-            .map(
-                |(rect, extent, format, pixels, source, changed)| oxyos_gpu::Layer {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height,
-                    extent: (extent.width, extent.height),
-                    paint: match format {
-                        Some(oxyos_protocol::Format::Xrgb8888) => oxyos_gpu::Paint::Opaque(pixels),
-                        Some(oxyos_protocol::Format::Argb8888) => {
-                            oxyos_gpu::Paint::Premultiplied(pixels)
-                        }
-                        None => oxyos_gpu::Paint::Fill(0),
-                    },
-                    source: *source,
-                    changed: changed
-                        .as_ref()
-                        .map(|(from, rects)| (*from, rects.as_slice())),
-                    opacity: 255,
+            .map(|content| oxyos_gpu::Layer {
+                x: content.placed.x,
+                y: content.placed.y,
+                width: content.placed.width,
+                height: content.placed.height,
+                extent: (content.extent.width, content.extent.height),
+                paint: match content.format {
+                    Some(oxyos_protocol::Format::Xrgb8888) => {
+                        oxyos_gpu::Paint::Opaque(&content.pixels)
+                    }
+                    Some(oxyos_protocol::Format::Argb8888) => {
+                        oxyos_gpu::Paint::Premultiplied(&content.pixels)
+                    }
+                    None => oxyos_gpu::Paint::Fill(0),
                 },
-            )
+                source: content.source,
+                changed: content
+                    .changed
+                    .as_ref()
+                    .map(|(from, rects)| (*from, rects.as_slice())),
+                opacity: content.opacity,
+            })
             .collect();
         // Frames older than those composed are never shown again.
         self.versions.retain(|(key, sequence), _| {
@@ -681,15 +768,37 @@ impl Compositor {
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time, in
         // a later turn (`complete_flip`).
-        if self.present(&layers, damage.as_deref()) {
-            return;
+        let presented = self.present(&layers, damage.as_deref());
+        if !presented {
+            self.scene.end_frame(0, Clock::Synthetic);
+            self.retire();
+            if self.gpu_only && self.reads_back {
+                self.flush();
+                self.framebuffer_from_gpu(&layers);
+            }
         }
-        self.scene.end_frame(0, Clock::Synthetic);
-        self.retire();
-        if self.gpu_only && self.reads_back {
-            self.flush();
-            self.framebuffer_from_gpu(&layers);
-        }
+        // What each surface shown showed: what it is drawn from if it goes (ADR 0011).
+        drop(layers);
+        self.shown = contents
+            .into_iter()
+            .filter_map(|content| {
+                let key = content.key?;
+                Some((
+                    key,
+                    transitions::Snapshot {
+                        rect: content.rect,
+                        extent: content.extent,
+                        format: content.format?,
+                        pixels: content.pixels,
+                    },
+                ))
+            })
+            .collect();
+    }
+
+    /// The time transitions run on.
+    fn now(&self) -> Duration {
+        self.clock.unwrap_or_else(monotonic)
     }
 
     /// Only the pointer moved (or its animated image went on): the frame shown is committed again
@@ -1135,6 +1244,11 @@ impl Compositor {
     /// still without its Hello reaches its deadline, or `idle_wait`, whichever is soonest.
     fn next_wake(&self) -> Duration {
         let mut wait = self.idle_wait;
+        // A transition running composes a frame for every refresh (a display's flip wakes the
+        // turn sooner).
+        if !self.transitions.is_empty() {
+            wait = wait.min(Duration::from_millis(16));
+        }
         let steps = self.pointer_images.get(&self.scene.pointer_shape());
         if let Some(step) = steps.and_then(|steps| pointer_step_wait(steps, monotonic())) {
             wait = wait.min(step);

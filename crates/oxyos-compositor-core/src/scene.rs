@@ -326,6 +326,8 @@ pub struct Scene {
     authentication: lock::Authentication,
     /// Whether the keyboard's Caps Lock is on.
     caps_lock: bool,
+    /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
+    appearances: Vec<appearances::Appearance>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -1706,10 +1708,14 @@ impl Scene {
         if node.dismissed {
             return;
         }
+        let shown = node.mapped && !node.hidden;
         node.dismissed = true;
         let children = node.children.clone();
         for child in children.iter().rev() {
             self.dismiss(*child, reason);
+        }
+        if shown {
+            self.appeared(key, false);
         }
         self.emit(
             key.client,
@@ -1786,6 +1792,9 @@ impl Scene {
             }
         }
         if !self.nodes[&key].dismissed {
+            if self.nodes[&key].mapped && !self.nodes[&key].hidden {
+                self.appeared(key, false);
+            }
             // Without a PopupDone: the client asked for this.
             let node = self.nodes.get_mut(&key).expect("present");
             node.dismissed = true;
@@ -2146,6 +2155,9 @@ impl Scene {
             return;
         }
         let children = node.children.clone();
+        if node.mapped {
+            self.appeared(key, false);
+        }
         self.nodes.get_mut(&key).expect("present").hidden = true;
         for child in children {
             if self.nodes[&child].is_popup() {
@@ -2164,6 +2176,9 @@ impl Scene {
         if let Some(node) = self.nodes.get_mut(&key) {
             if node.hidden {
                 node.hidden = false;
+                if node.mapped {
+                    self.appeared(key, true);
+                }
                 self.activate(key);
                 self.refresh_pointer_focus();
             }
@@ -2251,6 +2266,16 @@ impl Scene {
             return;
         }
         self.locked = false;
+        // The lock screen goes, over the session shown again.
+        let lock_surfaces: Vec<SurfaceKey> = self
+            .nodes
+            .iter()
+            .filter(|(_, node)| matches!(node.role, Role::Lock { .. }) && node.mapped)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in lock_surfaces {
+            self.appeared(key, false);
+        }
         self.forget_secrets(None);
         self.pointer_cancel();
         self.touch_cancel();
@@ -2772,7 +2797,8 @@ impl Scene {
     pub fn begin_frame(&mut self) -> usize {
         self.frame_in_flight = true;
         let mut started = 0;
-        for node in self.nodes.values_mut() {
+        let mut arriving = Vec::new();
+        for (key, node) in self.nodes.iter_mut() {
             if !node.presentation.is_presenting()
                 && node.presentation.has_queued()
                 && node.presentation.begin_present().ok().flatten().is_some()
@@ -2780,7 +2806,14 @@ impl Scene {
                 // Relative to the frame displayed now: everything the client drew since.
                 node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
+                // Its first frame: it arrives in the frame being composed.
+                if !node.mapped && !node.dismissed {
+                    arriving.push(*key);
+                }
             }
+        }
+        for key in arriving {
+            self.appeared(key, true);
         }
         started
     }
@@ -2927,6 +2960,8 @@ mod shell;
 pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
 pub use lock::Secret;
+mod appearances;
+pub use appearances::{Appearance, Kind as AppearanceKind};
 
 #[cfg(test)]
 mod tests;
