@@ -1487,7 +1487,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             });
             (open, close)
         });
-        let input = oxyos_input::Input::open_with(bounds, &launch.layout, devices)?;
+        let layout = oxyos_input::Layout::named(&launch.layout);
+        let input = oxyos_input::Input::open_with(bounds, &layout, devices)?;
         eprintln!(
             "[input] libinput on seat0, layout {}, {}",
             launch.layout,

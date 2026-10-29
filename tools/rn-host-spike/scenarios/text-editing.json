@@ -1,5 +1,5 @@
 {
-  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own.",
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Ctrl (ICU's word boundaries, as Android), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own. Through the virtual devices (`--uinput`) each character is typed as a key: React then receives a key press, a change and a selection change for each, as from Android's keyboard.",
   "module": "EditingProbe",
   "window": [
     800,
@@ -41,6 +41,13 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@line": 17,
+          "change@line": 17,
+          "selectionChange@line": 17
         }
       }
     },
@@ -316,6 +323,13 @@
           "selectionChange@line": 1,
           "keyPress@line": 1
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        }
       }
     },
     {
@@ -332,6 +346,13 @@
           "change@line": 1,
           "selectionChange@line": 1,
           "keyPress@line": 1
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
         }
       }
     },
@@ -392,6 +413,13 @@
           "change@notes": 1,
           "selectionChange@notes": 1
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 3,
+          "change@notes": 3,
+          "selectionChange@notes": 3
+        }
       }
     },
     {
@@ -425,6 +453,13 @@
           "change@notes": 1,
           "selectionChange@notes": 1
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 3,
+          "change@notes": 3,
+          "selectionChange@notes": 3
+        }
       }
     },
     {
@@ -457,6 +492,13 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 4,
+          "change@notes": 4,
+          "selectionChange@notes": 4
         }
       }
     },
@@ -676,6 +718,20 @@
             "text_input": 1
           }
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 36,
+          "change@notes": 36,
+          "selectionChange@notes": 36
+        },
+        "delivered": {
+          "1": {
+            "key.press": 36,
+            "key.release": 36,
+            "text_input": 36
+          }
+        }
       }
     },
     {
@@ -808,6 +864,13 @@
           "change@notes": 1,
           "selectionChange@notes": 1
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 6,
+          "change@notes": 6,
+          "selectionChange@notes": 6
+        }
       }
     },
     {
@@ -840,6 +903,13 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 5,
+          "change@notes": 5,
+          "selectionChange@notes": 5
         }
       }
     },
@@ -882,6 +952,13 @@
           "selectionChange@notes": 1
         },
         "text_scroll": {}
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 4,
+          "change@notes": 4,
+          "selectionChange@notes": 4
+        }
       }
     },
     {
@@ -1040,6 +1117,21 @@
             0
           ]
         }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@line": 101,
+          "change@line": 101,
+          "selectionChange@line": 101,
+          "scroll@line": 3
+        },
+        "delivered": {
+          "1": {
+            "key.press": 101,
+            "key.release": 101,
+            "text_input": 101
+          }
+        }
       }
     },
     {
@@ -1110,6 +1202,11 @@
           ]
         },
         "focus_input": "line"
+      },
+      "expect_devices": {
+        "react": {
+          "scroll@notes": 2
+        }
       }
     },
     {
@@ -1153,6 +1250,11 @@
             0,
             0
           ]
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "scroll@notes": 2
         }
       }
     },

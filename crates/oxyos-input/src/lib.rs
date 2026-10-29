@@ -201,11 +201,69 @@ impl Stroke {
 const LEFT_SHIFT: u32 = 42;
 const RIGHT_ALT: u32 = 100;
 
+/// An XKB keymap by its names: a layout (`us`, `es`, ...), its variant and options.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Layout {
+    pub layout: String,
+    pub variant: String,
+    pub options: String,
+}
+
+impl Layout {
+    pub fn named(layout: &str) -> Self {
+        Self {
+            layout: layout.to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// The system's keyboard, as Debian configures it for the console and every desktop
+    /// (`/etc/default/keyboard`, which `localectl set-x11-keymap` writes): the keymap passwords
+    /// are typed with at a login. None without the file or a layout in it.
+    pub fn system() -> Option<Self> {
+        Self::parse(&std::fs::read_to_string("/etc/default/keyboard").ok()?)
+    }
+
+    /// `XKBLAYOUT`, `XKBVARIANT` and `XKBOPTIONS` from that file's shell assignments.
+    pub fn parse(text: &str) -> Option<Self> {
+        let mut layout = Self::default();
+        for line in text.lines() {
+            let Some((name, value)) = line.trim().split_once('=') else {
+                continue;
+            };
+            let value = value
+                .trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .to_string();
+            match name.trim() {
+                "XKBLAYOUT" => layout.layout = value,
+                "XKBVARIANT" => layout.variant = value,
+                "XKBOPTIONS" => layout.options = value,
+                _ => {}
+            }
+        }
+        (!layout.layout.is_empty()).then_some(layout)
+    }
+}
+
+impl std::fmt::Display for Layout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.layout)?;
+        if !self.variant.is_empty() {
+            write!(f, " ({})", self.variant)?;
+        }
+        if !self.options.is_empty() {
+            write!(f, " [{}]", self.options)?;
+        }
+        Ok(())
+    }
+}
+
 impl Keyboard {
     /// The keymap for an XKB layout (`us`, `es`, ...), with the default rules and model, and
     /// the compose table of the locale the environment names (`LC_ALL`, `LC_CTYPE`, `LANG`),
     /// as xkbcommon prescribes.
-    pub fn new(layout: &str) -> io::Result<Self> {
+    pub fn new(layout: &Layout) -> io::Result<Self> {
         let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
             .into_iter()
             .filter_map(std::env::var_os)
@@ -217,22 +275,26 @@ impl Keyboard {
     /// The same with the compose table of `locale`, from xkbcommon's directory (`XLOCALEDIR`,
     /// `/usr/share/X11/locale` by default; the image ships the UTF-8 tables there). Without one,
     /// dead keys type nothing.
-    pub fn with_locale(layout: &str, locale: &OsStr) -> io::Result<Self> {
+    pub fn with_locale(layout: &Layout, locale: &OsStr) -> io::Result<Self> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        // Ctrl+Alt+Backspace ends the session (Terminate_Server), whatever else the options say.
+        let options = match layout.options.as_str() {
+            "" => "terminate:ctrl_alt_bksp".to_string(),
+            options => format!("{options},terminate:ctrl_alt_bksp"),
+        };
         let keymap = xkb::Keymap::new_from_names(
             &context,
             "",
             "",
-            layout,
-            "",
-            // Ctrl+Alt+Backspace ends the session (Terminate_Server).
-            Some("terminate:ctrl_alt_bksp".to_string()),
+            &layout.layout,
+            &layout.variant,
+            Some(options),
             xkb::KEYMAP_COMPILE_NO_FLAGS,
         )
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("no XKB keymap for {layout:?}"),
+                format!("no XKB keymap for {layout}"),
             )
         })?;
         let compose = compose::Table::new_from_locale(&context, locale, compose::COMPILE_NO_FLAGS)
@@ -421,7 +483,7 @@ pub struct Input {
 impl Input {
     /// Opens seat0's devices (hotplugged ones too) for an output of `bounds` logical pixels; the
     /// pointer starts at its centre.
-    pub fn open(bounds: (u32, u32), layout: &str) -> io::Result<Self> {
+    pub fn open(bounds: (u32, u32), layout: &Layout) -> io::Result<Self> {
         Self::open_with(bounds, layout, None)
     }
 
@@ -429,7 +491,7 @@ impl Input {
     /// instead of directly.
     pub fn open_with(
         bounds: (u32, u32),
-        layout: &str,
+        layout: &Layout,
         devices: Option<(Open, Close)>,
     ) -> io::Result<Self> {
         let (open, close) = match devices {

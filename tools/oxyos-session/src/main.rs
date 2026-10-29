@@ -4,7 +4,9 @@
 //! - its display is the first card with a connected output, at that output's size;
 //! - frames are composed on the GPU straight into the display's scanout buffers where Vulkan
 //!   exports DMA-BUF, otherwise on the CPU, only what changed (docs/adr/0005-damage.mdx);
-//! - its input is the seat's devices through libinput, with the keymap of `--layout`;
+//! - its input is the seat's devices through libinput, with the system's keyboard
+//!   (`/etc/default/keyboard`: the layout, variant and options passwords are typed with at a
+//!   login, so the lock screen takes the same password), or `--layout`'s;
 //! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed;
 //! - the session locks (docs/adr/0010-lock-screen.mdx) on Ctrl+Super+Q, at the shell's request,
 //!   when logind asks and before the machine sleeps; only a password PAM accepts for the session's
@@ -52,7 +54,7 @@ const SHELL_RESTART: Duration = Duration::from_secs(1);
 
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
-    let mut layout = "us".to_string();
+    let mut layout: Option<oxyos_input::Layout> = None;
     let mut command: Vec<OsString> = Vec::new();
     let mut shell_command: Option<Vec<OsString>> = None;
     let mut pointer: Option<(PathBuf, u32)> = None;
@@ -77,10 +79,12 @@ fn main() -> Result<()> {
                 shell_command = Some(value.split(',').map(OsString::from).collect());
             }
             Some("--layout") => {
-                layout = args
-                    .next()
-                    .and_then(|layout| layout.into_string().ok())
-                    .ok_or(USAGE)?
+                layout = Some(oxyos_input::Layout::named(
+                    &args
+                        .next()
+                        .and_then(|layout| layout.into_string().ok())
+                        .ok_or(USAGE)?,
+                ))
             }
             Some("--") => {
                 command = args.collect();
@@ -194,6 +198,9 @@ fn main() -> Result<()> {
             let _ = close_seat.close(device);
         }
     });
+    let layout = layout
+        .or_else(oxyos_input::Layout::system)
+        .unwrap_or_else(|| oxyos_input::Layout::named("us"));
     let input = oxyos_input::Input::open_with((width, height), &layout, Some((open, close)))?;
     eprintln!("[session] input from seat0, layout {layout}");
     compositor.input = Some(input);

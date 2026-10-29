@@ -98,7 +98,7 @@ impl Devices {
             keyboard,
             pointer,
             touchpad,
-            layout: oxyos_input::Keyboard::new(layout)?,
+            layout: oxyos_input::Keyboard::new(&oxyos_input::Layout::named(layout))?,
         })
     }
 

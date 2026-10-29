@@ -17,7 +17,8 @@ const APOSTROPHE: u32 = 40;
 /// `XLOCALEDIR` names them, as CI does), which composes
 /// Spanish dead keys as es_ES.UTF-8's does.
 fn composing(layout: &str) -> Keyboard {
-    let keyboard = Keyboard::with_locale(layout, OsStr::new("en_US.UTF-8")).unwrap();
+    let keyboard =
+        Keyboard::with_locale(&Layout::named(layout), OsStr::new("en_US.UTF-8")).unwrap();
     assert!(keyboard.composes(), "no compose table: set XLOCALEDIR to the image's (config/includes.chroot_after_packages/usr/share/X11/locale)");
     keyboard
 }
@@ -123,7 +124,7 @@ fn a_sequence_that_composes_nothing_types_nothing() {
 #[test]
 fn without_a_compose_table_dead_keys_type_nothing() {
     // A locale with no compose table anywhere.
-    let mut es = Keyboard::with_locale("es", OsStr::new("xx_XX.UTF-8")).unwrap();
+    let mut es = Keyboard::with_locale(&Layout::named("es"), OsStr::new("xx_XX.UTF-8")).unwrap();
     assert!(!es.composes());
     assert_eq!(tap(&mut es, APOSTROPHE), None);
     assert_eq!(tap(&mut es, O).as_deref(), Some("o"));
@@ -279,4 +280,28 @@ fn a_layout_without_altgr_finds_no_third_level() {
     let us = composing("us");
     assert_eq!(us.key_for('@'), Some(vec![Stroke::new(3, &[SHIFT])]));
     assert_eq!(us.key_for('€'), None);
+}
+
+#[test]
+fn the_systems_keyboard_is_read_as_debian_writes_it() {
+    let file = "# KEYBOARD CONFIGURATION FILE\n\nXKBMODEL=\"pc105\"\nXKBLAYOUT=\"us\"\nXKBVARIANT=\"intl\"\nXKBOPTIONS=\"caps:escape\"\n\nBACKSPACE=\"guess\"\n";
+    assert_eq!(
+        Layout::parse(file),
+        Some(Layout {
+            layout: "us".into(),
+            variant: "intl".into(),
+            options: "caps:escape".into(),
+        })
+    );
+    assert_eq!(Layout::parse("XKBMODEL=pc105\n"), None);
+    // The variant and options reach the keymap, Ctrl+Alt+Backspace kept: us(intl) has dead keys.
+    let mut intl =
+        Keyboard::with_locale(&Layout::parse(file).unwrap(), OsStr::new("en_US.UTF-8")).unwrap();
+    assert_eq!(tap(&mut intl, APOSTROPHE), None, "a dead acute");
+    assert_eq!(tap(&mut intl, A).as_deref(), Some("á"));
+    const CTRL: u32 = 29;
+    const ALT: u32 = 56;
+    intl.key(CTRL, true);
+    intl.key(ALT, true);
+    assert_eq!(intl.key(BACKSPACE, true), Typed::Terminate);
 }
