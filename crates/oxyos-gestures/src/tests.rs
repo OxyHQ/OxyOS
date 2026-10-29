@@ -122,6 +122,13 @@ fn summary(out: &[Output]) -> Vec<String> {
                 ..
             } => format!("{tag} {old_state:?}>{state:?}"),
             Output::Update { tag, .. } => format!("{tag} update"),
+            Output::Touch {
+                tag,
+                state,
+                event_type,
+                number_of_touches,
+                ..
+            } => format!("{tag} touches {event_type:?} {state:?} {number_of_touches}"),
             Output::Intercept => "intercept".into(),
             Output::CancelResponder { tag } => format!("{tag} cancel-responder"),
         })
@@ -767,12 +774,11 @@ fn what_is_not_ported_is_refused_or_returned() {
             &[
                 ("minDist", n(20.0)),
                 ("bogus", n(1.0)),
-                ("needsPointerData", Value::Bool(true)),
-                ("needsPointerData", Value::Bool(false)),
+                ("mouseButton", n(1.0)),
                 ("mouseButton", n(2.0)),
             ]
         ),
-        Ok(strings(&["needsPointerData", "mouseButton"]))
+        Ok(strings(&["mouseButton"]))
     );
     assert_eq!(
         o.create("PanGestureHandler", 1, &[]),
@@ -900,4 +906,185 @@ fn velocity_forgets_movement_before_a_pause() {
     tracker.add(&event(Action::Move, 50.0, 85));
     let (vx, _) = tracker.velocity(85);
     assert!((vx - 2000.0).abs() < 1.0, "{vx}");
+}
+
+fn touches(out: &Output) -> (Vec<TouchPoint>, Vec<TouchPoint>) {
+    match out {
+        Output::Touch { changed, all, .. } => (changed.clone(), all.clone()),
+        _ => panic!("not a touch event: {out:?}"),
+    }
+}
+
+fn point(id: u32, absolute_x: f32, absolute_y: f32) -> TouchPoint {
+    // VIEW is at (50, 50).
+    TouchPoint {
+        id,
+        x: absolute_x - 50.0,
+        y: absolute_y - 50.0,
+        absolute_x,
+        absolute_y,
+    }
+}
+
+#[test]
+fn a_handler_needing_pointer_data_is_told_of_its_pointers() {
+    let mut w = World::new();
+    w.handler(
+        "PanGestureHandler",
+        1,
+        VIEW,
+        &[("needsPointerData", Value::Bool(true))],
+    );
+    // Touch events come before what the handler makes of the event.
+    assert_eq!(
+        w.press(0, 60.0, 60.0),
+        strings(&["1 touches Down Undetermined 1", "1 Undetermined>Began"])
+    );
+    assert_eq!(
+        touches(&w.last[0]),
+        (vec![point(0, 60.0, 60.0)], vec![point(0, 60.0, 60.0)])
+    );
+    assert_eq!(
+        w.after(10).drag(0, 64.0, 60.0),
+        strings(&["1 touches Move Began 1"])
+    );
+    // A second pointer: down for it, and only the pointers that moved are changed.
+    assert_eq!(
+        w.after(10).press(1, 100.0, 100.0),
+        strings(&["1 touches Down Began 2"])
+    );
+    assert_eq!(
+        touches(&w.last[0]),
+        (
+            vec![point(1, 100.0, 100.0)],
+            vec![point(0, 64.0, 60.0), point(1, 100.0, 100.0)]
+        )
+    );
+    // It goes up: all as they were, then the one going up gone from the count.
+    assert_eq!(w.after(10).lift(1), strings(&["1 touches Up Began 1"]));
+    assert_eq!(
+        touches(&w.last[0]),
+        (
+            vec![point(1, 100.0, 100.0)],
+            vec![point(0, 64.0, 60.0), point(1, 100.0, 100.0)]
+        )
+    );
+    assert_eq!(
+        w.after(10).lift(0),
+        strings(&["1 touches Up Began 0", "1 Began>Failed"])
+    );
+    w.settled();
+}
+
+#[test]
+fn javascript_activates_a_handler_from_its_touch_events() {
+    // Bloom's bottom sheet with `manualActivation`: its pan decides from the touches it is told
+    // of, and activates through `_setGestureStateSync`.
+    let mut w = World::new();
+    w.handler(
+        "PanGestureHandler",
+        1,
+        VIEW,
+        &[
+            ("needsPointerData", Value::Bool(true)),
+            ("manualActivation", Value::Bool(true)),
+        ],
+    );
+    w.press(0, 60.0, 60.0);
+    // Far enough to activate on its own, it waits for JavaScript.
+    assert_eq!(
+        w.after(10).drag(0, 60.0, 90.0),
+        strings(&["1 touches Move Began 1"])
+    );
+    assert_eq!(
+        summary(&w.o.set_state(1, State::Active)),
+        activated(&["1 Began>Active"])
+    );
+    assert_eq!(
+        w.after(10).drag(0, 60.0, 100.0),
+        strings(&["1 touches Move Active 1", "1 update"])
+    );
+    assert_eq!(
+        w.after(10).lift(0),
+        strings(&["1 touches Up Active 0", "1 Active>End"])
+    );
+    w.settled();
+}
+
+#[test]
+fn pointers_told_of_are_cancelled_when_the_handler_finishes() {
+    let mut w = World::new();
+    w.handler(
+        "TapGestureHandler",
+        1,
+        VIEW,
+        &[("needsPointerData", Value::Bool(true))],
+    );
+    w.press(0, 60.0, 60.0);
+    // Held too long: the pointer still down is cancelled before the failure.
+    assert_eq!(
+        w.after(500).tick(),
+        strings(&["1 touches Cancelled Began 0", "1 Began>Failed"])
+    );
+    assert_eq!(
+        touches(&w.last[0]),
+        (vec![point(0, 60.0, 60.0)], vec![point(0, 60.0, 60.0)])
+    );
+    assert_eq!(w.after(10).lift(0), strings(&[]));
+    w.settled();
+}
+
+#[test]
+fn a_handler_waiting_is_told_of_moves_as_beginning() {
+    let mut w = World::new();
+    w.handler(
+        "PanGestureHandler",
+        1,
+        VIEW,
+        &[("needsPointerData", Value::Bool(true))],
+    );
+    w.handler("TapGestureHandler", 2, VIEW, &[]);
+    w.o.relate(
+        2,
+        Relations {
+            blocks: vec![1],
+            ..Relations::default()
+        },
+    )
+    .expect("related");
+    w.press(0, 60.0, 60.0);
+    // It activates and waits: its touch events say BEGAN, and it is still told of moves.
+    assert_eq!(
+        w.after(10).drag(0, 70.0, 60.0),
+        strings(&["1 touches Move Began 1"])
+    );
+    assert_eq!(
+        w.after(10).drag(0, 75.0, 60.0),
+        strings(&["1 touches Move Began 1"])
+    );
+}
+
+#[test]
+fn a_pointer_going_up_somewhere_new_moves_there_first() {
+    let mut w = World::new();
+    w.handler(
+        "PanGestureHandler",
+        1,
+        VIEW,
+        &[("needsPointerData", Value::Bool(true))],
+    );
+    w.press(0, 60.0, 60.0);
+    // Released two pixels on: a move to there, then up.
+    w.down[0].x = 62.0;
+    assert_eq!(
+        w.after(10).send(Action::Up, 0),
+        strings(&[
+            "1 touches Move Began 1",
+            "1 touches Up Began 0",
+            "1 Began>Failed"
+        ])
+    );
+    assert_eq!(touches(&w.last[0]).0, vec![point(0, 62.0, 60.0)]);
+    w.down.clear();
+    w.settled();
 }

@@ -3,9 +3,10 @@
 
 use crate::velocity::Tracker;
 use crate::{
-    Action, Data, Frame, Orchestrator, Pointer, PointerType, Position, State, Tag, Touch, ViewTag,
+    Action, Data, Frame, Orchestrator, Pointer, PointerType, Position, State, Tag, Touch,
+    TouchPoint, ViewTag,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Android's touch slop, in density-independent pixels (`ViewConfiguration`).
 pub(crate) const TOUCH_SLOP: f32 = 8.0;
@@ -131,6 +132,9 @@ pub(crate) struct Handler {
     position: Position,
     /// When its timer fires, if one is set (Android's delayed runnable).
     pub(crate) deadline: Option<u64>,
+    /// Whether it sends touch events (`needsPointerData`), and the pointers it has told of, by id.
+    pub(crate) needs_pointer_data: bool,
+    pub(crate) touches: BTreeMap<u32, TouchPoint>,
 }
 
 #[derive(Debug)]
@@ -174,6 +178,8 @@ impl Handler {
             pointer_inside: false,
             position: Position::default(),
             deadline: None,
+            needs_pointer_data: false,
+            touches: BTreeMap::new(),
         };
         handler.reset_config();
         Some(handler)
@@ -185,6 +191,7 @@ impl Handler {
         self.enabled = true;
         self.hit_slop = None;
         self.cancels_js_responder = true;
+        self.needs_pointer_data = false;
         // A tap and a long press fail once outside their view unless told otherwise.
         self.should_cancel_when_outside = matches!(self.kind, Kind::Tap(_) | Kind::LongPress(_));
         match &mut self.kind {
@@ -224,6 +231,7 @@ impl Handler {
             "enabled" => value.bool().map(|b| self.enabled = b),
             "manualActivation" => value.bool().map(|b| self.manual_activation = b),
             "cancelsJSResponder" => value.bool().map(|b| self.cancels_js_responder = b),
+            "needsPointerData" => value.bool().map(|b| self.needs_pointer_data = b),
             "hitSlop" => {
                 let slop = match value {
                     Value::Null => None,
@@ -261,6 +269,7 @@ impl Handler {
         self.view = None;
         self.ancestors.clear();
         self.tracked.clear();
+        self.touches.clear();
         self.deadline = None;
         self.is_active = false;
         self.is_awaiting = false;
@@ -363,6 +372,14 @@ impl Handler {
         }
     }
 
+    pub(crate) fn pointer_type(&self) -> PointerType {
+        self.pointer_type
+    }
+
+    pub(crate) fn set_pointer_type(&mut self, pointer_type: PointerType) {
+        self.pointer_type = pointer_type;
+    }
+
     /// The event builders' data, now.
     pub(crate) fn data(&self, now: u64) -> Data {
         let mut data = Data {
@@ -385,14 +402,10 @@ impl Handler {
     }
 }
 
-/// Settings Android honours that OxyOS cannot: touch events (`onTouchesDown` and the rest) are not
-/// sent, and the host feeds the primary button alone (0, the default, or 1).
+/// Settings Android honours that OxyOS cannot: the host feeds the primary button alone (0, the
+/// default, or 1).
 fn refuses(key: &str, value: &Value) -> bool {
-    match key {
-        "needsPointerData" => value.bool() == Some(true),
-        "mouseButton" => value.whole().is_some_and(|b| b != 0 && b != 1),
-        _ => false,
-    }
+    key == "mouseButton" && value.whole().is_some_and(|b| b != 0 && b != 1)
 }
 
 impl Kind {

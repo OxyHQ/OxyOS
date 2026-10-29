@@ -15,7 +15,6 @@
 //! - the native-view handler (`NativeViewGestureHandler`) needs a native view's own touch
 //!   handling, which the host does not have: it begins and fails, never taking over;
 //! - pinch, rotation and hover handlers are not ported: creating one fails;
-//! - touch events (`onTouchesDown` and the rest, `needsPointerData`) are not sent;
 //! - velocity is a least-squares fit like Android's default `VelocityTracker`, in `velocity.rs`;
 //! - the root view's own handler is not a handler here: what its cancellation does, taking the
 //!   gesture from the views under it, comes out as [`Output::Intercept`].
@@ -124,6 +123,26 @@ pub struct Position {
     pub absolute_y: f32,
 }
 
+/// A pointer as a touch event tells of it (`PointerData`): in the handler's view, and in the root.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TouchPoint {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub absolute_x: f32,
+    pub absolute_y: f32,
+}
+
+/// What a touch event is, by react-native-gesture-handler's numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TouchType {
+    Down = 1,
+    Move = 2,
+    Up = 3,
+    Cancelled = 4,
+}
+
 /// A handler's event data, as react-native-gesture-handler's event builders make it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Data {
@@ -154,6 +173,19 @@ pub enum Output {
     },
     /// `onGestureHandlerEvent`, while a handler is active.
     Update { tag: Tag, view: ViewTag, data: Data },
+    /// `onGestureHandlerEvent` as a touch event (`onTouchesDown` and the rest), for a handler that
+    /// needs them: the pointers that changed, and all it is told of. `state` is the handler's as
+    /// JavaScript knows it (BEGAN while it waits to activate).
+    Touch {
+        tag: Tag,
+        view: ViewTag,
+        state: State,
+        event_type: TouchType,
+        number_of_touches: u32,
+        pointer_type: PointerType,
+        changed: Vec<TouchPoint>,
+        all: Vec<TouchPoint>,
+    },
     /// A handler activated while a pointer is down: until every pointer is up, the views' own
     /// touch handling (a text input's drag selection) is given nothing more, as Android's root view
     /// takes the gesture from the views under it once its own handler is cancelled. React Native's
@@ -470,6 +502,15 @@ impl Orchestrator {
         if !handler.wants(touch) {
             return;
         }
+        if handler.needs_pointer_data {
+            // Android sets the pointer type after the first touch event of a gesture, which so
+            // carries the previous gesture's; here it carries its own.
+            if touch.action == Action::Down {
+                self.handler_mut(tag).set_pointer_type(touch.pointer_type);
+            }
+            self.update_pointer_data(tag, touch, bounds);
+        }
+        let handler = &self.handlers[&tag];
         if !handler.is_awaiting || touch.action != Action::Move {
             handler::handle(self, tag, touch, bounds);
             let handler = &self.handlers[&tag];
@@ -541,6 +582,12 @@ impl Orchestrator {
         if handler.state == state {
             return;
         }
+        // Pointers told of are cancelled when it finishes (`cancelPointers`).
+        if state.finished() && !handler.touches.is_empty() {
+            let all: Vec<TouchPoint> = std::mem::take(&mut handler.touches).into_values().collect();
+            self.dispatch_touch(tag, TouchType::Cancelled, all.clone(), all);
+        }
+        let handler = self.handler_mut(tag);
         let old = handler.state;
         handler.state = state;
         self.on_state_change(tag, state, old);
@@ -759,6 +806,86 @@ impl Orchestrator {
             tag,
             view: handler.view.unwrap_or(-1),
             data: handler.data(self.now),
+        };
+        self.out.push(output);
+    }
+
+    // ---- touch events (`updatePointerData`) ----
+
+    /// Tells a handler that needs pointer data of the pointers going down, moving and going up.
+    fn update_pointer_data(&mut self, tag: Tag, touch: &Touch, bounds: Frame) {
+        let point = |p: &Pointer| TouchPoint {
+            id: p.id,
+            x: p.x - bounds.x,
+            y: p.y - bounds.y,
+            absolute_x: p.x,
+            absolute_y: p.y,
+        };
+        let actor = touch.pointers.get(touch.index).map(point);
+        match (touch.action, actor) {
+            (Action::Down | Action::PointerDown, Some(actor)) => {
+                let handler = self.handler_mut(tag);
+                handler.touches.insert(actor.id, actor);
+                let all = handler.touches.values().copied().collect();
+                self.dispatch_touch(tag, TouchType::Down, vec![actor], all);
+                self.touches_moved(tag, touch, &point);
+            }
+            (Action::Up | Action::PointerUp, Some(actor)) => {
+                self.touches_moved(tag, touch, &point);
+                let handler = self.handler_mut(tag);
+                if handler.touches.contains_key(&actor.id) {
+                    // All as they were, the one going up included.
+                    let all = handler.touches.values().copied().collect();
+                    handler.touches.remove(&actor.id);
+                    self.dispatch_touch(tag, TouchType::Up, vec![actor], all);
+                }
+            }
+            (Action::Move, _) => self.touches_moved(tag, touch, &point),
+            _ => {}
+        }
+    }
+
+    fn touches_moved(&mut self, tag: Tag, touch: &Touch, point: &dyn Fn(&Pointer) -> TouchPoint) {
+        let handler = self.handler_mut(tag);
+        let mut changed = Vec::new();
+        for pointer in &touch.pointers {
+            let now = point(pointer);
+            if let Some(told) = handler.touches.get_mut(&pointer.id) {
+                if (told.x, told.y) != (now.x, now.y) {
+                    *told = now;
+                    changed.push(now);
+                }
+            }
+        }
+        if !changed.is_empty() {
+            let all = handler.touches.values().copied().collect();
+            self.dispatch_touch(tag, TouchType::Move, changed, all);
+        }
+    }
+
+    fn dispatch_touch(
+        &mut self,
+        tag: Tag,
+        event_type: TouchType,
+        changed: Vec<TouchPoint>,
+        all: Vec<TouchPoint>,
+    ) {
+        let handler = &self.handlers[&tag];
+        // One activated but waiting is, to JavaScript, still beginning.
+        let state = if handler.is_awaiting && handler.state == State::Active {
+            State::Began
+        } else {
+            handler.state
+        };
+        let output = Output::Touch {
+            tag,
+            view: handler.view.unwrap_or(-1),
+            state,
+            event_type,
+            number_of_touches: handler.touches.len() as u32,
+            pointer_type: handler.pointer_type(),
+            changed,
+            all,
         };
         self.out.push(output);
     }

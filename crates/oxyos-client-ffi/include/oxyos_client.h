@@ -553,6 +553,12 @@ int oxyos_vector_render(const OxyOSVectorShape* shapes, size_t count, uint32_t w
 #define OXYOS_GESTURE_UPDATE 2
 #define OXYOS_GESTURE_INTERCEPT 3
 #define OXYOS_GESTURE_CANCEL_RESPONDER 4
+#define OXYOS_GESTURE_TOUCH 5
+/* Touch events' types (onTouchesDown and the rest). */
+#define OXYOS_GESTURE_TOUCH_DOWN 1
+#define OXYOS_GESTURE_TOUCH_MOVE 2
+#define OXYOS_GESTURE_TOUCH_UP 3
+#define OXYOS_GESTURE_TOUCH_CANCELLED 4
 #define OXYOS_GESTURE_HAS_POSITION 1
 #define OXYOS_GESTURE_HAS_TRANSLATION 2
 #define OXYOS_GESTURE_HAS_VELOCITY 4
@@ -591,9 +597,19 @@ typedef struct OxyOSGestureFrame {
 /* Writes view `view`'s frame to `out` and returns 1, or returns 0 for a view no longer there. */
 typedef uint8_t (*OxyOSGestureFrameFn)(void* context, int32_t view, OxyOSGestureFrame* out);
 
+/* A pointer a touch event tells of: in the handler's view, and in the root. */
+typedef struct OxyOSGestureTouch {
+  uint32_t id;
+  float x;
+  float y;
+  float absolute_x;
+  float absolute_y;
+} OxyOSGestureTouch;
+
 /* What to send JavaScript. A state change has `state` and `old_state`, an update `state` (ACTIVE);
- * both have the handler's data, `fields` saying which. A cancel-responder output has `tag`; an
- * intercept output nothing more. */
+ * both have the handler's data, `fields` saying which. A touch event has `state`, `event_type`,
+ * `pointer_type` and its number of touches in `number_of_pointers`; its pointers come from
+ * oxyos_gestures_touches. A cancel-responder output has `tag`; an intercept output nothing more. */
 typedef struct OxyOSGestureOutput {
   uint8_t kind;
   uint8_t state;
@@ -601,6 +617,7 @@ typedef struct OxyOSGestureOutput {
   uint8_t pointer_type;
   uint8_t fields;
   uint8_t pointer_inside;
+  uint8_t event_type;
   int32_t tag;
   int32_t view;
   uint32_t number_of_pointers;
@@ -646,6 +663,9 @@ int64_t oxyos_gestures_next_deadline(OxyOSGestures* gestures);
 uint8_t oxyos_gestures_reaches(OxyOSGestures* gestures, int32_t view, OxyOSGestureFrame frame, float x, float y);
 /* Takes the next output: 1 with *out filled, 0 when there is none. */
 int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
+/* The pointers of the last touch event taken: those that changed, or (`all` 1) all the handler is
+ * told of. Writes up to `capacity` to `out`; returns how many there are. */
+size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
 
 #ifdef __cplusplus
 }

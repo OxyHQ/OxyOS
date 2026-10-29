@@ -6,7 +6,7 @@
 use super::fail;
 use oxyos_gestures::{
     Action, Data, Frame, Orchestrator, Output, Pointer, PointerType, Refused, Relations, State,
-    Touch, Value,
+    Touch, TouchPoint, Value,
 };
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_int, c_void};
@@ -29,6 +29,12 @@ pub const OXYOS_GESTURE_STATE_CHANGE: u8 = 1;
 pub const OXYOS_GESTURE_UPDATE: u8 = 2;
 pub const OXYOS_GESTURE_INTERCEPT: u8 = 3;
 pub const OXYOS_GESTURE_CANCEL_RESPONDER: u8 = 4;
+pub const OXYOS_GESTURE_TOUCH: u8 = 5;
+/// Touch events' types (`OxyOSGestureOutput.event_type`), react-native-gesture-handler's.
+pub const OXYOS_GESTURE_TOUCH_DOWN: u8 = 1;
+pub const OXYOS_GESTURE_TOUCH_MOVE: u8 = 2;
+pub const OXYOS_GESTURE_TOUCH_UP: u8 = 3;
+pub const OXYOS_GESTURE_TOUCH_CANCELLED: u8 = 4;
 /// Which of an output's data it has (`OxyOSGestureOutput.fields`).
 pub const OXYOS_GESTURE_HAS_POSITION: u8 = 1;
 pub const OXYOS_GESTURE_HAS_TRANSLATION: u8 = 2;
@@ -74,9 +80,22 @@ pub type OxyOSGestureFrameFn = Option<
     unsafe extern "C" fn(context: *mut c_void, view: i32, out: *mut OxyOSGestureFrame) -> u8,
 >;
 
+/// A pointer a touch event tells of: in the handler's view, and in the root.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OxyOSGestureTouch {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub absolute_x: f32,
+    pub absolute_y: f32,
+}
+
 /// What to send JavaScript. A state change has `state` and `old_state`, an update `state`
-/// (ACTIVE); both have the handler's data, `fields` saying which. Intercept and cancel-responder
-/// outputs have `tag` alone (none for intercept).
+/// (ACTIVE); both have the handler's data, `fields` saying which. A touch event has `state`,
+/// `event_type`, `pointer_type` and its number of touches in `number_of_pointers`; its pointers
+/// come from `oxyos_gestures_touches`. Intercept and cancel-responder outputs have `tag` alone
+/// (none for intercept).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OxyOSGestureOutput {
@@ -86,6 +105,7 @@ pub struct OxyOSGestureOutput {
     pub pointer_type: u8,
     pub fields: u8,
     pub pointer_inside: u8,
+    pub event_type: u8,
     pub tag: i32,
     pub view: i32,
     pub number_of_pointers: u32,
@@ -104,6 +124,8 @@ pub struct OxyOSGestureOutput {
 pub struct OxyOSGestures {
     orchestrator: Orchestrator,
     outputs: VecDeque<Output>,
+    /// The pointers of the last touch event taken: changed, and all.
+    touches: (Vec<TouchPoint>, Vec<TouchPoint>),
 }
 
 fn refused(error: Refused) -> c_int {
@@ -192,6 +214,7 @@ pub extern "C" fn oxyos_gestures_new() -> *mut OxyOSGestures {
     Box::into_raw(Box::new(OxyOSGestures {
         orchestrator: Orchestrator::new(),
         outputs: VecDeque::new(),
+        touches: (Vec::new(), Vec::new()),
     }))
 }
 
@@ -570,6 +593,25 @@ pub unsafe extern "C" fn oxyos_gestures_output(
             converted.view = view;
             fill(&mut converted, &data);
         }
+        Output::Touch {
+            tag,
+            view,
+            state,
+            event_type,
+            number_of_touches,
+            pointer_type,
+            changed,
+            all,
+        } => {
+            converted.kind = OXYOS_GESTURE_TOUCH;
+            converted.tag = tag;
+            converted.view = view;
+            converted.state = state as u8;
+            converted.event_type = event_type as u8;
+            converted.number_of_pointers = number_of_touches;
+            converted.pointer_type = pointer_type as u8;
+            g.touches = (changed, all);
+        }
         Output::Intercept => converted.kind = OXYOS_GESTURE_INTERCEPT,
         Output::CancelResponder { tag } => {
             converted.kind = OXYOS_GESTURE_CANCEL_RESPONDER;
@@ -579,6 +621,43 @@ pub unsafe extern "C" fn oxyos_gestures_output(
     // SAFETY: per the contract, `out` is writable.
     unsafe { *out = converted };
     1
+}
+
+/// The pointers of the last touch event `oxyos_gestures_output` gave: those that changed, or
+/// (`all` 1) all the handler is told of. Writes up to `capacity` to `out` and returns how many there
+/// are.
+///
+/// # Safety
+/// `gestures` came from `oxyos_gestures_new`; `out` points to `capacity` writable touches (any
+/// pointer when `capacity` is 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_gestures_touches(
+    gestures: *mut OxyOSGestures,
+    all: u8,
+    out: *mut OxyOSGestureTouch,
+    capacity: usize,
+) -> usize {
+    // SAFETY: per the contract.
+    let Some(g) = (unsafe { self::gestures(gestures) }) else {
+        return 0;
+    };
+    let touches = if all != 0 { &g.touches.1 } else { &g.touches.0 };
+    if capacity > 0 && !out.is_null() {
+        for (index, touch) in touches.iter().take(capacity).enumerate() {
+            // SAFETY: per the contract, `out` has `capacity` entries.
+            unsafe {
+                *out.add(index) = OxyOSGestureTouch {
+                    id: touch.id,
+                    x: touch.x,
+                    y: touch.y,
+                    absolute_x: touch.absolute_x,
+                    absolute_y: touch.absolute_y,
+                }
+            };
+        }
+    }
+    touches.len()
 }
 
 fn fill(out: &mut OxyOSGestureOutput, data: &Data) {

@@ -1696,6 +1696,14 @@ fn the_header_matches_the_gestures_abi() {
             "OXYOS_GESTURE_CANCEL_RESPONDER",
             OXYOS_GESTURE_CANCEL_RESPONDER,
         ),
+        ("OXYOS_GESTURE_TOUCH", OXYOS_GESTURE_TOUCH),
+        ("OXYOS_GESTURE_TOUCH_DOWN", OXYOS_GESTURE_TOUCH_DOWN),
+        ("OXYOS_GESTURE_TOUCH_MOVE", OXYOS_GESTURE_TOUCH_MOVE),
+        ("OXYOS_GESTURE_TOUCH_UP", OXYOS_GESTURE_TOUCH_UP),
+        (
+            "OXYOS_GESTURE_TOUCH_CANCELLED",
+            OXYOS_GESTURE_TOUCH_CANCELLED,
+        ),
         ("OXYOS_GESTURE_HAS_POSITION", OXYOS_GESTURE_HAS_POSITION),
         (
             "OXYOS_GESTURE_HAS_TRANSLATION",
@@ -1740,6 +1748,9 @@ fn the_header_matches_the_gestures_abi() {
     );
     let frame = fields("OxyOSGestureFrame");
     assert_eq!(names(&frame), ["x", "y", "width", "height"]);
+    let touch = fields("OxyOSGestureTouch");
+    assert_eq!(names(&touch), ["id", "x", "y", "absolute_x", "absolute_y"]);
+    assert_eq!(c_offsets(&touch).1, size_of::<OxyOSGestureTouch>());
     let output = fields("OxyOSGestureOutput");
     assert_eq!(
         names(&output),
@@ -1750,6 +1761,7 @@ fn the_header_matches_the_gestures_abi() {
             "pointer_type",
             "fields",
             "pointer_inside",
+            "event_type",
             "tag",
             "view",
             "number_of_pointers",
@@ -1771,6 +1783,7 @@ fn the_header_matches_the_gestures_abi() {
         offset_of!(OxyOSGestureOutput, pointer_type),
         offset_of!(OxyOSGestureOutput, fields),
         offset_of!(OxyOSGestureOutput, pointer_inside),
+        offset_of!(OxyOSGestureOutput, event_type),
         offset_of!(OxyOSGestureOutput, tag),
         offset_of!(OxyOSGestureOutput, view),
         offset_of!(OxyOSGestureOutput, number_of_pointers),
@@ -1813,7 +1826,8 @@ fn a_tap_is_recognized_through_the_c_abi() {
     }
     let name = "TapGestureHandler";
     let key = "maxDurationMs";
-    let refused_key = "needsPointerData";
+    let refused_key = "mouseButton";
+    let touches_key = "needsPointerData";
     let setting = |key: &str, kind, number| OxyOSGestureValue {
         key: key.as_ptr().cast(),
         key_length: key.len(),
@@ -1824,9 +1838,10 @@ fn a_tap_is_recognized_through_the_c_abi() {
     };
     let config = [
         setting(key, OXYOS_GESTURE_NUMBER, 300.0),
-        setting(refused_key, OXYOS_GESTURE_BOOL, 1.0),
+        setting(refused_key, OXYOS_GESTURE_NUMBER, 2.0),
+        setting(touches_key, OXYOS_GESTURE_BOOL, 1.0),
     ];
-    let mut refused = [9u8; 2];
+    let mut refused = [9u8; 3];
     let hits = [10, 1];
     let mut out = OxyOSGestureOutput::default();
     let gestures = oxyos_gestures_new();
@@ -1845,7 +1860,7 @@ fn a_tap_is_recognized_through_the_c_abi() {
             ),
             0
         );
-        assert_eq!(refused, [0, 1]);
+        assert_eq!(refused, [0, 1, 0]);
         let pinch = "PinchGestureHandler";
         assert_eq!(
             oxyos_gestures_create(
@@ -1882,6 +1897,32 @@ fn a_tap_is_recognized_through_the_c_abi() {
         };
         assert_eq!(touch(OXYOS_GESTURE_DOWN, &pointer, 1000), 0);
         assert_eq!(oxyos_gestures_next_deadline(gestures), 1300);
+        // Its touch event first: the pointer down, in the view and in the root.
+        assert_eq!(oxyos_gestures_output(gestures, &mut out), 1);
+        assert_eq!(
+            (out.kind, out.tag, out.event_type, out.number_of_pointers),
+            (OXYOS_GESTURE_TOUCH, 7, OXYOS_GESTURE_TOUCH_DOWN, 1)
+        );
+        let mut points = [OxyOSGestureTouch::default(); 2];
+        assert_eq!(
+            oxyos_gestures_touches(gestures, 0, points.as_mut_ptr(), 2),
+            1
+        );
+        let first = points[0];
+        assert_eq!(
+            (
+                first.id,
+                first.x,
+                first.y,
+                first.absolute_x,
+                first.absolute_y
+            ),
+            (0, 10.0, 20.0, 60.0, 70.0)
+        );
+        assert_eq!(
+            oxyos_gestures_touches(gestures, 1, std::ptr::null_mut(), 0),
+            1
+        );
         assert_eq!(oxyos_gestures_output(gestures, &mut out), 1);
         assert_eq!(
             (out.kind, out.tag, out.view, out.old_state, out.state),
@@ -1903,6 +1944,8 @@ fn a_tap_is_recognized_through_the_c_abi() {
         assert_eq!(
             kinds,
             [
+                (OXYOS_GESTURE_TOUCH, 0, 2),
+                (OXYOS_GESTURE_TOUCH, 0, 2),
                 (OXYOS_GESTURE_INTERCEPT, 0, 0),
                 (OXYOS_GESTURE_CANCEL_RESPONDER, 0, 0),
                 (OXYOS_GESTURE_STATE_CHANGE, 2, 4),
