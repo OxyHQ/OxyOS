@@ -9,6 +9,7 @@
 #include "host-modules.h"
 #include "images.h"
 #include "input.h"
+#include "intl.h"
 #include "modal.h"
 #include "network.h"
 #include "popup.h"
@@ -355,6 +356,8 @@ int main(int argc, char** argv) {
                     << (count > 0 ? args[0].toString(rt).utf8(rt) : "") << "\n";
           return jsi::Value::undefined();
         }));
+    // ECMA-402's Intl, which Hermes has on Android from the platform (intl.h).
+    oxyos::installIntl(rt);
     TurboModuleBinding::install(
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);

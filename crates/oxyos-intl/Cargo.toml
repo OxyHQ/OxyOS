@@ -1,0 +1,35 @@
+[package]
+name = "oxyos-intl"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# ICU4X with CLDR's data compiled in: locales (parsing, canonicalization, likely subtags,
+# fallback), dates in the Gregorian calendar, decimal numbers and plural rules. The workspace
+# already has its core crates (through `url`), at these versions. Date, currency and percent data
+# is compiled in by src/data.rs, only what OxyOS formats.
+icu_locale_core = "2.1"
+icu_locale = "2.1"
+icu_provider = { version = "2.1", features = ["baked"] }
+icu_calendar = "2.1"
+icu_time = "2.1"
+icu_datetime = { version = "2.1", default-features = false }
+icu_datetime_data = "2.1"
+icu_decimal = "2.1"
+icu_plurals = "2.1"
+fixed_decimal = { version = "0.7", features = ["ryu"] }
+# ICU4X's experimental components, for their currency and percent data (symbols, names,
+# patterns), which its stable ones do not have yet.
+icu_experimental = { version = "0.4", default-features = false }
+icu_experimental_data = "0.4"
+icu_pattern = "0.4"
+tinystr = "0.8"
+zerovec = "0.11"
+writeable = "0.6"
+# Time zones from the system's database (/usr/share/zoneinfo), not a copy bundled in.
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+
+[lints]
+workspace = true
