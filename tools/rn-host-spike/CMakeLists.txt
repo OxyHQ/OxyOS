@@ -186,9 +186,14 @@ target_include_directories(oxyos_android_components PRIVATE ${SCROLLVIEW_ANDROID
 target_link_libraries(oxyos_android_components reactnative)
 target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
 
-add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp
+# Intl's JavaScript (intl.js), embedded in the host: it runs before the application's bundle.
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/intl.js OXYOS_INTL_JS)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/intl-js.h.in ${CMAKE_CURRENT_BINARY_DIR}/intl-js.h @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/intl.js)
+add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp intl.cpp
   reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp shell-state.cpp shell-surface.cpp svg.cpp
   gesture-handler.cpp modal.cpp expo-blur.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS

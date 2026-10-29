@@ -1,0 +1,28 @@
+{
+  "about": "ECMA-402's Intl on OxyOS (sample/IntlProbe.tsx, intl.h, crates/oxyos-intl on ICU4X), as Hermes provides it on Android from the platform: Intl.DateTimeFormat and Intl.NumberFormat, a date's parts and the toLocale*String methods, for several locales and time zones (UTC and Europe/Madrid, after its change to winter time), each row exactly as ICU 78.3 with CLDR 48 formats it (Node's formatToParts; V8's format replaces the narrow no-break space before a time's AM/PM with a space for web compatibility, which Android, like ICU4X, does not), spaces included. An option OxyOS does not support yet (compact notation) is refused with a RangeError, and a constructor it does not provide (Collator) is undefined rather than present and wrong.",
+  "module": "IntlProbe",
+  "window": [
+    600,
+    480
+  ],
+  "steps": [],
+  "final": {
+    "texts": [
+      "es date: 29 de octubre de 2026",
+      "en medium short: Oct 29, 2026, 3:04 PM",
+      "es weekday: jueves, 29 de octubre",
+      "gb madrid: 16:04",
+      "de short month: 29. Okt.",
+      "es parts: day,literal,month,literal,year",
+      "de number: 1.234,5",
+      "es eur: 1234,50 €",
+      "en usd: -$1,234.50",
+      "en percent: 26%",
+      "fr max0: 1 235",
+      "en sig: 123,000",
+      "compact: refused: RangeError",
+      "collator: undefined",
+      "time zone: known"
+    ]
+  }
+}

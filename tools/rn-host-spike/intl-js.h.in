@@ -1,0 +1,4 @@
+// Generated from intl.js by CMake (configure_file): the source the host evaluates before the bundle.
+#pragma once
+
+static const char kIntlJs[] = R"OXYOSJS(@OXYOS_INTL_JS@)OXYOSJS";
