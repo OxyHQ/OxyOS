@@ -1775,6 +1775,8 @@ fn the_header_matches_the_gestures_abi() {
             "OXYOS_GESTURE_HAS_POINTER_INSIDE",
             OXYOS_GESTURE_HAS_POINTER_INSIDE,
         ),
+        ("OXYOS_GESTURE_HAS_SCALE", OXYOS_GESTURE_HAS_SCALE),
+        ("OXYOS_GESTURE_HAS_ROTATION", OXYOS_GESTURE_HAS_ROTATION),
     ] {
         assert_eq!(define(name), i64::from(value), "{name}");
     }
@@ -1833,7 +1835,14 @@ fn the_header_matches_the_gestures_abi() {
             "translation_y",
             "velocity_x",
             "velocity_y",
-            "duration"
+            "duration",
+            "scale",
+            "focal_x",
+            "focal_y",
+            "rotation",
+            "anchor_x",
+            "anchor_y",
+            "rate"
         ]
     );
     let rust = [
@@ -1856,6 +1865,13 @@ fn the_header_matches_the_gestures_abi() {
         offset_of!(OxyOSGestureOutput, velocity_x),
         offset_of!(OxyOSGestureOutput, velocity_y),
         offset_of!(OxyOSGestureOutput, duration),
+        offset_of!(OxyOSGestureOutput, scale),
+        offset_of!(OxyOSGestureOutput, focal_x),
+        offset_of!(OxyOSGestureOutput, focal_y),
+        offset_of!(OxyOSGestureOutput, rotation),
+        offset_of!(OxyOSGestureOutput, anchor_x),
+        offset_of!(OxyOSGestureOutput, anchor_y),
+        offset_of!(OxyOSGestureOutput, rate),
     ];
     assert_eq!(
         c_offsets(&output),

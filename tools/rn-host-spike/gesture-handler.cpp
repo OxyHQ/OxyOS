@@ -328,6 +328,20 @@ bool GestureHandlerHost::deliver() {
     }
     if (out.fields & OXYOS_GESTURE_HAS_DURATION) payload["duration"] = out.duration;
     if (out.fields & OXYOS_GESTURE_HAS_POINTER_INSIDE) payload["pointerInside"] = out.pointer_inside != 0;
+    // A pinch's and a rotation's data, as RNGH's Android PinchGestureHandler and
+    // RotationGestureHandler send it.
+    if (out.fields & OXYOS_GESTURE_HAS_SCALE) {
+      payload["scale"] = out.scale;
+      payload["focalX"] = out.focal_x;
+      payload["focalY"] = out.focal_y;
+      payload["velocity"] = out.rate;
+    }
+    if (out.fields & OXYOS_GESTURE_HAS_ROTATION) {
+      payload["rotation"] = out.rotation;
+      payload["anchorX"] = out.anchor_x;
+      payload["anchorY"] = out.anchor_y;
+      payload["velocity"] = out.rate;
+    }
     if (report.enabled()) {
       auto view = tree_.views().find(out.view);
       folly::dynamic line = payload;

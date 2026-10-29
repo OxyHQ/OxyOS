@@ -578,6 +578,11 @@ int oxyos_vector_render(const OxyOSVectorShape* shapes, size_t count, uint32_t w
 #define OXYOS_GESTURE_HAS_VELOCITY 4
 #define OXYOS_GESTURE_HAS_DURATION 8
 #define OXYOS_GESTURE_HAS_POINTER_INSIDE 16
+/* A pinch's scale, focal_x, focal_y and rate (its velocity, scale per second). */
+#define OXYOS_GESTURE_HAS_SCALE 32
+/* A rotation's rotation (radians, clockwise), anchor_x, anchor_y and rate (its velocity, radians
+ * per millisecond, as Android's). */
+#define OXYOS_GESTURE_HAS_ROTATION 64
 
 typedef struct OxyOSGestures OxyOSGestures;
 
@@ -644,6 +649,13 @@ typedef struct OxyOSGestureOutput {
   float velocity_x;
   float velocity_y;
   uint64_t duration;
+  float scale;
+  float focal_x;
+  float focal_y;
+  float rotation;
+  float anchor_x;
+  float anchor_y;
+  float rate;
 } OxyOSGestureOutput;
 
 OxyOSGestures* oxyos_gestures_new(void);
