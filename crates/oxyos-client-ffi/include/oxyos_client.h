@@ -438,6 +438,50 @@ int oxyos_images_load(OxyOSImages* images, uint64_t id, const char* path, size_t
 /* Takes one answer without blocking: OXYOS_IMAGE_ANSWER with *out filled, or OXYOS_IMAGE_EMPTY. */
 int oxyos_images_answer(OxyOSImages* images, OxyOSImageAnswer* out);
 
+/* Vector graphics (crates/oxyos-vector): what react-native-svg draws. Shape kinds; caps, joins and
+ * fill rules are react-native-svg's own codes. */
+#define OXYOS_SHAPE_PATH 0
+#define OXYOS_SHAPE_RECT 1
+#define OXYOS_SHAPE_ELLIPSE 2
+#define OXYOS_SHAPE_LINE 3
+#define OXYOS_CAP_BUTT 0
+#define OXYOS_CAP_ROUND 1
+#define OXYOS_CAP_SQUARE 2
+#define OXYOS_JOIN_MITER 0
+#define OXYOS_JOIN_ROUND 1
+#define OXYOS_JOIN_BEVEL 2
+
+/* One shape: path data (`data`, `data_length` bytes of UTF-8) for OXYOS_SHAPE_PATH, otherwise
+ * `geometry` holds the rectangle's x, y, width, height, rx, ry, the ellipse's cx, cy, rx, ry or
+ * the line's x1, y1, x2, y2; SVG's matrix (a, b, c, d, e, f) to the picture's pixels; its fill
+ * and stroke (0xAARRGGBB, not premultiplied; zero `fill` or `stroke` for none). */
+typedef struct OxyOSVectorShape {
+  uint8_t kind;
+  const char* data;
+  size_t data_length;
+  float geometry[6];
+  float transform[6];
+  uint8_t fill;
+  uint8_t even_odd;
+  uint32_t fill_color;
+  uint8_t stroke;
+  uint8_t cap;
+  uint8_t join;
+  uint32_t stroke_color;
+  float stroke_width;
+  float miter_limit;
+  const float* dash;
+  size_t dash_count;
+  float dash_offset;
+} OxyOSVectorShape;
+
+/* Draws `count` shapes in order onto a transparent width × height picture written to `pixels`
+ * (`length` bytes, at least width × height × 4) as premultiplied R, G, B, A bytes, rows top to
+ * bottom, as decoded images are. Returns how many shapes were left out (path data SVG would
+ * reject), or OXYOS_ERROR. */
+int oxyos_vector_render(const OxyOSVectorShape* shapes, size_t count, uint32_t width, uint32_t height,
+                        uint8_t* pixels, size_t length);
+
 #ifdef __cplusplus
 }
 #endif

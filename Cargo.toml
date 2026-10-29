@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oxyos-protocol", "crates/oxyos-compositor-core", "crates/oxyos-ipc", "crates/oxyos-client", "crates/oxyos-client-ffi", "crates/oxyos-gpu", "crates/oxyos-kms", "crates/oxyos-input", "crates/oxyos-vt", "crates/oxyos-seat", "crates/oxyos-compositor", "crates/oxyos-net", "tools/oxyos-platform-probe", "tools/oxyos-kms-probe", "tools/oxyos-kms-show", "tools/oxyos-offscreen", "tools/oxyos-session", "crates/oxyos-image"]
+members = ["crates/oxyos-protocol", "crates/oxyos-compositor-core", "crates/oxyos-ipc", "crates/oxyos-client", "crates/oxyos-client-ffi", "crates/oxyos-gpu", "crates/oxyos-kms", "crates/oxyos-input", "crates/oxyos-vt", "crates/oxyos-seat", "crates/oxyos-compositor", "crates/oxyos-net", "tools/oxyos-platform-probe", "tools/oxyos-kms-probe", "tools/oxyos-kms-show", "tools/oxyos-offscreen", "tools/oxyos-session", "crates/oxyos-image", "crates/oxyos-vector"]
 resolver = "2"
 
 [workspace.package]

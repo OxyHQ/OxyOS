@@ -1,5 +1,7 @@
 #include "damage.h"
 
+#include "svg.h"
+
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/core/ConcreteState.h>
 
@@ -14,7 +16,8 @@ namespace oxyos {
 namespace {
 
 // Every view the window draws, where it draws it: the traversal `drawView` makes, popup subtrees
-// left out (they are drawn in their own surfaces).
+// left out (they are drawn in their own surfaces), and an SVG view's elements too (they are its
+// picture: what changes in them changes the picture).
 void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_map<Tag, Rect>& at,
              std::unordered_map<Tag, const View*>& views) {
   auto it = tree.views().find(tag);
@@ -25,6 +28,7 @@ void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_m
   Rect rect{{ox + frame.origin.x, oy + frame.origin.y}, frame.size};
   at[tag] = rect;
   views[tag] = &it->second;
+  if (view.componentName && isSvgView(view.componentName)) return;
   Float childOx = rect.origin.x, childOy = rect.origin.y;
   if (view.componentName && std::string(view.componentName) == "ScrollView" && view.state) {
     const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state);
@@ -55,7 +59,9 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
   collect(tree, tree.root(), 0, 0, at, views);
   Views now;
   for (const auto& [tag, rect] : at) {
-    now[tag] = Seen{views[tag]->view, rect, views[tag]->children, views[tag]->picture};
+    const View& view = *views[tag];
+    bool svg = view.view.componentName && isSvgView(view.view.componentName);
+    now[tag] = Seen{view.view, rect, view.children, svg ? svgPicture(tree, tag, display.scale) : view.picture};
   }
 
   bool same = display_ && display_->width == display.width && display_->height == display.height &&

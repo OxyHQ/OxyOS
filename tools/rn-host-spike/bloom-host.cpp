@@ -10,6 +10,7 @@
 #include "network.h"
 #include "popup.h"
 #include "safe-area.h"
+#include "svg.h"
 #include "report.h"
 #include "renderer.h"
 #include "text.h"
@@ -358,6 +359,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
+  oxyos::addSvgComponents(*providers);
   oxyos::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {

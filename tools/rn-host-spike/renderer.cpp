@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include "svg.h"
 #include "text.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -86,6 +87,7 @@ class Painter {
   void limit(int x0, int y0, int x1, int y1) { region_ = {x0, y0, x1, y1}; }
 
   // Whether a logical rectangle has any pixel the painter paints.
+  float scale() const { return scale_; }
   bool touches(float x, float y, float w, float h) const {
     int x0 = static_cast<int>(std::floor(x * scale_)), x1 = static_cast<int>(std::ceil((x + w) * scale_));
     int y0 = static_cast<int>(std::floor(y * scale_)), y1 = static_cast<int>(std::ceil((y + h) * scale_));
@@ -317,7 +319,7 @@ class Painter {
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
                                             "AndroidTextInput", "AndroidHorizontalScrollContentView",
-                                            "Image"};
+                                            "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid"};
 
 // The input's text laid out as it is drawn: single-line inputs do not wrap.
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -587,6 +589,19 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
 
   if (name == "Image" && it->second.picture && painter.touches(x, y, w, h)) {
     drawImage(view, *it->second.picture, x, y, w, h, clip, opacity, painter);
+  }
+
+  // An SVG view's elements are its picture (svg.h), drawn pixel for pixel over its content box.
+  if (isSvgView(name)) {
+    if (painter.touches(x, y, w, h)) {
+      if (auto picture = svgPicture(tree, tag, painter.scale())) {
+        auto content = view.layoutMetrics.getContentFrame();
+        float pw = picture->width / painter.scale(), ph = picture->height / painter.scale();
+        painter.image(*picture, x + content.origin.x, y + content.origin.y, pw, ph,
+                      clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, BorderRadii{}, opacity, std::nullopt);
+      }
+    }
+    return;
   }
 
   if (name == "Paragraph" && view.state) {
