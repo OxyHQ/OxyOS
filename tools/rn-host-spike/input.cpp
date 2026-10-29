@@ -24,7 +24,13 @@ namespace {
 // Linux input code of the primary (left) button.
 constexpr uint32_t kPrimaryButton = 272;
 
-Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
+// For gesture handlers' traversal: views all but transparent are passed over, and `reaches`
+// counts a view as under the point.
+struct GestureHit {
+  const std::function<bool(Tag)>& reaches;
+};
+
+Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestures = nullptr) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return -1;
   const auto& view = it->second.view;
@@ -34,6 +40,8 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;
   if (mode == PointerEventsMode::None) return -1;
+  // RNGH's root view's minimum alpha for touches.
+  if (gestures && props && props->opacity < 0.1f) return -1;
   std::string name = view.componentName ? view.componentName : "";
   // A popup's or a shell region's subtree is in its own surface, not under the window's pointer.
   if (ownSurface(name)) return -1;
@@ -49,17 +57,16 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
     // Later children are drawn above earlier ones, so they are hit first.
     const auto& children = it->second.children;
     for (auto child = children.rbegin(); child != children.rend(); ++child) {
-      Tag found = hit(tree, *child, cx, cy);
+      Tag found = hit(tree, *child, cx, cy, gestures);
       if (found >= 0) return found;
     }
   }
-  return inside && mode != PointerEventsMode::BoxNone ? tag : -1;
+  bool reached = inside || (gestures && gestures->reaches(tag));
+  return reached && mode != PointerEventsMode::BoxNone ? tag : -1;
 }
 
-}  // namespace
-
-Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y) {
-  if (!content.popup) return content.view < 0 ? -1 : hit(tree, content.view, x, y);
+Tag hitIn(const ViewTree& tree, const SurfaceContent& content, float x, float y, const GestureHit* gestures) {
+  if (!content.popup) return content.view < 0 ? -1 : hit(tree, content.view, x, y, gestures);
   // The view's children are laid out relative to it: a popup's is its surface's origin, a shell
   // region is where it is in its surface (the surface's origin is `content.origin`).
   auto it = tree.views().find(content.view);
@@ -68,10 +75,28 @@ Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float 
   float lx = x + content.origin.x - frame.origin.x, ly = y + content.origin.y - frame.origin.y;
   const auto& children = it->second.children;
   for (auto child = children.rbegin(); child != children.rend(); ++child) {
-    Tag found = hit(tree, *child, lx, ly);
+    Tag found = hit(tree, *child, lx, ly, gestures);
     if (found >= 0) return found;
   }
   return -1;
+}
+
+}  // namespace
+
+Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y) {
+  return hitIn(tree, content, x, y, nullptr);
+}
+
+Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y,
+                   const std::function<bool(Tag)>& reaches) {
+  GestureHit gestures{reaches};
+  return hitIn(tree, content, x, y, &gestures);
+}
+
+void PointerInput::cancelResponder() {
+  if (!down_ || responderCancelled_) return;
+  dispatch(Phase::Cancel, x_, y_);
+  responderCancelled_ = true;
 }
 
 void PointerInput::handle(const OxyOSEvent& event) {
@@ -96,23 +121,30 @@ void PointerInput::handle(const OxyOSEvent& event) {
         target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
         down_ = true;
+        responderCancelled_ = false;
         ++identifier_;
         dispatch(Phase::Start, x, y);
+        if (gestures_) gestures_(0, content_, x, y);
       }
       break;
     case OXYOS_POINTER_MOTION:
-      if (down_) dispatch(Phase::Move, x, y);
+      if (down_) {
+        if (!responderCancelled_) dispatch(Phase::Move, x, y);
+        if (gestures_) gestures_(1, content_, x, y);
+      }
       break;
     case OXYOS_POINTER_RELEASE:
       if (event.code == kPrimaryButton && down_) {
-        dispatch(Phase::End, x, y);
+        if (!responderCancelled_) dispatch(Phase::End, x, y);
+        if (gestures_) gestures_(2, content_, x, y);
         down_ = false;
       }
       break;
     case OXYOS_POINTER_LEAVE:
     case OXYOS_POINTER_CANCEL:
       if (down_) {
-        dispatch(Phase::Cancel, x, y);
+        if (!responderCancelled_) dispatch(Phase::Cancel, x, y);
+        if (gestures_) gestures_(3, content_, x, y);
         down_ = false;
       }
       break;

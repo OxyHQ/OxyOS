@@ -7,7 +7,10 @@
 #include <ReactCommon/TurboModule.h>
 #include <jsi/jsi.h>
 
+#include <folly/dynamic.h>
+
 #include <functional>
+#include <string>
 #include <memory>
 #include <vector>
 
@@ -34,6 +37,9 @@ class ReanimatedHost {
 
   // Once per frame: runs requested render callbacks, then lets Reanimated commit its updates.
   bool tick();
+  // An event for the worklet event handlers of view `tag` (useEvent), as Reanimated's Android
+  // NativeProxy receives react-native-gesture-handler's: `name` is the handler's ("onX").
+  void event(const std::string& name, int tag, const folly::dynamic& payload);
 
  private:
   WorkletsHost& worklets_;

@@ -32,6 +32,11 @@ struct SurfaceContent {
 // The deepest view under a surface-local logical point that takes touches, honouring
 // `pointerEvents`, clipping and scroll offsets as they are drawn. -1 if none does.
 facebook::react::Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y);
+// The deepest view under the point for react-native-gesture-handler, as its Android orchestrator
+// traverses: as hitTest, but a view all but transparent (opacity under 0.1) is passed over, and a
+// view `reaches` counts is under the point though outside its bounds (a handler's hit slop).
+facebook::react::Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y,
+                                    const std::function<bool(facebook::react::Tag)>& reaches);
 
 class PointerInput {
  public:
@@ -46,6 +51,14 @@ class PointerInput {
   void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
     scrollText_ = std::move(scrollText);
   }
+  // The touch's start, moves, end and cancel (0 to 3) also go to gesture handlers
+  // (gesture-handler.h), after React Native, as Android's root view passes them on.
+  void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
+    gestures_ = std::move(feed);
+  }
+  // A gesture handler activated and cancels React Native's touch: it is sent touchcancel and
+  // nothing more of this touch, as Android's JSTouchDispatcher does when a native gesture starts.
+  void cancelResponder();
 
  private:
   void scroll(float dx, float dy);
@@ -60,6 +73,8 @@ class PointerInput {
   const ViewTree& tree_;
   Surfaces surfaces_;
   std::function<bool(facebook::react::Tag, float, float)> scrollText_;
+  std::function<void(int, const SurfaceContent&, float, float)> gestures_;
+  bool responderCancelled_ = false;  // React Native has let go of the current touch
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;

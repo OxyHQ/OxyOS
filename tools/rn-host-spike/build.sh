@@ -107,6 +107,9 @@ mkdir -p "$WORK/codegen-svg"
     --schemaPath "$WORK/codegen-svg/schema.json" --outputDir "$WORK/codegen-svg/out" \
     --libraryName rnsvg --javaPackageName com.horcrux.svg)
 
+# react-native-gesture-handler's shared runtime bindings, built from the Bloom checkout's copy.
+GESTURE_HANDLER_DIR=$(cd "$BLOOM_DIR/node_modules/react-native-gesture-handler" && pwd)
+
 # React Native's text input component, patched to build off Android (see the patch's header). A
 # private copy: the React Native package is never modified.
 rm -rf "$WORK/textinput"
@@ -123,7 +126,7 @@ CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=R
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DICU_SYSROOT="$WORK/icu/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
   -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXYOS_CLIENT_LIB="$OXYOS_CLIENT_LIB" \
-  -DSVG_DIR="$SVG_DIR" -DSVG_CODEGEN_DIR="$WORK/codegen-svg/out/jni" \
+  -DSVG_DIR="$SVG_DIR" -DSVG_CODEGEN_DIR="$WORK/codegen-svg/out/jni" -DGESTURE_HANDLER_DIR="$GESTURE_HANDLER_DIR" \
   -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
 ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host
 

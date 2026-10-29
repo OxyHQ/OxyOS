@@ -4,6 +4,7 @@
 #include "accessibility.h"
 #include "android-components.h"
 #include "damage.h"
+#include "gesture-handler.h"
 #include "host-modules.h"
 #include "images.h"
 #include "input.h"
@@ -324,6 +325,8 @@ int main(int argc, char** argv) {
   oxyos::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
   oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
+  // react-native-gesture-handler (gesture-handler.h), made once the view tree exists.
+  std::unique_ptr<oxyos::GestureHandlerHost> gestures;
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
     // console.* in React Native writes through nativeLoggingHook(message, level).
     rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
@@ -339,6 +342,7 @@ int main(int argc, char** argv) {
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
           if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
+          if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
           if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
           std::cerr << "[host] TurboModule unavailable: " << name << "\n";
@@ -388,6 +392,20 @@ int main(int argc, char** argv) {
 
   oxyos::ViewTree tree;
   Mounter mounter(tree);
+  // What gesture handlers recognize reaches JavaScript as Android's module sends it: device
+  // events, or Reanimated's event handlers for worklets.
+  gestures = std::make_unique<oxyos::GestureHandlerHost>(
+      tree, oxyos::GestureHandlerHost::Delivery{
+                .deviceEvent =
+                    [&instance](const std::string& name, folly::dynamic payload) {
+                      instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                                     folly::dynamic::array(name, std::move(payload)));
+                    },
+                .reanimatedEvent = [&reanimated](const std::string& name, int view,
+                                                 const folly::dynamic& payload) {
+                  reanimated.event(name, view, payload);
+                },
+            });
   // What Image views show (images.h), loaded at the size they are drawn.
   oxyos::Images images(tree);
   stage("fabric scheduler");
@@ -477,6 +495,13 @@ int main(int argc, char** argv) {
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });
+    // The touch also goes to gesture handlers; one activating takes it from React Native and from
+    // a text input's drag selection.
+    pointer.feedsGestures([&gestures](int phase, const oxyos::SurfaceContent& content, float x, float y) {
+      gestures->pointer(static_cast<oxyos::GestureHandlerHost::Phase>(phase), content, x, y);
+    });
+    gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
+    gestures->onIntercept = [&editing] { editing.releaseDrag(); };
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
@@ -575,6 +600,7 @@ int main(int argc, char** argv) {
         bool busy = loop->drain();
         busy |= mounter.pull();
         busy |= timers->fire(*timerManager);
+        busy |= gestures->tick();
         worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
@@ -750,6 +776,8 @@ int main(int argc, char** argv) {
       std::cerr << "[host] " << error.what() << "\n";
       status = 1;
     }
+    gestures->onCancelResponder = nullptr;
+    gestures->onIntercept = nullptr;
     std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
               << mounter.transactions << ",\"presented\":" << window->presented()
               << ",\"js_errors\":" << jsErrors << "}\n";

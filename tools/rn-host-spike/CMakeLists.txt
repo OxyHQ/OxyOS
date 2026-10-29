@@ -7,7 +7,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
-    REANIMATED_CODEGEN_DIR SVG_DIR SVG_CODEGEN_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
+    REANIMATED_CODEGEN_DIR SVG_DIR SVG_CODEGEN_DIR GESTURE_HANDLER_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -187,11 +187,17 @@ target_link_libraries(oxyos_android_components reactnative)
 target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
 
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp
-  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp shell-state.cpp shell-surface.cpp svg.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp shell-state.cpp shell-surface.cpp svg.cpp
+  gesture-handler.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
   "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
+# react-native-gesture-handler's runtime bindings (`_setGestureStateSync` and the rest), built
+# unchanged; the UI runtime is found through react-native-worklets, as RNGH builds it with.
+target_include_directories(oxyos-bloom-host PRIVATE ${GESTURE_HANDLER_DIR}/shared/runtime)
+set_source_files_properties(${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp PROPERTIES
+  COMPILE_OPTIONS "-DRNGH_USE_WORKLETS=1;-include;functional")
 # The OxyOS display protocol client: the workspace's Rust crates behind a C ABI
 # (crates/oxyos-client-ffi), linked statically.
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxyos-client-ffi/include)
