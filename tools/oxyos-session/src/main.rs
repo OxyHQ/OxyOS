@@ -15,15 +15,17 @@
 //! placed in. The session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM
 //! (they are then asked to stop).
 //!
-//! The pointer is shown on the display's cursor plane: the display's own arrow, or the image of a
-//! Windows cursor file (`--pointer`) closest to SIZE pixels (32 by default).
+//! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
+//! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
+//! (`--pointer`, every shape its `Install.inf` names) closest to SIZE pixels (32 by default).
 
 mod cursor_file;
 
 use oxyos_compositor::{Compositor, Gpu, Result};
 use oxyos_compositor_core::{Output, Scene};
 use oxyos_ipc::Listener;
-use oxyos_protocol::Rect;
+use oxyos_protocol::{PointerShape, Rect};
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
@@ -32,7 +34,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] \
+const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] \
                      [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...";
 /// The shell's panels set the work area within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
@@ -85,7 +87,7 @@ fn main() -> Result<()> {
     eprintln!("[session] logind session on terminal {:?}", seat.vt());
     let (display, card) = open_display(&seat)?;
     let mut display = display;
-    show_pointer(&mut display, pointer.as_ref());
+    let pointer_images = show_pointer(&mut display, pointer.as_ref());
     let (width, height) = display.size();
     eprintln!(
         "[session] showing on {} ({})",
@@ -114,6 +116,7 @@ fn main() -> Result<()> {
 
     let own_uid = rustix::process::getuid().as_raw();
     let mut compositor = Compositor::new(scene, own_uid, output);
+    compositor.pointer_images = pointer_images;
     compositor.records = false;
     compositor.reads_back = false;
     compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
@@ -271,31 +274,57 @@ fn start_shell(
     }
 }
 
-/// The pointer's image on the display's cursor plane: the cursor file's, or the display's own
-/// arrow. Without a cursor plane, or a file it cannot read, the session says so and goes on.
-fn show_pointer(display: &mut oxyos_kms::Display, pointer: Option<&(PathBuf, u32)>) {
+/// The pointer's images on the display's cursor plane, by shape: from a cursor file (the arrow)
+/// or a cursor scheme's folder (every shape its `Install.inf` names), else the display's own
+/// arrow. Without a cursor plane, or with files it cannot read, the session says so and goes on.
+fn show_pointer(
+    display: &mut oxyos_kms::Display,
+    pointer: Option<&(PathBuf, u32)>,
+) -> BTreeMap<PointerShape, usize> {
+    let mut images = BTreeMap::new();
     let Some(max) = display.pointer_size() else {
         eprintln!("[session] the display has no cursor plane: the pointer is not shown");
-        return;
+        return images;
     };
     let Some((path, size)) = pointer else {
-        return;
+        return images;
     };
-    let image = std::fs::read(path)
-        .map_err(|error| error.to_string())
-        .and_then(|bytes| cursor_file::read(&bytes, *size, max))
-        .and_then(|image| {
-            display
-                .set_pointer_image(&image)
-                .map_err(|error| error.to_string())
-        });
-    match image {
-        Ok(()) => eprintln!("[session] pointer from {}", path.display()),
-        Err(error) => eprintln!(
-            "[session] the pointer from {}: {error}; the display's own arrow is shown",
-            path.display()
-        ),
+    let files = if path.is_dir() {
+        match cursor_file::scheme(path) {
+            Ok(files) => files,
+            Err(error) => {
+                eprintln!("[session] the cursor scheme {}: {error}", path.display());
+                return images;
+            }
+        }
+    } else {
+        vec![(PointerShape::Arrow, path.clone())]
+    };
+    for (shape, file) in files {
+        let image = std::fs::read(&file)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| cursor_file::read(&bytes, *size, max))
+            .and_then(|image| {
+                display
+                    .add_pointer_image(&image)
+                    .map_err(|error| error.to_string())
+            });
+        match image {
+            Ok(index) => {
+                images.insert(shape, index);
+            }
+            Err(error) => eprintln!(
+                "[session] the {shape:?} pointer from {}: {error}; the arrow is shown instead",
+                file.display()
+            ),
+        }
     }
+    eprintln!(
+        "[session] {} pointer shapes from {}",
+        images.len(),
+        path.display()
+    );
+    images
 }
 
 /// Asks the application to stop (SIGTERM), and stops it if it has not within two seconds.

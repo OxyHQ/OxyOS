@@ -4,6 +4,64 @@
 //! shows. PNG entries and bitmaps of fewer bits are passed over.
 
 use oxyos_kms::PointerImage;
+use oxyos_protocol::PointerShape;
+use std::path::{Path, PathBuf};
+
+/// A Windows cursor scheme's roles (its `Install.inf`'s `[Strings]` keys) and the shapes they are.
+const ROLES: [(&str, PointerShape); 16] = [
+    ("pointer", PointerShape::Arrow),
+    ("text", PointerShape::Text),
+    ("link", PointerShape::Hand),
+    ("unavailiable", PointerShape::NotAllowed),
+    ("busy", PointerShape::Wait),
+    ("help", PointerShape::Help),
+    ("cross", PointerShape::Crosshair),
+    ("move", PointerShape::Move),
+    ("grab", PointerShape::Grab),
+    ("grabbing", PointerShape::Grabbing),
+    ("horz", PointerShape::ResizeHorizontal),
+    ("vert", PointerShape::ResizeVertical),
+    ("dgn1", PointerShape::ResizeTopLeft),
+    ("dgn2", PointerShape::ResizeTopRight),
+    ("zoom-in", PointerShape::ZoomIn),
+    ("zoom-out", PointerShape::ZoomOut),
+];
+
+/// The cursor files of a scheme's folder, by shape, as its `Install.inf` names them. Animated
+/// cursors (`.ani`) are left out: their shapes show the arrow.
+pub fn scheme(folder: &Path) -> Result<Vec<(PointerShape, PathBuf)>, String> {
+    let inf = std::fs::read(folder.join("Install.inf"))
+        .map_err(|error| format!("its Install.inf: {error}"))?;
+    Ok(scheme_files(&String::from_utf8_lossy(&inf))
+        .into_iter()
+        .map(|(shape, file)| (shape, folder.join(file)))
+        .collect())
+}
+
+fn scheme_files(inf: &str) -> Vec<(PointerShape, String)> {
+    let mut strings = false;
+    let mut files = Vec::new();
+    for line in inf.lines().map(str::trim) {
+        if line.starts_with('[') {
+            strings = line.eq_ignore_ascii_case("[Strings]");
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=').filter(|_| strings) else {
+            continue;
+        };
+        let (key, file) = (key.trim(), value.trim().trim_matches('"'));
+        let Some(&(_, shape)) = ROLES
+            .iter()
+            .find(|(role, _)| role.eq_ignore_ascii_case(key))
+        else {
+            continue;
+        };
+        if file.to_ascii_lowercase().ends_with(".cur") {
+            files.push((shape, file.to_string()));
+        }
+    }
+    files
+}
 
 struct Entry {
     width: u32,
@@ -187,6 +245,24 @@ mod tests {
         // What does not fit the cursor plane is passed over.
         assert_eq!(read(&file, 3, (2, 2)).expect("read").width, 2);
         assert!(read(&file, 3, (1, 1)).is_err());
+    }
+
+    #[test]
+    fn a_schemes_roles_name_its_shapes_files() {
+        let inf = "[Version]\r\npointer = \"Nope.cur\"\r\n[Strings]\r\nSCHEME_NAME = \"x\"\r\n\
+                   pointer      = \"Normal.cur\"\r\nbusy = \"Busy.ani\"\r\ntext = \"Text.cur\"\r\n\
+                   dgn2 = \"Diagonal Resize 2.cur\"\r\n";
+        assert_eq!(
+            scheme_files(inf),
+            [
+                (PointerShape::Arrow, "Normal.cur".to_string()),
+                (PointerShape::Text, "Text.cur".to_string()),
+                (
+                    PointerShape::ResizeTopRight,
+                    "Diagonal Resize 2.cur".to_string()
+                ),
+            ]
+        );
     }
 
     #[test]
