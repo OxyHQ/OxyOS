@@ -66,12 +66,15 @@ export function TopBar({
   now,
   overview,
   launcher,
+  canLock = false,
   onCommand,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
   overview: () => void;
   launcher: () => void;
+  /** Whether the session can be locked from here (the platform has a lock). */
+  canLock?: boolean;
   onCommand: (id: string) => void;
 }) {
   return (
@@ -108,6 +111,11 @@ export function TopBar({
             <DropdownMenuItem onPress={overview}>
               Ver escritorios
             </DropdownMenuItem>
+            {canLock && (
+              <DropdownMenuItem onPress={() => onCommand("session.lock")}>
+                Bloquear pantalla
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         {menus.map((menu, index) => (

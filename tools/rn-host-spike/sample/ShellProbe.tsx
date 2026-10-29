@@ -11,7 +11,7 @@ import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
-import type { ShellActions, ShellSnapshot } from '../../../apps/shell/src/model';
+import type { ShellActions, ShellLock, ShellSnapshot } from '../../../apps/shell/src/model';
 
 const icon = (name: string) => {
   switch (name) {
@@ -86,11 +86,13 @@ function ProbeShell({
   shown = snapshot,
   act = actions,
   now = PROBE_TIME,
+  lock,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
   shown?: ShellSnapshot;
   act?: ShellActions;
   now?: Date;
+  lock?: ShellLock;
 }) {
   return (
       <SafeAreaProvider>
@@ -100,6 +102,7 @@ function ProbeShell({
             actions={act}
             wallpaper={require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
             now={now}
+            lock={lock}
             platform={platform}
           />
         </BloomProvider>
@@ -155,5 +158,13 @@ export function ShellSession() {
     addWorkspace: () => shell.addWorkspace(),
     menuCommand: () => {},
   };
-  return <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} />;
+  // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
+  const lock: ShellLock = {
+    locked: !!state.locked,
+    user: state.user ?? { name: '' },
+    lockSession: shell.lockSession,
+    authenticate: shell.authenticate,
+    answer: shell.authentication ?? undefined,
+  };
+  return <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} lock={lock} />;
 }

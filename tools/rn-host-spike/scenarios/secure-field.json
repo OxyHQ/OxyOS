@@ -1,5 +1,5 @@
 {
-  "about": "A Bloom password field (sample/SecureProbe.tsx): what is typed reaches the application, which shows only how many characters arrived, but is drawn as bullets and never appears in the host's report or in what the compositor holds for an assistive technology (ADR 0003).",
+  "about": "A Bloom password field (sample/SecureProbe.tsx): what is typed reaches the application, which shows only how many characters arrived, but is drawn as bullets and never appears in the host's report or in what the compositor holds for an assistive technology (ADR 0003). Leaving the field (Enter submits and blurs it, as on Android) reports its blur and endEditing as bullets, never the password.",
   "module": "SecureProbe",
   "window": [800, 480],
   "steps": [
@@ -24,6 +24,11 @@
       "name": "delete a character",
       "do": ["key", 14],
       "expect": {"texts": ["Typed 6 characters", "••••••"], "absent": ["•••••••"], "never": ["hunter"]}
+    },
+    {
+      "name": "Enter submits and leaves the field: its blur and endEditing are reported as bullets, never the password",
+      "do": ["key", 28],
+      "expect": {"focus_input": null, "never": ["hunter"]}
     }
   ]
 }

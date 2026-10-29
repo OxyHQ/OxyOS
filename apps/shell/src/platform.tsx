@@ -9,7 +9,8 @@ import type { StyleProp, ViewStyle } from "react-native";
  * Each region keeps its place in the shell's layout; `style` is what its wrapper must fill.
  */
 export type ShellSurfaceProps = {
-  kind: "panel" | "overlay";
+  /** A lock region is the lock screen: all that shows while the session is locked. */
+  kind: "panel" | "overlay" | "lock";
   edge?: "top" | "bottom" | "left" | "right";
   /** Whether a panel keeps its strip of the output out of where windows are placed. */
   exclusive?: boolean;

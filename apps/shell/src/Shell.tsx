@@ -2,12 +2,13 @@ import React, { useEffect, useState } from "react";
 import { StyleSheet, type ImageSourcePropType } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
-import type { ShellActions, ShellCommand, ShellSnapshot } from "./model";
+import type { ShellActions, ShellCommand, ShellLock, ShellSnapshot } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
 import { TopBar } from "./components/TopBar";
 import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
 import { Launchpad } from "./components/Launchpad";
+import { LockScreen } from "./components/LockScreen";
 import { inPlace, type ShellPlatform } from "./platform";
 export type { ShellCommand } from "./model";
 export type { ShellPlatform, ShellSurfaceProps } from "./platform";
@@ -19,6 +20,7 @@ export function Shell({
   wallpaper,
   now,
   command,
+  lock,
   platform = inPlace,
 }: {
   snapshot: ShellSnapshot;
@@ -26,6 +28,8 @@ export function Shell({
   wallpaper: ImageSourcePropType;
   now: Date;
   command?: ShellCommand;
+  /** The session's lock, where the platform has one: the lock screen, and the menu's item. */
+  lock?: ShellLock;
   /** Where the regions are drawn: separate surfaces on OxyOS, in place elsewhere. */
   platform?: ShellPlatform;
 }) {
@@ -49,6 +53,7 @@ export function Shell({
   const menuCommand = (id: string) => {
     if (id === "view.launcher") setView("launcher");
     else if (id === "view.overview") setView("overview");
+    else if (id === "session.lock") lock?.lockSession();
     else actions.menuCommand(id);
   };
   return (
@@ -63,6 +68,7 @@ export function Shell({
             now={now}
             overview={() => toggle("overview")}
             launcher={() => toggle("launcher")}
+            canLock={!!lock}
             onCommand={menuCommand}
           />
         </Surface>
@@ -107,6 +113,13 @@ export function Shell({
             toggleOverview={() => toggle("overview")}
           />
         </Surface>
+        {/* The lock screen: a surface of its own, all the compositor shows while locked. The
+            desktop stays as it was beneath, as it is when the session unlocks. */}
+        {lock?.locked && (
+          <Surface kind="lock" style={StyleSheet.absoluteFill}>
+            <LockScreen lock={lock} wallpaper={wallpaper} now={now} />
+          </Surface>
+        )}
       </Box>
     </BloomScope>
   );

@@ -47,6 +47,23 @@ export type ShellActions = {
   addWorkspace: () => void;
   menuCommand: (id: string) => void;
 };
+/**
+ * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is
+ * locked, whom it is locked for, and how the lock screen asks. Only the session unlocks.
+ */
+export type ShellLock = {
+  locked: boolean;
+  user: { name: string; fullName?: string };
+  lockSession: () => void;
+  /** Sends the password for the session to check; false if it could not be sent. */
+  authenticate: (password: string) => boolean;
+  /** The latest answer, a new `id` for each; `wait`: seconds until another may be tried. */
+  answer?: {
+    id: number;
+    outcome: "accepted" | "rejected" | "busy" | "throttled";
+    wait: number;
+  };
+};
 export type ShellCommand = {
   id: number;
   action: "dismiss" | "launcher" | "overview";

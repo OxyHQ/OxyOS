@@ -91,6 +91,11 @@ struct ClipboardService {
 struct ShellService {
   std::function<folly::dynamic()> state;
   std::function<void(uint8_t action, uint32_t window, uint32_t workspace)> manage;
+  // The lock (docs/adr/0010-lock-screen.mdx): locking the session, and the password typed in the
+  // lock screen, which the host sends from its lock surface (false if there is none, or it could
+  // not be sent). `OxyOSShellAuthentication` answers.
+  std::function<void()> lock;
+  std::function<bool(const std::string& secret)> authenticate;
 };
 
 struct HostServices {

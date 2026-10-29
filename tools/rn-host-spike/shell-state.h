@@ -1,7 +1,8 @@
 // What the session's shell knows of the compositor's windows and workspaces (ADR 0009), gathered
 // from its events: each window by the number the compositor gave it, with its application id,
 // title, workspace and state, and the workspaces. JavaScript reads it through the OxyOSShell
-// module (host-modules.cpp) and hears `OxyOSShellChanged` when it changes.
+// module (host-modules.cpp) and hears `OxyOSShellChanged` when it changes. Also whether the session
+// is locked (docs/adr/0010-lock-screen.mdx), and the session's user, whom the lock screen names.
 #pragma once
 
 #include <oxyos_client.h>
@@ -17,7 +18,9 @@ class ShellState {
  public:
   // Takes in a window or workspace event; true if what the shell knows changed.
   bool observe(const OxyOSEvent& event);
-  // { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active }
+  ShellState();
+  // { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active, locked,
+  //   user: { name, fullName } }
   folly::dynamic state() const;
 
  private:
@@ -30,6 +33,10 @@ class ShellState {
   // A title or application id being received, by window.
   std::map<uint32_t, std::string> title_, appId_;
   uint32_t workspaces_ = 1, active_ = 0;
+  bool locked_ = false;
+  // The session's user, from the account database: the login name, and the full name of its
+  // GECOS field (empty if it has none).
+  std::string user_, fullName_;
 };
 
 }  // namespace oxyos

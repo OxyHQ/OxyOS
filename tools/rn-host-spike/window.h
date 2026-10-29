@@ -78,6 +78,13 @@ class Window {
   // output, of the given logical size, keeping `exclusive` pixels out of the work area. Throws on
   // failure.
   void openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t width, uint32_t height, uint32_t exclusive);
+  // The lock screen (docs/adr/0010-lock-screen.mdx): the lock surface of the shell's output (all
+  // that shows while the session is locked; throws on failure), locking the session, and the
+  // password typed in a lock surface, for the session to check (false if it could not be sent:
+  // longer than 512 bytes). The compositor's AUTHENTICATION_RESULT answers.
+  void openLockSurface(uint32_t id);
+  void lockSession();
+  bool authenticate(uint32_t id, const std::string& secret);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);
   // The pointer's shape while it is over a surface (OXYOS_POINTER_*).

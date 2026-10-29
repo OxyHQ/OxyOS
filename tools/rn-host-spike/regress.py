@@ -16,8 +16,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
-  ("surfaces": output rectangles, compared as a set; "top": the topmost) and the "work_area"
-  they leave, exactly;
+  ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
+  they leave, exactly, and whether the session is "locked" (ADR 0010);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
@@ -41,6 +41,9 @@ A scenario with `input_method` runs with an input method the session plays: `key
 through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
 before.
+
+A scenario with `lock_password` has the development compositor's lock fixture unlock with that
+password (ADR 0010; never PAM).
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -550,6 +553,10 @@ def main():
         # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
         # application with the shell grant; its report is the application's with ".shell".
         command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
+    if scenario.get("lock_password"):
+        # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
+        # it, never PAM.
+        command += ["--lock-password", scenario["lock_password"]]
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
