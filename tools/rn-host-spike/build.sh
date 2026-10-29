@@ -160,3 +160,7 @@ python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-images"
+# expo-clipboard on the OS clipboard, with Ctrl+C and Ctrl+V in a Bloom field.
+python3 "$HERE/regress.py" "$HERE/scenarios/clipboard.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-clipboard"

@@ -6,7 +6,7 @@ order: 16
 
 # ADR 0007: The clipboard
 
-Status: **accepted; implemented** in the protocol, the compositor, `oxyos-client`, the C ABI and the Bloom host's text inputs (see [Results](#results)); `expo-clipboard` is not answered yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
+Status: **accepted; implemented** in the protocol, the compositor, `oxyos-client`, the C ABI and the Bloom host's text inputs and `expo-clipboard` (see [Results](#results)). Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, serials and isolation between clients).
 
 ## Problem
 
@@ -86,7 +86,12 @@ What a clipboard needs is a protocol matter, not a host one:
 - `scenarios/text-editing.json` copies a word from one field and pastes it into another, undoes the paste, and cuts and pastes back, with exact events (71 steps). Without the host's paste, the Ctrl+V step fails.
 - A second test through real sockets has the library answer the paste. Without the library's write it reads nothing and fails; the program's own pipe still works.
 
-`expo-clipboard` (`getStringAsync`, `setStringAsync`, `hasStringAsync`) is not answered yet: it needs the serial of the input behind each call.
+**`expo-clipboard`:**
+- Its calls carry the serial of the latest key or press the app received (`OxyOSClipboard`, under `sample/oxyos/expo-adapter.js`). The compositor allows them only while the app has keyboard focus and that input is one of its latest 16; a read it refuses gives `""`.
+- URLs are text, as on Android; images are refused with a message.
+- `onClipboardChanged` fires when the clipboard's content changes, as on Android: not when the app first learns what it holds, nor when focus comes back to it.
+- `scenarios/clipboard.json` runs the real package: buttons copy and read with it, and a Bloom field pastes what it copied and copies what it reads, with exact events (9 steps).
+- The scenario cannot show the rule that what an app first learns is no change: it needs the clipboard holding another application's content when the app starts.
 
 ## Consequences
 
