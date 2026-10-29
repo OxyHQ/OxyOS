@@ -1148,6 +1148,7 @@ name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
  "oxyos-client",
+ "oxyos-gestures",
  "oxyos-image",
  "oxyos-ipc",
  "oxyos-net",
@@ -1178,6 +1179,10 @@ version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
 ]
+
+[[package]]
+name = "oxyos-gestures"
+version = "0.1.0"
 
 [[package]]
 name = "oxyos-gpu"

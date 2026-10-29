@@ -65,6 +65,9 @@ pub enum Step {
     },
     /// Left-button drag in the window: press at the first point, move to the second, release.
     Drag { from: (i32, i32), to: (i32, i32) },
+    /// The same on the output, wherever it is (the shell's panels and overlays), moving in eight
+    /// even steps, as a hand drags something across the screen.
+    DragOutput { from: (i32, i32), to: (i32, i32) },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -91,6 +94,17 @@ pub enum Step {
     /// (the console's keyboard, a desktop). Both switches must happen and the frame be shown
     /// again.
     SwitchTerminal(u16),
+}
+
+/// The points of a drag on the output after its first: eight even steps to its last.
+fn drag_points(from: (i32, i32), to: (i32, i32)) -> impl Iterator<Item = (i32, i32)> {
+    const STEPS: i32 = 8;
+    (1..=STEPS).map(move |i| {
+        (
+            from.0 + (to.0 - from.0) * i / STEPS,
+            from.1 + (to.1 - from.1) * i / STEPS,
+        )
+    })
 }
 
 impl Step {
@@ -124,6 +138,7 @@ impl Step {
                 if *stale { " for an older state" } else { "" }
             ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
+            Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
@@ -187,6 +202,9 @@ impl Step {
             ),
             Step::Drag { from, to } => {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
+            }
+            Step::DragOutput { from, to } => {
+                format!("\"drag_output\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
@@ -277,7 +295,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -399,6 +417,13 @@ impl Launch {
                 Some("--drag") => {
                     let n = numbers(args.next(), 4)?;
                     Step::Drag {
+                        from: (n[0], n[1]),
+                        to: (n[2], n[3]),
+                    }
+                }
+                Some("--drag-output") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::DragOutput {
                         from: (n[0], n[1]),
                         to: (n[2], n[3]),
                     }
@@ -941,6 +966,21 @@ fn inject_through(
             compositor.read_input();
             devices.button(false)?;
         }
+        Step::DragOutput { from, to } => {
+            inside(OUTPUT, from.0, from.1)?;
+            inside(OUTPUT, to.0, to.1)?;
+            let (fx, fy) = at(from.0, from.1);
+            let (tx, ty) = at(to.0, to.1);
+            devices.move_to(fx, fy)?;
+            compositor.read_input();
+            devices.button(true)?;
+            compositor.read_input();
+            for (x, y) in drag_points((fx, fy), (tx, ty)) {
+                devices.move_to(x, y)?;
+                compositor.read_input();
+            }
+            devices.button(false)?;
+        }
         Step::Key(codes) => {
             for code in codes {
                 devices.key(*code as u16, true)?;
@@ -1159,6 +1199,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 window.y + (from.1 + to.1) / 2,
             );
             scene.pointer_motion(window.x + to.0, window.y + to.1);
+            scene.pointer_button(BUTTON, false);
+        }
+        Step::DragOutput { from, to } => {
+            inside(OUTPUT, from.0, from.1)?;
+            inside(OUTPUT, to.0, to.1)?;
+            let scene = &mut compositor.scene;
+            scene.pointer_motion(from.0, from.1);
+            scene.pointer_button(BUTTON, true);
+            for (x, y) in drag_points(*from, *to) {
+                scene.pointer_motion(x, y);
+            }
             scene.pointer_button(BUTTON, false);
         }
         Step::Key(codes) => {
@@ -1708,6 +1759,8 @@ mod tests {
             "42+106",
             "--drag",
             "1,2,3,4",
+            "--drag-output",
+            "10,20,90,100",
             "--scale",
             "180",
             "--move-window",
@@ -1734,7 +1787,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, true
+                false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -1778,6 +1831,10 @@ mod tests {
                 Step::Drag {
                     from: (1, 2),
                     to: (3, 4)
+                },
+                Step::DragOutput {
+                    from: (10, 20),
+                    to: (90, 100)
                 },
                 Step::Scale(180),
                 Step::MoveWindow { dx: -10, dy: 5 },

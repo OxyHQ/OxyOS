@@ -101,6 +101,12 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
   return module;
 }
 
+void ReanimatedHost::event(const std::string& name, int tag, const folly::dynamic& payload) {
+  if (!proxy_) return;
+  auto& ui = worklets::getJSIRuntimeFromWorkletRuntime(worklets_.proxy()->getUIWorkletRuntime());
+  proxy_->handleEvent(name, tag, jsi::valueFromDynamic(ui, payload), nowMs());
+}
+
 bool ReanimatedHost::tick() {
   double now = nowMs();
   if (!proxy_ || now - lastFrame_ < 1000.0 / 60) return false;

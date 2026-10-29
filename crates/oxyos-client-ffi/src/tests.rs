@@ -50,7 +50,7 @@ fn fields(name: &str) -> Vec<Field> {
                 "uint8_t" | "char" => 1,
                 "uint16_t" => 2,
                 "int32_t" | "uint32_t" | "float" => 4,
-                "uint64_t" | "int64_t" | "size_t" => 8,
+                "uint64_t" | "int64_t" | "size_t" | "double" => 8,
                 pointer if pointer.ends_with('*') => 8,
                 other => panic!("unexpected field type {other}"),
             };
@@ -1672,4 +1672,304 @@ fn naming_and_managing_windows_through_the_c_abi() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_gestures_abi() {
+    use crate::gestures::*;
+    for (name, value) in [
+        ("OXYOS_GESTURE_DOWN", OXYOS_GESTURE_DOWN),
+        ("OXYOS_GESTURE_POINTER_DOWN", OXYOS_GESTURE_POINTER_DOWN),
+        ("OXYOS_GESTURE_MOVE", OXYOS_GESTURE_MOVE),
+        ("OXYOS_GESTURE_POINTER_UP", OXYOS_GESTURE_POINTER_UP),
+        ("OXYOS_GESTURE_UP", OXYOS_GESTURE_UP),
+        ("OXYOS_GESTURE_CANCEL", OXYOS_GESTURE_CANCEL),
+        ("OXYOS_GESTURE_NULL", OXYOS_GESTURE_NULL),
+        ("OXYOS_GESTURE_BOOL", OXYOS_GESTURE_BOOL),
+        ("OXYOS_GESTURE_NUMBER", OXYOS_GESTURE_NUMBER),
+        ("OXYOS_GESTURE_TEXT", OXYOS_GESTURE_TEXT),
+        ("OXYOS_GESTURE_LIST", OXYOS_GESTURE_LIST),
+        ("OXYOS_GESTURE_STATE_CHANGE", OXYOS_GESTURE_STATE_CHANGE),
+        ("OXYOS_GESTURE_UPDATE", OXYOS_GESTURE_UPDATE),
+        ("OXYOS_GESTURE_INTERCEPT", OXYOS_GESTURE_INTERCEPT),
+        (
+            "OXYOS_GESTURE_CANCEL_RESPONDER",
+            OXYOS_GESTURE_CANCEL_RESPONDER,
+        ),
+        ("OXYOS_GESTURE_TOUCH", OXYOS_GESTURE_TOUCH),
+        ("OXYOS_GESTURE_TOUCH_DOWN", OXYOS_GESTURE_TOUCH_DOWN),
+        ("OXYOS_GESTURE_TOUCH_MOVE", OXYOS_GESTURE_TOUCH_MOVE),
+        ("OXYOS_GESTURE_TOUCH_UP", OXYOS_GESTURE_TOUCH_UP),
+        (
+            "OXYOS_GESTURE_TOUCH_CANCELLED",
+            OXYOS_GESTURE_TOUCH_CANCELLED,
+        ),
+        ("OXYOS_GESTURE_HAS_POSITION", OXYOS_GESTURE_HAS_POSITION),
+        (
+            "OXYOS_GESTURE_HAS_TRANSLATION",
+            OXYOS_GESTURE_HAS_TRANSLATION,
+        ),
+        ("OXYOS_GESTURE_HAS_VELOCITY", OXYOS_GESTURE_HAS_VELOCITY),
+        ("OXYOS_GESTURE_HAS_DURATION", OXYOS_GESTURE_HAS_DURATION),
+        (
+            "OXYOS_GESTURE_HAS_POINTER_INSIDE",
+            OXYOS_GESTURE_HAS_POINTER_INSIDE,
+        ),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    let value = fields("OxyOSGestureValue");
+    assert_eq!(
+        names(&value),
+        ["key", "key_length", "kind", "list_set", "number", "list"]
+    );
+    let rust = [
+        offset_of!(OxyOSGestureValue, key),
+        offset_of!(OxyOSGestureValue, key_length),
+        offset_of!(OxyOSGestureValue, kind),
+        offset_of!(OxyOSGestureValue, list_set),
+        offset_of!(OxyOSGestureValue, number),
+        offset_of!(OxyOSGestureValue, list),
+    ];
+    assert_eq!(
+        c_offsets(&value),
+        (rust.to_vec(), size_of::<OxyOSGestureValue>())
+    );
+    let pointer = fields("OxyOSGesturePointer");
+    assert_eq!(names(&pointer), ["id", "x", "y"]);
+    let rust = [
+        offset_of!(OxyOSGesturePointer, id),
+        offset_of!(OxyOSGesturePointer, x),
+        offset_of!(OxyOSGesturePointer, y),
+    ];
+    assert_eq!(
+        c_offsets(&pointer),
+        (rust.to_vec(), size_of::<OxyOSGesturePointer>())
+    );
+    let frame = fields("OxyOSGestureFrame");
+    assert_eq!(names(&frame), ["x", "y", "width", "height"]);
+    let touch = fields("OxyOSGestureTouch");
+    assert_eq!(names(&touch), ["id", "x", "y", "absolute_x", "absolute_y"]);
+    assert_eq!(c_offsets(&touch).1, size_of::<OxyOSGestureTouch>());
+    let output = fields("OxyOSGestureOutput");
+    assert_eq!(
+        names(&output),
+        [
+            "kind",
+            "state",
+            "old_state",
+            "pointer_type",
+            "fields",
+            "pointer_inside",
+            "event_type",
+            "tag",
+            "view",
+            "number_of_pointers",
+            "x",
+            "y",
+            "absolute_x",
+            "absolute_y",
+            "translation_x",
+            "translation_y",
+            "velocity_x",
+            "velocity_y",
+            "duration"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSGestureOutput, kind),
+        offset_of!(OxyOSGestureOutput, state),
+        offset_of!(OxyOSGestureOutput, old_state),
+        offset_of!(OxyOSGestureOutput, pointer_type),
+        offset_of!(OxyOSGestureOutput, fields),
+        offset_of!(OxyOSGestureOutput, pointer_inside),
+        offset_of!(OxyOSGestureOutput, event_type),
+        offset_of!(OxyOSGestureOutput, tag),
+        offset_of!(OxyOSGestureOutput, view),
+        offset_of!(OxyOSGestureOutput, number_of_pointers),
+        offset_of!(OxyOSGestureOutput, x),
+        offset_of!(OxyOSGestureOutput, y),
+        offset_of!(OxyOSGestureOutput, absolute_x),
+        offset_of!(OxyOSGestureOutput, absolute_y),
+        offset_of!(OxyOSGestureOutput, translation_x),
+        offset_of!(OxyOSGestureOutput, translation_y),
+        offset_of!(OxyOSGestureOutput, velocity_x),
+        offset_of!(OxyOSGestureOutput, velocity_y),
+        offset_of!(OxyOSGestureOutput, duration),
+    ];
+    assert_eq!(
+        c_offsets(&output),
+        (rust.to_vec(), size_of::<OxyOSGestureOutput>())
+    );
+}
+
+#[test]
+fn a_tap_is_recognized_through_the_c_abi() {
+    use crate::gestures::*;
+    use std::ffi::c_void;
+
+    #[allow(unsafe_code)]
+    unsafe extern "C" fn frame(_: *mut c_void, view: i32, out: *mut OxyOSGestureFrame) -> u8 {
+        if view != 10 {
+            return 0;
+        }
+        // SAFETY: the orchestrator passes a writable frame.
+        unsafe {
+            *out = OxyOSGestureFrame {
+                x: 50.0,
+                y: 50.0,
+                width: 100.0,
+                height: 100.0,
+            }
+        };
+        1
+    }
+    let name = "TapGestureHandler";
+    let key = "maxDurationMs";
+    let refused_key = "mouseButton";
+    let touches_key = "needsPointerData";
+    let setting = |key: &str, kind, number| OxyOSGestureValue {
+        key: key.as_ptr().cast(),
+        key_length: key.len(),
+        kind,
+        list_set: 0,
+        number,
+        list: [0.0; 6],
+    };
+    let config = [
+        setting(key, OXYOS_GESTURE_NUMBER, 300.0),
+        setting(refused_key, OXYOS_GESTURE_NUMBER, 2.0),
+        setting(touches_key, OXYOS_GESTURE_BOOL, 1.0),
+    ];
+    let mut refused = [9u8; 3];
+    let hits = [10, 1];
+    let mut out = OxyOSGestureOutput::default();
+    let gestures = oxyos_gestures_new();
+    // SAFETY: the orchestrator is live until freed below; every pointer passed outlives its call
+    // with the counts given.
+    unsafe {
+        assert_eq!(
+            oxyos_gestures_create(
+                gestures,
+                name.as_ptr().cast(),
+                name.len(),
+                7,
+                config.as_ptr(),
+                config.len(),
+                refused.as_mut_ptr()
+            ),
+            0
+        );
+        assert_eq!(refused, [0, 1, 0]);
+        let pinch = "PinchGestureHandler";
+        assert_eq!(
+            oxyos_gestures_create(
+                gestures,
+                pinch.as_ptr().cast(),
+                pinch.len(),
+                8,
+                config.as_ptr(),
+                0,
+                std::ptr::null_mut()
+            ),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_gestures_attach(gestures, 7, 10), 0);
+        let mut pointer = [OxyOSGesturePointer {
+            id: 0,
+            x: 60.0,
+            y: 70.0,
+        }];
+        let touch = |action, pointer: &[OxyOSGesturePointer], time| {
+            oxyos_gestures_touch(
+                gestures,
+                action,
+                0,
+                pointer.as_ptr(),
+                1,
+                time,
+                2,
+                hits.as_ptr(),
+                hits.len(),
+                Some(frame),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_eq!(touch(OXYOS_GESTURE_DOWN, &pointer, 1000), 0);
+        assert_eq!(oxyos_gestures_next_deadline(gestures), 1300);
+        // Its touch event first: the pointer down, in the view and in the root.
+        assert_eq!(oxyos_gestures_output(gestures, &mut out), 1);
+        assert_eq!(
+            (out.kind, out.tag, out.event_type, out.number_of_pointers),
+            (OXYOS_GESTURE_TOUCH, 7, OXYOS_GESTURE_TOUCH_DOWN, 1)
+        );
+        let mut points = [OxyOSGestureTouch::default(); 2];
+        assert_eq!(
+            oxyos_gestures_touches(gestures, 0, points.as_mut_ptr(), 2),
+            1
+        );
+        let first = points[0];
+        assert_eq!(
+            (
+                first.id,
+                first.x,
+                first.y,
+                first.absolute_x,
+                first.absolute_y
+            ),
+            (0, 10.0, 20.0, 60.0, 70.0)
+        );
+        assert_eq!(
+            oxyos_gestures_touches(gestures, 1, std::ptr::null_mut(), 0),
+            1
+        );
+        assert_eq!(oxyos_gestures_output(gestures, &mut out), 1);
+        assert_eq!(
+            (out.kind, out.tag, out.view, out.old_state, out.state),
+            (OXYOS_GESTURE_STATE_CHANGE, 7, 10, 0, 2)
+        );
+        assert_eq!(out.fields, OXYOS_GESTURE_HAS_POSITION);
+        assert_eq!(
+            (out.x, out.y, out.absolute_x, out.absolute_y),
+            (10.0, 20.0, 60.0, 70.0)
+        );
+        assert_eq!(out.pointer_type, 2);
+        assert_eq!(oxyos_gestures_output(gestures, &mut out), 0);
+        pointer[0].x = 62.0;
+        assert_eq!(touch(OXYOS_GESTURE_UP, &pointer, 1100), 0);
+        let mut kinds = Vec::new();
+        while oxyos_gestures_output(gestures, &mut out) == 1 {
+            kinds.push((out.kind, out.old_state, out.state));
+        }
+        assert_eq!(
+            kinds,
+            [
+                (OXYOS_GESTURE_TOUCH, 0, 2),
+                (OXYOS_GESTURE_TOUCH, 0, 2),
+                (OXYOS_GESTURE_INTERCEPT, 0, 0),
+                (OXYOS_GESTURE_CANCEL_RESPONDER, 0, 0),
+                (OXYOS_GESTURE_STATE_CHANGE, 2, 4),
+                (OXYOS_GESTURE_STATE_CHANGE, 4, 5)
+            ]
+        );
+        assert_eq!(oxyos_gestures_next_deadline(gestures), -1);
+        // An action on a pointer not given is refused.
+        assert_eq!(
+            oxyos_gestures_touch(
+                gestures,
+                OXYOS_GESTURE_MOVE,
+                3,
+                pointer.as_ptr(),
+                1,
+                1200,
+                2,
+                hits.as_ptr(),
+                0,
+                Some(frame),
+                std::ptr::null_mut()
+            ),
+            OXYOS_ERROR
+        );
+        oxyos_gestures_free(gestures);
+    }
 }

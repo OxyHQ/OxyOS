@@ -4,9 +4,12 @@
 #include "accessibility.h"
 #include "android-components.h"
 #include "damage.h"
+#include "expo-blur.h"
+#include "gesture-handler.h"
 #include "host-modules.h"
 #include "images.h"
 #include "input.h"
+#include "modal.h"
 #include "network.h"
 #include "popup.h"
 #include "safe-area.h"
@@ -31,6 +34,7 @@
 #include <react/nativemodule/defaults/DefaultTurboModules.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
+#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/root/RootComponentDescriptor.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
@@ -324,6 +328,8 @@ int main(int argc, char** argv) {
   oxyos::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
   oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
+  // react-native-gesture-handler (gesture-handler.h), made once the view tree exists.
+  std::unique_ptr<oxyos::GestureHandlerHost> gestures;
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
     // console.* in React Native writes through nativeLoggingHook(message, level).
     rt.global().setProperty(rt, "nativeLoggingHook", jsi::Function::createFromHostFunction(
@@ -339,6 +345,7 @@ int main(int argc, char** argv) {
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
           if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
+          if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
           if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
           std::cerr << "[host] TurboModule unavailable: " << name << "\n";
@@ -364,6 +371,9 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
@@ -388,6 +398,20 @@ int main(int argc, char** argv) {
 
   oxyos::ViewTree tree;
   Mounter mounter(tree);
+  // What gesture handlers recognize reaches JavaScript as Android's module sends it: device
+  // events, or Reanimated's event handlers for worklets.
+  gestures = std::make_unique<oxyos::GestureHandlerHost>(
+      tree, oxyos::GestureHandlerHost::Delivery{
+                .deviceEvent =
+                    [&instance](const std::string& name, folly::dynamic payload) {
+                      instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                                     folly::dynamic::array(name, std::move(payload)));
+                    },
+                .reanimatedEvent = [&reanimated](const std::string& name, int view,
+                                                 const folly::dynamic& payload) {
+                  reanimated.event(name, view, payload);
+                },
+            });
   // What Image views show (images.h), loaded at the size they are drawn.
   oxyos::Images images(tree);
   stage("fabric scheduler");
@@ -454,6 +478,8 @@ int main(int argc, char** argv) {
                               return {oxyos::Window::kToplevel, {}};
                             });
     oxyos::SafeAreas safeAreas;
+    // React Native's Modal: laid out at the window's size, told it is shown, closed by Escape.
+    oxyos::ModalHost modalHost(tree);
     oxyos::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
       if (surface == oxyos::Window::kToplevel) return oxyos::SurfaceContent{.surface = surface, .view = tree.root()};
       if (auto content = shellSurfaces.content(surface)) return content;
@@ -477,6 +503,13 @@ int main(int argc, char** argv) {
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });
+    // The touch also goes to gesture handlers; one activating takes it from React Native and from
+    // a text input's drag selection.
+    pointer.feedsGestures([&gestures](int phase, const oxyos::SurfaceContent& content, float x, float y) {
+      gestures->pointer(static_cast<oxyos::GestureHandlerHost::Phase>(phase), content, x, y);
+    });
+    gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
+    gestures->onIntercept = [&editing] { editing.releaseDrag(); };
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
@@ -575,6 +608,7 @@ int main(int argc, char** argv) {
         bool busy = loop->drain();
         busy |= mounter.pull();
         busy |= timers->fire(*timerManager);
+        busy |= gestures->tick();
         worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
@@ -601,6 +635,13 @@ int main(int argc, char** argv) {
                 shellSurfaces.changed();
               }
               if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
+              // Escape is the desktop's back: the topmost modal is asked to close, as Android's
+              // back asks a modal's window.
+              constexpr uint32_t kEscape = 1;
+              if (event.kind == OXYOS_EVENT_KEY && event.flag && event.code == kEscape &&
+                  event.surface == oxyos::Window::kToplevel) {
+                modalHost.requestClose();
+              }
               if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
                 OxyOSTextTransaction change{};
                 if (window->transaction(change)) {
@@ -661,6 +702,7 @@ int main(int argc, char** argv) {
         // A paste's text arriving is an edit of the focused input.
         if (window->deliverPastes()) busy = true;
         if (resized || mounted) shellSurfaces.sync();
+        if (resized || mounted) modalHost.sync(display);
         popups.sync(lastPress);
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something
@@ -750,6 +792,8 @@ int main(int argc, char** argv) {
       std::cerr << "[host] " << error.what() << "\n";
       status = 1;
     }
+    gestures->onCancelResponder = nullptr;
+    gestures->onIntercept = nullptr;
     std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
               << mounter.transactions << ",\"presented\":" << window->presented()
               << ",\"js_errors\":" << jsErrors << "}\n";

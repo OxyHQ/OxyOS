@@ -53,6 +53,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --host BIN --bundle DIR [--out D
 
 import argparse
 import json
+import re
 import struct
 import zlib
 import os
@@ -69,7 +70,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "key", "move_window", "resize_window", "minimize_window", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "key", "move_window", "resize_window", "minimize_window", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal"}
 
@@ -90,6 +91,8 @@ def director_args(step):
         return args + ["--key", "+".join(map(str, value)) if isinstance(value, list) else str(value)]
     if kind == "drag":
         return args + ["--drag", ",".join(map(str, value))]
+    if kind == "drag_output":
+        return args + ["--drag-output", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):
@@ -231,7 +234,40 @@ def check_pixels(name, expect, screenshot, window, fail):
             fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected {colour}")
 
 
-def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None):
+def gesture_events(report, start, end):
+    """What gesture handlers sent JavaScript in a step (gesture-handler.h), in order: state changes
+    as `handler@view OLD>NEW`, a run of updates as `handler@view update xN`, a run of touch events
+    as `handler@view touches TYPE xN`, and the gesture taken from React Native (`intercept`,
+    `handler cancels the responder`)."""
+    events = []
+    for line in report:
+        if line["kind"] != "gesture" or not start <= line["t"] <= end:
+            continue
+        # A view without a testID or label is named by its component: its tag is arbitrary.
+        who = f"{line.get('handler')}@{re.sub(r'#[0-9]+$', '', str(line.get('view')))}"
+        if line["event"] == "state":
+            events.append(f"{who} {line['oldState']}>{line['state']}")
+        elif line["event"] == "update":
+            run = f"{who} update x"
+            if events and events[-1].startswith(run):
+                events[-1] = f"{run}{int(events[-1][len(run):]) + 1}"
+            else:
+                events.append(f"{run}1")
+        elif line["event"] == "touch":
+            run = f"{who} touches {line['type']} x"
+            if events and events[-1].startswith(run):
+                events[-1] = f"{run}{int(events[-1][len(run):]) + 1}"
+            else:
+                events.append(f"{run}1")
+        elif line["event"] == "intercept":
+            events.append("intercept")
+        else:
+            events.append(f"{line.get('handler')} cancels the responder")
+    return events
+
+
+def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
+               shell_report=None):
     expect = step.get("expect", {})
     if through_devices:
         expect = {**expect, **step.get("expect_devices", {})}
@@ -270,6 +306,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["react"]:
             fail(f"React received {got}, expected exactly {expect['react']}")
+    if "gestures" in expect:
+        got = gesture_events(report, start, end)
+        if got != expect["gestures"]:
+            fail(f"gesture handlers sent {got}, expected exactly {expect['gestures']}")
+    if "in_shell" in expect:
+        # The session's shell's own texts, React deliveries and gestures, from its report.
+        shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
+                      "expect": expect["in_shell"]}
+        check_step(index, shell_step, result, shell_report or [], start, failures)
     if "a11y_events" in expect:
         # Accessibility events JavaScript sent (focus moves), as `event@testID` counts.
         got = {}
@@ -500,12 +545,15 @@ def main():
         return 1
     summary = json.loads(next(line for line in run.stdout.splitlines() if line.startswith('{"mode"')))
     report = [json.loads(line) for line in report_path.read_text().splitlines() if line.strip()]
+    shell_path = report_path.with_name(report_path.name + ".shell")
+    shell_report = ([json.loads(line) for line in shell_path.read_text().splitlines() if line.strip()]
+                    if shell_path.exists() else [])
 
     failures = []
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
-                           out / f"launch-{index + 2}.png")
+                           out / f"launch-{index + 2}.png", shell_report)
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":

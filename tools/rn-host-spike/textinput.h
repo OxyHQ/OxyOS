@@ -72,6 +72,8 @@ class TextEditing {
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyOSEvent& event);
+  // A gesture handler took the pointer's gesture (gesture-handler.h): a drag selecting text stops.
+  void releaseDrag() { dragging_ = false; }
   // A change from the compositor's text input for the focused input (ADR 0008), applied as one
   // edit, as Android's input connection applies a batch of deleteSurroundingText, commitText and
   // setComposingText. `current`: made for the state last told; if not, its deletion is dropped,

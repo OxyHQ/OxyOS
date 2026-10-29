@@ -1,0 +1,227 @@
+{
+  "about": "Bloom's bottom sheet on OxyOS (sample/SheetProbe.tsx): React Native's Modal, drawn over the window at its origin and size and taking its input (modal.h), with expo-blur's backdrop as Android draws it without a blur target (expo-blur.h), and its pan to close on react-native-gesture-handler (gesture-handler.h, crates/oxyos-gestures). Bloom's default sheet closes when dragged down: its content's Native gesture begins and fails (no native view takes over on OxyOS), its pan begins, activates, takes the touch from React and ends. The scrolling kind (manualActivation) closes too: its pan is told its touches, a worklet activates it through _setGestureStateSync, and it is told of each move after. While a sheet is open, a press over the window's content reaches the sheet's backdrop, which closes it, and not the button under it; Escape, the desktop's back, asks the Modal to close. Each step checks the texts, exactly what React received, and exactly what gesture handlers sent.",
+  "module": "SheetProbe",
+  "window": [
+    600,
+    600
+  ],
+  "steps": [
+    {
+      "name": "Open default presents Bloom's default sheet in a Modal, told it is shown",
+      "do": [
+        "press",
+        [
+          300,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "The default sheet",
+          "default: open, dismissed 0"
+        ],
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "touchStart@open-default": 1,
+          "touchEnd@open-default": 1,
+          "show@default-sheet": 1
+        },
+        "gestures": []
+      }
+    },
+    {
+      "name": "dragged down, the default sheet's pan takes the touch from React and closes it",
+      "do": [
+        "drag_output",
+        [
+          640,
+          480,
+          640,
+          715
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "default: closed, dismissed 1"
+        ],
+        "absent": [
+          "The default sheet"
+        ],
+        "react": {
+          "touchStart@default-content": 1,
+          "touchMove@default-content": 1,
+          "touchCancel@default-content": 1
+        },
+        "gestures": [
+          "NativeViewGestureHandler@ScrollView UNDETERMINED>BEGAN",
+          "NativeViewGestureHandler@ScrollView BEGAN>FAILED",
+          "PanGestureHandler@View UNDETERMINED>BEGAN",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@View BEGAN>ACTIVE",
+          "PanGestureHandler@View update x8",
+          "PanGestureHandler@View ACTIVE>END"
+        ]
+      }
+    },
+    {
+      "name": "Open scrolling presents the scrolling sheet (manualActivation)",
+      "do": [
+        "press",
+        [
+          300,
+          124
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "The scrolling sheet",
+          "scrolling: open, dismissed 0"
+        ],
+        "react": {
+          "touchStart@open-scrolling": 1,
+          "touchEnd@open-scrolling": 1,
+          "show@scrolling-sheet": 1
+        },
+        "gestures": []
+      }
+    },
+    {
+      "name": "dragged down, its pan is told its touches, a worklet activates it, and it closes",
+      "do": [
+        "drag_output",
+        [
+          640,
+          480,
+          640,
+          715
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "scrolling: closed, dismissed 1"
+        ],
+        "absent": [
+          "The scrolling sheet"
+        ],
+        "react": {
+          "touchStart@scrolling-content": 1,
+          "touchMove@scrolling-content": 1,
+          "touchCancel@scrolling-content": 1
+        },
+        "gestures": [
+          "PanGestureHandler@View touches down x1",
+          "PanGestureHandler@View UNDETERMINED>BEGAN",
+          "PanGestureHandler@View touches move x1",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@View BEGAN>ACTIVE",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches move x1",
+          "PanGestureHandler@View update x1",
+          "PanGestureHandler@View touches up x1",
+          "PanGestureHandler@View ACTIVE>END"
+        ]
+      }
+    },
+    {
+      "name": "the scrolling sheet presented again",
+      "do": [
+        "press",
+        [
+          300,
+          124
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "The scrolling sheet",
+          "scrolling: open, dismissed 1"
+        ],
+        "react": {
+          "touchStart@open-scrolling": 1,
+          "touchEnd@open-scrolling": 1,
+          "show@scrolling-sheet": 1
+        },
+        "gestures": []
+      }
+    },
+    {
+      "name": "a press over Open default reaches the sheet's backdrop, which closes it, not the button under it",
+      "do": [
+        "press",
+        [
+          300,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "scrolling: closed, dismissed 2",
+          "default: closed, dismissed 1"
+        ],
+        "absent": [
+          "The scrolling sheet",
+          "The default sheet"
+        ],
+        "react": {
+          "touchStart@scrolling-sheet": 1,
+          "touchEnd@scrolling-sheet": 1
+        },
+        "gestures": []
+      }
+    },
+    {
+      "name": "the default sheet presented again",
+      "do": [
+        "press",
+        [
+          300,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "The default sheet",
+          "default: open, dismissed 1"
+        ],
+        "react": {
+          "touchStart@open-default": 1,
+          "touchEnd@open-default": 1,
+          "show@default-sheet": 1
+        },
+        "gestures": []
+      }
+    },
+    {
+      "name": "Escape, the desktop's back, asks the Modal to close: the sheet closes",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "texts": [
+          "default: closed, dismissed 2"
+        ],
+        "absent": [
+          "The default sheet"
+        ],
+        "react": {
+          "requestClose@default-sheet": 1
+        },
+        "gestures": []
+      }
+    }
+  ]
+}

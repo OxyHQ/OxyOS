@@ -1,8 +1,8 @@
 /**
- * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it, and
- * expo-clipboard). expo-modules-core's own global polyfill provides the module classes; the
- * native work is done by the host's TurboModules (OxyOSFontRegistry, OxyOSClipboard). Anything
- * OxyOS cannot do fails loudly.
+ * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it,
+ * expo-clipboard, and expo-blur's views). expo-modules-core's own global polyfill provides the
+ * module classes; the native work is done by the host's TurboModules (OxyOSFontRegistry,
+ * OxyOSClipboard) and host components (expo-blur.h). Anything OxyOS cannot do fails loudly.
  */
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -59,3 +59,15 @@ DeviceEventEmitter.addListener('OxyOSClipboardChanged', ({ text }) =>
   ExpoClipboard.emit('onClipboardChanged', { contentTypes: text ? ['plain-text'] : [] }),
 );
 globalThis.expo.modules.ExpoClipboard = ExpoClipboard;
+
+// Expo's native views the host draws (expo-blur.h), by module and view, with the props each takes
+// as its Android view definition names them; React Native's view props come with every view.
+const expoViews = {
+  'ExpoBlur.ExpoBlurView': ['blurTargetId', 'intensity', 'tint', 'blurReductionFactor', 'borderRadii', 'blurMethod'],
+  'ExpoBlur.ExpoBlurTargetView': [],
+};
+globalThis.expo.getViewConfig = (moduleName, viewName) => {
+  const props = expoViews[`${moduleName}.${viewName}`];
+  if (!props) throw new Error(`Expo's ${moduleName} ${viewName ?? 'view'} is not available on OxyOS`);
+  return { validAttributes: Object.fromEntries(props.map((prop) => [prop, true])), directEventTypes: {} };
+};

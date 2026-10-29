@@ -534,6 +534,139 @@ typedef struct OxyOSVectorShape {
 int oxyos_vector_render(const OxyOSVectorShape* shapes, size_t count, uint32_t width, uint32_t height,
                         uint8_t* pixels, size_t length);
 
+/* Gesture recognition (crates/oxyos-gestures): react-native-gesture-handler's Android
+ * recognizers, for the host's RNGestureHandlerModule. Pointer actions are Android's. */
+#define OXYOS_GESTURE_DOWN 0
+#define OXYOS_GESTURE_POINTER_DOWN 1
+#define OXYOS_GESTURE_MOVE 2
+#define OXYOS_GESTURE_POINTER_UP 3
+#define OXYOS_GESTURE_UP 4
+#define OXYOS_GESTURE_CANCEL 5
+/* Setting values' kinds. */
+#define OXYOS_GESTURE_NULL 0
+#define OXYOS_GESTURE_BOOL 1
+#define OXYOS_GESTURE_NUMBER 2
+#define OXYOS_GESTURE_TEXT 3
+#define OXYOS_GESTURE_LIST 4
+/* Outputs' kinds, and which data an output has. */
+#define OXYOS_GESTURE_STATE_CHANGE 1
+#define OXYOS_GESTURE_UPDATE 2
+#define OXYOS_GESTURE_INTERCEPT 3
+#define OXYOS_GESTURE_CANCEL_RESPONDER 4
+#define OXYOS_GESTURE_TOUCH 5
+/* Touch events' types (onTouchesDown and the rest). */
+#define OXYOS_GESTURE_TOUCH_DOWN 1
+#define OXYOS_GESTURE_TOUCH_MOVE 2
+#define OXYOS_GESTURE_TOUCH_UP 3
+#define OXYOS_GESTURE_TOUCH_CANCELLED 4
+#define OXYOS_GESTURE_HAS_POSITION 1
+#define OXYOS_GESTURE_HAS_TRANSLATION 2
+#define OXYOS_GESTURE_HAS_VELOCITY 4
+#define OXYOS_GESTURE_HAS_DURATION 8
+#define OXYOS_GESTURE_HAS_POINTER_INSIDE 16
+
+typedef struct OxyOSGestures OxyOSGestures;
+
+/* A setting: its key (`key_length` bytes of UTF-8) and value. A bool's or a number's is `number`;
+ * a list's (a hit slop's: left, top, right, bottom, width, height) is `list`, entry i set when bit
+ * i of `list_set` is; a text's content is not needed. */
+typedef struct OxyOSGestureValue {
+  const char* key;
+  size_t key_length;
+  uint8_t kind;
+  uint8_t list_set;
+  double number;
+  double list[6];
+} OxyOSGestureValue;
+
+/* A pointer at a point of the root, in logical pixels. */
+typedef struct OxyOSGesturePointer {
+  uint32_t id;
+  float x;
+  float y;
+} OxyOSGesturePointer;
+
+/* A view's frame in the root. */
+typedef struct OxyOSGestureFrame {
+  float x;
+  float y;
+  float width;
+  float height;
+} OxyOSGestureFrame;
+
+/* Writes view `view`'s frame to `out` and returns 1, or returns 0 for a view no longer there. */
+typedef uint8_t (*OxyOSGestureFrameFn)(void* context, int32_t view, OxyOSGestureFrame* out);
+
+/* A pointer a touch event tells of: in the handler's view, and in the root. */
+typedef struct OxyOSGestureTouch {
+  uint32_t id;
+  float x;
+  float y;
+  float absolute_x;
+  float absolute_y;
+} OxyOSGestureTouch;
+
+/* What to send JavaScript. A state change has `state` and `old_state`, an update `state` (ACTIVE);
+ * both have the handler's data, `fields` saying which. A touch event has `state`, `event_type`,
+ * `pointer_type` and its number of touches in `number_of_pointers`; its pointers come from
+ * oxyos_gestures_touches. A cancel-responder output has `tag`; an intercept output nothing more. */
+typedef struct OxyOSGestureOutput {
+  uint8_t kind;
+  uint8_t state;
+  uint8_t old_state;
+  uint8_t pointer_type;
+  uint8_t fields;
+  uint8_t pointer_inside;
+  uint8_t event_type;
+  int32_t tag;
+  int32_t view;
+  uint32_t number_of_pointers;
+  float x;
+  float y;
+  float absolute_x;
+  float absolute_y;
+  float translation_x;
+  float translation_y;
+  float velocity_x;
+  float velocity_y;
+  uint64_t duration;
+} OxyOSGestureOutput;
+
+OxyOSGestures* oxyos_gestures_new(void);
+void oxyos_gestures_free(OxyOSGestures* gestures);
+/* createGestureHandler: handler `name` (`name_length` bytes) with tag `tag`, set to `count`
+ * settings; each entry of `refused` (`count` bytes, or NULL) is set to 1 for a setting OxyOS
+ * cannot honour. 0, or OXYOS_ERROR (a handler not ported, a tag in use). */
+int oxyos_gestures_create(OxyOSGestures* gestures, const char* name, size_t name_length, int32_t tag,
+                          const OxyOSGestureValue* config, size_t count, uint8_t* refused);
+/* setGestureHandlerConfig (`reset` 1) or updateGestureHandlerConfig (0). */
+int oxyos_gestures_configure(OxyOSGestures* gestures, int32_t tag, const OxyOSGestureValue* config, size_t count,
+                             uint8_t reset, uint8_t* refused);
+int oxyos_gestures_attach(OxyOSGestures* gestures, int32_t tag, int32_t view);
+int oxyos_gestures_relate(OxyOSGestures* gestures, int32_t tag, const int32_t* wait_for, size_t wait_for_count,
+                          const int32_t* simultaneous, size_t simultaneous_count, const int32_t* blocks,
+                          size_t blocks_count);
+void oxyos_gestures_drop(OxyOSGestures* gestures, int32_t tag);
+/* JavaScript sets a handler's state (_setGestureStateSync, _setGestureStateAsync). */
+int oxyos_gestures_set_state(OxyOSGestures* gestures, int32_t tag, int32_t state);
+/* One event of the pointer stream: `action` about pointer `index` of the `count` down, at `time`
+ * milliseconds, of `pointer_type` (0 touch, 1 stylus, 2 mouse). For a pointer going down, `hits`
+ * are the views under it, deepest first, then that view's ancestors to the root. */
+int oxyos_gestures_touch(OxyOSGestures* gestures, uint8_t action, size_t index, const OxyOSGesturePointer* pointers,
+                         size_t count, uint64_t time, uint8_t pointer_type, const int32_t* hits, size_t hit_count,
+                         OxyOSGestureFrameFn frame, void* context);
+/* Time passed: handlers' timers due by `now` fire. */
+void oxyos_gestures_tick(OxyOSGestures* gestures, uint64_t now);
+/* When the next timer fires, or -1 for none. */
+int64_t oxyos_gestures_next_deadline(OxyOSGestures* gestures);
+/* 1 if a handler of `view` (at `frame`) reaches the root point (x, y) with its hit slop. */
+uint8_t oxyos_gestures_reaches(OxyOSGestures* gestures, int32_t view, OxyOSGestureFrame frame, float x, float y);
+/* Takes the next output: 1 with *out filled, 0 when there is none. */
+int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
+/* The pointers of the last touch event taken: those that changed, or (`all` 1) all the handler is
+ * told of. Writes up to `capacity` to `out`; returns how many there are. */
+size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

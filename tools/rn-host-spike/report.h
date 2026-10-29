@@ -7,6 +7,7 @@
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
 //   {"t":…,"kind":"a11y_event","event":"focus","target":"open-menu","within":"open-menu"}
 //   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
+//   {"t":…,"kind":"gesture","event":"state","handler":"PanGestureHandler","view":"card","state":"ACTIVE",…}
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the
@@ -46,6 +47,9 @@ class Report {
   // An event delivered to React (touch, text, scroll, …) on `view`.
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
+  // What gesture handlers recognized (gesture-handler.h): a state change or an update, as sent to
+  // JavaScript, or the gesture taken from React Native.
+  void gesture(const folly::dynamic& line);
   // How far a text input's text is now scrolled within it (textinput.h).
   void textScroll(const facebook::react::ShadowView& view, float x, float y);
   // A popup's lifecycle.

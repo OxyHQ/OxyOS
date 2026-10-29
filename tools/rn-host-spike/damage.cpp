@@ -26,6 +26,8 @@ void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_m
   if (view.componentName && ownSurface(view.componentName)) return;
   const auto& frame = view.layoutMetrics.frame;
   Rect rect{{ox + frame.origin.x, oy + frame.origin.y}, frame.size};
+  // A modal is drawn at the window's origin, wherever it is in the tree.
+  if (view.componentName && isModal(view.componentName)) rect.origin = Point{0, 0};
   at[tag] = rect;
   views[tag] = &it->second;
   if (view.componentName && isSvgView(view.componentName)) return;
