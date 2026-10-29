@@ -3,8 +3,9 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
-    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle,
-    PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
+    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape, Positioner,
+    PreeditStyle, PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
+    Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;

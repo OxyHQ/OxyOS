@@ -15,9 +15,9 @@
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
-    BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge, PointerKind,
-    PointerShape, Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind,
-    MAX_COORDINATE, MAX_DIMENSION,
+    BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
+    PointerKind, PointerShape, Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk,
+    TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
