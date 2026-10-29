@@ -84,6 +84,11 @@ pub struct Compositor {
     pub records: bool,
     /// The user ended the session (Ctrl+Alt+Backspace): the session's program stops.
     pub ending: bool,
+    /// How long a turn may wait for something to happen when nothing has a deadline sooner: the
+    /// development compositor's 5 ms by default, so its director's steps keep their pace; a
+    /// session longer, waking for its devices, clients and display, the pointer's next step and a
+    /// connection's deadline (`serve`).
+    pub idle_wait: Duration,
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -192,6 +197,7 @@ impl Compositor {
             pointer_flip: false,
             pointer: None,
             pointer_images: BTreeMap::new(),
+            idle_wait: Duration::from_millis(5),
             flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
@@ -1056,8 +1062,25 @@ impl Compositor {
         Some((layout.extent, layout.format, pixels))
     }
 
+    /// How long a turn may wait: until the animated pointer's next step, the first connection
+    /// still without its Hello reaches its deadline, or `idle_wait`, whichever is soonest.
+    fn next_wake(&self) -> Duration {
+        let mut wait = self.idle_wait;
+        let steps = self.pointer_images.get(&self.scene.pointer_shape());
+        if let Some(step) = steps.and_then(|steps| pointer_step_wait(steps, monotonic())) {
+            wait = wait.min(step);
+        }
+        for peer in self.peers.values() {
+            if peer.protocol.version().is_none() {
+                wait = wait.min(HELLO_DEADLINE.saturating_sub(peer.accepted.elapsed()));
+            }
+        }
+        wait
+    }
+
     /// One turn of the compositor: accepts connections, handles every readable client, composes
-    /// a frame and sends events. Waits at most 5 ms for input.
+    /// a frame and sends events. Waits for a client, the listener, the display's flip, the devices
+    /// or the seat, at most until the pointer's next step, a connection's deadline or `idle_wait`.
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {
         self.follow_terminal()?;
         self.follow_seat()?;
@@ -1076,10 +1099,15 @@ impl Compositor {
                 ));
             }
             for client in &clients {
-                fds.push(PollFd::from_borrowed_fd(
-                    self.peers[client].connection.as_fd(),
-                    PollFlags::IN,
-                ));
+                // A client with events waiting for room in its socket wakes the turn when it has
+                // some.
+                let peer = &self.peers[client];
+                let flags = if peer.outbox.is_empty() {
+                    PollFlags::IN
+                } else {
+                    PollFlags::IN | PollFlags::OUT
+                };
+                fds.push(PollFd::from_borrowed_fd(peer.connection.as_fd(), flags));
             }
             if let (Some(display), Some(_)) = (&self.display, self.pending_flip) {
                 fds.push(PollFd::from_borrowed_fd(
@@ -1087,9 +1115,17 @@ impl Compositor {
                     PollFlags::IN,
                 ));
             }
+            // libinput and the seat are read every turn; they only need to wake it.
+            if let Some(input) = &self.input {
+                fds.push(PollFd::from_borrowed_fd(input.as_fd(), PollFlags::IN));
+            }
+            if let Some(seat) = &self.seat {
+                fds.push(PollFd::from_borrowed_fd(seat.as_fd(), PollFlags::IN));
+            }
+            let wait = self.next_wake();
             let timeout = rustix::event::Timespec {
-                tv_sec: 0,
-                tv_nsec: 5_000_000,
+                tv_sec: wait.as_secs() as i64,
+                tv_nsec: i64::from(wait.subsec_nanos()),
             };
             match poll(&mut fds, Some(&timeout)) {
                 Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
@@ -1270,6 +1306,26 @@ fn pointer_step(steps: &[(usize, std::time::Duration)], now: std::time::Duration
     steps[steps.len() - 1].0
 }
 
+/// How long until an animated pointer's `steps` go on to their next image at time `now`; none for
+/// an image that never changes.
+fn pointer_step_wait(
+    steps: &[(usize, std::time::Duration)],
+    now: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let cycle: std::time::Duration = steps.iter().map(|(_, time)| *time).sum();
+    if steps.len() < 2 || cycle.is_zero() {
+        return None;
+    }
+    let mut at = std::time::Duration::from_nanos((now.as_nanos() % cycle.as_nanos()) as u64);
+    for (_, time) in steps {
+        if at < *time {
+            return Some(*time - at);
+        }
+        at -= *time;
+    }
+    Some(std::time::Duration::ZERO)
+}
+
 /// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
 pub fn monotonic() -> std::time::Duration {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
@@ -1310,6 +1366,22 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_waits_until_an_animated_pointers_next_step() {
+        let ms = std::time::Duration::from_millis;
+        let steps = [(3, ms(30)), (4, ms(10)), (5, ms(20))];
+        let wait = |t| pointer_step_wait(&steps, ms(t));
+        assert_eq!(
+            (wait(0), wait(29), wait(30), wait(45)),
+            (Some(ms(30)), Some(ms(1)), Some(ms(10)), Some(ms(15)))
+        );
+        // It loops.
+        assert_eq!(wait(60 + 35), Some(ms(5)));
+        // One image never changes: nothing to wake for.
+        assert_eq!(pointer_step_wait(&[(7, ms(30))], ms(5)), None);
+        assert_eq!(pointer_step_wait(&[(7, ms(0)), (8, ms(0))], ms(5)), None);
+    }
 
     #[test]
     fn an_animated_pointer_shows_the_step_the_clock_is_in() {
