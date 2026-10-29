@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+pub mod splash;
 pub mod transitions;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -164,6 +165,8 @@ pub struct Compositor {
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
     /// The time transitions run on: `CLOCK_MONOTONIC`, or a test's.
     pub clock: Option<Duration>,
+    /// The session's splash (splash.rs), over everything from `show_splash` to `end_splash`.
+    splash: Option<transitions::Snapshot>,
 }
 
 /// The session's authentication path (ADR 0010): it checks a lock surface's password off the
@@ -287,6 +290,7 @@ impl Compositor {
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
             clock: None,
+            splash: None,
         }
     }
 
@@ -667,6 +671,20 @@ impl Compositor {
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
             }
         }
+        // The splash over everything while the session starts.
+        if let Some(splash) = &self.splash {
+            contents.push(Content {
+                key: None,
+                rect: splash.rect,
+                placed: splash.rect,
+                extent: splash.extent,
+                format: Some(splash.format),
+                pixels: splash.pixels.clone(),
+                source: None,
+                changed: None,
+                opacity: 255,
+            });
+        }
         // Surfaces going, over what stays, from their last frames.
         for (snapshot, _, at) in self.transitions.going(now) {
             contents.push(Content {
@@ -794,6 +812,25 @@ impl Compositor {
                 ))
             })
             .collect();
+    }
+
+    /// Shows the session's splash, the Oxy mark on black, over everything from the next frame.
+    pub fn show_splash(&mut self) {
+        self.splash = splash::splash(Size::new(self.output.width, self.output.height));
+        // The next frame is composed whole, with it.
+        self.composed.clear();
+    }
+
+    pub fn showing_splash(&self) -> bool {
+        self.splash.is_some()
+    }
+
+    /// The session is on screen: the splash fades out over it (400 ms).
+    pub fn end_splash(&mut self) {
+        if let Some(splash) = self.splash.take() {
+            let now = self.now();
+            self.transitions.fade(splash, now);
+        }
     }
 
     /// The time transitions run on.

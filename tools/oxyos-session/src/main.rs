@@ -149,6 +149,8 @@ fn main() -> Result<()> {
     compositor.records = false;
     compositor.reads_back = false;
     compositor.authentication = Some(Box::new(pam));
+    // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).
+    compositor.show_splash();
     compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
     compositor.seat = Some(seat.clone());
     // On the GPU straight into the display's buffers where the device exports them.
@@ -222,6 +224,8 @@ fn main() -> Result<()> {
         )?),
         None => None,
     };
+    // The session is on screen: the mark fades out over it.
+    compositor.end_splash();
     let mut application = Command::new(&command[0])
         .args(&command[1..])
         .env("OXYOS_COMPOSITOR_SOCKET", &socket)

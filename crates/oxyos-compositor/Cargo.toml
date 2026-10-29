@@ -10,6 +10,7 @@ oxyos-protocol = { path = "../oxyos-protocol" }
 oxyos-compositor-core = { path = "../oxyos-compositor-core" }
 oxyos-ipc = { path = "../oxyos-ipc" }
 oxyos-gpu = { path = "../oxyos-gpu" }
+oxyos-vector = { path = "../oxyos-vector" }
 oxyos-kms = { path = "../oxyos-kms" }
 oxyos-input = { path = "../oxyos-input" }
 oxyos-vt = { path = "../oxyos-vt" }
