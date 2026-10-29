@@ -151,6 +151,25 @@ On the ThinkPad, `--gpu --check-damage` passes with every GPU frame identical to
 | `images.json` | None | | 1.45 ms | 10.2 / 21.0 ms |
 | `network.json` | None | | 1.13 ms | 4.24 / 18.9 ms |
 
+**With text input and input methods (ADR 0008, `feat/input-candidates`), on the same ThinkPad and setup**, each of `sample.json` (through the devices), `text-editing.json`, `input-method.json` and `text-input.json` ran three times: all twelve runs pass, every GPU frame identical to the CPU reference and no frame drawn from its damage different from the frame drawn whole. Input to flip by kind of step, over every run (ms):
+
+| Step | Count | Median | 90th percentile | Max |
+| --- | --- | --- | --- | --- |
+| Key | 111 | 21.0 | 36.3 | 54.1 |
+| Key chord (Shift, Ctrl, Ctrl+Z…) | 90 | 20.9 | 36.1 | 40.3 |
+| Press (focus, caret, buttons) | 81 | 36.6 | 47.3 | 72.0 |
+| Typed text | 54 | 20.6 | 36.6 | 38.2 |
+| Wheel scroll | 15 | 35.5 | 52.8 | 53.9 |
+| Press in a menu | 15 | 36.3 | 87.4 | 88.1 |
+| Input-method transaction | 15 | 20.1 | 22.6 | 32.8 |
+| Keys through an input method | 12 | 35.7 | 36.2 | 36.2 |
+| Input method's own change | 6 | 21.6 | 23.6 | 23.6 |
+| Window moved / resized | 3 / 3 | 19.5 / 36.0 | | 19.7 / 39.3 |
+| Drag selection | 3 | 35.5 | | 40.1 |
+| Output scale change | 6 | 63.3 | | 89.1 |
+
+The values gather a refresh apart (about 20 and 36 ms at 60 Hz): an answer that misses one flip waits for the next. The slowest are the presses that open or change a menu (88 ms, as before) and a scale change, which draws everything again at the new scale.
+
 ## Consequences
 
 - **Compatibility.** A client that never sends `Damage` behaves as today. The compositor still composes only the output's damage for it.
