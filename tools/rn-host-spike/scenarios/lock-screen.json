@@ -1,12 +1,12 @@
 {
-  "about": "The lock screen (ADR 0010) with the session's shell and an application: the shell's menu locks the session, which at once shows only the lock screen (the shell's lock surface, drawn with Bloom: the wallpaper dimmed, the date and time, the user, the password field, focused) and nothing of the application or the panels. Caps Lock on is said under the field, and no longer once it is off. A wrong password is rejected by the development compositor's fixture (never PAM) and the lock screen says so, its field keeping focus; the right one unlocks, with the panels and the window as they were, and the window takes its presses again. Nothing typed into the lock screen reaches the application, and neither password appears in any report or in the compositor's hands.",
+  "about": "The lock screen (ADR 0010) with the session's shell and an application: the shell's menu locks the session, which at once shows only the lock screen (the shell's lock surface, drawn with Bloom: the wallpaper dimmed, the date and time, the user, the password field, focused) and nothing of the application or the panels. Caps Lock on is said under the field, and no longer once it is off. A wrong password is rejected by the development compositor's fixture (never PAM) and the lock screen says so, its field keeping focus; the right one unlocks, with the panels and the window as they were, and the window takes its presses again. Nothing typed into the lock screen reaches the application, and neither password appears in any report or in the compositor's hands. Locked again, the password typed quickly with Enter right after it (all in one turn, as a person types) unlocks: the lock screen sends what the field holds as Enter is pressed, not a state its last characters have not reached yet.",
   "module": "EditingProbe",
   "window": [
     600,
     360
   ],
   "shell": "OxyOSShell",
-  "lock_password": "oxyos-correcta",
+  "lock_password": "oxyos.correcta",
   "steps": [
     {
       "name": "the Oxy menu opens, with its lock item",
@@ -246,7 +246,7 @@
       "name": "the field kept focus: the next password is typed into it, clearing the message",
       "do": [
         "type",
-        "oxyos-correcta"
+        "oxyos.correcta"
       ],
       "expect": {
         "shell": {
@@ -273,11 +273,11 @@
             "Contraseña incorrecta"
           ],
           "never": [
-            "oxyos-correcta"
+            "oxyos.correcta"
           ]
         },
         "never": [
-          "oxyos-correcta"
+          "oxyos.correcta"
         ]
       }
     },
@@ -329,7 +329,7 @@
         "react": {},
         "in_shell": {
           "never": [
-            "oxyos-correcta"
+            "oxyos.correcta"
           ]
         }
       }
@@ -351,6 +351,115 @@
           "focus@line": 1,
           "selectionChange@line": 1
         }
+      }
+    },
+    {
+      "name": "the Oxy menu again",
+      "do": [
+        "press_output",
+        [
+          16,
+          14
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              12,
+              32,
+              220,
+              200
+            ]
+          ],
+          "locked": false
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Bloquear pantalla locks again",
+      "do": [
+        "press_output",
+        [
+          82,
+          201
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "locked": true
+        },
+        "window_shown": false,
+        "react": {}
+      }
+    },
+    {
+      "name": "the password typed quickly, Enter with its last key, unlocks: what the field holds is sent, not an older state",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "locked": false
+        },
+        "window_shown": true,
+        "react": {},
+        "in_shell": {
+          "never": [
+            "oxyos.correcta"
+          ]
+        },
+        "never": [
+          "oxyos.correcta"
+        ]
       }
     }
   ]
