@@ -309,10 +309,46 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "pointer_shape" in expect and result.get("pointer_shape") != expect["pointer_shape"]:
         # The pointer's shape the compositor shows after the step, as the surface under it asked.
         fail(f"the pointer's shape is {result.get('pointer_shape')}, expected {expect['pointer_shape']}")
+    if "modal_animations" in expect:
+        # Modal windows that started animating in or out (modal.h), as `in slide@testID`, `out fade@testID`.
+        got = [f"{line['event']} {line['animation']}@{line.get('within') or line['target']}" for line in report
+               if line["kind"] == "modal_animation" and start <= line["t"] <= end]
+        if got != expect["modal_animations"]:
+            fail(f"modal windows animated {got}, expected exactly {expect['modal_animations']}")
+        # Each one moved monotonically from where its animation starts to where it ends: a slide in
+        # from the window's height (`height`) to 0 and back out, a fade in from alpha 0 to 1 and out.
+        for entry in got:
+            event, rest = entry.split(" ", 1)
+            animation, within = rest.split("@", 1)
+            lines = [line for line in report if line["kind"] == "modal_presented" and line["event"] == event
+                     and line["within"] == within and start <= line["t"] <= end]
+            height = lines[0]["height"] if lines else 0
+            key, first, last = {("in", "slide"): ("offset", height, 0), ("out", "slide"): ("offset", 0, height),
+                                ("in", "fade"): ("alpha", 0, 1), ("out", "fade"): ("alpha", 1, 0)}[(event, animation)]
+            values = [line[key] for line in lines]
+            steps = [b - a for a, b in zip(values, values[1:])]
+            rising = last > first
+            if (len(values) < 3 or abs(values[0] - first) > abs(last - first) * 0.25 or values[-1] != last
+                    or any((d < 0) if rising else (d > 0) for d in steps)):
+                fail(f"{entry}: {key} went {[round(v, 2) for v in values]}, expected from {first} to {last} monotonically")
+    if "window_frames" in expect:
+        # The window's frames presented in the step: [at least, at most]. An animation draws several.
+        low, high = expect["window_frames"]
+        count = sum(1 for line in report if line["kind"] == "frame" and line.get("surface") == 1
+                    and line.get("presented", True) and start <= line["t"] <= end)
+        if not low <= count <= high:
+            fail(f"the window presented {count} frames, expected between {low} and {high}")
     if "gestures" in expect:
         got = gesture_events(report, start, end)
         if got != expect["gestures"]:
             fail(f"gesture handlers sent {got}, expected exactly {expect['gestures']}")
+    if "gesture_states" in expect:
+        # The same without updates and touch moves, whose count depends on how frames fall
+        # between the moves (a view moving under a still pointer is a touch move, as on Android).
+        got = [event for event in gesture_events(report, start, end)
+               if " update x" not in event and " touches move x" not in event]
+        if got != expect["gesture_states"]:
+            fail(f"gesture handlers changed states {got}, expected exactly {expect['gesture_states']}")
     if "in_shell" in expect:
         # The session's shell's own texts, React deliveries and gestures, from its report.
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],

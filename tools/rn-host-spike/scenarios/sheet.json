@@ -110,27 +110,12 @@
           "touchMove@scrolling-content": 1,
           "touchCancel@scrolling-content": 1
         },
-        "gestures": [
+        "gesture_states": [
           "PanGestureHandler@View touches down x1",
           "PanGestureHandler@View UNDETERMINED>BEGAN",
-          "PanGestureHandler@View touches move x1",
           "intercept",
           "PanGestureHandler cancels the responder",
           "PanGestureHandler@View BEGAN>ACTIVE",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
           "PanGestureHandler@View touches up x1",
           "PanGestureHandler@View ACTIVE>END"
         ]

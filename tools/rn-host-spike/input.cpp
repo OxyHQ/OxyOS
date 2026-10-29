@@ -11,6 +11,7 @@
 #include <react/renderer/core/ConcreteState.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <optional>
@@ -104,8 +105,12 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   if (it == tree.views().end()) return -1;
   const auto& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
-  float left = frame.origin.x, top = frame.origin.y;
-  bool inside = x >= left && y >= top && x < left + frame.size.width && y < top + frame.size.height;
+  // Where it is drawn: its transform moves, scales and turns it, and what is in it, as Android maps
+  // a touch through a view's inverse matrix. A view scaled to nothing is under no point.
+  Affine map = viewTransform(view);
+  if (std::abs(map.determinant()) < 1e-6f) return -1;
+  Point local = map.inverse().apply(Point{x, y});
+  bool inside = local.x >= 0 && local.y >= 0 && local.x < frame.size.width && local.y < frame.size.height;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;
   if (mode == PointerEventsMode::None) return -1;
@@ -118,7 +123,7 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {
-    float cx = x - left, cy = y - top;
+    float cx = local.x, cy = local.y;
     if (name == "ScrollView" && view.state) {
       const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
       cx += state.contentOffset.x;

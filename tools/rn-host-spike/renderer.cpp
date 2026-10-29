@@ -288,6 +288,57 @@ class Painter {
     }
   }
 
+  // Draws `layer`, a subtree drawn on its own at `layerScale` device pixels per logical pixel over
+  // `area` (in the subtree's own coordinates), mapped onto the canvas through `map`, within `clip`:
+  // each device pixel takes the layer's bilinear sample under its centre, transparent outside it, so
+  // a turned edge is smoothed as the layer's pixels are. The layer is drawn at `opacity`.
+  void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
+             float opacity = 1) {
+    if (layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f || opacity <= 0) return;
+    Rect drawn = map.bounds(area);
+    Clip box = Clip{drawn.origin.x, drawn.origin.y, drawn.getMaxX(), drawn.getMaxY()}.intersect(clip);
+    if (box.empty()) return;
+    int x0 = std::max({static_cast<int>(std::floor(box.x0 * scale_)), region_[0], 0});
+    int y0 = std::max({static_cast<int>(std::floor(box.y0 * scale_)), region_[1], 0});
+    int x1 = std::min({static_cast<int>(std::ceil(box.x1 * scale_)), region_[2], canvas_.width});
+    int y1 = std::min({static_cast<int>(std::ceil(box.y1 * scale_)), region_[3], canvas_.height});
+    Affine back = map.inverse();
+    const float s = 1 / scale_;
+    auto texel = [&](int tx, int ty) -> uint32_t {
+      if (tx < 0 || ty < 0 || tx >= layer.width || ty >= layer.height) return 0;
+      return layer.pixels[static_cast<size_t>(ty) * layer.width + tx];
+    };
+    for (int py = y0; py < y1; ++py) {
+      for (int px = x0; px < x1; ++px) {
+        float lx = (px + 0.5f) * s, ly = (py + 0.5f) * s;
+        if (lx < clip.x0 || lx >= clip.x1 || ly < clip.y0 || ly >= clip.y1) continue;
+        Point local = back.apply(Point{lx, ly});
+        float u = (local.x - area.origin.x) * layerScale - 0.5f, v = (local.y - area.origin.y) * layerScale - 0.5f;
+        int u0 = static_cast<int>(std::floor(u)), v0 = static_cast<int>(std::floor(v));
+        if (u0 < -1 || v0 < -1 || u0 >= layer.width || v0 >= layer.height) continue;
+        float fu = u - u0, fv = v - v0;
+        uint32_t t00 = texel(u0, v0), t10 = texel(u0 + 1, v0), t01 = texel(u0, v0 + 1), t11 = texel(u0 + 1, v0 + 1);
+        if ((t00 | t10 | t01 | t11) == 0) continue;
+        // Premultiplied channels, interpolated as they are.
+        auto sample = [&](int shift) {
+          auto c = [&](uint32_t t) { return ((t >> shift) & 0xff) / 255.0f; };
+          return ((c(t00) * (1 - fu) + c(t10) * fu) * (1 - fv) + (c(t01) * (1 - fu) + c(t11) * fu) * fv) * opacity;
+        };
+        float alpha = sample(24);
+        if (alpha <= 0) continue;
+        uint32_t& dst = canvas_.pixels[static_cast<size_t>(py) * canvas_.width + px];
+        auto channel = [&](int shift, float src) {
+          float d = ((dst >> shift) & 0xff) / 255.0f;
+          return static_cast<uint32_t>(std::lround(std::clamp(src + d * (1 - alpha), 0.0f, 1.0f) * 255)) << shift;
+        };
+        dst = channel(24, alpha) | channel(16, sample(16)) | channel(8, sample(8)) | channel(0, sample(0));
+      }
+    }
+  }
+
+  // The device pixels painted, as limit() set them.
+  const std::array<int, 4>& region() const { return region_; }
+
   void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
     auto& engine = TextEngine::shared();
     for (const auto& run : layout.runs) {
@@ -507,17 +558,88 @@ void drawImage(const ShadowView& view, const Picture& picture, float x, float y,
   }
 }
 
+// The extent of a view's drawing in its own coordinates: its frame, and its children's drawings
+// unless it clips them.
+Rect localBounds(const ViewTree& tree, Tag tag) {
+  auto it = tree.views().find(tag);
+  if (it == tree.views().end()) return {};
+  const ShadowView& view = it->second.view;
+  Rect area{{0, 0}, view.layoutMetrics.frame.size};
+  std::string name = view.componentName ? view.componentName : "";
+  auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  if (name == "ScrollView" || isSvgView(name) || (props && props->getClipsContentToBounds())) return area;
+  for (Tag child : it->second.children) {
+    auto found = tree.views().find(child);
+    if (found == tree.views().end()) continue;
+    std::string childName = found->second.view.componentName ? found->second.view.componentName : "";
+    if (ownSurface(childName) || isModal(childName)) continue;
+    area.unionInPlace(viewTransform(found->second.view).bounds(localBounds(tree, child)));
+  }
+  return area;
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
-              RenderStats& stats, const TextInputEdit& edit) {
+              RenderStats& stats, const TextInputEdit& edit, bool untransformed = false);
+
+// A view whose transform scales, turns or skews it, as Android draws it through its matrix: its
+// subtree drawn on its own, untransformed, at the resolution its largest scale needs (up to four
+// times the display's), then mapped onto the canvas. Only the layer's pixels under the painter's
+// region are drawn, with a margin for the sampling.
+void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip, float opacity, Painter& painter,
+                     RenderStats& stats, const TextInputEdit& edit) {
+  const ShadowView& view = tree.views().at(tag).view;
+  Rect area = localBounds(tree, tag);
+  float largest = std::max(std::hypot(map.a, map.b), std::hypot(map.c, map.d));
+  float layerScale = painter.scale() * std::clamp(largest, 1.0f, 4.0f);
+  while (area.size.width * layerScale * area.size.height * layerScale > 16e6f && layerScale > painter.scale()) {
+    layerScale = std::max(painter.scale(), layerScale / 2);
+  }
+  Canvas layer;
+  Painter inside(layer, layerScale);
+  bool invertible = std::abs(map.determinant()) >= 1e-6f && area.size.width > 0 && area.size.height > 0;
+  const auto& region = painter.region();
+  // The canvas's painted region, in logical pixels, as the layer's own coordinates see it.
+  Rect painted{{std::max(region[0], 0) / painter.scale(), std::max(region[1], 0) / painter.scale()}, {}};
+  painted.size = {std::min(region[2], 1 << 24) / painter.scale() - painted.origin.x,
+                  std::min(region[3], 1 << 24) / painter.scale() - painted.origin.y};
+  Rect needed = invertible ? Rect::intersect(map.bounds(area), painted) : Rect{};
+  if (needed.size.width > 0 && needed.size.height > 0) {
+    layer.width = static_cast<int>(std::ceil(area.size.width * layerScale));
+    layer.height = static_cast<int>(std::ceil(area.size.height * layerScale));
+    layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+    Rect source = map.inverse().bounds(needed);
+    inside.limit(static_cast<int>(std::floor((source.origin.x - area.origin.x) * layerScale)) - 2,
+                 static_cast<int>(std::floor((source.origin.y - area.origin.y) * layerScale)) - 2,
+                 static_cast<int>(std::ceil((source.getMaxX() - area.origin.x) * layerScale)) + 2,
+                 static_cast<int>(std::ceil((source.getMaxY() - area.origin.y) * layerScale)) + 2);
+  } else {
+    // Nothing of it is painted (or nothing of it shows): its subtree is still walked, for the stats.
+    inside.limit(0, 0, 0, 0);
+  }
+  const auto& frame = view.layoutMetrics.frame;
+  drawView(tree, tag, -frame.origin.x - area.origin.x, -frame.origin.y - area.origin.y,
+           Clip{0, 0, area.size.width, area.size.height}, opacity, inside, stats, edit, true);
+  if (!layer.pixels.empty()) {
+    painter.layer(layer, layerScale, area, map, clip);
+  }
+}
+
+void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
+              RenderStats& stats, const TextInputEdit& edit, bool untransformed) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
-  float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
   // A popup's or a shell region's subtree is drawn in its own surface, never in the window; a
   // modal's over everything else (drawModals).
   if (ownSurface(name) || isModal(name)) return;
+  Affine map = untransformed ? Affine::translation(frame.origin.x, frame.origin.y) : viewTransform(view);
+  if (!map.translates()) {
+    drawTransformed(tree, tag, Affine::translation(ox, oy).after(map), clip, opacity, painter, stats, edit);
+    return;
+  }
+  float x = ox + map.tx, y = oy + map.ty, w = frame.size.width, h = frame.size.height;
   ++stats.views;
   if (!kImplemented.count(name)) {
     ++stats.unimplemented;
@@ -809,14 +931,39 @@ void collectModals(const ViewTree& tree, Tag tag, std::vector<Tag>& out) {
 
 // The modals shown, over the window's content: each its children at the window's origin, an
 // opaque one (not `transparent`) on white, as Android's dialog window for it.
+void drawModalOnto(const ViewTree& tree, Tag modal, const Display& display, Painter& painter, RenderStats& stats,
+                   const TextInputEdit& edit) {
+  Clip window{0, 0, display.width, display.height};
+  const auto& entry = tree.views().at(modal);
+  auto props = std::static_pointer_cast<const ModalHostViewProps>(entry.view.props);
+  if (!props->transparent) painter.fill(0, 0, display.width, display.height, {}, Rgba{1, 1, 1, 1}, window);
+  for (Tag child : entry.children) drawView(tree, child, 0, 0, window, 1.0f, painter, stats, edit);
+}
+
+// The modals over the window's content; one animating in is drawn as its window is, moved and
+// faded, and those animating out after them, from their last frames.
 void drawModals(const ViewTree& tree, const Display& display, Painter& painter, RenderStats& stats,
                 const TextInputEdit& edit) {
   Clip window{0, 0, display.width, display.height};
+  Rect area{{0, 0}, {display.width, display.height}};
   for (Tag modal : modals(tree)) {
-    const auto& entry = tree.views().at(modal);
-    auto props = std::static_pointer_cast<const ModalHostViewProps>(entry.view.props);
-    if (!props->transparent) painter.fill(0, 0, display.width, display.height, {}, Rgba{1, 1, 1, 1}, window);
-    for (Tag child : entry.children) drawView(tree, child, 0, 0, window, 1.0f, painter, stats, edit);
+    ModalPresentation presented = tree.presentation(modal);
+    if (presented == ModalPresentation{}) {
+      drawModalOnto(tree, modal, display, painter, stats, edit);
+      continue;
+    }
+    Canvas layer;
+    layer.width = static_cast<int>(std::lround(display.width * display.scale));
+    layer.height = static_cast<int>(std::lround(display.height * display.scale));
+    layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+    Painter inside(layer, display.scale);
+    drawModalOnto(tree, modal, display, inside, stats, edit);
+    painter.layer(layer, display.scale, area, Affine::translation(0, presented.offset), window, presented.alpha);
+  }
+  for (const auto& leaving : tree.leaving()) {
+    if (!leaving.frame || leaving.frame->width <= 0) continue;
+    painter.layer(*leaving.frame, leaving.frame->width / display.width, area,
+                  Affine::translation(0, leaving.presentation.offset), window, leaving.presentation.alpha);
   }
 }
 
@@ -826,6 +973,53 @@ std::vector<Tag> modals(const ViewTree& tree) {
   std::vector<Tag> out;
   if (tree.root() >= 0) collectModals(tree, tree.root(), out);
   return out;
+}
+
+RenderStats drawModal(const ViewTree& tree, Tag modal, const Display& display, Canvas& canvas,
+                      const TextInputEdit& edit) {
+  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
+  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
+  RenderStats stats;
+  if (!tree.views().count(modal)) return stats;
+  Painter painter(canvas, display.scale);
+  drawModalOnto(tree, modal, display, painter, stats, edit);
+  return stats;
+}
+
+Rect Affine::bounds(const Rect& rect) const {
+  return Rect::boundingRect(apply(rect.origin), apply(Point{rect.getMaxX(), rect.getMinY()}),
+                            apply(Point{rect.getMinX(), rect.getMaxY()}), apply(Point{rect.getMaxX(), rect.getMaxY()}));
+}
+
+Affine viewTransform(const ShadowView& view) {
+  const auto& origin = view.layoutMetrics.frame.origin;
+  auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  if (!props || props->transform == Transform::Identity()) return Affine::translation(origin.x, origin.y);
+  const auto& m = props->resolveTransform(view.layoutMetrics).matrix;
+  // Column-major, as CSS: x' = m0 x + m4 y + m12, y' = m1 x + m5 y + m13, about the view's centre,
+  // as Android's pivot is by default (resolveTransform puts a transform origin in the matrix, as an
+  // offset from the centre).
+  if (m[3] != 0 || m[7] != 0 || m[11] != 0) {
+    static bool reported = false;
+    if (!reported) {
+      reported = true;
+      std::cerr << "[host] transforms: perspective is not drawn on OxyOS yet (a 3D transform is drawn as its "
+                   "projection onto the screen)\n";
+    }
+  }
+  const auto& size = view.layoutMetrics.frame.size;
+  return Affine::translation(origin.x + size.width / 2, origin.y + size.height / 2)
+      .after(Affine{static_cast<float>(m[0]), static_cast<float>(m[1]), static_cast<float>(m[4]),
+                    static_cast<float>(m[5]), static_cast<float>(m[12]), static_cast<float>(m[13])})
+      .after(Affine::translation(-size.width / 2, -size.height / 2));
+}
+
+Point transformOffset(const ShadowView& view) {
+  const auto& frame = view.layoutMetrics.frame;
+  Point centre{frame.size.width / 2, frame.size.height / 2};
+  Point moved = viewTransform(view).apply(centre);
+  return Point{moved.x - frame.origin.x - centre.x, moved.y - frame.origin.y - centre.y};
 }
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
@@ -852,7 +1046,8 @@ bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
   // What drawView reads from a view's props, each with its own layout.
   return a->opacity == b->opacity && a->backgroundColor == b->backgroundColor &&
          a->resolveBorderMetrics(before.layoutMetrics) == b->resolveBorderMetrics(after.layoutMetrics) &&
-         a->getClipsContentToBounds() == b->getClipsContentToBounds();
+         a->getClipsContentToBounds() == b->getClipsContentToBounds() && a->transform == b->transform &&
+         a->transformOrigin == b->transformOrigin;
 }
 
 RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
@@ -913,13 +1108,56 @@ RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display
   return stats;
 }
 
+RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
+                              const TextInputEdit& edit, const std::vector<Rect>& damage) {
+  int width = static_cast<int>(std::lround(display.width * display.scale));
+  int height = static_cast<int>(std::lround(display.height * display.scale));
+  if (canvas.width != width || canvas.height != height) return drawRegion(tree, region, at, display, canvas, edit);
+  auto it = tree.views().find(region);
+  if (it == tree.views().end()) return {};
+  Clip surface{0, 0, display.width, display.height};
+  auto drawChildren = [&](Painter& painter, RenderStats& stats) {
+    for (Tag child : it->second.children) drawView(tree, child, at.x, at.y, surface, 1.0f, painter, stats, edit);
+  };
+  RenderStats stats;
+  bool counted = false;
+  for (const auto& rect : damage) {
+    int x0 = std::max(0, static_cast<int>(std::floor(rect.origin.x * display.scale)));
+    int y0 = std::max(0, static_cast<int>(std::floor(rect.origin.y * display.scale)));
+    int x1 = std::min(width, static_cast<int>(std::ceil((rect.origin.x + rect.size.width) * display.scale)));
+    int y1 = std::min(height, static_cast<int>(std::ceil((rect.origin.y + rect.size.height) * display.scale)));
+    if (x1 <= x0 || y1 <= y0) continue;
+    // The region starts transparent, as a new region does, then everything over it is drawn again.
+    for (int y = y0; y < y1; ++y) {
+      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, 0u);
+    }
+    Painter painter(canvas, display.scale);
+    painter.limit(x0, y0, x1, y1);
+    RenderStats drawn;
+    drawChildren(painter, drawn);
+    if (!counted) {
+      stats = std::move(drawn);
+      counted = true;
+    }
+  }
+  if (!counted) {
+    // Nothing to paint; the stats are still the region's.
+    Painter painter(canvas, display.scale);
+    painter.limit(0, 0, 0, 0);
+    drawChildren(painter, stats);
+  }
+  return stats;
+}
+
 namespace {
 
 std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offset) {
   auto it = tree.views().find(at);
   if (it == tree.views().end()) return std::nullopt;
   const auto& view = it->second.view;
-  Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
+  Point moved = transformOffset(view);
+  Point position{offset.x + view.layoutMetrics.frame.origin.x + moved.x,
+                 offset.y + view.layoutMetrics.frame.origin.y + moved.y};
   // A modal is at the window's origin, wherever it is in the tree.
   if (isModal(view.componentName ? view.componentName : "")) position = Point{0, 0};
   if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
