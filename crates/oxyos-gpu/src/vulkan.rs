@@ -337,7 +337,30 @@ impl VulkanCompositor {
             last_uploaded: 0,
         };
         this.build(opened.family)?;
+        // A device can name DMA-BUF export and still be unable to allocate memory it exports
+        // (Mesa's lavapipe without a render node): it exports DMA-BUF only if a buffer can be
+        // made and handed out as one, so a session composes on the CPU there instead of failing.
+        if this.dma_buf && this.export_probe().is_err() {
+            this.dma_buf = false;
+        }
         Ok(this)
+    }
+
+    /// Makes one small exportable buffer, exports it as DMA-BUF and frees both.
+    fn export_probe(&mut self) -> Result<(), Error> {
+        use std::os::fd::FromRawFd;
+        let buffer = self.buffer(Role::Scanout, 4096)?;
+        let loader = ash::khr::external_memory_fd::Device::new(&self.instance, &self.device);
+        let info = vk::MemoryGetFdInfoKHR::default()
+            .memory(buffer.memory)
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+        // SAFETY: the memory was allocated exportable as DMA-BUF and is live.
+        let exported = unsafe { loader.get_memory_fd(&info) }
+            // SAFETY: vkGetMemoryFdKHR returns a new descriptor that the caller owns; it is
+            // closed at once.
+            .map(|fd| drop(unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) }));
+        self.free(buffer);
+        exported.map_err(Error::from)
     }
 
     /// The best device with a compute queue, and that queue.
