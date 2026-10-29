@@ -79,9 +79,18 @@ class HostModule : public TurboModule {
 
 
 // What modules share with the host: blobs, and the network.
+// The clipboard for JavaScript (expo-clipboard), with the serial of the latest key or press the
+// app received (ADR 0007): set by the host once its window exists; unset without one.
+struct ClipboardService {
+  std::function<bool(const std::string& text)> copy;
+  std::function<void(std::function<void(std::string)> done)> paste;
+  std::function<bool()> hasText;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
+  ClipboardService clipboard{};
 };
 
 std::shared_ptr<facebook::react::TurboModule> createHostModule(

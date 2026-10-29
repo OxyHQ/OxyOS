@@ -1,0 +1,177 @@
+{
+  "about": "expo-clipboard on OxyOS (sample/ClipboardProbe.tsx, sample/oxyos/expo-adapter.js, docs/adr/0007-clipboard.mdx): the real package's setStringAsync, getStringAsync, hasStringAsync and change listener on the OS clipboard, each call carrying the serial of the latest press or key the app received; mixed with Ctrl+C and Ctrl+V in a Bloom field, so text copied by JavaScript is pasted by the field and the other way round. A change is heard when the clipboard's content changes, as on Android, not when the app first learns it.",
+  "module": "ClipboardProbe",
+  "window": [
+    800,
+    420
+  ],
+  "steps": [
+    {
+      "name": "the Copy button copies with setStringAsync, the press's serial authorizing it: the change is heard, once, and the clipboard now has text",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"\"",
+          "Pasted: nothing yet",
+          "Changes: 1, has text: true"
+        ],
+        "react": {
+          "touchStart@copy": 1,
+          "touchEnd@copy": 1
+        }
+      }
+    },
+    {
+      "name": "the Paste button reads it back with getStringAsync, through the compositor's pipe",
+      "do": [
+        "press",
+        [
+          127,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pasted: \"copiado desde JavaScript\""
+        ],
+        "react": {
+          "touchStart@paste": 1,
+          "touchEnd@paste": 1
+        }
+      }
+    },
+    {
+      "name": "focus the field",
+      "do": [
+        "press",
+        [
+          400,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"\""
+        ],
+        "react": {
+          "touchStart@field": 1,
+          "touchEnd@field": 1,
+          "focus@field": 1,
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+V pastes what JavaScript copied into the field",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"copiado desde JavaScript\""
+        ],
+        "react": {
+          "change@field": 1,
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A selects it",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"copiado desde JavaScript\""
+        ],
+        "react": {
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "typing replaces it",
+      "do": [
+        "type",
+        "nuevo texto"
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"nuevo texto\""
+        ],
+        "react": {
+          "change@field": 1,
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A again",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Field: \"nuevo texto\""
+        ],
+        "react": {
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+C copies the field's text: JavaScript hears the clipboard change",
+      "do": [
+        "key",
+        [
+          29,
+          46
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Changes: 2, has text: true"
+        ],
+        "react": {}
+      }
+    },
+    {
+      "name": "the Paste button reads what the field copied",
+      "do": [
+        "press",
+        [
+          127,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pasted: \"nuevo texto\""
+        ],
+        "react": {
+          "touchStart@paste": 1,
+          "touchEnd@paste": 1
+        }
+      }
+    }
+  ]
+}
