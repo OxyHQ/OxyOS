@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <functional>
+#include <map>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -56,6 +57,8 @@ class PointerInput {
   void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
     gestures_ = std::move(feed);
   }
+  // The pointer's shape over a surface changed (OXYOS_POINTER_*): the compositor is to be told.
+  void showsShapes(std::function<void(uint32_t surface, uint8_t shape)> tell) { tellShape_ = std::move(tell); }
   // A gesture handler activated and cancels React Native's touch: it is sent touchcancel and
   // nothing more of this touch, as Android's JSTouchDispatcher does when a native gesture starts.
   void cancelResponder();
@@ -75,6 +78,8 @@ class PointerInput {
   std::function<bool(facebook::react::Tag, float, float)> scrollText_;
   std::function<void(int, const SurfaceContent&, float, float)> gestures_;
   bool responderCancelled_ = false;  // React Native has let go of the current touch
+  std::function<void(uint32_t, uint8_t)> tellShape_;
+  std::map<uint32_t, uint8_t> toldShapes_;  // the shape each surface last asked for
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;
