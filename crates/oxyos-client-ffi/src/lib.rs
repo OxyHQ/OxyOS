@@ -71,6 +71,9 @@ pub const OXYOS_EVENT_LOCK_STATE: u32 = 44;
 /// To a lock surface: what came of its password (detail, OXYOS_AUTH_*; code: the seconds until
 /// another may be tried, 0 at once).
 pub const OXYOS_EVENT_AUTHENTICATION_RESULT: u32 = 45;
+/// To the surface with keyboard focus: whether Caps Lock is on (flag), when it changes and after
+/// its focus when it is on; a surface gains focus with it off unless told.
+pub const OXYOS_EVENT_CAPS_LOCK: u32 = 46;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -557,6 +560,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_CLOSE_REQUESTED,
                 surface,
+                ..out
+            }
+        }
+        Event::CapsLock { surface, on } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CAPS_LOCK,
+                surface,
+                flag: u8::from(on),
                 ..out
             }
         }

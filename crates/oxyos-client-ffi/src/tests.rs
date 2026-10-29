@@ -2379,6 +2379,7 @@ fn the_header_matches_the_lock_abi() {
             "OXYOS_EVENT_AUTHENTICATION_RESULT",
             OXYOS_EVENT_AUTHENTICATION_RESULT.into(),
         ),
+        ("OXYOS_EVENT_CAPS_LOCK", OXYOS_EVENT_CAPS_LOCK.into()),
         ("OXYOS_AUTH_ACCEPTED", OXYOS_AUTH_ACCEPTED.into()),
         ("OXYOS_AUTH_REJECTED", OXYOS_AUTH_REJECTED.into()),
         ("OXYOS_AUTH_BUSY", OXYOS_AUTH_BUSY.into()),
@@ -2391,6 +2392,25 @@ fn the_header_matches_the_lock_abi() {
     assert_eq!(AuthOutcome::Rejected as u32, OXYOS_AUTH_REJECTED);
     assert_eq!(AuthOutcome::Busy as u32, OXYOS_AUTH_BUSY);
     assert_eq!(AuthOutcome::Throttled as u32, OXYOS_AUTH_THROTTLED);
+    let caps = convert(&Event::CapsLock {
+        surface: 3,
+        on: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (caps.kind, caps.surface, caps.flag),
+        (OXYOS_EVENT_CAPS_LOCK, 3, 1)
+    );
+    assert_eq!(
+        u32::from(
+            Event::CapsLock {
+                surface: 3,
+                on: true
+            }
+            .opcode()
+        ),
+        OXYOS_EVENT_CAPS_LOCK
+    );
     let state = convert(&Event::LockState { locked: true }).unwrap();
     assert_eq!((state.kind, state.flag), (OXYOS_EVENT_LOCK_STATE, 1));
     let result = convert(&Event::AuthenticationResult {

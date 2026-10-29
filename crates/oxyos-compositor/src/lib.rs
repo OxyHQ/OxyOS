@@ -943,6 +943,7 @@ impl Compositor {
                 } => self.scene.keyboard(code, pressed, text.as_deref()),
                 oxyos_input::Action::Terminate => self.ending = true,
                 oxyos_input::Action::Lock => self.scene.lock(),
+                oxyos_input::Action::CapsLock(on) => self.scene.set_caps_lock(on),
                 oxyos_input::Action::SwitchTerminal(number) => {
                     if let Some(seat) = &self.seat {
                         if Some(u32::from(number)) != seat.vt() {

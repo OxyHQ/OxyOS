@@ -238,6 +238,10 @@ messages! {
         // To the lock surface that submitted a password: what came of it, and the seconds until
         // another may be tried (0: at once; a fifth rejection in a row begins the waits).
         45 => AuthenticationResult { surface: u32, outcome: AuthOutcome, wait_s: u32 },
+        // To the client with keyboard focus: whether Caps Lock is on, whenever it changes, and
+        // after its Focus when it is on (a surface gains focus with it off unless told; a
+        // password field says it is on, ADR 0010).
+        46 => CapsLock { surface: u32, on: bool },
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "about": "The lock screen (ADR 0010) with the session's shell and an application: the shell's menu locks the session, which at once shows only the lock screen (the shell's lock surface, drawn with Bloom: the wallpaper dimmed, the date and time, the user, the password field, focused) and nothing of the application or the panels. A wrong password is rejected by the development compositor's fixture (never PAM) and the lock screen says so, its field keeping focus; the right one unlocks, with the panels and the window as they were, and the window takes its presses again. Nothing typed into the lock screen reaches the application, and neither password appears in any report or in the compositor's hands.",
+  "about": "The lock screen (ADR 0010) with the session's shell and an application: the shell's menu locks the session, which at once shows only the lock screen (the shell's lock surface, drawn with Bloom: the wallpaper dimmed, the date and time, the user, the password field, focused) and nothing of the application or the panels. Caps Lock on is said under the field, and no longer once it is off. A wrong password is rejected by the development compositor's fixture (never PAM) and the lock screen says so, its field keeping focus; the right one unlocks, with the panels and the window as they were, and the window takes its presses again. Nothing typed into the lock screen reaches the application, and neither password appears in any report or in the compositor's hands.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -93,6 +93,72 @@
         "in_shell": {
           "texts": [
             "Introduce la contraseña"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Caps Lock on: the lock screen says so under the field; the key reaches no application",
+      "do": [
+        "caps_lock",
+        true
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Bloq Mayús activado"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Caps Lock off: it no longer says so",
+      "do": [
+        "caps_lock",
+        true
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Bloq Mayús activado"
           ]
         }
       }

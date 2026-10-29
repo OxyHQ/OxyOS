@@ -55,6 +55,8 @@ pub enum Action {
     /// The session's lock (Ctrl+Super+Q, the key that types `q`, as macOS's Ctrl+Cmd+Q, ADR
     /// 0010), which no application sees as a key.
     Lock,
+    /// Caps Lock came on (`true`) or went off, after the key that did it.
+    CapsLock(bool),
     /// A touchpad pinch (two or more fingers spreading, closing or turning; libinput tells it from
     /// a two-finger scroll): `scale` is the fingers' spread over their spread when it began, and
     /// `rotation` how far they have turned since, in degrees, clockwise.
@@ -236,6 +238,12 @@ impl Keyboard {
             && held(xkb::MOD_NAME_LOGO)
             && !held(xkb::MOD_NAME_ALT)
             && !held(xkb::MOD_NAME_SHIFT)
+    }
+
+    /// Whether Caps Lock is on: the keymap's Lock modifier is locked.
+    pub fn caps_locked(&self) -> bool {
+        self.state
+            .mod_name_is_active(xkb::MOD_NAME_CAPS, xkb::STATE_MODS_LOCKED)
     }
 
     /// Whether a compose table was found: dead keys and compose sequences compose.
@@ -479,6 +487,7 @@ impl Input {
                 }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
                     let pressed = key.key_state() == KeyState::Pressed;
+                    let caps = self.keyboard.caps_locked();
                     match self.keyboard.key(key.key(), pressed) {
                         Typed::Key(text) => actions.push(Action::Key {
                             code: key.key(),
@@ -494,6 +503,9 @@ impl Input {
                         Typed::Terminate => actions.push(Action::Terminate),
                         Typed::Lock => actions.push(Action::Lock),
                         Typed::Nothing => {}
+                    }
+                    if self.keyboard.caps_locked() != caps {
+                        actions.push(Action::CapsLock(!caps));
                     }
                 }
                 _ => {}

@@ -162,6 +162,7 @@ export function ShellSession() {
   const lock: ShellLock = {
     locked: !!state.locked,
     user: state.user ?? { name: '' },
+    capsLock: !!state.capsLock,
     lockSession: shell.lockSession,
     authenticate: shell.authenticate,
     answer: shell.authentication ?? undefined,

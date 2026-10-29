@@ -324,6 +324,8 @@ pub struct Scene {
     shell_windows: shell::ShellWindows,
     /// The lock's password, given and checked (ADR 0010).
     authentication: lock::Authentication,
+    /// Whether the keyboard's Caps Lock is on.
+    caps_lock: bool,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -2047,6 +2049,15 @@ impl Scene {
                     focused: true,
                 },
             );
+            if self.caps_lock {
+                self.emit(
+                    new.client,
+                    Event::CapsLock {
+                        surface: new.id,
+                        on: true,
+                    },
+                );
+            }
         }
         self.focus = key;
         self.tell_clipboard();
@@ -2250,6 +2261,27 @@ impl Scene {
 
     pub fn is_locked(&self) -> bool {
         self.locked
+    }
+
+    pub fn caps_lock(&self) -> bool {
+        self.caps_lock
+    }
+
+    /// The keyboard's Caps Lock came on or went off: the surface with keyboard focus is told.
+    pub fn set_caps_lock(&mut self, on: bool) {
+        if self.caps_lock == on {
+            return;
+        }
+        self.caps_lock = on;
+        if let Some(focus) = self.focus {
+            self.emit(
+                focus.client,
+                Event::CapsLock {
+                    surface: focus.id,
+                    on,
+                },
+            );
+        }
     }
 
     // ---- input ---------------------------------------------------------------------------

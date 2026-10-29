@@ -3,7 +3,7 @@
  * and the shell's actions on them. Only a Bloom host run as the shell (`--shell`) has the module.
  *
  * The state: { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active,
- * locked, user: { name, fullName } }, windows numbered by the compositor and workspaces from 0.
+ * locked, user: { name, fullName }, capsLock }, windows numbered by the compositor and workspaces from 0.
  * Actions are intents: the next state says what happened.
  *
  * The lock (docs/adr/0010-lock-screen.mdx): `lockSession()` locks; `authenticate(password)` sends

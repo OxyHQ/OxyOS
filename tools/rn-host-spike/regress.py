@@ -73,7 +73,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "key", "move_window", "resize_window", "minimize_window", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal"}
 
@@ -109,6 +109,9 @@ def director_args(step):
                        "stale" if value.get("stale") else "current"]
     if kind == "minimize_window":
         return args + ["--minimize-window"]
+    if kind == "caps_lock":
+        # A press of Caps Lock, which turns it on or off.
+        return args + ["--caps-lock"]
     if kind == "transaction":
         # An input method's change (ADR 0008): {"delete": [before, after], "commit", "preedit",
         # "cursor": [begin, end], "segments": [[begin, end, "composing"|"converting"|"error"]]}.
