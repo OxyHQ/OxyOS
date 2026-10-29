@@ -3,10 +3,10 @@
  * react-native-gesture-handler (gesture-handler.h, crates/oxyos-gestures). One sheet is Bloom's
  * default, its pan always recognizing alongside the content's native gesture; the other is the
  * scrolling kind (`manualActivation`), whose pan decides from its touch events and activates from
- * a worklet. Each shows how often it was dismissed.
+ * a worklet. Each shows how often it was dismissed. Under them, a view asks for the hand pointer.
  */
 import * as React from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { BottomSheet, type BottomSheetRef } from '@oxy.so/bloom/bottom-sheet';
@@ -53,6 +53,10 @@ export default function SheetProbe() {
         <View style={{ padding: 24, gap: 16 }}>
           <Sheet name="default" manual={false} />
           <Sheet name="scrolling" manual />
+          {/* The pointer's shape: a view that asks for the hand (scenarios/sheet.json). */}
+          <Pressable testID="hand" style={{ cursor: 'pointer', padding: 8 }}>
+            <Muted>A view asking for the hand</Muted>
+          </Pressable>
         </View>
       </BloomProvider>
     </SafeAreaProvider>

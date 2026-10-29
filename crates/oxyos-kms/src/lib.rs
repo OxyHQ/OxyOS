@@ -14,7 +14,7 @@ pub use drm::control::framebuffer::Handle as Framebuffer;
 pub use drm_fourcc::DrmFourcc;
 
 mod display;
-pub use display::Display;
+pub use display::{Display, PointerImage};
 
 /// A DMA-BUF imported through PRIME, as `add_planar_framebuffer` takes it.
 struct Imported {
