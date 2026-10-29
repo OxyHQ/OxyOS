@@ -500,6 +500,8 @@ int main(int argc, char** argv) {
       }
       return oxyos::Placement{.surface = surface, .frame = *frame};
     });
+    // The pointer's shape over each surface, as the views under it want it.
+    pointer.showsShapes([&window](uint32_t surface, uint8_t shape) { window->setPointerShape(surface, shape); });
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });

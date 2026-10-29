@@ -11,7 +11,7 @@ use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection, Size};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
@@ -107,6 +107,9 @@ pub struct Compositor {
     pointer_flip: bool,
     /// Where the pointer is on the display (its pixels), once it has moved.
     pointer: Option<(i32, i32)>,
+    /// The display's pointer image for each shape the session has one for; the arrow for any
+    /// other.
+    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, usize>,
     /// What the last flip showed (the scene's displayed content once it completed).
     pub flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
@@ -188,6 +191,7 @@ impl Compositor {
             pending_flip: None,
             pointer_flip: false,
             pointer: None,
+            pointer_images: BTreeMap::new(),
             flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
@@ -447,9 +451,15 @@ impl Compositor {
         if self.pending_flip.is_some() {
             return;
         }
-        // The pointer is on the display's cursor plane, placed by every commit.
+        // The pointer is on the display's cursor plane, placed by every commit, in the shape the
+        // surface under it wants.
+        let image = self
+            .pointer_images
+            .get(&self.scene.pointer_shape())
+            .copied()
+            .unwrap_or(0);
         let pointer_moved = match (&mut self.display, self.away) {
-            (Some(display), false) => display.set_pointer(self.pointer),
+            (Some(display), false) => display.set_pointer(self.pointer, image),
             _ => false,
         };
         let started = self.scene.begin_frame();

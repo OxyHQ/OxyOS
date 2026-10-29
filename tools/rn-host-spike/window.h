@@ -80,6 +80,8 @@ class Window {
   void openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t width, uint32_t height, uint32_t exclusive);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);
+  // The pointer's shape while it is over a surface (OXYOS_POINTER_*).
+  void setPointerShape(uint32_t id, uint8_t shape);
   // Places an open popup again (its anchor moved or its content resized).
   void reposition(uint32_t id, const OxyOSPositioner& positioner);
   void destroy(uint32_t id);

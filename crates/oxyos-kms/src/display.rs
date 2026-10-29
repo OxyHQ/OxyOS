@@ -2,9 +2,9 @@
 //! frame and page flips after it, with the kernel's flip timestamps. Needs DRM master (the
 //! card's current master, a running desktop session, must have released it).
 //!
-//! The pointer is shown on the CRTC's cursor plane where it has one: an image the display keeps
-//! (its own arrow unless given one), placed in every commit, so moving it only commits the frame
-//! already shown again.
+//! The pointer is shown on the CRTC's cursor plane where it has one: one of the images the
+//! display keeps, each in a buffer of its own (its own arrow first), placed in every commit, so
+//! moving the pointer or changing its image only commits the frame already shown again.
 
 use crate::Card;
 use drm::buffer::{Buffer as _, DrmFourcc};
@@ -28,20 +28,24 @@ pub struct Display {
     back: usize,
     configured: bool,
     mode_blob: Option<property::Value<'static>>,
-    /// The cursor plane and its arrow, if the CRTC has one.
+    /// The cursor plane and its images, if the CRTC has one.
     cursor: Option<Cursor>,
-    /// Where the pointer is to be shown, and where the last commit showed it.
-    pointer: Option<(i32, i32)>,
-    shown_pointer: Option<(i32, i32)>,
+    /// Where the pointer is to be shown and with which image, and how the last commit showed it.
+    pointer: Option<(i32, i32, usize)>,
+    shown_pointer: Option<(i32, i32, usize)>,
     /// The framebuffer the last commit showed.
     front: Option<framebuffer::Handle>,
 }
 
 struct Cursor {
     plane: plane::Handle,
-    buffer: DumbBuffer,
-    framebuffer: framebuffer::Handle,
     size: (u32, u32),
+    images: Vec<CursorImage>,
+}
+
+struct CursorImage {
+    _buffer: DumbBuffer,
+    framebuffer: framebuffer::Handle,
     hotspot: (u32, u32),
 }
 
@@ -215,29 +219,25 @@ impl Display {
             side(DriverCapability::CursorWidth),
             side(DriverCapability::CursorHeight),
         );
-        let buffer = card.create_dumb_buffer(size, DrmFourcc::Argb8888, 32)?;
-        let framebuffer = card.add_framebuffer(&buffer, 32, 32)?;
-        let mut cursor = Cursor {
+        let arrow = cursor_image(card, size, &PointerImage::arrow())?;
+        Ok(Some(Cursor {
             plane,
-            buffer,
-            framebuffer,
             size,
-            hotspot: (0, 0),
-        };
-        write_pointer(card, &mut cursor, &PointerImage::arrow())?;
-        Ok(Some(cursor))
+            images: vec![arrow],
+        }))
     }
 
-    /// The pointer's image from now on. Refused when larger than the cursor plane takes (the
-    /// card's cursor size), or without a cursor plane.
-    pub fn set_pointer_image(&mut self, image: &PointerImage) -> io::Result<()> {
+    /// Keeps a pointer image, in a buffer of its own; its number for `set_pointer` (the display's
+    /// own arrow is 0). Refused when larger than the cursor plane takes (the card's cursor
+    /// size), or without a cursor plane.
+    pub fn add_pointer_image(&mut self, image: &PointerImage) -> io::Result<usize> {
         let Some(cursor) = self.cursor.as_mut() else {
             return Err(not_found("no cursor plane"));
         };
-        write_pointer(&self.card, cursor, image)?;
-        // The next commit shows it.
-        self.shown_pointer = None;
-        Ok(())
+        cursor
+            .images
+            .push(cursor_image(&self.card, cursor.size, image)?);
+        Ok(cursor.images.len() - 1)
     }
 
     /// The largest pointer image the cursor plane takes, if there is one.
@@ -250,11 +250,20 @@ impl Display {
         self.cursor.is_some()
     }
 
-    /// Where the pointer is to be shown, in the display's pixels (none hides it): true when the
-    /// pointer shown must change, by the next commit or `present_again`.
-    pub fn set_pointer(&mut self, at: Option<(i32, i32)>) -> bool {
-        self.pointer = at;
-        self.cursor.is_some() && self.configured && self.pointer != self.shown_pointer
+    /// Where the pointer is to be shown, in the display's pixels (none hides it), and with which
+    /// image (0, the arrow, for one the display does not keep): true when the pointer shown must
+    /// change, by the next commit or `present_again`.
+    pub fn set_pointer(&mut self, at: Option<(i32, i32)>, image: usize) -> bool {
+        let Some(cursor) = &self.cursor else {
+            return false;
+        };
+        let image = if image < cursor.images.len() {
+            image
+        } else {
+            0
+        };
+        self.pointer = at.map(|(x, y)| (x, y, image));
+        self.configured && self.pointer != self.shown_pointer
     }
 
     /// Commits the frame shown again, with the pointer where it is now; true if a frame is shown
@@ -416,12 +425,13 @@ impl Display {
         if let Some(cursor) = &self.cursor {
             let plane = cursor.plane;
             let (width, height) = cursor.size;
-            let shown = self.pointer.map(|(x, y)| {
+            let shown = self.pointer.map(|(x, y, image)| {
+                let image = &cursor.images[image];
                 [
                     ("CRTC_ID", property::Value::CRTC(Some(self.crtc))),
                     (
                         "FB_ID",
-                        property::Value::Framebuffer(Some(cursor.framebuffer)),
+                        property::Value::Framebuffer(Some(image.framebuffer)),
                     ),
                     ("SRC_X", property::Value::UnsignedRange(0)),
                     ("SRC_Y", property::Value::UnsignedRange(0)),
@@ -435,11 +445,11 @@ impl Display {
                     ),
                     (
                         "CRTC_X",
-                        property::Value::SignedRange(i64::from(x) - i64::from(cursor.hotspot.0)),
+                        property::Value::SignedRange(i64::from(x) - i64::from(image.hotspot.0)),
                     ),
                     (
                         "CRTC_Y",
-                        property::Value::SignedRange(i64::from(y) - i64::from(cursor.hotspot.1)),
+                        property::Value::SignedRange(i64::from(y) - i64::from(image.hotspot.1)),
                     ),
                     ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
                     ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
@@ -524,9 +534,9 @@ impl Drop for Display {
     }
 }
 
-/// Writes `image` into the cursor's buffer, transparent around it.
-fn write_pointer(card: &Card, cursor: &mut Cursor, image: &PointerImage) -> io::Result<()> {
-    let (width, height) = cursor.size;
+/// A buffer of the cursor plane's `size` holding `image`, transparent around it.
+fn cursor_image(card: &Card, size: (u32, u32), image: &PointerImage) -> io::Result<CursorImage> {
+    let (width, height) = size;
     if image.width > width
         || image.height > height
         || image.hotspot.0 >= image.width.max(1)
@@ -541,17 +551,24 @@ fn write_pointer(card: &Card, cursor: &mut Cursor, image: &PointerImage) -> io::
             ),
         ));
     }
-    let pitch = cursor.buffer.pitch() as usize;
-    let mut mapping = card.map_dumb_buffer(&mut cursor.buffer)?;
-    mapping.fill(0);
-    for (y, row) in image.pixels.chunks_exact(image.width as usize).enumerate() {
-        for (x, pixel) in row.iter().enumerate() {
-            let at = y * pitch + x * 4;
-            mapping[at..at + 4].copy_from_slice(&pixel.to_le_bytes());
+    let mut buffer = card.create_dumb_buffer(size, DrmFourcc::Argb8888, 32)?;
+    let pitch = buffer.pitch() as usize;
+    {
+        let mut mapping = card.map_dumb_buffer(&mut buffer)?;
+        mapping.fill(0);
+        for (y, row) in image.pixels.chunks_exact(image.width as usize).enumerate() {
+            for (x, pixel) in row.iter().enumerate() {
+                let at = y * pitch + x * 4;
+                mapping[at..at + 4].copy_from_slice(&pixel.to_le_bytes());
+            }
         }
     }
-    cursor.hotspot = image.hotspot;
-    Ok(())
+    let framebuffer = card.add_framebuffer(&buffer, 32, 32)?;
+    Ok(CursorImage {
+        _buffer: buffer,
+        framebuffer,
+        hotspot: image.hotspot,
+    })
 }
 
 fn property_handle(
