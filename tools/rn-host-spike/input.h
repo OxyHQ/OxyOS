@@ -59,6 +59,15 @@ class PointerInput {
   }
   // The pointer's shape over a surface changed (OXYOS_POINTER_*): the compositor is to be told.
   void showsShapes(std::function<void(uint32_t surface, uint8_t shape)> tell) { tellShape_ = std::move(tell); }
+  // A touchpad pinch's two fingers also go to gesture handlers: `action` an OXYOS_GESTURE_*
+  // action, `index` the finger it is about, `fingers` where each finger is.
+  void feedsFingers(std::function<void(uint8_t action, size_t index, const SurfaceContent& content,
+                                       const std::vector<facebook::react::Point>& fingers)>
+                        feed) {
+    fingers_ = std::move(feed);
+  }
+  // The window's scale: a pinch's fingers start a set number of its pixels apart.
+  void setScale(float scale) { scale_ = scale; }
   // A gesture handler activated and cancels React Native's touch: it is sent touchcancel and
   // nothing more of this touch, as Android's JSTouchDispatcher does when a native gesture starts.
   void cancelResponder();
@@ -72,11 +81,33 @@ class PointerInput {
 
   enum class Phase { Start, Move, End, Cancel };
   void dispatch(Phase phase, float x, float y);
+  struct Finger {
+    int identifier;
+    float x, y;  // surface-local logical
+  };
+  // Sends React Native a touch event for `fingers`: `changed` is the one that started, ended or
+  // was cancelled, or all of them (nullopt, and always for a move). A finger that ended or was
+  // cancelled is no longer among the touches.
+  void dispatchTouches(Phase phase, const std::vector<Finger>& fingers, std::optional<size_t> changed);
+  // A touchpad pinch, as Android 14's touchpad stack gives it to applications
+  // (inputflinger's GestureConverter): two fingers around the pointer, starting
+  // INITIAL_PINCH_SEPARATION_PX (200 of the display's pixels) apart side by side, finger 0 down
+  // then finger 1, both moving as the spread changes, then finger 1 up and finger 0 up. Android's
+  // fingers never turn; here they turn as libinput reports the user's fingers turning, so rotation
+  // handlers see it. A pinch libinput cancels cancels both fingers.
+  void pinch(const SurfaceContent& content, const OxyOSEvent& event);
+  std::vector<Finger> pinchFingers(float spread, float degrees) const;
 
   const ViewTree& tree_;
   Surfaces surfaces_;
   std::function<bool(facebook::react::Tag, float, float)> scrollText_;
   std::function<void(int, const SurfaceContent&, float, float)> gestures_;
+  std::function<void(uint8_t, size_t, const SurfaceContent&, const std::vector<facebook::react::Point>&)> fingers_;
+  float scale_ = 1;
+  // The pinch going on: where it is, and its spread and turn as last told.
+  bool pinching_ = false;
+  facebook::react::Point pinchCentre_{};
+  float pinchSpread_ = 1, pinchDegrees_ = 0;
   bool responderCancelled_ = false;  // React Native has let go of the current touch
   std::function<void(uint32_t, uint8_t)> tellShape_;
   std::map<uint32_t, uint8_t> toldShapes_;  // the shape each surface last asked for

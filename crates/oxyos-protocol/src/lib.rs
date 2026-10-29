@@ -15,7 +15,7 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
-    BufferLayout, Clock, DismissReason, ErrorCode, Format, Gravity, Outcome, PanelEdge,
+    BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase, Gravity, Outcome, PanelEdge,
     PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, ShellKind, Size,
     TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };

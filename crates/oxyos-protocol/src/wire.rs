@@ -103,6 +103,10 @@ wire_enum! {
     TouchKind: u8 { Down = 1, Motion = 2, Up = 3, Cancel = 4 }
 }
 wire_enum! {
+    /// Where a touchpad gesture is: begun, going on, ended, or cancelled (ended without effect).
+    GesturePhase: u8 { Begin = 1, Update = 2, End = 3, Cancel = 4 }
+}
+wire_enum! {
     /// What happened to a submitted frame. Released is a separate event: a presented frame keeps
     /// its buffer until replaced and until every consumer has finished.
     Outcome: u8 { Presented = 1, Discarded = 2 }

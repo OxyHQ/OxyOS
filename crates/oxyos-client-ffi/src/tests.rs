@@ -3,7 +3,8 @@
 use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
-    AccessibleAction, DismissReason, PointerKind, ServerConnection, NO_ACCESSIBLE_PARENT,
+    AccessibleAction, DismissReason, GesturePhase, PointerKind, ServerConnection,
+    NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -214,6 +215,8 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyOSEvent, scale_120),
         offset_of!(OxyOSEvent, detail),
         offset_of!(OxyOSEvent, code),
+        offset_of!(OxyOSEvent, scale_65536),
+        offset_of!(OxyOSEvent, rotation_256),
         offset_of!(OxyOSEvent, flag),
         offset_of!(OxyOSEvent, text),
     ];
@@ -231,6 +234,8 @@ fn the_header_matches_the_abi() {
             "scale_120",
             "detail",
             "code",
+            "scale_65536",
+            "rotation_256",
             "flag",
             "text"
         ]
@@ -1534,6 +1539,11 @@ fn the_header_matches_the_window_management_abi() {
             "OXYOS_EVENT_CLOSE_REQUESTED",
             OXYOS_EVENT_CLOSE_REQUESTED.into(),
         ),
+        ("OXYOS_EVENT_PINCH", OXYOS_EVENT_PINCH.into()),
+        ("OXYOS_PINCH_BEGIN", OXYOS_PINCH_BEGIN.into()),
+        ("OXYOS_PINCH_UPDATE", OXYOS_PINCH_UPDATE.into()),
+        ("OXYOS_PINCH_END", OXYOS_PINCH_END.into()),
+        ("OXYOS_PINCH_CANCEL", OXYOS_PINCH_CANCEL.into()),
         ("OXYOS_WINDOW_MINIMIZED", OXYOS_WINDOW_MINIMIZED.into()),
         ("OXYOS_WINDOW_FOCUSED", OXYOS_WINDOW_FOCUSED.into()),
         ("OXYOS_MANAGE_FOCUS", OXYOS_MANAGE_FOCUS.into()),
@@ -1566,6 +1576,56 @@ fn the_header_matches_the_window_management_abi() {
     assert_eq!(
         u32::from(Event::CloseRequested { surface: 1 }.opcode()),
         OXYOS_EVENT_CLOSE_REQUESTED
+    );
+    let pinch = Event::Pinch {
+        surface: 1,
+        serial: 2,
+        phase: GesturePhase::Cancel,
+        x: 0,
+        y: 0,
+        scale_65536: 0,
+        rotation_256: 0,
+    };
+    assert_eq!(u32::from(pinch.opcode()), OXYOS_EVENT_PINCH);
+    assert_eq!(GesturePhase::Begin as u32, OXYOS_PINCH_BEGIN);
+    assert_eq!(GesturePhase::Update as u32, OXYOS_PINCH_UPDATE);
+    assert_eq!(GesturePhase::End as u32, OXYOS_PINCH_END);
+    assert_eq!(GesturePhase::Cancel as u32, OXYOS_PINCH_CANCEL);
+}
+
+#[test]
+fn a_pinch_converts_field_by_field() {
+    let event = convert(&Event::Pinch {
+        surface: 3,
+        serial: 9,
+        phase: GesturePhase::Update,
+        x: 2560,
+        y: -512,
+        scale_65536: 98304,
+        rotation_256: -2560,
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            event.kind,
+            event.surface,
+            event.serial,
+            event.x,
+            event.y,
+            event.detail,
+            event.scale_65536,
+            event.rotation_256
+        ),
+        (
+            OXYOS_EVENT_PINCH,
+            3,
+            9,
+            2560,
+            -512,
+            OXYOS_PINCH_UPDATE,
+            98304,
+            -2560
+        )
     );
 }
 
@@ -1715,6 +1775,8 @@ fn the_header_matches_the_gestures_abi() {
             "OXYOS_GESTURE_HAS_POINTER_INSIDE",
             OXYOS_GESTURE_HAS_POINTER_INSIDE,
         ),
+        ("OXYOS_GESTURE_HAS_SCALE", OXYOS_GESTURE_HAS_SCALE),
+        ("OXYOS_GESTURE_HAS_ROTATION", OXYOS_GESTURE_HAS_ROTATION),
     ] {
         assert_eq!(define(name), i64::from(value), "{name}");
     }
@@ -1773,7 +1835,14 @@ fn the_header_matches_the_gestures_abi() {
             "translation_y",
             "velocity_x",
             "velocity_y",
-            "duration"
+            "duration",
+            "scale",
+            "focal_x",
+            "focal_y",
+            "rotation",
+            "anchor_x",
+            "anchor_y",
+            "rate"
         ]
     );
     let rust = [
@@ -1796,6 +1865,13 @@ fn the_header_matches_the_gestures_abi() {
         offset_of!(OxyOSGestureOutput, velocity_x),
         offset_of!(OxyOSGestureOutput, velocity_y),
         offset_of!(OxyOSGestureOutput, duration),
+        offset_of!(OxyOSGestureOutput, scale),
+        offset_of!(OxyOSGestureOutput, focal_x),
+        offset_of!(OxyOSGestureOutput, focal_y),
+        offset_of!(OxyOSGestureOutput, rotation),
+        offset_of!(OxyOSGestureOutput, anchor_x),
+        offset_of!(OxyOSGestureOutput, anchor_y),
+        offset_of!(OxyOSGestureOutput, rate),
     ];
     assert_eq!(
         c_offsets(&output),
@@ -1861,12 +1937,12 @@ fn a_tap_is_recognized_through_the_c_abi() {
             0
         );
         assert_eq!(refused, [0, 1, 0]);
-        let pinch = "PinchGestureHandler";
+        let hover = "HoverGestureHandler";
         assert_eq!(
             oxyos_gestures_create(
                 gestures,
-                pinch.as_ptr().cast(),
-                pinch.len(),
+                hover.as_ptr().cast(),
+                hover.len(),
                 8,
                 config.as_ptr(),
                 0,

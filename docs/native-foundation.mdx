@@ -43,7 +43,7 @@ Expected result:
 | `crates/oxyos-net` | HTTP for applications, the engine behind React Native's networking in the Bloom host: each request on a thread of its own, redirects followed with a cookie jar per hop, lost connections tried again, answers queued for the caller's thread |
 | `crates/oxyos-gpu` | Frame composition: the CPU reference (`compose_cpu`), which `oxyos-offscreen` composes with, and the same composition on a Vulkan device (`VulkanCompositor`, a compute shader), which must match it byte for byte ([ADR 0004](./adr/0004-gpu-composition)) |
 | `crates/oxyos-kms` | DRM/KMS output: a card's outputs, modes and plane format/modifier pairs (no DRM master needed), DMA-BUF import as framebuffers, and a `Display` that modesets atomically and page-flips with the kernel's flip timestamps ([ADR 0004](./adr/0004-gpu-composition)) |
-| `crates/oxyos-input` | Device input: the seat's devices through libinput (udev, seat0) as pointer motion, buttons, scroll in logical pixels and keys, and the keymap through xkbcommon, which turns keys into the text the compositor sends applications. Dead keys and compose sequences compose with the locale's compose table. It also finds the keys that type a character on a layout, a dead key and its vowel included |
+| `crates/oxyos-input` | Device input: the seat's devices through libinput (udev, seat0) as pointer motion, buttons, scroll in logical pixels, touchpad pinches (the fingers' spread and turn, which the compositor sends the surface under the pointer as a Pinch event) and keys, and the keymap through xkbcommon, which turns keys into the text the compositor sends applications. Dead keys and compose sequences compose with the locale's compose table. It also finds the keys that type a character on a layout, a dead key and its vowel included |
 | `crates/oxyos-vt` | The terminal the display is on, taken as a display server takes it: graphics mode; with device input, the console's keyboard off; and switches by request (`VT_PROCESS`), so the compositor lets go of DRM master and the devices when the kernel switches away and takes them back on return. It refuses a terminal another session has (a login prompt), and dropping it gives everything back |
 | `crates/oxyos-seat` | The compositor's seat through systemd-logind ([ADR 0006](./adr/0006-seat)): control of the caller's session, its DRM card and input devices from `TakeDevice`, logind's pauses and resumes as events, and terminal switches with `SwitchTo` |
 | `tools/oxyos-kms-probe` | Reads what each card offers, as JSON; read-only, it leaves a running session alone |
@@ -175,6 +175,7 @@ Input semantics:
 | Event | 40 | WindowClosed | 5 |
 | Event | 41 | Workspaces | 9 |
 | Event | 42 | CloseRequested | 5 |
+| Event | 43 | Pinch | 30 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 

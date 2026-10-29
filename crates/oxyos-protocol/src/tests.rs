@@ -242,6 +242,15 @@ fn events() -> Vec<Event> {
             x: 0,
             y: 0,
         },
+        Event::Pinch {
+            surface: 1,
+            serial: 7,
+            phase: GesturePhase::Update,
+            x: -3,
+            y: 4,
+            scale_65536: 98304,
+            rotation_256: -2560,
+        },
         Event::Feedback {
             surface: 1,
             sequence: 1,
