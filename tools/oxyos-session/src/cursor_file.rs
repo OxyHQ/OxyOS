@@ -1,11 +1,15 @@
 //! Windows cursor files (`.cur`), for the pointer's image: ICO's directory of images, each with its
 //! hotspot. The session takes the 32-bit bitmaps among them (straight alpha, rows bottom up, an
 //! AND mask after them) and turns the one chosen into the premultiplied pixels the cursor plane
-//! shows. PNG entries and bitmaps of fewer bits are passed over.
+//! shows. PNG entries and bitmaps of fewer bits are passed over. Animated cursors (`.ani`) are
+//! RIFF `ACON` files: a header (`anih`), an optional duration for each step (`rate`, in jiffies
+//! of 1/60 s) and frame for each step (`seq `), and the frames, each a cursor file (`LIST fram`
+//! of `icon` chunks).
 
 use oxyos_kms::PointerImage;
 use oxyos_protocol::PointerShape;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// A Windows cursor scheme's roles (its `Install.inf`'s `[Strings]` keys) and the shapes they are.
 const ROLES: [(&str, PointerShape); 16] = [
@@ -27,8 +31,7 @@ const ROLES: [(&str, PointerShape); 16] = [
     ("zoom-out", PointerShape::ZoomOut),
 ];
 
-/// The cursor files of a scheme's folder, by shape, as its `Install.inf` names them. Animated
-/// cursors (`.ani`) are left out: their shapes show the arrow.
+/// The cursor files of a scheme's folder, by shape, as its `Install.inf` names them.
 pub fn scheme(folder: &Path) -> Result<Vec<(PointerShape, PathBuf)>, String> {
     let inf = std::fs::read(folder.join("Install.inf"))
         .map_err(|error| format!("its Install.inf: {error}"))?;
@@ -56,7 +59,8 @@ fn scheme_files(inf: &str) -> Vec<(PointerShape, String)> {
         else {
             continue;
         };
-        if file.to_ascii_lowercase().ends_with(".cur") {
+        let lower = file.to_ascii_lowercase();
+        if lower.ends_with(".cur") || lower.ends_with(".ani") {
             files.push((shape, file.to_string()));
         }
     }
@@ -123,6 +127,88 @@ pub fn read(bytes: &[u8], size: u32, max: (u32, u32)) -> Result<PointerImage, St
         .or_else(|| entries.iter().max_by_key(|entry| entry.height))
         .ok_or("no 32-bit image in the cursor file fits the cursor plane")?;
     bitmap(&bytes[chosen.data.clone()], chosen)
+}
+
+/// A cursor's images and how long each shows, in order: one image for a cursor file, the steps
+/// of an animated cursor, each its frame read as [`read`] reads a cursor file.
+pub fn read_any(
+    bytes: &[u8],
+    size: u32,
+    max: (u32, u32),
+) -> Result<Vec<(PointerImage, Duration)>, String> {
+    if bytes.get(0..4) != Some(b"RIFF") {
+        return Ok(vec![(read(bytes, size, max)?, Duration::ZERO)]);
+    }
+    if bytes.get(8..12) != Some(b"ACON") {
+        return Err("a RIFF file that is not an animated cursor".into());
+    }
+    let mut header = None;
+    let (mut rates, mut sequence, mut frames) = (None, None, Vec::new());
+    for (id, body) in riff_chunks(bytes, 12) {
+        match &id {
+            b"anih" => header = Some(body),
+            b"rate" => rates = Some(words(body)),
+            b"seq " => sequence = Some(words(body)),
+            b"LIST" if body.get(0..4) == Some(b"fram") => {
+                for (id, frame) in riff_chunks(body, 4) {
+                    if &id == b"icon" {
+                        frames.push(frame);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let header = header.ok_or("an animated cursor without its header")?;
+    // ANIHEADER: its size, frames, steps, width, height, bits, planes, the default rate, flags.
+    let steps = u32_at(header, 8).ok_or("a truncated animated cursor header")? as usize;
+    let rate = u32_at(header, 28).ok_or("a truncated animated cursor header")?;
+    if u32_at(header, 32).is_some_and(|flags| flags & 1 == 0) {
+        return Err("an animated cursor of raw bitmaps, not cursor files".into());
+    }
+    let images = frames
+        .iter()
+        .map(|frame| read(frame, size, max))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut shown = Vec::with_capacity(steps);
+    for step in 0..steps {
+        let frame = sequence.as_ref().map_or(step, |sequence| {
+            sequence.get(step).map_or(usize::MAX, |&f| f as usize)
+        });
+        let image = images
+            .get(frame)
+            .ok_or("an animated cursor step without its frame")?;
+        let jiffies = rates
+            .as_ref()
+            .and_then(|rates| rates.get(step).copied())
+            .unwrap_or(rate);
+        shown.push((image.clone(), Duration::from_secs(u64::from(jiffies)) / 60));
+    }
+    if shown.is_empty() {
+        return Err("an animated cursor without steps".into());
+    }
+    Ok(shown)
+}
+
+/// The chunks of a RIFF body from `at`: each id and its data, padded to even lengths.
+fn riff_chunks(bytes: &[u8], mut at: usize) -> Vec<([u8; 4], &[u8])> {
+    let mut chunks = Vec::new();
+    while let (Some(id), Some(length)) = (bytes.get(at..at + 4), u32_at(bytes, at + 4)) {
+        let length = length as usize;
+        let Some(data) = bytes.get(at + 8..at + 8 + length) else {
+            break;
+        };
+        chunks.push((id.try_into().expect("four bytes"), data));
+        at += 8 + length + (length & 1);
+    }
+    chunks
+}
+
+fn words(bytes: &[u8]) -> Vec<u32> {
+    bytes
+        .chunks_exact(4)
+        .map(|word| u32::from_le_bytes(word.try_into().expect("four bytes")))
+        .collect()
 }
 
 fn bitmap(image: &[u8], entry: &Entry) -> Result<PointerImage, String> {
@@ -247,6 +333,84 @@ mod tests {
         assert!(read(&file, 3, (1, 1)).is_err());
     }
 
+    /// An animated cursor of `frames` (cursor files), its default `rate` in jiffies, and its
+    /// optional `rate` and `seq ` chunks, which also set its steps.
+    fn animated(
+        frames: &[Vec<u8>],
+        rate: u32,
+        rates: Option<&[u32]>,
+        sequence: Option<&[u32]>,
+    ) -> Vec<u8> {
+        let chunk = |id: &[u8], data: &[u8]| {
+            let mut out = id.to_vec();
+            out.extend((data.len() as u32).to_le_bytes());
+            out.extend(data);
+            if data.len() % 2 == 1 {
+                out.push(0);
+            }
+            out
+        };
+        let words = |values: &[u32]| {
+            values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>()
+        };
+        let steps = sequence.or(rates).map_or(frames.len(), <[u32]>::len) as u32;
+        let header = words(&[36, frames.len() as u32, steps, 0, 0, 0, 0, rate, 1]);
+        let mut body = b"ACON".to_vec();
+        body.extend(chunk(b"anih", &header));
+        if let Some(rates) = rates {
+            body.extend(chunk(b"rate", &words(rates)));
+        }
+        if let Some(sequence) = sequence {
+            body.extend(chunk(b"seq ", &words(sequence)));
+        }
+        let mut list = b"fram".to_vec();
+        for frame in frames {
+            list.extend(chunk(b"icon", frame));
+        }
+        body.extend(chunk(b"LIST", &list));
+        chunk(b"RIFF", &body)
+    }
+
+    #[test]
+    fn an_animated_cursor_is_its_steps_each_frame_for_its_duration() {
+        let red = cursor(&[(2, (0, 0), Some(vec![[0, 0, 255, 255]; 4]))]);
+        // An odd length, padded inside the RIFF list, as frames may be.
+        let mut blue = cursor(&[(2, (1, 1), Some(vec![[255, 0, 0, 255]; 4]))]);
+        blue.push(0);
+        let colours = |steps: &[(PointerImage, Duration)]| {
+            steps
+                .iter()
+                .map(|(image, time)| (image.pixels[0], *time))
+                .collect::<Vec<_>>()
+        };
+        let jiffies = |n: u64| Duration::from_secs(n) / 60;
+        // Each frame once, at the header's rate.
+        let file = animated(&[red.clone(), blue.clone()], 2, None, None);
+        assert_eq!(
+            colours(&read_any(&file, 2, (64, 64)).expect("read")),
+            [(0xffff_0000, jiffies(2)), (0xff00_00ff, jiffies(2))]
+        );
+        // Steps in the sequence's order, each at its own rate.
+        let file = animated(&[red.clone(), blue], 2, Some(&[6, 12, 3]), Some(&[1, 0, 1]));
+        assert_eq!(
+            colours(&read_any(&file, 2, (64, 64)).expect("read")),
+            [
+                (0xff00_00ff, jiffies(6)),
+                (0xffff_0000, jiffies(12)),
+                (0xff00_00ff, jiffies(3))
+            ]
+        );
+        // A cursor file is one step that never changes.
+        let steps = read_any(&red, 2, (64, 64)).expect("read");
+        assert_eq!(colours(&steps), [(0xffff_0000, Duration::ZERO)]);
+        // A step naming a frame the file lacks is an error, not a missing image.
+        let file = animated(&[red], 2, None, Some(&[0, 3]));
+        assert!(read_any(&file, 2, (64, 64)).is_err());
+    }
+
     #[test]
     fn a_schemes_roles_name_its_shapes_files() {
         let inf = "[Version]\r\npointer = \"Nope.cur\"\r\n[Strings]\r\nSCHEME_NAME = \"x\"\r\n\
@@ -256,6 +420,7 @@ mod tests {
             scheme_files(inf),
             [
                 (PointerShape::Arrow, "Normal.cur".to_string()),
+                (PointerShape::Wait, "Busy.ani".to_string()),
                 (PointerShape::Text, "Text.cur".to_string()),
                 (
                     PointerShape::ResizeTopRight,
