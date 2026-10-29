@@ -712,6 +712,26 @@ int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
  * told of. Writes up to `capacity` to `out`; returns how many there are. */
 size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
 
+/* Intl (crates/oxyos-intl, on ICU4X). Locales are BCP 47 tags; options are ECMA-402 options as
+ * "name=value" pairs joined by ';' (only those the application gave; booleans as true/false).
+ * Results are UTF-8 written into `out` (`capacity` bytes, NUL-terminated when it fits). Each returns
+ * the result's length in bytes (larger than `capacity`: call again with more room), or -1 with
+ * oxyos_last_error() giving a RangeError's message (an invalid tag or value, or an option OxyOS
+ * does not support yet). Parts are "type\x1Fvalue" joined by '\x1E'. */
+int64_t oxyos_intl_default_locale(char* out, size_t capacity);
+int64_t oxyos_intl_canonicalize(const char* tag, size_t length, char* out, size_t capacity);
+/* `requested`: tags joined by ','. */
+int64_t oxyos_intl_resolve(const char* requested, size_t length, char* out, size_t capacity);
+int64_t oxyos_intl_format_date(const char* locale, size_t locale_length, const char* options,
+                               size_t options_length, double epoch_ms, char* out, size_t capacity);
+/* resolvedOptions() as "name=value" pairs joined by ';'. */
+int64_t oxyos_intl_resolve_date(const char* locale, size_t locale_length, const char* options,
+                                size_t options_length, char* out, size_t capacity);
+int64_t oxyos_intl_format_number(const char* locale, size_t locale_length, const char* options,
+                                 size_t options_length, double value, char* out, size_t capacity);
+int64_t oxyos_intl_resolve_number(const char* locale, size_t locale_length, const char* options,
+                                  size_t options_length, char* out, size_t capacity);
+
 #ifdef __cplusplus
 }
 #endif

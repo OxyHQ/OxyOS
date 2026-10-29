@@ -1,7 +1,8 @@
 //! C ABI over `oxyos-client` for native runtimes written in C or C++ (the React Native host that
 //! runs Bloom), and over `oxyos-net` for their HTTP ([`net`]), `oxyos-image` for their images
-//! ([`images`]), `oxyos-vector` for their vector graphics ([`vector`]) and `oxyos-gestures` for
-//! react-native-gesture-handler's recognizers ([`gestures`]). The protocol,
+//! ([`images`]), `oxyos-vector` for their vector graphics ([`vector`]), `oxyos-gestures` for
+//! react-native-gesture-handler's recognizers ([`gestures`]) and `oxyos-intl` for their `Intl`
+//! ([`intl`]). The protocol,
 //! transport, buffer handling, network, decoding and rasterizing stay in the safe Rust crates; this layer only converts between C values and theirs. `include/oxyos_client.h`
 //! declares it.
 //!
@@ -20,6 +21,7 @@ use std::path::Path;
 
 pub mod gestures;
 pub mod images;
+pub mod intl;
 pub mod net;
 #[cfg(test)]
 mod tests;
