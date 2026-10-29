@@ -14,6 +14,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`,
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
+- field: what the focused surface told the compositor of its text field (ADR 0008), each key
+  given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
@@ -24,7 +26,8 @@ virtual devices (`--uinput`), where a keyboard types one key at a time and a whe
 notch at a time: what React and the client receive is then counted per key and per notch. A
 scenario's `layout` (an XKB layout, `us` by default) is the one those expectations are written
 for, and the devices type with it. A `commit` step is an input method's committed text, which
-no keyboard types, so it is the same on both paths.
+no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
+method's whole change (ADR 0008).
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -52,8 +55,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "drag", "key", "move_window",
-             "resize_window", "scale", "a11y_action", "expect_popup", "switch_terminal"}
+STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "transaction", "drag", "key",
+             "move_window", "resize_window", "scale", "a11y_action", "expect_popup", "switch_terminal"}
 
 
 def director_args(step):
@@ -72,6 +75,15 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
+    if kind == "transaction":
+        # An input method's change (ADR 0008): {"delete": [before, after], "commit", "preedit",
+        # "cursor": [begin, end], "segments": [[begin, end, "composing"|"converting"|"error"]]}.
+        delete = value.get("delete", [0, 0])
+        preedit = value.get("preedit", "")
+        cursor = value.get("cursor", [len(preedit.encode()), len(preedit.encode())])
+        segments = ";".join(f"{b}-{e}:{style}" for b, e, style in value.get("segments", [])) or "-"
+        return args + ["--transaction", f"{delete[0]},{delete[1]}", value.get("commit", ""), preedit,
+                       f"{cursor[0]},{cursor[1]}", segments]
     if kind in ("move-window", "resize-window"):
         return args + [f"--{kind}", ",".join(map(str, value))]
     if kind == "a11y-action":
@@ -338,6 +350,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:
             fail(f"{count} popups shown, expected {expect['popups']}")
+    if "field" in expect:
+        field, wanted = result.get("field"), expect["field"]
+        if wanted is None or field is None:
+            if field != wanted:
+                fail(f"text field {field}, expected {wanted}")
+        else:
+            differing = {k: field.get(k) for k, v in wanted.items() if field.get(k) != v}
+            if differing:
+                fail(f"text field has {differing}, expected {wanted}")
     if "pixels" in expect:
         check_pixels(name, expect, screenshot, result.get("window"), fail)
     if "latency_ms" in expect and result.get("latency_ms") is not None:

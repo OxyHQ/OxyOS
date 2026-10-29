@@ -1011,3 +1011,304 @@ fn an_image_loads_through_the_c_abi() {
                 .is_some_and(|error| error.starts_with("cannot read the image"))
     );
 }
+
+#[test]
+fn the_header_matches_the_text_input_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_TEXT_INPUT"),
+        i64::from(OXYOS_EVENT_TEXT_INPUT)
+    );
+    let done = Event::TextInputDone {
+        surface: 1,
+        serial: 0,
+        commit: 0,
+    };
+    assert_eq!(i64::from(done.opcode()), define("OXYOS_EVENT_TEXT_INPUT"));
+    // Every purpose and style, both ways; the hints as the protocol's bits.
+    let named = |prefix: &str| -> Vec<(String, i64)> {
+        HEADER
+            .lines()
+            .filter_map(|line| line.strip_prefix(&format!("#define {prefix}")))
+            .map(|rest| {
+                let (name, value) = rest.split_once(' ').unwrap();
+                (name.to_string(), value.parse().unwrap())
+            })
+            .collect()
+    };
+    let screaming = |debug: String| -> String {
+        debug
+            .chars()
+            .enumerate()
+            .flat_map(|(i, c)| {
+                [
+                    (i > 0 && c.is_ascii_uppercase()).then_some('_'),
+                    Some(c.to_ascii_uppercase()),
+                ]
+            })
+            .flatten()
+            .collect()
+    };
+    let purposes = named("OXYOS_PURPOSE_");
+    for (name, value) in &purposes {
+        let purpose = TextPurpose::from_raw(*value as u8).unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(&screaming(format!("{purpose:?}")), name);
+    }
+    assert!(TextPurpose::from_raw(purposes.len() as u8).is_none());
+    let styles = named("OXYOS_PREEDIT_");
+    for (name, value) in &styles {
+        let style = oxyos_protocol::PreeditStyle::from_raw(*value as u8)
+            .unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(&screaming(format!("{style:?}")), name);
+    }
+    for (name, bit) in [
+        ("OXYOS_HINT_NO_PREDICTION", TextHints::NO_PREDICTION),
+        ("OXYOS_HINT_NO_CAPITALIZATION", TextHints::NO_CAPITALIZATION),
+        ("OXYOS_HINT_SENSITIVE", TextHints::SENSITIVE),
+        ("OXYOS_HINT_MULTILINE", TextHints::MULTILINE),
+    ] {
+        assert_eq!(define(name), i64::from(bit), "{name}");
+    }
+
+    let field = fields("OxyOSTextField");
+    assert_eq!(
+        names(&field),
+        [
+            "purpose",
+            "hints",
+            "text",
+            "length",
+            "anchor",
+            "cursor",
+            "has_caret",
+            "caret_x",
+            "caret_y",
+            "caret_width",
+            "caret_height"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSTextField, purpose),
+        offset_of!(OxyOSTextField, hints),
+        offset_of!(OxyOSTextField, text),
+        offset_of!(OxyOSTextField, length),
+        offset_of!(OxyOSTextField, anchor),
+        offset_of!(OxyOSTextField, cursor),
+        offset_of!(OxyOSTextField, has_caret),
+        offset_of!(OxyOSTextField, caret_x),
+        offset_of!(OxyOSTextField, caret_y),
+        offset_of!(OxyOSTextField, caret_width),
+        offset_of!(OxyOSTextField, caret_height),
+    ];
+    assert_eq!(
+        c_offsets(&field),
+        (rust.to_vec(), size_of::<OxyOSTextField>())
+    );
+
+    let segment = fields("OxyOSPreeditSegment");
+    assert_eq!(names(&segment), ["begin", "end", "style"]);
+    let rust = [
+        offset_of!(OxyOSPreeditSegment, begin),
+        offset_of!(OxyOSPreeditSegment, end),
+        offset_of!(OxyOSPreeditSegment, style),
+    ];
+    assert_eq!(
+        c_offsets(&segment),
+        (rust.to_vec(), size_of::<OxyOSPreeditSegment>())
+    );
+
+    let transaction = fields("OxyOSTextTransaction");
+    assert_eq!(
+        names(&transaction),
+        [
+            "surface",
+            "delete_before",
+            "delete_after",
+            "cursor_begin",
+            "cursor_end",
+            "commit_serial",
+            "serial",
+            "commit",
+            "commit_length",
+            "preedit",
+            "preedit_length",
+            "segments",
+            "segment_count"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSTextTransaction, surface),
+        offset_of!(OxyOSTextTransaction, delete_before),
+        offset_of!(OxyOSTextTransaction, delete_after),
+        offset_of!(OxyOSTextTransaction, cursor_begin),
+        offset_of!(OxyOSTextTransaction, cursor_end),
+        offset_of!(OxyOSTextTransaction, commit_serial),
+        offset_of!(OxyOSTextTransaction, serial),
+        offset_of!(OxyOSTextTransaction, commit),
+        offset_of!(OxyOSTextTransaction, commit_length),
+        offset_of!(OxyOSTextTransaction, preedit),
+        offset_of!(OxyOSTextTransaction, preedit_length),
+        offset_of!(OxyOSTextTransaction, segments),
+        offset_of!(OxyOSTextTransaction, segment_count),
+    ];
+    assert_eq!(
+        c_offsets(&transaction),
+        (rust.to_vec(), size_of::<OxyOSTextTransaction>())
+    );
+}
+
+#[test]
+fn text_input_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-text-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::TextInputCommit { .. });
+            requests.push(request);
+            if done {
+                break;
+            }
+        }
+        let chunk = |text| TextChunk::new(text).unwrap();
+        for event in [
+            Event::TextInputDelete {
+                surface: 1,
+                before: 1,
+                after: 0,
+            },
+            Event::TextInputCommitText {
+                surface: 1,
+                text: chunk("日本"),
+            },
+            Event::TextInputPreeditText {
+                surface: 1,
+                text: chunk("ご"),
+            },
+            Event::TextInputPreeditCursor {
+                surface: 1,
+                begin: 3,
+                end: 3,
+            },
+            Event::TextInputPreeditSegment {
+                surface: 1,
+                begin: 0,
+                end: 3,
+                style: oxyos_protocol::PreeditStyle::Composing,
+            },
+            Event::TextInputDone {
+                surface: 1,
+                serial: 40,
+                commit: 1,
+            },
+            Event::Focus {
+                surface: 1,
+                focused: false,
+            },
+        ] {
+            server.send_event(&event, None).unwrap();
+        }
+        requests
+    });
+
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let text = "nate@";
+    let field = OxyOSTextField {
+        purpose: TextPurpose::Email as u8,
+        hints: TextHints::NO_CAPITALIZATION,
+        text: text.as_ptr().cast(),
+        length: text.len(),
+        anchor: 5,
+        cursor: 5,
+        has_caret: 1,
+        caret_x: 40,
+        caret_y: 8,
+        caret_width: 2,
+        caret_height: 18,
+    };
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the field
+    // and its text outlive the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // A selection inside a character, or an unknown purpose, is refused before sending.
+        let inside = OxyOSTextField {
+            text: "ñ".as_ptr().cast(),
+            length: 2,
+            anchor: 1,
+            cursor: 1,
+            ..field
+        };
+        assert_eq!(oxyos_client_text_input(client, 1, &inside, 0), -1);
+        let unknown = OxyOSTextField {
+            purpose: 200,
+            ..field
+        };
+        assert_eq!(oxyos_client_text_input(client, 1, &unknown, 0), -1);
+        assert_eq!(oxyos_client_text_input(client, 1, &field, 0), 1);
+        let mut event = OxyOSEvent::default();
+        let mut transaction: OxyOSTextTransaction = std::mem::zeroed();
+        let mut next = || loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        // The parts are not events of their own: the first is the completed transaction.
+        let done = next();
+        assert_eq!(
+            (done.kind, done.surface, done.serial, done.detail),
+            (OXYOS_EVENT_TEXT_INPUT, 1, 40, 1)
+        );
+        assert_eq!(oxyos_client_text_transaction(client, &mut transaction), 1);
+        assert_eq!(
+            (
+                transaction.delete_before,
+                transaction.delete_after,
+                seen(transaction.commit, transaction.commit_length),
+                seen(transaction.preedit, transaction.preedit_length),
+                (transaction.cursor_begin, transaction.cursor_end),
+                transaction.commit_serial,
+            ),
+            (1, 0, "日本".to_string(), "ご".to_string(), (3, 3), 1)
+        );
+        let segments = std::slice::from_raw_parts(transaction.segments, transaction.segment_count);
+        assert_eq!(
+            segments,
+            [OxyOSPreeditSegment {
+                begin: 0,
+                end: 3,
+                style: oxyos_protocol::PreeditStyle::Composing as u8,
+            }]
+        );
+        // The next event drops it.
+        assert_eq!(next().kind, OXYOS_EVENT_FOCUS);
+        assert_eq!(oxyos_client_text_transaction(client, &mut transaction), 0);
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests.first(),
+            Some(&Request::TextInputEnable { surface: 1 })
+        );
+        assert!(requests.contains(&Request::TextInputPurpose {
+            surface: 1,
+            purpose: TextPurpose::Email,
+            hints: TextHints::new(TextHints::NO_CAPITALIZATION).unwrap(),
+        }));
+        assert!(requests.contains(&Request::TextInputCaret {
+            surface: 1,
+            rect: Rect::new(40, 8, 2, 18),
+        }));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

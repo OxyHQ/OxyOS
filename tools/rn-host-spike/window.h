@@ -76,6 +76,13 @@ class Window {
   // Each turn: finishes pastes whose content arrived. True if any did.
   bool deliverPastes() { return clipboard_.deliver(); }
 
+  // Text input (ADR 0008): tells the compositor about the field focused in `surface`, or that
+  // none is (`field` null); only what changed is sent. Returns the commit serial transactions
+  // made for this state carry. Throws on failure.
+  uint32_t textInput(uint32_t surface, const OxyOSTextField* field, bool newField);
+  // Inside `dispatch`'s callback, for a TEXT_INPUT event: the transaction it completed.
+  bool transaction(OxyOSTextTransaction& out) { return oxyos_client_text_transaction(client_, &out) == 1; }
+
  private:
   OxyOSClient* client_ = nullptr;
   Clipboard clipboard_;

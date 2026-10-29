@@ -420,6 +420,23 @@ void drawTextInput(const ShadowView& view, float x, float y, float w, float h, C
       painter.fill(left + rect.origin.x, boxTop + rect.origin.y + rect.size.height - 1, rect.size.width, 1,
                    BorderRadii{}, ink, inside);
     }
+    // The segment being converted: a heavier underline on a tint of the text's colour, drawn
+    // over the text as Android's composing background is under it; an error, underlined in red.
+    for (const auto& segment : edit->segments) {
+      if (segment.style == OXYOS_PREEDIT_COMPOSING) continue;
+      bool converting = segment.style == OXYOS_PREEDIT_CONVERTING;
+      Rgba line = converting ? ink : Rgba{0.86f, 0.15f, 0.15f, opacity};
+      Rgba tint{ink.r, ink.g, ink.b, ink.a * 0.15f};
+      for (const auto& rect : geometry->span(segment.start, segment.end)) {
+        if (converting) {
+          painter.fill(left + rect.origin.x, boxTop + rect.origin.y, rect.size.width, rect.size.height, BorderRadii{},
+                       tint, inside);
+        }
+        float thickness = converting ? 2 : 1;
+        painter.fill(left + rect.origin.x, boxTop + rect.origin.y + rect.size.height - thickness, rect.size.width,
+                     thickness, BorderRadii{}, line, inside);
+      }
+    }
   }
   if (edit->selectionStart == edit->selectionEnd) {
     auto caret = geometry->caret(edit->selectionEnd);

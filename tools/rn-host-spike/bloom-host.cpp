@@ -481,6 +481,11 @@ int main(int argc, char** argv) {
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
     oxyos::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
+    // The focused input as the compositor was last told (ADR 0008), its caret, and each surface's
+    // commit serial: a transaction made for an older one is for text the field no longer has.
+    std::optional<oxyos::TextEditing::Field> toldField;
+    std::optional<facebook::react::Rect> toldCaret;
+    std::map<uint32_t, uint32_t> toldSerials;
     std::vector<std::string> shownTexts;  // the texts of the window's latest frame
     // The window's frame as last drawn: the next one draws only what changed (damage.h).
     oxyos::Canvas windowCanvas;
@@ -529,13 +534,28 @@ int main(int argc, char** argv) {
                 popups.changed();
               }
               if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
+              if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
+                OxyOSTextTransaction change{};
+                if (window->transaction(change)) {
+                  auto& r = oxyos::Report::get();
+                  if (r.enabled()) {
+                    r.input("text_input", event.surface,
+                            folly::dynamic::object("commit", editing.logged({change.commit, change.commit_length}))(
+                                "preedit", editing.logged({change.preedit, change.preedit_length}))(
+                                "delete", folly::dynamic::array(change.delete_before, change.delete_after)));
+                  }
+                  auto told = toldSerials.find(change.surface);
+                  editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
+                }
+              }
               pointer.handle(event);
               editing.handle(event);
             })) {
           break;
         }
         // Focus, caret and selection moves draw even when the tree did not change.
-        if (editing.edit() != drawn) {
+        bool edited = editing.edit() != drawn;
+        if (edited) {
           drawn = editing.edit();
           dirty = true;
           popups.changed();
@@ -565,6 +585,37 @@ int main(int argc, char** argv) {
         // A paste's text arriving is an edit of the focused input.
         if (window->deliverPastes()) busy = true;
         popups.sync(lastPress);
+        // The compositor is told about the focused input before the frame showing it, so its
+        // state is in place when that frame is; the caret is only measured again when something
+        // that moves it changed.
+        if (auto field = editing.field(); field != toldField || (field && (edited || resized || mounted))) {
+          auto caret = field ? editing.caretRect() : std::nullopt;
+          if (field != toldField || caret != toldCaret) {
+            if (toldField && (!field || field->surface != toldField->surface)) {
+              window->textInput(toldField->surface, nullptr, false);
+              toldSerials.erase(toldField->surface);
+            }
+            if (field) {
+              OxyOSTextField told{.purpose = field->purpose,
+                                  .hints = field->hints,
+                                  .text = field->text.data(),
+                                  .length = field->text.size(),
+                                  .anchor = static_cast<uint32_t>(field->anchor),
+                                  .cursor = static_cast<uint32_t>(field->cursor),
+                                  .has_caret = caret.has_value()};
+              if (caret) {
+                told.caret_x = static_cast<int32_t>(std::floor(caret->origin.x));
+                told.caret_y = static_cast<int32_t>(std::floor(caret->origin.y));
+                told.caret_width = static_cast<uint32_t>(std::ceil(caret->size.width));
+                told.caret_height = static_cast<uint32_t>(std::ceil(caret->size.height));
+              }
+              bool newField = !toldField || toldField->tag != field->tag || toldField->surface != field->surface;
+              toldSerials[field->surface] = window->textInput(field->surface, &told, newField);
+            }
+            toldField = std::move(field);
+            toldCaret = caret;
+          }
+        }
         if (dirty && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);

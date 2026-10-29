@@ -16,6 +16,8 @@ use std::path::Path;
 
 #[cfg(test)]
 mod tests;
+mod text_input;
+pub use text_input::{Field, Transaction};
 
 /// The compositor closed the connection. A socket closed while requests were still unread
 /// reports a reset instead of end-of-file; both mean the same to the client.
@@ -63,6 +65,7 @@ pub struct Client {
     /// latest offers are kept; the clipboard holds at most one of them.
     offers: std::collections::VecDeque<(u32, Offer)>,
     next_offer: u32,
+    text_inputs: text_input::TextInputs,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -93,6 +96,7 @@ impl Client {
             descriptor: None,
             offers: std::collections::VecDeque::new(),
             next_offer: 0,
+            text_inputs: text_input::TextInputs::default(),
         })
     }
 
@@ -277,6 +281,7 @@ impl Client {
     /// Destroys a surface and the buffers it drew with.
     pub fn destroy_surface(&mut self, surface: u32) -> io::Result<()> {
         self.send(&Request::Destroy { surface })?;
+        self.forget_text_input(surface);
         let owned: Vec<u64> = self
             .buffers
             .iter()
@@ -419,6 +424,7 @@ impl Client {
 
     /// Frees released buffers for reuse; a protocol error ends the connection.
     fn observe(&mut self, event: Event) -> io::Result<Event> {
+        self.observe_text_input(&event);
         match event {
             // A paste of what this client copied: written into its pipe from a thread, so a
             // slow reader stalls neither the client nor the compositor.

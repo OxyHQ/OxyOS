@@ -72,6 +72,28 @@ class TextEditing {
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
   void handle(const OxyOSEvent& event);
+  // A change from the compositor's text input for the focused input (ADR 0008), applied as one
+  // edit, as Android's input connection applies a batch of deleteSurroundingText, commitText and
+  // setComposingText. `current`: made for the state last told; if not, its deletion is dropped,
+  // since it could remove text the user did not see.
+  void transaction(const OxyOSTextTransaction& change, bool current);
+
+  // What the compositor is told about the focused input (ADR 0008): the surface it is drawn on,
+  // what it is for (OXYOS_PURPOSE_*, OXYOS_HINT_*), its text without the composition, the
+  // selection within that, and the caret's rectangle in the surface's logical coordinates. A
+  // password's text and selection are never told.
+  struct Field {
+    facebook::react::Tag tag = -1;
+    uint32_t surface = 0;
+    uint8_t purpose = OXYOS_PURPOSE_NORMAL;
+    uint32_t hints = 0;
+    std::string text;
+    size_t anchor = 0, cursor = 0;
+    bool operator==(const Field&) const = default;
+  };
+  std::optional<Field> field() const;
+  // Where the focused input's caret is drawn, in its surface's logical coordinates.
+  std::optional<facebook::react::Rect> caretRect() const;
   // The wheel over an input, focused or not: scrolls its text by (dx, dy) as far as it can go.
   // True if it moved.
   bool scrollText(facebook::react::Tag tag, float dx, float dy);
@@ -148,6 +170,9 @@ class TextEditing {
   std::string text_;
   size_t anchor_ = 0, caret_ = 0;  // byte offsets; the selection lies between them
   size_t composeStart_ = 0, composeEnd_ = 0;  // the composition, none if equal
+  // Its styled segments (OXYOS_PREEDIT_*), as offsets into the text, from the transaction that
+  // made it; none for a composition from Preedit.
+  std::vector<TextInputEdit::Segment> segments_;
   bool shift_ = false, ctrl_ = false;
   bool dragging_ = false;
   // The x that consecutive Up and Down moves keep, from where they began.
