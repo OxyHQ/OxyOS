@@ -4832,3 +4832,64 @@ fn a_lock_surface_that_goes_takes_its_password_with_it() {
     assert!(h.scene.take_authentication().is_some());
     assert!(h.results(LOCKER).is_empty());
 }
+
+#[test]
+fn caps_lock_is_told_to_the_focused_surface_and_to_each_that_gains_focus() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    h.clear_log();
+    h.scene.set_caps_lock(true);
+    h.pump();
+    assert_eq!(
+        h.events_for(APP),
+        vec![Event::CapsLock {
+            surface: 1,
+            on: true
+        }]
+    );
+    assert!(h.events_for(OTHER).is_empty());
+    // Telling again what is so tells nothing.
+    h.clear_log();
+    h.scene.set_caps_lock(true);
+    h.pump();
+    assert!(h.events_for(APP).is_empty());
+    // A surface gaining focus while it is on is told after its focus.
+    let second = h.toplevel(OTHER, 1, 400, 300);
+    assert_eq!(h.scene.focus(), Some(second));
+    let told: Vec<Event> = h
+        .events_for(OTHER)
+        .into_iter()
+        .filter(|event| matches!(event, Event::Focus { .. } | Event::CapsLock { .. }))
+        .collect();
+    assert_eq!(
+        told,
+        vec![
+            Event::Focus {
+                surface: 1,
+                focused: true
+            },
+            Event::CapsLock {
+                surface: 1,
+                on: true
+            }
+        ]
+    );
+    // Off: only the focused surface is told; the other learns it as it gains focus (nothing).
+    h.clear_log();
+    h.scene.set_caps_lock(false);
+    h.pump();
+    assert_eq!(
+        h.events_for(OTHER),
+        vec![Event::CapsLock {
+            surface: 1,
+            on: false
+        }]
+    );
+    assert!(h.events_for(APP).is_empty());
+    h.scene.activate(first);
+    h.pump();
+    assert!(!h
+        .events_for(APP)
+        .iter()
+        .any(|event| matches!(event, Event::CapsLock { .. })));
+}

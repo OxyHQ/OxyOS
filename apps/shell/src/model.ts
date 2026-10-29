@@ -54,6 +54,8 @@ export type ShellActions = {
 export type ShellLock = {
   locked: boolean;
   user: { name: string; fullName?: string };
+  /** Whether Caps Lock is on: the password field says so. */
+  capsLock?: boolean;
   lockSession: () => void;
   /** Sends the password for the session to check; false if it could not be sent. */
   authenticate: (password: string) => boolean;

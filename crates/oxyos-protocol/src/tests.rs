@@ -258,6 +258,10 @@ fn events() -> Vec<Event> {
             rotation_256: -2560,
         },
         Event::LockState { locked: true },
+        Event::CapsLock {
+            surface: 5,
+            on: true,
+        },
         Event::AuthenticationResult {
             surface: 5,
             outcome: AuthOutcome::Throttled,

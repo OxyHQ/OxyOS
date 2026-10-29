@@ -91,10 +91,12 @@ export function LockScreen({
     hour: "2-digit",
     minute: "2-digit",
   });
+  // What the last attempt said comes first; Caps Lock on is said while nothing else is.
   const hint =
     wait > 0
       ? `Vuelve a intentarlo en ${wait} s`
-      : (message ?? (checking ? "Comprobando…" : ""));
+      : (message ??
+        (checking ? "Comprobando…" : lock.capsLock ? "Bloq Mayús activado" : ""));
   return (
     <Box testID="shell-lock" className="flex-1 overflow-hidden bg-black">
       <Box className="absolute inset-0">

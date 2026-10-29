@@ -24,6 +24,8 @@ const CLIENT: ClientId = 1;
 /// `accessibility`, reading what the compositor holds and sending actions (ADR 0003).
 const READER: ClientId = ClientId::MAX;
 const WINDOW: u32 = 1;
+/// Caps Lock's Linux input code.
+const CAPS_LOCK: u32 = 58;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Step {
@@ -80,6 +82,10 @@ pub enum Step {
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
+    /// A press and release of Caps Lock: on the scene, the key as any other and the compositor's
+    /// keymap's change of Caps Lock between them, as `oxyos-input` reports it; through the
+    /// devices, the key itself.
+    CapsLock,
     /// The shell moves the window by (dx, dy), as a keyboard move or tiling does.
     MoveWindow { dx: i32, dy: i32 },
     /// The shell resizes the window, as maximizing or tiling does.
@@ -158,6 +164,7 @@ impl Step {
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
             Step::MinimizeWindow => "window minimized".to_string(),
+            Step::CapsLock => "Caps Lock".to_string(),
             Step::Accessibility { action, name } => format!("assistive {action:?} on {name:?}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
@@ -233,6 +240,7 @@ impl Step {
                 format!("\"resize_window\":[{width},{height}]")
             }
             Step::MinimizeWindow => "\"minimize_window\":true".to_string(),
+            Step::CapsLock => "\"caps_lock\":true".to_string(),
             Step::Accessibility { action, name } => {
                 format!("\"a11y_action\":[\"{action:?}\",{}]", json_string(name))
             }
@@ -319,7 +327,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -480,6 +488,7 @@ impl Launch {
                     }
                 }
                 Some("--minimize-window") => Step::MinimizeWindow,
+                Some("--caps-lock") => Step::CapsLock,
                 Some("--a11y-action") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     let (action, name) = value.split_once(',').ok_or(USAGE)?;
@@ -1034,6 +1043,12 @@ fn inject_through(
             }
             devices.button(false)?;
         }
+        Step::CapsLock => {
+            devices.key(CAPS_LOCK as u16, true)?;
+            compositor.read_input();
+            devices.key(CAPS_LOCK as u16, false)?;
+            compositor.read_input();
+        }
         Step::Key(codes) => {
             for code in codes {
                 devices.key(*code as u16, true)?;
@@ -1295,6 +1310,12 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 scene.pointer_motion(x, y);
             }
             scene.pointer_button(BUTTON, false);
+        }
+        Step::CapsLock => {
+            let on = !compositor.scene.caps_lock();
+            compositor.scene.key(CAPS_LOCK, true);
+            compositor.scene.set_caps_lock(on);
+            compositor.scene.key(CAPS_LOCK, false);
         }
         Step::Key(codes) => {
             for code in codes {

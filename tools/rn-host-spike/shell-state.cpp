@@ -47,6 +47,15 @@ bool ShellState::observe(const OxyOSEvent& event) {
       title_.erase(event.code);
       appId_.erase(event.code);
       return windows_.erase(event.code) > 0;
+    case OXYOS_EVENT_FOCUS:
+      // A surface gains focus with Caps Lock off unless told: CAPS_LOCK follows when it is on.
+      if (!event.flag || !capsLock_) return false;
+      capsLock_ = false;
+      return true;
+    case OXYOS_EVENT_CAPS_LOCK:
+      if (capsLock_ == (event.flag != 0)) return false;
+      capsLock_ = event.flag != 0;
+      return true;
     case OXYOS_EVENT_LOCK_STATE:
       if (locked_ == (event.flag != 0)) return false;
       locked_ = event.flag != 0;
@@ -67,7 +76,7 @@ folly::dynamic ShellState::state() const {
         "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused));
   }
   return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
-      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_));
+      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_);
 }
 
 }  // namespace oxyos

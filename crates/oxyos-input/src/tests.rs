@@ -252,3 +252,18 @@ fn ctrl_super_q_locks_and_is_no_applications_key() {
     assert_eq!(fr.key(Q, false), Typed::Key(None));
     assert_eq!(fr.key(A, true), Typed::Lock);
 }
+
+#[test]
+fn caps_lock_locks_on_its_press_and_unlocks_on_the_next() {
+    const CAPS_LOCK: u32 = 58;
+    let mut us = composing("us");
+    assert!(!us.caps_locked());
+    assert_eq!(us.key(CAPS_LOCK, true), Typed::Key(None));
+    assert_eq!(us.key(CAPS_LOCK, false), Typed::Key(None));
+    assert!(us.caps_locked());
+    assert_eq!(tap(&mut us, A), Some("A".into()));
+    us.key(CAPS_LOCK, true);
+    us.key(CAPS_LOCK, false);
+    assert!(!us.caps_locked());
+    assert_eq!(tap(&mut us, A), Some("a".into()));
+}

@@ -43,6 +43,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_PINCH 43
 #define OXYOS_EVENT_LOCK_STATE 44
 #define OXYOS_EVENT_AUTHENTICATION_RESULT 45
+#define OXYOS_EVENT_CAPS_LOCK 46
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -119,6 +120,8 @@ typedef struct OxyOSClient OxyOSClient;
  *               pinch began (65536 = as they started); rotation_256: how far they have turned
  *               since, in 1/256 degrees, clockwise. A pinch stays with the surface under the
  *               pointer when it began until it ends or is cancelled.
+ *   CAPS_LOCK   flag: whether Caps Lock is on; to the surface with keyboard focus when it changes,
+ *               and after its FOCUS when it is on (a surface gains focus with it off unless told).
  *   To a client with the `lock` grant (ADR 0010):
  *   LOCK_STATE  flag: whether the session is locked. Locked, the client makes a lock surface per
  *               output; unlocked, it destroys them.
