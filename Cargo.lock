@@ -1546,6 +1546,7 @@ dependencies = [
  "oxyos-kms",
  "oxyos-protocol",
  "oxyos-seat",
+ "oxyos-vector",
  "oxyos-vt",
  "rustix",
 ]
