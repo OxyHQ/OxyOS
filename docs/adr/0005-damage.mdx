@@ -115,7 +115,7 @@ The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends
 
 The renderer draws only that (`drawDamaged`). Each region is reset to the window's white and drawn again as a whole frame draws it: the painter chooses which pixels to paint, never the geometry, and text outside the damage is not laid out. The frame goes out with `oxyos_client_present_damaged`.
 
-The session's shell's regions (its panels and overlays, each a surface of its own) are tracked the same way, each by itself: a region whose views drew nothing new is neither drawn nor presented when another changed, and one that changed draws only that, reset to transparent rather than white (`drawRegionDamaged`). In `shell-overview.json` the shell's surfaces present 20 frames instead of 41, drawing 2% of the surface (median) and 58 ms in all instead of 97.
+The session's shell's regions (its panels and overlays, each a surface of its own) are tracked the same way, each by itself: a region whose views drew nothing new is neither drawn nor presented when another changed, and one that changed draws only that, reset to transparent rather than white (`drawRegionDamaged`). In `shell-overview.json` the shell's surfaces present 20 frames instead of 41, drawing 2% of the surface (median) and 58 ms in all instead of 97. With `OXYOS_HOST_DAMAGE_CHECK`, a region left undrawn is drawn whole as well and compared with what it shows: a change its damage missed fails the run.
 
 `OXYOS_HOST_DAMAGE_CHECK` (`regress.py --check-damage`) draws every frame whole too and fails the run on any difference. A control that shrinks every damaged rectangle by 2 pixels makes it fail, on 49 frames of the regression. `OXYOS_DAMAGE_TRACE` prints what drew a subtree again.
 
@@ -186,6 +186,18 @@ The values gather a refresh apart (about 20 and 36 ms at 60 Hz): an answer that 
 | Window minimized by the compositor | 3 | 20.0 | 20.3 |
 
 Answers drawn only in the shell's own surfaces have no flip time yet: the director times flips for the application's window. Input to the first answering frame, composed, for those: presses opening and closing the launcher and the top bar's menu, 44.9 / 56.3 ms (12); the dock's overview button and Nuevo escritorio, 54.1 / 59.6 ms (6). The host draws a frame in 1.2 to 3.4 ms (medians). Its slowest are the shell's first full frames at the panel's size, about 52 ms. The composition takes 9.1 ms (median of the runs' medians).
+
+**The shell's regions drawn from their damage, and transforms drawn (`feat/shell-damage-transforms`), on the same ThinkPad and setup**, three runs each, without `--check-damage` (with it, the host draws every region twice) and against the host before them. The shell presents 36 frames in `shell-overview.json` instead of 93; no region left undrawn differed from the region drawn whole, with the check. Input to flip, median / max (ms):
+
+| Step | Before | Now |
+| --- | --- | --- |
+| Overview card dragged to another desktop | 86.9 / 89.8 | 88.9 / 89.5 |
+| Sheet dragged down to close | 36.1 / 38.4 | 37.3 / 38.3 |
+| Press in the sheet's application | 30.7 / 37.1 | 21.1 / 32.8 |
+
+The drag did not get faster. Its card now moves under the pointer, drawn where its transform puts it, and each frame of the drag damages most of the overview: the card where it was and is, and the desktop it is over. The overview's frame still takes about 11 ms to draw on the CPU. Three frames missed their display deadline over the six runs, against none before.
+
+The earlier figures for presses on the shell's own surfaces (44.9 and 54.1 ms, above) were not answers. The director takes a shell surface's first new frame as the answer, and the dock and the top bar were drawn again, unchanged, about 30 ms after any press. Drawn from their damage, they no longer are: the answer is the first frame that shows something. Opening the launcher takes about 230 ms, the overview about 90 ms; that is what to make faster next.
 
 ## Consequences
 
