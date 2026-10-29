@@ -52,8 +52,9 @@ class AccessibilityBridge {
   // Moves accessibility focus (AccessibilityInfo.sendAccessibilityEvent(view, 'focus')).
   void focus(facebook::react::Tag tag) { focus_ = tag; }
 
-  // Publishes `surface`'s snapshot (its content under `root`) if it changed, and reports it.
-  void publish(uint32_t surface, facebook::react::Tag root);
+  // Publishes `surface`'s snapshot (its content under `root`, the root at `at` in the surface) if
+  // it changed, and reports it.
+  void publish(uint32_t surface, facebook::react::Tag root, facebook::react::Point at = {});
   // An assistive technology's action (OXYOS_EVENT_ACCESSIBILITY_ACTION): activate is what
   // TalkBack's activation does, React Native's accessibility click (Pressability's onPress);
   // focus moves accessibility focus. Returns whether the focus changed (a new snapshot is due).

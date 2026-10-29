@@ -35,8 +35,8 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;
   if (mode == PointerEventsMode::None) return -1;
   std::string name = view.componentName ? view.componentName : "";
-  // A popup's subtree is in its own surface, not under the window's pointer.
-  if (name == kPopupComponent) return -1;
+  // A popup's or a shell region's subtree is in its own surface, not under the window's pointer.
+  if (ownSurface(name)) return -1;
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {
@@ -60,12 +60,15 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y) {
 
 Tag hitTest(const ViewTree& tree, const SurfaceContent& content, float x, float y) {
   if (!content.popup) return content.view < 0 ? -1 : hit(tree, content.view, x, y);
-  // A popup's children are laid out relative to the popup, which is its surface's origin.
+  // The view's children are laid out relative to it: a popup's is its surface's origin, a shell
+  // region is where it is in its surface (the surface's origin is `content.origin`).
   auto it = tree.views().find(content.view);
   if (it == tree.views().end()) return -1;
+  auto frame = windowFrame(tree, content.view).value_or(Rect{content.origin, {}});
+  float lx = x + content.origin.x - frame.origin.x, ly = y + content.origin.y - frame.origin.y;
   const auto& children = it->second.children;
   for (auto child = children.rbegin(); child != children.rend(); ++child) {
-    Tag found = hit(tree, *child, x, y);
+    Tag found = hit(tree, *child, lx, ly);
     if (found >= 0) return found;
   }
   return -1;

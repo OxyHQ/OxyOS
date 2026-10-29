@@ -10,6 +10,7 @@
 #include "network.h"
 #include "popup.h"
 #include "safe-area.h"
+#include "shell-surface.h"
 #include "svg.h"
 #include "report.h"
 #include "renderer.h"
@@ -262,22 +263,27 @@ int main(int argc, char** argv) {
   // write, never a signal that ends the app.
   std::signal(SIGPIPE, SIG_IGN);
   if (argc < 4) {
-    std::cerr << "usage: oxyos-bloom-host BUNDLE.js MODULE (OUT.png | --window) [WIDTH HEIGHT]\n"
+    std::cerr << "usage: oxyos-bloom-host BUNDLE.js MODULE (OUT.png | --window [WIDTH HEIGHT] | --shell OUTPUT)\n"
                  "  OUT.png   run until the app settles, then draw it into OUT.png\n"
-                 "  --window  present it in a window on the compositor at $OXYOS_COMPOSITOR_SOCKET\n";
+                 "  --window  present it in a window on the compositor at $OXYOS_COMPOSITOR_SOCKET\n"
+                 "  --shell   run it as the session's shell on OUTPUT (needs the shell grant): its root is the\n"
+                 "            output's background, its OxyOSShellSurface regions panels and overlays\n";
     return 2;
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
-  const bool windowed = outPath == "--window";
+  // The session's shell (docs/adr/0009-session-shell.mdx) is a window of another kind.
+  const bool shellMode = outPath == "--shell";
+  const bool windowed = outPath == "--window" || shellMode;
+  const uint32_t output = shellMode && argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4])) : 1;
   const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
   if (windowed && !socket) {
     std::cerr << "--window needs OXYOS_COMPOSITOR_SOCKET\n";
     return 2;
   }
-  const float width = argc > 5 ? std::stof(argv[4]) : 1024;
-  const float height = argc > 5 ? std::stof(argv[5]) : 640;
+  const float width = !shellMode && argc > 5 ? std::stof(argv[4]) : 1024;
+  const float height = !shellMode && argc > 5 ? std::stof(argv[5]) : 640;
 
   for (const char* path : {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf"}) {
@@ -357,6 +363,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
   oxyos::addSvgComponents(*providers);
@@ -390,7 +397,9 @@ int main(int argc, char** argv) {
   std::unique_ptr<oxyos::Window> window;
   if (windowed) {
     try {
-      window = std::make_unique<oxyos::Window>(socket, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+      window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
+                         : std::make_unique<oxyos::Window>(socket, static_cast<uint32_t>(width),
+                                                           static_cast<uint32_t>(height));
       while (!window->configured()) {
         if (!window->dispatch([](const OxyOSEvent&) {})) {
           std::cerr << "[host] the compositor closed the connection before configuring the window\n";
@@ -427,19 +436,30 @@ int main(int argc, char** argv) {
     bool dirty = false;
     int status = 0;
     oxyos::AccessibilityBridge accessibility(tree, *window);
-    oxyos::PopupHost popups(tree, *window, accessibility);
+    oxyos::ShellSurfaceHost shellSurfaces(tree, *window, accessibility);
+    // A popup's parent is the surface its anchor is drawn in: the root's, or a shell region's.
+    oxyos::PopupHost popups(tree, *window, accessibility,
+                            [&](facebook::react::Tag anchor) -> std::pair<uint32_t, facebook::react::Point> {
+                              if (auto surface = shellSurfaces.surfaceOf(anchor)) {
+                                if (auto content = shellSurfaces.content(*surface)) return {*surface, content->origin};
+                              }
+                              return {oxyos::Window::kToplevel, {}};
+                            });
     oxyos::SafeAreas safeAreas;
     oxyos::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
       if (surface == oxyos::Window::kToplevel) return oxyos::SurfaceContent{.surface = surface, .view = tree.root()};
+      if (auto content = shellSurfaces.content(surface)) return content;
       return popups.content(surface);
     });
     oxyos::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxyos::Placement> {
       auto frame = oxyos::windowFrame(tree, view);
       if (!frame) return std::nullopt;
       uint32_t surface = popups.surfaceOf(view);
-      // A popup's content is drawn relative to its popup view.
+      if (surface == oxyos::Window::kToplevel) surface = shellSurfaces.surfaceOf(view).value_or(surface);
+      // A popup's or a shell region's content is drawn relative to its surface's origin.
       if (surface != oxyos::Window::kToplevel) {
         auto content = popups.content(surface);
+        if (!content) content = shellSurfaces.content(surface);
         if (!content) return std::nullopt;
         frame->origin.x -= content->origin.x;
         frame->origin.y -= content->origin.y;
@@ -530,6 +550,7 @@ int main(int argc, char** argv) {
         accessibility.focus(view.tag);
         dirty = true;
         popups.changed();
+        shellSurfaces.changed();
       }
     };
     try {
@@ -553,6 +574,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
                 dirty = true;
                 popups.changed();
+                shellSurfaces.changed();
               }
               if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
               if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
@@ -580,6 +602,7 @@ int main(int argc, char** argv) {
           drawn = editing.edit();
           dirty = true;
           popups.changed();
+          shellSurfaces.changed();
         }
         bool resized = window->resized();
         if (resized) {
@@ -595,6 +618,7 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
           popups.changed();
+          shellSurfaces.changed();
           safeAreas.sync(tree);
         }
         // Images load at the size they are drawn; a picture arriving draws its view again.
@@ -603,9 +627,11 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
           popups.changed();
+          shellSurfaces.changed();
         }
         // A paste's text arriving is an edit of the focused input.
         if (window->deliverPastes()) busy = true;
+        if (resized || mounted) shellSurfaces.sync();
         popups.sync(lastPress);
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something
@@ -688,6 +714,7 @@ int main(int argc, char** argv) {
           }
         }
         popups.present(drawn, focusName());
+        shellSurfaces.present(drawn, focusName());
         if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
       }
     } catch (const std::exception& error) {

@@ -37,6 +37,8 @@ pub struct Peer {
     /// Presses routed to this client (the development compositor counts them).
     pub presses: usize,
     accepted: Instant,
+    /// What it may do, decided when it connected.
+    grants: Grants,
 }
 
 pub struct Compositor {
@@ -44,7 +46,15 @@ pub struct Compositor {
     pub output: Rect,
     pub scene: Scene,
     pub peers: HashMap<ClientId, Peer>,
+    /// The development compositor's shell socket: a same-user peer connecting there is granted
+    /// `shell` (docs/adr/0009-session-shell.mdx), as a shipping session will grant it from its
+    /// launch records (#35).
+    pub shell_listener: Option<Listener>,
     pub next_client: ClientId,
+    /// Peers of the shell socket are numbered down from here, so the clients the development
+    /// compositor launches keep their numbers whatever order they connect in (the two above are
+    /// the scene-only clients it plays: an assistive technology and an input method).
+    next_shell_client: ClientId,
     pub own_uid: u32,
     pub framebuffer: Vec<u32>,
     pub composed: Vec<RenderItem>,
@@ -146,7 +156,9 @@ impl Compositor {
             output,
             scene,
             peers: HashMap::new(),
+            shell_listener: None,
             next_client: 0,
+            next_shell_client: ClientId::MAX - 2,
             own_uid,
             framebuffer: vec![DESKTOP; (output.width * output.height) as usize],
             composed: Vec::new(),
@@ -192,6 +204,11 @@ impl Compositor {
     }
 
     pub fn accept(&mut self, listener: &Listener) -> Result<()> {
+        self.accept_granting(listener, None)
+    }
+
+    /// Accepts a peer on `listener`, granting it `extra` beyond what its credentials give.
+    fn accept_granting(&mut self, listener: &Listener, extra: Option<Grants>) -> Result<()> {
         let connection = match listener.accept() {
             Ok(connection) => connection,
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(()),
@@ -200,12 +217,22 @@ impl Compositor {
         let credentials = connection.peer_credentials()?;
         // Unauthorized peers and peers beyond the limit are closed at once; pending peers
         // count against the limit, so silent connections cannot exhaust descriptors.
-        if self.grants_for(credentials).is_none() || self.peers.len() >= MAX_PEERS {
+        let Some(grants) = self.grants_for(credentials) else {
+            return Ok(());
+        };
+        if self.peers.len() >= MAX_PEERS {
             return Ok(());
         }
-        self.next_client += 1;
+        let grants = extra.unwrap_or(grants);
+        let client = if extra.is_some() {
+            self.next_shell_client -= 1;
+            self.next_shell_client
+        } else {
+            self.next_client += 1;
+            self.next_client
+        };
         self.peers.insert(
-            self.next_client,
+            client,
             Peer {
                 connection,
                 protocol: ServerConnection::new(),
@@ -214,6 +241,7 @@ impl Compositor {
                 buffers: HashMap::new(),
                 presses: 0,
                 accepted: Instant::now(),
+                grants,
             },
         );
         Ok(())
@@ -272,12 +300,10 @@ impl Compositor {
         };
         match peer.protocol.receive(&request) {
             Ok(Some(welcome)) => {
-                let credentials = peer.connection.peer_credentials();
                 peer.outbox.push_back((welcome, None));
-                let grants = credentials.ok().and_then(|c| self.grants_for(c));
-                match grants.map(|grants| self.scene.connect(client, grants)) {
-                    Some(Ok(())) => {}
-                    _ => self.fail(client, ErrorCode::Unauthorized),
+                let grants = peer.grants;
+                if self.scene.connect(client, grants).is_err() {
+                    self.fail(client, ErrorCode::Unauthorized);
                 }
                 return;
             }
@@ -980,9 +1006,16 @@ impl Compositor {
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener, every client and, with a frame on its way, the display (its flip);
         // never block on any one of them.
+        let shell = usize::from(self.shell_listener.is_some());
         let readable: Vec<bool> = {
-            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 2);
+            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 3);
             fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
+            if let Some(shell_listener) = &self.shell_listener {
+                fds.push(PollFd::from_borrowed_fd(
+                    shell_listener.as_fd(),
+                    PollFlags::IN,
+                ));
+            }
             for client in &clients {
                 fds.push(PollFd::from_borrowed_fd(
                     self.peers[client].connection.as_fd(),
@@ -1011,8 +1044,20 @@ impl Compositor {
         if readable[0] {
             self.accept(listener)?;
         }
+        if shell == 1 && readable[1] {
+            let shell_listener = self.shell_listener.take().expect("polled");
+            let accepted = self.accept_granting(
+                &shell_listener,
+                Some(Grants {
+                    shell: true,
+                    ..Grants::default()
+                }),
+            );
+            self.shell_listener = Some(shell_listener);
+            accepted?;
+        }
         for (index, client) in clients.iter().enumerate() {
-            if readable[index + 1] {
+            if readable[index + 1 + shell] {
                 self.receive(*client);
             }
         }

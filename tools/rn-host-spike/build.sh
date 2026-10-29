@@ -176,6 +176,11 @@ python3 "$HERE/regress.py" "$HERE/scenarios/input-method.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/shell.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-shell"
+# The same shell as the session's shell (ADR 0009): its panels and overlay, an application's window
+# between them.
+python3 "$HERE/regress.py" "$HERE/scenarios/session-shell.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-session-shell"
 # fetch and XMLHttpRequest through the network in Rust (crates/oxyos-net), against a local server the
 # regression runs.
 python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \

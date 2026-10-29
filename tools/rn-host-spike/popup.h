@@ -16,6 +16,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -51,8 +52,12 @@ OxyOSPositioner positioner(const facebook::react::OxyOSPopupViewProps& props, fa
 
 class PopupHost {
  public:
-  PopupHost(const ViewTree& tree, Window& window, AccessibilityBridge& accessibility)
-      : tree_(tree), window_(window), accessibility_(accessibility) {}
+  // The surface a view is drawn in, and where that surface's origin is in root coordinates: a
+  // popup's parent is the surface its anchor is in (a shell panel's, for the shell's menus).
+  using Parent = std::function<std::pair<uint32_t, facebook::react::Point>(facebook::react::Tag)>;
+
+  PopupHost(const ViewTree& tree, Window& window, AccessibilityBridge& accessibility, Parent parent = {})
+      : tree_(tree), window_(window), accessibility_(accessibility), parent_(std::move(parent)) {}
 
   // Opens a popup for each newly mounted popup view (grabbed with `serial`, the input that opened
   // it) and destroys the popups whose view went away.
@@ -83,11 +88,13 @@ class PopupHost {
     uint64_t drawnFor = 0;
     bool dismissed = false;  // closed by the compositor; the view is still mounted
   };
+  // The anchor's surface, and its frame there.
+  std::optional<std::pair<uint32_t, facebook::react::Rect>> anchored(facebook::react::Tag anchor) const;
   const ViewTree& tree_;
   Window& window_;
   AccessibilityBridge& accessibility_;
+  Parent parent_;
   std::map<facebook::react::Tag, Popup> popups_;
-  uint32_t nextSurface_ = Window::kToplevel + 1;
 };
 
 }  // namespace oxyos

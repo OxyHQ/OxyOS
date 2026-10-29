@@ -1,12 +1,13 @@
 /**
- * The OxyOS shell (apps/shell) in one window of the Bloom host, with a small fixture: a first look
- * at what the native host draws of it and what it lacks. Not the session's shell, which runs as
- * shell surfaces with the compositor's snapshot.
+ * The OxyOS shell (apps/shell) with a small fixture in place of the compositor's snapshot. In a
+ * window of the Bloom host (`--window`) its regions are drawn in place; run as the session's
+ * shell (`--shell`) they are panels and an overlay of their own (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
+import { oxyosShell } from './oxyos/shell-surface';
 import { Shell } from '../../../apps/shell/src/Shell';
 import type { ShellActions, ShellSnapshot } from '../../../apps/shell/src/model';
 
@@ -74,7 +75,8 @@ const actions: ShellActions = {
   menuCommand: () => {},
 };
 
-export default function ShellProbe() {
+/** The shell, its regions where `platform` draws them. */
+function ProbeShell({ platform }: { platform?: React.ComponentProps<typeof Shell>['platform'] }) {
   return (
       <SafeAreaProvider>
         <BloomProvider mode="light" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
@@ -83,8 +85,19 @@ export default function ShellProbe() {
             actions={actions}
             wallpaper={require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
             now={new Date(2026, 9, 29, 9, 41)}
+            platform={platform}
           />
         </BloomProvider>
       </SafeAreaProvider>
   );
+}
+
+/** In a window (`--window`): every region in place. */
+export default function ShellProbe() {
+  return <ProbeShell />;
+}
+
+/** As the session's shell (`--shell`): the regions in panels and an overlay of their own. */
+export function ShellSession() {
+  return <ProbeShell platform={oxyosShell} />;
 }

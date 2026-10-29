@@ -45,7 +45,7 @@ void collectText(const ViewTree& tree, Tag tag, std::string& out) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const auto& view = it->second.view;
-  if (componentName(view) == kPopupComponent) return;
+  if (ownSurface(componentName(view))) return;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   if (props && hidden(*props)) return;
   auto text = componentName(view) == "AndroidTextInput"
@@ -86,7 +86,7 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
   if (it == w.tree.views().end()) return;
   const auto& view = it->second.view;
   auto name = componentName(view);
-  if (name == kPopupComponent && !isRoot) return;
+  if (ownSurface(name) && !isRoot) return;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   if (props && hidden(*props)) return;
   bool focusedHere = tag == w.focus;
@@ -202,8 +202,12 @@ folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes) {
   return list;
 }
 
-void AccessibilityBridge::publish(uint32_t surface, Tag root) {
+void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
   auto nodes = accessibilityTree(tree_, root, focus_);
+  for (auto& node : nodes) {
+    node.rect.origin.x += at.x;
+    node.rect.origin.y += at.y;
+  }
   folly::dynamic reported = toDynamic(nodes);
   // Geometry is part of what is published (an assistive technology explores by position).
   folly::dynamic compared = folly::dynamic::array(reported);

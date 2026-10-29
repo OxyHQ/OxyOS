@@ -31,6 +31,8 @@ pub enum Step {
     Press { x: i32, y: i32 },
     /// The same at a point of the application's popup, relative to the popup.
     PressPopup { x: i32, y: i32 },
+    /// The same at a point of the output, wherever it is (the shell's panels and overlays).
+    PressOutput { x: i32, y: i32 },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
     /// Text typed into the focused surface: committed as it is, or, through the virtual
@@ -93,6 +95,7 @@ impl Step {
         match self {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
+            Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
@@ -132,6 +135,7 @@ impl Step {
         match self {
             Step::Press { x, y } => format!("\"press\":[{x},{y}]"),
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
+            Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
@@ -262,10 +266,13 @@ pub struct Launch {
     pub layout: String,
     /// `--input-method`: the session plays an input method (ime.rs).
     pub input_method: bool,
+    /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
+    /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
+    pub shell: Option<Vec<std::ffi::OsString>>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [[--allow-unchanged] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -291,6 +298,7 @@ impl Launch {
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let (mut seat, mut input_method) = (false, false);
+        let mut shell = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -325,6 +333,11 @@ impl Launch {
                     seat = true;
                     continue;
                 }
+                Some("--shell") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    shell = Some(value.split(',').map(Into::into).collect());
+                    continue;
+                }
                 Some("--input-method") => {
                     input_method = true;
                     continue;
@@ -352,6 +365,10 @@ impl Launch {
                 Some("--press-popup") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressPopup { x: n[0], y: n[1] }
+                }
+                Some("--press-output") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::PressOutput { x: n[0], y: n[1] }
                 }
                 Some("--scroll") => {
                     let n = numbers(args.next(), 3)?;
@@ -478,6 +495,7 @@ impl Launch {
                             seat,
                             layout,
                             input_method,
+                            shell: shell.clone(),
                         },
                     ));
                 }
@@ -502,6 +520,87 @@ fn shown(compositor: &Compositor) -> Vec<(u32, u64, Rect)> {
             _ => None,
         })
         .collect()
+}
+
+/// The shell's surfaces, bottom to top: clients of the shell socket (numbered down from the top,
+/// below the scene-only clients the session plays).
+fn shell_surfaces(compositor: &Compositor) -> Vec<(SurfaceKey, u64, Rect)> {
+    compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, rect, frame }
+                if key.client > ClientId::MAX / 2 && key.client < crate::ime::IME =>
+            {
+                Some((key, frame.sequence, rect))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Starts the shell on a socket of its own, granting `shell`, and serves the session until its
+/// surfaces are shown and unchanged for SETTLE.
+fn start_shell(
+    session: &mut Session,
+    command: &[std::ffi::OsString],
+) -> Result<std::process::Child> {
+    let socket = session.socket.with_file_name("shell");
+    let listener = oxyos_ipc::Listener::bind(&socket)?;
+    listener.set_nonblocking(true)?;
+    session.compositor.shell_listener = Some(listener);
+    let mut shell = Command::new(command.first().ok_or(USAGE)?);
+    shell
+        .args(&command[1..])
+        .arg("--shell")
+        .arg(OUTPUT_ID.to_string())
+        .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY");
+    // A Bloom host's report is its own: the shell's goes beside the application's.
+    if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
+        report.push(".shell");
+        shell.env("OXYOS_HOST_REPORT", report);
+    }
+    let mut child = shell.spawn()?;
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    let mut last = (Vec::new(), Instant::now());
+    loop {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return Err("deadline exceeded waiting for the shell".into());
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!("the shell exited ({status}) before it was shown").into());
+        }
+        session.compositor.serve(&session.listener)?;
+        let now = shell_surfaces(&session.compositor);
+        if now != last.0 {
+            last = (now, Instant::now());
+        } else if !last.0.is_empty() && last.1.elapsed() >= SETTLE {
+            eprintln!("[shell] {} surfaces shown", last.0.len());
+            return Ok(child);
+        }
+    }
+}
+
+/// The shell's surfaces and the work area they leave, as a step records them.
+fn shell_json(compositor: &Compositor) -> String {
+    let surfaces: Vec<String> = shell_surfaces(compositor)
+        .iter()
+        .map(|(_, _, r)| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height))
+        .collect();
+    let area = compositor
+        .scene
+        .work_area(OUTPUT_ID)
+        .map_or("null".to_string(), |r| {
+            format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
+        });
+    format!(
+        "{{\"surfaces\":[{}],\"work_area\":{area}}}",
+        surfaces.join(",")
+    )
 }
 
 /// The application's first popup, if one is shown.
@@ -544,7 +643,9 @@ fn settle(
     deadline: Instant,
     waiting_for: &str,
 ) -> Result<Settled> {
+    // The shell's surfaces count too: a press on a panel changes the shell, not the application.
     let mut last = (before.to_vec(), Instant::now());
+    let mut shell_last = shell_surfaces(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.flips.len();
@@ -564,6 +665,15 @@ fn settle(
             ime.serve(&mut session.compositor)?;
         }
         let now = shown(&session.compositor);
+        let shell_now = shell_surfaces(&session.compositor);
+        let shell_changed = shell_now != shell_last;
+        if shell_changed {
+            shell_last = shell_now;
+            last.1 = Instant::now();
+            if first_frame_ns.is_none() && last.0 == before {
+                first_frame_ns = Some(monotonic_ns());
+            }
+        }
         let changed = now != last.0;
         if changed {
             if first_frame_ns.is_none() {
@@ -593,7 +703,11 @@ fn settle(
                 answer_flip = None;
             }
         }
-        if !changed && (last.0 != before || may_stay) && last.1.elapsed() >= SETTLE {
+        if !changed
+            && !shell_changed
+            && (last.0 != before || first_frame_ns.is_some() || may_stay)
+            && last.1.elapsed() >= SETTLE
+        {
             if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
                 return Ok(Settled {
                     window,
@@ -783,6 +897,10 @@ fn inject_through(
             let popup = popup(compositor).ok_or("no popup is shown")?;
             inside(popup, *x, *y)?;
             press(devices, compositor, at(popup.x + x, popup.y + y))?;
+        }
+        Step::PressOutput { x, y } => {
+            inside(OUTPUT, *x, *y)?;
+            press(devices, compositor, at(*x, *y))?;
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
@@ -977,6 +1095,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             let popup = popup(compositor).ok_or("no popup is shown")?;
             inside(popup, *x, *y)?;
             press(&mut compositor.scene, popup.x + x, popup.y + y);
+        }
+        Step::PressOutput { x, y } => {
+            inside(OUTPUT, *x, *y)?;
+            press(&mut compositor.scene, *x, *y);
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
@@ -1238,12 +1360,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             phases_ms: Vec::new(),
         });
     }
+    // The session's shell first, as a session starts it: the application's window is then placed
+    // in the work area its panels leave.
+    let shell = match &launch.shell {
+        Some(command) => Some(start_shell(&mut session, command)?),
+        None => None,
+    };
     let mut children = Children(vec![Command::new(&launch.command[0])
         .args(&launch.command[1..])
         .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .spawn()?]);
+    children.0.extend(shell);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
     let launched_ns = monotonic_ns();
@@ -1362,7 +1491,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1375,6 +1504,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             accessibility_json(&session.compositor),
             field_json(&session.compositor),
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
+            shell_json(&session.compositor),
         ));
         snapshots.push(snapshot(
             &session.compositor,
@@ -1394,6 +1524,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if session.ime.take().is_some() {
         session.compositor.scene.disconnect(crate::ime::IME);
     }
+    // Its socket closes with the session; the shell, a client like the others, is waited for.
+    session.compositor.shell_listener = None;
     let gpu = match session.compositor.gpu.take() {
         Some(gpu) if gpu.mismatches > 0 => {
             return Err(if launch.gpu_only {

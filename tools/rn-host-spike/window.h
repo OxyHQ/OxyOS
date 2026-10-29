@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,6 +25,12 @@ class Window {
   // Connects to the compositor at `socket` and requests a toplevel of the given logical size.
   // Throws std::runtime_error on failure.
   Window(const std::string& socket, uint32_t width, uint32_t height);
+  // The session's shell (docs/adr/0009-session-shell.mdx): the root is a background shell surface
+  // over `output`, configured at the output's size, where an application has its window.
+  struct Shell {
+    uint32_t output = 0;
+  };
+  Window(const std::string& socket, Shell shell);
   ~Window();
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;
@@ -60,6 +67,15 @@ class Window {
   // Requests a popup of `parent`, placed by `positioner`, and its grab when `serial` is non-zero
   // (the input event that opened it). Throws on failure.
   void openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial);
+  // A surface id for a popup or a shell region, never used before on this connection.
+  uint32_t allocate() { return nextSurface_++; }
+  bool shell() const { return shell_.has_value(); }
+  // A shell region's surface (shell-surface.h): a panel at `edge` or an overlay, on the shell's
+  // output, of the given logical size, keeping `exclusive` pixels out of the work area. Throws on
+  // failure.
+  void openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t width, uint32_t height, uint32_t exclusive);
+  // Where a surface takes input: a surface-local logical rectangle.
+  void setInputRegion(uint32_t id, const OxyOSRect& region);
   // Places an open popup again (its anchor moved or its content resized).
   void reposition(uint32_t id, const OxyOSPositioner& positioner);
   void destroy(uint32_t id);
@@ -91,6 +107,8 @@ class Window {
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   uint64_t presented_ = 0;
+  uint32_t nextSurface_ = kToplevel + 1;
+  std::optional<Shell> shell_;
 };
 
 }  // namespace oxyos
