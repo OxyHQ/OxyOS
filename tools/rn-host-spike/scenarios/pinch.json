@@ -1,5 +1,5 @@
 {
-  "about": "A touchpad pinch on OxyOS (sample/PinchProbe.tsx, input.h): it reaches the application as Android 14's touchpad stack gives it, two fingers around the pointer 200 pixels apart, finger 0 down then finger 1, both moving as they spread, then finger 1 up and finger 0; OxyOS's fingers also turn as the user's do. A view's own touch handlers see both fingers; react-native-gesture-handler's pinch and rotation (crates/oxyos-gestures, ported from RNGH 3.3.0's Android handlers), simultaneous, activate past their slops, take the touch from React Native and end, with the scale and rotation Android's formulas give from activation on (the first move after the second finger counts no rotation, as on Android).",
+  "about": "A touchpad pinch on OxyOS (sample/PinchProbe.tsx, input.h): it reaches the application as Android 14's touchpad stack gives it, two fingers around the pointer 200 pixels apart, finger 0 down then finger 1, both moving as they spread, then finger 1 up and finger 0; OxyOS's fingers also turn as the user's do. A view's own touch handlers see both fingers; react-native-gesture-handler's pinch and rotation (crates/oxyos-gestures, ported from RNGH 3.3.0's Android handlers), simultaneous, activate past their slops, take the touch from React Native and end, with the scale and rotation Android's formulas give from activation on (the first move after the second finger counts no rotation, as on Android). Through the virtual devices (--uinput) the pinch is a virtual touchpad's two fingers, which libinput recognizes and reports from when it does: the same states, with a spread and a turn short of the fingers' own, and as many moves as libinput sends.",
   "module": "PinchProbe",
   "window": [
     600,
@@ -26,6 +26,12 @@
           "touchMove@touch-area": 8,
           "touchEnd@touch-area": 2
         }
+      },
+      "expect_devices": {
+        "texts": [
+          "fingers 0, most 2"
+        ],
+        "react": null
       }
     },
     {
@@ -60,6 +66,13 @@
           "RotationGestureHandler@gesture-area ACTIVE>END",
           "PinchGestureHandler@gesture-area ACTIVE>END"
         ]
+      },
+      "expect_devices": {
+        "texts": [
+          "pinch ended",
+          "rotation ended"
+        ],
+        "react": null
       }
     }
   ]

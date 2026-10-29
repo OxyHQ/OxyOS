@@ -272,7 +272,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                shell_report=None):
     expect = step.get("expect", {})
     if through_devices:
-        expect = {**expect, **step.get("expect_devices", {})}
+        # What differs through the devices; a key set to null is not checked there.
+        expect = {key: value for key, value in {**expect, **step.get("expect_devices", {})}.items()
+                  if value is not None}
     name = f"step {index + 1} ({step.get('name', step['do'][0])})"
     end = result.get("t_settled")
     # A popup surface id is never reused: its last lifecycle event says whether it is open.

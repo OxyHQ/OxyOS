@@ -36,8 +36,8 @@ pub enum Step {
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
     /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
-    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`). Never
-    /// through the virtual devices, which have no touchpad: on the scene, even with them.
+    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
+    /// scene, or through the virtual touchpad, where libinput recognizes it.
     Pinch {
         x: i32,
         y: i32,
@@ -980,6 +980,18 @@ fn inject_through(
             devices.move_to(px, py)?;
             compositor.read_input();
             devices.wheel(*dy, || compositor.read_input())?;
+        }
+        Step::Pinch {
+            x,
+            y,
+            percent,
+            degrees,
+        } => {
+            inside(window, *x, *y)?;
+            let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            devices.pinch(*percent, *degrees, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
