@@ -215,6 +215,39 @@ std::shared_ptr<TurboModule> createHostModule(
     module->unsupported({"setColor", "setTranslucent", "setStyle", "setHidden"});
   } else if (name == "KeyboardObserver") {
     module->listeners();
+  } else if (name == "OxyOSClipboard") {
+    // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
+    // latest key or press the app received: the compositor refuses it unless the app has keyboard
+    // focus and that input is one of its latest 16 (docs/adr/0007-clipboard.mdx).
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.clipboard.copy) throw jsi::JSError(rt, "OxyOSClipboard: the clipboard needs a window on OxyOS");
+    };
+    module->method("hasString", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return resolved(rt, jsi::Value(services.clipboard.hasText()));
+    });
+    module->method("setString", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      return resolved(rt, jsi::Value(services.clipboard.copy(count > 0 ? text(rt, args[0]) : "")));
+    });
+    // The text arrives later, from the clipboard's owner: the promise settles on the JavaScript
+    // thread, through the module's invoker. A refused paste reads nothing: "".
+    module->method("getString", [&services, ready, invoker](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "paste"), 2,
+          [&services, invoker](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            services.clipboard.paste([invoker, resolve](std::string pasted) {
+              invoker->invokeAsync([resolve, pasted = std::move(pasted)](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, jsi::String::createFromUtf8(rt, pasted));
+              });
+            });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
+    });
+    module->listeners();
   } else if (name == "ImageLoader") {
     // Image sizes from the files' headers (images.h resolves the sources, oxyos-image reads them):
     // a promise of {width, height} in pixels, or of true for a prefetch.

@@ -75,6 +75,9 @@ class Window {
   }
   // Each turn: finishes pastes whose content arrived. True if any did.
   bool deliverPastes() { return clipboard_.deliver(); }
+  bool clipboardHasText() const { return clipboard_.hasText(); }
+  // Runs `changed` whenever what the clipboard holds is known anew.
+  void onClipboardChanged(std::function<void()> changed) { clipboard_.onChanged(std::move(changed)); }
 
   // Text input (ADR 0008): tells the compositor about the field focused in `surface`, or that
   // none is (`field` null); only what changed is sent. Returns the commit serial transactions
