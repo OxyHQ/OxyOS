@@ -1,5 +1,5 @@
 {
-  "about": "The OxyOS shell's overview and its drag between desktops (ADR 0009) through react-native-gesture-handler, Android's recognizers ported (crates/oxyos-gestures): the application (sample/EditingProbe.tsx) runs as Allo; the dock's overview button opens the overview with Allo's window on Escritorio 1, a press on Nuevo escritorio adds Escritorio 2, and Allo's card dragged onto it moves the window there. The card's pan begins on the press, activates past its 8 px, takes the touch from React Native (the card's press never fires: React sees the touch cancelled), sends one update per move and ends on release; the compositor moves the window to the other desktop, so it leaves the screen, and Escritorio 1 shows no windows. Each step checks the shell's texts, React's deliveries in the shell, the gestures sent, and that the application receives nothing of the shell's input.",
+  "about": "The OxyOS shell's overview and its drag between desktops (ADR 0009) through react-native-gesture-handler, Android's recognizers ported (crates/oxyos-gestures): the application (sample/EditingProbe.tsx) runs as Allo; the dock's overview button opens the overview with Allo's window on Escritorio 1, a press on Nuevo escritorio adds Escritorio 2, and Allo's card dragged onto it moves the window there. The card's pan begins on the press, activates past its 8 px, takes the touch from React Native (the card's press never fires: React sees the touch cancelled), sends one update per move and ends on release; the compositor moves the window to the other desktop, so it leaves the screen, and Escritorio 1 shows no windows. The overview is drawn in the shell's colours: the dock's background, the window's card and title bar, and the desktop's translucent card over the wallpaper. Each step checks the shell's texts, React's deliveries in the shell, the gestures sent, and that the application receives nothing of the shell's input.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -16,8 +16,8 @@
       "do": [
         "press_output",
         [
-          481,
-          700
+          534,
+          693
         ]
       ],
       "expect": {
@@ -34,6 +34,12 @@
           "1": {
             "focus.out": 1
           }
+        },
+        "output_pixels": {
+          "300,700": "#f7f9fc",
+          "300,420": "#eef3f8",
+          "400,170": "#d0e5f3",
+          "1000,550": "#5b7dc3"
         }
       }
     },
@@ -64,9 +70,9 @@
         "drag_output",
         [
           490,
-          300,
+          320,
           1180,
-          300
+          320
         ]
       ],
       "expect": {
