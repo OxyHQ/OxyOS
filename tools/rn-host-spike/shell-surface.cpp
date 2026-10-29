@@ -151,7 +151,20 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     bool configured = surface->configure != region.drawnFor;
     if (configured) damage.reset();
     if (damage && damage->empty()) {
-      // Nothing visible changed (another region did): nothing is drawn or presented.
+      // Nothing visible changed (another region did): nothing is drawn or presented. The check
+      // draws it whole anyway: a change the damage missed would be left on screen.
+      if (checkDamage) {
+        Canvas whole;
+        drawRegion(tree_, tag, at, display, whole, edit);
+        if (whole.pixels != region.canvas.pixels) {
+          size_t differing = 0;
+          for (size_t i = 0; i < whole.pixels.size() && i < region.canvas.pixels.size(); ++i) {
+            differing += whole.pixels[i] != region.canvas.pixels[i];
+          }
+          std::cerr << "[host] a shell region left undrawn differs in " << differing << " pixels\n";
+          Report::get().damageMismatch(region.surface, std::max<size_t>(differing, 1));
+        }
+      }
       accessibility_.publish(region.surface, tag, at);
       region.dirty = false;
       continue;

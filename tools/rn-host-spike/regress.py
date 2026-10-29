@@ -310,6 +310,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = gesture_events(report, start, end)
         if got != expect["gestures"]:
             fail(f"gesture handlers sent {got}, expected exactly {expect['gestures']}")
+    if "gesture_states" in expect:
+        # The same without updates and touch moves, whose count depends on how frames fall
+        # between the moves (a view moving under a still pointer is a touch move, as on Android).
+        got = [event for event in gesture_events(report, start, end)
+               if " update x" not in event and " touches move x" not in event]
+        if got != expect["gesture_states"]:
+            fail(f"gesture handlers changed states {got}, expected exactly {expect['gesture_states']}")
     if "in_shell" in expect:
         # The session's shell's own texts, React deliveries and gestures, from its report.
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
