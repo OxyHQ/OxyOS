@@ -9,6 +9,7 @@
 #include "input.h"
 #include "network.h"
 #include "popup.h"
+#include "safe-area.h"
 #include "report.h"
 #include "renderer.h"
 #include "text.h"
@@ -355,6 +356,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
   oxyos::addAndroidComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
@@ -423,6 +426,7 @@ int main(int argc, char** argv) {
     int status = 0;
     oxyos::AccessibilityBridge accessibility(tree, *window);
     oxyos::PopupHost popups(tree, *window, accessibility);
+    oxyos::SafeAreas safeAreas;
     oxyos::PointerInput pointer(tree, [&](uint32_t surface) -> std::optional<oxyos::SurfaceContent> {
       if (surface == oxyos::Window::kToplevel) return oxyos::SurfaceContent{.surface = surface, .view = tree.root()};
       return popups.content(surface);
@@ -589,6 +593,7 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
           popups.changed();
+          safeAreas.sync(tree);
         }
         // Images load at the size they are drawn; a picture arriving draws its view again.
         if (resized || mounted) images.sync(display.scale);

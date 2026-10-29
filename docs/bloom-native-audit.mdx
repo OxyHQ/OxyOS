@@ -224,6 +224,18 @@ Known gaps:
 - The other menu families (`ContextMenu`, `Select`, `Popover`, `Menubar`) still need the native popup panel.
 
 
+### The shell in the native host
+
+`sample/ShellProbe.tsx` renders the OxyOS shell (`apps/shell`) in one window of the Bloom host, with a small fixture in place of the compositor's snapshot; `scenarios/shell.json` checks it. Its Metro configuration resolves Bloom's subpath patterns (`./icons/Ri*`) as Node does, which Bloom's icons need.
+
+- **Safe area.** `react-native-safe-area-context`'s `SafeAreaProvider` renders nothing until its native view reports insets. The host defines `RNCSafeAreaProvider`, which reports zero insets and its frame in the window once mounted and whenever that frame changes, as Android's does; an OxyOS window has no system insets, since the compositor keeps panels outside the area windows are placed in. `RNCSafeAreaView` lays out as a plain view for the same reason. Without the provider the shell's window stays white, which the scenario catches.
+- **Drawn:** the wallpaper, the top bar's menus and clock, the dock and its raster icons.
+- **Not yet:**
+  - `react-native-svg`: the top bar's status icons and vector application icons are not drawn (an SVG icon shows as an empty circle).
+  - `react-native-gesture-handler`: its native module is missing, so `GestureHandlerRootView` and the overview's drag between desktops fail; Bloom's sheets need it too.
+  - `Intl`: Hermes is built without it (above), so the shell's `toLocaleDateString("es", …)` and `toLocaleTimeString` return English text and ignore their options.
+  - The session's shell: the wallpaper, top bar, dock and overlays as the compositor's background, panel and overlay surfaces from one React tree, and the compositor's windows, workspaces, menus and thumbnails as the shell's snapshot, its actions back. Neither exists in the protocol yet.
+
 ## Platform capability matrix
 
 | Capability | Android | iOS | Web | macOS | OxyOS |
