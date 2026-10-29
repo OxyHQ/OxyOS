@@ -2700,6 +2700,29 @@ fn an_invalid_change_delivers_nothing() {
 }
 
 #[test]
+fn a_dismissed_popup_may_still_describe_its_field() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 4, 4), 200, 100),
+    );
+    // A press outside dismisses it; the client has not heard yet.
+    h.click(w.x + 380, w.y + 280);
+    assert!(h.dismissed(popup).is_some());
+    enable_text_input(&mut h, popup, "buscar", 1);
+    h.pump();
+    h.scene.text("x");
+    assert!(!h
+        .pump()
+        .iter()
+        .any(|(_, event)| matches!(event, Event::TextInputDone { surface: 2, .. })));
+}
+
+#[test]
 fn a_destroyed_surface_forgets_its_text_input() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

@@ -101,8 +101,12 @@ impl TextTransaction<'_> {
 }
 
 impl Scene {
+    /// A surface's text input. A popup the compositor dismissed is inert until its client
+    /// destroys it, which may describe its field before it learns: kept, never focused again.
     fn text_input_entry(&mut self, key: SurfaceKey) -> Result<&mut SurfaceTextInput, ErrorCode> {
-        self.live(key).ok_or(ErrorCode::UnknownSurface)?;
+        if !self.nodes.contains_key(&key) {
+            return Err(ErrorCode::UnknownSurface);
+        }
         Ok(self.text_inputs.entry(key).or_default())
     }
 
