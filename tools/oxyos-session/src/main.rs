@@ -7,12 +7,18 @@
 //! - its input is the seat's devices through libinput, with the keymap of `--layout`;
 //! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed.
 //!
-//! `oxyos-session [--layout LAYOUT] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...` runs COMMAND
+//! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...] -- COMMAND
+//! [ARGS]...` runs COMMAND
 //! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
 //! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
 //! that grants `shell`; COMMAND starts once the shell's panels have set the work area its window is
 //! placed in. The session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM
 //! (they are then asked to stop).
+//!
+//! The pointer is shown on the display's cursor plane: the display's own arrow, or the image of a
+//! Windows cursor file (`--pointer`) closest to SIZE pixels (32 by default).
+
+mod cursor_file;
 
 use oxyos_compositor::{Compositor, Gpu, Result};
 use oxyos_compositor_core::{Output, Scene};
@@ -26,8 +32,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const USAGE: &str =
-    "usage: oxyos-session [--layout LAYOUT] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...";
+const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] \
+                     [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...";
 /// The shell's panels set the work area within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const OUTPUT_ID: u32 = 1;
@@ -37,8 +43,20 @@ fn main() -> Result<()> {
     let mut layout = "us".to_string();
     let mut command: Vec<OsString> = Vec::new();
     let mut shell_command: Option<Vec<OsString>> = None;
+    let mut pointer: Option<(PathBuf, u32)> = None;
     while let Some(arg) = args.next() {
         match arg.to_str() {
+            Some("--pointer") => {
+                let value = args
+                    .next()
+                    .and_then(|v| v.into_string().ok())
+                    .ok_or(USAGE)?;
+                let (path, size) = match value.rsplit_once(',') {
+                    Some((path, size)) => (path.to_string(), size.parse().map_err(|_| USAGE)?),
+                    None => (value, 32),
+                };
+                pointer = Some((PathBuf::from(path), size));
+            }
             Some("--shell") => {
                 let value = args
                     .next()
@@ -66,6 +84,8 @@ fn main() -> Result<()> {
     let seat = Rc::new(oxyos_seat::Seat::take()?);
     eprintln!("[session] logind session on terminal {:?}", seat.vt());
     let (display, card) = open_display(&seat)?;
+    let mut display = display;
+    show_pointer(&mut display, pointer.as_ref());
     let (width, height) = display.size();
     eprintln!(
         "[session] showing on {} ({})",
@@ -248,6 +268,33 @@ fn start_shell(
             eprintln!("[session] the shell's panels are shown");
             return Ok(shell);
         }
+    }
+}
+
+/// The pointer's image on the display's cursor plane: the cursor file's, or the display's own
+/// arrow. Without a cursor plane, or a file it cannot read, the session says so and goes on.
+fn show_pointer(display: &mut oxyos_kms::Display, pointer: Option<&(PathBuf, u32)>) {
+    let Some(max) = display.pointer_size() else {
+        eprintln!("[session] the display has no cursor plane: the pointer is not shown");
+        return;
+    };
+    let Some((path, size)) = pointer else {
+        return;
+    };
+    let image = std::fs::read(path)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| cursor_file::read(&bytes, *size, max))
+        .and_then(|image| {
+            display
+                .set_pointer_image(&image)
+                .map_err(|error| error.to_string())
+        });
+    match image {
+        Ok(()) => eprintln!("[session] pointer from {}", path.display()),
+        Err(error) => eprintln!(
+            "[session] the pointer from {}: {error}; the display's own arrow is shown",
+            path.display()
+        ),
     }
 }
 

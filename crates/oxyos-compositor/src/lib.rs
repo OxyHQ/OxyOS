@@ -103,6 +103,10 @@ pub struct Compositor {
     /// The frame on its way to the display: when it was handed over. It completes at its flip,
     /// in a later turn; no frame is composed meanwhile (one on the display at a time).
     pub pending_flip: Option<std::time::Duration>,
+    /// The pending flip only moves the pointer: the frame shown, committed again.
+    pointer_flip: bool,
+    /// Where the pointer is on the display (its pixels), once it has moved.
+    pointer: Option<(i32, i32)>,
     /// What the last flip showed (the scene's displayed content once it completed).
     pub flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
@@ -182,6 +186,8 @@ impl Compositor {
             scanout_back: 0,
             flips: Vec::new(),
             pending_flip: None,
+            pointer_flip: false,
+            pointer: None,
             flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
@@ -441,10 +447,18 @@ impl Compositor {
         if self.pending_flip.is_some() {
             return;
         }
+        // The pointer is on the display's cursor plane, placed by every commit.
+        let pointer_moved = match (&mut self.display, self.away) {
+            (Some(display), false) => display.set_pointer(self.pointer),
+            _ => false,
+        };
         let started = self.scene.begin_frame();
         let list = self.scene.frame_list();
         if started == 0 && list == self.composed {
             self.scene.end_frame(0, Clock::Synthetic);
+            if pointer_moved {
+                self.present_pointer();
+            }
             return;
         }
         self.composing_since = monotonic();
@@ -625,6 +639,25 @@ impl Compositor {
         }
     }
 
+    /// Only the pointer moved: the frame shown is committed again with it where it is now, no
+    /// frame composed. Its flip completes no client's frame.
+    fn present_pointer(&mut self) {
+        let Some(display) = self.display.as_mut() else {
+            return;
+        };
+        match display.present_again() {
+            Ok(true) => {
+                self.pending_flip = Some(monotonic());
+                self.pointer_flip = true;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("[kms] {error}; display output stops");
+                self.display = None;
+            }
+        }
+    }
+
     /// Completes the frame on its way to the display once it has flipped, at the kernel's flip
     /// time; with `wait`, waits for the flip (before giving the display away, or at the end).
     pub fn complete_flip(&mut self, wait: bool) {
@@ -647,6 +680,20 @@ impl Compositor {
             Some(display) => display.flip_done(),
             None => Err(std::io::Error::other("the display went away")),
         };
+        if self.pointer_flip {
+            // The pointer moved on the frame shown: nothing of the scene completes.
+            match flip {
+                Ok(None) if !wait => return,
+                Err(error) => {
+                    eprintln!("[kms] {error}; display output stops");
+                    self.display = None;
+                }
+                _ => {}
+            }
+            self.pointer_flip = false;
+            self.pending_flip = None;
+            return;
+        }
         let (timestamp_ns, clock) = match flip {
             Ok(None) if !wait => return,
             // Never flipped: the frame completes unshown, and is composed again.
@@ -795,9 +842,11 @@ impl Compositor {
                 eprintln!("[input] {action:?} focus {:?}", self.scene.focus());
             }
             match action {
-                oxyos_input::Action::Motion { x, y } => self
-                    .scene
-                    .pointer_motion(x.round() as i32 - dx, y.round() as i32 - dy),
+                oxyos_input::Action::Motion { x, y } => {
+                    let (x, y) = (x.round() as i32, y.round() as i32);
+                    self.pointer = Some((x, y));
+                    self.scene.pointer_motion(x - dx, y - dy)
+                }
                 oxyos_input::Action::Button { code, pressed } => {
                     self.scene.pointer_button(code, pressed)
                 }
