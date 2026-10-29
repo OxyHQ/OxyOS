@@ -25,12 +25,12 @@
         "window_shown": true,
         "window_rect": [
           340,
-          178,
+          166,
           600,
           360
         ],
         "output_pixels": {
-          "842,690": "#080108"
+          "812,684": "#250224"
         },
         "react": {
           "touchStart@line": 1,
@@ -56,7 +56,7 @@
       "expect": {
         "window_shown": false,
         "output_pixels": {
-          "842,690": "#080108"
+          "812,684": "#250224"
         },
         "react": {},
         "delivered": {
@@ -71,15 +71,15 @@
       "do": [
         "press_output",
         [
-          842,
-          700
+          825,
+          693
         ]
       ],
       "expect": {
         "window_shown": true,
         "window_rect": [
           340,
-          178,
+          166,
           600,
           360
         ],
