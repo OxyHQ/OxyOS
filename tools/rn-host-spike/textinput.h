@@ -68,6 +68,10 @@ class TextEditing {
   };
   void useClipboard(ClipboardAccess clipboard) { clipboard_ = std::move(clipboard); }
 
+  // `autoFocus`, as Android's ReactEditText takes it: an input inserted with it takes focus once it
+  // is attached. `inserted` sees a transaction before it is applied; `attached` focuses after.
+  void inserted(const facebook::react::ShadowViewMutationList& mutations);
+  void attached();
   // A view command from JavaScript (`focus`, `blur`, `setTextAndSelection`).
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
@@ -169,6 +173,8 @@ class TextEditing {
   const ViewTree& tree_;
   std::function<std::optional<Placement>(facebook::react::Tag)> locate_;
   facebook::react::Tag focused_ = -1;
+  // Inputs inserted with `autoFocus`, focused once attached.
+  std::vector<facebook::react::Tag> autoFocus_;
   std::string text_;
   size_t anchor_ = 0, caret_ = 0;  // byte offsets; the selection lies between them
   size_t composeStart_ = 0, composeEnd_ = 0;  // the composition, none if equal

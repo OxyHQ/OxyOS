@@ -33,7 +33,7 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   OxyOSShellSurfaceProps(const PropsParserContext& context, const OxyOSShellSurfaceProps& sourceProps,
                          const RawProps& rawProps);
 
-  std::string kind{"panel"};  // "panel" or "overlay"
+  std::string kind{"panel"};  // "panel", "overlay" or "lock" (docs/adr/0010-lock-screen.mdx)
   std::string edge{"top"};    // a panel's: "top", "bottom", "left" or "right"
   bool exclusive{false};
 };
@@ -60,10 +60,14 @@ class ShellSurfaceHost {
 
   // The surface a view is drawn on, if it is inside a region.
   std::optional<uint32_t> surfaceOf(facebook::react::Tag view) const;
+  // The lock screen's surface, while a "lock" region is open.
+  std::optional<uint32_t> lockSurface() const;
   // What a region's surface shows, for input; nullopt for any other surface.
   std::optional<SurfaceContent> content(uint32_t surface) const;
 
  private:
+  // A lock region's kind, beside OXYOS_SHELL_*: a lock surface, not a shell surface.
+  static constexpr uint8_t kLock = 0;
   // Where a region's surface is: the strip in root coordinates, the region within it.
   struct Placement {
     uint8_t kind = 0, edge = 0;

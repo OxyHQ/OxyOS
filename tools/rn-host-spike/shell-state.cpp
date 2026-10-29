@@ -1,8 +1,26 @@
 #include "shell-state.h"
 
+#include <pwd.h>
+#include <unistd.h>
+
 #include <cstring>
+#include <vector>
 
 namespace oxyos {
+
+ShellState::ShellState() {
+  std::vector<char> buffer(16 * 1024);
+  passwd entry{};
+  passwd* found = nullptr;
+  if (getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &found) == 0 && found) {
+    if (entry.pw_name) user_ = entry.pw_name;
+    // GECOS: the full name, then office, phones and other, separated by commas.
+    if (entry.pw_gecos) {
+      fullName_ = entry.pw_gecos;
+      fullName_ = fullName_.substr(0, fullName_.find(','));
+    }
+  }
+}
 
 bool ShellState::observe(const OxyOSEvent& event) {
   switch (event.kind) {
@@ -29,6 +47,10 @@ bool ShellState::observe(const OxyOSEvent& event) {
       title_.erase(event.code);
       appId_.erase(event.code);
       return windows_.erase(event.code) > 0;
+    case OXYOS_EVENT_LOCK_STATE:
+      if (locked_ == (event.flag != 0)) return false;
+      locked_ = event.flag != 0;
+      return true;
     case OXYOS_EVENT_WORKSPACES:
       workspaces_ = event.detail;
       active_ = event.code;
@@ -44,7 +66,8 @@ folly::dynamic ShellState::state() const {
     windows.push_back(folly::dynamic::object("id", id)("appId", window.appId)("title", window.title)(
         "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused));
   }
-  return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_);
+  return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
+      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_));
 }
 
 }  // namespace oxyos

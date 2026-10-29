@@ -12,6 +12,7 @@
 mod client;
 mod ime;
 mod launch;
+mod lock;
 mod png;
 mod uinput;
 

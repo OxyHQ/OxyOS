@@ -249,6 +249,17 @@ std::shared_ptr<TurboModule> createHostModule(
         return jsi::Value::undefined();
       });
     }
+    module->method("lockSession", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      services.shell.lock();
+      return jsi::Value::undefined();
+    });
+    // The password reaches the compositor and the session, nothing else: never logged or reported.
+    module->method("authenticate", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.authenticate: a password");
+      return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt)));
+    });
     module->listeners();
   } else if (name == "OxyOSClipboard") {
     // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the

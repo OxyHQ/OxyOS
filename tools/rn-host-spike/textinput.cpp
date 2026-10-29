@@ -150,6 +150,24 @@ void TextInputComponentDescriptor::adopt(ShadowNode& shadowNode) const {
   ConcreteComponentDescriptor::adopt(shadowNode);
 }
 
+void TextEditing::inserted(const ShadowViewMutationList& mutations) {
+  for (const auto& mutation : mutations) {
+    if (mutation.type != ShadowViewMutation::Insert) continue;
+    const auto& view = mutation.newChildShadowView;
+    if (std::string(view.componentName ? view.componentName : "") != "AndroidTextInput") continue;
+    if (std::static_pointer_cast<const AndroidTextInputProps>(view.props)->autoFocus) autoFocus_.push_back(view.tag);
+  }
+}
+
+void TextEditing::attached() {
+  // The latest inserted takes focus, as each requests it in turn on Android.
+  auto pending = std::move(autoFocus_);
+  autoFocus_.clear();
+  for (Tag tag : pending) {
+    if (tree_.views().count(tag)) focus(tag);
+  }
+}
+
 void TextEditing::command(const ShadowView& view, const std::string& name, const folly::dynamic& args) {
   if (std::string(view.componentName ? view.componentName : "") != "AndroidTextInput") return;
   if (name == "focus") {
@@ -248,13 +266,15 @@ void TextEditing::blur() {
   // An unfinished composition stays as text, as Android's finishComposingText leaves it, and is
   // an edit of this input.
   endComposition();
+  // Masked while the input is still the focused one: a password is never reported.
+  std::string shown = logged(text_);
   focused_ = -1;
   if (it == tree_.views().end()) return;
   const auto& emitter = it->second.view.eventEmitter;
   emitter->dispatchEvent("blur", folly::dynamic::object("target", tag));
   emitter->dispatchEvent("endEditing", folly::dynamic::object("target", tag)("text", text_));
-  Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
-  Report::get().deliver("endEditing", 0, it->second.view, folly::dynamic::object("text", logged(text_)));
+  Report::get().deliver("blur", 0, it->second.view, folly::dynamic::object("text", shown));
+  Report::get().deliver("endEditing", 0, it->second.view, folly::dynamic::object("text", shown));
   if (tracing()) std::cerr << "[text] blur " << tag << "\n";
 }
 

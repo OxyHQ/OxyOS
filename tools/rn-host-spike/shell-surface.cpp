@@ -43,7 +43,12 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   // The root is the output.
   Float width = window_.width(), height = window_.height();
   Placement placed;
-  if (props->kind == "overlay") {
+  if (props->kind == "lock") {
+    // The lock screen: the whole output, all that shows while the session is locked.
+    placed.kind = kLock;
+    placed.edge = OXYOS_EDGE_NONE;
+    placed.strip = Rect{{0, 0}, {width, height}};
+  } else if (props->kind == "overlay") {
     placed.kind = OXYOS_SHELL_OVERLAY;
     placed.edge = OXYOS_EDGE_NONE;
     placed.strip = Rect{{0, 0}, {width, height}};
@@ -104,13 +109,19 @@ void ShellSurfaceHost::sync() {
         Report::get().popup("shell.close", open->second.surface, &view);
       }
       uint32_t surface = window_.allocate();
-      window_.openShellSurface(surface, placed->kind, placed->edge,
-                               static_cast<uint32_t>(placed->strip.size.width),
-                               static_cast<uint32_t>(placed->strip.size.height), placed->exclusive);
+      if (placed->kind == kLock) {
+        window_.openLockSurface(surface);
+      } else {
+        window_.openShellSurface(surface, placed->kind, placed->edge,
+                                 static_cast<uint32_t>(placed->strip.size.width),
+                                 static_cast<uint32_t>(placed->strip.size.height), placed->exclusive);
+      }
       window_.setInputRegion(surface, placed->input);
       regions_[tag] = Region{.surface = surface, .placed = *placed};
       Report::get().popup("shell.open", surface, &view,
-                          folly::dynamic::object("kind", placed->kind == OXYOS_SHELL_OVERLAY ? "overlay" : "panel")(
+                          folly::dynamic::object("kind", placed->kind == kLock              ? "lock"
+                                                         : placed->kind == OXYOS_SHELL_OVERLAY ? "overlay"
+                                                                                               : "panel")(
                               "width", placed->strip.size.width)("height", placed->strip.size.height));
     } else {
       window_.setInputRegion(open->second.surface, placed->input);
@@ -211,6 +222,13 @@ std::optional<uint32_t> ShellSurfaceHost::surfaceOf(Tag view) const {
   for (Tag at : ancestry(tree_, view)) {
     auto it = regions_.find(at);
     if (it != regions_.end()) return it->second.surface;
+  }
+  return std::nullopt;
+}
+
+std::optional<uint32_t> ShellSurfaceHost::lockSurface() const {
+  for (const auto& [tag, region] : regions_) {
+    if (region.placed.kind == kLock) return region.surface;
   }
   return std::nullopt;
 }

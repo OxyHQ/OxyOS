@@ -313,9 +313,12 @@ pub struct Launch {
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
+    /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
+    /// development compositor's fixture in place of the session's PAM (lock.rs).
+    pub lock_password: Option<String>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -343,6 +346,7 @@ impl Launch {
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let (mut seat, mut input_method) = (false, false);
         let mut shell = None;
+        let mut lock_password = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -384,6 +388,11 @@ impl Launch {
                 }
                 Some("--input-method") => {
                     input_method = true;
+                    continue;
+                }
+                Some("--lock-password") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    lock_password = Some(value.to_string());
                     continue;
                 }
                 Some("--layout") => {
@@ -557,6 +566,7 @@ impl Launch {
                             layout,
                             input_method,
                             shell: shell.clone(),
+                            lock_password: lock_password.clone(),
                         },
                     ));
                 }
@@ -659,8 +669,9 @@ fn shell_json(compositor: &Compositor) -> String {
             format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
         });
     format!(
-        "{{\"surfaces\":[{}],\"work_area\":{area}}}",
-        surfaces.join(",")
+        "{{\"surfaces\":[{}],\"work_area\":{area},\"locked\":{}}}",
+        surfaces.join(","),
+        compositor.scene.is_locked()
     )
 }
 
@@ -1363,6 +1374,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
     }
+    if let Some(password) = &launch.lock_password {
+        session.compositor.authentication =
+            Some(Box::new(crate::lock::Fixture::new(password.clone())?));
+    }
     session
         .compositor
         .scene
@@ -1665,8 +1680,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
 
     let frames = session.compositor.frames;
-    // Input devices close with the session: their descriptors are not leaks.
+    // Input devices close with the session: their descriptors are not leaks; nor is the lock's
+    // fixture's.
     session.compositor.input = None;
+    session.compositor.authentication = None;
     drop(devices);
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);

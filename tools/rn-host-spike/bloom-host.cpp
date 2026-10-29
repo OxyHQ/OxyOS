@@ -587,6 +587,11 @@ int main(int argc, char** argv) {
           .manage = [&window](uint8_t action, uint32_t target, uint32_t workspace) {
             window->manage(action, target, workspace);
           },
+          .lock = [&window] { window->lockSession(); },
+          .authenticate = [&window, &shellSurfaces](const std::string& secret) {
+            auto surface = shellSurfaces.lockSurface();
+            return surface && window->authenticate(*surface, secret);
+          },
       };
     }
     window->onClipboardChanged([&instance, &window] {
@@ -608,6 +613,7 @@ int main(int argc, char** argv) {
     static const bool checkDamage = std::getenv("OXYOS_HOST_DAMAGE_CHECK") != nullptr;
     mounter.beforeApply = [&](const ShadowViewMutationList& mutations) {
       modalHost.leaving(mutations, display, drawn);
+      editing.inserted(mutations);
     };
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
@@ -641,10 +647,12 @@ int main(int argc, char** argv) {
         busy |= reanimated.tick();
         busy |= networking.deliver();
         bool shellChanged = false, closeRequested = false;
+        std::optional<OxyOSEvent> authenticated;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
               shellChanged |= shellState.observe(event);
+              if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
               if (event.kind == OXYOS_EVENT_CLOSE_REQUESTED && event.surface == oxyos::Window::kToplevel) {
@@ -696,6 +704,17 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellChanged", shellState.state()));
         }
+        // What came of the lock screen's password (docs/adr/0010-lock-screen.mdx).
+        if (authenticated) {
+          static const char* outcomes[] = {"", "accepted", "rejected", "busy", "throttled"};
+          const char* outcome = authenticated->detail <= OXYOS_AUTH_THROTTLED ? outcomes[authenticated->detail] : "";
+          oxyos::Report::get().input("lock.authentication", authenticated->surface,
+                                     folly::dynamic::object("outcome", outcome)("wait", authenticated->code));
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSShellAuthentication",
+                                    folly::dynamic::object("outcome", outcome)("wait", authenticated->code)));
+        }
         // Focus, caret and selection moves draw even when the tree did not change.
         bool edited = editing.edit() != drawn;
         if (edited) {
@@ -716,6 +735,7 @@ int main(int argc, char** argv) {
         }
         bool mounted = mounter.takeChanged();
         if (mounted) {
+          editing.attached();
           dirty = true;
           busy = true;
           popups.changed();

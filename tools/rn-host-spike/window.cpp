@@ -134,6 +134,20 @@ void Window::openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t 
   surfaces_[id] = Surface{};
 }
 
+void Window::openLockSurface(uint32_t id) {
+  if (!shell_) failed("only the shell has lock surfaces");
+  if (oxyos_client_create_lock_surface(client_, id, shell_->output) != 0) failed("cannot open a lock surface");
+  surfaces_[id] = Surface{};
+}
+
+void Window::lockSession() {
+  if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
+}
+
+bool Window::authenticate(uint32_t id, const std::string& secret) {
+  return oxyos_client_authenticate(client_, id, secret.data(), secret.size()) == 0;
+}
+
 void Window::nameWindow(const std::string& title, const std::string& appId) {
   if (oxyos_client_name_window(client_, kToplevel, 0, title.data(), title.size()) != 0 ||
       oxyos_client_name_window(client_, kToplevel, 1, appId.data(), appId.size()) != 0) {
