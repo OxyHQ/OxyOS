@@ -5,7 +5,7 @@ import { Box } from "./primitives";
 import type { ShellActions, ShellCommand, ShellSnapshot } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
 import { TopBar } from "./components/TopBar";
-import { Dock } from "./components/Dock";
+import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
 import { Launchpad } from "./components/Launchpad";
 import { inPlace, type ShellPlatform } from "./platform";
@@ -70,28 +70,34 @@ export function Shell({
           className="min-h-0 flex-1"
           pointerEvents={view === "desktop" ? "box-none" : "auto"}
         >
-          {view !== "desktop" && (
+          {view === "overview" && (
             <Surface kind="overlay" style={StyleSheet.absoluteFill}>
-              {view === "overview" && (
-                <Overview
-                  snapshot={snapshot}
-                  actions={actions}
-                  dismiss={dismiss}
-                  escapeRequest={escapeRequest}
-                />
-              )}
-              {view === "launcher" && (
-                <Launchpad
-                  escapeRequest={escapeRequest}
-                  applications={snapshot.applications}
-                  folders={snapshot.folders}
-                  launch={activateApp}
-                  dismiss={dismiss}
-                />
-              )}
+              <Overview
+                snapshot={snapshot}
+                actions={actions}
+                dismiss={dismiss}
+                escapeRequest={escapeRequest}
+              />
             </Surface>
           )}
         </Box>
+        {/* The launcher covers the whole screen, the top bar included, but the dock: as Launchpad
+            covers the menu bar and leaves the Dock, whose button closes it again. */}
+        {view === "launcher" && (
+          <Surface
+            kind="overlay"
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: DOCK_HEIGHT }}
+          >
+            <Launchpad
+              escapeRequest={escapeRequest}
+              applications={snapshot.applications}
+              folders={snapshot.folders}
+              wallpaper={wallpaper}
+              launch={activateApp}
+              dismiss={dismiss}
+            />
+          </Surface>
+        )}
         <Surface kind="panel" edge="bottom" exclusive>
           <Dock
             snapshot={snapshot}

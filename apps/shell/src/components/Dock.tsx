@@ -7,6 +7,9 @@ import { Box, Scroll } from "../primitives";
 import { AppIcon } from "../apps";
 import type { ShellSnapshot } from "../model";
 
+/** The shelf's height: the work area ends above it, and the launcher's overlay with it. */
+export const DOCK_HEIGHT = 56;
+
 export function Dock({
   snapshot,
   view,
@@ -48,8 +51,15 @@ export function Dock({
   return (
     <Box
       testID="shell-dock"
-      className="h-14 shrink-0 items-center justify-center border-t border-[#e5e9ef] bg-[#f7f9fc]"
-      style={{ zIndex: 40 }}
+      className="shrink-0 items-center justify-center overflow-hidden border-t border-[#e5e9ef] bg-[#f7f9fc]"
+      // The shelf's top corners are fully rounded, as ChromeOS's shelf: the wallpaper shows
+      // past them.
+      style={{
+        height: DOCK_HEIGHT,
+        borderTopLeftRadius: DOCK_HEIGHT / 2,
+        borderTopRightRadius: DOCK_HEIGHT / 2,
+        zIndex: 40,
+      }}
       onLayout={(event) => setRowWidth(event.nativeEvent.layout.width)}
     >
       <Scroll
