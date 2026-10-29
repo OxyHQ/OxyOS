@@ -11,6 +11,7 @@
 #include <worklets/Tools/UIScheduler.h>
 #include <worklets/WorkletRuntime/RuntimeBindings.h>
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 
@@ -37,6 +38,10 @@ double nowMs() {
 
 // The host's single thread is both the JS and the UI thread.
 class LoopUIScheduler : public worklets::UIScheduler {
+ public:
+  // Whether UI jobs are queued for the next triggerUI.
+  bool pending() { return !uiJobs_.empty(); }
+
  protected:
   bool queryIsOnUIThread() const override { return true; }
 };
@@ -99,8 +104,9 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
   return module;
 }
 
-void WorkletsHost::tick() {
+bool WorkletsHost::tick() {
   // UIScheduler::triggerUI drains every queued UI job.
+  bool ran = std::static_pointer_cast<LoopUIScheduler>(ui_)->pending();
   ui_->triggerUI();
   double now = nowMs();
   if (!frames_->empty() && now - lastFrame_ >= 1000.0 / 60) {
@@ -108,7 +114,16 @@ void WorkletsHost::tick() {
     auto callbacks = std::move(*frames_);
     frames_->clear();
     for (auto& callback : callbacks) callback(now);
+    ran = true;
   }
+  return ran;
+}
+
+std::optional<std::chrono::steady_clock::time_point> WorkletsHost::nextFrame() const {
+  if (frames_->empty()) return std::nullopt;
+  double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
+  return std::chrono::steady_clock::now() +
+         std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }
 
 }  // namespace oxyos
