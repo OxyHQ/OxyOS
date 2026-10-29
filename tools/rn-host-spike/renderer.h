@@ -155,10 +155,33 @@ inline bool ownSurface(const std::string& name) { return name == kPopupComponent
 // takes the window's input while it is shown.
 inline constexpr const char* kModalComponent = "ModalHostView";
 inline bool isModal(const std::string& name) { return name == kModalComponent; }
-// Where a view's `transform` moves it, in logical pixels: the translation of its resolved
-// matrix (transform origin included), applied to its subtree as drawn, hit and measured. Scale,
-// rotation and skew are not drawn: such a view keeps its size, placed where the transform takes
-// its centre, and the host reports it once.
+// A 2D affine map: x' = a x + c y + tx, y' = b x + d y + ty.
+struct Affine {
+  float a = 1, b = 0, c = 0, d = 1, tx = 0, ty = 0;
+  facebook::react::Point apply(facebook::react::Point p) const { return {a * p.x + c * p.y + tx, b * p.x + d * p.y + ty}; }
+  // This map after `inner`: first `inner`, then this one.
+  Affine after(const Affine& inner) const {
+    return {a * inner.a + c * inner.b, b * inner.a + d * inner.b, a * inner.c + c * inner.d,
+            b * inner.c + d * inner.d, a * inner.tx + c * inner.ty + tx, b * inner.tx + d * inner.ty + ty};
+  }
+  static Affine translation(float x, float y) { return {1, 0, 0, 1, x, y}; }
+  bool translates() const { return a == 1 && b == 0 && c == 0 && d == 1; }
+  float determinant() const { return a * d - b * c; }
+  // The inverse map; only for a map whose determinant is not zero.
+  Affine inverse() const {
+    float k = 1 / determinant();
+    return {d * k, -b * k, -c * k, a * k, (c * ty - d * tx) * k, (b * tx - a * ty) * k};
+  }
+  // The smallest rectangle holding the map of `rect`.
+  facebook::react::Rect bounds(const facebook::react::Rect& rect) const;
+};
+// A view's `transform`, as Android applies a view's matrix: from the view's own coordinates (its
+// frame's origin at 0, 0) to its parent's, its frame's origin included, around its transform origin.
+// Its subtree is drawn, hit and damaged through it. A 3D transform is drawn as its projection onto
+// the screen's plane, without perspective, and the host reports it once.
+Affine viewTransform(const facebook::react::ShadowView& view);
+// Where a view's `transform` takes its centre, less the centre: how far a view is measured to have
+// moved (windowFrame), its size kept.
 facebook::react::Point transformOffset(const facebook::react::ShadowView& view);
 // The modals shown in the window, in the order they are drawn: the last is on top.
 std::vector<facebook::react::Tag> modals(const ViewTree& tree);
