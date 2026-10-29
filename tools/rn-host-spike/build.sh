@@ -201,3 +201,7 @@ python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/clipboard.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-clipboard"
+# A touchpad pinch: two fingers to React Native and to gesture handlers' pinch and rotation.
+python3 "$HERE/regress.py" "$HERE/scenarios/pinch.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-pinch"

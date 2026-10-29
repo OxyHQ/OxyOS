@@ -29,6 +29,7 @@ Rows not in this list are not checked.
 | C++ shadow nodes, props and state | The Android text input's, built unchanged from a private copy patched with the `RN_SERIALIZABLE_STATE` guard upstream lacks (`patches/`). The horizontal scroll content view's is built unchanged. |
 | TurboModule specs | The Android specs (for example `PlatformConstants`), answered by the host's own modules below. |
 | Events | Android's text-input events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`) with Android's payloads. |
+| Touchpad pinch (`input.h`) | As Android 14's touchpad stack gives one to applications (inputflinger's `GestureConverter`): two fingers around the pointer, starting `INITIAL_PINCH_SEPARATION_PX` (200 of the display's pixels) apart side by side, finger 0 down then finger 1, both moving as the spread changes, then finger 1 up and finger 0 up, as touches to React Native (the target under finger 0) and as fingers (RNGH's pointer type 0) to gesture handlers. One difference, stated: Android's fingers never turn, and these turn as libinput reports the user's fingers turning, so rotation handlers see a touchpad's twist. A pinch libinput cancels cancels both fingers. `scenarios/pinch.json` checks it. |
 | Assets | Android's resource layout (`drawable-*`, `raw/`), computed by React Native's own path helpers. |
 
 ## What OxyOS implements

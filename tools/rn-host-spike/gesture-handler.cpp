@@ -255,6 +255,31 @@ void GestureHandlerHost::pointer(Phase phase, const SurfaceContent& content, flo
   deliver();
 }
 
+void GestureHandlerHost::fingers(uint8_t action, size_t index, const SurfaceContent& content,
+                                 const std::vector<Point>& points) {
+  if (index >= points.size()) return;
+  std::vector<OxyOSGesturePointer> pointers;
+  for (size_t i = 0; i < points.size(); ++i) {
+    pointers.push_back({static_cast<uint32_t>(i), content.origin.x + points[i].x, content.origin.y + points[i].y});
+  }
+  // A finger going down finds the handlers under it, as the first did.
+  std::vector<int32_t> hits;
+  if (action == OXYOS_GESTURE_DOWN || action == OXYOS_GESTURE_POINTER_DOWN) {
+    const auto& point = pointers[index];
+    Tag target = gestureHitTest(tree_, content, points[index].x, points[index].y,
+                                [&](Tag view) { return reaches(view, point.x, point.y); });
+    if (target >= 0) {
+      auto path = ancestry(tree_, target);
+      hits.assign(path.rbegin(), path.rend());
+    }
+  }
+  if (oxyos_gestures_touch(gestures_, action, index, pointers.data(), pointers.size(), now(), 0, hits.data(),
+                           hits.size(), &GestureHandlerHost::frameOf, this) != 0) {
+    reportOnce(oxyos_last_error());
+  }
+  deliver();
+}
+
 bool GestureHandlerHost::tick() {
   oxyos_gestures_tick(gestures_, now());
   return deliver();

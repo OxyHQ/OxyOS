@@ -56,6 +56,13 @@ pub const OXYOS_EVENT_WINDOW_CLOSED: u32 = 40;
 pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
 /// To an application: the shell asks it to close a window.
 pub const OXYOS_EVENT_CLOSE_REQUESTED: u32 = 42;
+/// A touchpad pinch over one of the client's surfaces.
+pub const OXYOS_EVENT_PINCH: u32 = 43;
+/// A pinch's phase (OxyOSEvent.detail of a PINCH event).
+pub const OXYOS_PINCH_BEGIN: u32 = 1;
+pub const OXYOS_PINCH_UPDATE: u32 = 2;
+pub const OXYOS_PINCH_END: u32 = 3;
+pub const OXYOS_PINCH_CANCEL: u32 = 4;
 /// A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event).
 pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
 pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
@@ -92,6 +99,8 @@ pub struct OxyOSEvent {
     pub scale_120: u32,
     pub detail: u32,
     pub code: u32,
+    pub scale_65536: u32,
+    pub rotation_256: i32,
     pub flag: u8,
     /// A text event's UTF-8, NUL-terminated.
     pub text: [u8; TEXT_CHUNK_BYTES + 1],
@@ -110,6 +119,8 @@ impl Default for OxyOSEvent {
             scale_120: 0,
             detail: 0,
             code: 0,
+            scale_65536: 0,
+            rotation_256: 0,
             flag: 0,
             text: [0; TEXT_CHUNK_BYTES + 1],
         }
@@ -331,6 +342,27 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_RELEASED,
                 surface,
                 serial: buffer,
+                ..out
+            }
+        }
+        Event::Pinch {
+            surface,
+            serial,
+            phase,
+            x,
+            y,
+            scale_65536,
+            rotation_256,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_PINCH,
+                surface,
+                serial,
+                x,
+                y,
+                detail: phase as u32,
+                scale_65536,
+                rotation_256,
                 ..out
             }
         }

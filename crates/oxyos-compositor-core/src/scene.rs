@@ -15,9 +15,9 @@
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
-    BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
-    MAX_DIMENSION,
+    BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
+    PointerKind, Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind,
+    MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -280,6 +280,9 @@ pub struct Scene {
     buttons_down: u32,
     swallowed_releases: u32,
     touches: BTreeMap<u32, Option<SurfaceKey>>,
+    /// The surface a touchpad pinch going on goes to (the one under the pointer when it began),
+    /// or none if it began over nothing or its surface went.
+    pinch: Option<SurfaceKey>,
     last_press: Option<Press>,
     /// Serial of the latest user press, key or touch-down, delivered or consumed.
     last_user_serial: u64,
@@ -1725,6 +1728,9 @@ impl Scene {
 
     /// Clears input state that refers to `key` without delivering events to it.
     fn detach_input(&mut self, key: SurfaceKey) {
+        if self.pinch == Some(key) {
+            self.pinch = None;
+        }
         if self.capture == Some(key) {
             self.capture = None;
             self.swallowed_releases = self.buttons_down;
@@ -2502,6 +2508,36 @@ impl Scene {
                 serial,
                 dx,
                 dy,
+            },
+        );
+    }
+
+    /// A touchpad pinch: it goes to the surface under the pointer when it began (as a scroll
+    /// does) until it ends, at the pointer, which a pinch does not move. `scale_65536` and
+    /// `rotation_256` are as the Pinch event carries them. A pinch that began over no surface,
+    /// or whose surface went, reaches nothing.
+    pub fn pointer_pinch(&mut self, phase: GesturePhase, scale_65536: u32, rotation_256: i32) {
+        if phase == GesturePhase::Begin {
+            self.pinch = self.pointer_target();
+        }
+        let Some(target) = self.pinch else {
+            return;
+        };
+        if matches!(phase, GesturePhase::End | GesturePhase::Cancel) {
+            self.pinch = None;
+        }
+        let serial = self.next_serial();
+        let (x, y) = self.local(target, self.pointer.0, self.pointer.1);
+        self.emit(
+            target.client,
+            Event::Pinch {
+                surface: target.id,
+                serial,
+                phase,
+                x,
+                y,
+                scale_65536,
+                rotation_256,
             },
         );
     }

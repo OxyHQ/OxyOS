@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <cmath>
+#include <numbers>
 #include <optional>
 #include <string>
 
@@ -108,16 +110,82 @@ Tag gestureHitTest(const ViewTree& tree, const SurfaceContent& content, float x,
 }
 
 void PointerInput::cancelResponder() {
-  if (!down_ || responderCancelled_) return;
-  dispatch(Phase::Cancel, x_, y_);
+  if ((!down_ && !pinching_) || responderCancelled_) return;
+  if (pinching_) {
+    dispatchTouches(Phase::Cancel, pinchFingers(pinchSpread_, pinchDegrees_), std::nullopt);
+  } else {
+    dispatch(Phase::Cancel, x_, y_);
+  }
   responderCancelled_ = true;
+}
+
+std::vector<PointerInput::Finger> PointerInput::pinchFingers(float spread, float degrees) const {
+  constexpr float kInitialSeparation = 200;  // GestureConverter's INITIAL_PINCH_SEPARATION_PX
+  float half = kInitialSeparation / scale_ * spread / 2;
+  float radians = degrees * std::numbers::pi_v<float> / 180;
+  float dx = half * std::cos(radians), dy = half * std::sin(radians);
+  return {Finger{identifier_ - 1, pinchCentre_.x - dx, pinchCentre_.y - dy},
+          Finger{identifier_, pinchCentre_.x + dx, pinchCentre_.y + dy}};
+}
+
+void PointerInput::pinch(const SurfaceContent& content, const OxyOSEvent& event) {
+  auto points = [](const std::vector<Finger>& fingers) {
+    std::vector<Point> out;
+    for (const auto& finger : fingers) out.push_back(Point{finger.x, finger.y});
+    return out;
+  };
+  if (event.detail == OXYOS_PINCH_BEGIN) {
+    // Not while the button holds a touch.
+    if (down_ || pinching_) return;
+    content_ = content;
+    pinchCentre_ = Point{event.x / 256.0f, event.y / 256.0f};
+    pinchSpread_ = 1;
+    pinchDegrees_ = 0;
+    identifier_ += 2;
+    auto fingers = pinchFingers(1, 0);
+    // As a touch, the gesture's target is under the first finger down.
+    target_ = hitTest(tree_, content_, fingers[0].x, fingers[0].y);
+    if (target_ < 0) return;
+    pinching_ = true;
+    responderCancelled_ = false;
+    dispatchTouches(Phase::Start, {fingers[0]}, 0);
+    if (fingers_) fingers_(OXYOS_GESTURE_DOWN, 0, content_, points({fingers[0]}));
+    if (!responderCancelled_) dispatchTouches(Phase::Start, fingers, 1);
+    if (fingers_) fingers_(OXYOS_GESTURE_POINTER_DOWN, 1, content_, points(fingers));
+    return;
+  }
+  if (!pinching_) return;
+  pinchSpread_ = event.scale_65536 / 65536.0f;
+  pinchDegrees_ = event.rotation_256 / 256.0f;
+  auto fingers = pinchFingers(pinchSpread_, pinchDegrees_);
+  switch (event.detail) {
+    case OXYOS_PINCH_UPDATE:
+      if (!responderCancelled_) dispatchTouches(Phase::Move, fingers, std::nullopt);
+      if (fingers_) fingers_(OXYOS_GESTURE_MOVE, 0, content_, points(fingers));
+      break;
+    case OXYOS_PINCH_END:
+      if (!responderCancelled_) dispatchTouches(Phase::End, fingers, 1);
+      if (fingers_) fingers_(OXYOS_GESTURE_POINTER_UP, 1, content_, points(fingers));
+      if (!responderCancelled_) dispatchTouches(Phase::End, {fingers[0]}, 0);
+      if (fingers_) fingers_(OXYOS_GESTURE_UP, 0, content_, points({fingers[0]}));
+      pinching_ = false;
+      break;
+    case OXYOS_PINCH_CANCEL:
+      if (!responderCancelled_) dispatchTouches(Phase::Cancel, fingers, std::nullopt);
+      if (fingers_) fingers_(OXYOS_GESTURE_CANCEL, 0, content_, points(fingers));
+      pinching_ = false;
+      break;
+    default:
+      break;
+  }
 }
 
 void PointerInput::handle(const OxyOSEvent& event) {
   // Protocol positions and distances are in 1/256 logical pixels.
-  if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER) return;
+  if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
   auto content = surfaces_(event.surface);
   if (!content) return;
+  if (event.kind == OXYOS_EVENT_PINCH) return pinch(*content, event);
   if (event.kind == OXYOS_EVENT_SCROLL) {
     content_ = *content;
     return scroll(event.x / 256.0f, event.y / 256.0f);
@@ -131,7 +199,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
   if (event.detail == OXYOS_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
   switch (event.detail) {
     case OXYOS_POINTER_PRESS:
-      if (event.code == kPrimaryButton && !down_) {
+      if (event.code == kPrimaryButton && !down_ && !pinching_) {
         target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
         down_ = true;
@@ -248,29 +316,39 @@ void PointerInput::scroll(float dx, float dy) {
 }
 
 void PointerInput::dispatch(Phase phase, float x, float y) {
+  dispatchTouches(phase, {Finger{identifier_, x, y}}, std::nullopt);
+}
+
+void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& fingers, std::optional<size_t> changed) {
   auto it = tree_.views().find(target_);
   if (it == tree_.views().end()) return;
   auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
   if (!emitter) return;
-  // Touches are reported in root coordinates, where React Native measures views; a popup's
-  // content sits at its popup view's place in the tree.
-  Point page{content_.origin.x + x, content_.origin.y + y};
   Point targetOrigin = windowFrame(tree_, target_).value_or(Rect{}).origin;
-  Touch touch{};
-  touch.pagePoint = page;
-  touch.screenPoint = page;
-  touch.offsetPoint = {page.x - targetOrigin.x, page.y - targetOrigin.y};
-  touch.identifier = identifier_;
-  touch.target = target_;
-  touch.force = phase == Phase::End || phase == Phase::Cancel ? 0 : 1;
-  touch.timestamp =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch_).count();
+  double timestamp = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch_).count();
+  bool lifted = phase == Phase::End || phase == Phase::Cancel;
   TouchEvent event{};
-  event.changedTouches.insert(touch);
-  if (phase == Phase::Start || phase == Phase::Move) {
-    event.touches.insert(touch);
-    event.targetTouches.insert(touch);
+  for (size_t i = 0; i < fingers.size(); ++i) {
+    // Touches are reported in root coordinates, where React Native measures views; a popup's
+    // content sits at its popup view's place in the tree.
+    Point page{content_.origin.x + fingers[i].x, content_.origin.y + fingers[i].y};
+    Touch touch{};
+    touch.pagePoint = page;
+    touch.screenPoint = page;
+    touch.offsetPoint = {page.x - targetOrigin.x, page.y - targetOrigin.y};
+    touch.identifier = fingers[i].identifier;
+    touch.target = target_;
+    bool isChanged = !changed || *changed == i;
+    touch.force = lifted && isChanged ? 0 : 1;
+    touch.timestamp = timestamp;
+    if (isChanged) event.changedTouches.insert(touch);
+    if (!(lifted && isChanged)) {
+      event.touches.insert(touch);
+      event.targetTouches.insert(touch);
+    }
   }
+  const Finger& actor = fingers[changed.value_or(0)];
+  Point page{content_.origin.x + actor.x, content_.origin.y + actor.y};
   static const char* events[] = {"touchStart", "touchMove", "touchEnd", "touchCancel"};
   if (Report::get().enabled()) {
     // The nearest ancestor with a testID names what was touched (the target is often its text).
@@ -281,12 +359,13 @@ void PointerInput::dispatch(Phase phase, float x, float y) {
       if (props && !props->testId.empty()) within = props->testId;
     }
     Report::get().deliver(events[static_cast<int>(phase)], content_.surface, it->second.view,
-                          folly::dynamic::object("x", page.x)("y", page.y)("within", within));
+                          folly::dynamic::object("x", page.x)("y", page.y)("within", within)(
+                              "touches", static_cast<int>(event.touches.size())));
   }
   if (std::getenv("OXYOS_HOST_TRACE")) {
     static const char* names[] = {"start", "move", "end", "cancel"};
-    std::cerr << "[input] touch " << names[static_cast<int>(phase)] << " target " << target_ << " at " << x << ","
-              << y << "\n";
+    std::cerr << "[input] touch " << names[static_cast<int>(phase)] << " target " << target_ << " at "
+              << actor.x << "," << actor.y << " (" << event.touches.size() << " down)\n";
   }
   switch (phase) {
     case Phase::Start:

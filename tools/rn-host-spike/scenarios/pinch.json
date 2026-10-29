@@ -1,0 +1,32 @@
+{
+  "about": "",
+  "module": "PinchProbe",
+  "window": [
+    600,
+    400
+  ],
+  "steps": [
+    {
+      "name": "a pinch over a view reaches it as two fingers, as Android's touchpad pinch does: the first down, then the second, both moving as they spread to 150%, then the second up and the first",
+      "do": [
+        "pinch",
+        [
+          150,
+          170,
+          150,
+          0
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "fingers 0, most 2, spread 1.50"
+        ],
+        "react": {
+          "touchStart@touch-area": 2,
+          "touchMove@touch-area": 8,
+          "touchEnd@touch-area": 2
+        }
+      }
+    }
+  ]
+}

@@ -3,6 +3,9 @@
 //! compositor owns the keymap and sends applications text, never key codes to translate
 //! (docs/native-foundation.mdx).
 
+use input::event::gesture::{
+    GestureEndEvent, GestureEvent, GesturePinchEvent, GesturePinchEventTrait,
+};
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
 use input::event::pointer::{Axis, ButtonState, PointerScrollEvent};
 use input::event::{KeyboardEvent, PointerEvent};
@@ -49,6 +52,25 @@ pub enum Action {
     /// The keymap's end of the session (Ctrl+Alt+Backspace, XKB's `terminate:ctrl_alt_bksp`),
     /// which no application sees as a key.
     Terminate,
+    /// A touchpad pinch (two or more fingers spreading, closing or turning; libinput tells it from
+    /// a two-finger scroll): `scale` is the fingers' spread over their spread when it began, and
+    /// `rotation` how far they have turned since, in degrees, clockwise.
+    Pinch {
+        phase: GesturePhase,
+        scale: f64,
+        rotation: f64,
+    },
+}
+
+/// Where a touchpad gesture is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GesturePhase {
+    Begin,
+    Update,
+    End,
+    /// Ended without effect: libinput took the fingers for another gesture, or one was lifted
+    /// too soon.
+    Cancel,
 }
 
 /// What a key does.
@@ -331,6 +353,8 @@ pub struct Input {
     keyboard: Keyboard,
     bounds: (f64, f64),
     pointer: (f64, f64),
+    /// The pinch going on: how far its fingers have turned (libinput reports each step's turn).
+    pinch_rotation: f64,
 }
 
 impl Input {
@@ -361,6 +385,7 @@ impl Input {
             keyboard: Keyboard::new(layout)?,
             pointer: (bounds.0 / 2.0, bounds.1 / 2.0),
             bounds,
+            pinch_rotation: 0.0,
         })
     }
 
@@ -418,6 +443,19 @@ impl Input {
                 input::Event::Pointer(PointerEvent::ScrollContinuous(scroll)) => {
                     actions.push(scroll_action(&scroll))
                 }
+                input::Event::Gesture(GestureEvent::Pinch(pinch)) => {
+                    let (phase, angle) = match &pinch {
+                        GesturePinchEvent::Begin(_) => (GesturePhase::Begin, 0.0),
+                        GesturePinchEvent::Update(update) => {
+                            (GesturePhase::Update, update.angle_delta())
+                        }
+                        GesturePinchEvent::End(end) if end.cancelled() => {
+                            (GesturePhase::Cancel, 0.0)
+                        }
+                        _ => (GesturePhase::End, 0.0),
+                    };
+                    actions.push(self.pinch(phase, pinch.scale(), angle));
+                }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
                     let pressed = key.key_state() == KeyState::Pressed;
                     match self.keyboard.key(key.key(), pressed) {
@@ -440,6 +478,19 @@ impl Input {
             }
         }
         Ok(actions)
+    }
+
+    /// A pinch step: its rotation is the sum of the turns libinput reported since it began.
+    fn pinch(&mut self, phase: GesturePhase, scale: f64, angle_delta: f64) -> Action {
+        if phase == GesturePhase::Begin {
+            self.pinch_rotation = 0.0;
+        }
+        self.pinch_rotation += angle_delta;
+        Action::Pinch {
+            phase,
+            scale,
+            rotation: self.pinch_rotation,
+        }
     }
 
     fn move_to(&mut self, x: f64, y: f64) {
