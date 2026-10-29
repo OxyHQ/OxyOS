@@ -20,6 +20,7 @@ Every surface appears and goes at once: a window is there on the frame its first
    - **The shell's overlays** (the launcher, the overview): they fade in and settle from 104 % to their size, 200 ms; they fade out, 150 ms.
    - **The lock** ([ADR 0010](./0010-lock-screen)): the covers are opaque on the next frame, as they are now: protection is never animated. The lock screen's surface fades in over them, 250 ms; on unlock it fades out, 250 ms, over the desktop shown again.
    - **The shell's panels**, when the session starts: they fade in, 250 ms.
+   - **The session's start:** from its first frame until its shell is on screen, the session shows the Oxy mark, white, centred on black (an eighth of the output's height, Bloom's drawing of it, the one the Oxy SDK ships), as a Mac shows its own while it starts; it then fades out over the shell, 400 ms. It is the compositor's own frame (`splash.rs`), drawn over everything.
 
    What a surface shows is never changed by its transition: it is drawn whole, scaled about its centre, at an opacity. Input goes by a surface's real geometry from its first frame, and never to a surface going away; a transition never delays a configure, a frame's feedback or an event. Applications keep animating their own content (Bloom, Reanimated, the host's modal windows as on Android); nothing is added to the protocol.
 

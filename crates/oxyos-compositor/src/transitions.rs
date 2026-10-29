@@ -140,6 +140,25 @@ impl Transitions {
         ));
     }
 
+    /// A frame of the compositor's own (the session's splash) fades out over what is shown, 400
+    /// ms; it goes as a panel does, so a lock would drop it.
+    pub fn fade(&mut self, snapshot: Snapshot, now: Duration) {
+        let key = SurfaceKey {
+            client: u32::MAX,
+            id: u32::MAX,
+        };
+        self.going.retain(|(going, _, _)| *going != key);
+        self.going.push((
+            key,
+            Running {
+                kind: Kind::Panel,
+                started: now,
+                motion: motion(400, 1000),
+            },
+            snapshot,
+        ));
+    }
+
     /// Where an arriving surface is at `now`; `WHOLE` for any other.
     pub fn arriving(&self, key: SurfaceKey, now: Duration) -> Frame {
         let Some(running) = self.arriving.get(&key) else {

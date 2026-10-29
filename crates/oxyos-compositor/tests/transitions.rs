@@ -177,3 +177,25 @@ fn locking_shows_nothing_of_the_session_going() {
     assert_eq!(s.at(280, centre), 0);
     assert!(s.compositor.transitions.is_empty());
 }
+
+#[test]
+fn the_splash_shows_the_mark_until_the_session_is_on_screen_then_fades_out() {
+    let (mut s, centre) = session("splash");
+    // Shown once nothing changes any more: the next frame has it.
+    assert_eq!(s.at(200, centre), WHITE);
+    assert_eq!(s.at(300, centre), WHITE);
+    s.compositor.show_splash();
+    // Over everything: the window under it is not seen; the mark is white at the centre, black
+    // around.
+    let mark = (320, 240);
+    assert_eq!(s.at(300, mark), WHITE);
+    assert_eq!(s.at(201, centre), WHITE);
+    assert_eq!(s.at(202, (5, 5)), 0);
+    // The session is on screen: it fades out over 400 ms, the desktop seen through it.
+    s.compositor.end_splash();
+    assert_eq!(s.at(203, (5, 5)), 0);
+    assert_ne!(s.at(400, (5, 5)), 0);
+    assert_eq!(s.at(603, (5, 5)), DESKTOP);
+    assert!(s.compositor.transitions.is_empty());
+    assert!(!s.compositor.showing_splash());
+}
