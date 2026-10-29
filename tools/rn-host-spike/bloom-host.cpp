@@ -821,14 +821,15 @@ int main(int argc, char** argv) {
         shellSurfaces.present(drawn, focusName());
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
-        // image decoder, a paste's pipe, or the next timer of JavaScript's or a gesture handler's.
+        // image decoder, a paste's pipe, the next timer of JavaScript's or a gesture handler's, or
+        // the next frame for worklets' frame callbacks.
         // It waits only after a second idle turn, since what one turn dispatches (an event for
         // Fabric's beat) is delivered on the next; and at most a second, should anything else
         // need a turn.
         idleTurns = busy ? 0 : idleTurns + 1;
         if (idleTurns >= 2) {
           auto deadline = Clock::now() + std::chrono::seconds(1);
-          for (auto due : {timers->next(), gestures->nextDeadline()}) {
+          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame()}) {
             if (due && *due < deadline) deadline = *due;
           }
           std::vector<pollfd> fds;

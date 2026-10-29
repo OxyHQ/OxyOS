@@ -11,6 +11,7 @@
 #include <worklets/Tools/UIScheduler.h>
 #include <worklets/WorkletRuntime/RuntimeBindings.h>
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 
@@ -113,9 +114,16 @@ bool WorkletsHost::tick() {
     auto callbacks = std::move(*frames_);
     frames_->clear();
     for (auto& callback : callbacks) callback(now);
+    ran = true;
   }
-  // Frame callbacks waiting for their frame keep the loop turning, as an animation does.
-  return ran || !frames_->empty();
+  return ran;
+}
+
+std::optional<std::chrono::steady_clock::time_point> WorkletsHost::nextFrame() const {
+  if (frames_->empty()) return std::nullopt;
+  double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
+  return std::chrono::steady_clock::now() +
+         std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }
 
 }  // namespace oxyos

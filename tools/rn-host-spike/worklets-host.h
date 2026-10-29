@@ -8,7 +8,9 @@
 #include <jsi/jsi.h>
 
 #include <functional>
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace worklets {
@@ -32,8 +34,10 @@ class WorkletsHost {
   // The host has one thread: the UI runtime runs on it between React Native's tasks. Worklets
   // requests a frame every frame, so a frame is not work by itself: what an animation changes
   // reaches the host as a mount.
-  // Runs queued UI jobs and the frame callbacks due; true if it ran any or callbacks wait.
+  // Runs queued UI jobs and the frame callbacks due (at most 60 times a second); true if it ran any.
   bool tick();
+  // When frame callbacks waiting for a frame are next due, if any wait: the loop sleeps until then.
+  std::optional<std::chrono::steady_clock::time_point> nextFrame() const;
 
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy() const { return proxy_; }
   std::shared_ptr<worklets::UIScheduler> uiScheduler() const { return ui_; }
