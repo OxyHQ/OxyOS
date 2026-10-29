@@ -11,13 +11,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
   name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
   does not list fails it, which catches duplicated and leaked events;
-- delivered: compositor input routed to the application per surface (exact), plus `leaked`,
+- delivered: compositor input routed to the application per surface (exact), plus `leaked`
+  (what the session's shell takes is its own, never leaked),
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost) and the "work_area"
   they leave, exactly;
 - output_pixels: as pixels, in output coordinates rather than the window's;
+- window_shown: whether the application's window is on the screen (a minimized one is not);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -67,7 +69,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "key", "move_window", "resize_window", "scale", "a11y_action",
+             "compose_keys", "im_change", "drag", "key", "move_window", "resize_window", "minimize_window", "scale",
+             "a11y_action",
              "expect_popup", "switch_terminal"}
 
 
@@ -96,6 +99,8 @@ def director_args(step):
         delete = value.get("delete", [0, 0])
         return args + ["--im-change", f"{delete[0]},{delete[1]}", value.get("commit", ""), value.get("preedit", ""),
                        "stale" if value.get("stale") else "current"]
+    if kind == "minimize_window":
+        return args + ["--minimize-window"]
     if kind == "transaction":
         # An input method's change (ADR 0008): {"delete": [before, after], "commit", "preedit",
         # "cursor": [begin, end], "segments": [[begin, end, "composing"|"converting"|"error"]]}.
@@ -277,6 +282,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "delivered" in expect:
         delivered = dict(result.get("delivered", {}))
         leaked = delivered.pop("leaked", 0)
+        # The session's shell takes its own input (its panels, the pointer leaving them).
+        delivered.pop("shell", None)
         if leaked:
             fail(f"{leaked} input events reached another client")
         if delivered != expect["delivered"]:
@@ -363,6 +370,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             got = [[f["width"], f["height"]] for s, f in frames.items() if (s == 1) == (role == "window")]
             if got != [size]:
                 fail(f"{role} frames are {got} px, expected [{size}]")
+    if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
+        fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
@@ -467,6 +476,10 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
+    # The application's title and id, as a session's launch records give them (ADR 0009).
+    for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
+        if key in scenario.get("app", {}):
+            env[name] = scenario["app"][key]
     # A local server for the scenario's probe, for as long as the run lasts, and the port after
     # it held bound without listening, so that connecting there is refused at once and nothing
     # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).

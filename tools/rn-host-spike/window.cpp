@@ -134,6 +134,17 @@ void Window::openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t 
   surfaces_[id] = Surface{};
 }
 
+void Window::nameWindow(const std::string& title, const std::string& appId) {
+  if (oxyos_client_name_window(client_, kToplevel, 0, title.data(), title.size()) != 0 ||
+      oxyos_client_name_window(client_, kToplevel, 1, appId.data(), appId.size()) != 0) {
+    failed("cannot name the window");
+  }
+}
+
+void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
+  if (oxyos_client_manage(client_, action, window, workspace) != 0) failed("cannot manage a window");
+}
+
 void Window::setInputRegion(uint32_t id, const OxyOSRect& region) {
   if (oxyos_client_set_input_region(client_, id, region.x, region.y, region.width, region.height) != 0) {
     failed("cannot set an input region");

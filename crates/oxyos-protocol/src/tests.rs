@@ -173,6 +173,28 @@ fn requests() -> Vec<Request> {
             surface: 3,
             size: Size::new(240, 120),
         },
+        Request::SetTitle {
+            surface: 1,
+            index: 0,
+            last: true,
+            text: PreeditText::new("Bandeja de entrada").unwrap(),
+        },
+        Request::SetAppId {
+            surface: 1,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.inbox").unwrap(),
+        },
+        Request::FocusWindow { window: 7 },
+        Request::CloseWindow { window: 7 },
+        Request::MinimizeWindow { window: 7 },
+        Request::MoveWindowToWorkspace {
+            window: 7,
+            workspace: 1,
+        },
+        Request::ActivateWorkspace { workspace: 1 },
+        Request::AddWorkspace {},
+        Request::RemoveWorkspace { workspace: 1 },
     ]
 }
 
@@ -345,6 +367,30 @@ fn events() -> Vec<Event> {
             pressed: true,
             text: PreeditText::new("a").unwrap(),
         },
+        Event::WindowState {
+            window: 7,
+            workspace: 1,
+            minimized: false,
+            focused: true,
+        },
+        Event::WindowTitle {
+            window: 7,
+            index: 0,
+            last: true,
+            text: PreeditText::new("Bandeja de entrada").unwrap(),
+        },
+        Event::WindowAppId {
+            window: 7,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.inbox").unwrap(),
+        },
+        Event::WindowClosed { window: 7 },
+        Event::Workspaces {
+            count: 2,
+            active: 1,
+        },
+        Event::CloseRequested { surface: 1 },
     ]
 }
 

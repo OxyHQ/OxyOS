@@ -132,6 +132,20 @@ messages! {
         // the caret of the field it serves, shown only while it serves one. Its configure carries
         // the size alone: the input method never learns where the caret is.
         42 => CreateInputCandidates { surface: u32, size: Size },
+        // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
+        // `index` 0 begins it, `last` applies it. The application id is the application's own
+        // claim until launch records give it; the shell shows it, nothing is authorized by it.
+        43 => SetTitle { surface: u32, index: u8, last: bool, text: PreeditText },
+        44 => SetAppId { surface: u32, index: u8, last: bool, text: PreeditText },
+        // The session's shell (the `shell` grant): acting on windows by the numbers the
+        // compositor gave them, and on workspaces (numbered from 0).
+        45 => FocusWindow { window: u32 },
+        46 => CloseWindow { window: u32 },
+        47 => MinimizeWindow { window: u32 },
+        48 => MoveWindowToWorkspace { window: u32, workspace: u32 },
+        49 => ActivateWorkspace { workspace: u32 },
+        50 => AddWorkspace {},
+        51 => RemoveWorkspace { workspace: u32 },
     }
 }
 
@@ -192,6 +206,16 @@ messages! {
         34 => InputMethodSelection { anchor: u32, cursor: u32 },
         35 => InputMethodDone { serial: u32 },
         36 => InputMethodKey { serial: u64, key: u32, pressed: bool, text: PreeditText },
+        // To the session's shell (ADR 0009): each window, by a number the compositor gives it
+        // (never a surface id), as it appears and changes, its title and application id in chunks
+        // as SetTitle's, its closing; and the workspaces and the active one.
+        37 => WindowState { window: u32, workspace: u32, minimized: bool, focused: bool },
+        38 => WindowTitle { window: u32, index: u8, last: bool, text: PreeditText },
+        39 => WindowAppId { window: u32, index: u8, last: bool, text: PreeditText },
+        40 => WindowClosed { window: u32 },
+        41 => Workspaces { count: u32, active: u32 },
+        // To an application: the shell asks it to close the window; it may refuse.
+        42 => CloseRequested { surface: u32 },
     }
 }
 

@@ -1512,3 +1512,164 @@ fn shell_surfaces_and_input_regions_through_the_c_abi() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn the_header_matches_the_window_management_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_WINDOW_STATE",
+            i64::from(OXYOS_EVENT_WINDOW_STATE),
+        ),
+        ("OXYOS_EVENT_WINDOW_TITLE", OXYOS_EVENT_WINDOW_TITLE.into()),
+        (
+            "OXYOS_EVENT_WINDOW_APP_ID",
+            OXYOS_EVENT_WINDOW_APP_ID.into(),
+        ),
+        (
+            "OXYOS_EVENT_WINDOW_CLOSED",
+            OXYOS_EVENT_WINDOW_CLOSED.into(),
+        ),
+        ("OXYOS_EVENT_WORKSPACES", OXYOS_EVENT_WORKSPACES.into()),
+        (
+            "OXYOS_EVENT_CLOSE_REQUESTED",
+            OXYOS_EVENT_CLOSE_REQUESTED.into(),
+        ),
+        ("OXYOS_WINDOW_MINIMIZED", OXYOS_WINDOW_MINIMIZED.into()),
+        ("OXYOS_WINDOW_FOCUSED", OXYOS_WINDOW_FOCUSED.into()),
+        ("OXYOS_MANAGE_FOCUS", OXYOS_MANAGE_FOCUS.into()),
+        ("OXYOS_MANAGE_CLOSE", OXYOS_MANAGE_CLOSE.into()),
+        ("OXYOS_MANAGE_MINIMIZE", OXYOS_MANAGE_MINIMIZE.into()),
+        ("OXYOS_MANAGE_MOVE", OXYOS_MANAGE_MOVE.into()),
+        (
+            "OXYOS_MANAGE_ACTIVATE_WORKSPACE",
+            OXYOS_MANAGE_ACTIVATE_WORKSPACE.into(),
+        ),
+        (
+            "OXYOS_MANAGE_ADD_WORKSPACE",
+            OXYOS_MANAGE_ADD_WORKSPACE.into(),
+        ),
+        (
+            "OXYOS_MANAGE_REMOVE_WORKSPACE",
+            OXYOS_MANAGE_REMOVE_WORKSPACE.into(),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    // The event kinds are the protocol's opcodes.
+    let state = Event::WindowState {
+        window: 1,
+        workspace: 0,
+        minimized: false,
+        focused: false,
+    };
+    assert_eq!(u32::from(state.opcode()), OXYOS_EVENT_WINDOW_STATE);
+    assert_eq!(
+        u32::from(Event::CloseRequested { surface: 1 }.opcode()),
+        OXYOS_EVENT_CLOSE_REQUESTED
+    );
+}
+
+#[test]
+fn window_events_convert_field_by_field() {
+    let state = convert(&Event::WindowState {
+        window: 7,
+        workspace: 2,
+        minimized: true,
+        focused: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (state.kind, state.code, state.detail, state.flag),
+        (
+            OXYOS_EVENT_WINDOW_STATE,
+            7,
+            2,
+            OXYOS_WINDOW_MINIMIZED | OXYOS_WINDOW_FOCUSED
+        )
+    );
+    let title = convert(&Event::WindowTitle {
+        window: 7,
+        index: 1,
+        last: true,
+        text: oxyos_protocol::PreeditText::new("entrada").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (title.kind, title.code, title.detail, title.flag),
+        (OXYOS_EVENT_WINDOW_TITLE, 7, 1, 1)
+    );
+    assert_eq!(&title.text[..8], b"entrada\0");
+    let spaces = convert(&Event::Workspaces {
+        count: 3,
+        active: 1,
+    })
+    .unwrap();
+    assert_eq!(
+        (spaces.kind, spaces.detail, spaces.code),
+        (OXYOS_EVENT_WORKSPACES, 3, 1)
+    );
+}
+
+#[test]
+fn naming_and_managing_windows_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-manage-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..4)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let title = "a".repeat(32) + "b";
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the title
+    // outlives the call.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_name_window(client, 1, 0, title.as_ptr().cast(), title.len()),
+            0
+        );
+        assert_eq!(oxyos_client_manage(client, 99, 1, 0), OXYOS_ERROR);
+        assert_eq!(oxyos_client_manage(client, OXYOS_MANAGE_MOVE, 7, 2), 0);
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_ADD_WORKSPACE, 0, 0),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        let chunk = |text: &str| oxyos_protocol::PreeditText::new(text).unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::SetTitle {
+                    surface: 1,
+                    index: 0,
+                    last: false,
+                    text: chunk(&"a".repeat(32)),
+                },
+                Request::SetTitle {
+                    surface: 1,
+                    index: 1,
+                    last: true,
+                    text: chunk("b"),
+                },
+                Request::MoveWindowToWorkspace {
+                    window: 7,
+                    workspace: 2,
+                },
+                Request::AddWorkspace {},
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

@@ -34,6 +34,15 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CLIPBOARD_TYPE 21
 #define OXYOS_EVENT_CLIPBOARD_EMPTY 22
 #define OXYOS_EVENT_TEXT_INPUT 29
+#define OXYOS_EVENT_WINDOW_STATE 37
+#define OXYOS_EVENT_WINDOW_TITLE 38
+#define OXYOS_EVENT_WINDOW_APP_ID 39
+#define OXYOS_EVENT_WINDOW_CLOSED 40
+#define OXYOS_EVENT_WORKSPACES 41
+#define OXYOS_EVENT_CLOSE_REQUESTED 42
+/* A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event). */
+#define OXYOS_WINDOW_MINIMIZED 1
+#define OXYOS_WINDOW_FOCUSED 2
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1
@@ -83,7 +92,14 @@ typedef struct OxyOSClient OxyOSClient;
  *   CLIPBOARD_EMPTY  the clipboard holds nothing.
  *   TEXT_INPUT  serial: the input's (a user input when it commits text, as a key press);
  *               detail: the field's commit serial it was made for. A transaction for a field with
- *               text input enabled is complete: oxyos_client_text_transaction gives it. */
+ *               text input enabled is complete: oxyos_client_text_transaction gives it.
+ *   To the session's shell (ADR 0009):
+ *   WINDOW_STATE  code: the window's number; detail: its workspace; flag: OXYOS_WINDOW_* bits.
+ *   WINDOW_TITLE, WINDOW_APP_ID  code: the window; detail: the chunk's index (0 begins it);
+ *               flag: whether it is the last; text: the chunk.
+ *   WINDOW_CLOSED  code: the window.
+ *   WORKSPACES  detail: how many; code: the active one (from 0).
+ *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -201,6 +217,21 @@ int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t
  * configure. */
 int oxyos_client_create_shell_surface(OxyOSClient* client, uint32_t surface, uint8_t kind, uint8_t edge,
                                       uint32_t output, uint32_t width, uint32_t height, uint32_t exclusive);
+/* Names a window: its title, or with a non-zero `app_id` its application id (`length` bytes of
+ * UTF-8; at most 256 for a title, 128 for an id). */
+int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_id, const char* text, size_t length);
+/* What the session's shell (the `shell` grant) asks of windows and workspaces. */
+#define OXYOS_MANAGE_FOCUS 1
+#define OXYOS_MANAGE_CLOSE 2
+#define OXYOS_MANAGE_MINIMIZE 3
+#define OXYOS_MANAGE_MOVE 4
+#define OXYOS_MANAGE_ACTIVATE_WORKSPACE 5
+#define OXYOS_MANAGE_ADD_WORKSPACE 6
+#define OXYOS_MANAGE_REMOVE_WORKSPACE 7
+/* Focuses (and restores, showing its workspace), closes (the application is asked), minimizes or
+ * moves (to `workspace`) the window numbered `window`; activates, adds or removes a workspace. */
+int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, uint32_t workspace);
+
 /* Limits where a surface takes pointer and touch input to a surface-local logical rectangle (an
  * empty one: nowhere); input elsewhere reaches what is below. */
 int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,

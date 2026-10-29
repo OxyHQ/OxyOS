@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
+import { useOxyOSShell } from './oxyos/shell-state';
 import { Shell } from '../../../apps/shell/src/Shell';
 import type { ShellActions, ShellSnapshot } from '../../../apps/shell/src/model';
 
@@ -75,14 +76,22 @@ const actions: ShellActions = {
   menuCommand: () => {},
 };
 
-/** The shell, its regions where `platform` draws them. */
-function ProbeShell({ platform }: { platform?: React.ComponentProps<typeof Shell>['platform'] }) {
+/** The shell, its regions where `platform` draws them, showing `snapshot`. */
+function ProbeShell({
+  platform,
+  shown = snapshot,
+  act = actions,
+}: {
+  platform?: React.ComponentProps<typeof Shell>['platform'];
+  shown?: ShellSnapshot;
+  act?: ShellActions;
+}) {
   return (
       <SafeAreaProvider>
         <BloomProvider mode="light" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
           <Shell
-            snapshot={snapshot}
-            actions={actions}
+            snapshot={shown}
+            actions={act}
             wallpaper={require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg')}
             now={new Date(2026, 9, 29, 9, 41)}
             platform={platform}
@@ -97,7 +106,46 @@ export default function ShellProbe() {
   return <ProbeShell />;
 }
 
-/** As the session's shell (`--shell`): the regions in panels and an overlay of their own. */
+/**
+ * As the session's shell (`--shell`): the regions in panels and an overlay of their own, and the
+ * compositor's windows and workspaces (ADR 0009) in place of the fixture's. The applications are
+ * still the fixture's: the registry comes with the session's launch records.
+ */
 export function ShellSession() {
-  return <ProbeShell platform={oxyosShell} />;
+  const shell = useOxyOSShell();
+  const state = shell.state;
+  if (!state) return <ProbeShell platform={oxyosShell} />;
+  const windows = state.windows.map((window: { id: number; appId: string; title: string; workspace: number; minimized: boolean }) => ({
+    id: String(window.id),
+    appId: window.appId,
+    title: window.title,
+    workspaceId: String(window.workspace),
+    minimized: window.minimized,
+  }));
+  const shown: ShellSnapshot = {
+    ...snapshot,
+    windows,
+    workspaces: Array.from({ length: state.workspaces }, (_, index) => ({
+      id: String(index),
+      name: `Escritorio ${index + 1}`,
+    })),
+    workspaceId: String(state.active),
+    activeAppId: state.windows.find((window: { focused: boolean }) => window.focused)?.appId,
+  };
+  const act: ShellActions = {
+    // The application's newest window, if it has one (ADR 0009: launching comes with the registry).
+    activateApp: (id) => {
+      const newest = state.windows
+        .filter((window: { appId: string }) => window.appId === id)
+        .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
+      if (newest) shell.focusWindow(newest.id);
+    },
+    focusWindow: (id) => shell.focusWindow(Number(id)),
+    closeWindow: (id) => shell.closeWindow(Number(id)),
+    activateWorkspace: (id) => shell.activateWorkspace(Number(id)),
+    moveWindowToWorkspace: (window, workspace) => shell.moveWindowToWorkspace(Number(window), Number(workspace)),
+    addWorkspace: () => shell.addWorkspace(),
+    menuCommand: () => {},
+  };
+  return <ProbeShell platform={oxyosShell} shown={shown} act={act} />;
 }
