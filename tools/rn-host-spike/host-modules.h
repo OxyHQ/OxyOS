@@ -103,6 +103,9 @@ struct HostServices {
   Networking& networking;
   ClipboardService clipboard{};
   ShellService shell{};
+  // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
+  // window; unset without one.
+  std::function<void(const std::string& text)> announce;
 };
 
 std::shared_ptr<facebook::react::TurboModule> createHostModule(

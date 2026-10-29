@@ -11,9 +11,9 @@
 
 use oxyos_client::{Accessible, Client, Field, Poll};
 use oxyos_protocol::{
-    AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, PanelEdge, Positioner,
-    Rect, Request, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose,
-    TEXT_CHUNK_BYTES,
+    AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity,
+    PanelEdge, Politeness, Positioner, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
+    TextHints, TextPurpose, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -189,6 +189,14 @@ pub struct OxyOSAccessibleNode {
     pub height: u32,
     pub name: *const c_char,
     pub value: *const c_char,
+    /// What it offers beyond activate and focus (`AccessibleActions` bits).
+    pub actions: u16,
+    /// Its custom actions' labels, one per line; null for none.
+    pub custom_actions: *const c_char,
+    /// A text field's selection, in bytes of its value, when non-zero.
+    pub has_selection: u8,
+    pub selection_start: u32,
+    pub selection_end: u32,
 }
 
 /// A focused text field, as `oxyos_client_text_input` takes it (ADR 0008).
@@ -448,6 +456,9 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             serial,
             index,
             action,
+            custom,
+            start,
+            end,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_ACCESSIBILITY_ACTION,
@@ -455,6 +466,9 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 serial,
                 detail: action as u32,
                 code: index,
+                width: custom,
+                x: start as i32,
+                y: end as i32,
                 ..out
             }
         }
@@ -462,6 +476,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::AccessibilityTree { .. }
         | Event::AccessibleNode { .. }
         | Event::AccessibleText { .. }
+        | Event::AccessibleSelection { .. }
+        | Event::AccessibilityAnnouncement { .. }
         | Event::AccessibilityCommitted { .. }
         | Event::AccessibilityRemoved { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
@@ -992,7 +1008,8 @@ pub unsafe extern "C" fn oxyos_client_reposition(
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`; `nodes` points to `count` nodes (or is
-/// NULL with `count` 0), whose `name` and `value` are NULL or NUL-terminated strings.
+/// NULL with `count` 0), whose `name`, `value` and `custom_actions` are NULL or NUL-terminated
+/// strings.
 #[allow(unsafe_code)]
 #[no_mangle]
 pub unsafe extern "C" fn oxyos_client_publish_accessibility(
@@ -1019,11 +1036,13 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
     };
     let mut accessible = Vec::with_capacity(nodes.len());
     for node in nodes {
-        let (Some(role), Some(state), Some(name), Some(value)) = (
+        let (Some(role), Some(state), Some(actions), Some(name), Some(value), Some(custom)) = (
             AccessibleRole::from_raw(node.role),
             AccessibleState::new(node.state),
+            AccessibleActions::new(node.actions),
             text(node.name),
             text(node.value),
+            text(node.custom_actions),
         ) else {
             return fail("invalid accessible node");
         };
@@ -1031,14 +1050,53 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
             parent: node.parent,
             role,
             state,
+            actions,
             rect: Rect::new(node.x, node.y, node.width, node.height),
             name,
             value,
+            custom,
+            selection: (node.has_selection != 0)
+                .then_some((node.selection_start, node.selection_end)),
         });
     }
     // SAFETY: forwarded caller contract.
     match unsafe { self::client(client) } {
         Some(client) => status(client.publish_accessibility(surface, &accessible)),
+        None => fail("null client"),
+    }
+}
+
+/// Announces `length` bytes of UTF-8 to assistive technologies (ADR 0003): `politeness` is
+/// OXYOS_POLITE or OXYOS_ASSERTIVE. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_announce(
+    client: *mut OxyOSClient,
+    surface: u32,
+    politeness: u8,
+    text: *const c_char,
+    length: usize,
+) -> c_int {
+    let Some(politeness) = Politeness::from_raw(politeness) else {
+        return fail("not a politeness");
+    };
+    let bytes = if length == 0 {
+        &[][..]
+    } else if text.is_null() {
+        return fail("null text");
+    } else {
+        // SAFETY: per the contract, `text` points to `length` readable bytes.
+        unsafe { std::slice::from_raw_parts(text.cast::<u8>(), length) }
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return fail("an announcement is UTF-8");
+    };
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.announce(surface, politeness, text)),
         None => fail("null client"),
     }
 }

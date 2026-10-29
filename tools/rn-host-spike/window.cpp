@@ -179,6 +179,10 @@ void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessible
   }
 }
 
+void Window::announce(uint32_t id, uint8_t politeness, const std::string& text) {
+  if (oxyos_client_announce(client_, id, politeness, text.data(), text.size()) != 0) failed("cannot announce");
+}
+
 uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField) {
   int64_t serial = oxyos_client_text_input(client_, surface, field, newField ? 1 : 0);
   if (serial < 0) failed("cannot tell the text field");

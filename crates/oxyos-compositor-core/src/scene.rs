@@ -1060,6 +1060,7 @@ impl Scene {
                 parent,
                 role,
                 state,
+                actions,
                 rect,
             } => self.accessibility_node(
                 key(surface),
@@ -1068,11 +1069,27 @@ impl Scene {
                     parent,
                     role,
                     state,
+                    actions,
                     rect,
                     name: String::new(),
                     value: String::new(),
+                    custom: String::new(),
+                    selection: None,
                 },
             ),
+            Request::AccessibleSelection {
+                surface,
+                index,
+                start,
+                end,
+            } => self.accessibility_selection(key(surface), index, start, end),
+            Request::AccessibilityAnnounce {
+                surface,
+                index,
+                last,
+                politeness,
+                text,
+            } => self.accessibility_announce(key(surface), index, last, politeness, text),
             Request::AccessibleText {
                 surface,
                 index,
@@ -1085,6 +1102,9 @@ impl Scene {
                 surface,
                 index,
                 action,
+                custom,
+                start,
+                end,
             } => {
                 if !grants.accessibility {
                     return Err(ErrorCode::Unauthorized);
@@ -1095,7 +1115,12 @@ impl Scene {
                         id: surface,
                     },
                     index,
-                    action,
+                    accessibility::Action {
+                        action,
+                        custom,
+                        start,
+                        end,
+                    },
                 );
                 Ok(())
             }

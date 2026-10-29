@@ -1,0 +1,120 @@
+{
+  "about": "What an assistive technology does beyond activating and focusing (ADR 0003), on sample/A11yProbe.tsx, through the actions it holds and the announcements it hears alone: an adjustable control offers increment, decrement and a custom action by its label, each reaching React Native's onAccessibilityAction by name, and the level a live region shows is announced politely as it changes; a button's announceForAccessibility is announced at once; a scroll view offers to scroll on while it can and back once it has moved, a page at a time; a text field offers its selection and takes one in bytes of its value; a dialog's first node offers to dismiss it, which closes it as Escape does. What a node does not offer (a label it does not have, a direction it cannot scroll, a selection inside a character, an increment of a button) is refused by the compositor and reaches no one.",
+  "module": "A11yProbe",
+  "window": [480, 560],
+  "steps": [
+    {
+      "name": "increment raises the level, and the live region says it",
+      "do": ["a11y-action", ["increment", "Volumen"]],
+      "expect": {
+        "texts": ["Nivel 6"],
+        "react": {"accessibilityAction@volume": 1},
+        "announcements": [{"politeness": "polite", "text": "Nivel 6", "live": true}],
+        "at": {"window": [
+          {"role": "Slider", "name": "Volumen", "actions": ["increment", "decrement"], "custom": ["Reiniciar"]},
+          {"role": "Text", "name": "Nivel 6", "state": ["live-polite"]}
+        ]}
+      }
+    },
+    {
+      "name": "decrement lowers it",
+      "do": ["a11y-action", ["decrement", "Volumen"]],
+      "expect": {
+        "texts": ["Nivel 5"],
+        "react": {"accessibilityAction@volume": 1},
+        "announcements": [{"politeness": "polite", "text": "Nivel 5", "live": true}]
+      }
+    },
+    {
+      "name": "the custom action Reiniciar, by its label, reaches React by its name",
+      "do": ["a11y-action", ["custom:Reiniciar", "Volumen"]],
+      "expect": {
+        "texts": ["Nivel 0"],
+        "react": {"accessibilityAction@volume": 1},
+        "announcements": [{"politeness": "polite", "text": "Nivel 0", "live": true}]
+      }
+    },
+    {
+      "name": "a custom action the node does not have is refused",
+      "do": ["a11y-action", ["custom:Nada", "Volumen"]],
+      "allow_unchanged": true,
+      "expect": {"texts": ["Nivel 0"], "react": {}, "announcements": []}
+    },
+    {
+      "name": "a button offers no increment: refused",
+      "do": ["a11y-action", ["increment", "Guardar"]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "announcements": []}
+    },
+    {
+      "name": "activating Guardar announces Guardado, at once",
+      "do": ["a11y-action", ["activate", "Guardar"]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {"click@save": 1},
+        "announcements": [{"politeness": "assertive", "text": "Guardado", "live": false}]
+      }
+    },
+    {
+      "name": "at the top, the list offers no scrolling back: refused",
+      "do": ["a11y-action", ["scroll-backward", "Lista"]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {"window": [{"role": "ScrollView", "name": "Lista", "actions": ["scroll-forward"]}]}
+      }
+    },
+    {
+      "name": "scrolling on moves it a page, and it offers to scroll back",
+      "do": ["a11y-action", ["scroll-forward", "Lista"]],
+      "expect": {
+        "react": {"scroll@list": 1},
+        "scroll_offset": {"list": [0, 120]},
+        "at": {"window": [{"role": "ScrollView", "name": "Lista", "actions": ["scroll-forward", "scroll-backward"]}]}
+      }
+    },
+    {
+      "name": "scrolling back returns it to the top",
+      "do": ["a11y-action", ["scroll-backward", "Lista"]],
+      "expect": {
+        "react": {"scroll@list": 1},
+        "scroll_offset": {"list": [0, 0]},
+        "at": {"window": [{"role": "ScrollView", "name": "Lista", "actions": ["scroll-forward"]}]}
+      }
+    },
+    {
+      "name": "a selection in bytes of the value: the field takes focus and selects ñ",
+      "do": ["a11y-action", ["select:5-7", "Nota"]],
+      "expect": {
+        "focus_input": "note",
+        "react": {"focus@note": 1, "selectionChange@note": 2},
+        "at": {"window": [{"role": "TextInput", "name": "Nota", "value": "hola ñandú", "actions": ["select"], "selection": [5, 7]}]}
+      }
+    },
+    {
+      "name": "a selection inside a character is refused",
+      "do": ["a11y-action", ["select:0-6", "Nota"]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "at": {"window": [{"name": "Nota", "selection": [5, 7]}]}
+      }
+    },
+    {
+      "name": "the dialog opens: its first node offers to dismiss it",
+      "do": ["a11y-action", ["activate", "Abrir diálogo"]],
+      "expect": {
+        "texts": ["Diálogo abierto"],
+        "at": {"window": [{"role": "Alert", "name": "Diálogo abierto", "actions": ["dismiss"]}]}
+      }
+    },
+    {
+      "name": "dismiss closes it, as Escape does",
+      "do": ["a11y-action", ["dismiss", "Diálogo abierto"]],
+      "expect": {
+        "absent": ["Diálogo abierto"],
+        "at_absent": {"window": [{"name": "Diálogo abierto"}]}
+      }
+    }
+  ]
+}

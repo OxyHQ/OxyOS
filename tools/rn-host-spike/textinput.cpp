@@ -697,6 +697,30 @@ void TextEditing::select(size_t caret, bool extend) {
   selectionChanged();
 }
 
+bool TextEditing::setSelection(Tag tag, size_t start, size_t end) {
+  if (focused_ != tag) focus(tag);
+  if (focused_ != tag) return false;
+  endComposition();
+  auto within = [this](size_t at) {
+    at = std::min(at, text_.size());
+    while (at > 0 && continuation(text_, at)) --at;
+    return at;
+  };
+  column_.reset();
+  merging_ = false;
+  size_t anchor = within(std::min(start, end)), caret = within(std::max(start, end));
+  if (anchor == anchor_ && caret == caret_) return true;
+  anchor_ = anchor;
+  caret_ = caret;
+  selectionChanged();
+  return true;
+}
+
+std::optional<std::pair<size_t, size_t>> TextEditing::selection(Tag tag) const {
+  if (tag != focused_ || secure()) return std::nullopt;
+  return std::make_pair(std::min(anchor_, caret_), std::max(anchor_, caret_));
+}
+
 void TextEditing::selectionChanged() {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;

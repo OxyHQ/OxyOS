@@ -109,6 +109,14 @@ class TextEditing {
   bool secure() const;
   std::string logged(const std::string& text) const;
 
+  // An assistive technology sets an input's selection (Android's ACTION_SET_SELECTION): the input
+  // takes focus if it has not, then selects bytes [start, end) of its text, kept within it at
+  // characters. False if it cannot take focus (not editable).
+  bool setSelection(facebook::react::Tag tag, size_t start, size_t end);
+  // The focused input's selection, in bytes of its text, for its accessibility node; none for an
+  // unfocused or a secure input (whose caret would tell how long the password is).
+  std::optional<std::pair<size_t, size_t>> selection(facebook::react::Tag tag) const;
+
   // The input that has focus, -1 if none.
   facebook::react::Tag focused() const { return focused_; }
   // What the renderer draws for the focused input: its selection (or caret) and composition.

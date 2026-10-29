@@ -116,6 +116,59 @@ fn the_header_matches_the_abi() {
         ),
         ("OXYOS_ACTION_ACTIVATE", AccessibleAction::Activate as i64),
         ("OXYOS_ACTION_FOCUS", AccessibleAction::Focus as i64),
+        ("OXYOS_ACTION_INCREMENT", AccessibleAction::Increment as i64),
+        ("OXYOS_ACTION_DECREMENT", AccessibleAction::Decrement as i64),
+        (
+            "OXYOS_ACTION_SCROLL_FORWARD",
+            AccessibleAction::ScrollForward as i64,
+        ),
+        (
+            "OXYOS_ACTION_SCROLL_BACKWARD",
+            AccessibleAction::ScrollBackward as i64,
+        ),
+        ("OXYOS_ACTION_DISMISS", AccessibleAction::Dismiss as i64),
+        ("OXYOS_ACTION_CUSTOM", AccessibleAction::Custom as i64),
+        (
+            "OXYOS_ACTION_SET_SELECTION",
+            AccessibleAction::SetSelection as i64,
+        ),
+        (
+            "OXYOS_OFFERS_INCREMENT",
+            oxyos_protocol::AccessibleActions::INCREMENT.into(),
+        ),
+        (
+            "OXYOS_OFFERS_DECREMENT",
+            oxyos_protocol::AccessibleActions::DECREMENT.into(),
+        ),
+        (
+            "OXYOS_OFFERS_SCROLL_FORWARD",
+            oxyos_protocol::AccessibleActions::SCROLL_FORWARD.into(),
+        ),
+        (
+            "OXYOS_OFFERS_SCROLL_BACKWARD",
+            oxyos_protocol::AccessibleActions::SCROLL_BACKWARD.into(),
+        ),
+        (
+            "OXYOS_OFFERS_DISMISS",
+            oxyos_protocol::AccessibleActions::DISMISS.into(),
+        ),
+        (
+            "OXYOS_OFFERS_SET_SELECTION",
+            oxyos_protocol::AccessibleActions::SET_SELECTION.into(),
+        ),
+        ("OXYOS_POLITE", oxyos_protocol::Politeness::Polite as i64),
+        (
+            "OXYOS_ASSERTIVE",
+            oxyos_protocol::Politeness::Assertive as i64,
+        ),
+        (
+            "OXYOS_STATE_LIVE_POLITE",
+            AccessibleState::LIVE_POLITE.into(),
+        ),
+        (
+            "OXYOS_STATE_LIVE_ASSERTIVE",
+            AccessibleState::LIVE_ASSERTIVE.into(),
+        ),
         ("OXYOS_NO_ACCESSIBLE_PARENT", NO_ACCESSIBLE_PARENT.into()),
         ("OXYOS_STATE_DISABLED", AccessibleState::DISABLED.into()),
         ("OXYOS_STATE_SELECTED", AccessibleState::SELECTED.into()),
@@ -175,7 +228,22 @@ fn the_header_matches_the_abi() {
     let node = fields("OxyOSAccessibleNode");
     assert_eq!(
         names(&node),
-        ["parent", "role", "state", "x", "y", "width", "height", "name", "value"]
+        [
+            "parent",
+            "role",
+            "state",
+            "x",
+            "y",
+            "width",
+            "height",
+            "name",
+            "value",
+            "actions",
+            "custom_actions",
+            "has_selection",
+            "selection_start",
+            "selection_end"
+        ]
     );
     let rust = [
         offset_of!(OxyOSAccessibleNode, parent),
@@ -187,6 +255,11 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyOSAccessibleNode, height),
         offset_of!(OxyOSAccessibleNode, name),
         offset_of!(OxyOSAccessibleNode, value),
+        offset_of!(OxyOSAccessibleNode, actions),
+        offset_of!(OxyOSAccessibleNode, custom_actions),
+        offset_of!(OxyOSAccessibleNode, has_selection),
+        offset_of!(OxyOSAccessibleNode, selection_start),
+        offset_of!(OxyOSAccessibleNode, selection_end),
     ];
     assert_eq!(
         c_offsets(&node),
@@ -489,7 +562,10 @@ fn accessibility_through_the_c_abi() {
                     surface: 1,
                     serial: 77,
                     index: 1,
-                    action: AccessibleAction::Activate,
+                    action: AccessibleAction::SetSelection,
+                    custom: 0,
+                    start: 2,
+                    end: 5,
                 },
                 None,
             )
@@ -510,6 +586,11 @@ fn accessibility_through_the_c_abi() {
         height: 40,
         name: name.as_ptr(),
         value: std::ptr::null(),
+        actions: 0,
+        custom_actions: std::ptr::null(),
+        has_selection: 0,
+        selection_start: 0,
+        selection_end: 0,
     };
     let nodes = [
         node(NO_ACCESSIBLE_PARENT, AccessibleRole::Menu as u8, 0, &menu),
@@ -549,14 +630,18 @@ fn accessibility_through_the_c_abi() {
                 action.surface,
                 action.serial,
                 action.code,
-                action.detail
+                action.detail,
+                action.x,
+                action.y
             ),
             (
                 OXYOS_EVENT_ACCESSIBILITY_ACTION,
                 1,
                 77,
                 1,
-                AccessibleAction::Activate as u32
+                AccessibleAction::SetSelection as u32,
+                2,
+                5
             )
         );
         let requests = compositor.join().unwrap();
@@ -2494,3 +2579,154 @@ fn a_password_goes_in_chunks_then_is_submitted() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn actions_selections_and_announcements_through_the_c_abi() {
+    use oxyos_protocol::{AccessibleActions, Politeness};
+    let custom = convert(&Event::AccessibilityAction {
+        surface: 2,
+        serial: 9,
+        index: 4,
+        action: AccessibleAction::Custom,
+        custom: 1,
+        start: 0,
+        end: 0,
+    })
+    .unwrap();
+    assert_eq!(
+        (custom.detail, custom.code, custom.width),
+        (OXYOS_ACTION_CUSTOM_VALUE, 4, 1)
+    );
+    // An assistive technology's own events never reach an application through this ABI.
+    assert!(convert(&Event::AccessibilityAnnouncement {
+        client: 1,
+        surface: 2,
+        index: 0,
+        last: true,
+        politeness: Politeness::Polite,
+        text: oxyos_protocol::PreeditText::new("Hola").unwrap(),
+    })
+    .is_none());
+
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-a11y-actions-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let mut requests = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::AccessibilityAnnounce { last: true, .. });
+            requests.push(request);
+            if done {
+                break;
+            }
+        }
+        requests
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let name = CString::new("Volumen").unwrap();
+    let value = CString::new("hola").unwrap();
+    let labels = CString::new("Reiniciar\nCompartir").unwrap();
+    let nodes = [OxyOSAccessibleNode {
+        parent: NO_ACCESSIBLE_PARENT,
+        role: AccessibleRole::Slider as u8,
+        state: AccessibleState::LIVE_POLITE,
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 40,
+        name: name.as_ptr(),
+        value: value.as_ptr(),
+        actions: AccessibleActions::INCREMENT | AccessibleActions::SET_SELECTION,
+        custom_actions: labels.as_ptr(),
+        has_selection: 1,
+        selection_start: 1,
+        selection_end: 3,
+    }];
+    let said = "Guardado";
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the nodes,
+    // strings and text outlive the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // Unknown action bits and politeness are refused before anything is sent.
+        let mut bad = nodes;
+        bad[0].actions = 1 << 15;
+        assert_eq!(
+            oxyos_client_publish_accessibility(client, 1, bad.as_ptr(), 1),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_announce(client, 1, 9, said.as_ptr().cast(), said.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_announce(client, 1, OXYOS_POLITE_VALUE, b"\xff".as_ptr().cast(), 1),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_publish_accessibility(client, 1, nodes.as_ptr(), 1),
+            0
+        );
+        assert_eq!(
+            oxyos_client_announce(
+                client,
+                1,
+                OXYOS_ASSERTIVE_VALUE,
+                said.as_ptr().cast(),
+                said.len()
+            ),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        assert!(requests.contains(&Request::AccessibleNode {
+            surface: 1,
+            index: 0,
+            parent: NO_ACCESSIBLE_PARENT,
+            role: AccessibleRole::Slider,
+            state: AccessibleState::new(AccessibleState::LIVE_POLITE).unwrap(),
+            actions: AccessibleActions::new(
+                AccessibleActions::INCREMENT | AccessibleActions::SET_SELECTION
+            )
+            .unwrap(),
+            rect: Rect::new(0, 0, 100, 40),
+        }));
+        assert!(requests.contains(&Request::AccessibleSelection {
+            surface: 1,
+            index: 0,
+            start: 1,
+            end: 3,
+        }));
+        assert!(requests.iter().any(|r| matches!(
+            r,
+            Request::AccessibleText { field: oxyos_protocol::AccessibleField::Actions, text, .. }
+                if text.as_str() == "Reiniciar\nCompartir"
+        )));
+        assert!(matches!(
+            requests.last(),
+            Some(Request::AccessibilityAnnounce {
+                surface: 1,
+                index: 0,
+                last: true,
+                politeness: Politeness::Assertive,
+                text,
+            }) if text.as_str() == "Guardado"
+        ));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+const OXYOS_ACTION_CUSTOM_VALUE: u32 = AccessibleAction::Custom as u32;
+const OXYOS_POLITE_VALUE: u8 = oxyos_protocol::Politeness::Polite as u8;
+const OXYOS_ASSERTIVE_VALUE: u8 = oxyos_protocol::Politeness::Assertive as u8;

@@ -183,7 +183,13 @@ std::shared_ptr<TurboModule> createHostModule(
       return count > 1 ? call(rt, args[1], jsi::Value(args[0].isNumber() ? args[0].getNumber() : 0))
                        : jsi::Value::undefined();
     });
-    module->unsupported({"setAccessibilityFocus", "announceForAccessibility"});
+    // An announcement reaches assistive technologies through the compositor, as Android's
+    // reaches TalkBack; without a window there is no one to tell.
+    module->method("announceForAccessibility", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count > 0 && args[0].isString() && services.announce) services.announce(args[0].asString(rt).utf8(rt));
+      return jsi::Value::undefined();
+    });
+    module->unsupported({"setAccessibilityFocus"});
   } else if (name == "ExceptionsManager") {
     auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       if (count > 0 && args[0].isObject()) {

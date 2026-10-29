@@ -6,9 +6,9 @@
 
 use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::{
-    AccessibleField, AccessibleRole, AccessibleState, BufferLayout, ClientConnection, Event,
-    Format, PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES,
-    MAX_ACCESSIBLE_TEXT_BYTES, MIN_VERSION, VERSION,
+    AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
+    ClientConnection, Event, Format, Politeness, PreeditText, Rect, Request, Size, TextChunk,
+    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -347,13 +347,19 @@ impl Client {
                 parent: node.parent,
                 role: node.role,
                 state: node.state,
+                actions: node.actions,
                 rect: node.rect,
             })?;
+            let value = truncate(node.value, MAX_ACCESSIBLE_TEXT_BYTES);
             for (field, text) in [
-                (AccessibleField::Name, node.name),
-                (AccessibleField::Value, node.value),
+                (
+                    AccessibleField::Name,
+                    truncate(node.name, MAX_ACCESSIBLE_TEXT_BYTES),
+                ),
+                (AccessibleField::Value, value),
+                (AccessibleField::Actions, custom_labels(node.custom)),
             ] {
-                for text in TextChunk::split(truncate(text, MAX_ACCESSIBLE_TEXT_BYTES)) {
+                for text in TextChunk::split(text) {
                     self.send(&Request::AccessibleText {
                         surface,
                         index,
@@ -362,8 +368,43 @@ impl Client {
                     })?;
                 }
             }
+            // Within the value as sent, at characters: the compositor refuses any other.
+            if let Some((start, end)) = node.selection {
+                let within = |at: u32| {
+                    let mut at = (at as usize).min(value.len());
+                    while !value.is_char_boundary(at) {
+                        at -= 1;
+                    }
+                    at as u32
+                };
+                self.send(&Request::AccessibleSelection {
+                    surface,
+                    index,
+                    start: within(start.min(end)),
+                    end: within(end.max(start)),
+                })?;
+            }
         }
         self.send(&Request::AccessibilityCommit { surface })
+    }
+
+    /// Announces `text` to assistive technologies (ADR 0003), as Android's
+    /// `announceForAccessibility` and live regions do: after what they are saying, or at once.
+    /// Text longer than the protocol allows is cut at a character boundary; empty text is not
+    /// sent.
+    pub fn announce(&self, surface: u32, politeness: Politeness, text: &str) -> io::Result<()> {
+        let chunks = TextChunk::split(truncate(text, MAX_ANNOUNCEMENT_BYTES));
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.send(&Request::AccessibilityAnnounce {
+                surface,
+                index: index as u8,
+                last: index + 1 == count,
+                politeness,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
     }
 
     /// The compositor retires a destroyed buffer once no frame reads it.
@@ -530,10 +571,26 @@ pub struct Accessible<'a> {
     pub parent: u32,
     pub role: AccessibleRole,
     pub state: AccessibleState,
+    /// What it offers beyond activate and focus.
+    pub actions: AccessibleActions,
     /// Surface-local, logical.
     pub rect: Rect,
     pub name: &'a str,
     pub value: &'a str,
+    /// Its custom actions' labels, one per line; empty for none.
+    pub custom: &'a str,
+    /// A text field's selection, in bytes of its value; never a secure field's.
+    pub selection: Option<(u32, u32)>,
+}
+
+/// Custom action labels within the protocol's limit, whole lines only: a label cut short would
+/// name another action.
+fn custom_labels(labels: &str) -> &str {
+    let kept = truncate(labels, MAX_ACCESSIBLE_TEXT_BYTES);
+    if kept.len() == labels.len() {
+        return kept;
+    }
+    kept.rfind('\n').map_or("", |end| &kept[..end])
 }
 
 /// The longest prefix of `text` within `limit` bytes that ends at a character boundary.

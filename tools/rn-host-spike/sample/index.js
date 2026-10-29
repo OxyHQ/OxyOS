@@ -15,6 +15,7 @@ import SheetProbe from './SheetProbe';
 import ShellProbe, { ShellSession } from './ShellProbe';
 import NetworkProbe from './NetworkProbe';
 import PinchProbe from './PinchProbe';
+import A11yProbe from './A11yProbe';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
@@ -28,6 +29,7 @@ AppRegistry.registerComponent('SheetProbe', () => SheetProbe);
 AppRegistry.registerComponent('TransformProbe', () => TransformProbe);
 AppRegistry.registerComponent('ModalProbe', () => ModalProbe);
 AppRegistry.registerComponent('PinchProbe', () => PinchProbe);
+AppRegistry.registerComponent('A11yProbe', () => A11yProbe);
 AppRegistry.registerComponent('IntlProbe', () => IntlProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
 AppRegistry.registerComponent('OxyOSShell', () => ShellSession);
