@@ -17,6 +17,7 @@ const normalize = (value: string) =>
 type Entry = { app: ShellApplication } | { folder: ShellFolder };
 
 export function Launchpad({
+  open,
   launch,
   dismiss,
   applications,
@@ -24,6 +25,9 @@ export function Launchpad({
   wallpaper,
   escapeRequest = 0,
 }: {
+  /** Whether it is shown. It stays mounted while hidden, as macOS keeps Launchpad, so showing it
+      draws what is already built instead of building it then. */
+  open: boolean;
   launch: (app: string) => void;
   /** The desktop's wallpaper: Launchpad's background, under its tint. */
   wallpaper: ImageSourcePropType;
@@ -44,9 +48,16 @@ export function Launchpad({
   };
   const lastEscape = useRef(escapeRequest);
   useEffect(() => {
-    if (lastEscape.current !== escapeRequest) close.current();
+    if (open && lastEscape.current !== escapeRequest) close.current();
     lastEscape.current = escapeRequest;
-  }, [escapeRequest]);
+  }, [escapeRequest, open]);
+  // Closed, it starts again where it opens: no search, no folder, the first page.
+  useEffect(() => {
+    if (open) return;
+    setQuery("");
+    setFolder(null);
+    setPage(0);
+  }, [open]);
   const grouped = new Set(folders.flatMap((group) => [...group.appIds]));
   const entries: Entry[] = applications
     .filter(
@@ -83,7 +94,7 @@ export function Launchpad({
       testID="shell-launchpad"
       // Clipped to the launcher's area: its full-screen wallpaper never covers the dock.
       className="absolute inset-0 items-center overflow-hidden"
-      style={{ zIndex: 20 }}
+      style={{ zIndex: 20, display: open ? "flex" : "none" }}
     >
       {/* Its own background, as Launchpad's hides the menu bar and the windows behind it: the
           wallpaper, at the screen's size so it meets the desktop's exactly, dimmed. */}

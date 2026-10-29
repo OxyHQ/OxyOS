@@ -88,22 +88,30 @@ export function Shell({
           )}
         </Box>
         {/* The launcher covers the whole screen, the top bar included, but the dock: as Launchpad
-            covers the menu bar and leaves the Dock, whose button closes it again. */}
-        {view === "launcher" && (
-          <Surface
-            kind="overlay"
-            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: DOCK_HEIGHT }}
-          >
-            <Launchpad
-              escapeRequest={escapeRequest}
-              applications={snapshot.applications}
-              folders={snapshot.folders}
-              wallpaper={wallpaper}
-              launch={activateApp}
-              dismiss={dismiss}
-            />
-          </Surface>
-        )}
+            covers the menu bar and leaves the Dock, whose button closes it again. It is built
+            once, when the shell starts, and kept while hidden, as macOS keeps Launchpad: opening
+            it shows what is built. Hidden, it has no surface and takes no input. */}
+        <Surface
+          kind="overlay"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: DOCK_HEIGHT,
+            display: view === "launcher" ? "flex" : "none",
+          }}
+        >
+          <Launchpad
+            open={view === "launcher"}
+            escapeRequest={escapeRequest}
+            applications={snapshot.applications}
+            folders={snapshot.folders}
+            wallpaper={wallpaper}
+            launch={activateApp}
+            dismiss={dismiss}
+          />
+        </Surface>
         <Surface kind="panel" edge="bottom" exclusive>
           <Dock
             snapshot={snapshot}
