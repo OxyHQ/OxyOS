@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useWindowDimensions } from "react-native";
+import { useWindowDimensions, type ImageSourcePropType } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { BloomColorScope } from "@oxy.so/bloom/theme";
 import { Search } from "@oxy.so/bloom/search";
 import { Box, PressArea } from "../primitives";
 import { AppIcon } from "../apps";
+import { Wallpaper } from "./Wallpaper";
 import type { ShellApplication, ShellFolder } from "../model";
 
 const normalize = (value: string) =>
@@ -20,9 +21,12 @@ export function Launchpad({
   dismiss,
   applications,
   folders,
+  wallpaper,
   escapeRequest = 0,
 }: {
   launch: (app: string) => void;
+  /** The desktop's wallpaper: Launchpad's background, under its tint. */
+  wallpaper: ImageSourcePropType;
   applications: readonly ShellApplication[];
   folders: readonly ShellFolder[];
   dismiss: () => void;
@@ -77,9 +81,16 @@ export function Launchpad({
   return (
     <Box
       testID="shell-launchpad"
-      className="absolute inset-0 items-center bg-[#101760]/45"
+      // Clipped to the launcher's area: its full-screen wallpaper never covers the dock.
+      className="absolute inset-0 items-center overflow-hidden"
       style={{ zIndex: 20 }}
     >
+      {/* Its own background, as Launchpad's hides the menu bar and the windows behind it: the
+          wallpaper, at the screen's size so it meets the desktop's exactly, dimmed. */}
+      <Box className="absolute left-0 top-0" style={{ width, height }}>
+        <Wallpaper source={wallpaper} />
+      </Box>
+      <Box className="absolute inset-0 bg-[#101760]/45" />
       <PressArea
         accessibilityRole="button"
         accessibilityLabel="Cerrar aplicaciones"

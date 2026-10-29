@@ -1,5 +1,5 @@
 {
-  "about": "The OxyOS shell as the session's shell (ADR 0009) with an application: the shell (sample/ShellProbe.tsx's OxyOSShell, a Bloom host run with --shell and the shell grant) starts first; its root is the background, its top bar and dock are panels at the output's edges, kept out of the work area, and the application's window is placed between them. A press on the dock opens the launcher as an overlay over everything, its backdrop dimming what is under it, and a press on the backdrop closes it; the top bar's menu opens as a popup of its panel, above the window; the window takes its own presses. Each step checks the shell's surfaces and the work area the compositor holds, the window's place, pixels of the output, and that the application receives exactly its own events.",
+  "about": "The OxyOS shell as the session's shell (ADR 0009) with an application: the shell (sample/ShellProbe.tsx's OxyOSShell, a Bloom host run with --shell and the shell grant) starts first; its root is the background, its top bar and dock are panels at the output's edges, kept out of the work area, and the application's window is placed between them. A press on the dock opens the launcher as an overlay over the whole screen but the dock, as Launchpad covers the menu bar and the windows with its own background (the wallpaper, dimmed) and leaves the Dock, and a press on the backdrop closes it; the top bar's menu opens as a popup of its panel, above the window; the window takes its own presses. Each step checks the shell's surfaces and the work area the compositor holds, the window's place, pixels of the output, and that the application receives exactly its own events.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -8,7 +8,7 @@
   "shell": "OxyOSShell",
   "steps": [
     {
-      "name": "the dock's first button opens the launcher: an overlay over everything, the panels and the window kept",
+      "name": "the dock's first button opens the launcher: an overlay over the whole screen but the dock, as Launchpad's, the panels and the window kept under it",
       "do": [
         "press_output",
         [
@@ -64,9 +64,9 @@
           360
         ],
         "output_pixels": {
-          "640,106": "#d269e6",
           "796,693": "#d269e6",
-          "1100,400": "#3653b7"
+          "1100,400": "#3653b7",
+          "640,78": "#d269e6"
         },
         "react": {}
       }
