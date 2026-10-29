@@ -3,8 +3,8 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
-    ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, PreeditText, Rect, ShellKind,
-    Size, TextChunk, TouchKind, Wire,
+    ErrorCode, Format, Outcome, PanelEdge, PointerKind, Positioner, PreeditStyle, PreeditText,
+    Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -106,6 +106,17 @@ messages! {
         // A paste: one type of the clipboard's content, written by its owner into the pipe this
         // request carries, while the client has keyboard focus, with a user input's serial.
         27 => ClipboardReceive { selection: u32, mime: TextChunk, serial: u64 },
+        // Text input (ADR 0008). A focused field describes itself, double-buffered: its purpose
+        // and hints, the text around the caret (chunks, appended, at most 4,000 bytes), the
+        // selection within it in bytes, the caret's rectangle; TextInputCommit applies them, its
+        // serial counting the client's commits upwards.
+        28 => TextInputEnable { surface: u32 },
+        29 => TextInputDisable { surface: u32 },
+        30 => TextInputPurpose { surface: u32, purpose: TextPurpose, hints: TextHints },
+        31 => TextInputSurrounding { surface: u32, text: TextChunk },
+        32 => TextInputSelection { surface: u32, anchor: u32, cursor: u32 },
+        33 => TextInputCaret { surface: u32, rect: Rect },
+        34 => TextInputCommit { surface: u32, serial: u32 },
     }
 }
 
@@ -143,6 +154,17 @@ messages! {
         // To the clipboard's owner: write that type of the offer into the pipe this event
         // carries, then close it.
         23 => ClipboardSend { offer: u32, mime: TextChunk },
+        // To a focused field with text input enabled (ADR 0008), one change applied whole at
+        // TextInputDone, in this order: delete bytes around the selection, insert the committed
+        // text (chunks) at it, then replace the composition with the new one (chunks; none
+        // ends it), its cursor range and its styled segments, in bytes. Done's `serial` is the
+        // input's, as a key press's; `commit` the field's commit the change was made for.
+        24 => TextInputDelete { surface: u32, before: u32, after: u32 },
+        25 => TextInputCommitText { surface: u32, text: TextChunk },
+        26 => TextInputPreeditText { surface: u32, text: TextChunk },
+        27 => TextInputPreeditCursor { surface: u32, begin: u32, end: u32 },
+        28 => TextInputPreeditSegment { surface: u32, begin: u32, end: u32, style: PreeditStyle },
+        29 => TextInputDone { surface: u32, serial: u64, commit: u32 },
     }
 }
 

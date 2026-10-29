@@ -124,6 +124,30 @@ fn requests() -> Vec<Request> {
             mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
             serial: 11,
         },
+        Request::TextInputEnable { surface: 1 },
+        Request::TextInputPurpose {
+            surface: 1,
+            purpose: TextPurpose::Email,
+            hints: TextHints::new(TextHints::NO_CAPITALIZATION).unwrap(),
+        },
+        Request::TextInputSurrounding {
+            surface: 1,
+            text: TextChunk::new("nate@").unwrap(),
+        },
+        Request::TextInputSelection {
+            surface: 1,
+            anchor: 5,
+            cursor: 5,
+        },
+        Request::TextInputCaret {
+            surface: 1,
+            rect: Rect::new(40, 8, 2, 18),
+        },
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 1,
+        },
+        Request::TextInputDisable { surface: 1 },
     ]
 }
 
@@ -247,7 +271,62 @@ fn events() -> Vec<Event> {
             offer: 4,
             mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
         },
+        Event::TextInputDelete {
+            surface: 1,
+            before: 3,
+            after: 0,
+        },
+        Event::TextInputCommitText {
+            surface: 1,
+            text: TextChunk::new("日本").unwrap(),
+        },
+        Event::TextInputPreeditText {
+            surface: 1,
+            text: TextChunk::new("ご").unwrap(),
+        },
+        Event::TextInputPreeditCursor {
+            surface: 1,
+            begin: 0,
+            end: 3,
+        },
+        Event::TextInputPreeditSegment {
+            surface: 1,
+            begin: 0,
+            end: 3,
+            style: PreeditStyle::Converting,
+        },
+        Event::TextInputDone {
+            surface: 1,
+            serial: 12,
+            commit: 1,
+        },
     ]
+}
+
+#[test]
+fn text_purposes_hints_and_styles_are_closed_sets() {
+    assert!(TextHints::new(1 << 4).is_none());
+    assert!(TextPurpose::from_raw(11).is_none());
+    assert!(PreeditStyle::from_raw(0).is_none());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::TextInputPurpose {
+            surface: 1,
+            purpose: TextPurpose::Password,
+            hints: TextHints::new(TextHints::SENSITIVE).unwrap(),
+        },
+    )
+    .unwrap();
+    // The purpose byte follows the 4-byte length, the opcode and the surface; the hints follow it.
+    let purpose = 4 + 1 + 4;
+    let mut bad_purpose = bytes.clone();
+    bad_purpose[purpose] = 11;
+    assert!(read_request(&mut Cursor::new(bad_purpose)).is_err());
+    let mut bad_hints = bytes.clone();
+    bad_hints[purpose + 1] = 1 << 4;
+    assert!(read_request(&mut Cursor::new(bad_hints)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
 }
 
 #[test]

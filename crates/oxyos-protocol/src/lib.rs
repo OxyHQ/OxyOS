@@ -16,8 +16,8 @@ pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
     BufferLayout, Clock, DismissReason, ErrorCode, Format, Gravity, Outcome, PanelEdge,
-    PointerKind, Positioner, PreeditText, Rect, ShellKind, Size, TextChunk, TouchKind,
-    MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    PointerKind, Positioner, PreeditStyle, PreeditText, Rect, ShellKind, Size, TextChunk,
+    TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -25,6 +25,8 @@ pub const MIN_VERSION: u16 = 2;
 pub const VERSION: u16 = 2;
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
+/// The text around the caret a field may describe (TextInputSurrounding, ADR 0008), in bytes.
+pub const MAX_SURROUNDING_BYTES: usize = 4000;
 /// Most nodes in one surface's accessibility snapshot (ADR 0003).
 pub const MAX_ACCESSIBLE_NODES: u32 = 4096;
 /// Most bytes of one accessible node's name or value.

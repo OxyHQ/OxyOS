@@ -1,7 +1,8 @@
 use super::*;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
-    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, NO_ACCESSIBLE_PARENT,
+    TextHints, TextPurpose, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_SURROUNDING_BYTES,
+    NO_ACCESSIBLE_PARENT,
 };
 use std::collections::HashMap;
 
@@ -2242,11 +2243,498 @@ fn preedit_goes_to_the_focused_surface_and_rejects_what_does_not_fit() {
         .pump()
         .iter()
         .any(|(_, e)| matches!(e, Event::Preedit { cursor: 0, .. })));
-    // Too long, a cursor past the end or inside a character: nothing is delivered.
-    assert!(!h.scene.preedit(&"a".repeat(33), 0));
+    // A cursor past the end or inside a character: nothing is delivered.
     assert!(!h.scene.preedit("ab", 3));
     assert!(!h.scene.preedit("に", 1));
     assert!(h.pump().is_empty());
+    // A composition longer than one Preedit cannot be shown without text input: the field is
+    // told the composition ended rather than shown part of it.
+    assert!(h.scene.preedit(&"a".repeat(33), 33));
+    let ended: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    assert!(matches!(
+        ended.as_slice(),
+        [Event::Preedit { text, cursor: 0, .. }] if text.as_str().is_empty()
+    ));
+}
+
+// ---- text input (ADR 0008) -------------------------------------------------------------------
+
+/// Enables text input on `surface` with `surrounding` and the caret at its end.
+fn enable_text_input(h: &mut Harness, surface: SurfaceKey, surrounding: &str, serial: u32) {
+    let id = surface.id;
+    h.request(surface.client, Request::TextInputEnable { surface: id })
+        .unwrap();
+    for text in TextChunk::split(surrounding) {
+        h.request(
+            surface.client,
+            Request::TextInputSurrounding { surface: id, text },
+        )
+        .unwrap();
+    }
+    let end = surrounding.len() as u32;
+    h.request(
+        surface.client,
+        Request::TextInputSelection {
+            surface: id,
+            anchor: end,
+            cursor: end,
+        },
+    )
+    .unwrap();
+    h.request(
+        surface.client,
+        Request::TextInputCommit {
+            surface: id,
+            serial,
+        },
+    )
+    .unwrap();
+}
+
+/// A transaction as delivered: (deletion, committed text, composition, cursor, segments, Done's
+/// input serial and commit serial), or `None` if the events are not exactly one transaction.
+type Delivered = (
+    Option<(u32, u32)>,
+    String,
+    String,
+    Option<(u32, u32)>,
+    Vec<(u32, u32, PreeditStyle)>,
+    u64,
+    u32,
+);
+
+fn transaction(events: &[Event]) -> Option<Delivered> {
+    let mut delivered: Delivered = (None, String::new(), String::new(), None, Vec::new(), 0, 0);
+    let (last, rest) = events.split_last()?;
+    let Event::TextInputDone { serial, commit, .. } = *last else {
+        return None;
+    };
+    (delivered.5, delivered.6) = (serial, commit);
+    // Each part at most once, in the protocol's order.
+    let mut stage = 0;
+    for event in rest {
+        let next = match *event {
+            Event::TextInputDelete { before, after, .. } if stage < 1 => {
+                delivered.0 = Some((before, after));
+                1
+            }
+            Event::TextInputCommitText { text, .. } if stage <= 2 => {
+                delivered.1.push_str(text.as_str());
+                2
+            }
+            Event::TextInputPreeditText { text, .. } if stage <= 3 => {
+                delivered.2.push_str(text.as_str());
+                3
+            }
+            Event::TextInputPreeditCursor { begin, end, .. } if stage == 3 => {
+                delivered.3 = Some((begin, end));
+                4
+            }
+            Event::TextInputPreeditSegment {
+                begin, end, style, ..
+            } if stage >= 4 => {
+                delivered.4.push((begin, end, style));
+                5
+            }
+            _ => return None,
+        };
+        stage = next;
+    }
+    Some(delivered)
+}
+
+#[test]
+fn a_composition_longer_than_a_chunk_arrives_whole_as_one_transaction() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, "", 1);
+    h.pump();
+    // 40 bytes of Japanese: more than one 32-byte chunk.
+    let composition = "にほんごのにゅうりょくですね";
+    assert!(composition.len() > 32);
+    assert!(h.scene.preedit(composition, composition.len()));
+    let events: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    // No Preedit for a field with text input: only the transaction.
+    assert!(!events.iter().any(|e| matches!(e, Event::Preedit { .. })));
+    let (deletion, commit, preedit, cursor, segments, _, serial) =
+        transaction(&events).expect("one transaction");
+    assert_eq!(deletion, None);
+    assert_eq!(commit, "");
+    assert_eq!(preedit, composition);
+    let end = composition.len() as u32;
+    assert_eq!(cursor, Some((end, end)));
+    assert_eq!(segments, [(0, end, PreeditStyle::Composing)]);
+    assert_eq!(serial, 1);
+    // Committed text ends the composition in the same transaction.
+    h.scene.text("日本語");
+    let events: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    assert!(!events.iter().any(|e| matches!(e, Event::Text { .. })));
+    let (_, commit, preedit, cursor, ..) = transaction(&events).expect("one transaction");
+    assert_eq!(
+        (commit.as_str(), preedit.as_str(), cursor),
+        ("日本語", "", None)
+    );
+}
+
+#[test]
+fn a_deletion_commit_and_composition_arrive_as_one_transaction() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, "にほ", 4);
+    h.pump();
+    let segments = [
+        (0, 3, PreeditStyle::Composing),
+        (3, 6, PreeditStyle::Converting),
+    ];
+    assert!(h.scene.text_transaction(&TextTransaction {
+        delete_before: 6,
+        delete_after: 0,
+        commit: "日本",
+        preedit: "ごが",
+        cursor: (3, 6),
+        segments: &segments,
+    }));
+    let events = h.pump();
+    assert!(events.iter().all(|(client, _)| *client == APP));
+    let events: Vec<Event> = events.into_iter().map(|(_, event)| event).collect();
+    let (deletion, commit, preedit, cursor, delivered, input, serial) =
+        transaction(&events).expect("one transaction");
+    assert_eq!(deletion, Some((6, 0)));
+    assert_eq!((commit.as_str(), preedit.as_str()), ("日本", "ごが"));
+    assert_eq!(cursor, Some((3, 6)));
+    assert_eq!(delivered, segments);
+    // Done carries the field's commit, and its input serial authorizes as a key press does.
+    assert_eq!(serial, 4);
+    assert!(h.scene.recent_input(APP, input));
+    // A composition alone is not user input.
+    assert!(h.scene.preedit("ご", 3));
+    let events: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    let (.., input, _) = transaction(&events).expect("one transaction");
+    assert!(!h.scene.recent_input(APP, input));
+}
+
+#[test]
+fn done_names_the_latest_commit_and_stale_serials_are_refused() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, "a", 7);
+    let commit =
+        |h: &mut Harness, serial| h.request(APP, Request::TextInputCommit { surface: 1, serial });
+    assert_eq!(commit(&mut h, 7), Err(ErrorCode::InvalidOrder));
+    assert_eq!(commit(&mut h, 3), Err(ErrorCode::InvalidOrder));
+    assert_eq!(commit(&mut h, 9), Ok(()));
+    h.pump();
+    h.scene.text("b");
+    let events: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    assert_eq!(transaction(&events).expect("one transaction").6, 9);
+    // A commit that describes nothing new keeps what the field said before.
+    let state = h.scene.text_input(window).expect("enabled");
+    assert_eq!((state.surrounding.as_str(), state.cursor), ("a", 1));
+}
+
+#[test]
+fn a_field_must_describe_itself_within_its_limits() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let chunk = |text: &str| TextChunk::new(text).unwrap();
+    assert_eq!(
+        h.request(APP, Request::TextInputEnable { surface: 9 }),
+        Err(ErrorCode::UnknownSurface)
+    );
+    assert_eq!(
+        h.request(
+            APP,
+            Request::TextInputSurrounding {
+                surface: 9,
+                text: chunk("a"),
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    // A selection past the text, or inside a character.
+    for (surrounding, cursor, serial) in [("ab", 3, 1), ("に", 1, 2)] {
+        h.request(APP, Request::TextInputEnable { surface: 1 })
+            .unwrap();
+        h.request(
+            APP,
+            Request::TextInputSurrounding {
+                surface: 1,
+                text: chunk(surrounding),
+            },
+        )
+        .unwrap();
+        h.request(
+            APP,
+            Request::TextInputSelection {
+                surface: 1,
+                anchor: 0,
+                cursor,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            h.request(APP, Request::TextInputCommit { surface: 1, serial }),
+            Err(ErrorCode::InvalidMessage)
+        );
+    }
+    // At most 4,000 bytes of surrounding text.
+    let thirty_two = "a".repeat(32);
+    for _ in 0..MAX_SURROUNDING_BYTES / 32 {
+        h.request(
+            APP,
+            Request::TextInputSurrounding {
+                surface: 1,
+                text: chunk(&thirty_two),
+            },
+        )
+        .unwrap();
+    }
+    let rest = "a".repeat(MAX_SURROUNDING_BYTES % 32);
+    if !rest.is_empty() {
+        h.request(
+            APP,
+            Request::TextInputSurrounding {
+                surface: 1,
+                text: chunk(&rest),
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        h.request(
+            APP,
+            Request::TextInputSurrounding {
+                surface: 1,
+                text: chunk("a"),
+            }
+        ),
+        Err(ErrorCode::QuotaExceeded)
+    );
+}
+
+#[test]
+fn surrounding_text_is_replaced_at_each_commit_that_sends_it() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, &"x".repeat(40), 1);
+    enable_text_input(&mut h, window, "hola", 2);
+    let state = h.scene.text_input(window).expect("enabled");
+    assert_eq!(state.surrounding, "hola");
+    // Enabling again describes a new field: what the old one said is gone.
+    h.request(
+        APP,
+        Request::TextInputPurpose {
+            surface: 1,
+            purpose: TextPurpose::Email,
+            hints: TextHints::default(),
+        },
+    )
+    .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCaret {
+            surface: 1,
+            rect: Rect::new(10, 4, 2, 18),
+        },
+    )
+    .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 3,
+        },
+    )
+    .unwrap();
+    let state = h.scene.text_input(window).expect("enabled").clone();
+    assert_eq!(state.purpose, TextPurpose::Email);
+    assert_eq!(state.caret, Some(Rect::new(10, 4, 2, 18)));
+    h.request(APP, Request::TextInputEnable { surface: 1 })
+        .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 4,
+        },
+    )
+    .unwrap();
+    let state = h.scene.text_input(window).expect("enabled");
+    assert_eq!(state.purpose, TextPurpose::Normal);
+    assert_eq!((state.surrounding.as_str(), state.caret), ("", None));
+}
+
+#[test]
+fn a_field_without_committed_text_input_receives_the_older_events() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    // Enabled but not committed: not in effect yet.
+    h.request(APP, Request::TextInputEnable { surface: 1 })
+        .unwrap();
+    h.pump();
+    h.scene.text("a");
+    assert!(matches!(
+        h.pump().as_slice(),
+        [(APP, Event::Text { surface: 1, .. })]
+    ));
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 1,
+        },
+    )
+    .unwrap();
+    h.scene.text("b");
+    let events: Vec<Event> = h.pump().into_iter().map(|(_, event)| event).collect();
+    assert!(transaction(&events).is_some());
+    // Disabled at its next commit.
+    h.request(APP, Request::TextInputDisable { surface: 1 })
+        .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 2,
+        },
+    )
+    .unwrap();
+    assert!(h.scene.text_input(window).is_none());
+    h.scene.text("c");
+    assert!(matches!(
+        h.pump().as_slice(),
+        [(APP, Event::Text { surface: 1, .. })]
+    ));
+    // A deletion cannot be said with the older events: only the commit arrives.
+    assert!(h.scene.text_transaction(&TextTransaction {
+        delete_before: 1,
+        commit: "d",
+        ..TextTransaction::default()
+    }));
+    let events = h.pump();
+    assert_eq!(events.len(), 1);
+    assert!(matches!(&events[0], (APP, Event::Text { text, .. }) if text.as_str() == "d"));
+}
+
+#[test]
+fn only_the_focused_field_receives_changes() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(OTHER, 1, 400, 300);
+    enable_text_input(&mut h, first, "", 1);
+    enable_text_input(&mut h, second, "", 1);
+    h.activate(first);
+    h.pump();
+    h.scene.text("a");
+    let events = h.pump();
+    assert!(!events.is_empty());
+    assert!(events.iter().all(|(client, _)| *client == APP));
+    h.activate(second);
+    h.scene.text("b");
+    let events = h.pump();
+    assert!(!events.is_empty());
+    assert!(events.iter().all(|(client, _)| *client == OTHER));
+}
+
+#[test]
+fn an_invalid_change_delivers_nothing() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, "", 1);
+    h.pump();
+    let many = [(0, 1, PreeditStyle::Composing); MAX_PREEDIT_SEGMENTS + 1];
+    let long = "a".repeat(MAX_PREEDIT_BYTES + 1);
+    for change in [
+        // A cursor inside a character, past the end, or backwards.
+        TextTransaction {
+            preedit: "に",
+            cursor: (1, 1),
+            ..TextTransaction::default()
+        },
+        TextTransaction {
+            preedit: "ab",
+            cursor: (0, 3),
+            ..TextTransaction::default()
+        },
+        TextTransaction {
+            preedit: "ab",
+            cursor: (2, 1),
+            ..TextTransaction::default()
+        },
+        // An empty segment, one past the end, too many.
+        TextTransaction {
+            preedit: "ab",
+            segments: &[(1, 1, PreeditStyle::Converting)],
+            ..TextTransaction::default()
+        },
+        TextTransaction {
+            preedit: "ab",
+            segments: &[(0, 3, PreeditStyle::Error)],
+            ..TextTransaction::default()
+        },
+        TextTransaction {
+            preedit: "ab",
+            segments: &many,
+            ..TextTransaction::default()
+        },
+        // Too long a composition, or a deletion beyond any surrounding text.
+        TextTransaction {
+            preedit: &long,
+            ..TextTransaction::default()
+        },
+        TextTransaction {
+            delete_after: MAX_SURROUNDING_BYTES as u32 + 1,
+            ..TextTransaction::default()
+        },
+    ] {
+        assert!(!h.scene.text_transaction(&change), "{change:?}");
+    }
+    assert!(h.pump().is_empty());
+}
+
+#[test]
+fn a_dismissed_popup_may_still_describe_its_field() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 4, 4), 200, 100),
+    );
+    // A press outside dismisses it; the client has not heard yet.
+    h.click(w.x + 380, w.y + 280);
+    assert!(h.dismissed(popup).is_some());
+    enable_text_input(&mut h, popup, "buscar", 1);
+    h.pump();
+    h.scene.text("x");
+    assert!(!h
+        .pump()
+        .iter()
+        .any(|(_, event)| matches!(event, Event::TextInputDone { surface: 2, .. })));
+}
+
+#[test]
+fn a_destroyed_surface_forgets_its_text_input() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    enable_text_input(&mut h, window, "secret", 1);
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert!(h.scene.text_inputs.is_empty());
+    // A new surface with the same id starts with nothing, its serials included.
+    let window = h.toplevel(APP, 1, 400, 300);
+    assert!(h.scene.text_input(window).is_none());
+    enable_text_input(&mut h, window, "", 1);
+    h.scene.disconnect(APP);
+    assert!(h.scene.text_inputs.is_empty());
 }
 
 // ---- accessibility (ADR 0003) ----------------------------------------------------------------

@@ -753,7 +753,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::Type(text) | Step::Commit(text) => compositor.scene.text(text),
         Step::Preedit(text) => {
             if !compositor.scene.preedit(text, text.len()) {
-                return Err(format!("preedit {text:?} does not fit one chunk").into());
+                return Err(format!("preedit {text:?} is not a valid composition").into());
             }
         }
         Step::Drag { from, to } => {
