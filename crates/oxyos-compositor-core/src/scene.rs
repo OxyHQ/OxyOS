@@ -84,6 +84,8 @@ pub enum Role {
     Lock {
         output: OutputId,
     },
+    /// The input method's candidates, next to the caret of the field it serves (ADR 0008).
+    Candidates,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -93,6 +95,7 @@ enum Layer {
     Panel,
     Overlay,
     Notification,
+    Candidates,
     Lock,
 }
 
@@ -340,6 +343,7 @@ fn layer_of(role: &Role) -> Layer {
             ShellKind::Notification => Layer::Notification,
         },
         Role::Lock { .. } => Layer::Lock,
+        Role::Candidates => Layer::Candidates,
         _ => Layer::Normal,
     }
 }
@@ -399,6 +403,8 @@ impl Scene {
                 Role::Popup(_) | Role::Shell { .. } | Role::Lock { .. } => {
                     self.dismiss(key, DismissReason::OutputRemoved);
                 }
+                // Placed again next to the caret, wherever it is now (below).
+                Role::Candidates => {}
                 Role::Toplevel | Role::Dialog => {
                     // Windows on a removed output are not visible anywhere; moving them is a
                     // compositor-owned move, applied at once like a drag, so their last content
@@ -428,6 +434,7 @@ impl Scene {
                 }
             }
         }
+        self.place_candidates();
         self.refresh_pointer_focus();
     }
 
@@ -672,6 +679,9 @@ impl Scene {
             Request::Goodbye {} => {
                 self.disconnect(client);
                 Ok(())
+            }
+            Request::CreateInputCandidates { surface, size } => {
+                self.create_candidates(client, key(surface), size)
             }
             Request::CreateToplevel { surface, size } => {
                 self.check_new(key(surface))?;
@@ -1300,7 +1310,12 @@ impl Scene {
         let output = self.output_at(x, y)?;
         let privileged = matches!(
             layer_of(&self.nodes[&self.root_of(parent)].role),
-            Layer::Lock | Layer::Panel | Layer::Overlay | Layer::Notification | Layer::Background
+            Layer::Lock
+                | Layer::Panel
+                | Layer::Overlay
+                | Layer::Notification
+                | Layer::Background
+                | Layer::Candidates
         );
         let area = if privileged {
             output.rect
@@ -1943,7 +1958,7 @@ impl Scene {
                 Role::Shell {
                     kind: ShellKind::Background,
                     ..
-                }
+                } | Role::Candidates
             )
     }
 
@@ -2288,6 +2303,7 @@ impl Scene {
             self.move_to_output(moving.surface, output.id);
         }
         self.refresh_accessibility_geometry();
+        self.place_candidates();
     }
 
     /// Assigns `output` to a window and its dialogs, asking for buffers at the new scale when it
@@ -2687,6 +2703,7 @@ impl Scene {
             self.reconstrain_children(key);
         }
         self.refresh_accessibility_geometry();
+        self.place_candidates();
         for key in newly_mapped {
             let node = &self.nodes[&key];
             if node.parent.is_none() || node.role == Role::Dialog {

@@ -2,13 +2,14 @@
 //! surface has a field with text input enabled, and the field is not sensitive, the input method
 //! is told the field's state (never its surface, its client or where it is on screen), receives
 //! the keys first and gives back those it does not use, and sends changes the field applies
-//! whole.
+//! whole. It may have one candidates surface, which the compositor places next to the caret.
 
 use super::text_input::{TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
-use super::{ClientId, Scene, SurfaceKey};
+use super::{ClientId, Role, Scene, SurfaceKey};
+use crate::placement::{anchor_point, place};
 use oxyos_protocol::{
-    ErrorCode, Event, PreeditStyle, PreeditText, Request, TextChunk, TextHints, TextPurpose,
-    MAX_SURROUNDING_BYTES,
+    Adjust, Anchor, ErrorCode, Event, Gravity, Positioner, PreeditStyle, PreeditText, Request,
+    Size, TextChunk, TextHints, TextPurpose, MAX_SURROUNDING_BYTES,
 };
 use std::collections::VecDeque;
 
@@ -52,6 +53,8 @@ pub(super) struct InputMethod {
     active: Option<Served>,
     keys: VecDeque<PendingKey>,
     parts: Parts,
+    /// Its candidates surface, if it made one.
+    candidates: Option<u32>,
 }
 
 impl InputMethod {
@@ -61,6 +64,7 @@ impl InputMethod {
             active: None,
             keys: VecDeque::new(),
             parts: Parts::default(),
+            candidates: None,
         }
     }
 }
@@ -88,9 +92,16 @@ impl Scene {
         })
     }
 
+    /// Brings the input method up to date with the focused field, and its candidates with the
+    /// caret.
+    pub(super) fn refresh_input_method(&mut self) {
+        self.tell_input_method();
+        self.place_candidates();
+    }
+
     /// Tells the input method what changed of the field it serves: another field (deactivating
     /// the one before first, its held keys going on to it), none, or the same field's new state.
-    pub(super) fn refresh_input_method(&mut self) {
+    fn tell_input_method(&mut self) {
         let Some(active) = self.input_method.as_ref().map(|im| im.active) else {
             return;
         };
@@ -155,13 +166,88 @@ impl Scene {
 
     /// The input method is gone (disconnected, or its grant revoked): the keys it held go on.
     pub(super) fn forget_input_method(&mut self, client: ClientId) {
-        if self
+        let Some(im) = self.input_method.as_ref().filter(|im| im.client == client) else {
+            return;
+        };
+        // Its candidates stay hidden until the client destroys them.
+        let candidates = im.candidates.map(|id| SurfaceKey { client, id });
+        if let Some(node) = candidates.and_then(|key| self.nodes.get_mut(&key)) {
+            node.hidden = true;
+        }
+        self.release_keys(true);
+        self.input_method = None;
+    }
+
+    /// The input method's candidates surface (one), placed by the compositor.
+    pub(super) fn create_candidates(
+        &mut self,
+        client: ClientId,
+        key: SurfaceKey,
+        size: Size,
+    ) -> Result<(), ErrorCode> {
+        let im = self
             .input_method
             .as_ref()
-            .is_some_and(|im| im.client == client)
-        {
-            self.release_keys(true);
-            self.input_method = None;
+            .filter(|im| im.client == client)
+            .ok_or(ErrorCode::Unauthorized)?;
+        let existing = im.candidates.map(|id| SurfaceKey { client, id });
+        if existing.is_some_and(|existing| self.nodes.contains_key(&existing)) {
+            return Err(ErrorCode::InvalidRole);
+        }
+        self.check_new(key)?;
+        let output = self.outputs.first().map_or(0, |output| output.id);
+        self.insert(key, Role::Candidates, None, (0, 0), size, output);
+        self.input_method.as_mut().expect("present").candidates = Some(key.id);
+        self.place_candidates();
+        Ok(())
+    }
+
+    /// Places the candidates below the caret of the field the input method serves (above it
+    /// when there is no room), on the caret's output; hides them while it serves none or the
+    /// field has not said where its caret is.
+    pub(super) fn place_candidates(&mut self) {
+        let Some(im) = self.input_method.as_ref() else {
+            return;
+        };
+        let Some(key) = im.candidates.map(|id| SurfaceKey {
+            client: im.client,
+            id,
+        }) else {
+            return;
+        };
+        let Some(node) = self.nodes.get(&key) else {
+            return;
+        };
+        let size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let placed = im.active.and_then(|served| {
+            let caret = self.text_input(served.surface)?.caret?;
+            let field = self.global_rect(served.surface)?;
+            let positioner = Positioner {
+                anchor_rect: caret,
+                size,
+                anchor: Anchor::BottomLeft,
+                gravity: Gravity::BottomRight,
+                adjust: Adjust::FLIP_Y.union(Adjust::SLIDE_X).union(Adjust::SLIDE_Y),
+                offset_x: 0,
+                offset_y: 0,
+            };
+            let origin = (field.x, field.y);
+            let (x, y) = anchor_point(&positioner, origin);
+            let output = self.output_at(x, y)?;
+            Some((place(&positioner, origin, output.rect)?, output.id))
+        });
+        let node = self.nodes.get_mut(&key).expect("present");
+        let Some((rect, output)) = placed else {
+            node.hidden = true;
+            return;
+        };
+        node.hidden = false;
+        node.origin = (rect.x, rect.y);
+        if let Some((serial, _, size)) = node.pending {
+            node.pending = Some((serial, (rect.x, rect.y), size));
+        }
+        if node.output != output {
+            self.move_to_output(key, output);
         }
     }
 
