@@ -4598,3 +4598,237 @@ fn the_pointer_takes_the_shape_the_surface_under_it_wants() {
         .pointer_motion(w.x + w.width as i32 + 20, w.y + w.height as i32);
     assert_eq!(h.scene.pointer_shape(), PointerShape::Move);
 }
+
+impl Harness {
+    /// The locker's lock surface on the output, shown.
+    fn lock_surface(&mut self, id: u32) -> SurfaceKey {
+        self.request(
+            LOCKER,
+            Request::CreateLockSurface {
+                surface: id,
+                output: 1,
+            },
+        )
+        .unwrap();
+        self.present(key(LOCKER, id));
+        key(LOCKER, id)
+    }
+
+    fn give_password(&mut self, surface: SurfaceKey, password: &str) -> Result<(), ErrorCode> {
+        for secret in oxyos_protocol::SecretChunk::split(password) {
+            self.request(
+                surface.client,
+                Request::AuthenticateSecret {
+                    surface: surface.id,
+                    secret,
+                },
+            )?;
+        }
+        self.request(
+            surface.client,
+            Request::Authenticate {
+                surface: surface.id,
+            },
+        )
+    }
+
+    fn results(&self, client: ClientId) -> Vec<(u32, oxyos_protocol::AuthOutcome, u32)> {
+        self.events_for(client)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::AuthenticationResult {
+                    surface,
+                    outcome,
+                    wait_s,
+                } => Some((surface, outcome, wait_s)),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn the_shell_locks_and_the_lock_screen_is_told() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.clear_log();
+    // Only the shell may lock.
+    assert_eq!(
+        h.request(APP, Request::LockSession {}),
+        Err(ErrorCode::Unauthorized)
+    );
+    assert!(!h.scene.is_locked());
+    h.request(SHELL, Request::LockSession {}).unwrap();
+    assert!(h.scene.is_locked());
+    assert!(!h.rendered(window));
+    assert_eq!(
+        h.events_for(LOCKER),
+        vec![Event::LockState { locked: true }]
+    );
+    // Telling is the lock grant's: the shell and applications are not told.
+    assert!(!h
+        .events_for(APP)
+        .iter()
+        .chain(h.events_for(SHELL).iter())
+        .any(|event| matches!(event, Event::LockState { .. })));
+    // Locking again changes nothing and tells nothing.
+    h.clear_log();
+    h.request(SHELL, Request::LockSession {}).unwrap();
+    assert!(h.events_for(LOCKER).is_empty());
+    h.scene.unlock();
+    h.pump();
+    assert_eq!(
+        h.events_for(LOCKER),
+        vec![Event::LockState { locked: false }]
+    );
+    assert!(h.rendered(window));
+}
+
+#[test]
+fn a_lock_screen_that_connects_while_locked_is_told_at_once() {
+    let mut h = Harness::new();
+    h.scene.lock();
+    h.scene.disconnect(LOCKER);
+    h.clear_log();
+    h.scene
+        .connect(
+            LOCKER,
+            Grants {
+                lock: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    h.pump();
+    assert_eq!(
+        h.events_for(LOCKER),
+        vec![Event::LockState { locked: true }]
+    );
+    // An application connecting is told nothing of it.
+    h.scene.connect(9, Grants::default()).unwrap();
+    h.pump();
+    assert!(h.events_for(9).is_empty());
+}
+
+#[test]
+fn a_lock_surfaces_password_goes_to_the_session_and_its_answer_back() {
+    let mut h = Harness::new();
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    let password = "correct horse battery staple, ñandú";
+    h.give_password(surface, password).unwrap();
+    let (from, secret) = h.scene.take_authentication().unwrap();
+    assert_eq!(from, surface);
+    assert_eq!(&secret[..], password.as_bytes());
+    assert!(h.scene.take_authentication().is_none());
+    // Another password while that one is checked is busy, and goes nowhere.
+    h.give_password(surface, "another").unwrap();
+    assert!(h.scene.take_authentication().is_none());
+    assert_eq!(
+        h.results(LOCKER),
+        vec![(1, oxyos_protocol::AuthOutcome::Busy, 0)]
+    );
+    // The answer goes to the surface; it does not unlock.
+    h.clear_log();
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Throttled, 30);
+    h.pump();
+    assert_eq!(
+        h.results(LOCKER),
+        vec![(1, oxyos_protocol::AuthOutcome::Throttled, 30)]
+    );
+    assert!(h.scene.is_locked());
+    // The next one is checked.
+    h.give_password(surface, password).unwrap();
+    assert!(h.scene.take_authentication().is_some());
+}
+
+#[test]
+fn only_a_lock_surface_while_locked_gives_a_password() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.lock();
+    assert_eq!(
+        h.give_password(window, "guess"),
+        Err(ErrorCode::InvalidRole)
+    );
+    assert_eq!(
+        h.request(APP, Request::Authenticate { surface: 7 }),
+        Err(ErrorCode::UnknownSurface)
+    );
+    assert!(h.scene.take_authentication().is_none());
+    // Unlocked, a lock surface's password is dropped: there is nothing to unlock.
+    let surface = h.lock_surface(1);
+    h.scene.unlock();
+    h.give_password(surface, "late").unwrap();
+    assert!(h.scene.take_authentication().is_none());
+    // Typed while locked and submitted after the unlock, it is dropped as well.
+    h.scene.lock();
+    h.request(
+        LOCKER,
+        Request::AuthenticateSecret {
+            surface: 1,
+            secret: oxyos_protocol::SecretChunk::new("half").unwrap(),
+        },
+    )
+    .unwrap();
+    h.scene.unlock();
+    h.scene.lock();
+    h.request(LOCKER, Request::Authenticate { surface: 1 })
+        .unwrap();
+    let (_, secret) = h.scene.take_authentication().unwrap();
+    assert!(
+        secret.is_empty(),
+        "the half given before the unlock is gone"
+    );
+}
+
+#[test]
+fn a_password_longer_than_pam_takes_is_a_protocol_error() {
+    let mut h = Harness::new();
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    let longest = "a".repeat(oxyos_protocol::MAX_SECRET_BYTES);
+    assert_eq!(
+        h.give_password(surface, &format!("{longest}a")),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    h.give_password(surface, &longest).unwrap();
+    assert_eq!(
+        h.scene.take_authentication().unwrap().1.len(),
+        longest.len()
+    );
+}
+
+#[test]
+fn a_lock_surface_that_goes_takes_its_password_with_it() {
+    let mut h = Harness::new();
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    h.give_password(surface, "submitted").unwrap();
+    // The lock screen crashes before the session took the password: it is dropped, and the next
+    // lock screen's password is checked, not busy.
+    h.scene.disconnect(LOCKER);
+    assert!(h.scene.take_authentication().is_none());
+    h.scene
+        .connect(
+            LOCKER,
+            Grants {
+                lock: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    let surface = h.lock_surface(2);
+    h.give_password(surface, "again").unwrap();
+    assert_eq!(h.scene.take_authentication().unwrap().0, surface);
+    // A password being checked when its surface goes is still answered by the session, to no
+    // one, and the next is checked.
+    h.request(LOCKER, Request::Destroy { surface: 2 }).unwrap();
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    let surface = h.lock_surface(3);
+    h.give_password(surface, "third").unwrap();
+    assert!(h.scene.take_authentication().is_some());
+    assert!(h.results(LOCKER).is_empty());
+}

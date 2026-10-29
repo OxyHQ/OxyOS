@@ -1502,6 +1502,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-auth"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "rustix",
+ "zeroize",
+]
+
+[[package]]
 name = "oxyos-client"
 version = "0.1.0"
 dependencies = [
@@ -1546,6 +1555,7 @@ name = "oxyos-compositor-core"
 version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
+ "zeroize",
 ]
 
 [[package]]
@@ -1684,6 +1694,7 @@ dependencies = [
 name = "oxyos-session"
 version = "0.1.0"
 dependencies = [
+ "oxyos-auth",
  "oxyos-compositor",
  "oxyos-compositor-core",
  "oxyos-gpu",

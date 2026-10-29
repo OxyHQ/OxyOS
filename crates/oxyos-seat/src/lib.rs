@@ -9,6 +9,10 @@
 //!   the seat; a `Pause` is acknowledged with [`Seat::paused`]) or resumed (with a new
 //!   descriptor for an input device).
 //! - [`Seat::switch_to`] asks for another terminal (the user's Ctrl+Alt+Fn).
+//! - The lock (docs/adr/0010-lock-screen.mdx): [`Seat::events`] also reports logind's `Lock`
+//!   (`loginctl lock-session`) and the machine about to sleep; [`Seat::hold_sleep`] delays
+//!   sleep until [`Seat::release_sleep`], once the session is locked on screen, and
+//!   [`Seat::set_locked_hint`] tells logind whether it is locked.
 //!
 //! Dropping the [`Seat`] gives control back.
 
@@ -67,6 +71,11 @@ pub enum Event {
     /// The device is the session's again. A DRM card keeps its descriptor (DRM master again);
     /// an input device comes with a new one, the old being revoked.
     Resumed(Device, OwnedFd),
+    /// logind asks the session to lock. (Its `Unlock` is never followed: only the session's
+    /// authentication unlocks.)
+    Lock,
+    /// The machine is about to sleep (`true`), or woke (`false`).
+    PrepareForSleep(bool),
 }
 
 fn failed(error: zbus::Error) -> io::Error {
@@ -77,6 +86,9 @@ fn failed(error: zbus::Error) -> io::Error {
 pub struct Seat {
     session: Proxy<'static>,
     seat: Proxy<'static>,
+    manager: Proxy<'static>,
+    /// The delay inhibitor for sleep, while held.
+    sleep: std::cell::RefCell<Option<OwnedFd>>,
     vt: Option<u32>,
     events: Receiver<Event>,
     /// Readable when an event is queued (`AsFd`).
@@ -126,6 +138,22 @@ impl Seat {
         wake.set_nonblocking(true)?;
         let signals = Proxy::new(&connection, LOGIND, path, SESSION).map_err(failed)?;
         let incoming = signals.receive_all_signals().map_err(failed)?;
+        let sleeping = manager.receive_signal("PrepareForSleep").map_err(failed)?;
+        let (sleep_sender, mut sleep_wake) = (sender.clone(), wake_write.try_clone()?);
+        std::thread::Builder::new()
+            .name("oxyos-seat-sleep".into())
+            .spawn(move || {
+                for message in sleeping {
+                    let Ok(start) = message.body().deserialize::<bool>() else {
+                        continue;
+                    };
+                    if sleep_sender.send(Event::PrepareForSleep(start)).is_err()
+                        || sleep_wake.write_all(&[1]).is_err()
+                    {
+                        return;
+                    }
+                }
+            })?;
         std::thread::Builder::new()
             .name("oxyos-seat".into())
             .spawn(move || {
@@ -151,6 +179,7 @@ impl Seat {
                             .map(|(major, minor, fd)| {
                                 Event::Resumed(Device { major, minor }, fd.into())
                             }),
+                        Some("Lock") => Some(Event::Lock),
                         _ => None,
                     };
                     if let Some(event) = event {
@@ -163,6 +192,8 @@ impl Seat {
         Ok(Self {
             session,
             seat,
+            manager,
+            sleep: std::cell::RefCell::new(None),
             vt: (vt != 0).then_some(vt),
             events,
             wake,
@@ -203,6 +234,40 @@ impl Seat {
     pub fn switch_to(&self, vt: u32) -> io::Result<()> {
         self.seat
             .call::<_, _, ()>("SwitchTo", &(vt))
+            .map_err(failed)
+    }
+
+    /// Holds sleep back (a logind *delay* inhibitor) until [`Seat::release_sleep`]: when the
+    /// machine is about to sleep, the session has logind's few seconds to lock on screen first.
+    pub fn hold_sleep(&self) -> io::Result<()> {
+        if self.sleep.borrow().is_some() {
+            return Ok(());
+        }
+        let fd: zbus::zvariant::OwnedFd = self
+            .manager
+            .call(
+                "Inhibit",
+                &(
+                    "sleep",
+                    "OxyOS",
+                    "Locking the screen before sleeping",
+                    "delay",
+                ),
+            )
+            .map_err(failed)?;
+        *self.sleep.borrow_mut() = Some(fd.into());
+        Ok(())
+    }
+
+    /// Lets the machine sleep: the session is locked on screen.
+    pub fn release_sleep(&self) {
+        self.sleep.borrow_mut().take();
+    }
+
+    /// Tells logind whether the session is locked (its `LockedHint`, as `loginctl` shows it).
+    pub fn set_locked_hint(&self, locked: bool) -> io::Result<()> {
+        self.session
+            .call::<_, _, ()>("SetLockedHint", &(locked))
             .map_err(failed)
     }
 

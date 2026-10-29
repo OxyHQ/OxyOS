@@ -5,15 +5,20 @@
 //! - frames are composed on the GPU straight into the display's scanout buffers where Vulkan
 //!   exports DMA-BUF, otherwise on the CPU, only what changed (docs/adr/0005-damage.mdx);
 //! - its input is the seat's devices through libinput, with the keymap of `--layout`;
-//! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed.
+//! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed;
+//! - the session locks (docs/adr/0010-lock-screen.mdx) on Ctrl+Super+Q, at the shell's request,
+//!   when logind asks and before the machine sleeps; only a password PAM accepts for the session's
+//!   user, under the service `oxyos`, unlocks it.
 //!
 //! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...] -- COMMAND
 //! [ARGS]...` runs COMMAND
 //! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
 //! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
-//! that grants `shell`; COMMAND starts once the shell's panels have set the work area its window is
-//! placed in. The session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM
-//! (they are then asked to stop).
+//! that grants `shell` and `lock` (the shell is the lock screen as well); COMMAND starts once the
+//! shell's panels have set the work area its window is placed in. The session ends when either
+//! exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then asked to stop). A shell
+//! that exits while the session is locked is started again, at most once a second: until it
+//! shows the lock screen, the compositor's covers are all there is to see.
 //!
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
@@ -21,10 +26,11 @@
 
 mod cursor_file;
 
-use oxyos_compositor::{Compositor, Gpu, Result};
+use oxyos_compositor::{Authentication, Compositor, Gpu, Result};
 use oxyos_compositor_core::{Output, Scene};
 use oxyos_ipc::Listener;
-use oxyos_protocol::{PointerShape, Rect};
+use oxyos_protocol::{AuthOutcome, PointerShape, Rect};
+use rustix::fd::BorrowedFd;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -39,6 +45,10 @@ const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|
 /// The shell's panels set the work area within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const OUTPUT_ID: u32 = 1;
+/// The PAM service the lock checks passwords under (`/etc/pam.d/oxyos`).
+const PAM_SERVICE: &str = "oxyos";
+/// A shell that exits while locked is started again, but no sooner than this after the last.
+const SHELL_RESTART: Duration = Duration::from_secs(1);
 
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
@@ -83,8 +93,20 @@ fn main() -> Result<()> {
         return Err(USAGE.into());
     }
 
+    // The lock's authentication path first: without one the session never starts, as it could
+    // lock and never unlock.
+    let pam = oxyos_auth::Authenticator::for_session(PAM_SERVICE)?;
+    eprintln!(
+        "[session] the lock checks {}'s password with PAM ({PAM_SERVICE})",
+        pam.user().to_string_lossy()
+    );
+    let pam = Pam(oxyos_auth::Checker::spawn(pam)?);
     let seat = Rc::new(oxyos_seat::Seat::take()?);
     eprintln!("[session] logind session on terminal {:?}", seat.vt());
+    // Sleep waits for the lock to be on screen.
+    if let Err(error) = seat.hold_sleep() {
+        eprintln!("[session] holding sleep back: {error}; sleep will not wait for the lock");
+    }
     let (display, card) = open_display(&seat)?;
     let mut display = display;
     let pointer_images = show_pointer(&mut display, pointer.as_ref());
@@ -122,6 +144,7 @@ fn main() -> Result<()> {
     compositor.idle_wait = Duration::from_millis(250);
     compositor.records = false;
     compositor.reads_back = false;
+    compositor.authentication = Some(Box::new(pam));
     compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
     compositor.seat = Some(seat.clone());
     // On the GPU straight into the display's buffers where the device exports them.
@@ -198,6 +221,7 @@ fn main() -> Result<()> {
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .spawn()?;
+    let mut shell_started = Instant::now();
     let ended = loop {
         if let Some(status) = application.try_wait()? {
             eprintln!(
@@ -212,8 +236,21 @@ fn main() -> Result<()> {
             .transpose()?
             .flatten()
         {
-            eprintln!("[session] the shell exited ({status})");
-            break Ok(());
+            if !compositor.scene.is_locked() {
+                eprintln!("[session] the shell exited ({status})");
+                break Ok(());
+            }
+            // Failing closed: the session stays locked, under the covers, until the shell is
+            // back and shows the lock screen.
+            eprintln!("[session] the shell exited ({status}) while locked");
+            shell = None;
+        }
+        if let (None, Some(shell_command)) = (&shell, &shell_command) {
+            if shell_started.elapsed() >= SHELL_RESTART {
+                eprintln!("[session] starting the shell again");
+                shell_started = Instant::now();
+                shell = Some(spawn_shell(&shell_socket, shell_command)?);
+            }
         }
         if compositor.ending || stop.load(Ordering::Relaxed) {
             eprintln!("[session] ending");
@@ -248,14 +285,7 @@ fn start_shell(
     let shell_listener = Listener::bind(socket)?;
     shell_listener.set_nonblocking(true)?;
     compositor.shell_listener = Some(shell_listener);
-    let mut shell = Command::new(command.first().ok_or(USAGE)?)
-        .args(&command[1..])
-        .arg("--shell")
-        .arg(OUTPUT_ID.to_string())
-        .env("OXYOS_COMPOSITOR_SOCKET", socket)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .spawn()?;
+    let mut shell = spawn_shell(socket, command)?;
     let deadline = Instant::now() + SHELL_DEADLINE;
     loop {
         if let Some(status) = shell.try_wait()? {
@@ -274,6 +304,54 @@ fn start_shell(
             eprintln!("[session] the shell's panels are shown");
             return Ok(shell);
         }
+    }
+}
+
+/// The session's shell, on `socket`.
+fn spawn_shell(socket: &std::path::Path, command: &[OsString]) -> Result<std::process::Child> {
+    Ok(Command::new(command.first().ok_or(USAGE)?)
+        .args(&command[1..])
+        .arg("--shell")
+        .arg(OUTPUT_ID.to_string())
+        .env("OXYOS_COMPOSITOR_SOCKET", socket)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .spawn()?)
+}
+
+/// The session's authentication path (ADR 0010): PAM, off the compositor's thread, throttled.
+struct Pam(oxyos_auth::Checker);
+
+/// Whole seconds, rounded up: a wait of 0.2 s is still a wait.
+fn seconds(wait: Duration) -> u32 {
+    u32::try_from(wait.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
+}
+
+impl Authentication for Pam {
+    fn attempt(
+        &mut self,
+        mut secret: oxyos_compositor_core::scene::Secret,
+    ) -> Option<(AuthOutcome, u32)> {
+        // The password's memory moves to PAM's side whole, and is overwritten there.
+        let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
+        match self.0.attempt(secret, Instant::now()) {
+            oxyos_auth::Attempt::Checking => None,
+            oxyos_auth::Attempt::Busy => Some((AuthOutcome::Busy, 0)),
+            oxyos_auth::Attempt::Throttled(wait) => Some((AuthOutcome::Throttled, seconds(wait))),
+        }
+    }
+
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+
+    fn answer(&mut self) -> Option<(AuthOutcome, u32)> {
+        let answer = self.0.answer(Instant::now())?;
+        let outcome = match answer.outcome {
+            oxyos_auth::Outcome::Accepted => AuthOutcome::Accepted,
+            oxyos_auth::Outcome::Rejected => AuthOutcome::Rejected,
+        };
+        Some((outcome, seconds(answer.wait)))
     }
 }
 

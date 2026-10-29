@@ -7,6 +7,8 @@ publish.workspace = true
 
 [dependencies]
 oxyos-protocol = { path = "../oxyos-protocol" }
+# Overwrites a lock surface's password in memory when it goes (ADR 0010).
+zeroize = "1"
 
 [lints]
 workspace = true

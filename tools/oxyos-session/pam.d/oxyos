@@ -1,0 +1,4 @@
+# The OxyOS session's lock screen (docs/adr/0010-lock-screen.mdx): a password checked as the
+# system checks one at a login, for the session's own user. Installed as /etc/pam.d/oxyos.
+@include common-auth
+@include common-account

@@ -2370,3 +2370,107 @@ fn intl_asks_for_more_room_and_refuses_with_a_range_error() {
     assert_eq!(failed, -1);
     assert_eq!(last_error(), "null locales");
 }
+
+#[test]
+fn the_header_matches_the_lock_abi() {
+    for (name, value) in [
+        ("OXYOS_EVENT_LOCK_STATE", i64::from(OXYOS_EVENT_LOCK_STATE)),
+        (
+            "OXYOS_EVENT_AUTHENTICATION_RESULT",
+            OXYOS_EVENT_AUTHENTICATION_RESULT.into(),
+        ),
+        ("OXYOS_AUTH_ACCEPTED", OXYOS_AUTH_ACCEPTED.into()),
+        ("OXYOS_AUTH_REJECTED", OXYOS_AUTH_REJECTED.into()),
+        ("OXYOS_AUTH_BUSY", OXYOS_AUTH_BUSY.into()),
+        ("OXYOS_AUTH_THROTTLED", OXYOS_AUTH_THROTTLED.into()),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    use oxyos_protocol::AuthOutcome;
+    assert_eq!(AuthOutcome::Accepted as u32, OXYOS_AUTH_ACCEPTED);
+    assert_eq!(AuthOutcome::Rejected as u32, OXYOS_AUTH_REJECTED);
+    assert_eq!(AuthOutcome::Busy as u32, OXYOS_AUTH_BUSY);
+    assert_eq!(AuthOutcome::Throttled as u32, OXYOS_AUTH_THROTTLED);
+    let state = convert(&Event::LockState { locked: true }).unwrap();
+    assert_eq!((state.kind, state.flag), (OXYOS_EVENT_LOCK_STATE, 1));
+    let result = convert(&Event::AuthenticationResult {
+        surface: 3,
+        outcome: AuthOutcome::Throttled,
+        wait_s: 60,
+    })
+    .unwrap();
+    assert_eq!(
+        (result.kind, result.surface, result.detail, result.code),
+        (
+            OXYOS_EVENT_AUTHENTICATION_RESULT,
+            3,
+            OXYOS_AUTH_THROTTLED,
+            60
+        )
+    );
+}
+
+#[test]
+fn a_password_goes_in_chunks_then_is_submitted() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-lock-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let password = "correct horse battery staple, ñandú";
+    let chunks = SecretChunk::split(password).len();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..chunks + 3)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // are as long as said.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_create_lock_surface(client, 4, 1), 0);
+        // Too long or not UTF-8, nothing is sent.
+        let long = "a".repeat(513);
+        assert_eq!(
+            oxyos_client_authenticate(client, 4, long.as_ptr().cast(), long.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_authenticate(client, 4, b"\xff".as_ptr().cast(), 1),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_authenticate(client, 4, password.as_ptr().cast(), password.len()),
+            0
+        );
+        assert_eq!(oxyos_client_lock_session(client), 0);
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests[0],
+            Request::CreateLockSurface {
+                surface: 4,
+                output: 1
+            }
+        );
+        let given: String = requests[1..=chunks]
+            .iter()
+            .map(|request| match request {
+                Request::AuthenticateSecret { surface: 4, secret } => secret.as_str().to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(given, password);
+        assert_eq!(requests[chunks + 1], Request::Authenticate { surface: 4 });
+        assert_eq!(requests[chunks + 2], Request::LockSession {});
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

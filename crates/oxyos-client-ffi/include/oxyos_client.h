@@ -41,6 +41,13 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WORKSPACES 41
 #define OXYOS_EVENT_CLOSE_REQUESTED 42
 #define OXYOS_EVENT_PINCH 43
+#define OXYOS_EVENT_LOCK_STATE 44
+#define OXYOS_EVENT_AUTHENTICATION_RESULT 45
+/* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
+#define OXYOS_AUTH_ACCEPTED 1
+#define OXYOS_AUTH_REJECTED 2
+#define OXYOS_AUTH_BUSY 3
+#define OXYOS_AUTH_THROTTLED 4
 /* A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event). */
 #define OXYOS_WINDOW_MINIMIZED 1
 #define OXYOS_WINDOW_FOCUSED 2
@@ -111,7 +118,13 @@ typedef struct OxyOSClient OxyOSClient;
  *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the
  *               pinch began (65536 = as they started); rotation_256: how far they have turned
  *               since, in 1/256 degrees, clockwise. A pinch stays with the surface under the
- *               pointer when it began until it ends or is cancelled. */
+ *               pointer when it began until it ends or is cancelled.
+ *   To a client with the `lock` grant (ADR 0010):
+ *   LOCK_STATE  flag: whether the session is locked. Locked, the client makes a lock surface per
+ *               output; unlocked, it destroys them.
+ *   AUTHENTICATION_RESULT  detail: OXYOS_AUTH_*, what came of the password `surface` submitted;
+ *               code: the seconds until another may be tried (0: at once). Only the session
+ *               unlocks, and LOCK_STATE then says so. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -242,6 +255,14 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 #define OXYOS_MANAGE_ACTIVATE_WORKSPACE 5
 #define OXYOS_MANAGE_ADD_WORKSPACE 6
 #define OXYOS_MANAGE_REMOVE_WORKSPACE 7
+/* The lock (ADR 0010). The lock surface of `output` (the `lock` grant): it covers the output and is
+ * all that shows while locked; a configure answers. Locking the session (the `shell` grant). The
+ * password typed in a lock surface (`length` bytes of UTF-8, at most 512), submitted for the
+ * session to check: the library keeps no copy, and the caller overwrites its own once this
+ * returns. */
+int oxyos_client_create_lock_surface(OxyOSClient* client, uint32_t surface, uint32_t output);
+int oxyos_client_lock_session(OxyOSClient* client);
+int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
 /* Focuses (and restores, showing its workspace), closes (the application is asked), minimizes or
  * moves (to `workspace`) the window numbered `window`; activates, adds or removes a workspace. */
 int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, uint32_t workspace);

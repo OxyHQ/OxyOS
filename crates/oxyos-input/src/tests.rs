@@ -41,6 +41,7 @@ fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
         }
         Typed::SwitchTerminal(number) => panic!("a terminal switch to {number}, not text"),
         Typed::Terminate => panic!("the end of the session, not text"),
+        Typed::Lock => panic!("the lock, not text"),
         Typed::Nothing => panic!("a press is always someone's"),
     }
 }
@@ -217,4 +218,37 @@ fn ctrl_alt_backspace_ends_the_session_and_is_no_applications_key() {
     assert_eq!(us.key(CTRL, false), Typed::Key(None));
     // Alone, Backspace is a key.
     assert_eq!(tap(&mut us, BACKSPACE), None);
+}
+
+#[test]
+fn ctrl_super_q_locks_and_is_no_applications_key() {
+    const CTRL: u32 = 29;
+    const SUPER: u32 = 125;
+    const Q: u32 = 16;
+    let mut us = composing("us");
+    assert_eq!(us.key(CTRL, true), Typed::Key(None));
+    assert_eq!(us.key(SUPER, true), Typed::Key(None));
+    assert_eq!(us.key(Q, true), Typed::Lock);
+    assert_eq!(us.key(Q, false), Typed::Nothing);
+    assert_eq!(us.key(SUPER, false), Typed::Key(None));
+    // Ctrl+Q alone is the application's (quit), as is Super+Q.
+    assert_eq!(us.key(Q, true), Typed::Key(None));
+    assert_eq!(us.key(Q, false), Typed::Key(None));
+    assert_eq!(us.key(CTRL, false), Typed::Key(None));
+    assert_eq!(us.key(SUPER, true), Typed::Key(None));
+    assert_eq!(us.key(Q, true), Typed::Key(Some("q".into())));
+    assert_eq!(us.key(Q, false), Typed::Key(None));
+    assert_eq!(us.key(SUPER, false), Typed::Key(None));
+    // With Shift as well, it is not the lock.
+    assert_eq!(us.key(CTRL, true), Typed::Key(None));
+    assert_eq!(us.key(SUPER, true), Typed::Key(None));
+    assert_eq!(us.key(SHIFT, true), Typed::Key(None));
+    assert!(matches!(us.key(Q, true), Typed::Key(_)));
+    // It is the key that types q: on AZERTY, US A's key, not US Q's (which types a).
+    let mut fr = composing("fr");
+    fr.key(CTRL, true);
+    fr.key(SUPER, true);
+    assert_eq!(fr.key(Q, true), Typed::Key(None));
+    assert_eq!(fr.key(Q, false), Typed::Key(None));
+    assert_eq!(fr.key(A, true), Typed::Lock);
 }

@@ -9,10 +9,11 @@
 use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
-    Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ServerConnection, Size,
+    AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request,
+    ServerConnection, Size,
 };
 use rustix::event::{poll, PollFd, PollFlags};
-use rustix::fd::{AsFd, OwnedFd};
+use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
@@ -49,7 +50,7 @@ pub struct Compositor {
     pub scene: Scene,
     pub peers: HashMap<ClientId, Peer>,
     /// The development compositor's shell socket: a same-user peer connecting there is granted
-    /// `shell` (docs/adr/0009-session-shell.mdx), as a shipping session will grant it from its
+    /// `shell` (docs/adr/0009-session-shell.mdx) and `lock` (it is the lock screen too, ADR 0010), as a shipping session will grant it from its
     /// launch records (#35).
     pub shell_listener: Option<Listener>,
     pub next_client: ClientId,
@@ -144,6 +145,33 @@ pub struct Compositor {
     pub card_device: Option<oxyos_seat::Device>,
     /// Another terminal has the display and the devices: frames complete without being shown.
     pub away: bool,
+    /// What checks the lock's passwords; without one, none unlocks.
+    pub authentication: Option<Box<dyn Authentication>>,
+    /// The lock surface whose password is being checked.
+    checking: Option<SurfaceKey>,
+    /// Whether the frame being composed, and the one last shown, were of the locked session.
+    composing_locked: bool,
+    shown_locked: bool,
+    /// The machine is about to sleep: it may once the lock is on screen.
+    sleeping: bool,
+    /// What logind was last told of the lock.
+    hinted_locked: bool,
+}
+
+/// The session's authentication path (ADR 0010): it checks a lock surface's password off the
+/// compositor's thread, and only its `Accepted` unlocks. The session's is PAM; the development
+/// compositor's a fixture, never a session's.
+pub trait Authentication {
+    /// Begins checking `secret`: `None` while it is checked, or an answer at once (busy,
+    /// throttled) with the seconds until another may be tried.
+    fn attempt(
+        &mut self,
+        secret: oxyos_compositor_core::scene::Secret,
+    ) -> Option<(AuthOutcome, u32)>;
+    /// Readable when the password being checked has its answer.
+    fn as_fd(&self) -> BorrowedFd<'_>;
+    /// The answer for the password being checked, once there is one.
+    fn answer(&mut self) -> Option<(AuthOutcome, u32)>;
 }
 
 pub struct Gpu {
@@ -212,6 +240,12 @@ impl Compositor {
             seat: None,
             card_device: None,
             away: false,
+            authentication: None,
+            checking: None,
+            composing_locked: false,
+            shown_locked: false,
+            sleeping: false,
+            hinted_locked: false,
         }
     }
 
@@ -479,6 +513,7 @@ impl Compositor {
             return;
         }
         self.composing_since = monotonic();
+        self.composing_locked = self.scene.is_locked();
         // What changed on the output since the frame composed last (ADR 0005); everything when
         // there was none, or after the display came back.
         let scene = &self.scene;
@@ -742,6 +777,7 @@ impl Compositor {
         self.retire();
         if clock == Clock::Monotonic {
             self.flipped = self.scene.render_list();
+            self.shown_locked = self.composing_locked;
         }
         if self.gpu_only && self.reads_back && clock == Clock::Monotonic {
             // The clients hear the frame was shown before the director reads it back, so its
@@ -823,6 +859,19 @@ impl Compositor {
                     }
                 }
                 // Input devices are opened anew when libinput resumes; the card keeps its own.
+                oxyos_seat::Event::Lock => self.scene.lock(),
+                // Sleep waits for the lock to be on screen (`follow_lock`); on waking, the next
+                // sleep is held back again.
+                oxyos_seat::Event::PrepareForSleep(true) => {
+                    self.scene.lock();
+                    self.sleeping = true;
+                }
+                oxyos_seat::Event::PrepareForSleep(false) => {
+                    self.sleeping = false;
+                    if let Err(error) = seat.hold_sleep() {
+                        eprintln!("[seat] holding sleep back: {error}");
+                    }
+                }
                 oxyos_seat::Event::Resumed(device, fd) => {
                     drop(fd);
                     if Some(device) == self.card_device && self.away {
@@ -893,6 +942,7 @@ impl Compositor {
                     text,
                 } => self.scene.keyboard(code, pressed, text.as_deref()),
                 oxyos_input::Action::Terminate => self.ending = true,
+                oxyos_input::Action::Lock => self.scene.lock(),
                 oxyos_input::Action::SwitchTerminal(number) => {
                     if let Some(seat) = &self.seat {
                         if Some(u32::from(number)) != seat.vt() {
@@ -1139,6 +1189,12 @@ impl Compositor {
             if let Some(seat) = &self.seat {
                 fds.push(PollFd::from_borrowed_fd(seat.as_fd(), PollFlags::IN));
             }
+            if let (Some(authentication), Some(_)) = (&self.authentication, self.checking) {
+                fds.push(PollFd::from_borrowed_fd(
+                    authentication.as_fd(),
+                    PollFlags::IN,
+                ));
+            }
             let wait = self.next_wake();
             let timeout = rustix::event::Timespec {
                 tv_sec: wait.as_secs() as i64,
@@ -1160,8 +1216,10 @@ impl Compositor {
             let shell_listener = self.shell_listener.take().expect("polled");
             let accepted = self.accept_granting(
                 &shell_listener,
+                // The shell is the lock screen as well (ADR 0010).
                 Some(Grants {
                     shell: true,
+                    lock: true,
                     ..Grants::default()
                 }),
             );
@@ -1174,9 +1232,67 @@ impl Compositor {
             }
         }
         self.expire_pending();
+        self.authenticate();
         self.frame();
+        self.follow_lock();
         self.flush();
         Ok(())
+    }
+
+    /// Whether the lock is on screen: the session is locked and the frame shown is of it (or
+    /// nothing is shown: there is no display, or another terminal has it).
+    pub fn lock_shown(&self) -> bool {
+        self.scene.is_locked()
+            && (self.display.is_none()
+                || self.away
+                || (self.shown_locked && self.pending_flip.is_none()))
+    }
+
+    /// Tells logind of the lock as it changes, and lets the machine sleep once it is on screen.
+    fn follow_lock(&mut self) {
+        let Some(seat) = self.seat.clone() else {
+            return;
+        };
+        let locked = self.scene.is_locked();
+        if locked != self.hinted_locked {
+            self.hinted_locked = locked;
+            if let Err(error) = seat.set_locked_hint(locked) {
+                eprintln!("[seat] the locked hint: {error}");
+            }
+        }
+        if self.sleeping && self.lock_shown() {
+            self.sleeping = false;
+            seat.release_sleep();
+        }
+    }
+
+    /// Answers the password being checked once it has its answer, unlocking on `Accepted`, and
+    /// hands the next one a lock surface submitted to the authentication path.
+    pub fn authenticate(&mut self) {
+        if let Some(key) = self.checking {
+            let answer = self
+                .authentication
+                .as_mut()
+                .and_then(|authentication| authentication.answer());
+            if let Some((outcome, wait_s)) = answer {
+                self.checking = None;
+                self.scene.authenticated(key, outcome, wait_s);
+                if outcome == AuthOutcome::Accepted {
+                    self.scene.unlock();
+                }
+            }
+        }
+        while let Some((key, secret)) = self.scene.take_authentication() {
+            let Some(authentication) = self.authentication.as_mut() else {
+                eprintln!("[lock] no authentication path: the session stays locked");
+                self.scene.authenticated(key, AuthOutcome::Rejected, 0);
+                continue;
+            };
+            match authentication.attempt(secret) {
+                None => self.checking = Some(key),
+                Some((outcome, wait_s)) => self.scene.authenticated(key, outcome, wait_s),
+            }
+        }
     }
 
     pub fn pixel(&self, x: i32, y: i32) -> u32 {

@@ -52,6 +52,9 @@ pub enum Action {
     /// The keymap's end of the session (Ctrl+Alt+Backspace, XKB's `terminate:ctrl_alt_bksp`),
     /// which no application sees as a key.
     Terminate,
+    /// The session's lock (Ctrl+Super+Q, the key that types `q`, as macOS's Ctrl+Cmd+Q, ADR
+    /// 0010), which no application sees as a key.
+    Lock,
     /// A touchpad pinch (two or more fingers spreading, closing or turning; libinput tells it from
     /// a two-finger scroll): `scale` is the fingers' spread over their spread when it began, and
     /// `rotation` how far they have turned since, in degrees, clockwise.
@@ -87,7 +90,10 @@ pub enum Typed {
     SwitchTerminal(u16),
     /// A press of the keymap's end of the session (see [`Action::Terminate`]).
     Terminate,
-    /// The release of a key the compose table, a terminal switch or the end of the session took:
+    /// A press of the session's lock (see [`Action::Lock`]).
+    Lock,
+    /// The release of a key the compose table, a terminal switch, the lock or the end of the
+    /// session took:
     /// nothing for anyone.
     Nothing,
 }
@@ -220,6 +226,18 @@ impl Keyboard {
         })
     }
 
+    /// Whether Control and Super, and no other modifier, are held: with `q`, the lock.
+    fn locks(&self) -> bool {
+        let held = |name| {
+            self.state
+                .mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
+        };
+        held(xkb::MOD_NAME_CTRL)
+            && held(xkb::MOD_NAME_LOGO)
+            && !held(xkb::MOD_NAME_ALT)
+            && !held(xkb::MOD_NAME_SHIFT)
+    }
+
     /// Whether a compose table was found: dead keys and compose sequences compose.
     pub fn composes(&self) -> bool {
         self.compose.is_some()
@@ -253,6 +271,9 @@ impl Keyboard {
             } else if name == "Terminate_Server" {
                 self.taken.push(code);
                 Typed::Terminate
+            } else if name == "q" && self.locks() {
+                self.taken.push(code);
+                Typed::Lock
             } else {
                 match self
                     .compose
@@ -471,6 +492,7 @@ impl Input {
                             actions.push(Action::SwitchTerminal(number))
                         }
                         Typed::Terminate => actions.push(Action::Terminate),
+                        Typed::Lock => actions.push(Action::Lock),
                         Typed::Nothing => {}
                     }
                 }
