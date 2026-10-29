@@ -4063,3 +4063,132 @@ fn a_press_on_the_candidates_reaches_the_input_method_and_leaves_focus_in_the_fi
         .iter()
         .any(|e| matches!(e, Event::InputMethodKey { .. })));
 }
+
+// ---- workspaces (ADR 0009) -------------------------------------------------------------------
+
+#[test]
+fn only_the_active_workspaces_windows_are_shown_and_focused() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    assert_eq!(h.scene.add_workspace(), Some(1));
+    assert!(h.scene.activate_workspace(1));
+    h.pump();
+    // The window of workspace 0 is gone from the screen, and focus with it.
+    assert!(!h.rendered(first));
+    assert_eq!(h.scene.focus(), None);
+    // A window opens on the active workspace, and takes focus there.
+    let second = h.toplevel(OTHER, 1, 400, 300);
+    assert_eq!(h.scene.window_workspace(second), Some(1));
+    assert_eq!(h.scene.focus(), Some(second));
+    // Back: the first is shown and focused, the second hidden.
+    assert!(h.scene.activate_workspace(0));
+    h.pump();
+    assert!(h.rendered(first) && !h.rendered(second));
+    assert_eq!(h.scene.focus(), Some(first));
+    assert_eq!(h.scene.workspaces(), (2, 0));
+    // A workspace that does not exist is refused.
+    assert!(!h.scene.activate_workspace(2));
+}
+
+#[test]
+fn a_window_on_another_workspace_takes_no_input() {
+    let mut h = Harness::new();
+    let below = h.toplevel(OTHER, 1, 800, 600);
+    let above = h.toplevel(APP, 1, 400, 300);
+    let a = h.rect(above);
+    h.scene.add_workspace();
+    assert!(h.scene.move_to_workspace(above, 1));
+    h.pump();
+    // A press where it was reaches the window under it.
+    logged(&mut h);
+    h.click(a.x + 10, a.y + 10);
+    let events = logged(&mut h);
+    assert!(events.iter().any(|(client, e)| *client == OTHER
+        && matches!(e, Event::Pointer { kind: PointerKind::Press, .. })));
+    assert!(!events.iter().any(|(client, _)| *client == APP));
+    assert_eq!(h.scene.focus(), Some(below));
+    // Keys go to the focused window shown, never to a hidden one.
+    h.scene.key(30, true);
+    let keys: Vec<ClientId> = logged(&mut h)
+        .iter()
+        .filter(|(_, e)| matches!(e, Event::Key { .. }))
+        .map(|(client, _)| *client)
+        .collect();
+    assert_eq!(keys, [OTHER]);
+}
+
+#[test]
+fn leaving_a_workspace_closes_its_menus_and_moving_a_window_moves_focus() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let popup = h.open_menu(window, 2, (w.x + 10, w.y + 10), menu(Rect::new(0, 0, 4, 4), 200, 100));
+    assert_eq!(h.scene.grab_chain(), &[popup]);
+    h.scene.add_workspace();
+    assert!(h.scene.activate_workspace(1));
+    h.pump();
+    assert_eq!(h.dismissed(popup), Some(DismissReason::ParentHidden));
+    assert!(h.scene.grab_chain().is_empty());
+    // Moving the focused window away: it goes, focus goes to the topmost window left.
+    assert!(h.scene.activate_workspace(0));
+    let other = h.toplevel(OTHER, 1, 300, 200);
+    h.activate(window);
+    assert!(h.scene.move_to_workspace(window, 1));
+    h.pump();
+    assert!(!h.rendered(window));
+    assert_eq!(h.scene.focus(), Some(other));
+    // Moved back, it is shown without taking focus.
+    assert!(h.scene.move_to_workspace(window, 0));
+    h.pump();
+    assert!(h.rendered(window));
+    assert_eq!(h.scene.focus(), Some(other));
+    // Only windows move: a popup, a missing workspace or a missing window is refused.
+    assert!(!h.scene.move_to_workspace(popup, 1));
+    assert!(!h.scene.move_to_workspace(window, 5));
+    assert!(!h.scene.move_to_workspace(key(APP, 9), 1));
+}
+
+#[test]
+fn removing_a_workspace_moves_its_windows_to_its_neighbour() {
+    let mut h = Harness::new();
+    let on0 = h.toplevel(APP, 1, 300, 200);
+    for _ in 0..3 {
+        h.scene.add_workspace();
+    }
+    h.scene.activate_workspace(2);
+    let on2 = h.toplevel(APP, 2, 300, 200);
+    h.scene.activate_workspace(3);
+    let on3 = h.toplevel(APP, 3, 300, 200);
+    // Removing the active workspace 3: its window goes to 2, which is now active.
+    assert!(h.scene.remove_workspace(3));
+    assert_eq!(h.scene.workspaces(), (3, 2));
+    assert_eq!(h.scene.window_workspace(on3), Some(2));
+    assert!(h.rendered(on2) && h.rendered(on3) && !h.rendered(on0));
+    // Removing workspace 1, before the active one: the numbers after it go down.
+    assert!(h.scene.remove_workspace(1));
+    assert_eq!(h.scene.workspaces(), (2, 1));
+    assert_eq!(h.scene.window_workspace(on2), Some(1));
+    // Removing the first: its windows go to the one after it, which becomes the first.
+    assert!(h.scene.remove_workspace(0));
+    assert_eq!(h.scene.workspaces(), (1, 0));
+    assert_eq!(h.scene.window_workspace(on0), Some(0));
+    assert!(h.rendered(on0) && h.rendered(on2));
+    // The last one stays.
+    assert!(!h.scene.remove_workspace(0));
+    // And there are at most MAX_WORKSPACES.
+    for _ in 1..MAX_WORKSPACES {
+        assert!(h.scene.add_workspace().is_some());
+    }
+    assert_eq!(h.scene.add_workspace(), None);
+}
+
+#[test]
+fn workspaces_stay_while_the_session_is_locked() {
+    let mut h = Harness::new();
+    h.toplevel(APP, 1, 300, 200);
+    h.scene.add_workspace();
+    h.scene.lock();
+    assert!(!h.scene.activate_workspace(1));
+    assert!(!h.scene.remove_workspace(1));
+    assert_eq!(h.scene.workspaces(), (2, 0));
+}

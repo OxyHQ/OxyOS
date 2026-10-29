@@ -129,6 +129,9 @@ struct Node {
     /// What changed in the frame presenting (or last presented), relative to the one displayed
     /// before it.
     presenting_damage: SurfaceDamage,
+    /// A window's workspace (ADR 0009): the one active when it was made. Only a toplevel's
+    /// counts; what is under it follows it.
+    workspace: u32,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -311,6 +314,8 @@ pub struct Scene {
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
     /// The input method, if one is connected.
     input_method: Option<input_method::InputMethod>,
+    /// The workspaces and the windows the shell is told about (ADR 0009).
+    workspaces: workspaces::Workspaces,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -1164,6 +1169,7 @@ impl Scene {
                 unshown: None,
                 last_extent: None,
                 presenting_damage: SurfaceDamage::Whole,
+                workspace: self.workspaces.active,
             },
         );
         match parent {
@@ -1789,7 +1795,12 @@ impl Scene {
                 None => break,
             }
         }
-        let layer = layer_of(&self.nodes[&current].role);
+        let root = &self.nodes[&current];
+        // A window on another workspace is not shown, nor is anything under it.
+        if root.role == Role::Toplevel && root.workspace != self.workspaces.active {
+            return false;
+        }
+        let layer = layer_of(&root.role);
         if self.locked {
             layer == Layer::Lock
         } else {
@@ -2779,6 +2790,8 @@ mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 mod input_method;
 pub use input_method::MAX_PENDING_KEYS;
+mod workspaces;
+pub use workspaces::MAX_WORKSPACES;
 
 #[cfg(test)]
 mod tests;
