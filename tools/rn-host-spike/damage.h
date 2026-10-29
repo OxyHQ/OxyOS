@@ -27,8 +27,19 @@ class WindowDamage {
   // Nothing (`std::nullopt`) means everything: the first frame, or a new size or scale.
   std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, const Display& display,
                                                            const TextInputEdit& edit);
+  // The same for a region drawn in a surface of its own (renderer.h's drawRegion): the children of
+  // `region`, with the region at `at` in the surface, in the surface's logical pixels.
+  std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, facebook::react::Tag region,
+                                                           facebook::react::Point at, const Display& display,
+                                                           const TextInputEdit& edit);
 
  private:
+  std::optional<std::vector<facebook::react::Rect>> compare(const ViewTree& tree,
+                                                            const std::unordered_map<facebook::react::Tag,
+                                                                                     facebook::react::Rect>& at,
+                                                            const std::unordered_map<facebook::react::Tag,
+                                                                                     const View*>& views,
+                                                            const Display& display, const TextInputEdit& edit);
   struct Seen {
     facebook::react::ShadowView view;
     facebook::react::Rect at;  // window-local, as drawn (scroll offsets applied)

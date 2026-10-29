@@ -155,6 +155,11 @@ inline bool ownSurface(const std::string& name) { return name == kPopupComponent
 // takes the window's input while it is shown.
 inline constexpr const char* kModalComponent = "ModalHostView";
 inline bool isModal(const std::string& name) { return name == kModalComponent; }
+// Where a view's `transform` moves it, in logical pixels: the translation of its resolved
+// matrix (transform origin included), applied to its subtree as drawn, hit and measured. Scale,
+// rotation and skew are not drawn: such a view keeps its size, placed where the transform takes
+// its centre, and the host reports it once.
+facebook::react::Point transformOffset(const facebook::react::ShadowView& view);
 // The modals shown in the window, in the order they are drawn: the last is on top.
 std::vector<facebook::react::Tag> modals(const ViewTree& tree);
 
@@ -178,6 +183,12 @@ RenderStats drawPopup(const ViewTree& tree, facebook::react::Tag popup, const Di
 // shell region in its surface (shell-surface.h), wherever the region is in that surface.
 RenderStats drawRegion(const ViewTree& tree, facebook::react::Tag region, facebook::react::Point at,
                        const Display& display, Canvas& canvas, const TextInputEdit& edit = {});
+// Draws only `damage` (surface-local logical rectangles) of a region onto `canvas`, which holds its
+// previous frame at this size, each rectangle as drawRegion draws it. A canvas of another size is
+// drawn whole.
+RenderStats drawRegionDamaged(const ViewTree& tree, facebook::react::Tag region, facebook::react::Point at,
+                              const Display& display, Canvas& canvas, const TextInputEdit& edit,
+                              const std::vector<facebook::react::Rect>& damage);
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);

@@ -104,7 +104,9 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   if (it == tree.views().end()) return -1;
   const auto& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
-  float left = frame.origin.x, top = frame.origin.y;
+  // Where it is drawn: its transform moves it, and what is in it, as on Android.
+  Point moved = transformOffset(view);
+  float left = frame.origin.x + moved.x, top = frame.origin.y + moved.y;
   bool inside = x >= left && y >= top && x < left + frame.size.width && y < top + frame.size.height;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;

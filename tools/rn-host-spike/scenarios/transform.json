@@ -1,0 +1,54 @@
+{
+  "about": "Transforms (sample/TransformProbe.tsx): a box at (20, 20), 80x60, moved by its transform 120 to the right and 40 down, is drawn where the transform puts it, with the view inside it, and nothing is left where its layout alone would put it; a press there reaches nothing, and a press where it is drawn presses it, as on Android, where a view is hit where it is drawn.",
+  "module": "TransformProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "the moved box is drawn where its transform puts it, the view inside it moved with it; a press where its layout alone would put it reaches the page behind",
+      "do": [
+        "press",
+        [
+          60,
+          50
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "145,65": "#d03030",
+          "170,90": "#3050d0",
+          "30,30": "#ffffff"
+        },
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        },
+        "absent": [
+          "Pressed: the moved box"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a press where it is drawn presses it",
+      "do": [
+        "press",
+        [
+          150,
+          70
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the moved box"
+        ],
+        "react": {
+          "touchStart@moved": 1,
+          "touchEnd@moved": 1
+        }
+      }
+    }
+  ]
+}

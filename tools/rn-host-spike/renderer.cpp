@@ -513,7 +513,9 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
-  float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
+  Point moved = transformOffset(view);
+  float x = ox + frame.origin.x + moved.x, y = oy + frame.origin.y + moved.y, w = frame.size.width,
+        h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
   // A popup's or a shell region's subtree is drawn in its own surface, never in the window; a
   // modal's over everything else (drawModals).
@@ -828,6 +830,24 @@ std::vector<Tag> modals(const ViewTree& tree) {
   return out;
 }
 
+Point transformOffset(const ShadowView& view) {
+  auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  if (!props || props->transform == Transform::Identity()) return {};
+  const auto& m = props->resolveTransform(view.layoutMetrics).matrix;
+  // Column-major, as CSS: x' = m0 x + m4 y + m12, y' = m1 x + m5 y + m13. The view keeps its
+  // size: it moves where the transform takes its centre.
+  Float cx = view.layoutMetrics.frame.size.width / 2, cy = view.layoutMetrics.frame.size.height / 2;
+  if (m[0] != 1 || m[1] != 0 || m[4] != 0 || m[5] != 1) {
+    static bool reported = false;
+    if (!reported) {
+      reported = true;
+      std::cerr << "[host] transforms: scale, rotation and skew are not drawn on OxyOS yet (the view keeps its "
+                   "size, at its transformed centre)\n";
+    }
+  }
+  return Point{m[0] * cx + m[4] * cy + m[12] - cx, m[1] * cx + m[5] * cy + m[13] - cy};
+}
+
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
@@ -913,13 +933,56 @@ RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display
   return stats;
 }
 
+RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
+                              const TextInputEdit& edit, const std::vector<Rect>& damage) {
+  int width = static_cast<int>(std::lround(display.width * display.scale));
+  int height = static_cast<int>(std::lround(display.height * display.scale));
+  if (canvas.width != width || canvas.height != height) return drawRegion(tree, region, at, display, canvas, edit);
+  auto it = tree.views().find(region);
+  if (it == tree.views().end()) return {};
+  Clip surface{0, 0, display.width, display.height};
+  auto drawChildren = [&](Painter& painter, RenderStats& stats) {
+    for (Tag child : it->second.children) drawView(tree, child, at.x, at.y, surface, 1.0f, painter, stats, edit);
+  };
+  RenderStats stats;
+  bool counted = false;
+  for (const auto& rect : damage) {
+    int x0 = std::max(0, static_cast<int>(std::floor(rect.origin.x * display.scale)));
+    int y0 = std::max(0, static_cast<int>(std::floor(rect.origin.y * display.scale)));
+    int x1 = std::min(width, static_cast<int>(std::ceil((rect.origin.x + rect.size.width) * display.scale)));
+    int y1 = std::min(height, static_cast<int>(std::ceil((rect.origin.y + rect.size.height) * display.scale)));
+    if (x1 <= x0 || y1 <= y0) continue;
+    // The region starts transparent, as a new region does, then everything over it is drawn again.
+    for (int y = y0; y < y1; ++y) {
+      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, 0u);
+    }
+    Painter painter(canvas, display.scale);
+    painter.limit(x0, y0, x1, y1);
+    RenderStats drawn;
+    drawChildren(painter, drawn);
+    if (!counted) {
+      stats = std::move(drawn);
+      counted = true;
+    }
+  }
+  if (!counted) {
+    // Nothing to paint; the stats are still the region's.
+    Painter painter(canvas, display.scale);
+    painter.limit(0, 0, 0, 0);
+    drawChildren(painter, stats);
+  }
+  return stats;
+}
+
 namespace {
 
 std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offset) {
   auto it = tree.views().find(at);
   if (it == tree.views().end()) return std::nullopt;
   const auto& view = it->second.view;
-  Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
+  Point moved = transformOffset(view);
+  Point position{offset.x + view.layoutMetrics.frame.origin.x + moved.x,
+                 offset.y + view.layoutMetrics.frame.origin.y + moved.y};
   // A modal is at the window's origin, wherever it is in the tree.
   if (isModal(view.componentName ? view.componentName : "")) position = Point{0, 0};
   if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
