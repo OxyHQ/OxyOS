@@ -2,10 +2,10 @@
 //! `schema_table_matches_documentation` test keeps them in step.
 
 use crate::wire::{
-    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, AuthOutcome, Clock,
-    DismissReason, ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape,
-    Positioner, PreeditStyle, PreeditText, Rect, SecretChunk, ShellKind, Size, TextChunk,
-    TextHints, TextPurpose, TouchKind, Wire,
+    AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
+    AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, Outcome, PanelEdge,
+    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, Rect,
+    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -89,11 +89,13 @@ messages! {
         16 => DestroyBuffer { buffer: u64 },
         // Accessibility (ADR 0003): one snapshot per surface, replaced at commit.
         17 => AccessibilityBegin { surface: u32, nodes: u32 },
-        18 => AccessibleNode { surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, rect: Rect },
+        18 => AccessibleNode { surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, actions: AccessibleActions, rect: Rect },
         19 => AccessibleText { surface: u32, index: u32, field: AccessibleField, text: TextChunk },
         20 => AccessibilityCommit { surface: u32 },
         // Assistive technology only (the `accessibility` grant): a node of another client.
-        21 => AccessibilityAction { client: u32, surface: u32, index: u32, action: AccessibleAction },
+        // `custom`: a Custom action's index among the node's; `start` and `end`: SetSelection's
+        // range, in bytes of the node's value; 0 for any other action.
+        21 => AccessibilityAction { client: u32, surface: u32, index: u32, action: AccessibleAction, custom: u32, start: u32, end: u32 },
         // What changed in the next Submit's buffer since the surface's previous one, in buffer
         // pixels (ADR 0005); none damages the whole surface.
         22 => Damage { surface: u32, rect: Rect },
@@ -157,6 +159,11 @@ messages! {
         53 => LockSession {},
         54 => AuthenticateSecret { surface: u32, secret: SecretChunk },
         55 => Authenticate { surface: u32 },
+        // Accessibility (ADR 0003): a text field's selection in a snapshot being sent (bytes of
+        // its value; never a secure field's), and an announcement in chunks of up to 32 bytes
+        // (`index` 0 begins it, `last` sends it) for assistive technologies.
+        56 => AccessibleSelection { surface: u32, index: u32, start: u32, end: u32 },
+        57 => AccessibilityAnnounce { surface: u32, index: u8, last: bool, politeness: Politeness, text: PreeditText },
     }
 }
 
@@ -179,10 +186,10 @@ messages! {
         13 => Preedit { surface: u32, serial: u64, text: PreeditText, cursor: u8 },
         // To the application: an assistive technology's action on one of its nodes.
         // `serial` is an activation, like a key press: a popup opened by it may grab with it.
-        14 => AccessibilityAction { surface: u32, serial: u64, index: u32, action: AccessibleAction },
+        14 => AccessibilityAction { surface: u32, serial: u64, index: u32, action: AccessibleAction, custom: u32, start: u32, end: u32 },
         // To an assistive technology only: committed snapshots, global rectangles.
         15 => AccessibilityTree { client: u32, surface: u32, parent: u32, nodes: u32 },
-        16 => AccessibleNode { client: u32, surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, rect: Rect },
+        16 => AccessibleNode { client: u32, surface: u32, index: u32, parent: u32, role: AccessibleRole, state: AccessibleState, actions: AccessibleActions, rect: Rect },
         17 => AccessibleText { client: u32, surface: u32, index: u32, field: AccessibleField, text: TextChunk },
         18 => AccessibilityCommitted { client: u32, surface: u32 },
         19 => AccessibilityRemoved { client: u32, surface: u32 },
@@ -242,6 +249,10 @@ messages! {
         // after its Focus when it is on (a surface gains focus with it off unless told; a
         // password field says it is on, ADR 0010).
         46 => CapsLock { surface: u32, on: bool },
+        // To an assistive technology only (ADR 0003): a text field's selection in the snapshot
+        // being sent, and an application's announcement, chunk by chunk as it was sent.
+        47 => AccessibleSelection { client: u32, surface: u32, index: u32, start: u32, end: u32 },
+        48 => AccessibilityAnnouncement { client: u32, surface: u32, index: u8, last: bool, politeness: Politeness, text: PreeditText },
     }
 }
 

@@ -90,6 +90,7 @@ fn requests() -> Vec<Request> {
             parent: 0,
             role: AccessibleRole::MenuItem,
             state: AccessibleState::new(AccessibleState::FOCUSED).unwrap(),
+            actions: AccessibleActions::new(AccessibleActions::DISMISS).unwrap(),
             rect: Rect::new(8, 8, 248, 44),
         },
         Request::AccessibleText {
@@ -103,7 +104,10 @@ fn requests() -> Vec<Request> {
             client: 3,
             surface: 1,
             index: 1,
-            action: AccessibleAction::Activate,
+            action: AccessibleAction::SetSelection,
+            custom: 0,
+            start: 2,
+            end: 5,
         },
         Request::Damage {
             surface: 1,
@@ -205,6 +209,19 @@ fn requests() -> Vec<Request> {
             secret: SecretChunk::new("correct horse").unwrap(),
         },
         Request::Authenticate { surface: 5 },
+        Request::AccessibleSelection {
+            surface: 1,
+            index: 1,
+            start: 3,
+            end: 7,
+        },
+        Request::AccessibilityAnnounce {
+            surface: 1,
+            index: 0,
+            last: true,
+            politeness: Politeness::Assertive,
+            text: PreeditText::new("Guardado").unwrap(),
+        },
     ]
 }
 
@@ -262,6 +279,21 @@ fn events() -> Vec<Event> {
             surface: 5,
             on: true,
         },
+        Event::AccessibleSelection {
+            client: 3,
+            surface: 2,
+            index: 1,
+            start: 3,
+            end: 7,
+        },
+        Event::AccessibilityAnnouncement {
+            client: 3,
+            surface: 2,
+            index: 0,
+            last: true,
+            politeness: Politeness::Polite,
+            text: PreeditText::new("Guardado").unwrap(),
+        },
         Event::AuthenticationResult {
             surface: 5,
             outcome: AuthOutcome::Throttled,
@@ -302,7 +334,10 @@ fn events() -> Vec<Event> {
             surface: 2,
             serial: 12,
             index: 4,
-            action: AccessibleAction::Focus,
+            action: AccessibleAction::Custom,
+            custom: 1,
+            start: 0,
+            end: 0,
         },
         Event::AccessibilityTree {
             client: 3,
@@ -316,7 +351,8 @@ fn events() -> Vec<Event> {
             index: 0,
             parent: NO_ACCESSIBLE_PARENT,
             role: AccessibleRole::Menu,
-            state: AccessibleState::default(),
+            state: AccessibleState::new(AccessibleState::LIVE_POLITE).unwrap(),
+            actions: AccessibleActions::default(),
             rect: Rect::new(981, 382, 266, 338),
         },
         Event::AccessibleText {
@@ -451,7 +487,8 @@ fn text_purposes_hints_and_styles_are_closed_sets() {
 
 #[test]
 fn accessible_roles_and_states_are_closed_sets() {
-    assert!(AccessibleState::new(1 << 8).is_none());
+    assert!(AccessibleState::new(1 << 10).is_none());
+    assert!(AccessibleActions::new(1 << 6).is_none());
     assert!(AccessibleState::new(AccessibleState::EXPANDED | AccessibleState::FOCUSED).is_some());
     let mut bytes = Vec::new();
     write_request(
@@ -462,6 +499,7 @@ fn accessible_roles_and_states_are_closed_sets() {
             parent: NO_ACCESSIBLE_PARENT,
             role: AccessibleRole::Button,
             state: AccessibleState::default(),
+            actions: AccessibleActions::default(),
             rect: Rect::new(0, 0, 10, 10),
         },
     )
