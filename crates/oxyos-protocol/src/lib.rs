@@ -15,9 +15,10 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
-    BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase, Gravity, Outcome,
-    PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, ShellKind,
-    Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase, Gravity,
+    Outcome, PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect,
+    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES,
+    TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -25,6 +26,8 @@ pub const MIN_VERSION: u16 = 2;
 pub const VERSION: u16 = 2;
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
+/// The longest password a lock surface may give (ADR 0010), as Linux-PAM's longest answer.
+pub const MAX_SECRET_BYTES: usize = 512;
 /// The text around the caret a field may describe (TextInputSurrounding, ADR 0008), in bytes.
 pub const MAX_SURROUNDING_BYTES: usize = 4000;
 /// Most nodes in one surface's accessibility snapshot (ADR 0003).

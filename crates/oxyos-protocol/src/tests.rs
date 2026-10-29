@@ -199,6 +199,12 @@ fn requests() -> Vec<Request> {
             surface: 1,
             shape: PointerShape::ResizeTopRight,
         },
+        Request::LockSession {},
+        Request::AuthenticateSecret {
+            surface: 5,
+            secret: SecretChunk::new("correct horse").unwrap(),
+        },
+        Request::Authenticate { surface: 5 },
     ]
 }
 
@@ -250,6 +256,12 @@ fn events() -> Vec<Event> {
             y: 4,
             scale_65536: 98304,
             rotation_256: -2560,
+        },
+        Event::LockState { locked: true },
+        Event::AuthenticationResult {
+            surface: 5,
+            outcome: AuthOutcome::Throttled,
+            wait_s: 30,
         },
         Event::Feedback {
             surface: 1,
@@ -483,6 +495,22 @@ fn every_message_round_trips_without_consuming_the_next_packet() {
     }
     assert_eq!(requests().len(), Request::SCHEMA.len());
     assert_eq!(events().len(), Event::SCHEMA.len());
+}
+
+#[test]
+fn a_secret_is_never_printed() {
+    let request = Request::AuthenticateSecret {
+        surface: 5,
+        secret: SecretChunk::new("correct horse").unwrap(),
+    };
+    assert!(!format!("{request:?}").contains("horse"));
+    assert_eq!(
+        SecretChunk::split(&"é".repeat(20))
+            .iter()
+            .map(SecretChunk::as_str)
+            .collect::<String>(),
+        "é".repeat(20)
+    );
 }
 
 #[test]

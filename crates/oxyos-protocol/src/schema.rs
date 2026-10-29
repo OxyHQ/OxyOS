@@ -2,10 +2,10 @@
 //! `schema_table_matches_documentation` test keeps them in step.
 
 use crate::wire::{
-    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
-    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape, Positioner,
-    PreeditStyle, PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
-    Wire,
+    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, AuthOutcome, Clock,
+    DismissReason, ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape,
+    Positioner, PreeditStyle, PreeditText, Rect, SecretChunk, ShellKind, Size, TextChunk,
+    TextHints, TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -149,6 +149,14 @@ messages! {
         51 => RemoveWorkspace { workspace: u32 },
         // The pointer's shape while it is over the surface (the arrow until one is asked for).
         52 => SetPointerShape { surface: u32, shape: PointerShape },
+        // The lock (ADR 0010). The shell (its `shell` grant) locks the session; only the session
+        // unlocks it. A lock surface, while locked, gives a password in chunks (at most
+        // MAX_SECRET_BYTES, appended) and Authenticate submits it for the session to check;
+        // AuthenticationResult answers. The password is the compositor's and the session's
+        // alone: nothing else ever sees it.
+        53 => LockSession {},
+        54 => AuthenticateSecret { surface: u32, secret: SecretChunk },
+        55 => Authenticate { surface: u32 },
     }
 }
 
@@ -224,6 +232,12 @@ messages! {
         // not move; `scale_65536` the fingers' spread over their spread when it began (65536 = as
         // they started); `rotation_256` how far they turned since, in 1/256 degrees, clockwise.
         43 => Pinch { surface: u32, serial: u64, phase: GesturePhase, x: i32, y: i32, scale_65536: u32, rotation_256: i32 },
+        // To clients with the `lock` grant (ADR 0010): the session locked, when it does and when
+        // they connect while it is, so they make their lock surfaces; and unlocked.
+        44 => LockState { locked: bool },
+        // To the lock surface that submitted a password: what came of it, and the seconds until
+        // another may be tried (0: at once; a fifth rejection in a row begins the waits).
+        45 => AuthenticationResult { surface: u32, outcome: AuthOutcome, wait_s: u32 },
     }
 }
 

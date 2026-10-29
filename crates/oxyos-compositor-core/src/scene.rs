@@ -322,6 +322,8 @@ pub struct Scene {
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
     shell_windows: shell::ShellWindows,
+    /// The lock's password, given and checked (ADR 0010).
+    authentication: lock::Authentication,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -562,6 +564,10 @@ impl Scene {
         if grants.input_method {
             self.input_method = Some(input_method::InputMethod::new(client));
             self.refresh_input_method();
+        }
+        // A lock screen that connects while locked (the shell started again) makes its surfaces.
+        if grants.lock && self.locked {
+            self.emit(client, Event::LockState { locked: true });
         }
         Ok(())
     }
@@ -928,6 +934,9 @@ impl Scene {
             | Request::ActivateWorkspace { .. }
             | Request::AddWorkspace {}
             | Request::RemoveWorkspace { .. } => self.shell_request(client, request),
+            Request::LockSession {}
+            | Request::AuthenticateSecret { .. }
+            | Request::Authenticate { .. } => self.lock_request(client, request),
             Request::InputMethodKeyHandled { .. }
             | Request::InputMethodDelete { .. }
             | Request::InputMethodCommitText { .. }
@@ -1798,6 +1807,7 @@ impl Scene {
         self.nodes.remove(&key);
         self.forget_accessibility(key);
         self.forget_text_input(key);
+        self.forget_secrets(Some(key));
         self.forget_window(key);
         if self.focus == Some(key) {
             self.focus = None;
@@ -2219,6 +2229,7 @@ impl Scene {
         self.set_pointer_focus(None);
         self.set_focus(None);
         self.focus_next();
+        self.tell_lock_state();
     }
 
     /// Called only from the session authority's trusted authentication path; no protocol
@@ -2228,11 +2239,13 @@ impl Scene {
             return;
         }
         self.locked = false;
+        self.forget_secrets(None);
         self.pointer_cancel();
         self.touch_cancel();
         self.set_focus(None);
         self.focus_next();
         self.refresh_pointer_focus();
+        self.tell_lock_state();
     }
 
     pub fn is_locked(&self) -> bool {
@@ -2878,6 +2891,8 @@ mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;
 pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+mod lock;
+pub use lock::Secret;
 
 #[cfg(test)]
 mod tests;

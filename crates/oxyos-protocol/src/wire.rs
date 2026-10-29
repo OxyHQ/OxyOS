@@ -112,6 +112,11 @@ wire_enum! {
     Outcome: u8 { Presented = 1, Discarded = 2 }
 }
 wire_enum! {
+    /// What came of a lock surface's password (ADR 0010): it unlocked the session, it was wrong,
+    /// another is being checked, or attempts must wait (`wait_s` says how long).
+    AuthOutcome: u8 { Accepted = 1, Rejected = 2, Busy = 3, Throttled = 4 }
+}
+wire_enum! {
     /// Source of a feedback timestamp. Synthetic timestamps never describe physical display time.
     Clock: u8 { Synthetic = 1, Monotonic = 2 }
 }
@@ -405,6 +410,42 @@ impl Wire for TextChunk {
         }
         let text = std::str::from_utf8(text).map_err(|_| invalid("text is not UTF-8"))?;
         Ok(Self::new(text).expect("checked length"))
+    }
+}
+
+/// Part of a password from a lock surface (ADR 0010): a [`TextChunk`] that is never printed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SecretChunk(TextChunk);
+
+impl SecretChunk {
+    /// The chunk holding `text`, if it is 1 to 32 bytes long.
+    pub fn new(text: &str) -> Option<Self> {
+        TextChunk::new(text).map(Self)
+    }
+
+    /// Splits `secret` into chunks at character boundaries.
+    pub fn split(secret: &str) -> Vec<Self> {
+        TextChunk::split(secret).into_iter().map(Self).collect()
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::fmt::Debug for SecretChunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretChunk(…)")
+    }
+}
+
+impl Wire for SecretChunk {
+    const SIZE: usize = TextChunk::SIZE;
+    fn put(&self, out: &mut Vec<u8>) {
+        self.0.put(out);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        TextChunk::get(bytes).map(Self)
     }
 }
 

@@ -12,7 +12,8 @@
 use oxyos_client::{Accessible, Client, Field, Poll};
 use oxyos_protocol::{
     AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, PanelEdge, Positioner,
-    Rect, Request, ShellKind, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
+    Rect, Request, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose,
+    TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -65,6 +66,15 @@ pub const OXYOS_PINCH_BEGIN: u32 = 1;
 pub const OXYOS_PINCH_UPDATE: u32 = 2;
 pub const OXYOS_PINCH_END: u32 = 3;
 pub const OXYOS_PINCH_CANCEL: u32 = 4;
+/// To a client with the `lock` grant (ADR 0010): whether the session is locked (flag).
+pub const OXYOS_EVENT_LOCK_STATE: u32 = 44;
+/// To a lock surface: what came of its password (detail, OXYOS_AUTH_*; code: the seconds until
+/// another may be tried, 0 at once).
+pub const OXYOS_EVENT_AUTHENTICATION_RESULT: u32 = 45;
+pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
+pub const OXYOS_AUTH_REJECTED: u32 = 2;
+pub const OXYOS_AUTH_BUSY: u32 = 3;
+pub const OXYOS_AUTH_THROTTLED: u32 = 4;
 /// A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event).
 pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
 pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
@@ -550,6 +560,26 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::LockState { locked } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_LOCK_STATE,
+                flag: u8::from(locked),
+                ..out
+            }
+        }
+        Event::AuthenticationResult {
+            surface,
+            outcome,
+            wait_s,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_AUTHENTICATION_RESULT,
+                surface,
+                detail: outcome as u32,
+                code: wait_s,
+                ..out
+            }
+        }
         Event::TextInputDone {
             surface,
             serial,
@@ -701,6 +731,74 @@ pub unsafe extern "C" fn oxyos_client_create_shell_surface(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// Requests the lock surface of `output` (the lock screen, with the `lock` grant, ADR 0010): it
+/// covers the output and is all that shows while the session is locked. The compositor answers
+/// with a configure. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_create_lock_surface(
+    client: *mut OxyOSClient,
+    surface: u32,
+    output: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::CreateLockSurface { surface, output }) }
+}
+
+/// Locks the session (the session's shell, with the `shell` grant). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_lock_session(client: *mut OxyOSClient) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::LockSession {}) }
+}
+
+/// Submits the password typed in the lock surface `surface` (`length` bytes of UTF-8, at most
+/// 512) for the session to check; an AUTHENTICATION_RESULT event answers. The library keeps no
+/// copy: the caller overwrites its own once this returns. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `secret` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_authenticate(
+    client: *mut OxyOSClient,
+    surface: u32,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if length > oxyos_protocol::MAX_SECRET_BYTES {
+        return fail("a password is at most 512 bytes");
+    }
+    let bytes = if length == 0 {
+        &[][..]
+    } else if secret.is_null() {
+        return fail("null password");
+    } else {
+        // SAFETY: per the contract, `secret` points to `length` readable bytes.
+        unsafe { std::slice::from_raw_parts(secret.cast::<u8>(), length) }
+    };
+    let Ok(secret) = std::str::from_utf8(bytes) else {
+        return fail("a password is UTF-8");
+    };
+    for secret in SecretChunk::split(secret) {
+        if let Err(error) = client.send(&Request::AuthenticateSecret { surface, secret }) {
+            return fail(error);
+        }
+    }
+    status(client.send(&Request::Authenticate { surface }))
 }
 
 /// Names a window (ADR 0009): its title, or with a non-zero `app_id` its application id
