@@ -91,6 +91,7 @@ struct Push {
     base_y: u32,
     count_x: u32,
     count_y: u32,
+    opacity: u32,
 }
 
 impl Push {
@@ -122,7 +123,7 @@ impl Push {
         })
     }
 
-    fn bytes(&self) -> [u8; 60] {
+    fn bytes(&self) -> [u8; 64] {
         let words = [
             self.x as u32,
             self.y as u32,
@@ -139,8 +140,9 @@ impl Push {
             self.base_y,
             self.count_x,
             self.count_y,
+            self.opacity,
         ];
-        let mut bytes = [0; 60];
+        let mut bytes = [0; 64];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
             chunk.copy_from_slice(&word.to_ne_bytes());
         }
@@ -442,7 +444,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(60)];
+                .size(64)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -775,6 +777,7 @@ impl VulkanCompositor {
                 src_height: layer.extent.1,
                 out_width: width,
                 out_height: height,
+                opacity: u32::from(layer.opacity),
                 ..Push::default()
             };
             match layer.paint {
@@ -874,6 +877,7 @@ impl VulkanCompositor {
                         out_height: height,
                         mode: 2,
                         color: background,
+                        opacity: 255,
                         ..Push::default()
                     }
                     .whole();

@@ -619,6 +619,7 @@ impl Compositor {
                     changed: changed
                         .as_ref()
                         .map(|(from, rects)| (*from, rects.as_slice())),
+                    opacity: 255,
                 },
             )
             .collect();

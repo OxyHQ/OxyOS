@@ -20,7 +20,7 @@ pub enum Paint<'a> {
 
 /// One layer of a frame, bottom to top: its rectangle on the output in logical pixels (which
 /// may extend past the output) and its pixels at `extent`, scaled to the rectangle by nearest
-/// neighbour.
+/// neighbour, at an opacity (a surface's transition, docs/adr/0011-transitions.mdx).
 #[derive(Clone, Copy, Debug)]
 pub struct Layer<'a> {
     pub x: i32,
@@ -34,6 +34,9 @@ pub struct Layer<'a> {
     /// What changed in the pixels (in their own coordinates) since an earlier version of their
     /// source: where the device holds that version, only these rows are uploaded.
     pub changed: Option<(u64, &'a [Rect])>,
+    /// 0 (nothing) to 255 (as its pixels are): the premultiplied pixels are scaled by it before
+    /// they are blended.
+    pub opacity: u8,
 }
 
 /// The identity of a layer's pixels: the same key and version are the same pixels, so the
@@ -138,21 +141,26 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
                     let sx = lx * u64::from(layer.extent.0) / u64::from(layer.width);
                     (sy * u64::from(layer.extent.0) + sx) as usize
                 };
-                out[index] = match layer.paint {
-                    Paint::Fill(color) => color,
-                    Paint::Opaque(pixels) => pixel(pixels, source_index()) & 0x00ff_ffff,
+                // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).
+                let (source, alpha) = match layer.paint {
+                    Paint::Fill(color) => (color & 0x00ff_ffff, 255),
+                    Paint::Opaque(pixels) => (pixel(pixels, source_index()) & 0x00ff_ffff, 255),
                     Paint::Premultiplied(pixels) => {
                         let source = pixel(pixels, source_index());
-                        let keep = 255 - (source >> 24);
-                        let under = out[index];
-                        let channel = |shift: u32| {
-                            let s = (source >> shift) & 0xff;
-                            let d = (under >> shift) & 0xff;
-                            (s + d * keep / 255).min(255) << shift
-                        };
-                        channel(16) | channel(8) | channel(0)
+                        (source & 0x00ff_ffff, source >> 24)
                     }
                 };
+                // Scaled by the layer's opacity, then source-over: at 255 an opaque pixel is
+                // copied and a premultiplied one blended, as without an opacity.
+                let opacity = u32::from(layer.opacity);
+                let keep = 255 - alpha * opacity / 255;
+                let under = out[index];
+                let channel = |shift: u32| {
+                    let s = ((source >> shift) & 0xff) * opacity / 255;
+                    let d = (under >> shift) & 0xff;
+                    (s + d * keep / 255).min(255) << shift
+                };
+                out[index] = channel(16) | channel(8) | channel(0);
             }
         }
     }

@@ -1,14 +1,16 @@
 //! A composed frame's layers in a file, so frames composed by one machine's compositor can be
 //! composed again elsewhere (on another device, or another OS's Vulkan driver) and compared.
 //!
-//! Format, little-endian: `OXYFRAME1`, then width, height, background and the layer count (u32
+//! Format, little-endian: `OXYFRAME2`, then width, height, background and the layer count (u32
 //! each); per layer x, y (i32), width, height, extent width, extent height (u32), kind (u8:
-//! 0 opaque, 1 premultiplied, 2 fill), colour (u32), byte length (u64) and the pixels.
+//! 0 opaque, 1 premultiplied, 2 fill), opacity (u8), colour (u32), byte length (u64) and the
+//! pixels. `OXYFRAME1` files, from before layers had an opacity, are read with every layer at 255.
 
 use crate::{Layer, Paint};
 use std::io::{self, Read, Write};
 
-const MAGIC: &[u8; 9] = b"OXYFRAME1";
+const MAGIC: &[u8; 9] = b"OXYFRAME2";
+const MAGIC_1: &[u8; 9] = b"OXYFRAME1";
 
 /// A frame read back: owns its pixels; `layers()` borrows them.
 pub struct Frame {
@@ -56,7 +58,7 @@ pub fn write(
         for value in [layer.width, layer.height, layer.extent.0, layer.extent.1] {
             out.write_all(&value.to_le_bytes())?;
         }
-        out.write_all(&[kind])?;
+        out.write_all(&[kind, layer.opacity])?;
         out.write_all(&color.to_le_bytes())?;
         out.write_all(&(pixels.len() as u64).to_le_bytes())?;
         out.write_all(pixels)?;
@@ -77,9 +79,11 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
     let invalid = |what: &str| io::Error::new(io::ErrorKind::InvalidData, what.to_string());
     let mut magic = [0; 9];
     input.read_exact(&mut magic)?;
-    if &magic != MAGIC {
-        return Err(invalid("not a frame file"));
-    }
+    let has_opacity = match &magic {
+        magic if magic == MAGIC => true,
+        magic if magic == MAGIC_1 => false,
+        _ => return Err(invalid("not a frame file")),
+    };
     let head = u32s(input, 4)?;
     let (width, height, background, count) = (head[0], head[1], head[2], head[3]);
     let mut layers = Vec::with_capacity(count as usize);
@@ -87,6 +91,10 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
         let fields = u32s(input, 6)?;
         let mut kind = [0; 1];
         input.read_exact(&mut kind)?;
+        let mut opacity = [255; 1];
+        if has_opacity {
+            input.read_exact(&mut opacity)?;
+        }
         let color = u32s(input, 1)?[0];
         let mut length = [0; 8];
         input.read_exact(&mut length)?;
@@ -105,6 +113,7 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             paint: Paint::Fill(color),
             source: None,
             changed: None,
+            opacity: opacity[0],
         };
         if kind[0] > 2 {
             return Err(invalid("unknown layer kind"));
