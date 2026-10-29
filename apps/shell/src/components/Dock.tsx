@@ -2,10 +2,10 @@ import React, { useState } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { RiLayoutGridLine } from "@oxy.so/bloom/icons/RiLayoutGridLine";
-import { RiCheckboxBlankCircleLine } from "@oxy.so/bloom/icons/RiCheckboxBlankCircleLine";
 import { Box, Scroll } from "../primitives";
 import { AppIcon } from "../apps";
 import type { ShellSnapshot } from "../model";
+import { OxyLogo } from "./OxyLogo";
 
 /** The shelf's height: the work area ends above it, and the launcher's overlay with it. */
 export const DOCK_HEIGHT = 56;
@@ -73,7 +73,7 @@ export function Dock({
         <Button
           testID="dock-launcher"
           iconOnly
-          icon={RiCheckboxBlankCircleLine}
+          icon={OxyLogo}
           accessibilityLabel="Abrir aplicaciones"
           appearance="plain"
           onPress={toggleLauncher}

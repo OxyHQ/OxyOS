@@ -7,12 +7,12 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@oxy.so/bloom/dropdown-menu";
-import { RiCheckboxBlankCircleLine } from "@oxy.so/bloom/icons/RiCheckboxBlankCircleLine";
 import { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 
 import Svg, { Rect, Circle } from "react-native-svg";
 import { Box } from "../primitives";
+import { OxyLogo } from "./OxyLogo";
 import type { ShellMenu } from "../model";
 
 function ControlsIcon({
@@ -88,7 +88,7 @@ export function TopBar({
           <DropdownMenuTrigger asChild>
             <Button
               iconOnly
-              icon={RiCheckboxBlankCircleLine}
+              icon={OxyLogo}
               accessibilityLabel="Menú de Oxy"
               appearance="plain"
               className="h-7 w-8 border-0 bg-transparent p-0"
