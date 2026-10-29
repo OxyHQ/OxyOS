@@ -16,6 +16,9 @@
 #include <folly/dynamic.h>
 #include <jsi/jsi.h>
 
+#include <chrono>
+#include <optional>
+
 #include <functional>
 #include <map>
 #include <memory>
@@ -45,8 +48,15 @@ class GestureHandlerHost {
   // release and cancel, at (x, y) of `content`'s surface.
   enum class Phase { Down, Move, Up, Cancel };
   void pointer(Phase phase, const SurfaceContent& content, float x, float y);
+  // A touchpad pinch's fingers, from PointerInput: an OXYOS_GESTURE_* action about finger `index`,
+  // each finger at its point of `content`'s surface. They are fingers (RNGH's pointer type 0), as
+  // Android's touchpad pinch reports its own.
+  void fingers(uint8_t action, size_t index, const SurfaceContent& content,
+               const std::vector<facebook::react::Point>& points);
   // Timers due fire. Once per loop; true if anything was delivered.
   bool tick();
+  // When a handler's timer next falls due (a long press, a tap's wait), if one is set.
+  std::optional<std::chrono::steady_clock::time_point> nextDeadline() const;
 
   // A handler activated: React Native's touch is to be cancelled (cancelsJSResponder), and the
   // host's own touch handling (a text input's drag selection) is to let go.

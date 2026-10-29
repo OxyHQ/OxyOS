@@ -103,6 +103,10 @@ wire_enum! {
     TouchKind: u8 { Down = 1, Motion = 2, Up = 3, Cancel = 4 }
 }
 wire_enum! {
+    /// Where a touchpad gesture is: begun, going on, ended, or cancelled (ended without effect).
+    GesturePhase: u8 { Begin = 1, Update = 2, End = 3, Cancel = 4 }
+}
+wire_enum! {
     /// What happened to a submitted frame. Released is a separate event: a presented frame keeps
     /// its buffer until replaced and until every consumer has finished.
     Outcome: u8 { Presented = 1, Discarded = 2 }
@@ -135,6 +139,15 @@ wire_enum! {
     TextPurpose: u8 {
         Normal = 0, Digits = 1, Number = 2, Phone = 3, Url = 4, Email = 5, Name = 6,
         Password = 7, Pin = 8, Date = 9, Time = 10,
+    }
+}
+wire_enum! {
+    /// The pointer's shape a surface wants while the pointer is over it, as Android's pointer
+    /// icons name them: the arrow, text, a hand on what can be pressed, and the rest.
+    PointerShape: u8 {
+        Arrow = 1, Text = 2, Hand = 3, NotAllowed = 4, Wait = 5, Help = 6, Crosshair = 7,
+        Move = 8, Grab = 9, Grabbing = 10, ResizeHorizontal = 11, ResizeVertical = 12,
+        ResizeTopLeft = 13, ResizeTopRight = 14, ZoomIn = 15, ZoomOut = 16,
     }
 }
 wire_enum! {

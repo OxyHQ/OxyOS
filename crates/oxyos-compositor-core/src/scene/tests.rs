@@ -2147,6 +2147,75 @@ fn an_in_flight_buffer_of_a_destroyed_surface_cannot_back_another_surface() {
 }
 
 #[test]
+fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 200, 100);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.pump();
+    h.clear_log();
+    let focus = h.scene.focus();
+    let pinches = |events: Vec<(ClientId, Event)>| -> Vec<_> {
+        events
+            .into_iter()
+            .filter_map(|(client, e)| match e {
+                Event::Pinch {
+                    surface,
+                    phase,
+                    x,
+                    y,
+                    scale_65536,
+                    rotation_256,
+                    ..
+                } => Some((client, surface, phase, x, y, scale_65536, rotation_256)),
+                _ => None,
+            })
+            .collect()
+    };
+    // An update with no pinch begun reaches nobody.
+    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    assert!(pinches(h.pump()).is_empty());
+    // At the pointer, in the window's coordinates (1/256 of a pixel, as a pointer event's).
+    h.scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 98304, -2560);
+    assert_eq!(
+        pinches(h.pump()),
+        [
+            (APP, 1, GesturePhase::Begin, 10 * 256, 20 * 256, 65536, 0),
+            (
+                APP,
+                1,
+                GesturePhase::Update,
+                10 * 256,
+                20 * 256,
+                98304,
+                -2560
+            ),
+        ]
+    );
+    // The window keeps the pinch until it ends, with the pointer over the other window.
+    let o = h.rect(other);
+    h.scene.pointer_motion(o.x + 10, o.y + 10);
+    h.pump();
+    h.scene.pointer_pinch(GesturePhase::Update, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::End, 131072, 0);
+    let (x, y) = ((o.x + 10 - w.x) * 256, (o.y + 10 - w.y) * 256);
+    assert_eq!(
+        pinches(h.pump()),
+        [
+            (APP, 1, GesturePhase::Update, x, y, 131072, 0),
+            (APP, 1, GesturePhase::End, x, y, 131072, 0),
+        ]
+    );
+    // After it ends, an update without a new beginning reaches nobody.
+    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    assert!(pinches(h.pump()).is_empty());
+    // A pinch is not a press: focus and stacking are unchanged.
+    assert_eq!(h.scene.focus(), focus);
+}
+
+#[test]
 fn scrolls_go_to_the_surface_under_the_pointer_without_activating_it() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
@@ -4473,4 +4542,59 @@ fn the_shell_focuses_minimizes_moves_and_closes_windows_and_manages_workspaces()
         h.request(APP, Request::AddWorkspace {}),
         Err(ErrorCode::Unauthorized)
     );
+}
+
+#[test]
+fn the_pointer_takes_the_shape_the_surface_under_it_wants() {
+    use oxyos_protocol::PointerShape;
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let other = h.toplevel(OTHER, 1, 100, 100);
+    let o = h.rect(other);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+    h.request(
+        APP,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Text,
+        },
+    )
+    .unwrap();
+    // Over the window, its shape; over the other one, which asked for none, the arrow.
+    h.scene
+        .pointer_motion(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    h.scene.pointer_motion(o.x + 5, o.y + 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+    // Surface 1 of another client is its own: asking for a shape changes only it.
+    h.request(
+        OTHER,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Hand,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Hand);
+    h.scene
+        .pointer_motion(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::SetPointerShape {
+                surface: 9,
+                shape: PointerShape::Hand,
+            },
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    // While the compositor moves the window, the move shape.
+    let serial = h.press(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    h.request(APP, Request::BeginMove { surface: 1, serial })
+        .unwrap();
+    h.scene
+        .pointer_motion(w.x + w.width as i32 + 20, w.y + w.height as i32);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Move);
 }

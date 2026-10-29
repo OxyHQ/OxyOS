@@ -1,5 +1,5 @@
 {
-  "about": "Bloom's bottom sheet on OxyOS (sample/SheetProbe.tsx): React Native's Modal, drawn over the window at its origin and size and taking its input (modal.h), with expo-blur's backdrop as Android draws it without a blur target (expo-blur.h), and its pan to close on react-native-gesture-handler (gesture-handler.h, crates/oxyos-gestures). Bloom's default sheet closes when dragged down: its content's Native gesture begins and fails (no native view takes over on OxyOS), its pan begins, activates, takes the touch from React and ends. The scrolling kind (manualActivation) closes too: its pan is told its touches, a worklet activates it through _setGestureStateSync, and it is told of each move after. While a sheet is open, a press over the window's content reaches the sheet's backdrop, which closes it, and not the button under it; Escape, the desktop's back, asks the Modal to close. Each step checks the texts, exactly what React received, and exactly what gesture handlers sent.",
+  "about": "Bloom's bottom sheet on OxyOS (sample/SheetProbe.tsx): React Native's Modal, drawn over the window at its origin and size and taking its input (modal.h), with expo-blur's backdrop as Android draws it without a blur target (expo-blur.h), and its pan to close on react-native-gesture-handler (gesture-handler.h, crates/oxyos-gestures). Bloom's default sheet closes when dragged down: its content's Native gesture begins and fails (no native view takes over on OxyOS), its pan begins, activates, takes the touch from React and ends. The scrolling kind (manualActivation) closes too: its pan is told its touches, a worklet activates it through _setGestureStateSync, and it is told of each move after. While a sheet is open, a press over the window's content reaches the sheet's backdrop, which closes it, and not the button under it; Escape, the desktop's back, asks the Modal to close. Over a view whose cursor style is pointer, the compositor shows the hand. Each step checks the texts, exactly what React received, and exactly what gesture handlers sent.",
   "module": "SheetProbe",
   "window": [
     600,
@@ -26,7 +26,8 @@
           "touchEnd@open-default": 1,
           "show@default-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "pointer_shape": "Arrow"
       }
     },
     {
@@ -109,27 +110,12 @@
           "touchMove@scrolling-content": 1,
           "touchCancel@scrolling-content": 1
         },
-        "gestures": [
+        "gesture_states": [
           "PanGestureHandler@View touches down x1",
           "PanGestureHandler@View UNDETERMINED>BEGAN",
-          "PanGestureHandler@View touches move x1",
           "intercept",
           "PanGestureHandler cancels the responder",
           "PanGestureHandler@View BEGAN>ACTIVE",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
-          "PanGestureHandler@View touches move x1",
-          "PanGestureHandler@View update x1",
           "PanGestureHandler@View touches up x1",
           "PanGestureHandler@View ACTIVE>END"
         ]
@@ -179,7 +165,8 @@
           "touchStart@scrolling-sheet": 1,
           "touchEnd@scrolling-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "pointer_shape": "Arrow"
       }
     },
     {
@@ -222,6 +209,25 @@
         },
         "gestures": []
       }
+    },
+    {
+      "name": "over a view whose cursor style is pointer, the pointer is the hand, as Android shows it",
+      "do": [
+        "press",
+        [
+          300,
+          200
+        ]
+      ],
+      "expect": {
+        "pointer_shape": "Hand",
+        "react": {
+          "touchStart@hand": 1,
+          "touchEnd@hand": 1
+        },
+        "gestures": []
+      },
+      "allow_unchanged": true
     }
   ]
 }

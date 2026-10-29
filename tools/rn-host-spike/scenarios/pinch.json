@@ -1,0 +1,80 @@
+{
+  "about": "A touchpad pinch on OxyOS (sample/PinchProbe.tsx, input.h): it reaches the application as Android 14's touchpad stack gives it, two fingers around the pointer 200 pixels apart, finger 0 down then finger 1, both moving as they spread, then finger 1 up and finger 0; OxyOS's fingers also turn as the user's do. A view's own touch handlers see both fingers; react-native-gesture-handler's pinch and rotation (crates/oxyos-gestures, ported from RNGH 3.3.0's Android handlers), simultaneous, activate past their slops, take the touch from React Native and end, with the scale and rotation Android's formulas give from activation on (the first move after the second finger counts no rotation, as on Android). Through the virtual devices (--uinput) the pinch is a virtual touchpad's two fingers, which libinput recognizes and reports from when it does: both handlers still activate and end, with a spread and a turn short of the fingers' own, as many moves as libinput sends, and the two activating in either order (which threshold is crossed first, the twist's 5 degrees or the spread's slop, depends on when libinput's events arrive), so the order is not checked there.",
+  "module": "PinchProbe",
+  "window": [
+    600,
+    400
+  ],
+  "steps": [
+    {
+      "name": "a pinch over a view reaches it as two fingers, as Android's touchpad pinch does: the first down, then the second, both moving as they spread to 150%, then the second up and the first",
+      "do": [
+        "pinch",
+        [
+          150,
+          170,
+          150,
+          0
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "fingers 0, most 2, spread 1.50"
+        ],
+        "react": {
+          "touchStart@touch-area": 2,
+          "touchMove@touch-area": 8,
+          "touchEnd@touch-area": 2
+        }
+      },
+      "expect_devices": {
+        "texts": [
+          "fingers 0, most 2"
+        ],
+        "react": null
+      }
+    },
+    {
+      "name": "a pinch turning 30 degrees over a GestureDetector: react-native-gesture-handler's pinch and rotation, simultaneous, both activate and end",
+      "do": [
+        "pinch",
+        [
+          450,
+          170,
+          150,
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "pinch ended, scale 1.29",
+          "rotation ended, 19 degrees"
+        ],
+        "react": {
+          "touchStart@gesture-area": 2,
+          "touchMove@gesture-area": 3,
+          "touchCancel@gesture-area": 1
+        },
+        "gesture_states": [
+          "PinchGestureHandler@gesture-area UNDETERMINED>BEGAN",
+          "RotationGestureHandler@gesture-area UNDETERMINED>BEGAN",
+          "intercept",
+          "PinchGestureHandler cancels the responder",
+          "PinchGestureHandler@gesture-area BEGAN>ACTIVE",
+          "RotationGestureHandler cancels the responder",
+          "RotationGestureHandler@gesture-area BEGAN>ACTIVE",
+          "RotationGestureHandler@gesture-area ACTIVE>END",
+          "PinchGestureHandler@gesture-area ACTIVE>END"
+        ]
+      },
+      "expect_devices": {
+        "texts": [
+          "pinch ended",
+          "rotation ended"
+        ],
+        "react": null,
+        "gesture_states": null
+      }
+    }
+  ]
+}

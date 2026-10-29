@@ -8,10 +8,12 @@
 
 use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
-use oxyos_protocol::{Clock, ErrorCode, Event, PointerKind, Rect, Request, ServerConnection, Size};
+use oxyos_protocol::{
+    Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ServerConnection, Size,
+};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
@@ -84,6 +86,11 @@ pub struct Compositor {
     pub records: bool,
     /// The user ended the session (Ctrl+Alt+Backspace): the session's program stops.
     pub ending: bool,
+    /// How long a turn may wait for something to happen when nothing has a deadline sooner: the
+    /// development compositor's 5 ms by default, so its director's steps keep their pace; a
+    /// session longer, waking for its devices, clients and display, the pointer's next step and a
+    /// connection's deadline (`serve`).
+    pub idle_wait: Duration,
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -103,6 +110,13 @@ pub struct Compositor {
     /// The frame on its way to the display: when it was handed over. It completes at its flip,
     /// in a later turn; no frame is composed meanwhile (one on the display at a time).
     pub pending_flip: Option<std::time::Duration>,
+    /// The pending flip only moves the pointer: the frame shown, committed again.
+    pointer_flip: bool,
+    /// Where the pointer is on the display (its pixels), once it has moved.
+    pointer: Option<(i32, i32)>,
+    /// The display's pointer images for each shape the session has any for (the arrow for any
+    /// other), with how long each shows: one image, or an animated cursor's steps.
+    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, Vec<(usize, std::time::Duration)>>,
     /// What the last flip showed (the scene's displayed content once it completed).
     pub flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
@@ -182,6 +196,10 @@ impl Compositor {
             scanout_back: 0,
             flips: Vec::new(),
             pending_flip: None,
+            pointer_flip: false,
+            pointer: None,
+            pointer_images: BTreeMap::new(),
+            idle_wait: Duration::from_millis(5),
             flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
@@ -441,10 +459,23 @@ impl Compositor {
         if self.pending_flip.is_some() {
             return;
         }
+        // The pointer is on the display's cursor plane, placed by every commit, in the shape the
+        // surface under it wants.
+        let image = self
+            .pointer_images
+            .get(&self.scene.pointer_shape())
+            .map_or(0, |steps| pointer_step(steps, monotonic()));
+        let pointer_moved = match (&mut self.display, self.away) {
+            (Some(display), false) => display.set_pointer(self.pointer, image),
+            _ => false,
+        };
         let started = self.scene.begin_frame();
         let list = self.scene.frame_list();
         if started == 0 && list == self.composed {
             self.scene.end_frame(0, Clock::Synthetic);
+            if pointer_moved {
+                self.present_pointer();
+            }
             return;
         }
         self.composing_since = monotonic();
@@ -625,6 +656,26 @@ impl Compositor {
         }
     }
 
+    /// Only the pointer moved (or its animated image went on): the frame shown is committed again
+    /// with it where it is now, no
+    /// frame composed. Its flip completes no client's frame.
+    fn present_pointer(&mut self) {
+        let Some(display) = self.display.as_mut() else {
+            return;
+        };
+        match display.present_again() {
+            Ok(true) => {
+                self.pending_flip = Some(monotonic());
+                self.pointer_flip = true;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                eprintln!("[kms] {error}; display output stops");
+                self.display = None;
+            }
+        }
+    }
+
     /// Completes the frame on its way to the display once it has flipped, at the kernel's flip
     /// time; with `wait`, waits for the flip (before giving the display away, or at the end).
     pub fn complete_flip(&mut self, wait: bool) {
@@ -647,6 +698,20 @@ impl Compositor {
             Some(display) => display.flip_done(),
             None => Err(std::io::Error::other("the display went away")),
         };
+        if self.pointer_flip {
+            // The pointer moved on the frame shown: nothing of the scene completes.
+            match flip {
+                Ok(None) if !wait => return,
+                Err(error) => {
+                    eprintln!("[kms] {error}; display output stops");
+                    self.display = None;
+                }
+                _ => {}
+            }
+            self.pointer_flip = false;
+            self.pending_flip = None;
+            return;
+        }
         let (timestamp_ns, clock) = match flip {
             Ok(None) if !wait => return,
             // Never flipped: the frame completes unshown, and is composed again.
@@ -795,9 +860,11 @@ impl Compositor {
                 eprintln!("[input] {action:?} focus {:?}", self.scene.focus());
             }
             match action {
-                oxyos_input::Action::Motion { x, y } => self
-                    .scene
-                    .pointer_motion(x.round() as i32 - dx, y.round() as i32 - dy),
+                oxyos_input::Action::Motion { x, y } => {
+                    let (x, y) = (x.round() as i32, y.round() as i32);
+                    self.pointer = Some((x, y));
+                    self.scene.pointer_motion(x - dx, y - dy)
+                }
                 oxyos_input::Action::Button { code, pressed } => {
                     self.scene.pointer_button(code, pressed)
                 }
@@ -805,6 +872,21 @@ impl Compositor {
                 oxyos_input::Action::Scroll { dx, dy } => self
                     .scene
                     .pointer_scroll((dx * 256.0).round() as i32, (dy * 256.0).round() as i32),
+                // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
+                oxyos_input::Action::Pinch {
+                    phase,
+                    scale,
+                    rotation,
+                } => self.scene.pointer_pinch(
+                    match phase {
+                        oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                        oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                        oxyos_input::GesturePhase::End => GesturePhase::End,
+                        oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                    },
+                    (scale.max(0.0) * 65536.0).round() as u32,
+                    (rotation * 256.0).round() as i32,
+                ),
                 oxyos_input::Action::Key {
                     code,
                     pressed,
@@ -997,8 +1079,25 @@ impl Compositor {
         Some((layout.extent, layout.format, pixels))
     }
 
+    /// How long a turn may wait: until the animated pointer's next step, the first connection
+    /// still without its Hello reaches its deadline, or `idle_wait`, whichever is soonest.
+    fn next_wake(&self) -> Duration {
+        let mut wait = self.idle_wait;
+        let steps = self.pointer_images.get(&self.scene.pointer_shape());
+        if let Some(step) = steps.and_then(|steps| pointer_step_wait(steps, monotonic())) {
+            wait = wait.min(step);
+        }
+        for peer in self.peers.values() {
+            if peer.protocol.version().is_none() {
+                wait = wait.min(HELLO_DEADLINE.saturating_sub(peer.accepted.elapsed()));
+            }
+        }
+        wait
+    }
+
     /// One turn of the compositor: accepts connections, handles every readable client, composes
-    /// a frame and sends events. Waits at most 5 ms for input.
+    /// a frame and sends events. Waits for a client, the listener, the display's flip, the devices
+    /// or the seat, at most until the pointer's next step, a connection's deadline or `idle_wait`.
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {
         self.follow_terminal()?;
         self.follow_seat()?;
@@ -1017,10 +1116,15 @@ impl Compositor {
                 ));
             }
             for client in &clients {
-                fds.push(PollFd::from_borrowed_fd(
-                    self.peers[client].connection.as_fd(),
-                    PollFlags::IN,
-                ));
+                // A client with events waiting for room in its socket wakes the turn when it has
+                // some.
+                let peer = &self.peers[client];
+                let flags = if peer.outbox.is_empty() {
+                    PollFlags::IN
+                } else {
+                    PollFlags::IN | PollFlags::OUT
+                };
+                fds.push(PollFd::from_borrowed_fd(peer.connection.as_fd(), flags));
             }
             if let (Some(display), Some(_)) = (&self.display, self.pending_flip) {
                 fds.push(PollFd::from_borrowed_fd(
@@ -1028,9 +1132,17 @@ impl Compositor {
                     PollFlags::IN,
                 ));
             }
+            // libinput and the seat are read every turn; they only need to wake it.
+            if let Some(input) = &self.input {
+                fds.push(PollFd::from_borrowed_fd(input.as_fd(), PollFlags::IN));
+            }
+            if let Some(seat) = &self.seat {
+                fds.push(PollFd::from_borrowed_fd(seat.as_fd(), PollFlags::IN));
+            }
+            let wait = self.next_wake();
             let timeout = rustix::event::Timespec {
-                tv_sec: 0,
-                tv_nsec: 5_000_000,
+                tv_sec: wait.as_secs() as i64,
+                tv_nsec: i64::from(wait.subsec_nanos()),
             };
             match poll(&mut fds, Some(&timeout)) {
                 Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
@@ -1194,6 +1306,43 @@ pub fn output_damage(
     damage
 }
 
+/// The image of an animated pointer's `steps` at time `now`: the animation loops from time zero,
+/// so every animated cursor turns with the clock. A single image never changes.
+fn pointer_step(steps: &[(usize, std::time::Duration)], now: std::time::Duration) -> usize {
+    let cycle: std::time::Duration = steps.iter().map(|(_, time)| *time).sum();
+    if steps.len() < 2 || cycle.is_zero() {
+        return steps.first().map_or(0, |(image, _)| *image);
+    }
+    let mut at = std::time::Duration::from_nanos((now.as_nanos() % cycle.as_nanos()) as u64);
+    for (image, time) in steps {
+        if at < *time {
+            return *image;
+        }
+        at -= *time;
+    }
+    steps[steps.len() - 1].0
+}
+
+/// How long until an animated pointer's `steps` go on to their next image at time `now`; none for
+/// an image that never changes.
+fn pointer_step_wait(
+    steps: &[(usize, std::time::Duration)],
+    now: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let cycle: std::time::Duration = steps.iter().map(|(_, time)| *time).sum();
+    if steps.len() < 2 || cycle.is_zero() {
+        return None;
+    }
+    let mut at = std::time::Duration::from_nanos((now.as_nanos() % cycle.as_nanos()) as u64);
+    for (_, time) in steps {
+        if at < *time {
+            return Some(*time - at);
+        }
+        at -= *time;
+    }
+    Some(std::time::Duration::ZERO)
+}
+
 /// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
 pub fn monotonic() -> std::time::Duration {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
@@ -1234,6 +1383,42 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_turn_waits_until_an_animated_pointers_next_step() {
+        let ms = std::time::Duration::from_millis;
+        let steps = [(3, ms(30)), (4, ms(10)), (5, ms(20))];
+        let wait = |t| pointer_step_wait(&steps, ms(t));
+        assert_eq!(
+            (wait(0), wait(29), wait(30), wait(45)),
+            (Some(ms(30)), Some(ms(1)), Some(ms(10)), Some(ms(15)))
+        );
+        // It loops.
+        assert_eq!(wait(60 + 35), Some(ms(5)));
+        // One image never changes: nothing to wake for.
+        assert_eq!(pointer_step_wait(&[(7, ms(30))], ms(5)), None);
+        assert_eq!(pointer_step_wait(&[(7, ms(0)), (8, ms(0))], ms(5)), None);
+    }
+
+    #[test]
+    fn an_animated_pointer_shows_the_step_the_clock_is_in() {
+        let ms = std::time::Duration::from_millis;
+        let steps = [(3, ms(30)), (4, ms(10)), (5, ms(20))];
+        let at = |t| pointer_step(&steps, ms(t));
+        assert_eq!(
+            (at(0), at(29), at(30), at(39), at(40), at(59)),
+            (3, 3, 4, 4, 5, 5)
+        );
+        // It loops.
+        assert_eq!((at(60), at(95), at(6000 + 45)), (3, 4, 5));
+        // One image, or steps that take no time, never change.
+        assert_eq!(
+            pointer_step(&[(7, std::time::Duration::ZERO)], ms(12345)),
+            7
+        );
+        assert_eq!(pointer_step(&[(7, ms(0)), (8, ms(0))], ms(5)), 7);
+        assert_eq!(pointer_step(&[], ms(5)), 0);
+    }
     use oxyos_compositor_core::RenderItem;
 
     fn surface(id: u32, x: i32, sequence: u64) -> RenderItem {

@@ -40,6 +40,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_CLOSED 40
 #define OXYOS_EVENT_WORKSPACES 41
 #define OXYOS_EVENT_CLOSE_REQUESTED 42
+#define OXYOS_EVENT_PINCH 43
 /* A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event). */
 #define OXYOS_WINDOW_MINIMIZED 1
 #define OXYOS_WINDOW_FOCUSED 2
@@ -51,6 +52,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_POINTER_PRESS 4
 #define OXYOS_POINTER_RELEASE 5
 #define OXYOS_POINTER_CANCEL 6
+
+/* A pinch's phases (OxyOSEvent.detail of a pinch event). */
+#define OXYOS_PINCH_BEGIN 1
+#define OXYOS_PINCH_UPDATE 2
+#define OXYOS_PINCH_END 3
+#define OXYOS_PINCH_CANCEL 4
 
 /* Feedback outcomes (OxyOSEvent.detail of a feedback event). */
 #define OXYOS_OUTCOME_PRESENTED 1
@@ -99,7 +106,12 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag: whether it is the last; text: the chunk.
  *   WINDOW_CLOSED  code: the window.
  *   WORKSPACES  detail: how many; code: the active one (from 0).
- *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`. */
+ *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`.
+ *   PINCH       serial; x, y as POINTER: the pointer, which a pinch does not move; detail:
+ *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the
+ *               pinch began (65536 = as they started); rotation_256: how far they have turned
+ *               since, in 1/256 degrees, clockwise. A pinch stays with the surface under the
+ *               pointer when it began until it ends or is cancelled. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -111,6 +123,8 @@ typedef struct OxyOSEvent {
   uint32_t scale_120;
   uint32_t detail;
   uint32_t code;
+  uint32_t scale_65536;
+  int32_t rotation_256;
   uint8_t flag;
   char text[33];
 } OxyOSEvent;
@@ -234,6 +248,25 @@ int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, ui
 
 /* Limits where a surface takes pointer and touch input to a surface-local logical rectangle (an
  * empty one: nowhere); input elsewhere reaches what is below. */
+/* Pointer shapes (the protocol's): the pointer's shape while it is over a surface. */
+#define OXYOS_POINTER_ARROW 1
+#define OXYOS_POINTER_TEXT 2
+#define OXYOS_POINTER_HAND 3
+#define OXYOS_POINTER_NOT_ALLOWED 4
+#define OXYOS_POINTER_WAIT 5
+#define OXYOS_POINTER_HELP 6
+#define OXYOS_POINTER_CROSSHAIR 7
+#define OXYOS_POINTER_MOVE 8
+#define OXYOS_POINTER_GRAB 9
+#define OXYOS_POINTER_GRABBING 10
+#define OXYOS_POINTER_RESIZE_HORIZONTAL 11
+#define OXYOS_POINTER_RESIZE_VERTICAL 12
+#define OXYOS_POINTER_RESIZE_TOP_LEFT 13
+#define OXYOS_POINTER_RESIZE_TOP_RIGHT 14
+#define OXYOS_POINTER_ZOOM_IN 15
+#define OXYOS_POINTER_ZOOM_OUT 16
+/* The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0, or OXYOS_ERROR. */
+int oxyos_client_set_pointer_shape(OxyOSClient* client, uint32_t surface, uint8_t shape);
 int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,
                                   uint32_t height);
 int oxyos_client_create_popup(OxyOSClient* client, uint32_t surface, uint32_t parent,
@@ -564,6 +597,11 @@ int oxyos_vector_render(const OxyOSVectorShape* shapes, size_t count, uint32_t w
 #define OXYOS_GESTURE_HAS_VELOCITY 4
 #define OXYOS_GESTURE_HAS_DURATION 8
 #define OXYOS_GESTURE_HAS_POINTER_INSIDE 16
+/* A pinch's scale, focal_x, focal_y and rate (its velocity, scale per second). */
+#define OXYOS_GESTURE_HAS_SCALE 32
+/* A rotation's rotation (radians, clockwise), anchor_x, anchor_y and rate (its velocity, radians
+ * per millisecond, as Android's). */
+#define OXYOS_GESTURE_HAS_ROTATION 64
 
 typedef struct OxyOSGestures OxyOSGestures;
 
@@ -630,6 +668,13 @@ typedef struct OxyOSGestureOutput {
   float velocity_x;
   float velocity_y;
   uint64_t duration;
+  float scale;
+  float focal_x;
+  float focal_y;
+  float rotation;
+  float anchor_x;
+  float anchor_y;
+  float rate;
 } OxyOSGestureOutput;
 
 OxyOSGestures* oxyos_gestures_new(void);

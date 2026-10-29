@@ -11,6 +11,7 @@
 
 #include "accessibility.h"
 #include "input.h"
+#include "damage.h"
 #include "renderer.h"
 #include "window.h"
 
@@ -77,6 +78,9 @@ class ShellSurfaceHost {
     Placement placed{};
     bool dirty = true;
     uint64_t drawnFor = 0;
+    // The frame as last drawn and what changed since: the next draws only that (damage.h).
+    Canvas canvas;
+    WindowDamage damage;
   };
   const ViewTree& tree_;
   Window& window_;

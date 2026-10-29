@@ -136,7 +136,8 @@ host-build/oxyos-rn-spike "$HERE/tree.js"
 # React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
 # compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
 # resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
-(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
+(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" \
+  HERMESC="$WORK/hermes-build/bin/hermesc" node bundle.mjs index.js "$WORK/sample")
 OXYOS_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxyos-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
 
@@ -201,6 +202,26 @@ python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
 python3 "$HERE/regress.py" "$HERE/scenarios/clipboard.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-clipboard"
+# Bloom's bottom sheet in React Native's Modal, closed by its pan (gesture handler) and by Escape.
+python3 "$HERE/regress.py" "$HERE/scenarios/sheet.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-sheet"
+# The shell's overview: a window's card dragged onto another workspace.
+python3 "$HERE/regress.py" "$HERE/scenarios/shell-overview.json" \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-shell-overview"
+# Transforms: views moved, scaled and turned, drawn and pressed where they are drawn.
+python3 "$HERE/regress.py" "$HERE/scenarios/transform.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-transform"
+# Modal's animationType: its window sliding and fading in and out, frame by frame.
+python3 "$HERE/regress.py" "$HERE/scenarios/modal.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-modal"
+# A touchpad pinch: two fingers to React Native and to gesture handlers' pinch and rotation.
+python3 "$HERE/regress.py" "$HERE/scenarios/pinch.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-pinch"
 # Intl: dates and numbers for several locales and time zones, each as Node prints it with the same CLDR.
 python3 "$HERE/regress.py" "$HERE/scenarios/intl.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \

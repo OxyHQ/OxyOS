@@ -56,6 +56,8 @@
 #include <react/utils/ContextContainer.h>
 
 #include <chrono>
+#include <optional>
+#include <poll.h>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
@@ -133,6 +135,15 @@ class Timers : public PlatformTimerRegistry {
     return !due.empty();
   }
 
+  // When the next timer falls due, if one is set.
+  std::optional<Clock::time_point> next() const {
+    std::optional<Clock::time_point> next;
+    for (const auto& [id, timer] : timers_) {
+      if (!next || timer.at < *next) next = timer.at;
+    }
+    return next;
+  }
+
   // Whether a one-shot timer falls due before `deadline`: the app is not settled until it fires.
   // Recurring timers never settle, so they do not hold the loop.
   bool oneShotDueBefore(Clock::time_point deadline) const {
@@ -198,6 +209,7 @@ class Mounter : public SchedulerDelegate {
       // returned even when nothing was committed.
       auto transaction = coordinator->pullTransaction();
       if (transaction && !transaction->getMutations().empty()) {
+        if (beforeApply) beforeApply(transaction->getMutations());
         tree_.apply(transaction->getMutations());
         ++transactions;
         // As each platform's mounting layer does: report the mount, which runs the UIManager's
@@ -218,6 +230,8 @@ class Mounter : public SchedulerDelegate {
   }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
+  // A transaction about to be applied, its views still in the tree (a modal's last frame).
+  std::function<void(const ShadowViewMutationList&)> beforeApply;
   // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
   std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
   void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
@@ -503,6 +517,8 @@ int main(int argc, char** argv) {
       }
       return oxyos::Placement{.surface = surface, .frame = *frame};
     });
+    // The pointer's shape over each surface, as the views under it want it.
+    pointer.showsShapes([&window](uint32_t surface, uint8_t shape) { window->setPointerShape(surface, shape); });
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
       return editing.scrollText(view, dx, dy);
     });
@@ -510,6 +526,11 @@ int main(int argc, char** argv) {
     // a text input's drag selection.
     pointer.feedsGestures([&gestures](int phase, const oxyos::SurfaceContent& content, float x, float y) {
       gestures->pointer(static_cast<oxyos::GestureHandlerHost::Phase>(phase), content, x, y);
+    });
+    pointer.setScale(display.scale);
+    pointer.feedsFingers([&gestures](uint8_t action, size_t index, const oxyos::SurfaceContent& content,
+                                     const std::vector<facebook::react::Point>& fingers) {
+      gestures->fingers(action, index, content, fingers);
     });
     gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
     gestures->onIntercept = [&editing] { editing.releaseDrag(); };
@@ -585,6 +606,9 @@ int main(int argc, char** argv) {
     oxyos::WindowDamage windowDamage;
     // OXYOS_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
     static const bool checkDamage = std::getenv("OXYOS_HOST_DAMAGE_CHECK") != nullptr;
+    mounter.beforeApply = [&](const ShadowViewMutationList& mutations) {
+      modalHost.leaving(mutations, display, drawn);
+    };
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
@@ -605,6 +629,7 @@ int main(int argc, char** argv) {
         shellSurfaces.changed();
       }
     };
+    int idleTurns = 0;  // turns in a row that found nothing to do
     try {
       while (true) {
         Beat::tickAll();
@@ -612,11 +637,13 @@ int main(int argc, char** argv) {
         busy |= mounter.pull();
         busy |= timers->fire(*timerManager);
         busy |= gestures->tick();
-        worklets.tick();
+        busy |= worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
         bool shellChanged = false, closeRequested = false;
         if (!window->dispatch([&](const OxyOSEvent& event) {
+              // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
+              busy = true;
               shellChanged |= shellState.observe(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
@@ -680,6 +707,7 @@ int main(int argc, char** argv) {
         bool resized = window->resized();
         if (resized) {
           display = oxyos::Display{window->width(), window->height(), window->scale()};
+          pointer.setScale(display.scale);
           layOut();
           // A new size or scale needs a new frame even when the layout does not change (a
           // scale change keeps every logical frame); the old one would be discarded.
@@ -706,6 +734,11 @@ int main(int argc, char** argv) {
         if (window->deliverPastes()) busy = true;
         if (resized || mounted) shellSurfaces.sync();
         if (resized || mounted) modalHost.sync(display);
+        // A modal's window animating in or out moves on once for each frame the window can take.
+        if (window->ready(oxyos::Window::kToplevel) && modalHost.tick(display)) {
+          dirty = true;
+          busy = true;
+        }
         popups.sync(lastPress);
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something
@@ -789,7 +822,25 @@ int main(int argc, char** argv) {
         }
         popups.present(drawn, focusName());
         shellSurfaces.present(drawn, focusName());
-        if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
+        // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
+        // image decoder, a paste's pipe, the next timer of JavaScript's or a gesture handler's, or
+        // the next frame for worklets' frame callbacks.
+        // It waits only after a second idle turn, since what one turn dispatches (an event for
+        // Fabric's beat) is delivered on the next; and at most a second, should anything else
+        // need a turn.
+        idleTurns = busy ? 0 : idleTurns + 1;
+        if (idleTurns >= 2) {
+          auto deadline = Clock::now() + std::chrono::seconds(1);
+          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame()}) {
+            if (due && *due < deadline) deadline = *due;
+          }
+          std::vector<pollfd> fds;
+          for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
+          for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
+          auto wait = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now()).count();
+          if (wait > 0) poll(fds.data(), fds.size(), static_cast<int>(wait));
+        }
       }
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";

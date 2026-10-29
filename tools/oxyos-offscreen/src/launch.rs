@@ -11,7 +11,7 @@
 
 use super::*;
 use oxyos_compositor_core::TextTransaction;
-use oxyos_protocol::{AccessibleAction, AccessibleState, PreeditStyle};
+use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle};
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
@@ -35,6 +35,15 @@ pub enum Step {
     PressOutput { x: i32, y: i32 },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
+    /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
+    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
+    /// scene, or through the virtual touchpad, where libinput recognizes it.
+    Pinch {
+        x: i32,
+        y: i32,
+        percent: i32,
+        degrees: i32,
+    },
     /// Text typed into the focused surface: committed as it is, or, through the virtual
     /// devices, typed key by key on the layout.
     Type(String),
@@ -114,6 +123,12 @@ impl Step {
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
+            Step::Pinch {
+                x,
+                y,
+                percent,
+                degrees,
+            } => format!("pinch to {percent}% turning {degrees} degrees at ({x}, {y})"),
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
@@ -156,6 +171,12 @@ impl Step {
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
+            Step::Pinch {
+                x,
+                y,
+                percent,
+                degrees,
+            } => format!("\"pinch\":[{x},{y},{percent},{degrees}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
@@ -295,7 +316,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -399,6 +420,15 @@ impl Launch {
                         x: n[0],
                         y: n[1],
                         dy: n[2],
+                    }
+                }
+                Some("--pinch") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::Pinch {
+                        x: n[0],
+                        y: n[1],
+                        percent: n[2],
+                        degrees: n[3],
                     }
                 }
                 Some("--type") => {
@@ -951,6 +981,18 @@ fn inject_through(
             compositor.read_input();
             devices.wheel(*dy, || compositor.read_input())?;
         }
+        Step::Pinch {
+            x,
+            y,
+            percent,
+            degrees,
+        } => {
+            inside(window, *x, *y)?;
+            let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            devices.pinch(*percent, *degrees, || compositor.read_input())?;
+        }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
             inside(window, to.0, to.1)?;
@@ -1161,6 +1203,37 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
             compositor.scene.pointer_scroll(0, dy.saturating_mul(256));
+        }
+        Step::Pinch {
+            x,
+            y,
+            percent,
+            degrees,
+        } => {
+            inside(window, *x, *y)?;
+            if *percent <= 0 {
+                return Err("a pinch spreads to more than 0%".into());
+            }
+            let scene = &mut compositor.scene;
+            scene.pointer_motion(window.x + x, window.y + y);
+            scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
+            // libinput's scale and turn are since the pinch began: the spread changes by an even
+            // factor at each step, as fingers moving steadily apart do.
+            const STEPS: i32 = 8;
+            for i in 1..=STEPS {
+                let done = f64::from(i) / f64::from(STEPS);
+                let scale = (f64::from(*percent) / 100.0).powf(done);
+                scene.pointer_pinch(
+                    GesturePhase::Update,
+                    (scale * 65536.0).round() as u32,
+                    (f64::from(*degrees) * done * 256.0).round() as i32,
+                );
+            }
+            scene.pointer_pinch(
+                GesturePhase::End,
+                (f64::from(*percent) / 100.0 * 65536.0).round() as u32,
+                degrees.saturating_mul(256),
+            );
         }
         Step::Type(text) | Step::Commit(text) => compositor.scene.text(text),
         Step::Preedit(text) => {
@@ -1565,7 +1638,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\"}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1580,6 +1653,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
+            session.compositor.scene.pointer_shape(),
         ));
         snapshots.push(snapshot(
             &session.compositor,
@@ -1731,6 +1805,8 @@ mod tests {
             "1,2",
             "--scroll",
             "3,4,-50",
+            "--pinch",
+            "5,6,150,-30",
             "--type",
             "hi",
             "--commit",
@@ -1787,7 +1863,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, true
+                false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -1798,6 +1874,12 @@ mod tests {
                     x: 3,
                     y: 4,
                     dy: -50
+                },
+                Step::Pinch {
+                    x: 5,
+                    y: 6,
+                    percent: 150,
+                    degrees: -30
                 },
                 Step::Type("hi".into()),
                 Step::Commit("mundo".into()),

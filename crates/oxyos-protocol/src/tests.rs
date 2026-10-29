@@ -195,6 +195,10 @@ fn requests() -> Vec<Request> {
         Request::ActivateWorkspace { workspace: 1 },
         Request::AddWorkspace {},
         Request::RemoveWorkspace { workspace: 1 },
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::ResizeTopRight,
+        },
     ]
 }
 
@@ -237,6 +241,15 @@ fn events() -> Vec<Event> {
             id: 0,
             x: 0,
             y: 0,
+        },
+        Event::Pinch {
+            surface: 1,
+            serial: 7,
+            phase: GesturePhase::Update,
+            x: -3,
+            y: 4,
+            scale_65536: 98304,
+            rotation_256: -2560,
         },
         Event::Feedback {
             surface: 1,
