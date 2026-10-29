@@ -25,7 +25,8 @@ void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_m
   const ShadowView& view = it->second.view;
   if (view.componentName && ownSurface(view.componentName)) return;
   const auto& frame = view.layoutMetrics.frame;
-  Rect rect{{ox + frame.origin.x, oy + frame.origin.y}, frame.size};
+  Point moved = transformOffset(view);
+  Rect rect{{ox + frame.origin.x + moved.x, oy + frame.origin.y + moved.y}, frame.size};
   // A modal is drawn at the window's origin, wherever it is in the tree.
   if (view.componentName && isModal(view.componentName)) rect.origin = Point{0, 0};
   at[tag] = rect;
@@ -59,9 +60,26 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
   std::unordered_map<Tag, Rect> at;
   std::unordered_map<Tag, const View*> views;
   collect(tree, tree.root(), 0, 0, at, views);
+  return compare(tree, at, views, display, edit);
+}
+
+std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, Tag region, Point origin,
+                                                      const Display& display, const TextInputEdit& edit) {
+  std::unordered_map<Tag, Rect> at;
+  std::unordered_map<Tag, const View*> views;
+  auto it = tree.views().find(region);
+  if (it != tree.views().end()) {
+    for (Tag child : it->second.children) collect(tree, child, origin.x, origin.y, at, views);
+  }
+  return compare(tree, at, views, display, edit);
+}
+
+std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, const std::unordered_map<Tag, Rect>& at,
+                                                       const std::unordered_map<Tag, const View*>& views,
+                                                       const Display& display, const TextInputEdit& edit) {
   Views now;
   for (const auto& [tag, rect] : at) {
-    const View& view = *views[tag];
+    const View& view = *views.at(tag);
     bool svg = view.view.componentName && isSvgView(view.view.componentName);
     now[tag] = Seen{view.view, rect, view.children, svg ? svgPicture(tree, tag, display.scale) : view.picture};
   }

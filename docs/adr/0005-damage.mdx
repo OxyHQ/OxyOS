@@ -115,6 +115,8 @@ The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends
 
 The renderer draws only that (`drawDamaged`). Each region is reset to the window's white and drawn again as a whole frame draws it: the painter chooses which pixels to paint, never the geometry, and text outside the damage is not laid out. The frame goes out with `oxyos_client_present_damaged`.
 
+The session's shell's regions (its panels and overlays, each a surface of its own) are tracked the same way, each by itself: a region whose views drew nothing new is neither drawn nor presented when another changed, and one that changed draws only that, reset to transparent rather than white (`drawRegionDamaged`). In `shell-overview.json` the shell's surfaces present 20 frames instead of 41, drawing 2% of the surface (median) and 58 ms in all instead of 97.
+
 `OXYOS_HOST_DAMAGE_CHECK` (`regress.py --check-damage`) draws every frame whole too and fails the run on any difference. A control that shrinks every damaged rectangle by 2 pixels makes it fail, on 49 frames of the regression. `OXYOS_DAMAGE_TRACE` prints what drew a subtree again.
 
 On the ThinkPad, the full regression through the devices passes with `--check-damage` (every frame drawn from its damage identical to the frame drawn whole, every `--gpu` frame identical to the CPU reference). The terminal, secure-field and Android-adaptation scenarios pass too. Medians:
