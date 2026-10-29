@@ -241,7 +241,8 @@
           "touchEnd@hand": 1
         },
         "gestures": []
-      }
+      },
+      "allow_unchanged": true
     }
   ]
 }
