@@ -646,7 +646,8 @@ int main(int argc, char** argv) {
         busy |= worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
-        bool shellChanged = false, closeRequested = false;
+        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
+        bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.

@@ -1,9 +1,15 @@
 #include "shell-state.h"
 
+#include <folly/json.h>
 #include <pwd.h>
 #include <unistd.h>
 
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 #include <vector>
 
 namespace oxyos {
@@ -20,6 +26,63 @@ ShellState::ShellState() {
       fullName_ = fullName_.substr(0, fullName_.find(','));
     }
   }
+  // The solar wallpaper's manifest: its frames and the sun each shows.
+  if (const char* dir = std::getenv("OXYOS_WALLPAPER")) {
+    try {
+      std::ifstream file(std::string(dir) + "/manifest.json");
+      std::stringstream text;
+      text << file.rdbuf();
+      auto manifest = folly::parseJson(text.str());
+      for (const auto& frame : manifest["frames"]) {
+        wallpaperFrames_[static_cast<uint32_t>(frame["index"].asInt())] = frame["file"].asString();
+      }
+      for (const auto& anchor : manifest["solarAnchors"]) {
+        anchors_.push_back(OxyOSSolarAnchor{static_cast<uint32_t>(anchor["frame"].asInt()),
+                                            anchor["elevationDegrees"].asDouble(),
+                                            anchor["azimuthDegrees"].asDouble()});
+      }
+      previewFrame_ = static_cast<uint32_t>(manifest.getDefault("previewFrame", 0).asInt());
+      wallpaperDir_ = dir;
+      chooseFrame();
+    } catch (const std::exception& error) {
+      std::cerr << "[host] the wallpaper at " << dir << ": " << error.what() << "\n";
+    }
+  }
+}
+
+// The clock the wallpaper follows: the system's, or a scenario's fixed moment (OXYOS_SOLAR_NOW, unix
+// seconds), which never moves on.
+static int64_t solarNow() {
+  static const char* fixed = std::getenv("OXYOS_SOLAR_NOW");
+  return fixed ? std::atoll(fixed) : static_cast<int64_t>(std::time(nullptr));
+}
+
+void ShellState::chooseFrame() {
+  uint32_t frame = previewFrame_;
+  int64_t next = 0;
+  int64_t now = solarNow();
+  switch (oxyos_solar_frame(anchors_.data(), anchors_.size(), now, &frame, &next)) {
+    case 0:
+      break;
+    case 1:
+      // No sun where the clock is set (UTC): the wallpaper's own frame, looked at again hourly.
+      frame = previewFrame_;
+      next = now + 3600;
+      break;
+    default:
+      std::cerr << "[host] the wallpaper: " << oxyos_last_error() << "\n";
+      frame = previewFrame_;
+      next = now + 3600;
+  }
+  frame_ = frame;
+  nextChange_ = next;
+}
+
+bool ShellState::tick() {
+  if (wallpaperDir_.empty() || solarNow() < nextChange_) return false;
+  auto before = frame_;
+  chooseFrame();
+  return frame_ != before;
 }
 
 bool ShellState::observe(const OxyOSEvent& event) {
@@ -69,6 +132,13 @@ bool ShellState::observe(const OxyOSEvent& event) {
   }
 }
 
+folly::dynamic ShellState::wallpaperUri() const {
+  if (!frame_) return nullptr;
+  auto file = wallpaperFrames_.find(*frame_);
+  if (file == wallpaperFrames_.end()) return nullptr;
+  return "file://" + wallpaperDir_ + "/" + file->second;
+}
+
 folly::dynamic ShellState::state() const {
   folly::dynamic windows = folly::dynamic::array();
   for (const auto& [id, window] : windows_) {
@@ -76,7 +146,7 @@ folly::dynamic ShellState::state() const {
         "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused));
   }
   return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
-      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_);
+      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri());
 }
 
 }  // namespace oxyos

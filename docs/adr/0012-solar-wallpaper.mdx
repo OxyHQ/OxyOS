@@ -1,0 +1,30 @@
+---
+title: "ADR 0012: The solar wallpaper"
+description: How the shell's wallpaper follows the sun: where the sun is, computed by the OS from the clock and the time zone's place, never a location service; which of the wallpaper's frames that is; and how the shell is told.
+order: 21
+---
+
+# ADR 0012: The solar wallpaper
+
+Status: **accepted**. Builds on [ADR 0009](./0009-session-shell) (the session's shell).
+
+## Problem
+
+The shell's wallpaper, *Solar Gradients* (`assets/wallpapers/solar-gradients`), has sixteen frames, each tagged with the sun's elevation and azimuth it shows. The shell shows frame 8 always. `apps/shell/src/solar-wallpaper.ts` chose a frame for a given elevation, but nothing computed where the sun is; its README says that is the system's: a wallpaper service must supply the position with a location and time policy, follow the clock, and publish the chosen image to the shell.
+
+## Decision
+
+1. **The OS computes where the sun is, in Rust** (`crates/oxyos-solar`): NOAA's general solar position (fractional year, equation of time, declination, hour angle), from the clock's UTC time and a place. It is within a few tenths of a degree, more than a frame (the closest anchors are degrees apart) needs.
+2. **The place is the system time zone's**, from the time zone database (`zone1970.tab`: each zone's principal city's latitude and longitude), the zone the system's clock is set to. No location service is asked, nothing goes over the network, and nothing finer than the zone is used: a Mac asks for location for its dynamic wallpaper; OxyOS will only when the user turns location on for it, which is not this decision. A zone with no place (`UTC`) has no sun: frame `previewFrame` is shown.
+3. **The OS chooses the frame**: among the anchors of the sun's phase (rising before its highest, setting after; the night's lowest and the day's highest belong to both), the one closest in elevation, as `solar-wallpaper.ts` did, whose rule and tests move to Rust with it; the TypeScript module goes. It also says when the frame will next change, so nothing polls.
+4. **The shell is told the image.** The Bloom host run as the shell reads the wallpaper's manifest (`OXYOS_WALLPAPER`, the wallpaper's folder), asks the C ABI (`oxyos_solar_frame`) for the frame and when it next changes, and the shell's state carries the frame's file (`wallpaper`), changed when the frame does. The shell shows what it is given; with none (the browser preview, a host without a wallpaper) it shows its own.
+
+## Results
+
+`crates/oxyos-solar` computes the sun's position (tests: the noon sun at the solstices over Madrid 73° and 26° due south, midnight −26°, overhead on the equator at an equinox, rising at 58° and setting at 302° at the June solstice), reads a zone's place from `zone1970.tab` (both coordinate forms), and chooses the frame with the rule and cases `solar-wallpaper.ts` had, which is gone, and the minute it next changes. `oxyos_solar_frame` is its C ABI. The Bloom host run as the shell reads the manifest `OXYOS_WALLPAPER` names, gives the shell the frame's file (`wallpaper` in its state) and checks each turn whether the frame changed (it wakes at least every second; frames change at most every minute). `OXYOS_SOLAR_NOW` fixes the moment for scenarios, as the compositor's clock does for its tests. `scenarios/solar-wallpaper.json` shows Madrid at 03:00 on the June solstice and checks the desktop is the night's frame (frame 1); at noon (frame 8, what the shell shows without the system) it fails.
+
+## Not in this decision
+
+- A setting for location, or a place the user picks; following a moving machine.
+- Other wallpapers, a wallpaper preference, a Settings application.
+- Cross-fading between frames.

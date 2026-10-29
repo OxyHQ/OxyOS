@@ -24,6 +24,7 @@ pub mod gestures;
 pub mod images;
 pub mod intl;
 pub mod net;
+pub mod solar;
 #[cfg(test)]
 mod tests;
 pub mod vector;

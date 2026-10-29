@@ -58,7 +58,7 @@ A Linux host must provide live registry/compositor/service snapshots, translate 
 
 The user-supplied Solar Gradients HEIC contains 16 frames at 5120 × 2880. All frames were imported as JPEG derivatives with Display P3 profiles under `assets/wallpapers/solar-gradients`, along with the original decoded solar metadata and source hash. The browser host currently supplies frame 08 to the shared `Wallpaper` component.
 
-`solar-wallpaper.ts` selects a frame from the original solar-elevation anchors and a rising/setting phase. It does not calculate sun position, request location, invent fixed hourly thresholds or schedule updates. The real wallpaper service and image packaging remain pending. See the wallpaper resource README.
+The preview shows frame 08 of the solar wallpaper. On OxyOS the system chooses the frame that shows the sun now and tells the shell ([ADR 0012](./adr/0012-solar-wallpaper)); the preview has no system to ask.
 
 ## Overview gestures and window-management boundary
 

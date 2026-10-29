@@ -8,7 +8,7 @@ Imported from the HEIC supplied by the user, using `scripts/import-solar-wallpap
 
 The `a`, `z`, `i` values in the source metadata are represented as elevation, azimuth and frame index in the manifest. The sequence spans night, morning twilight, sunrise, day, sunset and evening twilight. These are **solar positions, not fixed clock times**.
 
-The browser host currently supplies frame 08 to the shared shell wallpaper component. There is no recreated Settings application. `apps/shell/src/solar-wallpaper.ts` can select an original frame from a supplied solar elevation and rising/setting phase. It does not compute solar position or request location. A real system wallpaper service must supply the position using the chosen location/time policy, own wallpaper preferences, react to clock/timezone/resume changes, and publish its chosen image to the shell. That service is not implemented here. There are no invented hourly thresholds or background location requests.
+The browser preview supplies frame 08. On OxyOS the system shows the frame that shows the sun now ([ADR 0012](../../../docs/adr/0012-solar-wallpaper.mdx)): `crates/oxyos-solar` computes the sun's position from the clock and the system time zone's place (never a location service) and picks the frame from these anchors, and the Bloom host run as the shell (`OXYOS_WALLPAPER` names this folder) gives the shell that frame's file, changed when the sun moves on. There is no recreated Settings application and no wallpaper preference yet.
 
 The files are repository resources, not yet installed into the Debian image. The image packaging and native image-decoder integration remain part of the real session work. Bloom receives an image source and renders it; time/location policy belongs to OxyOS.
 

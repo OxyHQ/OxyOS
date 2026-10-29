@@ -1530,6 +1530,7 @@ dependencies = [
  "oxyos-ipc",
  "oxyos-net",
  "oxyos-protocol",
+ "oxyos-solar",
  "oxyos-vector",
  "rustix",
 ]
@@ -1706,6 +1707,13 @@ dependencies = [
  "oxyos-seat",
  "rustix",
  "signal-hook",
+]
+
+[[package]]
+name = "oxyos-solar"
+version = "0.1.0"
+dependencies = [
+ "jiff",
 ]
 
 [[package]]

@@ -736,6 +736,20 @@ int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
  * told of. Writes up to `capacity` to `out`; returns how many there are. */
 size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
 
+/* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
+ * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and
+ * clockwise from north. */
+typedef struct OxyOSSolarAnchor {
+  uint32_t frame;
+  double elevation;
+  double azimuth;
+} OxyOSSolarAnchor;
+/* The frame of `anchors` showing the sun at `unix_seconds` where the system's time zone is, and when
+ * (unix seconds) it next changes. 0 on success; 1 where the time zone has no place (UTC): there is no
+ * sun, and the caller shows its own frame; OXYOS_ERROR for anchors that are none. */
+int oxyos_solar_frame(const OxyOSSolarAnchor* anchors, size_t count, int64_t unix_seconds, uint32_t* frame,
+                      int64_t* next_change);
+
 /* Intl (crates/oxyos-intl, on ICU4X). Locales are BCP 47 tags; options are ECMA-402 options as
  * "name=value" pairs joined by ';' (only those the application gave; booleans as true/false).
  * Results are UTF-8 written into `out` (`capacity` bytes, NUL-terminated when it fits). Each returns
