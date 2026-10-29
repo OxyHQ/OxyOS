@@ -306,6 +306,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["react"]:
             fail(f"React received {got}, expected exactly {expect['react']}")
+    if "pointer_shape" in expect and result.get("pointer_shape") != expect["pointer_shape"]:
+        # The pointer's shape the compositor shows after the step, as the surface under it asked.
+        fail(f"the pointer's shape is {result.get('pointer_shape')}, expected {expect['pointer_shape']}")
     if "modal_animations" in expect:
         # Modal windows that started animating in or out (modal.h), as `in slide@testID`, `out fade@testID`.
         got = [f"{line['event']} {line['animation']}@{line.get('within') or line['target']}" for line in report

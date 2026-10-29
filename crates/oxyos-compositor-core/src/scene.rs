@@ -16,8 +16,8 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
-    MAX_DIMENSION,
+    PointerShape, Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind,
+    MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -132,6 +132,8 @@ struct Node {
     /// A window's workspace (ADR 0009): the one active when it was made. Only a toplevel's
     /// counts; what is under it follows it.
     workspace: u32,
+    /// The pointer's shape while it is over the surface.
+    pointer_shape: PointerShape,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -907,6 +909,15 @@ impl Scene {
                 last,
                 text,
             } => self.name_window(key(surface), true, index, last, text),
+            Request::SetPointerShape { surface, shape } => {
+                let node = self
+                    .nodes
+                    .get_mut(&key(surface))
+                    .filter(|node| !node.dismissed)
+                    .ok_or(ErrorCode::UnknownSurface)?;
+                node.pointer_shape = shape;
+                Ok(())
+            }
             Request::FocusWindow { .. }
             | Request::CloseWindow { .. }
             | Request::MinimizeWindow { .. }
@@ -1192,6 +1203,7 @@ impl Scene {
                 last_extent: None,
                 presenting_damage: SurfaceDamage::Whole,
                 workspace: self.workspaces.active,
+                pointer_shape: PointerShape::Arrow,
             },
         );
         match parent {
@@ -2299,6 +2311,17 @@ impl Scene {
     }
 
     /// Compositor-owned move: no client round trip, so a stalled client still moves smoothly.
+    /// The pointer's shape now: the one the surface under it wants, the arrow over none, and the
+    /// move shape while the compositor moves a window.
+    pub fn pointer_shape(&self) -> PointerShape {
+        if self.moving.is_some() {
+            return PointerShape::Move;
+        }
+        self.pointer_focus
+            .and_then(|key| self.live(key))
+            .map_or(PointerShape::Arrow, |node| node.pointer_shape)
+    }
+
     fn move_window(&mut self, moving: Move, x: i32, y: i32) {
         let Some(node) = self.nodes.get(&moving.surface) else {
             self.moving = None;

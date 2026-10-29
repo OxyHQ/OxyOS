@@ -145,6 +145,10 @@ void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
   if (oxyos_client_manage(client_, action, window, workspace) != 0) failed("cannot manage a window");
 }
 
+void Window::setPointerShape(uint32_t id, uint8_t shape) {
+  if (oxyos_client_set_pointer_shape(client_, id, shape) != 0) failed("cannot set the pointer's shape");
+}
+
 void Window::setInputRegion(uint32_t id, const OxyOSRect& region) {
   if (oxyos_client_set_input_region(client_, id, region.x, region.y, region.width, region.height) != 0) {
     failed("cannot set an input region");

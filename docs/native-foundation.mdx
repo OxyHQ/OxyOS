@@ -132,6 +132,7 @@ Input semantics:
 | Request | 49 | ActivateWorkspace | 5 |
 | Request | 50 | AddWorkspace | 1 |
 | Request | 51 | RemoveWorkspace | 5 |
+| Request | 52 | SetPointerShape | 6 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -213,15 +214,17 @@ Without `--kms` and `--input`, this is the headless development path: no DRM/KMS
 
 ## The session
 
-`oxyos-session [--layout LAYOUT] -- COMMAND [ARGS]...` runs the compositor on the seat of the caller's logind session, as its user: start it from a login on a text terminal.
+`oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...` runs the compositor on the seat of the caller's logind session, as its user: start it from a login on a text terminal.
 - **Display:** the first card with a connected output, at that output's size.
 - **Composition:** on the GPU straight into the display's scanout buffers where Vulkan exports DMA-BUF, otherwise on the CPU, only what changed ([ADR 0005](./adr/0005-damage)). Frames are never read back, and no per-frame measurement is kept.
 - **Input:** the seat's devices through logind and libinput, with the keymap of `--layout` and its dead keys.
+- **The pointer:** shown on the display's cursor plane, in the shape the surface under it asks for (`SetPointerShape`; the move shape while the compositor moves a window). Its images are the display's own arrow, or a Windows cursor file's or cursor scheme folder's (`--pointer`: each role its `Install.inf` names, the 32-bit image closest to SIZE pixels, 32 by default; an animated cursor's (`.ani`) steps, each its frame for its duration, looping with the clock). Moving the pointer, changing its shape or an animated cursor's next step commits the frame already shown again, with no composition. A display without a cursor plane shows no pointer, and the session says so.
 - **Switching:** Ctrl+Alt+Fn switches terminals, and logind's switches are followed ([ADR 0006](./adr/0006-seat)).
 - **The application:** COMMAND runs with `OXYOS_COMPOSITOR_SOCKET` naming the compositor's socket, in `XDG_RUNTIME_DIR`.
-- **The end:** the session ends when COMMAND exits, on Ctrl+Alt+Backspace (XKB's `terminate:ctrl_alt_bksp`), or on SIGINT or SIGTERM. The application is asked to stop (SIGTERM, then SIGKILL after two seconds), and the display, devices and seat are given back.
+- **The shell:** with `--shell`, the session's shell ([ADR 0009](./adr/0009-session-shell)) starts first: PROGRAM with its ARGs and `--shell OUTPUT`, on a socket of its own that grants `shell`. COMMAND starts once the shell's panels have set the work area, so its window is placed between them. For the Bloom host: `--shell HOST,BUNDLE,OxyOSShell`.
+- **The end:** the session ends when COMMAND or the shell exits, on Ctrl+Alt+Backspace (XKB's `terminate:ctrl_alt_bksp`), or on SIGINT or SIGTERM. The application is asked to stop (SIGTERM, then SIGKILL after two seconds), and the display, devices and seat are given back.
 
-It is a session program, not yet a desktop. It runs one application, and there is no shell, launcher, lock or login of its own. It is not in the image: the image rules require boot acceptance tests and a package audit first ([Base image configuration](./iso-build)).
+It is a session program, not yet a desktop. It runs one application, beside the shell when given one; the shell's applications are still a fixture, so it launches nothing, and there is no lock or login of its own. It is not in the image: the image rules require boot acceptance tests and a package audit first ([Base image configuration](./iso-build)).
 
 ## Core state transitions
 

@@ -195,6 +195,10 @@ fn requests() -> Vec<Request> {
         Request::ActivateWorkspace { workspace: 1 },
         Request::AddWorkspace {},
         Request::RemoveWorkspace { workspace: 1 },
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::ResizeTopRight,
+        },
     ]
 }
 
