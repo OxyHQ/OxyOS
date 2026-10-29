@@ -3888,3 +3888,178 @@ fn a_stuck_input_method_does_not_take_the_keyboard_with_it() {
         .iter()
         .any(|e| matches!(e, Event::Key { key: KEY_A, .. })));
 }
+
+/// The field of `window` says its caret is at `caret` (surface-local), as commit `serial`.
+fn move_caret(h: &mut Harness, window: SurfaceKey, caret: Rect, serial: u32) {
+    h.request(
+        window.client,
+        Request::TextInputCaret {
+            surface: window.id,
+            rect: caret,
+        },
+    )
+    .unwrap();
+    h.request(
+        window.client,
+        Request::TextInputCommit {
+            surface: window.id,
+            serial,
+        },
+    )
+    .unwrap();
+}
+
+/// A served field with its caret at (10, 20), and the input method's shown candidates.
+fn candidates() -> (Harness, SurfaceKey, SurfaceKey) {
+    let (mut h, window) = served("");
+    move_caret(&mut h, window, Rect::new(10, 20, 2, 18), 2);
+    h.request(
+        IME,
+        Request::CreateInputCandidates {
+            surface: 9,
+            size: Size::new(240, 120),
+        },
+    )
+    .unwrap();
+    let candidates = key(IME, 9);
+    h.present(candidates);
+    logged(&mut h);
+    (h, window, candidates)
+}
+
+#[test]
+fn only_the_input_method_makes_candidates_and_only_one() {
+    let (mut h, _, _) = candidates();
+    assert_eq!(
+        h.request(
+            APP,
+            Request::CreateInputCandidates {
+                surface: 5,
+                size: Size::new(10, 10),
+            }
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    assert_eq!(
+        h.request(
+            IME,
+            Request::CreateInputCandidates {
+                surface: 10,
+                size: Size::new(10, 10),
+            }
+        ),
+        Err(ErrorCode::InvalidRole)
+    );
+}
+
+#[test]
+fn candidates_sit_below_the_caret_and_their_configure_says_only_their_size() {
+    let (mut h, window) = served("");
+    move_caret(&mut h, window, Rect::new(10, 20, 2, 18), 2);
+    logged(&mut h);
+    h.request(
+        IME,
+        Request::CreateInputCandidates {
+            surface: 9,
+            size: Size::new(240, 120),
+        },
+    )
+    .unwrap();
+    let configures: Vec<Rect> = to(&logged(&mut h), IME)
+        .iter()
+        .filter_map(|e| match e {
+            Event::Configure { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(configures, [Rect::new(0, 0, 240, 120)]);
+    h.present(key(IME, 9));
+    let w = h.rect(window);
+    // Below the caret's bottom-left corner.
+    assert_eq!(h.rect(key(IME, 9)), Rect::new(w.x + 10, w.y + 38, 240, 120));
+}
+
+#[test]
+fn candidates_follow_the_caret_and_the_window() {
+    let (mut h, window, candidates) = candidates();
+    let w = h.rect(window);
+    move_caret(&mut h, window, Rect::new(60, 20, 2, 18), 3);
+    assert_eq!(h.rect(candidates), Rect::new(w.x + 60, w.y + 38, 240, 120));
+    h.scene.move_window_to(window, (w.x + 100, w.y + 50));
+    let moved = h.rect(window);
+    assert_eq!((moved.x, moved.y), (w.x + 100, w.y + 50));
+    assert_eq!(
+        h.rect(candidates),
+        Rect::new(moved.x + 60, moved.y + 38, 240, 120)
+    );
+    // Near the output's bottom there is no room below: above the caret instead.
+    h.scene
+        .move_window_to(window, (moved.x, SCREEN.bottom() as i32 - 100));
+    let low = h.rect(window);
+    assert_eq!(
+        h.rect(candidates),
+        Rect::new(low.x + 60, low.y + 20 - 120, 240, 120)
+    );
+}
+
+#[test]
+fn candidates_show_only_while_a_field_is_served() {
+    let (mut h, window, candidates) = candidates();
+    assert!(h.rendered(candidates));
+    // A password is not served: the candidates go.
+    h.request(
+        APP,
+        Request::TextInputPurpose {
+            surface: 1,
+            purpose: TextPurpose::Password,
+            hints: TextHints::default(),
+        },
+    )
+    .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 3,
+        },
+    )
+    .unwrap();
+    assert!(!h.rendered(candidates));
+    // An ordinary field again, at a known caret: back.
+    enable_text_input(&mut h, window, "", 4);
+    move_caret(&mut h, window, Rect::new(10, 20, 2, 18), 5);
+    assert!(h.rendered(candidates));
+    // With the input method's grant revoked they go, and stay gone.
+    h.scene.revoke(
+        IME,
+        Grants {
+            input_method: true,
+            ..Grants::default()
+        },
+    );
+    h.pump();
+    assert!(!h.rendered(candidates));
+}
+
+#[test]
+fn a_press_on_the_candidates_reaches_the_input_method_and_leaves_focus_in_the_field() {
+    let (mut h, window, candidates) = candidates();
+    let c = h.rect(candidates);
+    h.click(c.x + 20, c.y + 20);
+    let events = logged(&mut h);
+    assert!(to(&events, IME).iter().any(|e| matches!(
+        e,
+        Event::Pointer {
+            surface: 9,
+            kind: PointerKind::Press,
+            ..
+        }
+    )));
+    assert!(!to(&events, IME).contains(&Event::InputMethodDeactivate {}));
+    assert_eq!(h.scene.focus(), Some(window));
+    // It still serves the field: a key goes to it first.
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    assert!(to(&logged(&mut h), IME)
+        .iter()
+        .any(|e| matches!(e, Event::InputMethodKey { .. })));
+}

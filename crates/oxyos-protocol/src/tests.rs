@@ -169,6 +169,10 @@ fn requests() -> Vec<Request> {
             style: PreeditStyle::Converting,
         },
         Request::InputMethodCommit { serial: 2 },
+        Request::CreateInputCandidates {
+            surface: 3,
+            size: Size::new(240, 120),
+        },
     ]
 }
 

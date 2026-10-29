@@ -128,6 +128,10 @@ messages! {
         39 => InputMethodPreeditCursor { begin: u32, end: u32 },
         40 => InputMethodPreeditSegment { begin: u32, end: u32, style: PreeditStyle },
         41 => InputMethodCommit { serial: u32 },
+        // The input method's candidates: one surface of this size the compositor places next to
+        // the caret of the field it serves, shown only while it serves one. Its configure carries
+        // the size alone: the input method never learns where the caret is.
+        42 => CreateInputCandidates { surface: u32, size: Size },
     }
 }
 
