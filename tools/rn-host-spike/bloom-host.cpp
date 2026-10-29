@@ -55,6 +55,8 @@
 #include <react/utils/ContextContainer.h>
 
 #include <chrono>
+#include <optional>
+#include <poll.h>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
@@ -130,6 +132,15 @@ class Timers : public PlatformTimerRegistry {
       manager.callTimer(static_cast<TimerHandle>(id));
     }
     return !due.empty();
+  }
+
+  // When the next timer falls due, if one is set.
+  std::optional<Clock::time_point> next() const {
+    std::optional<Clock::time_point> next;
+    for (const auto& [id, timer] : timers_) {
+      if (!next || timer.at < *next) next = timer.at;
+    }
+    return next;
   }
 
   // Whether a one-shot timer falls due before `deadline`: the app is not settled until it fires.
@@ -615,6 +626,7 @@ int main(int argc, char** argv) {
         shellSurfaces.changed();
       }
     };
+    int idleTurns = 0;  // turns in a row that found nothing to do
     try {
       while (true) {
         Beat::tickAll();
@@ -622,11 +634,13 @@ int main(int argc, char** argv) {
         busy |= mounter.pull();
         busy |= timers->fire(*timerManager);
         busy |= gestures->tick();
-        worklets.tick();
+        busy |= worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
         bool shellChanged = false, closeRequested = false;
         if (!window->dispatch([&](const OxyOSEvent& event) {
+              // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
+              busy = true;
               shellChanged |= shellState.observe(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
@@ -805,7 +819,24 @@ int main(int argc, char** argv) {
         }
         popups.present(drawn, focusName());
         shellSurfaces.present(drawn, focusName());
-        if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
+        // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
+        // image decoder, a paste's pipe, or the next timer of JavaScript's or a gesture handler's.
+        // It waits only after a second idle turn, since what one turn dispatches (an event for
+        // Fabric's beat) is delivered on the next; and at most a second, should anything else
+        // need a turn.
+        idleTurns = busy ? 0 : idleTurns + 1;
+        if (idleTurns >= 2) {
+          auto deadline = Clock::now() + std::chrono::seconds(1);
+          for (auto due : {timers->next(), gestures->nextDeadline()}) {
+            if (due && *due < deadline) deadline = *due;
+          }
+          std::vector<pollfd> fds;
+          for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
+          for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
+          auto wait = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now()).count();
+          if (wait > 0) poll(fds.data(), fds.size(), static_cast<int>(wait));
+        }
       }
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";

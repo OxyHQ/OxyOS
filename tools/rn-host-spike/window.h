@@ -97,6 +97,13 @@ class Window {
   }
   // Each turn: finishes pastes whose content arrived. True if any did.
   bool deliverPastes() { return clipboard_.deliver(); }
+  // What the host's loop waits on for this window: the compositor's connection, readable when an
+  // event has come, and the pipes of pastes on their way.
+  std::vector<int> fds() const {
+    std::vector<int> out = clipboard_.fds();
+    out.push_back(oxyos_client_fd(client_));
+    return out;
+  }
   bool clipboardHasText() const { return clipboard_.hasText(); }
   // Runs `changed` whenever what the clipboard holds is known anew.
   void onClipboardChanged(std::function<void()> changed) { clipboard_.onChanged(std::move(changed)); }

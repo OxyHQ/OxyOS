@@ -32,7 +32,8 @@ class WorkletsHost {
   // The host has one thread: the UI runtime runs on it between React Native's tasks. Worklets
   // requests a frame every frame, so a frame is not work by itself: what an animation changes
   // reaches the host as a mount.
-  void tick();
+  // Runs queued UI jobs and the frame callbacks due; true if it ran any or callbacks wait.
+  bool tick();
 
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy() const { return proxy_; }
   std::shared_ptr<worklets::UIScheduler> uiScheduler() const { return ui_; }

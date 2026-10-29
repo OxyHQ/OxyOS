@@ -74,6 +74,8 @@ class Networking {
 
   // Each turn: emits what the network has answered. True if it did.
   bool deliver();
+  // Readable while answers wait to be emitted.
+  int fd() const { return oxyos_net_fd(net_); }
 
  private:
   // A request between its start and its completion.
