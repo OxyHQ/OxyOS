@@ -36,9 +36,22 @@ function oxyosVariant(filePath, originModulePath) {
 const BLOOM_PACKAGE = bloomRequire(path.join(BLOOM, 'package.json'));
 function bloomEntry(moduleName) {
   const subpath = '.' + moduleName.slice('@oxy.so/bloom'.length);
-  const target = BLOOM_PACKAGE.exports[subpath === '.' ? '.' : subpath];
   const pick = (value) => (typeof value === 'string' ? value : pick(value['react-native'] ?? value.default));
-  return target ? path.join(BLOOM, pick(target)) : null;
+  const exact = BLOOM_PACKAGE.exports[subpath];
+  if (exact) return path.join(BLOOM, pick(exact));
+  // A subpath pattern (`./icons/Ri*`), as Node resolves one: the key with the longest prefix
+  // before its `*` that matches, the matched part put in place of the target's `*`.
+  let best = null;
+  for (const key of Object.keys(BLOOM_PACKAGE.exports)) {
+    const star = key.indexOf('*');
+    if (star < 0) continue;
+    const [prefix, suffix] = [key.slice(0, star), key.slice(star + 1)];
+    if (!subpath.startsWith(prefix) || !subpath.endsWith(suffix) || subpath.length < key.length - 1) continue;
+    if (!best || prefix.length > best.prefix.length) {
+      best = { prefix, match: subpath.slice(prefix.length, subpath.length - suffix.length), target: BLOOM_PACKAGE.exports[key] };
+    }
+  }
+  return best ? path.join(BLOOM, pick(best.target).replace('*', best.match)) : null;
 }
 
 const { withReactNativeCSS } = bloomRequire('react-native-css/metro');
@@ -46,7 +59,9 @@ const { withReactNativeCSS } = bloomRequire('react-native-css/metro');
 module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
   // The repository's own images (wallpapers, the shell's app artwork) for the image probe.
   watchFolders: [BLOOM, NODE_MODULES, __dirname, path.resolve(__dirname, '../../../assets'),
-    path.resolve(__dirname, '../../shell-preview/assets')],
+    path.resolve(__dirname, '../../shell-preview/assets'),
+    // The shell's own sources (apps/shell), for the shell probe.
+    path.resolve(__dirname, '../../../apps')],
   resolver: {
     platforms: [PLATFORM, 'android', 'ios', 'native', 'web'],
     // The Bloom checkout's own worktrees are not part of the app.

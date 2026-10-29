@@ -8,6 +8,7 @@ import EditingProbe from './EditingProbe';
 import ImageProbe from './ImageProbe';
 import ImeProbe from './ImeProbe';
 import SecureProbe from './SecureProbe';
+import ShellProbe from './ShellProbe';
 import NetworkProbe from './NetworkProbe';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
@@ -18,3 +19,4 @@ AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
 AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
 AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);
+AppRegistry.registerComponent('ShellProbe', () => ShellProbe);

@@ -14,6 +14,9 @@ live-image-*
 # Native workspace build output
 /target/
 
+# Python bytecode (regress.py and the scripts)
+__pycache__/
+
 # Environment
 .env
 .env.*
