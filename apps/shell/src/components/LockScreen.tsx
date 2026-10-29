@@ -75,10 +75,12 @@ export function LockScreen({
     return () => clearTimeout(timer);
   }, [wait]);
   // The field stays focused and editable throughout, as macOS's: only submitting waits.
-  const submit = () => {
-    if (checking || wait > 0 || !password) return;
+  // What the field holds as Enter is pressed (`nativeEvent.text`), not the state: typed quickly,
+  // Enter arrives before the last characters' state is rendered.
+  const submit = (typed: string) => {
+    if (checking || wait > 0 || !typed) return;
     setMessage(null);
-    if (lock.authenticate(password)) setChecking(true);
+    if (lock.authenticate(typed)) setChecking(true);
     else setMessage("No se ha podido comprobar la contraseña");
   };
   const name = lock.user.fullName || lock.user.name;
@@ -155,7 +157,7 @@ export function LockScreen({
               // Typing again clears what the last attempt said, as macOS does.
               setMessage(null);
             }}
-            onSubmitEditing={submit}
+            onSubmitEditing={({ nativeEvent }) => submit(nativeEvent.text)}
             secureTextEntry
             autoFocus
             maxLength={MAX_PASSWORD_BYTES}
