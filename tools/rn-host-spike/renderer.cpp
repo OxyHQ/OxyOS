@@ -248,6 +248,37 @@ class Painter {
       tx = std::clamp(tx, 0, picture.width - 1), ty = std::clamp(ty, 0, picture.height - 1);
       return picture.pixels[(static_cast<size_t>(ty) * picture.width + tx) * 4 + c] / 255.0f;
     };
+    // A picture whose texels fall on the device pixels one to one (as Images decodes one at the
+    // size it is drawn), whole pixels inside the box, unrounded, untinted and opaque: each pixel
+    // is its texel, the bilinear sample at a texel's centre, and an opaque one is copied. A
+    // translucent texel is blended as below.
+    auto whole = [](float value) { return std::abs(value - std::round(value)) < 1e-3f; };
+    const float left = dx * scale_, top = dy * scale_;
+    if (!rounded && !tint && opacity >= 1 && whole(left) && whole(top) &&
+        std::abs(dw * scale_ - picture.width) < 1e-3f && std::abs(dh * scale_ - picture.height) < 1e-3f &&
+        whole(box.x0 * scale_) && whole(box.y0 * scale_) && whole(box.x1 * scale_) && whole(box.y1 * scale_)) {
+      const int ox = static_cast<int>(std::round(left)), oy = static_cast<int>(std::round(top));
+      for (int py = y0; py < y1; ++py) {
+        const uint8_t* row = picture.pixels.data() + (static_cast<size_t>(py - oy) * picture.width - ox) * 4;
+        uint32_t* out = canvas_.pixels.data() + static_cast<size_t>(py) * canvas_.width;
+        for (int px = x0; px < x1; ++px) {
+          const uint8_t* t = row + static_cast<size_t>(px) * 4;
+          if (t[3] == 255) {
+            out[px] = 0xff000000u | (uint32_t{t[0]} << 16) | (uint32_t{t[1]} << 8) | t[2];
+            continue;
+          }
+          if (t[3] == 0) continue;  // as below: nothing where the sample has no alpha
+          const float alpha = t[3] / 255.0f;
+          uint32_t& dst = out[px];
+          auto channel = [&](int shift, float src) {
+            float d = ((dst >> shift) & 0xff) / 255.0f;
+            return static_cast<uint32_t>(std::lround(std::clamp(src + d * (1 - alpha), 0.0f, 1.0f) * 255)) << shift;
+          };
+          dst = channel(24, alpha) | channel(16, t[0] / 255.0f) | channel(8, t[1] / 255.0f) | channel(0, t[2] / 255.0f);
+        }
+      }
+      return;
+    }
     for (int py = y0; py < y1; ++py) {
       for (int px = x0; px < x1; ++px) {
         float lx = px * s, ly = py * s;
