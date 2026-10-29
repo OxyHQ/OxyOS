@@ -1,15 +1,32 @@
 {
-  "about": "The OxyOS shell (apps/shell) in one window of the Bloom host (sample/ShellProbe.tsx), a first native step: it renders only once react-native-safe-area-context's provider reports its insets, which the host now does (zero, an OxyOS window has none). The top bar's menus and the wallpaper are drawn. Not yet: the shell as shell surfaces with the compositor's windows and workspaces, react-native-svg, react-native-gesture-handler and Intl (docs/bloom-native-audit.mdx).",
+  "about": "The OxyOS shell (apps/shell) in one window of the Bloom host (sample/ShellProbe.tsx), a first native step: it renders only once react-native-safe-area-context's provider reports its insets, which the host now does (zero, an OxyOS window has none). The top bar's menus and the wallpaper are drawn, and its vector graphics through react-native-svg: the top bar's wifi icon (a Bloom icon, one SVG path) and the Alia icon given as SVG text (SvgXml). Not yet: the shell as shell surfaces with the compositor's windows and workspaces, react-native-gesture-handler and Intl (docs/bloom-native-audit.mdx).",
   "module": "ShellProbe",
-  "window": [1200, 680],
+  "window": [
+    1200,
+    680
+  ],
   "steps": [
     {
-      "name": "a press on the empty desktop changes nothing: the wallpaper stays",
-      "do": ["press", [600, 300]],
+      "name": "a press on the empty desktop changes nothing: the wallpaper and the shell's vector icons stay",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
       "allow_unchanged": true,
       "expect": {
-        "texts": ["OxyOS", "Ver"],
-        "pixels": {"600,300": "#497cfe", "600,100": "#4378ff"},
+        "texts": [
+          "OxyOS",
+          "Ver"
+        ],
+        "pixels": {
+          "600,300": "#497cfe",
+          "600,100": "#4378ff",
+          "929,16": "#ffffff",
+          "762,657": "#d269e6"
+        },
         "pixel_tolerance": 8
       }
     }

@@ -97,6 +97,16 @@ mkdir -p "$WORK/codegen-reanimated"
     --schemaPath "$WORK/codegen-reanimated/schema.json" --outputDir "$WORK/codegen-reanimated/out" \
     --libraryName rnreanimated --javaPackageName com.swmansion.reanimated)
 
+# react-native-svg's component specs, generated the same way from the Bloom checkout's copy.
+SVG_DIR=$(cd "$BLOOM_DIR/node_modules/react-native-svg" && pwd)
+mkdir -p "$WORK/codegen-svg"
+(cd "$RN_DIR" &&
+  node ../@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js --platform android \
+    "$WORK/codegen-svg/schema.json" "$SVG_DIR/src/fabric" &&
+  node scripts/generate-specs-cli.js --platform android \
+    --schemaPath "$WORK/codegen-svg/schema.json" --outputDir "$WORK/codegen-svg/out" \
+    --libraryName rnsvg --javaPackageName com.horcrux.svg)
+
 # React Native's text input component, patched to build off Android (see the patch's header). A
 # private copy: the React Native package is never modified.
 rm -rf "$WORK/textinput"
@@ -113,6 +123,7 @@ CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja -DCMAKE_BUILD_TYPE=R
   -DCODEGEN_DIR="$WORK/codegen/out/jni" -DTHIRD_PARTY_DIR="$WORK/third-party" \
   -DTEXT_SYSROOT="$WORK/text/usr" -DICU_SYSROOT="$WORK/icu/usr" -DWORKLETS_DIR="$WORKLETS_DIR" -DREANIMATED_DIR="$REANIMATED_DIR" \
   -DREANIMATED_CODEGEN_DIR="$WORK/codegen-reanimated/out/jni" -DOXYOS_CLIENT_LIB="$OXYOS_CLIENT_LIB" \
+  -DSVG_DIR="$SVG_DIR" -DSVG_CODEGEN_DIR="$WORK/codegen-svg/out/jni" \
   -DTEXTINPUT_DIR="$WORK/textinput" >/dev/null
 ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host
 

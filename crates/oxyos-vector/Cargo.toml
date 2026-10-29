@@ -1,0 +1,15 @@
+[package]
+name = "oxyos-vector"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# SVG path data (kurbo parses it, arcs included) rasterized with anti-aliasing (tiny-skia), for
+# applications' vector graphics (react-native-svg).
+kurbo = "0.11"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+
+[lints]
+workspace = true

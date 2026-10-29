@@ -49,7 +49,7 @@ fn fields(name: &str) -> Vec<Field> {
             let size = match kind {
                 "uint8_t" | "char" => 1,
                 "uint16_t" => 2,
-                "int32_t" | "uint32_t" => 4,
+                "int32_t" | "uint32_t" | "float" => 4,
                 "uint64_t" | "int64_t" | "size_t" => 8,
                 pointer if pointer.ends_with('*') => 8,
                 other => panic!("unexpected field type {other}"),
@@ -1311,4 +1311,127 @@ fn text_input_through_the_c_abi() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_vector_abi() {
+    use crate::vector::*;
+    for (name, value) in [
+        ("OXYOS_SHAPE_PATH", OXYOS_SHAPE_PATH),
+        ("OXYOS_SHAPE_RECT", OXYOS_SHAPE_RECT),
+        ("OXYOS_SHAPE_ELLIPSE", OXYOS_SHAPE_ELLIPSE),
+        ("OXYOS_SHAPE_LINE", OXYOS_SHAPE_LINE),
+        ("OXYOS_CAP_BUTT", OXYOS_CAP_BUTT),
+        ("OXYOS_CAP_ROUND", OXYOS_CAP_ROUND),
+        ("OXYOS_CAP_SQUARE", OXYOS_CAP_SQUARE),
+        ("OXYOS_JOIN_MITER", OXYOS_JOIN_MITER),
+        ("OXYOS_JOIN_ROUND", OXYOS_JOIN_ROUND),
+        ("OXYOS_JOIN_BEVEL", OXYOS_JOIN_BEVEL),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    let shape = fields("OxyOSVectorShape");
+    assert_eq!(
+        names(&shape),
+        [
+            "kind",
+            "data",
+            "data_length",
+            "geometry",
+            "transform",
+            "fill",
+            "even_odd",
+            "fill_color",
+            "stroke",
+            "cap",
+            "join",
+            "stroke_color",
+            "stroke_width",
+            "miter_limit",
+            "dash",
+            "dash_count",
+            "dash_offset"
+        ]
+    );
+    let rust = [
+        offset_of!(OxyOSVectorShape, kind),
+        offset_of!(OxyOSVectorShape, data),
+        offset_of!(OxyOSVectorShape, data_length),
+        offset_of!(OxyOSVectorShape, geometry),
+        offset_of!(OxyOSVectorShape, transform),
+        offset_of!(OxyOSVectorShape, fill),
+        offset_of!(OxyOSVectorShape, even_odd),
+        offset_of!(OxyOSVectorShape, fill_color),
+        offset_of!(OxyOSVectorShape, stroke),
+        offset_of!(OxyOSVectorShape, cap),
+        offset_of!(OxyOSVectorShape, join),
+        offset_of!(OxyOSVectorShape, stroke_color),
+        offset_of!(OxyOSVectorShape, stroke_width),
+        offset_of!(OxyOSVectorShape, miter_limit),
+        offset_of!(OxyOSVectorShape, dash),
+        offset_of!(OxyOSVectorShape, dash_count),
+        offset_of!(OxyOSVectorShape, dash_offset),
+    ];
+    assert_eq!(
+        c_offsets(&shape),
+        (rust.to_vec(), size_of::<OxyOSVectorShape>())
+    );
+}
+
+#[test]
+fn shapes_are_drawn_through_the_c_abi() {
+    use crate::vector::*;
+    let data = "M0 0H4V4H0Z";
+    let shape = |kind, data: &str| OxyOSVectorShape {
+        kind,
+        data: data.as_ptr().cast(),
+        data_length: data.len(),
+        geometry: [4.0, 4.0, 4.0, 4.0, 0.0, 0.0],
+        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        fill: 1,
+        even_odd: 0,
+        fill_color: 0xff00_ff00,
+        stroke: 0,
+        cap: OXYOS_CAP_BUTT,
+        join: OXYOS_JOIN_MITER,
+        stroke_color: 0,
+        stroke_width: 0.0,
+        miter_limit: 4.0,
+        dash: std::ptr::null(),
+        dash_count: 0,
+        dash_offset: 0.0,
+    };
+    let shapes = [
+        shape(OXYOS_SHAPE_PATH, data),
+        shape(OXYOS_SHAPE_RECT, ""),
+        shape(OXYOS_SHAPE_PATH, "M0 0 L"),
+    ];
+    let mut pixels = vec![0u8; 8 * 8 * 4];
+    // SAFETY: the shapes, their data and the pixels outlive the call, with the counts given.
+    let skipped = unsafe {
+        oxyos_vector_render(
+            shapes.as_ptr(),
+            shapes.len(),
+            8,
+            8,
+            pixels.as_mut_ptr(),
+            pixels.len(),
+        )
+    };
+    let pixel = |x: usize, y: usize| &pixels[(y * 8 + x) * 4..(y * 8 + x) * 4 + 4];
+    assert_eq!(skipped, 1);
+    // Green, opaque: R, G, B, A.
+    assert_eq!(pixel(0, 0), [0, 255, 0, 255]);
+    assert_eq!(pixel(5, 5), [0, 255, 0, 255]);
+    assert_eq!(pixel(5, 0), [0, 0, 0, 0]);
+    // Too few bytes for the picture, or an unknown kind: refused.
+    // SAFETY: as above, with a length smaller than the picture.
+    let refused =
+        unsafe { oxyos_vector_render(shapes.as_ptr(), 1, 8, 8, pixels.as_mut_ptr(), 255) };
+    assert_eq!(refused, OXYOS_ERROR);
+    let unknown = [shape(9, data)];
+    // SAFETY: as above.
+    let refused =
+        unsafe { oxyos_vector_render(unknown.as_ptr(), 1, 8, 8, pixels.as_mut_ptr(), 256) };
+    assert_eq!(refused, OXYOS_ERROR);
 }

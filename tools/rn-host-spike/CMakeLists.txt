@@ -7,7 +7,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
-    REANIMATED_CODEGEN_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
+    REANIMATED_CODEGEN_DIR SVG_DIR SVG_CODEGEN_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
   if(NOT DEFINED ${var})
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
@@ -164,6 +164,19 @@ target_compile_options(reanimated_core PRIVATE -std=c++20 -fexceptions -frtti -D
   -Wno-unused-variable -Wno-unused-but-set-variable
   "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 
+# react-native-svg's components: its own C++ shadow nodes (common/cpp) over codegen's props, as
+# Android builds them. Drawing is the host's (svg.cpp, through crates/oxyos-vector).
+file(GLOB rnsvg_SRC CONFIGURE_DEPENDS ${SVG_DIR}/common/cpp/react/renderer/components/rnsvg/*.cpp
+  ${SVG_CODEGEN_DIR}/react/renderer/components/rnsvg/*.cpp)
+add_library(rnsvg_core OBJECT ${rnsvg_SRC})
+set_source_files_properties(${rnsvg_SRC} PROPERTIES COMPILE_OPTIONS "-Wno-error")
+target_include_directories(rnsvg_core PUBLIC ${SVG_DIR}/common/cpp ${SVG_CODEGEN_DIR}
+  ${SVG_DIR}/common/cpp/react/renderer/components/rnsvg)
+target_link_libraries(rnsvg_core jsi folly_runtime glog react_renderer_core react_renderer_graphics
+  react_renderer_imagemanager react_renderer_mapbuffer react_utils rrc_view rrc_image yoga)
+target_compile_options(rnsvg_core PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1
+  -DHERMES_V1_ENABLED=1 -DNDEBUG)
+
 # React Native's portable Android-only core components, in their own target: their headers sit
 # beside Android's ScrollView props, which must not replace the cxx platform's elsewhere.
 set(SCROLLVIEW_ANDROID ${REACT_COMMON_DIR}/react/renderer/components/scrollview/platform/android)
@@ -174,7 +187,7 @@ target_link_libraries(oxyos_android_components reactnative)
 target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1)
 
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp
-  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp svg.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
@@ -182,6 +195,7 @@ set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
 # The OxyOS display protocol client: the workspace's Rust crates behind a C ABI
 # (crates/oxyos-client-ffi), linked statically.
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxyos-client-ffi/include)
+target_include_directories(oxyos-bloom-host PRIVATE ${SVG_DIR}/common/cpp ${SVG_CODEGEN_DIR})
 target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview ${OXYOS_CLIENT_LIB} gcc_s util rt pthread m dl)
 # Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
 # Hermes already links.

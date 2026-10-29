@@ -1,7 +1,7 @@
 //! C ABI over `oxyos-client` for native runtimes written in C or C++ (the React Native host that
-//! runs Bloom), and over `oxyos-net` for their HTTP ([`net`]) and `oxyos-image` for their images
-//! ([`images`]). The protocol, transport, buffer handling, network and decoding stay in the safe
-//! Rust crates; this layer only converts between C values and theirs. `include/oxyos_client.h`
+//! runs Bloom), and over `oxyos-net` for their HTTP ([`net`]), `oxyos-image` for their images
+//! ([`images`]) and `oxyos-vector` for their vector graphics ([`vector`]). The protocol,
+//! transport, buffer handling, network, decoding and rasterizing stay in the safe Rust crates; this layer only converts between C values and theirs. `include/oxyos_client.h`
 //! declares it.
 //!
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
@@ -21,6 +21,7 @@ pub mod images;
 pub mod net;
 #[cfg(test)]
 mod tests;
+pub mod vector;
 
 /// The type text is copied and pasted as.
 pub const CLIPBOARD_TEXT: &str = "text/plain;charset=utf-8";
