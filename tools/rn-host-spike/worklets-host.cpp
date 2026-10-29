@@ -37,6 +37,10 @@ double nowMs() {
 
 // The host's single thread is both the JS and the UI thread.
 class LoopUIScheduler : public worklets::UIScheduler {
+ public:
+  // Whether UI jobs are queued for the next triggerUI.
+  bool pending() { return !uiJobs_.empty(); }
+
  protected:
   bool queryIsOnUIThread() const override { return true; }
 };
@@ -99,8 +103,9 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
   return module;
 }
 
-void WorkletsHost::tick() {
+bool WorkletsHost::tick() {
   // UIScheduler::triggerUI drains every queued UI job.
+  bool ran = std::static_pointer_cast<LoopUIScheduler>(ui_)->pending();
   ui_->triggerUI();
   double now = nowMs();
   if (!frames_->empty() && now - lastFrame_ >= 1000.0 / 60) {
@@ -109,6 +114,8 @@ void WorkletsHost::tick() {
     frames_->clear();
     for (auto& callback : callbacks) callback(now);
   }
+  // Frame callbacks waiting for their frame keep the loop turning, as an animation does.
+  return ran || !frames_->empty();
 }
 
 }  // namespace oxyos

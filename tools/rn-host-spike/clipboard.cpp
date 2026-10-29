@@ -63,6 +63,12 @@ void Clipboard::paste(OxyOSClient* client, uint64_t serial, std::function<void(s
   pastes_.push_back(Paste{fd, {}, std::chrono::steady_clock::now(), std::move(done)});
 }
 
+std::vector<int> Clipboard::fds() const {
+  std::vector<int> out;
+  for (const auto& paste : pastes_) out.push_back(paste.fd);
+  return out;
+}
+
 bool Clipboard::deliver() {
   bool finished = false;
   for (auto it = pastes_.begin(); it != pastes_.end();) {

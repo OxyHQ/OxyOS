@@ -45,6 +45,8 @@ class Images {
   void sync(float scale);
   // Each turn: gives views the pictures decoded and sends their events. True if any changed.
   bool deliver();
+  // Readable while decoded pictures wait to be given.
+  int fd() const { return oxyos_images_fd(loader_); }
 
  private:
   // A picture as loaded: the file, the box in pixels and how it fits it (oxyos_images_load).

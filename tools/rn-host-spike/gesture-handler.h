@@ -16,6 +16,9 @@
 #include <folly/dynamic.h>
 #include <jsi/jsi.h>
 
+#include <chrono>
+#include <optional>
+
 #include <functional>
 #include <map>
 #include <memory>
@@ -47,6 +50,8 @@ class GestureHandlerHost {
   void pointer(Phase phase, const SurfaceContent& content, float x, float y);
   // Timers due fire. Once per loop; true if anything was delivered.
   bool tick();
+  // When a handler's timer next falls due (a long press, a tap's wait), if one is set.
+  std::optional<std::chrono::steady_clock::time_point> nextDeadline() const;
 
   // A handler activated: React Native's touch is to be cancelled (cancelsJSResponder), and the
   // host's own touch handling (a text input's drag selection) is to let go.
