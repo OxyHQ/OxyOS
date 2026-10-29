@@ -6,7 +6,7 @@ order: 17
 
 # ADR 0008: Input methods
 
-Status: **accepted**; not implemented yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, popups, isolation) and on the keyboard as it is (`crates/oxyos-input`).
+Status: **accepted**; step 1 (protocol and scene) implemented, steps 2–4 not yet. Builds on [ADR 0001](./0001-native-platform-boundaries) (focus, popups, isolation) and on the keyboard as it is (`crates/oxyos-input`).
 
 ## Problem
 
@@ -64,6 +64,8 @@ The host already speaks Android's input connection to React Native's text input,
 ## Order of work
 
 1. **Protocol and scene.** The field's state and its commit, the transaction events (relayed from the compositor's own compose first, with no input method), and chunked compositions. Tests: a composition over 32 bytes, a deletion with a commit as one transaction, a stale serial refused.
+
+   As implemented: the transaction's events are `TextInputDelete`, `TextInputCommitText` and `TextInputPreeditText` (chunks), `TextInputPreeditCursor { begin, end }`, `TextInputPreeditSegment { begin, end, style }` (composing, converting, error) and `TextInputDone { serial, commit }`, where `commit` is the field's commit serial of decision 3 and `serial` the input's own, as a key press's, so a committed transaction authorizes a popup grab or a clipboard request as typing does. The compositor refuses a commit serial that does not go up (`InvalidOrder`), so a field's serials order its states; deciding that a transaction is stale is the field's (step 2). A surface that never enabled text input keeps receiving `Text` and `Preedit`.
 2. **The Bloom host's side.** It sends its state and applies transactions as described, with a scenario that drives transactions directly (the director gains `--transaction`), checking the text, the selection and the exact events.
 3. **The input-method role.** The grant, the keyboard grab with keys given back, the candidates popup, and the sensitive-field rule, with scene tests for each refusal.
 4. **An input method.** A real one is a separate project (the session would run one, such as a port of an existing engine's core); this ADR only makes room for it.

@@ -16,7 +16,7 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, Outcome, PanelEdge, PointerKind,
-    Positioner, PreeditText, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
+    Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE,
     MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -301,6 +301,8 @@ pub struct Scene {
     frame_in_flight: bool,
     deferred: Vec<(SurfaceKey, u64)>,
     accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
+    /// What each surface with a text field told about it (ADR 0008).
+    text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -834,6 +836,25 @@ impl Scene {
                     self.emit(owner, Event::ClipboardSend { offer, mime });
                 }
                 Ok(())
+            }
+            Request::TextInputEnable { surface } => self.text_input_enable(key(surface), true),
+            Request::TextInputDisable { surface } => self.text_input_enable(key(surface), false),
+            Request::TextInputPurpose {
+                surface,
+                purpose,
+                hints,
+            } => self.text_input_purpose(key(surface), purpose, hints),
+            Request::TextInputSurrounding { surface, text } => {
+                self.text_input_surrounding(key(surface), text)
+            }
+            Request::TextInputSelection {
+                surface,
+                anchor,
+                cursor,
+            } => self.text_input_selection(key(surface), anchor, cursor),
+            Request::TextInputCaret { surface, rect } => self.text_input_caret(key(surface), rect),
+            Request::TextInputCommit { surface, serial } => {
+                self.text_input_commit(key(surface), serial)
             }
             Request::Damage { surface, rect } => {
                 let node = self
@@ -1687,6 +1708,7 @@ impl Scene {
         self.roots.retain(|root| *root != key);
         self.nodes.remove(&key);
         self.forget_accessibility(key);
+        self.forget_text_input(key);
         if self.focus == Some(key) {
             self.focus = None;
             self.focus_next();
@@ -2403,51 +2425,29 @@ impl Scene {
         );
     }
 
-    /// The input method's composition (preedit) for the focused surface: `text` replaces the
+    /// The keyboard's composition (preedit) for the focused surface: `text` replaces the
     /// previous composition, with the composing cursor at byte `cursor`; empty text ends it.
-    /// Returns false, delivering nothing, for text over one chunk or a cursor outside it.
+    /// Returns false, delivering nothing, for a cursor outside it or inside a character.
     pub fn preedit(&mut self, text: &str, cursor: usize) -> bool {
-        let (Some(preedit), Ok(cursor)) = (PreeditText::new(text), u8::try_from(cursor)) else {
+        let Ok(cursor) = u32::try_from(cursor) else {
             return false;
         };
-        if usize::from(cursor) > text.len() || !text.is_char_boundary(usize::from(cursor)) {
-            return false;
-        }
-        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
-            return true;
-        };
-        let serial = self.next_serial();
-        self.emit(
-            target.client,
-            Event::Preedit {
-                surface: target.id,
-                serial,
-                text: preedit,
-                cursor,
-            },
-        );
-        true
+        let whole = [(0, text.len() as u32, PreeditStyle::Composing)];
+        self.text_transaction(&TextTransaction {
+            preedit: text,
+            cursor: (cursor, cursor),
+            segments: if text.is_empty() { &[] } else { &whole },
+            ..TextTransaction::default()
+        })
     }
 
-    /// Text committed by the keyboard layout or input method, for the focused surface. It counts
-    /// as user input, like a key press. Long text arrives as consecutive chunks.
+    /// Text committed by the keyboard layout, for the focused surface. It counts as user input,
+    /// like a key press, and ends any composition.
     pub fn text(&mut self, text: &str) {
-        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
-            return;
-        };
-        for chunk in TextChunk::split(text) {
-            let serial = self.next_serial();
-            self.last_user_serial = serial;
-            self.record_press(serial, target, false);
-            self.emit(
-                target.client,
-                Event::Text {
-                    surface: target.id,
-                    serial,
-                    text: chunk,
-                },
-            );
-        }
+        self.text_transaction(&TextTransaction {
+            commit: text,
+            ..TextTransaction::default()
+        });
     }
 
     pub fn key(&mut self, key: u32, pressed: bool) {
@@ -2718,6 +2718,8 @@ impl Scene {
 
 mod accessibility;
 pub use accessibility::AccessibleNode;
+mod text_input;
+pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
 
 #[cfg(test)]
 mod tests;

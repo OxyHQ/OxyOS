@@ -348,6 +348,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::ClipboardEmpty {} => out.kind = OXYOS_EVENT_CLIPBOARD_EMPTY,
         // Answered by the client library, which holds what this client copied.
         Event::ClipboardSend { .. } => return None,
+        // Only to a surface with text input enabled, which the C ABI cannot ask for yet (ADR
+        // 0008, step 2).
+        Event::TextInputDelete { .. }
+        | Event::TextInputCommitText { .. }
+        | Event::TextInputPreeditText { .. }
+        | Event::TextInputPreeditCursor { .. }
+        | Event::TextInputPreeditSegment { .. }
+        | Event::TextInputDone { .. } => return None,
     }
     Some(out)
 }

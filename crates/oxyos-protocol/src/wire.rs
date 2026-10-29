@@ -131,6 +131,18 @@ wire_enum! {
     AccessibleAction: u8 { Activate = 1, Focus = 2 }
 }
 wire_enum! {
+    /// What a text field is for (ADR 0008).
+    TextPurpose: u8 {
+        Normal = 0, Digits = 1, Number = 2, Phone = 3, Url = 4, Email = 5, Name = 6,
+        Password = 7, Pin = 8, Date = 9, Time = 10,
+    }
+}
+wire_enum! {
+    /// How a segment of a composition is drawn: the whole composition, the segment being
+    /// converted, or text the input method marks as wrong.
+    PreeditStyle: u8 { Composing = 1, Converting = 2, Error = 3 }
+}
+wire_enum! {
     ErrorCode: u16 {
         InvalidMessage = 1, InvalidOrder = 2, UnsupportedVersion = 3, Unauthorized = 4,
         UnknownSurface = 5, SurfaceExists = 6, InvalidParent = 7, InvalidPositioner = 8,
@@ -268,6 +280,46 @@ impl Wire for AccessibleState {
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
         Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible state"))
+    }
+}
+
+/// A text field's hints, as bits (ADR 0008). Unknown bits are invalid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TextHints(u32);
+
+impl TextHints {
+    pub const NO_PREDICTION: u32 = 1 << 0;
+    pub const NO_CAPITALIZATION: u32 = 1 << 1;
+    /// Content an input method must not see, whatever the field's purpose.
+    pub const SENSITIVE: u32 = 1 << 2;
+    pub const MULTILINE: u32 = 1 << 3;
+    const ALL: u32 = (1 << 4) - 1;
+
+    /// The hints with these bits, if every bit is known.
+    pub const fn new(bits: u32) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    pub const fn contains(self, bit: u32) -> bool {
+        self.0 & bit == bit
+    }
+}
+
+impl Wire for TextHints {
+    const SIZE: usize = 4;
+    fn put(&self, out: &mut Vec<u8>) {
+        self.0.put(out);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(u32::get(bytes)?).ok_or_else(|| invalid("unknown text hints"))
     }
 }
 
