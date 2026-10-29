@@ -573,6 +573,9 @@ def main():
     # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).
     if "http" in scenario:
         port = scenario["http"]["port"]
+        # The probe opens every request at once; socketserver's backlog of 5 would drop the rest's
+        # connections for TCP to retry a second later, longer than a step takes to settle.
+        ThreadingHTTPServer.request_queue_size = 64
         server = ThreadingHTTPServer(("127.0.0.1", port), ProbeServer)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, daemon=True).start()
