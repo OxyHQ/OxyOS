@@ -29,6 +29,18 @@ Window::Window(const std::string& socket, uint32_t width, uint32_t height) {
   surfaces_[kToplevel] = Surface{};
 }
 
+Window::Window(const std::string& socket, Shell shell) : shell_(shell) {
+  client_ = oxyos_client_connect(socket.c_str());
+  if (!client_) failed("cannot connect to the compositor at " + socket);
+  // A background takes the whole output; its requested size is not used.
+  if (oxyos_client_create_shell_surface(client_, kToplevel, OXYOS_SHELL_BACKGROUND, OXYOS_EDGE_NONE, shell.output, 1,
+                                        1, 0) != 0) {
+    oxyos_client_close(client_);
+    failed("cannot create the shell's background (does this client have the shell grant?)");
+  }
+  surfaces_[kToplevel] = Surface{};
+}
+
 Window::~Window() { oxyos_client_close(client_); }
 
 Window::Surface* Window::surface(uint32_t id) {
@@ -111,6 +123,21 @@ void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& posi
   if (oxyos_client_create_popup(client_, id, parent, &positioner) != 0) failed("cannot open a popup");
   surfaces_[id] = Surface{};
   if (serial != 0 && oxyos_client_grab_popup(client_, id, serial) != 0) failed("cannot grab the popup");
+}
+
+void Window::openShellSurface(uint32_t id, uint8_t kind, uint8_t edge, uint32_t width, uint32_t height,
+                              uint32_t exclusive) {
+  if (!shell_) failed("only the shell has shell surfaces");
+  if (oxyos_client_create_shell_surface(client_, id, kind, edge, shell_->output, width, height, exclusive) != 0) {
+    failed("cannot open a shell surface");
+  }
+  surfaces_[id] = Surface{};
+}
+
+void Window::setInputRegion(uint32_t id, const OxyOSRect& region) {
+  if (oxyos_client_set_input_region(client_, id, region.x, region.y, region.width, region.height) != 0) {
+    failed("cannot set an input region");
+  }
 }
 
 void Window::reposition(uint32_t id, const OxyOSPositioner& positioner) {

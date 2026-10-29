@@ -146,6 +146,10 @@ class TextInputGeometry {
 
 // Component whose subtree is shown in a popup of its own (popup.h), never in the window.
 inline constexpr const char* kPopupComponent = "OxyOSPopupView";
+// Component whose subtree is a shell region in a surface of its own (shell-surface.h).
+inline constexpr const char* kShellSurfaceComponent = "OxyOSShellSurface";
+// Whether a view's subtree is drawn in a surface of its own, never in its root's.
+inline bool ownSurface(const std::string& name) { return name == kPopupComponent || name == kShellSurfaceComponent; }
 
 // Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
 // selection and composition, drawn with its text.
@@ -163,6 +167,10 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
 // size (the popup's configured size).
 RenderStats drawPopup(const ViewTree& tree, facebook::react::Tag popup, const Display& display, Canvas& canvas,
                       const TextInputEdit& edit = {});
+// Draws a view's children with the view at `at` onto a transparent canvas of `display`'s size: a
+// shell region in its surface (shell-surface.h), wherever the region is in that surface.
+RenderStats drawRegion(const ViewTree& tree, facebook::react::Tag region, facebook::react::Point at,
+                       const Display& display, Canvas& canvas, const TextInputEdit& edit = {});
 // A view's frame in its root's coordinates (window-local logical pixels), as drawn: scroll
 // offsets applied. Empty if the view is not in the tree.
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);

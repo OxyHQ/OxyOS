@@ -510,8 +510,8 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   const auto& frame = view.layoutMetrics.frame;
   float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
-  // A popup's subtree is drawn in its own surface (drawPopup), never in the window.
-  if (name == kPopupComponent) return;
+  // A popup's or a shell region's subtree is drawn in its own surface, never in the window.
+  if (ownSurface(name)) return;
   ++stats.views;
   if (!kImplemented.count(name)) {
     ++stats.unimplemented;
@@ -842,15 +842,20 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
 
 RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, Canvas& canvas,
                       const TextInputEdit& edit) {
+  return drawRegion(tree, popup, Point{0, 0}, display, canvas, edit);
+}
+
+RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
+                       const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
   Painter painter(canvas, display.scale);
   RenderStats stats;
-  auto it = tree.views().find(popup);
+  auto it = tree.views().find(region);
   if (it == tree.views().end()) return stats;
   for (Tag child : it->second.children) {
-    drawView(tree, child, 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
+    drawView(tree, child, at.x, at.y, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
   }
   return stats;
 }

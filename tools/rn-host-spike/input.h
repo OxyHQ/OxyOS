@@ -18,9 +18,10 @@
 
 namespace oxyos {
 
-// What a protocol surface shows: the window shows the root (popup subtrees excluded); a popup
-// shows its popup view's children. `origin` is where that content sits in root coordinates, the
-// space React Native measures in.
+// What a protocol surface shows: the window shows the root (popup subtrees and shell regions
+// excluded); a popup shows its popup view's children, a shell surface its region's (`popup` for
+// both). `origin` is where the surface's own origin sits in root coordinates, the space React
+// Native measures in.
 struct SurfaceContent {
   uint32_t surface = 0;
   facebook::react::Tag view = -1;

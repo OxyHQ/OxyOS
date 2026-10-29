@@ -1435,3 +1435,80 @@ fn shapes_are_drawn_through_the_c_abi() {
         unsafe { oxyos_vector_render(unknown.as_ptr(), 1, 8, 8, pixels.as_mut_ptr(), 256) };
     assert_eq!(refused, OXYOS_ERROR);
 }
+
+#[test]
+fn the_header_matches_the_shell_surface_abi() {
+    for (name, value) in [
+        ("OXYOS_SHELL_BACKGROUND", ShellKind::Background as i64),
+        ("OXYOS_SHELL_PANEL", ShellKind::Panel as i64),
+        ("OXYOS_SHELL_OVERLAY", ShellKind::Overlay as i64),
+        ("OXYOS_SHELL_NOTIFICATION", ShellKind::Notification as i64),
+        ("OXYOS_EDGE_NONE", PanelEdge::None as i64),
+        ("OXYOS_EDGE_TOP", PanelEdge::Top as i64),
+        ("OXYOS_EDGE_BOTTOM", PanelEdge::Bottom as i64),
+        ("OXYOS_EDGE_LEFT", PanelEdge::Left as i64),
+        ("OXYOS_EDGE_RIGHT", PanelEdge::Right as i64),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+}
+
+#[test]
+fn shell_surfaces_and_input_regions_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-shell-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..2)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // Unknown kinds and edges are refused before anything is sent.
+        assert_eq!(
+            oxyos_client_create_shell_surface(client, 2, 9, 1, 1, 100, 40, 40),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_create_shell_surface(client, 2, 2, 9, 1, 100, 40, 40),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_create_shell_surface(client, 2, 2, 1, 1, 100, 40, 40),
+            0
+        );
+        assert_eq!(oxyos_client_set_input_region(client, 2, 0, 8, 100, 32), 0);
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::CreateShellSurface {
+                    surface: 2,
+                    kind: ShellKind::Panel,
+                    edge: PanelEdge::Top,
+                    output: 1,
+                    size: Size::new(100, 40),
+                    exclusive: 40,
+                },
+                Request::SetInputRegion {
+                    surface: 2,
+                    region: Rect::new(0, 8, 100, 32),
+                },
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

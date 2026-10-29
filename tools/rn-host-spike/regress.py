@@ -14,6 +14,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`,
   input routed to any other client;
 - popups: how many popups of the application are shown after the step;
+- shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
+  ("surfaces": output rectangles, compared as a set; "top": the topmost) and the "work_area"
+  they leave, exactly;
+- output_pixels: as pixels, in output coordinates rather than the window's;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -62,7 +66,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "key", "move_window", "resize_window", "scale", "a11y_action",
              "expect_popup", "switch_terminal"}
 
@@ -72,6 +76,8 @@ def director_args(step):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
+    if kind in ("press_popup", "press_output"):
+        return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
     if kind == "type":
@@ -365,6 +371,22 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:
             fail(f"{count} popups shown, expected {expect['popups']}")
+    if "shell" in expect:
+        # The shell's surfaces (output rectangles, bottom to top) and the work area they leave.
+        held = result.get("shell") or {}
+        for key, wanted in expect["shell"].items():
+            got = held.get(key)
+            # A press raises its panel within the panel layer: surfaces compare as a set; "top"
+            # is the topmost of them.
+            if key == "top":
+                got = (held.get("surfaces") or [None])[-1]
+            if key == "surfaces" and got is not None:
+                got, wanted = sorted(got), sorted(wanted)
+            if got != wanted:
+                fail(f"shell {key} is {got}, expected {wanted}")
+    if "output_pixels" in expect:
+        # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
+        check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
     if "im" in expect:
         im, wanted = result.get("im") or {}, expect["im"]
         differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
@@ -427,6 +449,10 @@ def main():
     if options.uinput:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
         command += ["--layout", scenario.get("layout", "us")]
+    if scenario.get("shell"):
+        # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
+        # application with the shell grant; its report is the application's with ".shell".
+        command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]

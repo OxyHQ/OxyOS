@@ -184,6 +184,27 @@ void oxyos_client_close(OxyOSClient* client);
 int oxyos_client_fd(OxyOSClient* client);
 
 int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height);
+
+/* The session's shell (the `shell` grant). Shell surface kinds and panel edges. */
+#define OXYOS_SHELL_BACKGROUND 1
+#define OXYOS_SHELL_PANEL 2
+#define OXYOS_SHELL_OVERLAY 3
+#define OXYOS_SHELL_NOTIFICATION 4
+#define OXYOS_EDGE_NONE 0
+#define OXYOS_EDGE_TOP 1
+#define OXYOS_EDGE_BOTTOM 2
+#define OXYOS_EDGE_LEFT 3
+#define OXYOS_EDGE_RIGHT 4
+/* Requests a shell surface of `kind` at `edge` of `output`, of the given logical size (a panel's
+ * thickness along its edge; a background takes the whole output), keeping `exclusive` logical
+ * pixels of a panel's edge out of where windows are placed. The compositor answers with a
+ * configure. */
+int oxyos_client_create_shell_surface(OxyOSClient* client, uint32_t surface, uint8_t kind, uint8_t edge,
+                                      uint32_t output, uint32_t width, uint32_t height, uint32_t exclusive);
+/* Limits where a surface takes pointer and touch input to a surface-local logical rectangle (an
+ * empty one: nowhere); input elsewhere reaches what is below. */
+int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,
+                                  uint32_t height);
 int oxyos_client_create_popup(OxyOSClient* client, uint32_t surface, uint32_t parent,
                             const OxyOSPositioner* positioner);
 int oxyos_client_grab_popup(OxyOSClient* client, uint32_t surface, uint64_t serial);

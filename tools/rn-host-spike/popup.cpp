@@ -82,6 +82,15 @@ OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size s
   return p;
 }
 
+std::optional<std::pair<uint32_t, Rect>> PopupHost::anchored(Tag anchor) const {
+  auto frame = windowFrame(tree_, anchor);
+  if (!frame) return std::nullopt;
+  auto [surface, origin] = parent_ ? parent_(anchor) : std::pair<uint32_t, Point>{Window::kToplevel, {}};
+  frame->origin.x -= origin.x;
+  frame->origin.y -= origin.y;
+  return std::pair{surface, *frame};
+}
+
 void PopupHost::sync(uint64_t serial) {
   std::set<Tag> mounted;
   for (const auto& [tag, entry] : tree_.views()) {
@@ -93,9 +102,9 @@ void PopupHost::sync(uint64_t serial) {
       // changed (an inline submenu expanding, the window laid out anew).
       auto& popup = open->second;
       auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-      auto anchor = windowFrame(tree_, props->anchorTag);
+      auto anchor = anchored(props->anchorTag);
       if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
-      auto placed = positioner(*props, *anchor, view.layoutMetrics.frame.size);
+      auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size);
       if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
         window_.reposition(popup.surface, placed);
         popup.placed = placed;
@@ -107,20 +116,21 @@ void PopupHost::sync(uint64_t serial) {
       continue;
     }
     auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-    auto anchor = windowFrame(tree_, props->anchorTag);
+    auto anchor = anchored(props->anchorTag);
     Size size = view.layoutMetrics.frame.size;
     // Opened once its anchor is mounted and its content laid out.
     if (!anchor || size.width <= 0 || size.height <= 0) continue;
-    uint32_t surface = nextSurface_++;
-    auto placed = positioner(*props, *anchor, size);
-    window_.openPopup(surface, Window::kToplevel, placed, serial);
+    uint32_t surface = window_.allocate();
+    auto placed = positioner(*props, anchor->second, size);
+    window_.openPopup(surface, anchor->first, placed, serial);
     popups_[tag] = Popup{.surface = surface, .placed = placed};
     Report::get().popup("open", surface, &view,
                         folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(
                             "width", size.width)("height", size.height));
     if (tracing()) {
-      std::cerr << "[popup] open " << surface << " for view " << tag << " anchored to " << props->anchorTag << " at "
-                << anchor->origin.x << "," << anchor->origin.y << " " << size.width << "x" << size.height << "\n";
+      std::cerr << "[popup] open " << surface << " on " << anchor->first << " for view " << tag << " anchored to "
+                << props->anchorTag << " at " << anchor->second.origin.x << "," << anchor->second.origin.y << " "
+                << size.width << "x" << size.height << "\n";
     }
   }
   for (auto it = popups_.begin(); it != popups_.end();) {

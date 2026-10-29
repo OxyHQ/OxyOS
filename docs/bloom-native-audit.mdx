@@ -234,7 +234,9 @@ Known gaps:
 - **Not yet:**
   - `react-native-gesture-handler`: its native module is missing, so `GestureHandlerRootView` and the overview's drag between desktops fail; Bloom's sheets need it too.
   - `Intl`: Hermes is built without it (above), so the shell's `toLocaleDateString("es", …)` and `toLocaleTimeString` return English text and ignore their options.
-  - The session's shell: the wallpaper, top bar, dock and overlays as the compositor's background, panel and overlay surfaces from one React tree, and the compositor's windows, workspaces, menus and thumbnails as the shell's snapshot, its actions back. Neither exists in the protocol yet.
+  - The compositor's windows, workspaces, menus and thumbnails as the shell's snapshot, and its actions back ([ADR 0009](./adr/0009-session-shell), steps 2 and 3).
+  - NativeWind's arbitrary background colours with an opacity (`bg-[#101760]/45` on the launcher's backdrop, `bg-[#f7f9fc]` on the dock) are not drawn, in a window as in the shell's surfaces.
+- **As the session's shell** ([ADR 0009](./adr/0009-session-shell), step 1): run with `--shell OUTPUT`, the host's root is the output's background surface and the regions the shell wraps in `Surface` (the top bar, the dock, the open launcher or overview) are panels and an overlay of their own, each where the shell's layout puts it and taking input only over its region; their accessibility is published per surface. `scenarios/session-shell.json` runs the shell with an application window between its panels.
 
 ## Platform capability matrix
 

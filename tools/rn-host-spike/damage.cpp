@@ -23,7 +23,7 @@ void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_m
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
-  if (view.componentName && std::string(view.componentName) == kPopupComponent) return;
+  if (view.componentName && ownSurface(view.componentName)) return;
   const auto& frame = view.layoutMetrics.frame;
   Rect rect{{ox + frame.origin.x, oy + frame.origin.y}, frame.size};
   at[tag] = rect;

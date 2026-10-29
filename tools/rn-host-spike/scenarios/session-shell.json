@@ -1,0 +1,260 @@
+{
+  "about": "The OxyOS shell as the session's shell (ADR 0009) with an application: the shell (sample/ShellProbe.tsx's OxyOSShell, a Bloom host run with --shell and the shell grant) starts first; its root is the background, its top bar and dock are panels at the output's edges, kept out of the work area, and the application's window is placed between them. A press on the dock opens the launcher as an overlay over everything, and its backdrop closes it; the top bar's menu opens as a popup of its panel, above the window; the window takes its own presses. Each step checks the shell's surfaces and the work area the compositor holds, the window's place, pixels of the output, and that the application receives exactly its own events.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "steps": [
+    {
+      "name": "the dock's first button opens the launcher: an overlay over everything, the panels and the window kept",
+      "do": [
+        "press_output",
+        [
+          466,
+          700
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              36
+            ],
+            [
+              0,
+              680,
+              1280,
+              40
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            36,
+            1280,
+            644
+          ],
+          "top": [
+            0,
+            0,
+            1280,
+            720
+          ]
+        },
+        "window_rect": [
+          340,
+          178,
+          600,
+          360
+        ],
+        "output_pixels": {
+          "640,74": "#d269e6",
+          "802,700": "#d269e6"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "a press on its backdrop closes it: the overlay goes",
+      "do": [
+        "press_output",
+        [
+          640,
+          120
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              36
+            ],
+            [
+              0,
+              680,
+              1280,
+              40
+            ]
+          ]
+        },
+        "window_rect": [
+          340,
+          178,
+          600,
+          360
+        ],
+        "output_pixels": {
+          "640,74": "#4378ff"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "the top bar's Ver menu opens as a popup of its panel, under the item, above the window",
+      "do": [
+        "press_output",
+        [
+          124,
+          16
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              36
+            ],
+            [
+              0,
+              680,
+              1280,
+              40
+            ],
+            [
+              105,
+              32,
+              220,
+              108
+            ]
+          ],
+          "top": [
+            105,
+            32,
+            220,
+            108
+          ]
+        },
+        "output_pixels": {
+          "300,120": "#ffffff"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "a press outside closes the menu (and goes nowhere else)",
+      "do": [
+        "press_output",
+        [
+          1100,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              36
+            ],
+            [
+              0,
+              680,
+              1280,
+              40
+            ]
+          ]
+        },
+        "output_pixels": {
+          "300,120": "#4679fd"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "the application's window, between the panels, takes its presses as before",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "window_rect": [
+          340,
+          178,
+          600,
+          360
+        ],
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              36
+            ],
+            [
+              0,
+              680,
+              1280,
+              40
+            ]
+          ],
+          "work_area": [
+            0,
+            36,
+            1280,
+            644
+          ]
+        },
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    }
+  ]
+}

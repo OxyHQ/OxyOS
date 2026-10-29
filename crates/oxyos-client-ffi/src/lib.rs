@@ -9,8 +9,8 @@
 
 use oxyos_client::{Accessible, Client, Field, Poll};
 use oxyos_protocol::{
-    AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, Positioner, Rect,
-    Request, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
+    AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity, PanelEdge, Positioner,
+    Rect, Request, ShellKind, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -530,6 +530,61 @@ unsafe fn send(client: *mut OxyOSClient, request: Request) -> c_int {
         Some(client) => status(client.send(&request)),
         None => fail("null client"),
     }
+}
+
+/// Requests a shell surface (the session's shell, with the `shell` grant): `kind` is
+/// OXYOS_SHELL_BACKGROUND, _PANEL, _OVERLAY or _NOTIFICATION, `edge` OXYOS_EDGE_*, on `output`, of
+/// the given logical size (a panel's thickness along its edge; a background takes the output),
+/// keeping `exclusive` logical pixels of a panel's edge out of where windows are placed. The
+/// compositor answers with a configure. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_create_shell_surface(
+    client: *mut OxyOSClient,
+    surface: u32,
+    kind: u8,
+    edge: u8,
+    output: u32,
+    width: u32,
+    height: u32,
+    exclusive: u32,
+) -> c_int {
+    let (Some(kind), Some(edge)) = (ShellKind::from_raw(kind), PanelEdge::from_raw(edge)) else {
+        return fail("unknown shell surface kind or edge");
+    };
+    let request = Request::CreateShellSurface {
+        surface,
+        kind,
+        edge,
+        output,
+        size: Size::new(width, height),
+        exclusive,
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, request) }
+}
+
+/// Limits where a surface takes pointer and touch input to a surface-local logical rectangle
+/// (an empty one: nowhere); input elsewhere reaches what is below. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_input_region(
+    client: *mut OxyOSClient,
+    surface: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> c_int {
+    let region = Rect::new(x, y, width, height);
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetInputRegion { surface, region }) }
 }
 
 /// Requests a toplevel window of the given logical size; the compositor answers with a
