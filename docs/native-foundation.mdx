@@ -101,10 +101,10 @@ Input semantics:
 | Request | 15 | AttachBuffer | 29 |
 | Request | 16 | DestroyBuffer | 9 |
 | Request | 17 | AccessibilityBegin | 9 |
-| Request | 18 | AccessibleNode | 32 |
+| Request | 18 | AccessibleNode | 34 |
 | Request | 19 | AccessibleText | 43 |
 | Request | 20 | AccessibilityCommit | 5 |
-| Request | 21 | AccessibilityAction | 14 |
+| Request | 21 | AccessibilityAction | 26 |
 | Request | 22 | Damage | 21 |
 | Request | 23 | ClipboardOffer | 13 |
 | Request | 24 | ClipboardType | 38 |
@@ -139,6 +139,8 @@ Input semantics:
 | Request | 53 | LockSession | 1 |
 | Request | 54 | AuthenticateSecret | 38 |
 | Request | 55 | Authenticate | 5 |
+| Request | 56 | AccessibleSelection | 17 |
+| Request | 57 | AccessibilityAnnounce | 41 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -152,9 +154,9 @@ Input semantics:
 | Event | 11 | Scroll | 21 |
 | Event | 12 | Text | 46 |
 | Event | 13 | Preedit | 47 |
-| Event | 14 | AccessibilityAction | 18 |
+| Event | 14 | AccessibilityAction | 30 |
 | Event | 15 | AccessibilityTree | 17 |
-| Event | 16 | AccessibleNode | 36 |
+| Event | 16 | AccessibleNode | 38 |
 | Event | 17 | AccessibleText | 47 |
 | Event | 18 | AccessibilityCommitted | 9 |
 | Event | 19 | AccessibilityRemoved | 9 |
@@ -185,6 +187,8 @@ Input semantics:
 | Event | 44 | LockState | 2 |
 | Event | 45 | AuthenticationResult | 10 |
 | Event | 46 | CapsLock | 6 |
+| Event | 47 | AccessibleSelection | 21 |
+| Event | 48 | AccessibilityAnnouncement | 45 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 

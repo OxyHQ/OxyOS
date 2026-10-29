@@ -2857,6 +2857,7 @@ fn publish(h: &mut Harness, surface: SurfaceKey, label: &str) {
                 parent,
                 role,
                 state: state(bits),
+                actions: Default::default(),
                 rect,
             },
         )
@@ -2978,6 +2979,7 @@ fn malformed_snapshots_are_protocol_errors() {
         parent,
         role: AccessibleRole::Button,
         state: AccessibleState::default(),
+        actions: Default::default(),
         rect: Rect::new(0, 0, 10, 10),
     };
     let begin = |nodes| Request::AccessibilityBegin { surface: 1, nodes };
@@ -3057,6 +3059,9 @@ fn reader_actions_reach_the_owner_and_nobody_else_can_act() {
         surface: 1,
         index,
         action,
+        custom: 0,
+        start: 0,
+        end: 0,
     };
     h.request(READER, act(1, AccessibleAction::Activate))
         .unwrap();
@@ -3065,6 +3070,7 @@ fn reader_actions_reach_the_owner_and_nobody_else_can_act() {
         serial,
         index,
         action,
+        ..
     }) = h.events_for(APP).last().copied()
     else {
         panic!("no action delivered");
@@ -3107,6 +3113,9 @@ fn reader_actions_reach_the_owner_and_nobody_else_can_act() {
             surface: 7,
             index: 0,
             action: AccessibleAction::Activate,
+            custom: 0,
+            start: 0,
+            end: 0,
         },
     )
     .unwrap();
@@ -5002,4 +5011,335 @@ fn a_reader_holds_only_the_lock_screen_while_locked() {
     h.scene.unlock();
     h.pump();
     assert_eq!(read_tree(&h, window)[0].1, "Secret mail");
+}
+
+/// A snapshot offering actions: an adjustable node with two custom actions, a text field with
+/// its selection, and a plain button.
+fn publish_actions(h: &mut Harness, surface: SurfaceKey) -> Result<(), ErrorCode> {
+    use oxyos_protocol::AccessibleActions;
+    let actions = |bits| AccessibleActions::new(bits).unwrap();
+    let send = |h: &mut Harness, request| h.request(surface.client, request);
+    send(
+        h,
+        Request::AccessibilityBegin {
+            surface: surface.id,
+            nodes: 3,
+        },
+    )?;
+    for (index, role, bits) in [
+        (
+            0,
+            AccessibleRole::Slider,
+            AccessibleActions::INCREMENT | AccessibleActions::DECREMENT,
+        ),
+        (
+            1,
+            AccessibleRole::TextInput,
+            AccessibleActions::SET_SELECTION,
+        ),
+        (2, AccessibleRole::Button, 0),
+    ] {
+        send(
+            h,
+            Request::AccessibleNode {
+                surface: surface.id,
+                index,
+                parent: NO_ACCESSIBLE_PARENT,
+                role,
+                state: AccessibleState::default(),
+                actions: actions(bits),
+                rect: Rect::new(0, 40 * index as i32, 100, 40),
+            },
+        )?;
+    }
+    for (index, field, text) in [
+        (0, AccessibleField::Name, "Volumen"),
+        (0, AccessibleField::Actions, "Reiniciar\nCompartir"),
+        (1, AccessibleField::Value, "hola ñandú"),
+        (2, AccessibleField::Name, "Aceptar"),
+    ] {
+        for chunk in TextChunk::split(text) {
+            send(
+                h,
+                Request::AccessibleText {
+                    surface: surface.id,
+                    index,
+                    field,
+                    text: chunk,
+                },
+            )?;
+        }
+    }
+    send(
+        h,
+        Request::AccessibleSelection {
+            surface: surface.id,
+            index: 1,
+            start: 2,
+            end: 4,
+        },
+    )?;
+    send(
+        h,
+        Request::AccessibilityCommit {
+            surface: surface.id,
+        },
+    )
+}
+
+#[test]
+fn an_assistive_technology_holds_what_nodes_offer_and_uses_only_that() {
+    use oxyos_protocol::AccessibleActions;
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.clear_log();
+    publish_actions(&mut h, window).unwrap();
+    let held = h.events_for(READER);
+    let actions_of = |index| {
+        held.iter().find_map(|event| match event {
+            Event::AccessibleNode {
+                index: i, actions, ..
+            } if *i == index => Some(actions.bits()),
+            _ => None,
+        })
+    };
+    assert_eq!(
+        actions_of(0),
+        Some(AccessibleActions::INCREMENT | AccessibleActions::DECREMENT)
+    );
+    assert_eq!(actions_of(2), Some(0));
+    assert!(held.contains(&Event::AccessibleSelection {
+        client: APP,
+        surface: 1,
+        index: 1,
+        start: 2,
+        end: 4,
+    }));
+    let labels: String = held
+        .iter()
+        .filter_map(|event| match event {
+            Event::AccessibleText {
+                index: 0,
+                field: AccessibleField::Actions,
+                text,
+                ..
+            } => Some(text.as_str().to_string()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, "Reiniciar\nCompartir");
+    // What is offered reaches the application, with what it names; what is not, nothing.
+    let act = |index, action, custom, start, end| Request::AccessibilityAction {
+        client: APP,
+        surface: 1,
+        index,
+        action,
+        custom,
+        start,
+        end,
+    };
+    let delivered = |h: &mut Harness, request| {
+        h.clear_log();
+        h.request(READER, request).unwrap();
+        h.events_for(APP).into_iter().find_map(|event| match event {
+            Event::AccessibilityAction {
+                index,
+                action,
+                custom,
+                start,
+                end,
+                ..
+            } => Some((index, action, custom, start, end)),
+            _ => None,
+        })
+    };
+    use AccessibleAction::*;
+    assert_eq!(
+        delivered(&mut h, act(0, Increment, 9, 9, 9)),
+        Some((0, Increment, 0, 0, 0))
+    );
+    assert_eq!(
+        delivered(&mut h, act(0, Decrement, 0, 0, 0)),
+        Some((0, Decrement, 0, 0, 0))
+    );
+    assert_eq!(
+        delivered(&mut h, act(0, Custom, 1, 0, 0)),
+        Some((0, Custom, 1, 0, 0))
+    );
+    assert_eq!(
+        delivered(&mut h, act(1, SetSelection, 0, 0, 7)),
+        Some((1, SetSelection, 0, 0, 7))
+    );
+    for refused in [
+        act(0, ScrollForward, 0, 0, 0),
+        act(0, Dismiss, 0, 0, 0),
+        act(0, Custom, 2, 0, 0),
+        act(2, Increment, 0, 0, 0),
+        act(2, Custom, 0, 0, 0),
+        // Inside ñ, past the value, backwards.
+        act(1, SetSelection, 0, 0, 6),
+        act(1, SetSelection, 0, 0, 99),
+        act(1, SetSelection, 0, 4, 2),
+        act(0, SetSelection, 0, 0, 0),
+    ] {
+        assert_eq!(delivered(&mut h, refused), None, "{refused:?}");
+    }
+}
+
+/// Whether a snapshot of one text field valued "hola ñandú" with this selection commits.
+fn commit_selection(start: u32, end: u32) -> Result<(), ErrorCode> {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(
+        APP,
+        Request::AccessibilityBegin {
+            surface: window.id,
+            nodes: 1,
+        },
+    )?;
+    h.request(
+        APP,
+        Request::AccessibleNode {
+            surface: window.id,
+            index: 0,
+            parent: NO_ACCESSIBLE_PARENT,
+            role: AccessibleRole::TextInput,
+            state: AccessibleState::default(),
+            actions: Default::default(),
+            rect: Rect::new(0, 0, 100, 40),
+        },
+    )?;
+    for chunk in TextChunk::split("hola ñandú") {
+        h.request(
+            APP,
+            Request::AccessibleText {
+                surface: window.id,
+                index: 0,
+                field: AccessibleField::Value,
+                text: chunk,
+            },
+        )?;
+    }
+    h.request(
+        APP,
+        Request::AccessibleSelection {
+            surface: window.id,
+            index: 0,
+            start,
+            end,
+        },
+    )?;
+    h.request(APP, Request::AccessibilityCommit { surface: window.id })
+}
+
+#[test]
+fn a_selection_is_a_range_of_its_value() {
+    assert_eq!(commit_selection(5, 7), Ok(()));
+    assert_eq!(commit_selection(12, 12), Ok(()));
+    assert_eq!(commit_selection(6, 7), Err(ErrorCode::InvalidMessage));
+    assert_eq!(commit_selection(0, 13), Err(ErrorCode::InvalidMessage));
+    assert_eq!(commit_selection(4, 2), Err(ErrorCode::InvalidMessage));
+}
+
+#[test]
+fn announcements_reach_assistive_technologies_alone_and_not_from_behind_the_lock() {
+    use oxyos_protocol::{Politeness, PreeditText};
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    let _window = h.toplevel(APP, 1, 400, 300);
+    let announce = |h: &mut Harness, client, surface, text: &str, politeness| {
+        let chunks = TextChunk::split(text);
+        for (index, chunk) in chunks.iter().enumerate() {
+            h.request(
+                client,
+                Request::AccessibilityAnnounce {
+                    surface,
+                    index: index as u8,
+                    last: index + 1 == chunks.len(),
+                    politeness,
+                    text: PreeditText::new(chunk.as_str()).unwrap(),
+                },
+            )?;
+        }
+        Ok::<(), ErrorCode>(())
+    };
+    let heard = |h: &Harness| {
+        let mut out: Vec<(u32, Politeness, String)> = Vec::new();
+        for event in h.events_for(READER) {
+            if let Event::AccessibilityAnnouncement {
+                client,
+                index,
+                politeness,
+                text,
+                ..
+            } = event
+            {
+                if index == 0 {
+                    out.push((client, politeness, String::new()));
+                }
+                out.last_mut().unwrap().2.push_str(text.as_str());
+            }
+        }
+        out
+    };
+    h.clear_log();
+    let long = "Se ha guardado el documento «Informe anual» en la carpeta Documentos";
+    announce(&mut h, APP, 1, "Guardado", Politeness::Polite).unwrap();
+    announce(&mut h, APP, 1, long, Politeness::Assertive).unwrap();
+    assert_eq!(
+        heard(&h),
+        vec![
+            (APP, Politeness::Polite, "Guardado".to_string()),
+            (APP, Politeness::Assertive, long.to_string()),
+        ]
+    );
+    // No ordinary client hears them, the announcer included.
+    for client in [APP, OTHER, SHELL] {
+        assert!(!h
+            .events_for(client)
+            .iter()
+            .any(|e| matches!(e, Event::AccessibilityAnnouncement { .. })));
+    }
+    // Chunks in order, within the limit, of one's own live surface.
+    let chunk = |index, last| Request::AccessibilityAnnounce {
+        surface: 1,
+        index,
+        last,
+        politeness: Politeness::Polite,
+        text: PreeditText::new("a").unwrap(),
+    };
+    assert_eq!(h.request(APP, chunk(1, true)), Err(ErrorCode::InvalidOrder));
+    h.request(APP, chunk(0, false)).unwrap();
+    assert_eq!(h.request(APP, chunk(2, true)), Err(ErrorCode::InvalidOrder));
+    assert_eq!(
+        announce(&mut h, APP, 9, "Nada", Politeness::Polite),
+        Err(ErrorCode::UnknownSurface)
+    );
+    let too_long = "a".repeat(oxyos_protocol::MAX_ANNOUNCEMENT_BYTES + 1);
+    assert_eq!(
+        announce(&mut h, APP, 1, &too_long, Politeness::Polite),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    // Locked: what the session announces is not heard; the lock screen's is.
+    h.scene.lock();
+    let lock = h.lock_surface(1);
+    h.clear_log();
+    announce(&mut h, APP, 1, "Mensaje nuevo de Ana", Politeness::Polite).unwrap();
+    announce(
+        &mut h,
+        LOCKER,
+        lock.id,
+        "Contraseña incorrecta",
+        Politeness::Assertive,
+    )
+    .unwrap();
+    assert_eq!(
+        heard(&h),
+        vec![(
+            LOCKER,
+            Politeness::Assertive,
+            "Contraseña incorrecta".to_string()
+        )]
+    );
 }

@@ -6,7 +6,7 @@ order: 12
 
 # ADR 0003: Accessibility in the OxyOS display protocol
 
-Status: **accepted; first slice implemented** (protocol, compositor, the Bloom host's publication and actions). Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33), [#34](https://github.com/OxyHQ/OxyOS/issues/34). Builds on [ADR 0001](./0001-native-platform-boundaries).
+Status: **accepted; implemented** (protocol, compositor, the Bloom host's publication, actions and announcements), but for a screen reader that speaks. Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33), [#34](https://github.com/OxyHQ/OxyOS/issues/34). Builds on [ADR 0001](./0001-native-platform-boundaries).
 
 ## Problem
 
@@ -20,8 +20,9 @@ The display protocol carries accessibility, as it carries buffers. The composito
 
 1. **Applications publish one snapshot per surface.** The application sends:
    - `AccessibilityBegin { surface, nodes }`;
-   - one `AccessibleNode { surface, index, parent, role, state, rect }` per node;
-   - `AccessibleText { surface, index, field, text }` chunks for each node's name and value;
+   - one `AccessibleNode { surface, index, parent, role, state, actions, rect }` per node: `actions` what it offers beyond activate and focus (increment, decrement, scroll forward, scroll backward, dismiss, set selection), as Android's node info lists them;
+   - `AccessibleText { surface, index, field, text }` chunks for each node's name, its value, and its custom actions' labels (one per line);
+   - for a text field, `AccessibleSelection { surface, index, start, end }`: its selection, in bytes of its value, between characters;
    - `AccessibilityCommit { surface }`.
 
    The committed snapshot replaces the previous one atomically.
@@ -32,6 +33,7 @@ The display protocol carries accessibility, as it carries buffers. The composito
    - Nodes are in reading order, each parent before its children (`parent < index`, or none for a root).
    - Rectangles are surface-local and logical.
    - The node with the application's accessibility focus carries the `focused` state.
+   - A live region (Android's `accessibilityLiveRegion`) carries `live-polite` or `live-assertive`: an assistive technology announces what changes in it.
 
    Limits:
    - 4096 nodes per surface;
@@ -41,8 +43,8 @@ The display protocol carries accessibility, as it carries buffers. The composito
    A malformed snapshot is a protocol error, like any other malformed request.
 2. **Only an assistive technology reads trees.** A client whose credentials the session authority grants `accessibility` receives every surface's committed snapshot:
    - `AccessibilityTree { client, surface, parent, nodes }`;
-   - the nodes, with rectangles in global coordinates;
-   - their text;
+   - the nodes, with rectangles in global coordinates and what they offer;
+   - their text, custom actions' labels and selections;
    - `AccessibilityCommitted { client, surface }`.
 
    When the surface goes away it receives `AccessibilityRemoved { client, surface }`. A newly connected assistive technology receives the current snapshots.
@@ -50,25 +52,29 @@ The display protocol carries accessibility, as it carries buffers. The composito
    While the session is locked ([ADR 0010](./0010-lock-screen)) it holds the lock surfaces' trees alone, as the screen shows them alone. Locking sends `AccessibilityRemoved` for every other tree it holds; nothing they publish while locked reaches it (nor a reader that connects meanwhile); unlocking sends each as it is then.
 
    Ordinary clients never receive any of these events, and clients still never learn each other's geometry.
-3. **Actions go back to the owner.** The assistive technology sends `AccessibilityAction { client, surface, index, action }`. The compositor checks it:
+3. **Actions go back to the owner.** The assistive technology sends `AccessibilityAction { client, surface, index, action, custom, start, end }`. The compositor checks it:
    - the target exists;
    - the node is in its committed snapshot;
+   - the node offers the action: activate and focus any node; increment, decrement, scrolling, dismiss and set-selection where its `actions` say so; a custom action by an index among its labels; a selection within its value, between characters;
    - the session is not locked, unless the target is a lock surface.
 
-   It then sends `AccessibilityAction { surface, serial, index, action }` to the owning application. An activation's serial is the user's input, as a key press's is, so a menu it opens may grab with it. A focus move is navigation and authorizes nothing. Actions:
+   An action not offered is answered with nothing. Otherwise the compositor sends `AccessibilityAction { surface, serial, index, action, custom, start, end }` to the owning application. Any action's serial but a focus move's is the user's input, as a key press's is, so a menu it opens may grab with it; a focus move is navigation and authorizes nothing. Actions:
    - **activate:** what a double tap on the node does;
-   - **focus:** move accessibility focus to the node.
+   - **focus:** move accessibility focus to the node;
+   - **increment, decrement:** an adjustable node's value;
+   - **scroll forward, scroll backward:** a scrolling node, by a page;
+   - **dismiss:** close the node's dialog or popup;
+   - **custom:** one of the node's own actions, by its index among the labels it published;
+   - **set selection:** select `start..end`, bytes of its value.
 
-   The application performs the action as its platform would. The Bloom host dispatches React Native's accessibility click, which Pressability turns into `onPress` (as TalkBack's activation on Android), and moves its accessibility focus.
-4. **What applications must not publish.** Secure text (`secureTextEntry`) values are never sent. The name of a secure field is its label.
+   The application performs the action as its platform would. The Bloom host does as Android does: activation is React Native's accessibility click, which Pressability turns into `onPress` (or the node's `activate` accessibility action where it declares one); increment, decrement and custom actions are React Native's accessibility actions by name (`onAccessibilityAction`); scrolling moves the scroll view by its viewport, through the wheel's path; dismiss is a modal's close request (as Escape) or a popup's dismissal; set selection focuses the input and selects.
+4. **Announcements go to assistive technologies alone.** An application announces with `AccessibilityAnnounce { surface, index, last, politeness, text }`: the text in chunks (`index` 0 begins it, `last` sends it), at most 1024 bytes, polite (after what is being said) or assertive (at once), from one of its own live surfaces. The compositor sends it whole, in chunks, as `AccessibilityAnnouncement { client, surface, index, last, politeness, text }` to every assistive technology, never to any other client; while locked, only the lock surfaces' announcements are sent. The Bloom host announces `AccessibilityInfo.announceForAccessibility` assertively, as an announcement is what the application says now. A live region's changes are not announced by the application: the assistive technology compares what a live region says between two snapshots of a surface, as TalkBack does Android's.
+5. **What applications must not publish.** Secure text (`secureTextEntry`) values and selections are never sent. The name of a secure field is its label.
 
 ## Consequences
 
 - The screen reader is an ordinary protocol client with a grant, like the shell. It can be written for OxyOS without D-Bus. An AT-SPI bridge remains possible as such a client if Orca support is wanted later.
 - Applications other than the Bloom host publish nothing until they implement the messages. A surface without a snapshot is presented to the assistive technology as empty, never guessed from pixels.
-- Parked (not abandoned) while desktop interaction, the open pull requests and GPU output come first; accessibility is not complete:
-  - a screen reader client, so nothing speaks yet;
-  - announcements (live regions);
-  - actions beyond activate and focus (scroll, increment, dismiss);
-  - text navigation and selection by the assistive technology.
+- Not done: a screen reader client that speaks (it needs a speech engine chosen), so nothing is heard yet; what the development compositor's reader would say is checked instead. Text navigation by character, word or line is the screen reader's own, over a field's value and selection; the protocol carries both.
+- `scenarios/accessibility-actions.json` (`sample/A11yProbe.tsx`) works the actions and announcements through what the reader holds and would say: increment, decrement and a custom action by its label change a level a polite live region announces; an announcement is heard at once; a list scrolls on and back by a page and offers each only while it can; a field's selection is set in bytes and held; a dialog's first node dismisses it; a label the node does not have, a direction it cannot scroll, a selection inside a character and an increment of a button are refused. Without the host reading `accessibilityActions` it fails at its first step.
 - `scenarios/desktop-accessibility.json` works the desktop as a screen reader would, through the trees the development compositor's assistive technology receives (not the compositor's own state) and its actions alone: the dock opens the launcher, its search and applications are read, the Oxy menu locks the session, the lock screen is all it holds, a wrong password is an alert, and unlocking gives it the window and the panels back. Taking out the lock's hiding fails it.

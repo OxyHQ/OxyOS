@@ -20,7 +20,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   they leave, exactly, and whether the session is "locked" (ADR 0010);
 - at / at_absent: nodes the session's assistive technology holds (or must not), as it received
   the trees (ADR 0003): by "window", "shell" (the shell's surfaces, the lock screen's among
-  them) or the application's popups, each node matching the keys given ({} matches any);
+  them) or the application's popups, each node matching the keys given ({} matches any): role,
+  name, value, state, actions (what it offers beyond activate and focus), custom (its custom
+  actions' labels), selection;
+- announcements: what the assistive technology would have said in the step, exactly and in
+  order: an application's announcements and live regions' changes, each matching the keys
+  given (politeness, text, live);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
@@ -462,6 +467,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             for node in wanted:
                 if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
+    if "announcements" in expect:
+        said = result.get("announcements", [])
+        wanted = expect["announcements"]
+        if len(said) != len(wanted) or not all(all(a.get(k) == v for k, v in w.items())
+                                               for a, w in zip(said, wanted)):
+            fail(f"the assistive technology would have said {said}, expected {wanted}")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():

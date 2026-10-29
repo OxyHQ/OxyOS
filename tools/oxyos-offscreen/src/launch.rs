@@ -93,11 +93,13 @@ pub enum Step {
     /// The compositor minimizes the window, as a shell's shortcut does; only the shell brings it
     /// back (its dock).
     MinimizeWindow,
-    /// The assistive technology acts on the application's node named `name` (the topmost
-    /// surface first): activate or focus.
+    /// The assistive technology acts on the node named `name` (the topmost surface first): any
+    /// action (ADR 0003), a custom one by its label, a selection by its byte range.
     Accessibility {
         action: AccessibleAction,
         name: String,
+        custom: Option<String>,
+        selection: (u32, u32),
     },
     /// The output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
     /// on it for buffers at the new scale; logical geometry is unchanged.
@@ -165,7 +167,7 @@ impl Step {
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
             Step::MinimizeWindow => "window minimized".to_string(),
             Step::CapsLock => "Caps Lock".to_string(),
-            Step::Accessibility { action, name } => format!("assistive {action:?} on {name:?}"),
+            Step::Accessibility { action, name, .. } => format!("assistive {action:?} on {name:?}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
@@ -241,7 +243,7 @@ impl Step {
             }
             Step::MinimizeWindow => "\"minimize_window\":true".to_string(),
             Step::CapsLock => "\"caps_lock\":true".to_string(),
-            Step::Accessibility { action, name } => {
+            Step::Accessibility { action, name, .. } => {
                 format!("\"a11y_action\":[\"{action:?}\",{}]", json_string(name))
             }
             Step::Scale(scale) => format!("\"scale\":{scale}"),
@@ -327,7 +329,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -491,15 +493,33 @@ impl Launch {
                 Some("--caps-lock") => Step::CapsLock,
                 Some("--a11y-action") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
-                    let (action, name) = value.split_once(',').ok_or(USAGE)?;
-                    let action = match action {
+                    let (spec, name) = value.split_once(',').ok_or(USAGE)?;
+                    let (mut custom, mut selection) = (None, (0, 0));
+                    let action = match spec {
                         "activate" => AccessibleAction::Activate,
                         "focus" => AccessibleAction::Focus,
-                        _ => return Err(format!("unknown action {action:?}\n{USAGE}").into()),
+                        "increment" => AccessibleAction::Increment,
+                        "decrement" => AccessibleAction::Decrement,
+                        "scroll-forward" => AccessibleAction::ScrollForward,
+                        "scroll-backward" => AccessibleAction::ScrollBackward,
+                        "dismiss" => AccessibleAction::Dismiss,
+                        _ if spec.starts_with("custom:") => {
+                            custom = Some(spec["custom:".len()..].to_string());
+                            AccessibleAction::Custom
+                        }
+                        _ if spec.starts_with("select:") => {
+                            let range = &spec["select:".len()..];
+                            let (start, end) = range.split_once('-').ok_or(USAGE)?;
+                            selection = (start.parse()?, end.parse()?);
+                            AccessibleAction::SetSelection
+                        }
+                        _ => return Err(format!("unknown action {spec:?}\n{USAGE}").into()),
                     };
                     Step::Accessibility {
                         action,
                         name: name.to_string(),
+                        custom,
+                        selection,
                     }
                 }
                 Some("--scale") => {
@@ -895,8 +915,15 @@ pub fn json_string(text: &str) -> String {
 
 /// The assistive technology acts on the node named `name` it holds on the topmost shown surface
 /// that has one (the application's, the shell's or the lock screen's), as a screen reader acts on
-/// what is on screen.
-fn act(session: &mut Session, action: AccessibleAction, name: &str) -> Result<()> {
+/// what is on screen. A custom action is named by the label the node gives it; a custom label
+/// the node does not have is sent as an index past its own, which the compositor refuses.
+fn act(
+    session: &mut Session,
+    action: AccessibleAction,
+    name: &str,
+    custom: Option<&str>,
+    selection: (u32, u32),
+) -> Result<()> {
     let shown: Vec<SurfaceKey> = session
         .compositor
         .scene
@@ -916,6 +943,13 @@ fn act(session: &mut Session, action: AccessibleAction, name: &str) -> Result<()
             Some((key, index as u32))
         })
         .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))?;
+    let labels = &session.reader.trees[&key][index as usize].custom;
+    let custom = custom.map_or(0, |label| {
+        labels
+            .iter()
+            .position(|held| held == label)
+            .unwrap_or(labels.len()) as u32
+    });
     session
         .compositor
         .scene
@@ -926,6 +960,9 @@ fn act(session: &mut Session, action: AccessibleAction, name: &str) -> Result<()
                 surface: key.id,
                 index,
                 action,
+                custom,
+                start: selection.0,
+                end: selection.1,
             },
         )
         .map_err(|code| format!("accessibility action: {code:?}").into())
@@ -943,8 +980,27 @@ fn surface_name(key: SurfaceKey) -> String {
     }
 }
 
+/// What the reader would have said in a step: [{politeness, text, live}].
+fn announcements_json(announcements: &[crate::reader::Announcement]) -> String {
+    let items: Vec<String> = announcements
+        .iter()
+        .map(|said| {
+            format!(
+                "{{\"politeness\":\"{}\",\"text\":{},\"live\":{}}}",
+                match said.politeness {
+                    oxyos_protocol::Politeness::Polite => "polite",
+                    oxyos_protocol::Politeness::Assertive => "assertive",
+                },
+                json_string(&said.text),
+                said.live
+            )
+        })
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
 /// What the assistive technology holds, as it received it (reader.rs), by surface name:
-/// {surface: [{role, name, value, state}]}.
+/// {surface: [{role, name, value, state, actions, custom, selection}]}.
 fn accessibility_json(reader: &crate::reader::Reader) -> String {
     let states = [
         (AccessibleState::DISABLED, "disabled"),
@@ -955,6 +1011,22 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
         (AccessibleState::COLLAPSED, "collapsed"),
         (AccessibleState::BUSY, "busy"),
         (AccessibleState::FOCUSED, "focused"),
+        (AccessibleState::LIVE_POLITE, "live-polite"),
+        (AccessibleState::LIVE_ASSERTIVE, "live-assertive"),
+    ];
+    let offered = [
+        (oxyos_protocol::AccessibleActions::INCREMENT, "increment"),
+        (oxyos_protocol::AccessibleActions::DECREMENT, "decrement"),
+        (
+            oxyos_protocol::AccessibleActions::SCROLL_FORWARD,
+            "scroll-forward",
+        ),
+        (
+            oxyos_protocol::AccessibleActions::SCROLL_BACKWARD,
+            "scroll-backward",
+        ),
+        (oxyos_protocol::AccessibleActions::DISMISS, "dismiss"),
+        (oxyos_protocol::AccessibleActions::SET_SELECTION, "select"),
     ];
     let surfaces: Vec<String> = reader
         .trees
@@ -968,12 +1040,24 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
                         .filter(|(bit, _)| node.state.contains(*bit))
                         .map(|(_, name)| format!("\"{name}\""))
                         .collect();
+                    let actions: Vec<String> = offered
+                        .iter()
+                        .filter(|(bit, _)| node.actions.contains(*bit))
+                        .map(|(_, name)| format!("\"{name}\""))
+                        .collect();
+                    let custom: Vec<String> =
+                        node.custom.iter().map(|label| json_string(label)).collect();
+                    let selection = node
+                        .selection
+                        .map_or("null".to_string(), |(start, end)| format!("[{start},{end}]"));
                     format!(
-                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}]}}",
+                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}],\"actions\":[{}],\"custom\":[{}],\"selection\":{selection}}}",
                         node.role,
                         json_string(&node.name),
                         json_string(&node.value),
-                        state.join(",")
+                        state.join(","),
+                        actions.join(","),
+                        custom.join(",")
                     )
                 })
                 .collect();
@@ -1660,6 +1744,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        // What the reader says in a step is what the step made it say.
+        session.reader.absorb(&mut session.compositor);
+        session.reader.take_announcements();
         let injected_ns = monotonic_ns();
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
@@ -1670,8 +1757,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
             _ if matches!(step, Step::Accessibility { .. }) => {
-                if let Step::Accessibility { action, name } = step {
-                    act(&mut session, *action, name)?;
+                if let Step::Accessibility {
+                    action,
+                    name,
+                    custom,
+                    selection,
+                } = step
+                {
+                    act(&mut session, *action, name, custom.as_deref(), *selection)?;
                 }
                 0
             }
@@ -1713,8 +1806,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         };
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
+        session.reader.absorb(&mut session.compositor);
+        let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\"}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\"}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

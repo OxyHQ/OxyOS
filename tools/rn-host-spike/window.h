@@ -94,6 +94,9 @@ class Window {
   void destroy(uint32_t id);
   // Publishes a surface's accessibility snapshot (ADR 0003). Throws on failure.
   void publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes);
+  // Announces text to assistive technologies from a surface (OXYOS_POLITE, OXYOS_ASSERTIVE).
+  // Throws on failure.
+  void announce(uint32_t id, uint8_t politeness, const std::string& text);
 
   uint64_t presented() const { return presented_; }
 
