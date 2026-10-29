@@ -1180,6 +1180,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-gestures"
+version = "0.1.0"
+
+[[package]]
 name = "oxyos-gpu"
 version = "0.1.0"
 dependencies = [
