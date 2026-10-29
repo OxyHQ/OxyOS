@@ -107,9 +107,9 @@ pub struct Compositor {
     pointer_flip: bool,
     /// Where the pointer is on the display (its pixels), once it has moved.
     pointer: Option<(i32, i32)>,
-    /// The display's pointer image for each shape the session has one for; the arrow for any
-    /// other.
-    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, usize>,
+    /// The display's pointer images for each shape the session has any for (the arrow for any
+    /// other), with how long each shows: one image, or an animated cursor's steps.
+    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, Vec<(usize, std::time::Duration)>>,
     /// What the last flip showed (the scene's displayed content once it completed).
     pub flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
@@ -456,8 +456,7 @@ impl Compositor {
         let image = self
             .pointer_images
             .get(&self.scene.pointer_shape())
-            .copied()
-            .unwrap_or(0);
+            .map_or(0, |steps| pointer_step(steps, monotonic()));
         let pointer_moved = match (&mut self.display, self.away) {
             (Some(display), false) => display.set_pointer(self.pointer, image),
             _ => false,
@@ -649,7 +648,8 @@ impl Compositor {
         }
     }
 
-    /// Only the pointer moved: the frame shown is committed again with it where it is now, no
+    /// Only the pointer moved (or its animated image went on): the frame shown is committed again
+    /// with it where it is now, no
     /// frame composed. Its flip completes no client's frame.
     fn present_pointer(&mut self) {
         let Some(display) = self.display.as_mut() else {
@@ -1253,6 +1253,23 @@ pub fn output_damage(
     damage
 }
 
+/// The image of an animated pointer's `steps` at time `now`: the animation loops from time zero,
+/// so every animated cursor turns with the clock. A single image never changes.
+fn pointer_step(steps: &[(usize, std::time::Duration)], now: std::time::Duration) -> usize {
+    let cycle: std::time::Duration = steps.iter().map(|(_, time)| *time).sum();
+    if steps.len() < 2 || cycle.is_zero() {
+        return steps.first().map_or(0, |(image, _)| *image);
+    }
+    let mut at = std::time::Duration::from_nanos((now.as_nanos() % cycle.as_nanos()) as u64);
+    for (image, time) in steps {
+        if at < *time {
+            return *image;
+        }
+        at -= *time;
+    }
+    steps[steps.len() - 1].0
+}
+
 /// Now, on CLOCK_MONOTONIC (the clock of the kernel's flip timestamps).
 pub fn monotonic() -> std::time::Duration {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
@@ -1293,6 +1310,26 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_animated_pointer_shows_the_step_the_clock_is_in() {
+        let ms = std::time::Duration::from_millis;
+        let steps = [(3, ms(30)), (4, ms(10)), (5, ms(20))];
+        let at = |t| pointer_step(&steps, ms(t));
+        assert_eq!(
+            (at(0), at(29), at(30), at(39), at(40), at(59)),
+            (3, 3, 4, 4, 5, 5)
+        );
+        // It loops.
+        assert_eq!((at(60), at(95), at(6000 + 45)), (3, 4, 5));
+        // One image, or steps that take no time, never change.
+        assert_eq!(
+            pointer_step(&[(7, std::time::Duration::ZERO)], ms(12345)),
+            7
+        );
+        assert_eq!(pointer_step(&[(7, ms(0)), (8, ms(0))], ms(5)), 7);
+        assert_eq!(pointer_step(&[], ms(5)), 0);
+    }
     use oxyos_compositor_core::RenderItem;
 
     fn surface(id: u32, x: i32, sequence: u64) -> RenderItem {

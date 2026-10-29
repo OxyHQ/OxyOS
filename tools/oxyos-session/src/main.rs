@@ -280,7 +280,7 @@ fn start_shell(
 fn show_pointer(
     display: &mut oxyos_kms::Display,
     pointer: Option<&(PathBuf, u32)>,
-) -> BTreeMap<PointerShape, usize> {
+) -> BTreeMap<PointerShape, Vec<(usize, Duration)>> {
     let mut images = BTreeMap::new();
     let Some(max) = display.pointer_size() else {
         eprintln!("[session] the display has no cursor plane: the pointer is not shown");
@@ -301,17 +301,24 @@ fn show_pointer(
         vec![(PointerShape::Arrow, path.clone())]
     };
     for (shape, file) in files {
-        let image = std::fs::read(&file)
+        // An animated cursor's every step is an image of the display's.
+        let steps = std::fs::read(&file)
             .map_err(|error| error.to_string())
-            .and_then(|bytes| cursor_file::read(&bytes, *size, max))
-            .and_then(|image| {
-                display
-                    .add_pointer_image(&image)
-                    .map_err(|error| error.to_string())
+            .and_then(|bytes| cursor_file::read_any(&bytes, *size, max))
+            .and_then(|steps| {
+                steps
+                    .into_iter()
+                    .map(|(image, time)| {
+                        display
+                            .add_pointer_image(&image)
+                            .map(|index| (index, time))
+                            .map_err(|error| error.to_string())
+                    })
+                    .collect::<std::result::Result<Vec<_>, _>>()
             });
-        match image {
-            Ok(index) => {
-                images.insert(shape, index);
+        match steps {
+            Ok(steps) => {
+                images.insert(shape, steps);
             }
             Err(error) => eprintln!(
                 "[session] the {shape:?} pointer from {}: {error}; the arrow is shown instead",
