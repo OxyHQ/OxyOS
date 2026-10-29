@@ -30,6 +30,7 @@ Rows not in this list are not checked.
 | TurboModule specs | The Android specs (for example `PlatformConstants`), answered by the host's own modules below. |
 | Events | Android's text-input events (`topChange`, `topKeyPress`, `topSelectionChange`, `topSubmitEditing`, `topFocus`, `topBlur`, `topEndEditing`) with Android's payloads. |
 | Assets | Android's resource layout (`drawable-*`, `raw/`), computed by React Native's own path helpers. |
+| Release bundle | Hermes bytecode, as an Android release build ships it: Metro's output compiled by the `hermesc` of the Hermes the host runs, with the Android Gradle plugin's `-emit-binary -O` (`sample/bundle.mjs` with `HERMESC`, as `build.sh` sets it). A source bundle still runs, but Hermes then parses and compiles it while the app starts. Stack traces give bytecode offsets, as an Android release build's do without its source map. |
 
 ## What OxyOS implements
 

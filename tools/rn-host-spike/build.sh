@@ -136,7 +136,8 @@ host-build/oxyos-rn-spike "$HERE/tree.js"
 # React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
 # compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
 # resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
-(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" node bundle.mjs index.js "$WORK/sample")
+(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" \
+  HERMESC="$WORK/hermes-build/bin/hermesc" node bundle.mjs index.js "$WORK/sample")
 OXYOS_SCRIPT_URL="file://$WORK/sample/index.js" \
   host-build/oxyos-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
 
