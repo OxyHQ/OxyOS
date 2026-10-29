@@ -1,0 +1,114 @@
+{
+  "about": "The desktop as a screen reader reads and works it (ADR 0003): the session's assistive technology holds the shell's trees as the compositor sends them, and acts through them alone, never with the pointer. It opens the launcher from the dock, finds its search field and applications, closes it, opens the Oxy menu and locks the session from it. While locked it holds the lock screen alone: nothing of the application or the panels (ADR 0010), the wallpaper and the user's picture not read, the password field named and its text never held; a wrong password is said as an alert. Unlocked, it holds the window and the panels again, and the lock screen no longer.",
+  "module": "EditingProbe",
+  "window": [600, 360],
+  "shell": "OxyOSShell",
+  "lock_password": "oxyos.correcta",
+  "steps": [
+    {
+      "name": "the reader activates the dock's Abrir aplicaciones: the launcher opens, its search and applications read, the dock's button selected",
+      "do": ["a11y-action", ["activate", "Abrir aplicaciones"]],
+      "expect": {
+        "shell": {"locked": false},
+        "react": {},
+        "at": {
+          "shell": [
+            {"role": "Search", "name": "Buscar aplicaciones"},
+            {"role": "Button", "name": "Abrir Astro desde aplicaciones", "state": []},
+            {"role": "Button", "name": "Cerrar aplicaciones"},
+            {"role": "Button", "name": "Abrir aplicaciones", "state": ["selected"]},
+            {"role": "Image", "name": "Fondo de escritorio"}
+          ],
+          "window": [{"role": "TextInput", "name": "Line"}]
+        },
+        "at_absent": {"shell": [{"role": "Generic", "name": "Fondo de escritorio"}]}
+      }
+    },
+    {
+      "name": "it activates Cerrar aplicaciones: the launcher closes and its tree goes with it",
+      "do": ["a11y-action", ["activate", "Cerrar aplicaciones"]],
+      "expect": {
+        "react": {},
+        "at": {"shell": [{"role": "Button", "name": "Abrir aplicaciones", "state": []}]},
+        "at_absent": {"shell": [{"name": "Buscar aplicaciones", "role": "Search"}, {"name": "Cerrar aplicaciones"}]}
+      }
+    },
+    {
+      "name": "it activates the Oxy menu: expanded, its items read, the first focused",
+      "do": ["a11y-action", ["activate", "Menú de Oxy"]],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {"role": "Button", "name": "Menú de Oxy", "state": ["expanded"]},
+            {"role": "Menu", "name": "Oxy"},
+            {"role": "MenuItem", "name": "Ajustes del sistema", "state": ["focused"]},
+            {"role": "MenuItem", "name": "Bloquear pantalla"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "it activates Bloquear pantalla: locked, it holds the lock screen alone, the password field named, the wallpaper and the picture not read",
+      "do": ["a11y-action", ["activate", "Bloquear pantalla"]],
+      "expect": {
+        "shell": {"surfaces": [[0, 0, 1280, 720]], "locked": true},
+        "window_shown": false,
+        "react": {},
+        "at": {"shell": [{"role": "TextInput", "name": "Contraseña", "value": ""}]},
+        "at_absent": {
+          "window": [{}],
+          "shell": [
+            {"name": "Menú de Oxy"},
+            {"name": "Abrir aplicaciones"},
+            {"name": "Fondo de escritorio"},
+            {"role": "Alert"}
+          ]
+        }
+      }
+    },
+    {
+      "name": "a password typed into the lock screen is never held by the reader",
+      "do": ["type", "mal"],
+      "expect": {
+        "react": {},
+        "at": {"shell": [{"role": "TextInput", "name": "Contraseña", "value": ""}]},
+        "never": ["mal"],
+        "in_shell": {"never": ["mal"]}
+      }
+    },
+    {
+      "name": "rejected, the lock screen's message is an alert the reader holds",
+      "do": ["key", [28]],
+      "expect": {
+        "shell": {"locked": true},
+        "react": {},
+        "at": {"shell": [{"role": "Alert", "name": "Contraseña incorrecta"}]},
+        "at_absent": {"window": [{}]}
+      }
+    },
+    {
+      "name": "the right password typed",
+      "do": ["type", "oxyos.correcta"],
+      "expect": {"react": {}, "never": ["oxyos.correcta"], "in_shell": {"never": ["oxyos.correcta"]}}
+    },
+    {
+      "name": "unlocked: the reader holds the window and the panels again, its focus back on the menu's trigger, and the lock screen no longer",
+      "do": ["key", [28]],
+      "expect": {
+        "shell": {"locked": false},
+        "window_shown": true,
+        "react": {},
+        "at": {
+          "window": [{"role": "TextInput", "name": "Line"}, {"role": "TextInput", "name": "Notes"}],
+          "shell": [
+            {"role": "Button", "name": "Menú de Oxy", "state": ["collapsed", "focused"]},
+            {"role": "Button", "name": "Abrir aplicaciones"},
+            {"role": "Image", "name": "Fondo de escritorio"}
+          ]
+        },
+        "at_absent": {"shell": [{"name": "Contraseña"}, {"role": "Alert"}]}
+      }
+    }
+  ]
+}

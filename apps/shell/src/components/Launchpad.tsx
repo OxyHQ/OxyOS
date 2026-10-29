@@ -99,7 +99,7 @@ export function Launchpad({
       {/* Its own background, as Launchpad's hides the menu bar and the windows behind it: the
           wallpaper, at the screen's size so it meets the desktop's exactly, dimmed. */}
       <Box className="absolute left-0 top-0" style={{ width, height }}>
-        <Wallpaper source={wallpaper} />
+        <Wallpaper source={wallpaper} decorative />
       </Box>
       <Box className="absolute inset-0 bg-[#101760]/45" />
       <PressArea

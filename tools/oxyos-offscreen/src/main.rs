@@ -14,6 +14,7 @@ mod ime;
 mod launch;
 mod lock;
 mod png;
+mod reader;
 mod uinput;
 
 use client::*;
@@ -97,6 +98,8 @@ struct Session {
     _cleanup: TempDir,
     /// With `--input-method`: the input method the session plays (ime.rs).
     ime: Option<ime::Ime>,
+    /// With `--launch`: the assistive technology the session plays (reader.rs).
+    reader: reader::Reader,
 }
 
 impl Session {
@@ -129,6 +132,7 @@ impl Session {
             baseline_fds,
             _cleanup: cleanup,
             ime: None,
+            reader: reader::Reader::default(),
         })
     }
 
@@ -257,7 +261,11 @@ fn run(out: &Path) -> Result<()> {
                 }
             }
             Step::WaitDismissed => {
-                if compositor.surface_rect(app, 2).is_none() && compositor.scene.stats().popups == 0
+                // Dismissed, the menu is gone from the scene at once and from the screen once
+                // it has faded out (docs/adr/0011-transitions.mdx).
+                if compositor.surface_rect(app, 2).is_none()
+                    && compositor.scene.stats().popups == 0
+                    && compositor.transitions.is_empty()
                 {
                     checks.outside_presses_delivered =
                         compositor.peers[&other].presses - checks.other_presses_before;
