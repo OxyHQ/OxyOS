@@ -1,0 +1,97 @@
+{
+  "about": "The OxyOS shell's overview and its drag between desktops (ADR 0009) through react-native-gesture-handler, Android's recognizers ported (crates/oxyos-gestures): the application (sample/EditingProbe.tsx) runs as Allo; the dock's overview button opens the overview with Allo's window on Escritorio 1, a press on Nuevo escritorio adds Escritorio 2, and Allo's card dragged onto it moves the window there. The card's pan begins on the press, activates past its 8 px, takes the touch from React Native (the card's press never fires: React sees the touch cancelled), sends one update per move and ends on release; the compositor moves the window to the other desktop, so it leaves the screen, and Escritorio 1 shows no windows. Each step checks the shell's texts, React's deliveries in the shell, the gestures sent, and that the application receives nothing of the shell's input.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the dock's overview button opens the overview: Allo's window on Escritorio 1",
+      "do": [
+        "press_output",
+        [
+          481,
+          700
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "in_shell": {
+          "texts": [
+            "Escritorio 1",
+            "Allo",
+            "Nuevo escritorio"
+          ],
+          "gestures": []
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Nuevo escritorio adds Escritorio 2",
+      "do": [
+        "press_output",
+        [
+          1200,
+          330
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "in_shell": {
+          "texts": [
+            "Escritorio 1",
+            "Escritorio 2"
+          ],
+          "gestures": []
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Allo's card dragged onto Escritorio 2: its pan takes the touch from React and the window moves there",
+      "do": [
+        "drag_output",
+        [
+          490,
+          300,
+          1180,
+          300
+        ]
+      ],
+      "expect": {
+        "window_shown": false,
+        "in_shell": {
+          "texts": [
+            "No hay ventanas abiertas",
+            "Escritorio 2"
+          ],
+          "gestures": [
+            "PanGestureHandler@overview-window-1 UNDETERMINED>BEGAN",
+            "intercept",
+            "PanGestureHandler cancels the responder",
+            "PanGestureHandler@overview-window-1 BEGAN>ACTIVE",
+            "PanGestureHandler@overview-window-1 update x8",
+            "PanGestureHandler@overview-window-1 ACTIVE>END"
+          ],
+          "react": {
+            "touchStart@overview-window-1": 1,
+            "touchMove@overview-window-1": 1,
+            "touchCancel@overview-window-1": 1
+          }
+        },
+        "delivered": {}
+      }
+    }
+  ]
+}
