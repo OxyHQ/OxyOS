@@ -14,6 +14,7 @@ oxyos-net = { path = "../oxyos-net" }
 oxyos-image = { path = "../oxyos-image" }
 oxyos-vector = { path = "../oxyos-vector" }
 oxyos-gestures = { path = "../oxyos-gestures" }
+oxyos-intl = { path = "../oxyos-intl" }
 oxyos-protocol = { path = "../oxyos-protocol" }
 rustix = { version = "1.1.6", default-features = false, features = ["std"] }
 

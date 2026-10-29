@@ -1973,3 +1973,282 @@ fn a_tap_is_recognized_through_the_c_abi() {
         oxyos_gestures_free(gestures);
     }
 }
+
+/// `name`'s declaration in the header, as the Rust type of a pointer to it.
+fn declaration(name: &str) -> String {
+    let start = HEADER
+        .find(&format!(" {name}("))
+        .unwrap_or_else(|| panic!("{name} is not declared in oxyos_client.h"));
+    let line_start = HEADER[..start].rfind('\n').map_or(0, |at| at + 1);
+    let returns = HEADER[line_start..start].trim();
+    let parameters = &HEADER[start + name.len() + 2..];
+    let parameters = &parameters[..parameters.find(");").unwrap()];
+    let rust = |c: &str| -> String {
+        let c_char = std::any::type_name::<c_char>();
+        match c {
+            "const char*" => format!("*const {c_char}"),
+            "char*" => format!("*mut {c_char}"),
+            "size_t" => "usize".into(),
+            "double" => "f64".into(),
+            "int64_t" => "i64".into(),
+            other => panic!("unexpected type {other}"),
+        }
+    };
+    let parameters: Vec<String> = parameters
+        .split(',')
+        .map(|parameter| {
+            let words: Vec<&str> = parameter.split_whitespace().collect();
+            rust(&words[..words.len() - 1].join(" "))
+        })
+        .collect();
+    format!(
+        "unsafe extern \"C\" fn({}) -> {}",
+        parameters.join(", "),
+        rust(returns)
+    )
+}
+
+fn type_of<T>(_: T) -> &'static str {
+    std::any::type_name::<T>()
+}
+
+#[test]
+fn the_header_matches_the_intl_abi() {
+    use crate::intl::*;
+    type Text = unsafe extern "C" fn(*const c_char, usize, *mut c_char, usize) -> i64;
+    type Format = unsafe extern "C" fn(
+        *const c_char,
+        usize,
+        *const c_char,
+        usize,
+        f64,
+        *mut c_char,
+        usize,
+    ) -> i64;
+    type Resolve =
+        unsafe extern "C" fn(*const c_char, usize, *const c_char, usize, *mut c_char, usize) -> i64;
+    let default: unsafe extern "C" fn(*mut c_char, usize) -> i64 = oxyos_intl_default_locale;
+    for (name, rust) in [
+        ("oxyos_intl_default_locale", type_of(default)),
+        (
+            "oxyos_intl_canonicalize",
+            type_of(oxyos_intl_canonicalize as Text),
+        ),
+        ("oxyos_intl_resolve", type_of(oxyos_intl_resolve as Text)),
+        (
+            "oxyos_intl_format_date",
+            type_of(oxyos_intl_format_date as Format),
+        ),
+        (
+            "oxyos_intl_resolve_date",
+            type_of(oxyos_intl_resolve_date as Resolve),
+        ),
+        (
+            "oxyos_intl_format_number",
+            type_of(oxyos_intl_format_number as Format),
+        ),
+        (
+            "oxyos_intl_resolve_number",
+            type_of(oxyos_intl_resolve_number as Resolve),
+        ),
+    ] {
+        assert_eq!(declaration(name), rust, "{name}");
+    }
+    assert!(HEADER.contains(&format!(
+        "Parts are \"type\\x{:X}value\" joined by '\\x{:X}'.",
+        UNIT_SEPARATOR as u32, RECORD_SEPARATOR as u32
+    )));
+}
+
+/// Calls `call` with room for `capacity` bytes, as a C caller does: the length, and the bytes
+/// written up to it (or up to the room).
+fn answered(capacity: usize, call: impl Fn(*mut c_char, usize) -> i64) -> (i64, Vec<u8>) {
+    let mut out = vec![0xff_u8; capacity];
+    let length = call(out.as_mut_ptr().cast(), capacity);
+    (length, out)
+}
+
+/// A call's result, given room enough.
+fn intl(call: impl Fn(*mut c_char, usize) -> i64) -> String {
+    let (length, out) = answered(1024, call);
+    assert!((0..1024).contains(&length), "{length}");
+    let length = length as usize;
+    assert_eq!(out[length], 0, "NUL-terminated");
+    String::from_utf8(out[..length].to_vec()).unwrap()
+}
+
+/// The last failure's message.
+fn last_error() -> String {
+    // SAFETY: oxyos_last_error is NUL-terminated.
+    unsafe { CStr::from_ptr(oxyos_last_error()) }
+        .to_str()
+        .unwrap()
+        .into()
+}
+
+#[test]
+fn intl_through_the_c_abi() {
+    use crate::intl::*;
+    let text = |text: &str| (text.as_ptr().cast::<c_char>(), text.len());
+    let canonical = |tag: &str| {
+        let (tag, length) = text(tag);
+        // SAFETY: the strings outlive the calls, with their lengths; `out` has the
+        // capacity given.
+        move |out, capacity| unsafe { oxyos_intl_canonicalize(tag, length, out, capacity) }
+    };
+    assert_eq!(intl(canonical("EN-us")), "en-US");
+    let (requested, length) = text("xx,es-ES-u-hc-h12,fr");
+    let resolved =
+        // SAFETY: as above.
+        intl(|out, capacity| unsafe { oxyos_intl_resolve(requested, length, out, capacity) });
+    assert_eq!(resolved, "es-ES-u-hc-h12");
+    // SAFETY: as above.
+    let default = intl(|out, capacity| unsafe { oxyos_intl_default_locale(out, capacity) });
+    assert!(oxyos_intl::canonicalize(&default).is_ok(), "{default}");
+
+    // 2026-10-29T14:05:09Z.
+    let (locale, locale_length) = text("es-ES");
+    let (options, options_length) = text("day=numeric;month=long;year=numeric;timeZone=UTC");
+    // SAFETY: as above.
+    let date = intl(|out, capacity| unsafe {
+        oxyos_intl_format_date(
+            locale,
+            locale_length,
+            options,
+            options_length,
+            1_793_282_709_000.0,
+            out,
+            capacity,
+        )
+    });
+    assert_eq!(
+        date,
+        "day\x1f29\x1eliteral\x1f de \x1emonth\x1foctubre\x1eliteral\x1f de \x1eyear\x1f2026"
+    );
+    // SAFETY: as above.
+    let resolved = intl(|out, capacity| unsafe {
+        oxyos_intl_resolve_date(
+            locale,
+            locale_length,
+            options,
+            options_length,
+            out,
+            capacity,
+        )
+    });
+    assert_eq!(
+        resolved,
+        "locale=es-ES;calendar=gregory;numberingSystem=latn;timeZone=UTC;year=numeric;\
+         month=long;day=numeric"
+    );
+
+    let (locale, locale_length) = text("de-DE");
+    let (options, options_length) = text("style=currency;currency=EUR");
+    // SAFETY: as above.
+    let number = intl(|out, capacity| unsafe {
+        oxyos_intl_format_number(
+            locale,
+            locale_length,
+            options,
+            options_length,
+            -1234.5,
+            out,
+            capacity,
+        )
+    });
+    assert_eq!(
+        number,
+        "minusSign\x1f-\x1einteger\x1f1\x1egroup\x1f.\x1einteger\x1f234\x1edecimal\x1f,\x1e\
+         fraction\x1f50\x1eliteral\x1f\u{a0}\x1ecurrency\x1f€"
+    );
+    // SAFETY: as above.
+    let resolved = intl(|out, capacity| unsafe {
+        oxyos_intl_resolve_number(
+            locale,
+            locale_length,
+            options,
+            options_length,
+            out,
+            capacity,
+        )
+    });
+    assert!(
+        resolved.starts_with(
+            "locale=de-DE;numberingSystem=latn;style=currency;currency=EUR;currencyDisplay=symbol;\
+             currencySign=standard;minimumIntegerDigits=1;minimumFractionDigits=2;\
+             maximumFractionDigits=2;useGrouping=auto;"
+        ),
+        "{resolved}"
+    );
+}
+
+#[test]
+fn intl_asks_for_more_room_and_refuses_with_a_range_error() {
+    use crate::intl::*;
+    let (tag, length) = ("en-us".as_ptr().cast::<c_char>(), 5);
+    // Too little room: nothing is written, and the length says how much is needed.
+    // SAFETY: the tag outlives the call, with its length; `out` has the capacity given.
+    let (needed, out) = answered(3, |out, capacity| unsafe {
+        oxyos_intl_canonicalize(tag, length, out, capacity)
+    });
+    assert_eq!(needed, 5);
+    assert_eq!(out, [0xff; 3]);
+    // Room for the text but not its NUL: written, not terminated.
+    // SAFETY: as above.
+    let (written, out) = answered(5, |out, capacity| unsafe {
+        oxyos_intl_canonicalize(tag, length, out, capacity)
+    });
+    assert_eq!((written, out.as_slice()), (5, b"en-US".as_slice()));
+    // A size query with no buffer.
+    // SAFETY: as above, with no buffer.
+    let asked = unsafe { oxyos_intl_canonicalize(tag, length, std::ptr::null_mut(), 0) };
+    assert_eq!(asked, 5);
+
+    // An invalid tag, value or unsupported option: -1 and the RangeError's message.
+    // SAFETY: as above.
+    let (failed, _) = answered(16, |out, capacity| unsafe {
+        oxyos_intl_canonicalize("en_US".as_ptr().cast(), 5, out, capacity)
+    });
+    assert_eq!(failed, -1);
+    assert_eq!(
+        last_error(),
+        "Incorrect locale information provided: \"en_US\""
+    );
+    let (locale, options) = ("en-US", "timeZoneName=short");
+    // SAFETY: the strings outlive the call, with their lengths.
+    let failed = unsafe {
+        oxyos_intl_format_date(
+            locale.as_ptr().cast(),
+            locale.len(),
+            options.as_ptr().cast(),
+            options.len(),
+            0.0,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(failed, -1);
+    assert_eq!(
+        last_error(),
+        "Intl.DateTimeFormat's timeZoneName option is not supported on OxyOS yet"
+    );
+    let options = "style=currency;currency=EURO";
+    // SAFETY: as above.
+    let failed = unsafe {
+        oxyos_intl_resolve_number(
+            locale.as_ptr().cast(),
+            locale.len(),
+            options.as_ptr().cast(),
+            options.len(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(failed, -1);
+    assert_eq!(last_error(), "Invalid currency code : EURO");
+    // A NULL string with a length is refused, not read.
+    // SAFETY: NULL with a nonzero length, which the call checks.
+    let failed = unsafe { oxyos_intl_resolve(std::ptr::null(), 3, std::ptr::null_mut(), 0) };
+    assert_eq!(failed, -1);
+    assert_eq!(last_error(), "null locales");
+}
