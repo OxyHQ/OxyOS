@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <functional>
+#include <map>
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -56,6 +57,8 @@ class PointerInput {
   void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
     gestures_ = std::move(feed);
   }
+  // The pointer's shape over a surface changed (OXYOS_POINTER_*): the compositor is to be told.
+  void showsShapes(std::function<void(uint32_t surface, uint8_t shape)> tell) { tellShape_ = std::move(tell); }
   // A touchpad pinch's two fingers also go to gesture handlers: `action` an OXYOS_GESTURE_*
   // action, `index` the finger it is about, `fingers` where each finger is.
   void feedsFingers(std::function<void(uint8_t action, size_t index, const SurfaceContent& content,
@@ -106,6 +109,8 @@ class PointerInput {
   facebook::react::Point pinchCentre_{};
   float pinchSpread_ = 1, pinchDegrees_ = 0;
   bool responderCancelled_ = false;  // React Native has let go of the current touch
+  std::function<void(uint32_t, uint8_t)> tellShape_;
+  std::map<uint32_t, uint8_t> toldShapes_;  // the shape each surface last asked for
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;

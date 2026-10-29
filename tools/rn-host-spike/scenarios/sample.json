@@ -7,6 +7,7 @@
       "name": "press the Bloom Button",
       "do": ["press", [686, 359]],
       "expect": {
+        "pointer_shape": "Arrow",
         "texts": ["Pressed 1 time"],
         "absent": ["Press me"],
         "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
@@ -46,6 +47,7 @@
       "name": "focus the reply field",
       "do": ["press", [686, 407]],
       "expect": {
+        "pointer_shape": "Text",
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
       }
@@ -90,6 +92,7 @@
       "name": "open the menu",
       "do": ["press", [797, 487]],
       "expect": {
+        "pointer_shape": "Arrow",
         "popups": 1,
         "focus_surface": 2,
         "texts": ["Reply", "Forward", "Archive", "Move to folder", "Mark as unread", "Delete"],

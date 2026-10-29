@@ -4543,3 +4543,58 @@ fn the_shell_focuses_minimizes_moves_and_closes_windows_and_manages_workspaces()
         Err(ErrorCode::Unauthorized)
     );
 }
+
+#[test]
+fn the_pointer_takes_the_shape_the_surface_under_it_wants() {
+    use oxyos_protocol::PointerShape;
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let other = h.toplevel(OTHER, 1, 100, 100);
+    let o = h.rect(other);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+    h.request(
+        APP,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Text,
+        },
+    )
+    .unwrap();
+    // Over the window, its shape; over the other one, which asked for none, the arrow.
+    h.scene
+        .pointer_motion(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    h.scene.pointer_motion(o.x + 5, o.y + 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+    // Surface 1 of another client is its own: asking for a shape changes only it.
+    h.request(
+        OTHER,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Hand,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Hand);
+    h.scene
+        .pointer_motion(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::SetPointerShape {
+                surface: 9,
+                shape: PointerShape::Hand,
+            },
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    // While the compositor moves the window, the move shape.
+    let serial = h.press(w.x + w.width as i32 - 5, w.y + w.height as i32 - 5);
+    h.request(APP, Request::BeginMove { surface: 1, serial })
+        .unwrap();
+    h.scene
+        .pointer_motion(w.x + w.width as i32 + 20, w.y + w.height as i32);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Move);
+}

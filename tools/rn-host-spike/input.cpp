@@ -2,6 +2,7 @@
 
 #include "report.h"
 
+#include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/scrollview/ScrollViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewProps.h>
 #include <react/renderer/components/scrollview/ScrollViewState.h>
@@ -10,6 +11,7 @@
 #include <react/renderer/core/ConcreteState.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <cmath>
@@ -26,6 +28,74 @@ namespace {
 // Linux input code of the primary (left) button.
 constexpr uint32_t kPrimaryButton = 272;
 
+// The pointer's shape over the views of `path` (root first), as Android resolves a pointer icon:
+// from the view under the pointer up, the first that sets one. An editable text input shows the
+// text shape, as Android's EditText; a view's `cursor` style its own (Android knows `pointer`,
+// the hand; the other CSS cursors React Native parses take the shape that is theirs).
+uint8_t pointerShape(const ViewTree& tree, const std::vector<Tag>& path) {
+  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+    const auto& view = tree.views().at(*at).view;
+    std::string name = view.componentName ? view.componentName : "";
+    if (name == "AndroidTextInput") {
+      auto input = std::dynamic_pointer_cast<const AndroidTextInputProps>(view.props);
+      if (input && input->editable) return OXYOS_POINTER_TEXT;
+    }
+    auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+    if (!props) continue;
+    switch (props->cursor) {
+      case Cursor::Auto:
+        continue;
+      case Cursor::Pointer:
+        return OXYOS_POINTER_HAND;
+      case Cursor::Text:
+        return OXYOS_POINTER_TEXT;
+      case Cursor::NotAllowed:
+      case Cursor::NoDrop:
+        return OXYOS_POINTER_NOT_ALLOWED;
+      case Cursor::Wait:
+      case Cursor::Progress:
+        return OXYOS_POINTER_WAIT;
+      case Cursor::Help:
+        return OXYOS_POINTER_HELP;
+      case Cursor::Crosshair:
+      case Cursor::Cell:
+        return OXYOS_POINTER_CROSSHAIR;
+      case Cursor::Move:
+      case Cursor::AllScroll:
+        return OXYOS_POINTER_MOVE;
+      case Cursor::Grab:
+        return OXYOS_POINTER_GRAB;
+      case Cursor::Grabbing:
+        return OXYOS_POINTER_GRABBING;
+      case Cursor::EResize:
+      case Cursor::WResize:
+      case Cursor::EWResize:
+      case Cursor::ColResize:
+        return OXYOS_POINTER_RESIZE_HORIZONTAL;
+      case Cursor::NResize:
+      case Cursor::SResize:
+      case Cursor::NSResize:
+      case Cursor::RowResize:
+        return OXYOS_POINTER_RESIZE_VERTICAL;
+      case Cursor::NWResize:
+      case Cursor::SEResize:
+      case Cursor::NWSEResize:
+        return OXYOS_POINTER_RESIZE_TOP_LEFT;
+      case Cursor::NEResize:
+      case Cursor::SWResize:
+      case Cursor::NESWResize:
+        return OXYOS_POINTER_RESIZE_TOP_RIGHT;
+      case Cursor::ZoomIn:
+        return OXYOS_POINTER_ZOOM_IN;
+      case Cursor::ZoomOut:
+        return OXYOS_POINTER_ZOOM_OUT;
+      default:
+        return OXYOS_POINTER_ARROW;
+    }
+  }
+  return OXYOS_POINTER_ARROW;
+}
+
 // For gesture handlers' traversal: views all but transparent are passed over, and `reaches`
 // counts a view as under the point.
 struct GestureHit {
@@ -37,8 +107,12 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   if (it == tree.views().end()) return -1;
   const auto& view = it->second.view;
   const auto& frame = view.layoutMetrics.frame;
-  float left = frame.origin.x, top = frame.origin.y;
-  bool inside = x >= left && y >= top && x < left + frame.size.width && y < top + frame.size.height;
+  // Where it is drawn: its transform moves, scales and turns it, and what is in it, as Android maps
+  // a touch through a view's inverse matrix. A view scaled to nothing is under no point.
+  Affine map = viewTransform(view);
+  if (std::abs(map.determinant()) < 1e-6f) return -1;
+  Point local = map.inverse().apply(Point{x, y});
+  bool inside = local.x >= 0 && local.y >= 0 && local.x < frame.size.width && local.y < frame.size.height;
   auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
   auto mode = props ? props->pointerEvents : PointerEventsMode::Auto;
   if (mode == PointerEventsMode::None) return -1;
@@ -51,7 +125,7 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {
-    float cx = x - left, cy = y - top;
+    float cx = local.x, cy = local.y;
     if (name == "ScrollView" && view.state) {
       const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
       cx += state.contentOffset.x;
@@ -242,6 +316,14 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
     if (target >= 0) now = ancestry(tree_, target);
   }
   uint32_t surface = content ? content->surface : hoveredSurface_;
+  if (content && tellShape_) {
+    uint8_t shape = pointerShape(tree_, now);
+    auto told = toldShapes_.find(surface);
+    if (told == toldShapes_.end() ? shape != OXYOS_POINTER_ARROW : told->second != shape) {
+      toldShapes_[surface] = shape;
+      tellShape_(surface, shape);
+    }
+  }
   size_t common = 0;
   while (common < now.size() && common < hovered_.size() && now[common] == hovered_[common]) ++common;
   Point page = content ? Point{content->origin.x + x, content->origin.y + y} : Point{x, y};

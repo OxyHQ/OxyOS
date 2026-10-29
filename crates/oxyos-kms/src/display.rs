@@ -1,6 +1,10 @@
 //! Output on a connector with atomic modesetting: two dumb buffers, a modeset for the first
 //! frame and page flips after it, with the kernel's flip timestamps. Needs DRM master (the
 //! card's current master, a running desktop session, must have released it).
+//!
+//! The pointer is shown on the CRTC's cursor plane where it has one: one of the images the
+//! display keeps, each in a buffer of its own (its own arrow first), placed in every commit, so
+//! moving the pointer or changing its image only commits the frame already shown again.
 
 use crate::Card;
 use drm::buffer::{Buffer as _, DrmFourcc};
@@ -9,7 +13,7 @@ use drm::control::{
     atomic, connector, crtc, framebuffer, plane, property, AtomicCommitFlags, Device as _, Event,
     Mode,
 };
-use drm::Device as _;
+use drm::{Device as _, DriverCapability};
 use std::io;
 use std::time::Duration;
 
@@ -24,7 +28,83 @@ pub struct Display {
     back: usize,
     configured: bool,
     mode_blob: Option<property::Value<'static>>,
+    /// The cursor plane and its images, if the CRTC has one.
+    cursor: Option<Cursor>,
+    /// Where the pointer is to be shown and with which image, and how the last commit showed it.
+    pointer: Option<(i32, i32, usize)>,
+    shown_pointer: Option<(i32, i32, usize)>,
+    /// The framebuffer the last commit showed.
+    front: Option<framebuffer::Handle>,
 }
+
+struct Cursor {
+    plane: plane::Handle,
+    size: (u32, u32),
+    images: Vec<CursorImage>,
+}
+
+struct CursorImage {
+    _buffer: DumbBuffer,
+    framebuffer: framebuffer::Handle,
+    hotspot: (u32, u32),
+}
+
+/// A pointer's image: premultiplied 0xAARRGGBB pixels, row by row, and the point of it that is
+/// the pointer's position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerImage {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u32>,
+    pub hotspot: (u32, u32),
+}
+
+impl PointerImage {
+    /// The display's own arrow, its tip the hotspot.
+    pub fn arrow() -> Self {
+        let width = ARROW.iter().map(|row| row.len()).max().unwrap_or(0) as u32;
+        let height = ARROW.len() as u32;
+        let mut pixels = vec![0; (width * height) as usize];
+        for (y, row) in ARROW.iter().enumerate() {
+            for (x, mark) in row.chars().enumerate() {
+                pixels[y * width as usize + x] = match mark {
+                    '#' => 0xff00_0000,
+                    '.' => 0xffff_ffff,
+                    _ => 0,
+                };
+            }
+        }
+        Self {
+            width,
+            height,
+            pixels,
+            hotspot: (0, 0),
+        }
+    }
+}
+
+/// The pointer's arrow, its tip the hotspot at the top left: `#` its outline, `.` its fill.
+const ARROW: [&str; 19] = [
+    "#",
+    "##",
+    "#.#",
+    "#..#",
+    "#...#",
+    "#....#",
+    "#.....#",
+    "#......#",
+    "#.......#",
+    "#........#",
+    "#.........#",
+    "#......#####",
+    "#...#..#",
+    "#..##..#",
+    "#.#  #..#",
+    "##   #..#",
+    "#     #..#",
+    "      #..#",
+    "       ##",
+];
 
 fn not_found(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::NotFound, what.to_string())
@@ -99,7 +179,12 @@ impl Display {
             back: 0,
             configured: false,
             mode_blob: None,
+            cursor: None,
+            pointer: None,
+            shown_pointer: None,
+            front: None,
         };
+        display.cursor = display.prepare_cursor(&resources).ok().flatten();
         for _ in 0..2 {
             let buffer = display.card.create_dumb_buffer(
                 (u32::from(width), u32::from(height)),
@@ -110,6 +195,84 @@ impl Display {
             display.buffers.push((buffer, framebuffer));
         }
         Ok(display)
+    }
+
+    /// The CRTC's cursor plane and the arrow in a buffer of the size the card asks for; none
+    /// without a cursor plane.
+    fn prepare_cursor(
+        &self,
+        resources: &drm::control::ResourceHandles,
+    ) -> io::Result<Option<Cursor>> {
+        let card = &self.card;
+        let plane = card.plane_handles()?.into_iter().find(|&handle| {
+            card.get_plane(handle).is_ok_and(|info| {
+                resources
+                    .filter_crtcs(info.possible_crtcs())
+                    .contains(&self.crtc)
+            }) && property_value(card, handle, "type").ok() == Some(2)
+        });
+        let Some(plane) = plane else {
+            return Ok(None);
+        };
+        let side = |cap| card.get_driver_capability(cap).unwrap_or(64).max(32) as u32;
+        let size = (
+            side(DriverCapability::CursorWidth),
+            side(DriverCapability::CursorHeight),
+        );
+        let arrow = cursor_image(card, size, &PointerImage::arrow())?;
+        Ok(Some(Cursor {
+            plane,
+            size,
+            images: vec![arrow],
+        }))
+    }
+
+    /// Keeps a pointer image, in a buffer of its own; its number for `set_pointer` (the display's
+    /// own arrow is 0). Refused when larger than the cursor plane takes (the card's cursor
+    /// size), or without a cursor plane.
+    pub fn add_pointer_image(&mut self, image: &PointerImage) -> io::Result<usize> {
+        let Some(cursor) = self.cursor.as_mut() else {
+            return Err(not_found("no cursor plane"));
+        };
+        cursor
+            .images
+            .push(cursor_image(&self.card, cursor.size, image)?);
+        Ok(cursor.images.len() - 1)
+    }
+
+    /// The largest pointer image the cursor plane takes, if there is one.
+    pub fn pointer_size(&self) -> Option<(u32, u32)> {
+        self.cursor.as_ref().map(|cursor| cursor.size)
+    }
+
+    /// Whether the display can show the pointer (its CRTC has a cursor plane).
+    pub fn shows_pointer(&self) -> bool {
+        self.cursor.is_some()
+    }
+
+    /// Where the pointer is to be shown, in the display's pixels (none hides it), and with which
+    /// image (0, the arrow, for one the display does not keep): true when the pointer shown must
+    /// change, by the next commit or `present_again`.
+    pub fn set_pointer(&mut self, at: Option<(i32, i32)>, image: usize) -> bool {
+        let Some(cursor) = &self.cursor else {
+            return false;
+        };
+        let image = if image < cursor.images.len() {
+            image
+        } else {
+            0
+        };
+        self.pointer = at.map(|(x, y)| (x, y, image));
+        self.configured && self.pointer != self.shown_pointer
+    }
+
+    /// Commits the frame shown again, with the pointer where it is now; true if a frame is shown
+    /// to commit. Its flip is waited for as a frame's (`flip_done`).
+    pub fn present_again(&mut self) -> io::Result<bool> {
+        match self.front {
+            Some(front) if self.configured => self.present_framebuffer(front).map(|()| true),
+            _ => Ok(false),
+        }
     }
 
     /// The card this display drives (to import buffers into it, for one).
@@ -226,9 +389,11 @@ impl Display {
             ] {
                 request.add_property(self.plane, property_handle(card, self.plane, name)?, value);
             }
-            // Planes another session left on the CRTC (a cursor, an overlay) are turned off.
+            // Planes another session left on the CRTC (a cursor, an overlay) are turned off; the
+            // cursor plane is the pointer's (below).
+            let cursor = self.cursor.as_ref().map(|cursor| cursor.plane);
             for plane in card.plane_handles()? {
-                if plane == self.plane {
+                if plane == self.plane || Some(plane) == cursor {
                     continue;
                 }
                 let on_crtc = card
@@ -257,8 +422,63 @@ impl Display {
             property_handle(card, self.plane, "FB_ID")?,
             property::Value::Framebuffer(Some(framebuffer)),
         );
+        if let Some(cursor) = &self.cursor {
+            let plane = cursor.plane;
+            let (width, height) = cursor.size;
+            let shown = self.pointer.map(|(x, y, image)| {
+                let image = &cursor.images[image];
+                [
+                    ("CRTC_ID", property::Value::CRTC(Some(self.crtc))),
+                    (
+                        "FB_ID",
+                        property::Value::Framebuffer(Some(image.framebuffer)),
+                    ),
+                    ("SRC_X", property::Value::UnsignedRange(0)),
+                    ("SRC_Y", property::Value::UnsignedRange(0)),
+                    (
+                        "SRC_W",
+                        property::Value::UnsignedRange(u64::from(width) << 16),
+                    ),
+                    (
+                        "SRC_H",
+                        property::Value::UnsignedRange(u64::from(height) << 16),
+                    ),
+                    (
+                        "CRTC_X",
+                        property::Value::SignedRange(i64::from(x) - i64::from(image.hotspot.0)),
+                    ),
+                    (
+                        "CRTC_Y",
+                        property::Value::SignedRange(i64::from(y) - i64::from(image.hotspot.1)),
+                    ),
+                    ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
+                    ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
+                ]
+            });
+            match shown {
+                Some(properties) => {
+                    for (name, value) in properties {
+                        request.add_property(plane, property_handle(card, plane, name)?, value);
+                    }
+                }
+                None => {
+                    request.add_property(
+                        plane,
+                        property_handle(card, plane, "CRTC_ID")?,
+                        property::Value::CRTC(None),
+                    );
+                    request.add_property(
+                        plane,
+                        property_handle(card, plane, "FB_ID")?,
+                        property::Value::Framebuffer(None),
+                    );
+                }
+            }
+        }
         card.atomic_commit(flags, request)?;
         self.configured = true;
+        self.front = Some(framebuffer);
+        self.shown_pointer = self.pointer;
         Ok(())
     }
 
@@ -312,6 +532,43 @@ impl Drop for Display {
         }
         let _ = self.card.release_master_lock();
     }
+}
+
+/// A buffer of the cursor plane's `size` holding `image`, transparent around it.
+fn cursor_image(card: &Card, size: (u32, u32), image: &PointerImage) -> io::Result<CursorImage> {
+    let (width, height) = size;
+    if image.width > width
+        || image.height > height
+        || image.hotspot.0 >= image.width.max(1)
+        || image.hotspot.1 >= image.height.max(1)
+        || image.pixels.len() != (image.width * image.height) as usize
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "a {}x{} pointer image does not fit the {width}x{height} cursor plane",
+                image.width, image.height
+            ),
+        ));
+    }
+    let mut buffer = card.create_dumb_buffer(size, DrmFourcc::Argb8888, 32)?;
+    let pitch = buffer.pitch() as usize;
+    {
+        let mut mapping = card.map_dumb_buffer(&mut buffer)?;
+        mapping.fill(0);
+        for (y, row) in image.pixels.chunks_exact(image.width as usize).enumerate() {
+            for (x, pixel) in row.iter().enumerate() {
+                let at = y * pitch + x * 4;
+                mapping[at..at + 4].copy_from_slice(&pixel.to_le_bytes());
+            }
+        }
+    }
+    let framebuffer = card.add_framebuffer(&buffer, 32, 32)?;
+    Ok(CursorImage {
+        _buffer: buffer,
+        framebuffer,
+        hotspot: image.hotspot,
+    })
 }
 
 fn property_handle(

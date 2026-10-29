@@ -2,6 +2,7 @@
 // AssetSourceResolver looks for them next to a file:// bundle. React Native runs its Android
 // implementation on OxyOS (metro.config.js), so that is Android's resource layout:
 // `<folder for the scale>/<resource identifier>.<type>`, computed by React Native's own helpers.
+import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,10 +29,19 @@ fs.symlinkSync(bloom, linked);
 // Transform output depends on config (asset registry, platform resolution): never reuse a cache.
 const config = await Metro.loadConfig({ config: path.resolve('metro.config.js'), resetCache: true });
 const out = path.resolve(outDir, 'index.js');
+// With HERMESC (the hermesc of the Hermes the host runs), the bundle is Hermes bytecode, as an
+// Android release build ships it: the Android Gradle plugin compiles Metro's output with
+// `-emit-binary -O`. Without it, the bundle is source, which Hermes parses and compiles at startup.
+const hermesc = process.env.HERMESC;
+const source = hermesc ? path.resolve(outDir, 'index.source.js') : out;
 fs.mkdirSync(path.dirname(out), { recursive: true });
 const result = await Metro.runBuild(config, {
-  entry, out, platform: 'oxyos', dev: false, minify: false, assets: true,
+  entry, out: source, platform: 'oxyos', dev: false, minify: false, assets: true,
 });
+if (hermesc) {
+  execFileSync(hermesc, ['-emit-binary', '-O', '-w', '-out', out, source], { stdio: 'inherit' });
+  fs.rmSync(source);
+}
 let copied = 0;
 for (const asset of result.assets ?? []) {
   asset.files.forEach((file, index) => {
@@ -42,4 +52,4 @@ for (const asset of result.assets ?? []) {
     copied += 1;
   });
 }
-console.log(JSON.stringify({ bundle: out, assets: copied }));
+console.log(JSON.stringify({ bundle: out, bytecode: Boolean(hermesc), assets: copied }));

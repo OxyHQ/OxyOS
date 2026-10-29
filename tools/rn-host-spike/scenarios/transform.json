@@ -1,0 +1,143 @@
+{
+  "about": "Transforms (sample/TransformProbe.tsx), as Android draws and hits a view through its matrix: a box moved 120 to the right and 40 down is drawn where the transform puts it, with the view inside it, and nothing is left where its layout alone would put it; a box scaled twice its size and one turned 45 degrees are drawn, and pressed, where they are drawn, beyond their layout, and not in a corner of their layout they no longer cover; a box turned a quarter turn at each press keeps its bounding box, and is drawn again turned, its one rounded corner where the turn takes it.",
+  "module": "TransformProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "the moved box is drawn where its transform puts it, the view inside it moved with it, the scaled and turned boxes where theirs put them; a press where the moved box's layout alone would put it reaches the page behind",
+      "do": [
+        "press",
+        [
+          60,
+          50
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "145,65": "#d03030",
+          "170,90": "#3050d0",
+          "30,30": "#ffffff",
+          "250,30": "#3050d0",
+          "310,90": "#30a050",
+          "235,60": "#ffffff",
+          "90,152": "#d08000",
+          "130,190": "#d08000",
+          "64,164": "#ffffff",
+          "203,173": "#ffffff",
+          "257,173": "#8030c0"
+        },
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        },
+        "absent": [
+          "Pressed: the moved box"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a press where it is drawn presses it",
+      "do": [
+        "press",
+        [
+          150,
+          70
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the moved box"
+        ],
+        "react": {
+          "touchStart@moved": 1,
+          "touchEnd@moved": 1
+        }
+      }
+    },
+    {
+      "name": "a press on the scaled box beyond its layout presses it",
+      "do": [
+        "press",
+        [
+          316,
+          96
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the scaled box"
+        ],
+        "react": {
+          "touchStart@scaled": 1,
+          "touchEnd@scaled": 1
+        }
+      }
+    },
+    {
+      "name": "a press on the turned box beyond its layout presses it",
+      "do": [
+        "press",
+        [
+          130,
+          190
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the rotated box"
+        ],
+        "react": {
+          "touchStart@rotated": 1,
+          "touchEnd@rotated": 1
+        }
+      }
+    },
+    {
+      "name": "a press in a corner of its layout that it no longer covers reaches the page behind",
+      "do": [
+        "press",
+        [
+          64,
+          164
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the rotated box"
+        ],
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a quarter turn keeps the box's bounding box and moves no child: its rounded corner is drawn again where the turn takes it",
+      "do": [
+        "press",
+        [
+          230,
+          215
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "turned 1"
+        ],
+        "react": {
+          "touchStart@turning": 1,
+          "touchEnd@turning": 1
+        },
+        "pixels": {
+          "257,173": "#ffffff",
+          "203,173": "#8030c0"
+        }
+      }
+    }
+  ]
+}

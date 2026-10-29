@@ -1638,7 +1638,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\"}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1653,6 +1653,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
+            session.compositor.scene.pointer_shape(),
         ));
         snapshots.push(snapshot(
             &session.compositor,

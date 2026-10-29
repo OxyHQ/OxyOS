@@ -280,6 +280,13 @@ void GestureHandlerHost::fingers(uint8_t action, size_t index, const SurfaceCont
   deliver();
 }
 
+std::optional<std::chrono::steady_clock::time_point> GestureHandlerHost::nextDeadline() const {
+  int64_t at = oxyos_gestures_next_deadline(gestures_);
+  if (at < 0) return std::nullopt;
+  // now() counts milliseconds of the steady clock.
+  return std::chrono::steady_clock::time_point(std::chrono::milliseconds(at));
+}
+
 bool GestureHandlerHost::tick() {
   oxyos_gestures_tick(gestures_, now());
   return deliver();

@@ -16,8 +16,8 @@ pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
     BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase, Gravity, Outcome,
-    PanelEdge, PointerKind, Positioner, PreeditStyle, PreeditText, Rect, ShellKind, Size,
-    TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, ShellKind,
+    Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.

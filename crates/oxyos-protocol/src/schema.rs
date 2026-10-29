@@ -3,8 +3,9 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Clock, DismissReason,
-    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, Positioner, PreeditStyle,
-    PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
+    ErrorCode, Format, GesturePhase, Outcome, PanelEdge, PointerKind, PointerShape, Positioner,
+    PreeditStyle, PreeditText, Rect, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
+    Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -146,6 +147,8 @@ messages! {
         49 => ActivateWorkspace { workspace: u32 },
         50 => AddWorkspace {},
         51 => RemoveWorkspace { workspace: u32 },
+        // The pointer's shape while it is over the surface (the arrow until one is asked for).
+        52 => SetPointerShape { surface: u32, shape: PointerShape },
     }
 }
 

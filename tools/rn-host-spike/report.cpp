@@ -107,6 +107,18 @@ void Report::gesture(const folly::dynamic& extra) {
   write(std::move(line));
 }
 
+void Report::modalAnimation(const char* event, const char* kind, const ShadowView& view, const std::string& within) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "modal_animation")("event", event)("animation", kind)("target", name(view))(
+      "within", within));
+}
+
+void Report::modalPresented(const char* event, const std::string& within, float offset, float alpha, float height) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "modal_presented")("event", event)("within", within)("offset", offset)(
+      "alpha", alpha)("height", height));
+}
+
 void Report::popup(const char* event, uint32_t surface, const ShadowView* view, const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

@@ -66,6 +66,23 @@ pub const OXYOS_PINCH_CANCEL: u32 = 4;
 /// A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event).
 pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
 pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
+/// Pointer shapes (`oxyos_client_set_pointer_shape`), the protocol's.
+pub const OXYOS_POINTER_ARROW: u8 = 1;
+pub const OXYOS_POINTER_TEXT: u8 = 2;
+pub const OXYOS_POINTER_HAND: u8 = 3;
+pub const OXYOS_POINTER_NOT_ALLOWED: u8 = 4;
+pub const OXYOS_POINTER_WAIT: u8 = 5;
+pub const OXYOS_POINTER_HELP: u8 = 6;
+pub const OXYOS_POINTER_CROSSHAIR: u8 = 7;
+pub const OXYOS_POINTER_MOVE: u8 = 8;
+pub const OXYOS_POINTER_GRAB: u8 = 9;
+pub const OXYOS_POINTER_GRABBING: u8 = 10;
+pub const OXYOS_POINTER_RESIZE_HORIZONTAL: u8 = 11;
+pub const OXYOS_POINTER_RESIZE_VERTICAL: u8 = 12;
+pub const OXYOS_POINTER_RESIZE_TOP_LEFT: u8 = 13;
+pub const OXYOS_POINTER_RESIZE_TOP_RIGHT: u8 = 14;
+pub const OXYOS_POINTER_ZOOM_IN: u8 = 15;
+pub const OXYOS_POINTER_ZOOM_OUT: u8 = 16;
 /// What the shell asks of windows and workspaces (`oxyos_client_manage`).
 pub const OXYOS_MANAGE_FOCUS: u8 = 1;
 pub const OXYOS_MANAGE_CLOSE: u8 = 2;
@@ -742,6 +759,25 @@ pub unsafe extern "C" fn oxyos_client_manage(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0 on success, or
+/// OXYOS_ERROR for a shape that is not one.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_pointer_shape(
+    client: *mut OxyOSClient,
+    surface: u32,
+    shape: u8,
+) -> c_int {
+    let Some(shape) = oxyos_protocol::PointerShape::from_raw(shape) else {
+        return fail("not a pointer shape");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetPointerShape { surface, shape }) }
 }
 
 /// Limits where a surface takes pointer and touch input to a surface-local logical rectangle

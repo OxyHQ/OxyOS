@@ -2049,3 +2049,45 @@ fn a_tap_is_recognized_through_the_c_abi() {
         oxyos_gestures_free(gestures);
     }
 }
+
+#[test]
+fn the_header_matches_the_pointer_shapes() {
+    for (name, value) in [
+        ("OXYOS_POINTER_ARROW", OXYOS_POINTER_ARROW),
+        ("OXYOS_POINTER_TEXT", OXYOS_POINTER_TEXT),
+        ("OXYOS_POINTER_HAND", OXYOS_POINTER_HAND),
+        ("OXYOS_POINTER_NOT_ALLOWED", OXYOS_POINTER_NOT_ALLOWED),
+        ("OXYOS_POINTER_WAIT", OXYOS_POINTER_WAIT),
+        ("OXYOS_POINTER_HELP", OXYOS_POINTER_HELP),
+        ("OXYOS_POINTER_CROSSHAIR", OXYOS_POINTER_CROSSHAIR),
+        ("OXYOS_POINTER_MOVE", OXYOS_POINTER_MOVE),
+        ("OXYOS_POINTER_GRAB", OXYOS_POINTER_GRAB),
+        ("OXYOS_POINTER_GRABBING", OXYOS_POINTER_GRABBING),
+        (
+            "OXYOS_POINTER_RESIZE_HORIZONTAL",
+            OXYOS_POINTER_RESIZE_HORIZONTAL,
+        ),
+        (
+            "OXYOS_POINTER_RESIZE_VERTICAL",
+            OXYOS_POINTER_RESIZE_VERTICAL,
+        ),
+        (
+            "OXYOS_POINTER_RESIZE_TOP_LEFT",
+            OXYOS_POINTER_RESIZE_TOP_LEFT,
+        ),
+        (
+            "OXYOS_POINTER_RESIZE_TOP_RIGHT",
+            OXYOS_POINTER_RESIZE_TOP_RIGHT,
+        ),
+        ("OXYOS_POINTER_ZOOM_IN", OXYOS_POINTER_ZOOM_IN),
+        ("OXYOS_POINTER_ZOOM_OUT", OXYOS_POINTER_ZOOM_OUT),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+        // Each is the protocol's shape of that number.
+        assert!(
+            oxyos_protocol::PointerShape::from_raw(value).is_some(),
+            "{name}"
+        );
+    }
+    assert!(oxyos_protocol::PointerShape::from_raw(17).is_none());
+}

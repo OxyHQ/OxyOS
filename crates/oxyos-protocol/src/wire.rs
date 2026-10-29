@@ -142,6 +142,15 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// The pointer's shape a surface wants while the pointer is over it, as Android's pointer
+    /// icons name them: the arrow, text, a hand on what can be pressed, and the rest.
+    PointerShape: u8 {
+        Arrow = 1, Text = 2, Hand = 3, NotAllowed = 4, Wait = 5, Help = 6, Crosshair = 7,
+        Move = 8, Grab = 9, Grabbing = 10, ResizeHorizontal = 11, ResizeVertical = 12,
+        ResizeTopLeft = 13, ResizeTopRight = 14, ZoomIn = 15, ZoomOut = 16,
+    }
+}
+wire_enum! {
     /// How a segment of a composition is drawn: the whole composition, the segment being
     /// converted, or text the input method marks as wrong.
     PreeditStyle: u8 { Composing = 1, Converting = 2, Error = 3 }

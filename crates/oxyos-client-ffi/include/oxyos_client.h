@@ -248,6 +248,25 @@ int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, ui
 
 /* Limits where a surface takes pointer and touch input to a surface-local logical rectangle (an
  * empty one: nowhere); input elsewhere reaches what is below. */
+/* Pointer shapes (the protocol's): the pointer's shape while it is over a surface. */
+#define OXYOS_POINTER_ARROW 1
+#define OXYOS_POINTER_TEXT 2
+#define OXYOS_POINTER_HAND 3
+#define OXYOS_POINTER_NOT_ALLOWED 4
+#define OXYOS_POINTER_WAIT 5
+#define OXYOS_POINTER_HELP 6
+#define OXYOS_POINTER_CROSSHAIR 7
+#define OXYOS_POINTER_MOVE 8
+#define OXYOS_POINTER_GRAB 9
+#define OXYOS_POINTER_GRABBING 10
+#define OXYOS_POINTER_RESIZE_HORIZONTAL 11
+#define OXYOS_POINTER_RESIZE_VERTICAL 12
+#define OXYOS_POINTER_RESIZE_TOP_LEFT 13
+#define OXYOS_POINTER_RESIZE_TOP_RIGHT 14
+#define OXYOS_POINTER_ZOOM_IN 15
+#define OXYOS_POINTER_ZOOM_OUT 16
+/* The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0, or OXYOS_ERROR. */
+int oxyos_client_set_pointer_shape(OxyOSClient* client, uint32_t surface, uint8_t shape);
 int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,
                                   uint32_t height);
 int oxyos_client_create_popup(OxyOSClient* client, uint32_t surface, uint32_t parent,
