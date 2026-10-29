@@ -52,6 +52,11 @@ pub struct Compositor {
     /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
     pub input_log: Vec<(ClientId, u32, &'static str)>,
     pub log_input: bool,
+    /// Clients of the scene with no connection, played by the program running the compositor
+    /// (a development compositor's assistive technology or input method): their events are kept
+    /// in `local_events` for it, not dropped.
+    pub local_clients: std::collections::BTreeSet<ClientId>,
+    pub local_events: Vec<(ClientId, Event)>,
     /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
     /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
     pub gpu: Option<Gpu>,
@@ -148,6 +153,8 @@ impl Compositor {
             frames: 0,
             input_log: Vec::new(),
             log_input: false,
+            local_clients: Default::default(),
+            local_events: Vec::new(),
             gpu: None,
             gpu_only: false,
             shown_kept: false,
@@ -350,6 +357,10 @@ impl Compositor {
                 if let Some((surface, kind)) = input_kind(&event) {
                     self.input_log.push((client, surface, kind));
                 }
+            }
+            if self.local_clients.contains(&client) {
+                self.local_events.push((client, event));
+                continue;
             }
             if let Some(peer) = self.peers.get_mut(&client) {
                 if matches!(
@@ -772,12 +783,7 @@ impl Compositor {
                     code,
                     pressed,
                     text,
-                } => {
-                    self.scene.key(code, pressed);
-                    if let Some(text) = text {
-                        self.scene.text(&text);
-                    }
-                }
+                } => self.scene.keyboard(code, pressed, text.as_deref()),
                 oxyos_input::Action::Terminate => self.ending = true,
                 oxyos_input::Action::SwitchTerminal(number) => {
                     if let Some(seat) = &self.seat {

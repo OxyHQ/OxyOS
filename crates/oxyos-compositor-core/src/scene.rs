@@ -56,6 +56,9 @@ pub struct Grants {
     /// An assistive technology: reads every surface's accessibility snapshot and acts on
     /// nodes (ADR 0003).
     pub accessibility: bool,
+    /// The input method (ADR 0008): serves the focused text field, receiving its state and the
+    /// keys first. At most one connected client holds it.
+    pub input_method: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,6 +306,8 @@ pub struct Scene {
     accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
     /// What each surface with a text field told about it (ADR 0008).
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
+    /// The input method, if one is connected.
+    input_method: Option<input_method::InputMethod>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -527,10 +532,18 @@ impl Scene {
         if self.clients.len() >= MAX_CLIENTS {
             return Err(ErrorCode::QuotaExceeded);
         }
+        // One input method at a time: the session chooses it.
+        if grants.input_method && self.input_method.is_some() {
+            return Err(ErrorCode::Unauthorized);
+        }
         self.clients.insert(client, grants);
         self.activation.insert(client, self.serial);
         if grants.accessibility {
             self.replay_accessibility(client);
+        }
+        if grants.input_method {
+            self.input_method = Some(input_method::InputMethod::new(client));
+            self.refresh_input_method();
         }
         Ok(())
     }
@@ -541,6 +554,8 @@ impl Scene {
         if self.clients.remove(&client).is_none() {
             return;
         }
+        // The keys an input method held go on to the field before anything else changes.
+        self.forget_input_method(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -598,6 +613,10 @@ impl Scene {
         grants.lock &= !revoked.lock;
         grants.shortcuts &= !revoked.shortcuts;
         grants.accessibility &= !revoked.accessibility;
+        grants.input_method &= !revoked.input_method;
+        if revoked.input_method {
+            self.forget_input_method(client);
+        }
         let keys: Vec<SurfaceKey> = self
             .nodes
             .iter()
@@ -854,8 +873,17 @@ impl Scene {
             } => self.text_input_selection(key(surface), anchor, cursor),
             Request::TextInputCaret { surface, rect } => self.text_input_caret(key(surface), rect),
             Request::TextInputCommit { surface, serial } => {
-                self.text_input_commit(key(surface), serial)
+                self.text_input_commit(key(surface), serial)?;
+                self.refresh_input_method();
+                Ok(())
             }
+            Request::InputMethodKeyHandled { .. }
+            | Request::InputMethodDelete { .. }
+            | Request::InputMethodCommitText { .. }
+            | Request::InputMethodPreeditText { .. }
+            | Request::InputMethodPreeditCursor { .. }
+            | Request::InputMethodPreeditSegment { .. }
+            | Request::InputMethodCommit { .. } => self.input_method_request(client, request),
             Request::Damage { surface, rect } => {
                 let node = self
                     .nodes
@@ -1923,6 +1951,8 @@ impl Scene {
         if self.focus == key {
             return;
         }
+        // The input method stops serving the field before focus leaves it.
+        self.deactivate_input_method();
         if let Some(old) = self.focus.take() {
             self.emit(
                 old.client,
@@ -1943,6 +1973,7 @@ impl Scene {
         }
         self.focus = key;
         self.tell_clipboard();
+        self.refresh_input_method();
     }
 
     /// Focus target inside a window group: its topmost live modal dialog, else the window.
@@ -2450,10 +2481,19 @@ impl Scene {
         });
     }
 
+    /// Whether `key` goes to the shell's shortcut target rather than the focused surface.
+    fn is_shortcut(&self, key: u32) -> bool {
+        !self.locked
+            && self.shortcuts.contains(&key)
+            && self
+                .shortcut_target
+                .is_some_and(|target| self.live(target).is_some())
+    }
+
     pub fn key(&mut self, key: u32, pressed: bool) {
         let serial = self.next_serial();
-        if !self.locked && self.shortcuts.contains(&key) {
-            if let Some(target) = self.shortcut_target.filter(|t| self.live(*t).is_some()) {
+        if self.is_shortcut(key) {
+            if let Some(target) = self.shortcut_target {
                 if pressed {
                     self.last_user_serial = serial;
                     self.record_press(serial, target, false);
@@ -2720,6 +2760,8 @@ mod accessibility;
 pub use accessibility::AccessibleNode;
 mod text_input;
 pub use text_input::{TextInputState, TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
+mod input_method;
+pub use input_method::MAX_PENDING_KEYS;
 
 #[cfg(test)]
 mod tests;

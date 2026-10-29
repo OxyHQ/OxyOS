@@ -405,6 +405,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::TextInputPreeditText { .. }
         | Event::TextInputPreeditCursor { .. }
         | Event::TextInputPreeditSegment { .. } => return None,
+        // Only to the input method, which is never a C client.
+        Event::InputMethodActivate {}
+        | Event::InputMethodDeactivate {}
+        | Event::InputMethodPurpose { .. }
+        | Event::InputMethodSurrounding { .. }
+        | Event::InputMethodSelection { .. }
+        | Event::InputMethodDone { .. }
+        | Event::InputMethodKey { .. } => return None,
         Event::TextInputDone {
             surface,
             serial,

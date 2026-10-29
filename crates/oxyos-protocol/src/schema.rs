@@ -117,6 +117,17 @@ messages! {
         32 => TextInputSelection { surface: u32, anchor: u32, cursor: u32 },
         33 => TextInputCaret { surface: u32, rect: Rect },
         34 => TextInputCommit { surface: u32, serial: u32 },
+        // The input method (a client granted `input_method`, ADR 0008): its answer for each key
+        // it was given (`used`: it took the key; otherwise the key goes on to the application),
+        // and a change for the field, in parts applied at InputMethodCommit, whose serial is the
+        // field's commit (InputMethodDone) it was made for.
+        35 => InputMethodKeyHandled { serial: u64, used: bool },
+        36 => InputMethodDelete { before: u32, after: u32 },
+        37 => InputMethodCommitText { text: TextChunk },
+        38 => InputMethodPreeditText { text: TextChunk },
+        39 => InputMethodPreeditCursor { begin: u32, end: u32 },
+        40 => InputMethodPreeditSegment { begin: u32, end: u32, style: PreeditStyle },
+        41 => InputMethodCommit { serial: u32 },
     }
 }
 
@@ -165,6 +176,18 @@ messages! {
         27 => TextInputPreeditCursor { surface: u32, begin: u32, end: u32 },
         28 => TextInputPreeditSegment { surface: u32, begin: u32, end: u32, style: PreeditStyle },
         29 => TextInputDone { surface: u32, serial: u64, commit: u32 },
+        // To the input method: the focused field it may serve, never its surface or client.
+        // Activate begins one; each state follows as its purpose, surrounding text (chunks) and
+        // selection, closed by InputMethodDone with the field's commit serial; Deactivate ends
+        // it. While one is active it receives the keys first (`text` what the layout types, empty
+        // if nothing) and answers each with InputMethodKeyHandled.
+        30 => InputMethodActivate {},
+        31 => InputMethodDeactivate {},
+        32 => InputMethodPurpose { purpose: TextPurpose, hints: TextHints },
+        33 => InputMethodSurrounding { text: TextChunk },
+        34 => InputMethodSelection { anchor: u32, cursor: u32 },
+        35 => InputMethodDone { serial: u32 },
+        36 => InputMethodKey { serial: u64, key: u32, pressed: bool, text: PreeditText },
     }
 }
 

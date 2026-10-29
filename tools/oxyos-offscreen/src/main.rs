@@ -10,6 +10,7 @@
 //! host), passing the socket in `OXYOS_COMPOSITOR_SOCKET`, and presses the points `--press` names.
 
 mod client;
+mod ime;
 mod launch;
 mod png;
 mod uinput;
@@ -93,6 +94,8 @@ struct Session {
     socket: PathBuf,
     baseline_fds: usize,
     _cleanup: TempDir,
+    /// With `--input-method`: the input method the session plays (ime.rs).
+    ime: Option<ime::Ime>,
 }
 
 impl Session {
@@ -124,6 +127,7 @@ impl Session {
             socket,
             baseline_fds,
             _cleanup: cleanup,
+            ime: None,
         })
     }
 
