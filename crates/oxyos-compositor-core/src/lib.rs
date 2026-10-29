@@ -9,6 +9,6 @@ pub mod scene;
 pub use presentation::{Error, Extent, Frame, Presentation};
 pub use scene::{
     AccessibleNode, ClientId, Grants, Output, OutputId, RenderItem, Role, Scene, Stats,
-    SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, MAX_PREEDIT_BYTES,
-    MAX_PREEDIT_SEGMENTS,
+    SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, MAX_PENDING_KEYS,
+    MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS,
 };

@@ -49,6 +49,18 @@ pub enum Step {
         cursor: (u32, u32),
         segments: Vec<(u32, u32, PreeditStyle)>,
     },
+    /// Text typed key by key through the compositor's keyboard path (lowercase letters, digits,
+    /// space, '.' and Enter as a newline): with `--input-method`, through the input method, which
+    /// gives each key back, or (`compose`) composes the keys' text and commits it on Enter.
+    Keyboard { text: String, compose: bool },
+    /// The input method sends a change of its own, for the field's latest state or (`stale`) the
+    /// state before it.
+    ImChange {
+        delete: (u32, u32),
+        commit: String,
+        preedit: String,
+        stale: bool,
+    },
     /// Left-button drag in the window: press at the first point, move to the second, release.
     Drag { from: (i32, i32), to: (i32, i32) },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
@@ -93,6 +105,18 @@ impl Step {
             } => format!(
                 "a transaction deleting {delete:?}, committing {commit:?}, composing {preedit:?}"
             ),
+            Step::Keyboard { text, compose } => {
+                format!("keys {text:?}{}", if *compose { ", composed" } else { "" })
+            }
+            Step::ImChange {
+                delete,
+                commit,
+                preedit,
+                stale,
+            } => format!(
+                "the input method deleting {delete:?}, committing {commit:?}, composing {preedit:?}{}",
+                if *stale { " for an older state" } else { "" }
+            ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
@@ -136,6 +160,23 @@ impl Step {
                     segments.join(",")
                 )
             }
+            Step::Keyboard { text, compose } => format!(
+                "\"{}\":{}",
+                if *compose { "compose_keys" } else { "keyboard" },
+                json_string(text)
+            ),
+            Step::ImChange {
+                delete,
+                commit,
+                preedit,
+                stale,
+            } => format!(
+                "\"im_change\":{{\"delete\":[{},{}],\"commit\":{},\"preedit\":{},\"stale\":{stale}}}",
+                delete.0,
+                delete.1,
+                json_string(commit),
+                json_string(preedit)
+            ),
             Step::Drag { from, to } => {
                 format!("\"drag\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
@@ -219,10 +260,12 @@ pub struct Launch {
     pub seat: bool,
     /// `--layout LAYOUT`: the XKB layout keys are typed and read with (`us` by default).
     pub layout: String,
+    /// `--input-method`: the session plays an input method (ime.rs).
+    pub input_method: bool,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [[--allow-unchanged] --press X,Y | \
+                     --press-popup X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -247,7 +290,7 @@ impl Launch {
         let mut dump_frames = None;
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
-        let mut seat = false;
+        let (mut seat, mut input_method) = (false, false);
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -280,6 +323,10 @@ impl Launch {
                 }
                 Some("--seat") => {
                     seat = true;
+                    continue;
+                }
+                Some("--input-method") => {
+                    input_method = true;
                     continue;
                 }
                 Some("--layout") => {
@@ -367,6 +414,29 @@ impl Launch {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
                 }
+                Some(flag @ ("--keyboard" | "--compose-keys")) => {
+                    let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    Step::Keyboard {
+                        text: text.to_string(),
+                        compose: flag == "--compose-keys",
+                    }
+                }
+                Some("--im-change") => {
+                    let delete = numbers(args.next(), 2)?;
+                    let mut text = || args.next().and_then(|t| t.to_str()).ok_or(USAGE);
+                    let (commit, preedit) = (text()?.to_string(), text()?.to_string());
+                    let stale = match text()? {
+                        "current" => false,
+                        "stale" => true,
+                        other => return Err(format!("--im-change for {other:?}\n{USAGE}").into()),
+                    };
+                    Step::ImChange {
+                        delete: (u32::try_from(delete[0])?, u32::try_from(delete[1])?),
+                        commit,
+                        preedit,
+                        stale,
+                    }
+                }
                 Some("--transaction") => {
                     let delete = numbers(args.next(), 2)?;
                     let mut text = || args.next().and_then(|t| t.to_str()).ok_or(USAGE);
@@ -407,6 +477,7 @@ impl Launch {
                             uinput,
                             seat,
                             layout,
+                            input_method,
                         },
                     ));
                 }
@@ -489,6 +560,9 @@ fn settle(
             );
         }
         session.compositor.serve(&session.listener)?;
+        if let Some(ime) = session.ime.as_mut() {
+            ime.serve(&mut session.compositor)?;
+        }
         let now = shown(&session.compositor);
         let changed = now != last.0;
         if changed {
@@ -598,7 +672,7 @@ fn delivered_json(compositor: &Compositor) -> String {
     format!("{{{}}}", fields.join(","))
 }
 
-fn json_string(text: &str) -> String {
+pub fn json_string(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
         match c {
@@ -756,6 +830,55 @@ fn inject_through(
         _ => return Ok(None),
     }
     Ok(Some(0))
+}
+
+/// The Linux key code typing `c` on a US layout, and the text it types (none for Enter).
+fn key_for(c: char) -> Result<(u32, Option<String>)> {
+    const LETTERS: [u32; 26] = [
+        30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17,
+        45, 21, 44,
+    ];
+    let code = match c {
+        'a'..='z' => LETTERS[c as usize - 'a' as usize],
+        '1'..='9' => c as u32 - '1' as u32 + 2,
+        '0' => 11,
+        ' ' => 57,
+        '.' => 52,
+        '\n' => return Ok((28, None)),
+        _ => return Err(format!("{c:?} has no key in --keyboard").into()),
+    };
+    Ok((code, Some(c.to_string())))
+}
+
+/// The steps the session's input method takes part in.
+fn inject_input_method(session: &mut Session, step: &Step) -> Result<()> {
+    match step {
+        Step::Keyboard { text, compose } => {
+            match session.ime.as_mut() {
+                Some(ime) => ime.takes_keys = *compose,
+                None if *compose => return Err("--compose-keys needs --input-method".into()),
+                None => {}
+            }
+            for c in text.chars() {
+                let (code, typed) = key_for(c)?;
+                let scene = &mut session.compositor.scene;
+                scene.keyboard(code, true, typed.as_deref());
+                scene.keyboard(code, false, None);
+            }
+        }
+        Step::ImChange {
+            delete,
+            commit,
+            preedit,
+            stale,
+        } => session
+            .ime
+            .as_mut()
+            .ok_or("--im-change needs --input-method")?
+            .change(&mut session.compositor, *delete, commit, preedit, *stale)?,
+        _ => unreachable!("not a step of the input method"),
+    }
+    Ok(())
 }
 
 /// Goes to terminal `number` and back through the devices (`Step::SwitchTerminal`); returns
@@ -948,8 +1071,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
             .map_err(|code| format!("scale {scale}: {code:?}"))?,
-        // Handled by the step loop: no input to inject.
-        Step::ExpectPopup => {}
+        // Handled by the step loop: no input to inject, or the session's input method's.
+        Step::ExpectPopup | Step::Keyboard { .. } | Step::ImChange { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -970,6 +1093,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         _ => None,
     };
     let mut session = Session::start()?;
+    if launch.input_method {
+        session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
+    }
     session
         .compositor
         .scene
@@ -1190,7 +1316,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
         let before = shown(&session.compositor);
         let injected_ns = monotonic_ns();
+        if let Some(ime) = session.ime.as_mut() {
+            (ime.keys, ime.given_back) = (0, 0);
+        }
         let typed_as_text = match devices.as_mut() {
+            _ if matches!(step, Step::Keyboard { .. } | Step::ImChange { .. }) => {
+                inject_input_method(&mut session, step)?;
+                0
+            }
             Some(devices) => {
                 match inject_through(devices, &mut session.compositor, window, step)? {
                     Some(count) => count,
@@ -1229,7 +1362,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1241,6 +1374,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             answer.window.height,
             accessibility_json(&session.compositor),
             field_json(&session.compositor),
+            session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
         ));
         snapshots.push(snapshot(
             &session.compositor,
@@ -1257,6 +1391,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     drop(devices);
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);
+    if session.ime.take().is_some() {
+        session.compositor.scene.disconnect(crate::ime::IME);
+    }
     let gpu = match session.compositor.gpu.take() {
         Some(gpu) if gpu.mismatches > 0 => {
             return Err(if launch.gpu_only {
@@ -1397,6 +1534,16 @@ mod tests {
             "ごが",
             "3,6",
             "0-3:composing;3-6:converting",
+            "--input-method",
+            "--keyboard",
+            "hola",
+            "--compose-keys",
+            "nihon\n",
+            "--im-change",
+            "5,0",
+            "x",
+            "",
+            "stale",
             "--switch-terminal",
             "5",
             "--key",
@@ -1424,14 +1571,14 @@ mod tests {
         assert!(launch.gpu && launch.gpu_only);
         assert_eq!(launch.dump_frames, Some(PathBuf::from("frames")));
         assert_eq!(launch.kms, Some(PathBuf::from("/dev/dri/card1")));
-        assert!(launch.seat);
+        assert!(launch.seat && launch.input_method);
         let steps: Vec<Step> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
         let allowed: Vec<bool> = launch.steps.iter().map(|(_, allow)| *allow).collect();
         assert_eq!(
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, true
+                false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -1454,6 +1601,20 @@ mod tests {
                         (0, 3, PreeditStyle::Composing),
                         (3, 6, PreeditStyle::Converting)
                     ],
+                },
+                Step::Keyboard {
+                    text: "hola".into(),
+                    compose: false
+                },
+                Step::Keyboard {
+                    text: "nihon\n".into(),
+                    compose: true
+                },
+                Step::ImChange {
+                    delete: (5, 0),
+                    commit: "x".into(),
+                    preedit: String::new(),
+                    stale: true
                 },
                 Step::SwitchTerminal(5),
                 Step::Key(vec![14]),

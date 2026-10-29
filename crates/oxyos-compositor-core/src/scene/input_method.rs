@@ -1,0 +1,328 @@
+//! The input method (ADR 0008): one client the session grants `input_method`. While the focused
+//! surface has a field with text input enabled, and the field is not sensitive, the input method
+//! is told the field's state (never its surface, its client or where it is on screen), receives
+//! the keys first and gives back those it does not use, and sends changes the field applies
+//! whole.
+
+use super::text_input::{TextTransaction, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS};
+use super::{ClientId, Scene, SurfaceKey};
+use oxyos_protocol::{
+    ErrorCode, Event, PreeditStyle, PreeditText, Request, TextChunk, TextHints, TextPurpose,
+    MAX_SURROUNDING_BYTES,
+};
+use std::collections::VecDeque;
+
+/// Keys the input method may hold unanswered. Past this it is not answering: every key it holds
+/// goes on to the application, so a stuck input method never takes the keyboard with it.
+pub const MAX_PENDING_KEYS: usize = 64;
+
+#[derive(Debug)]
+struct PendingKey {
+    serial: u64,
+    key: u32,
+    pressed: bool,
+    /// What the layout types with it.
+    text: Option<String>,
+    /// The input method's answer: whether it took the key.
+    used: Option<bool>,
+}
+
+/// A change being received from the input method.
+#[derive(Debug, Default)]
+struct Parts {
+    delete: (u32, u32),
+    commit: String,
+    preedit: String,
+    cursor: (u32, u32),
+    segments: Vec<(u32, u32, PreeditStyle)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Served {
+    surface: SurfaceKey,
+    field: u32,
+    serial: u32,
+}
+
+#[derive(Debug)]
+pub(super) struct InputMethod {
+    pub(super) client: ClientId,
+    /// The field it serves: its surface, which field of it, and the commit serial it was last
+    /// told.
+    active: Option<Served>,
+    keys: VecDeque<PendingKey>,
+    parts: Parts,
+}
+
+impl InputMethod {
+    pub(super) fn new(client: ClientId) -> Self {
+        Self {
+            client,
+            active: None,
+            keys: VecDeque::new(),
+            parts: Parts::default(),
+        }
+    }
+}
+
+/// Whether a field's content must never reach an input method: a password or PIN, or anything
+/// the application marked sensitive.
+fn sensitive(purpose: TextPurpose, hints: TextHints) -> bool {
+    matches!(purpose, TextPurpose::Password | TextPurpose::Pin)
+        || hints.contains(TextHints::SENSITIVE)
+}
+
+impl Scene {
+    /// The field the input method may serve now: the focused surface's, if it has text input
+    /// enabled and is not sensitive, and is not the input method's own.
+    fn served_field(&self) -> Option<Served> {
+        let im = self.input_method.as_ref()?;
+        let key = self
+            .focus
+            .filter(|f| self.visible(*f) && f.client != im.client)?;
+        let state = self.text_input(key)?;
+        (!sensitive(state.purpose, state.hints)).then_some(Served {
+            surface: key,
+            field: state.field,
+            serial: state.serial,
+        })
+    }
+
+    /// Tells the input method what changed of the field it serves: another field (deactivating
+    /// the one before first, its held keys going on to it), none, or the same field's new state.
+    pub(super) fn refresh_input_method(&mut self) {
+        let Some(active) = self.input_method.as_ref().map(|im| im.active) else {
+            return;
+        };
+        let want = self.served_field();
+        if active == want {
+            return;
+        }
+        let same = |a: Served, b: Served| (a.surface, a.field) == (b.surface, b.field);
+        if !matches!((active, want), (Some(a), Some(b)) if same(a, b)) {
+            self.deactivate_input_method();
+        }
+        let Some(Served {
+            surface: key,
+            serial,
+            ..
+        }) = want
+        else {
+            return;
+        };
+        let im = self.input_method.as_mut().expect("present");
+        let client = im.client;
+        let starting = im.active.is_none();
+        im.active = want;
+        if starting {
+            self.emit(client, Event::InputMethodActivate {});
+        }
+        let state = self.text_input(key).expect("served").clone();
+        self.emit(
+            client,
+            Event::InputMethodPurpose {
+                purpose: state.purpose,
+                hints: state.hints,
+            },
+        );
+        for text in TextChunk::split(&state.surrounding) {
+            self.emit(client, Event::InputMethodSurrounding { text });
+        }
+        self.emit(
+            client,
+            Event::InputMethodSelection {
+                anchor: state.anchor,
+                cursor: state.cursor,
+            },
+        );
+        self.emit(client, Event::InputMethodDone { serial });
+    }
+
+    /// The input method stops serving its field: the keys it holds go on to the field first, as
+    /// they would have without it, and a change it was sending is dropped.
+    pub(super) fn deactivate_input_method(&mut self) {
+        let Some(im) = self.input_method.as_mut() else {
+            return;
+        };
+        if im.active.take().is_none() {
+            return;
+        }
+        im.parts = Parts::default();
+        let client = im.client;
+        self.release_keys(true);
+        self.emit(client, Event::InputMethodDeactivate {});
+    }
+
+    /// The input method is gone (disconnected, or its grant revoked): the keys it held go on.
+    pub(super) fn forget_input_method(&mut self, client: ClientId) {
+        if self
+            .input_method
+            .as_ref()
+            .is_some_and(|im| im.client == client)
+        {
+            self.release_keys(true);
+            self.input_method = None;
+        }
+    }
+
+    /// A key from the keyboard, with what the layout types with it. Compositor shortcuts come
+    /// first; then, while the input method serves a field, it receives the key and the key waits
+    /// for its answer; otherwise the key, then its text, go to the focused surface.
+    pub fn keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
+        let served = self
+            .input_method
+            .as_ref()
+            .and_then(|im| im.active.map(|_| im.client));
+        let Some(client) = served.filter(|_| !self.is_shortcut(key)) else {
+            self.key(key, pressed);
+            if let Some(text) = text {
+                self.text(text);
+            }
+            return;
+        };
+        let serial = self.next_serial();
+        if pressed {
+            self.last_user_serial = serial;
+        }
+        let im = self.input_method.as_mut().expect("served");
+        im.keys.push_back(PendingKey {
+            serial,
+            key,
+            pressed,
+            text: text.map(str::to_string),
+            used: None,
+        });
+        let overflow = im.keys.len() > MAX_PENDING_KEYS;
+        // A key whose text is longer than one chunk reaches the input method without it.
+        let typed = text
+            .and_then(PreeditText::new)
+            .unwrap_or_else(|| PreeditText::new("").expect("empty"));
+        self.emit(
+            client,
+            Event::InputMethodKey {
+                serial,
+                key,
+                pressed,
+                text: typed,
+            },
+        );
+        if overflow {
+            self.release_keys(true);
+        }
+    }
+
+    /// Delivers the held keys in order: up to the first unanswered one, or (`all`) every one the
+    /// input method did not take.
+    fn release_keys(&mut self, all: bool) {
+        loop {
+            let Some(im) = self.input_method.as_mut() else {
+                return;
+            };
+            let Some(front) = im.keys.front() else {
+                return;
+            };
+            if front.used.is_none() && !all {
+                return;
+            }
+            let key = im.keys.pop_front().expect("present");
+            if key.used != Some(true) {
+                self.deliver_key(key);
+            }
+        }
+    }
+
+    /// A key given back reaches the focused surface as if it had come straight.
+    fn deliver_key(&mut self, pending: PendingKey) {
+        if let Some(target) = self.focus.filter(|f| self.visible(*f)) {
+            if pending.pressed {
+                self.record_press(pending.serial, target, false);
+            }
+            self.emit(
+                target.client,
+                Event::Key {
+                    surface: target.id,
+                    serial: pending.serial,
+                    key: pending.key,
+                    pressed: pending.pressed,
+                },
+            );
+        }
+        if let Some(text) = pending.text {
+            self.text(&text);
+        }
+    }
+
+    /// A request only the input method may send.
+    pub(super) fn input_method_request(
+        &mut self,
+        client: ClientId,
+        request: Request,
+    ) -> Result<(), ErrorCode> {
+        let im = self
+            .input_method
+            .as_mut()
+            .filter(|im| im.client == client)
+            .ok_or(ErrorCode::Unauthorized)?;
+        let parts = &mut im.parts;
+        match request {
+            Request::InputMethodKeyHandled { serial, used } => {
+                // A key already released (its field deactivated, or too many held) is answered
+                // late: nothing to do.
+                if let Some(key) = im.keys.iter_mut().find(|key| key.serial == serial) {
+                    key.used.get_or_insert(used);
+                }
+                self.release_keys(false);
+            }
+            Request::InputMethodDelete { before, after } => parts.delete = (before, after),
+            Request::InputMethodCommitText { text } => {
+                if parts.commit.len() + text.as_str().len() > MAX_SURROUNDING_BYTES {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                parts.commit.push_str(text.as_str());
+            }
+            Request::InputMethodPreeditText { text } => {
+                if parts.preedit.len() + text.as_str().len() > MAX_PREEDIT_BYTES {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                parts.preedit.push_str(text.as_str());
+            }
+            Request::InputMethodPreeditCursor { begin, end } => parts.cursor = (begin, end),
+            Request::InputMethodPreeditSegment { begin, end, style } => {
+                if parts.segments.len() >= MAX_PREEDIT_SEGMENTS {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                parts.segments.push((begin, end, style));
+            }
+            Request::InputMethodCommit { serial } => {
+                let parts = std::mem::take(parts);
+                // A change for a field no longer served is dropped: focus moved on.
+                let Some(Served {
+                    surface: target,
+                    serial: current,
+                    ..
+                }) = im.active
+                else {
+                    return Ok(());
+                };
+                // It names a state it was told, never a later one.
+                if serial > current {
+                    return Err(ErrorCode::InvalidMessage);
+                }
+                let change = TextTransaction {
+                    delete_before: parts.delete.0,
+                    delete_after: parts.delete.1,
+                    commit: &parts.commit,
+                    preedit: &parts.preedit,
+                    cursor: parts.cursor,
+                    segments: &parts.segments,
+                };
+                if !change.is_valid() {
+                    return Err(ErrorCode::InvalidMessage);
+                }
+                self.emit_transaction(target, &change, serial);
+            }
+            _ => unreachable!("only input-method requests are passed here"),
+        }
+        Ok(())
+    }
+}

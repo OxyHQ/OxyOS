@@ -28,6 +28,8 @@ pub struct TextInputState {
     pub caret: Option<Rect>,
     /// The client's number for this commit; changes say which one they were made for.
     pub serial: u32,
+    /// Which field of the surface this is: each enable starts another.
+    pub field: u32,
 }
 
 impl Default for TextInputState {
@@ -40,6 +42,7 @@ impl Default for TextInputState {
             cursor: 0,
             caret: None,
             serial: 0,
+            field: 0,
         }
     }
 }
@@ -62,6 +65,8 @@ pub(super) struct SurfaceTextInput {
     committed: Option<TextInputState>,
     /// The latest commit's serial, enabled or not: serials only go up.
     serial: u32,
+    /// Fields enabled on the surface so far.
+    fields: u32,
 }
 
 /// One change to a field: delete around its selection, insert `commit` at it, then show
@@ -79,7 +84,7 @@ pub struct TextTransaction<'a> {
 
 impl TextTransaction<'_> {
     /// Whether the ranges are whole characters of the composition and every limit holds.
-    fn is_valid(&self) -> bool {
+    pub(super) fn is_valid(&self) -> bool {
         let range = |begin: u32, end: u32| {
             let (begin, end) = (begin as usize, end as usize);
             begin <= end
@@ -192,7 +197,13 @@ impl Scene {
         // describe again.
         let mut state = match (pending.enabled, input.committed.take()) {
             (None, Some(state)) => state,
-            _ => TextInputState::default(),
+            _ => {
+                input.fields += 1;
+                TextInputState {
+                    field: input.fields,
+                    ..TextInputState::default()
+                }
+            }
         };
         if let Some((purpose, hints)) = pending.purpose {
             state.purpose = purpose;
@@ -238,11 +249,22 @@ impl Scene {
         let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
             return true;
         };
+        match self.text_input(target).map(|state| state.serial) {
+            Some(commit) => self.emit_transaction(target, change, commit),
+            None => self.legacy_text(target, change),
+        }
+        true
+    }
+
+    /// Sends a valid change to `target`, a surface with text input enabled, as one transaction
+    /// made for its commit `commit`.
+    pub(super) fn emit_transaction(
+        &mut self,
+        target: SurfaceKey,
+        change: &TextTransaction,
+        commit: u32,
+    ) {
         let surface = target.id;
-        let Some(commit) = self.text_input(target).map(|state| state.serial) else {
-            self.legacy_text(target, change);
-            return true;
-        };
         let serial = self.next_serial();
         if !change.commit.is_empty() {
             self.last_user_serial = serial;
@@ -295,7 +317,6 @@ impl Scene {
                 commit,
             },
         );
-        true
     }
 
     /// A change for a surface without text input: its commit as `Text` chunks, each a user input

@@ -1,8 +1,8 @@
 use super::*;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
-    TextHints, TextPurpose, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_SURROUNDING_BYTES,
-    NO_ACCESSIBLE_PARENT,
+    PreeditText, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
+    MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::collections::HashMap;
 
@@ -3454,4 +3454,437 @@ fn offers_and_their_types_are_bounded() {
         ),
         Err(ErrorCode::QuotaExceeded)
     );
+}
+
+// ---- the input method (ADR 0008) -------------------------------------------------------------
+
+/// The input method, connected by the tests that need one.
+const IME: ClientId = 6;
+const KEY_A: u32 = 30;
+const KEY_B: u32 = 48;
+
+fn input_method() -> Grants {
+    Grants {
+        input_method: true,
+        ..Grants::default()
+    }
+}
+
+/// A focused window of APP whose field holds `text`, the caret at its end, and an input method.
+fn served(text: &str) -> (Harness, SurfaceKey) {
+    let mut h = Harness::new();
+    h.scene.connect(IME, input_method()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, text, 1);
+    logged(&mut h);
+    (h, window)
+}
+
+/// Every event since the last call, including those requests pumped on the way.
+fn logged(h: &mut Harness) -> Vec<(ClientId, Event)> {
+    h.pump();
+    std::mem::take(&mut h.log)
+}
+
+fn to(events: &[(ClientId, Event)], client: ClientId) -> Vec<Event> {
+    events
+        .iter()
+        .filter(|(c, _)| *c == client)
+        .map(|(_, e)| *e)
+        .collect()
+}
+
+/// The serial of the key the input method was last given.
+fn held(events: &[(ClientId, Event)]) -> u64 {
+    to(events, IME)
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            Event::InputMethodKey { serial, .. } => Some(*serial),
+            _ => None,
+        })
+        .expect("a key for the input method")
+}
+
+#[test]
+fn one_input_method_at_a_time() {
+    let mut h = Harness::new();
+    h.scene.connect(IME, input_method()).unwrap();
+    assert_eq!(
+        h.scene.connect(7, input_method()),
+        Err(ErrorCode::Unauthorized)
+    );
+    h.scene.disconnect(IME);
+    assert_eq!(h.scene.connect(7, input_method()), Ok(()));
+    // Its requests are its own: another client sending one is refused.
+    assert_eq!(
+        h.request(APP, Request::InputMethodCommit { serial: 1 }),
+        Err(ErrorCode::Unauthorized)
+    );
+}
+
+#[test]
+fn the_input_method_is_told_the_field_and_nothing_of_where_it_is() {
+    let mut h = Harness::new();
+    h.scene.connect(IME, input_method()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    enable_text_input(&mut h, window, "hola", 1);
+    let events = logged(&mut h);
+    assert_eq!(
+        to(&events, IME),
+        [
+            Event::InputMethodActivate {},
+            Event::InputMethodPurpose {
+                purpose: TextPurpose::Normal,
+                hints: TextHints::default(),
+            },
+            Event::InputMethodSurrounding {
+                text: TextChunk::new("hola").unwrap(),
+            },
+            Event::InputMethodSelection {
+                anchor: 4,
+                cursor: 4,
+            },
+            Event::InputMethodDone { serial: 1 },
+        ]
+    );
+    // The field's next state, without activating again.
+    h.request(
+        APP,
+        Request::TextInputSelection {
+            surface: 1,
+            anchor: 0,
+            cursor: 4,
+        },
+    )
+    .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 2,
+        },
+    )
+    .unwrap();
+    let events = to(&logged(&mut h), IME);
+    assert!(!events.contains(&Event::InputMethodActivate {}));
+    assert!(events.contains(&Event::InputMethodSelection {
+        anchor: 0,
+        cursor: 4
+    }));
+    assert_eq!(events.last(), Some(&Event::InputMethodDone { serial: 2 }));
+    // Enabling the field anew is another field: deactivated, then activated.
+    enable_text_input(&mut h, window, "hola", 3);
+    let events = to(&logged(&mut h), IME);
+    assert_eq!(
+        &events[..2],
+        [
+            Event::InputMethodDeactivate {},
+            Event::InputMethodActivate {}
+        ]
+    );
+}
+
+#[test]
+fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
+    let (mut h, _) = served("");
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let events = logged(&mut h);
+    assert!(to(&events, APP).is_empty());
+    let a = held(&events);
+    assert_eq!(
+        to(&events, IME),
+        [Event::InputMethodKey {
+            serial: a,
+            key: KEY_A,
+            pressed: true,
+            text: PreeditText::new("a").unwrap(),
+        }]
+    );
+    h.scene.keyboard(KEY_B, true, Some("b"));
+    let b = held(&logged(&mut h));
+    // The second answered first waits for the first.
+    h.request(
+        IME,
+        Request::InputMethodKeyHandled {
+            serial: b,
+            used: false,
+        },
+    )
+    .unwrap();
+    assert!(to(&logged(&mut h), APP).is_empty());
+    h.request(
+        IME,
+        Request::InputMethodKeyHandled {
+            serial: a,
+            used: false,
+        },
+    )
+    .unwrap();
+    let delivered: Vec<String> = to(&logged(&mut h), APP)
+        .iter()
+        .filter_map(|e| match e {
+            Event::Key {
+                key,
+                serial,
+                pressed: true,
+                ..
+            } => Some(format!("key {key} {}", *serial == a || *serial == b)),
+            Event::TextInputCommitText { text, .. } => Some(text.as_str().to_string()),
+            _ => None,
+        })
+        .collect();
+    // Each key as if it had come straight: the key, then what it types; with its own serial.
+    assert_eq!(
+        delivered,
+        [
+            format!("key {KEY_A} true"),
+            "a".into(),
+            format!("key {KEY_B} true"),
+            "b".into()
+        ]
+    );
+    // A given-back key authorizes as a press does.
+    assert!(h.scene.recent_input(APP, a));
+}
+
+#[test]
+fn a_key_the_input_method_takes_becomes_its_change() {
+    let (mut h, _) = served("");
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let a = held(&logged(&mut h));
+    h.request(
+        IME,
+        Request::InputMethodKeyHandled {
+            serial: a,
+            used: true,
+        },
+    )
+    .unwrap();
+    for request in [
+        Request::InputMethodPreeditText {
+            text: TextChunk::new("あ").unwrap(),
+        },
+        Request::InputMethodPreeditCursor { begin: 3, end: 3 },
+        Request::InputMethodPreeditSegment {
+            begin: 0,
+            end: 3,
+            style: PreeditStyle::Composing,
+        },
+        Request::InputMethodCommit { serial: 1 },
+    ] {
+        h.request(IME, request).unwrap();
+    }
+    let events = to(&logged(&mut h), APP);
+    assert!(!events.iter().any(|e| matches!(e, Event::Key { .. })));
+    let (_, commit, preedit, cursor, segments, _, serial) =
+        transaction(&events).expect("one transaction");
+    assert_eq!(
+        (commit.as_str(), preedit.as_str(), cursor, serial),
+        ("", "あ", Some((3, 3)), 1)
+    );
+    assert_eq!(segments, [(0, 3, PreeditStyle::Composing)]);
+}
+
+#[test]
+fn a_change_must_name_a_state_it_was_told_and_be_valid() {
+    let (mut h, _) = served("");
+    assert_eq!(
+        h.request(IME, Request::InputMethodCommit { serial: 2 }),
+        Err(ErrorCode::InvalidMessage)
+    );
+    let (mut h, _) = served("");
+    h.request(
+        IME,
+        Request::InputMethodPreeditText {
+            text: TextChunk::new("あ").unwrap(),
+        },
+    )
+    .unwrap();
+    h.request(IME, Request::InputMethodPreeditCursor { begin: 1, end: 1 })
+        .unwrap();
+    assert_eq!(
+        h.request(IME, Request::InputMethodCommit { serial: 1 }),
+        Err(ErrorCode::InvalidMessage)
+    );
+    // A change for an older state is passed on with the state it names: the field decides.
+    let (mut h, window) = served("");
+    enable_text_input(&mut h, window, "x", 2);
+    logged(&mut h);
+    h.request(
+        IME,
+        Request::InputMethodCommitText {
+            text: TextChunk::new("y").unwrap(),
+        },
+    )
+    .unwrap();
+    h.request(IME, Request::InputMethodCommit { serial: 1 })
+        .unwrap();
+    let events = to(&logged(&mut h), APP);
+    assert_eq!(transaction(&events).expect("one transaction").6, 1);
+}
+
+#[test]
+fn a_password_never_reaches_the_input_method() {
+    for (purpose, hints) in [
+        (TextPurpose::Password, 0),
+        (TextPurpose::Pin, 0),
+        (TextPurpose::Normal, TextHints::SENSITIVE),
+    ] {
+        let (mut h, _) = served("abc");
+        h.scene.keyboard(KEY_A, true, Some("a"));
+        let a = held(&logged(&mut h));
+        // The field becomes sensitive: the input method is deactivated and the key it held
+        // goes on to the field.
+        h.request(
+            APP,
+            Request::TextInputPurpose {
+                surface: 1,
+                purpose,
+                hints: TextHints::new(hints).unwrap(),
+            },
+        )
+        .unwrap();
+        h.request(
+            APP,
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 2,
+            },
+        )
+        .unwrap();
+        let events = logged(&mut h);
+        assert_eq!(to(&events, IME), [Event::InputMethodDeactivate {}]);
+        assert!(to(&events, APP)
+            .iter()
+            .any(|e| matches!(e, Event::Key { serial, .. } if *serial == a)));
+        // Its keys go straight to the field, and nothing of it is told.
+        h.scene.keyboard(KEY_B, true, Some("b"));
+        let events = logged(&mut h);
+        assert!(to(&events, IME).is_empty());
+        assert!(to(&events, APP)
+            .iter()
+            .any(|e| matches!(e, Event::Key { key: KEY_B, .. })));
+        // The answer to a key it no longer holds changes nothing.
+        h.request(
+            IME,
+            Request::InputMethodKeyHandled {
+                serial: a,
+                used: false,
+            },
+        )
+        .unwrap();
+        assert!(logged(&mut h).is_empty());
+    }
+}
+
+#[test]
+fn focus_leaving_deactivates_it_before_the_next_field_and_its_keys_go_first() {
+    let (mut h, window) = served("uno");
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    enable_text_input(&mut h, other, "dos", 1);
+    // Mapped after nothing was typed, it took focus: back to the first field.
+    h.activate(window);
+    logged(&mut h);
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let a = held(&logged(&mut h));
+    h.scene.activate(other);
+    let events = logged(&mut h);
+    // The held key reaches the field it was typed into, before that field loses focus.
+    let app = to(&events, APP);
+    let key = app
+        .iter()
+        .position(|e| matches!(e, Event::Key { serial, .. } if *serial == a));
+    let out = app
+        .iter()
+        .position(|e| matches!(e, Event::Focus { focused: false, .. }));
+    assert!(key.is_some() && key < out, "{app:?}");
+    // The input method is told the old field is gone before anything of the new one.
+    let ime = to(&events, IME);
+    assert_eq!(
+        &ime[..2],
+        [
+            Event::InputMethodDeactivate {},
+            Event::InputMethodActivate {}
+        ]
+    );
+    assert!(ime.contains(&Event::InputMethodSurrounding {
+        text: TextChunk::new("dos").unwrap()
+    }));
+}
+
+#[test]
+fn shortcuts_and_an_unserved_keyboard_bypass_the_input_method() {
+    let (mut h, window) = served("");
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Bottom,
+            output: 1,
+            size: Size::new(1, 48),
+            exclusive: 48,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    h.activate(window);
+    logged(&mut h);
+    h.scene.keyboard(SUPER, true, None);
+    let events = logged(&mut h);
+    assert!(to(&events, IME).is_empty());
+    assert!(to(&events, SHELL)
+        .iter()
+        .any(|e| matches!(e, Event::Key { key: SUPER, .. })));
+    // A field without text input is not served: keys go straight, text as Text.
+    let (mut h, _) = served("");
+    h.request(APP, Request::TextInputDisable { surface: 1 })
+        .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 2,
+        },
+    )
+    .unwrap();
+    logged(&mut h);
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let events = logged(&mut h);
+    assert!(to(&events, IME).is_empty());
+    assert!(to(&events, APP)
+        .iter()
+        .any(|e| matches!(e, Event::Text { .. })));
+}
+
+#[test]
+fn a_stuck_input_method_does_not_take_the_keyboard_with_it() {
+    let (mut h, _) = served("");
+    for _ in 0..MAX_PENDING_KEYS {
+        h.scene.keyboard(KEY_A, true, Some("a"));
+    }
+    assert!(to(&logged(&mut h), APP).is_empty());
+    // One more than it may hold: everything it holds goes on.
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let keys = to(&logged(&mut h), APP)
+        .iter()
+        .filter(|e| matches!(e, Event::Key { .. }))
+        .count();
+    assert_eq!(keys, MAX_PENDING_KEYS + 1);
+    // And it goes, holding a key: that key goes on too.
+    h.scene.keyboard(KEY_B, true, Some("b"));
+    logged(&mut h);
+    h.scene.disconnect(IME);
+    assert!(to(&logged(&mut h), APP)
+        .iter()
+        .any(|e| matches!(e, Event::Key { key: KEY_B, .. })));
+    // With no input method, the keyboard types straight.
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    assert!(to(&logged(&mut h), APP)
+        .iter()
+        .any(|e| matches!(e, Event::Key { key: KEY_A, .. })));
 }

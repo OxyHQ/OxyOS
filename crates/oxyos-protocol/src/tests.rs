@@ -148,6 +148,27 @@ fn requests() -> Vec<Request> {
             serial: 1,
         },
         Request::TextInputDisable { surface: 1 },
+        Request::InputMethodKeyHandled {
+            serial: 20,
+            used: true,
+        },
+        Request::InputMethodDelete {
+            before: 3,
+            after: 0,
+        },
+        Request::InputMethodCommitText {
+            text: TextChunk::new("日本").unwrap(),
+        },
+        Request::InputMethodPreeditText {
+            text: TextChunk::new("ご").unwrap(),
+        },
+        Request::InputMethodPreeditCursor { begin: 0, end: 3 },
+        Request::InputMethodPreeditSegment {
+            begin: 0,
+            end: 3,
+            style: PreeditStyle::Converting,
+        },
+        Request::InputMethodCommit { serial: 2 },
     ]
 }
 
@@ -299,6 +320,26 @@ fn events() -> Vec<Event> {
             surface: 1,
             serial: 12,
             commit: 1,
+        },
+        Event::InputMethodActivate {},
+        Event::InputMethodDeactivate {},
+        Event::InputMethodPurpose {
+            purpose: TextPurpose::Normal,
+            hints: TextHints::default(),
+        },
+        Event::InputMethodSurrounding {
+            text: TextChunk::new("nihon").unwrap(),
+        },
+        Event::InputMethodSelection {
+            anchor: 5,
+            cursor: 5,
+        },
+        Event::InputMethodDone { serial: 2 },
+        Event::InputMethodKey {
+            serial: 20,
+            key: 30,
+            pressed: true,
+            text: PreeditText::new("a").unwrap(),
         },
     ]
 }

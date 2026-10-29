@@ -16,6 +16,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - popups: how many popups of the application are shown after the step;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
+- im: with the scenario's `input_method`, what the session's input method was told of the field
+  and the keys it received in the step (active, purpose, text, cursor, keys, given_back...);
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
@@ -28,6 +30,11 @@ scenario's `layout` (an XKB layout, `us` by default) is the one those expectatio
 for, and the devices type with it. A `commit` step is an input method's committed text, which
 no keyboard types, so it is the same on both paths; so is a `transaction` step, an input
 method's whole change (ADR 0008).
+
+A scenario with `input_method` runs with an input method the session plays: `keyboard` steps type
+through it (it gives the keys back), `compose_keys` steps have it compose them (Enter commits),
+and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
+before.
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -55,8 +62,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "transaction", "drag", "key",
-             "move_window", "resize_window", "scale", "a11y_action", "expect_popup", "switch_terminal"}
+STEP_KEYS = {"press", "press_popup", "scroll", "type", "commit", "preedit", "transaction", "keyboard",
+             "compose_keys", "im_change", "drag", "key", "move_window", "resize_window", "scale", "a11y_action",
+             "expect_popup", "switch_terminal"}
 
 
 def director_args(step):
@@ -75,6 +83,13 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
+    if kind in ("keyboard", "compose_keys"):
+        return args + ["--" + kind.replace("_", "-"), value]
+    if kind == "im_change":
+        # The scenario's input method (`input_method`): {"delete", "commit", "preedit", "stale"}.
+        delete = value.get("delete", [0, 0])
+        return args + ["--im-change", f"{delete[0]},{delete[1]}", value.get("commit", ""), value.get("preedit", ""),
+                       "stale" if value.get("stale") else "current"]
     if kind == "transaction":
         # An input method's change (ADR 0008): {"delete": [before, after], "commit", "preedit",
         # "cursor": [begin, end], "segments": [[begin, end, "composing"|"converting"|"error"]]}.
@@ -350,6 +365,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:
             fail(f"{count} popups shown, expected {expect['popups']}")
+    if "im" in expect:
+        im, wanted = result.get("im") or {}, expect["im"]
+        differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
+        if differing:
+            fail(f"the input method has {differing}, expected {wanted}")
     if "field" in expect:
         field, wanted = result.get("field"), expect["field"]
         if wanted is None or field is None:
@@ -407,6 +427,9 @@ def main():
     if options.uinput:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
         command += ["--layout", scenario.get("layout", "us")]
+    if scenario.get("input_method"):
+        # The session plays an input method the scenario's steps drive (ADR 0008).
+        command += ["--input-method"]
     if options.kms:
         command += ["--kms", options.kms]
     if options.dump_frames:

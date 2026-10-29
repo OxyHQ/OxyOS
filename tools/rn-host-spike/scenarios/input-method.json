@@ -1,0 +1,273 @@
+{
+  "about": "An input method (ADR 0008, step 3) the session plays with Bloom fields (sample/ImeProbe.tsx): it is told the focused field and nothing of where it is; it receives the keys first, and those it gives back reach the field as if they came straight; those it takes become its composition, which Enter commits; a change it made for an older state of the field keeps its commit and drops its deletion; and a password field deactivates it, its keys going straight to the field and never to the input method. Every step checks the text and selection React receives, its exact events, what the field told the compositor and what the input method was told.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "input_method": true,
+  "steps": [
+    {
+      "name": "focus the line: the input method is told of the field",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "im": {
+          "active": true,
+          "purpose": "Normal",
+          "hints": 0,
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "keys it gives back reach the field as if they came straight, with what they type",
+      "do": [
+        "keyboard",
+        "hola"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola\" [4,4]"
+        ],
+        "react": {
+          "keyPress@line": 4,
+          "change@line": 4,
+          "selectionChange@line": 4
+        },
+        "delivered": {
+          "1": {
+            "key.press": 4,
+            "key.release": 4,
+            "text_input": 4
+          }
+        },
+        "im": {
+          "keys": 8,
+          "given_back": 8,
+          "text": "hola",
+          "cursor": 4
+        },
+        "field": {
+          "text": "hola",
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "keys it takes become its composition: the field shows it, the key presses are not delivered",
+      "do": [
+        "compose_keys",
+        "nihon"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"holanihon\" [9,9]"
+        ],
+        "react": {
+          "keyPress@line": 5,
+          "change@line": 5,
+          "selectionChange@line": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 5
+          }
+        },
+        "im": {
+          "keys": 10,
+          "given_back": 0,
+          "text": "hola",
+          "cursor": 4
+        },
+        "field": {
+          "text": "hola",
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "Enter commits the composition: the text stays, so React hears nothing, and the field tells it",
+      "do": [
+        "compose_keys",
+        "\n"
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"holanihon\" [9,9]"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "im": {
+          "keys": 2,
+          "given_back": 0,
+          "text": "holanihon",
+          "cursor": 9
+        },
+        "field": {
+          "text": "holanihon",
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "a change made for an older state keeps its commit and drops its deletion",
+      "do": [
+        "im_change",
+        {
+          "delete": [
+            5,
+            0
+          ],
+          "commit": "x",
+          "stale": true
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"holanihonx\" [10,10]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "text": "holanihonx",
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "one for the latest state deletes",
+      "do": [
+        "im_change",
+        {
+          "delete": [
+            6,
+            0
+          ]
+        }
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola\" [4,4]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola",
+          "cursor": 4
+        },
+        "im": {
+          "text": "hola",
+          "cursor": 4
+        }
+      }
+    },
+    {
+      "name": "a password field deactivates the input method",
+      "do": [
+        "press",
+        [
+          400,
+          138
+        ]
+      ],
+      "expect": {
+        "focus_input": "password",
+        "react": {
+          "touchStart@password": 1,
+          "touchEnd@password": 1,
+          "blur@line": 1,
+          "endEditing@line": 1,
+          "focus@password": 1,
+          "selectionChange@password": 1
+        },
+        "im": {
+          "active": false
+        }
+      }
+    },
+    {
+      "name": "its keys go straight to it, and the input method sees none of them",
+      "do": [
+        "keyboard",
+        "secreto"
+      ],
+      "expect": {
+        "texts": [
+          "Password: 7 characters"
+        ],
+        "react": {
+          "change@password": 7,
+          "selectionChange@password": 7,
+          "keyPress@password": 7
+        },
+        "delivered": {
+          "1": {
+            "key.press": 7,
+            "key.release": 7,
+            "text_input": 7
+          }
+        },
+        "im": {
+          "active": false,
+          "keys": 0,
+          "text": "hola"
+        },
+        "never": [
+          "secreto"
+        ]
+      }
+    },
+    {
+      "name": "the email field activates it again, told what the field is for",
+      "do": [
+        "press",
+        [
+          400,
+          90
+        ]
+      ],
+      "expect": {
+        "focus_input": "email",
+        "react": {
+          "touchStart@email": 1,
+          "touchEnd@email": 1,
+          "blur@password": 1,
+          "endEditing@password": 1,
+          "focus@email": 1,
+          "selectionChange@email": 1
+        },
+        "im": {
+          "active": true,
+          "purpose": "Email",
+          "hints": 2,
+          "text": ""
+        }
+      }
+    }
+  ]
+}
