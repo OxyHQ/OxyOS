@@ -1,6 +1,7 @@
 //! Accessibility snapshots (ADR 0003): applications publish one tree per surface; clients granted
 //! `accessibility` (assistive technologies) receive them with global rectangles and send actions
-//! back to the owning application.
+//! back to the owning application. While the session is locked they hold only the lock
+//! surfaces' trees, as the screen shows only those (ADR 0010).
 
 use super::{Layer, Scene, SurfaceKey};
 use crate::scene::layer_of;
@@ -166,6 +167,10 @@ impl Scene {
     }
 
     fn publish_accessibility_to(&mut self, key: SurfaceKey, only: Option<u32>) {
+        // Behind the lock, what a surface shows is not read either.
+        if self.behind_lock(key) {
+            return;
+        }
         let Some(origin) = self.global_rect_pending(key) else {
             return;
         };
@@ -246,10 +251,56 @@ impl Scene {
         }
     }
 
-    /// A surface went away: assistive technologies drop its snapshot.
+    /// Whether the session is locked and `key` is not part of the lock screen.
+    fn behind_lock(&self, key: SurfaceKey) -> bool {
+        self.locked
+            && self
+                .nodes
+                .get(&self.root_of(key))
+                .is_some_and(|root| layer_of(&root.role) != Layer::Lock)
+    }
+
+    /// The session locked: assistive technologies drop every tree but the lock screen's.
+    pub(super) fn hide_accessibility_behind_lock(&mut self) {
+        let hidden: Vec<SurfaceKey> = self
+            .accessibility
+            .iter()
+            .filter(|(key, entry)| entry.published.is_some() && self.behind_lock(**key))
+            .map(|(key, _)| *key)
+            .collect();
+        let targets = self.assistive_clients();
+        for key in hidden {
+            self.accessibility.get_mut(&key).expect("present").published = None;
+            for target in &targets {
+                self.emit(
+                    *target,
+                    Event::AccessibilityRemoved {
+                        client: key.client,
+                        surface: key.id,
+                    },
+                );
+            }
+        }
+    }
+
+    /// The session unlocked: assistive technologies receive the trees the lock hid, as they are
+    /// now.
+    pub(super) fn show_accessibility_after_lock(&mut self) {
+        let shown: Vec<SurfaceKey> = self
+            .accessibility
+            .iter()
+            .filter(|(_, entry)| entry.committed.is_some() && entry.published.is_none())
+            .map(|(key, _)| *key)
+            .collect();
+        for key in shown {
+            self.publish_accessibility(key);
+        }
+    }
+
+    /// A surface went away: assistive technologies drop its snapshot, if they hold it.
     pub(super) fn forget_accessibility(&mut self, key: SurfaceKey) {
         if let Some(entry) = self.accessibility.remove(&key) {
-            if entry.committed.is_some() {
+            if entry.committed.is_some() && entry.published.is_some() {
                 for target in self.assistive_clients() {
                     self.emit(
                         target,

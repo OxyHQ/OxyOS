@@ -102,7 +102,7 @@ export function LockScreen({
   return (
     <Box testID="shell-lock" className="flex-1 overflow-hidden bg-black">
       <Box className="absolute inset-0">
-        <Wallpaper source={wallpaper} />
+        <Wallpaper source={wallpaper} decorative />
       </Box>
       <Box
         className="absolute inset-0"
@@ -129,8 +129,11 @@ export function LockScreen({
         </Text>
       </Box>
       <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: "11%" }}>
+        {/* The user's picture: their initials, which the name under it says in full. */}
         <Box
           className="items-center justify-center"
+          importantForAccessibility="no-hide-descendants"
+          accessibilityElementsHidden
           style={{
             width: 64,
             height: 64,
@@ -177,8 +180,12 @@ export function LockScreen({
             }}
           />
         </Animated.View>
+        {/* What the last attempt said, the wait, Caps Lock: an alert, which a screen reader
+            announces as it appears. */}
         <Text
           testID="shell-lock-hint"
+          accessibilityRole={hint ? "alert" : undefined}
+          accessibilityLiveRegion="polite"
           style={{ ...shadow, color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 10, minHeight: 16 }}
         >
           {hint}
