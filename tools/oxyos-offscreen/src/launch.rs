@@ -892,8 +892,9 @@ pub fn json_string(text: &str) -> String {
     out
 }
 
-/// What the assistive technology has for each of the application's shown surfaces: the
-/// compositor's committed snapshots, as {surface: [{role, name, value, state}]}.
+/// What the assistive technology has for each shown surface of the application, and of the
+/// session's shell as `shell-<surface>`: the compositor's committed snapshots, as
+/// {surface: [{role, name, value, state}]}.
 fn accessibility_json(compositor: &Compositor) -> String {
     let states = [
         (AccessibleState::DISABLED, "disabled"),
@@ -905,12 +906,16 @@ fn accessibility_json(compositor: &Compositor) -> String {
         (AccessibleState::BUSY, "busy"),
         (AccessibleState::FOCUSED, "focused"),
     ];
-    let surfaces: Vec<String> = shown(compositor)
+    let application = shown(compositor)
         .into_iter()
-        .filter_map(|(id, _, _)| {
-            let nodes = compositor
-                .scene
-                .accessibility_snapshot(SurfaceKey { client: CLIENT, id })?;
+        .map(|(id, _, _)| (SurfaceKey { client: CLIENT, id }, id.to_string()));
+    let shell = shell_surfaces(compositor)
+        .into_iter()
+        .map(|(key, _, _)| (key, format!("shell-{}", key.id)));
+    let surfaces: Vec<String> = application
+        .chain(shell)
+        .filter_map(|(key, name)| {
+            let nodes = compositor.scene.accessibility_snapshot(key)?;
             let nodes: Vec<String> = nodes
                 .iter()
                 .map(|node| {
@@ -928,7 +933,7 @@ fn accessibility_json(compositor: &Compositor) -> String {
                     )
                 })
                 .collect();
-            Some(format!("\"{id}\":[{}]", nodes.join(",")))
+            Some(format!("\"{name}\":[{}]", nodes.join(",")))
         })
         .collect();
     format!("{{{}}}", surfaces.join(","))

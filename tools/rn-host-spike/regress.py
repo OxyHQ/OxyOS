@@ -446,7 +446,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # What the assistive technology has: the compositor's committed snapshots (ADR 0003).
         held = result.get("a11y", {})
         for role, wanted in expect["at"].items():
-            nodes = [n for s, tree in held.items() if (s == "1") == (role == "window") for n in tree]
+            # "window": the application's window; "shell": the session's shell's surfaces;
+            # anything else: the application's popups.
+            def surface_role(s):
+                return "window" if s == "1" else "shell" if s.startswith("shell-") else "popup"
+            nodes = [n for s, tree in held.items()
+                     if (surface_role(s) == role) or (role not in ("window", "shell") and surface_role(s) == "popup")
+                     for n in tree]
             for node in wanted:
                 if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
