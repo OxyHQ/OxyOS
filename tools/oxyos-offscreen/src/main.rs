@@ -14,6 +14,7 @@ mod ime;
 mod launch;
 mod lock;
 mod png;
+mod reader;
 mod uinput;
 
 use client::*;
@@ -97,6 +98,8 @@ struct Session {
     _cleanup: TempDir,
     /// With `--input-method`: the input method the session plays (ime.rs).
     ime: Option<ime::Ime>,
+    /// With `--launch`: the assistive technology the session plays (reader.rs).
+    reader: reader::Reader,
 }
 
 impl Session {
@@ -129,6 +132,7 @@ impl Session {
             baseline_fds,
             _cleanup: cleanup,
             ime: None,
+            reader: reader::Reader::default(),
         })
     }
 

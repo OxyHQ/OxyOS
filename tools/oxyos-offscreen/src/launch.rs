@@ -747,6 +747,7 @@ fn settle(
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
         }
+        session.reader.absorb(&mut session.compositor);
         let now = shown(&session.compositor);
         let shell_now = shell_surfaces(&session.compositor);
         let shell_changed = shell_now != shell_last;
@@ -892,9 +893,59 @@ pub fn json_string(text: &str) -> String {
     out
 }
 
-/// What the assistive technology has for each of the application's shown surfaces: the
-/// compositor's committed snapshots, as {surface: [{role, name, value, state}]}.
-fn accessibility_json(compositor: &Compositor) -> String {
+/// The assistive technology acts on the node named `name` it holds on the topmost shown surface
+/// that has one (the application's, the shell's or the lock screen's), as a screen reader acts on
+/// what is on screen.
+fn act(session: &mut Session, action: AccessibleAction, name: &str) -> Result<()> {
+    let shown: Vec<SurfaceKey> = session
+        .compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, .. } => Some(key),
+            _ => None,
+        })
+        .collect();
+    let (key, index) = shown
+        .into_iter()
+        .rev()
+        .find_map(|key| {
+            let nodes = session.reader.trees.get(&key)?;
+            let index = nodes.iter().position(|node| node.name == name)?;
+            Some((key, index as u32))
+        })
+        .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))?;
+    session
+        .compositor
+        .scene
+        .handle(
+            READER,
+            Request::AccessibilityAction {
+                client: key.client,
+                surface: key.id,
+                index,
+                action,
+            },
+        )
+        .map_err(|code| format!("accessibility action: {code:?}").into())
+}
+
+/// The name a step's report gives a surface: the application's by its id, the session's
+/// shell's as `shell-<id>`, any other client's as `<client>-<id>`.
+fn surface_name(key: SurfaceKey) -> String {
+    if key.client == CLIENT {
+        key.id.to_string()
+    } else if key.client > ClientId::MAX / 2 && key.client < crate::ime::IME {
+        format!("shell-{}", key.id)
+    } else {
+        format!("{}-{}", key.client, key.id)
+    }
+}
+
+/// What the assistive technology holds, as it received it (reader.rs), by surface name:
+/// {surface: [{role, name, value, state}]}.
+fn accessibility_json(reader: &crate::reader::Reader) -> String {
     let states = [
         (AccessibleState::DISABLED, "disabled"),
         (AccessibleState::SELECTED, "selected"),
@@ -905,12 +956,10 @@ fn accessibility_json(compositor: &Compositor) -> String {
         (AccessibleState::BUSY, "busy"),
         (AccessibleState::FOCUSED, "focused"),
     ];
-    let surfaces: Vec<String> = shown(compositor)
-        .into_iter()
-        .filter_map(|(id, _, _)| {
-            let nodes = compositor
-                .scene
-                .accessibility_snapshot(SurfaceKey { client: CLIENT, id })?;
+    let surfaces: Vec<String> = reader
+        .trees
+        .iter()
+        .map(|(key, nodes)| {
             let nodes: Vec<String> = nodes
                 .iter()
                 .map(|node| {
@@ -928,7 +977,7 @@ fn accessibility_json(compositor: &Compositor) -> String {
                     )
                 })
                 .collect();
-            Some(format!("\"{id}\":[{}]", nodes.join(",")))
+            format!("\"{}\":[{}]", surface_name(*key), nodes.join(","))
         })
         .collect();
     format!("{{{}}}", surfaces.join(","))
@@ -1343,35 +1392,16 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             client: CLIENT,
             id: WINDOW,
         }),
-        Step::Accessibility { action, name } => {
-            // Popups (later surfaces) are above the window: the topmost node with that name.
-            let found = shown(compositor).into_iter().rev().find_map(|(id, _, _)| {
-                let key = SurfaceKey { client: CLIENT, id };
-                let nodes = compositor.scene.accessibility_snapshot(key)?;
-                let index = nodes.iter().position(|node| node.name == *name)?;
-                Some((id, index as u32))
-            });
-            let (surface, index) =
-                found.ok_or_else(|| format!("no accessible node named {name:?}"))?;
-            compositor
-                .scene
-                .handle(
-                    READER,
-                    Request::AccessibilityAction {
-                        client: CLIENT,
-                        surface,
-                        index,
-                        action: *action,
-                    },
-                )
-                .map_err(|code| format!("accessibility action: {code:?}"))?;
-        }
         Step::Scale(scale) => compositor
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
             .map_err(|code| format!("scale {scale}: {code:?}"))?,
-        // Handled by the step loop: no input to inject, or the session's input method's.
-        Step::ExpectPopup | Step::Keyboard { .. } | Step::ImChange { .. } => {}
+        // Handled by the step loop: no input to inject, the session's input method's, or the
+        // assistive technology's.
+        Step::ExpectPopup
+        | Step::Keyboard { .. }
+        | Step::ImChange { .. }
+        | Step::Accessibility { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -1410,6 +1440,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             },
         )
         .map_err(|code| format!("the assistive technology: {code:?}"))?;
+    // Played here: what the compositor sends it is kept for it (reader.rs).
+    session.compositor.local_clients.insert(READER);
+    session.reader = crate::reader::Reader::new(READER);
     // With logind, a probe of the session's terminal shows that typing never reached it.
     let mut console = None;
     if let Some(card) = &launch.kms {
@@ -1636,6 +1669,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 inject_input_method(&mut session, step)?;
                 0
             }
+            _ if matches!(step, Step::Accessibility { .. }) => {
+                if let Step::Accessibility { action, name } = step {
+                    act(&mut session, *action, name)?;
+                }
+                0
+            }
             Some(devices) => {
                 match inject_through(devices, &mut session.compositor, window, step)? {
                     Some(count) => count,
@@ -1685,7 +1724,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             answer.window.y,
             answer.window.width,
             answer.window.height,
-            accessibility_json(&session.compositor),
+            accessibility_json(&session.reader),
             field_json(&session.compositor),
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),

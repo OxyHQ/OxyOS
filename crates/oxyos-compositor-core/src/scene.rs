@@ -2240,6 +2240,7 @@ impl Scene {
         self.set_pointer_focus(None);
         self.set_focus(None);
         self.focus_next();
+        self.hide_accessibility_behind_lock();
         self.tell_lock_state();
     }
 
@@ -2256,6 +2257,7 @@ impl Scene {
         self.set_focus(None);
         self.focus_next();
         self.refresh_pointer_focus();
+        self.show_accessibility_after_lock();
         self.tell_lock_state();
     }
 

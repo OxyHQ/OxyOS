@@ -18,6 +18,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
   they leave, exactly, and whether the session is "locked" (ADR 0010);
+- at / at_absent: nodes the session's assistive technology holds (or must not), as it received
+  the trees (ADR 0003): by "window", "shell" (the shell's surfaces, the lock screen's among
+  them) or the application's popups, each node matching the keys given ({} matches any);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
@@ -442,14 +445,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if at < 0:
                     fail(f"{role} reading order {names} does not read {wanted} in order")
                     break
+    # What the assistive technology holds, as it received the trees (ADR 0003), by where they
+    # are: "window" the application's window, "shell" the session's shell's surfaces (the lock
+    # screen's among them), anything else the application's popups.
+    def held_nodes(role):
+        def place(surface):
+            return "window" if surface == "1" else "shell" if surface.startswith("shell-") else "popup"
+        wanted = role if role in ("window", "shell") else "popup"
+        return [n for s, tree in result.get("a11y", {}).items() if place(s) == wanted for n in tree]
     if "at" in expect:
-        # What the assistive technology has: the compositor's committed snapshots (ADR 0003).
-        held = result.get("a11y", {})
         for role, wanted in expect["at"].items():
-            nodes = [n for s, tree in held.items() if (s == "1") == (role == "window") for n in tree]
+            nodes = held_nodes(role)
             for node in wanted:
                 if not any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
                     fail(f"the assistive technology has no {role} node {node}")
+    if "at_absent" in expect:
+        # Nodes it must not hold ({} matches any node: none at all there).
+        for role, unwanted in expect["at_absent"].items():
+            nodes = held_nodes(role)
+            for node in unwanted:
+                if any(all(n.get(k) == v for k, v in node.items()) for n in nodes):
+                    fail(f"the assistive technology holds a {role} node {node}")
     if "never" in expect:
         # Text that must appear nowhere: not drawn, not reported by the host, not held by the
         # compositor for an assistive technology. The step's own instruction is left out.

@@ -4893,3 +4893,53 @@ fn caps_lock_is_told_to_the_focused_surface_and_to_each_that_gains_focus() {
         .iter()
         .any(|event| matches!(event, Event::CapsLock { .. })));
 }
+
+#[test]
+fn a_reader_holds_only_the_lock_screen_while_locked() {
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    publish(&mut h, window, "Message actions");
+    h.request(
+        LOCKER,
+        Request::CreateLockSurface {
+            surface: 1,
+            output: 1,
+        },
+    )
+    .unwrap();
+    let lock = key(LOCKER, 1);
+    h.present(lock);
+    h.clear_log();
+    h.scene.lock();
+    h.pump();
+    // Locking takes the window's tree from the reader.
+    assert!(h.events_for(READER).contains(&Event::AccessibilityRemoved {
+        client: APP,
+        surface: 1
+    }));
+    // While locked, what the window publishes does not reach it; the lock screen's does.
+    h.clear_log();
+    publish(&mut h, window, "Secret mail");
+    assert!(!h.events_for(READER).iter().any(is_accessibility));
+    publish(&mut h, lock, "Lock screen");
+    assert_eq!(read_tree(&h, lock)[0].1, "Lock screen");
+    // A reader that connects while locked is given the lock screen alone.
+    h.scene.disconnect(READER);
+    h.clear_log();
+    h.scene.connect(READER, reader()).unwrap();
+    h.pump();
+    assert!(read_tree(&h, window).is_empty());
+    assert_eq!(read_tree(&h, lock)[0].1, "Lock screen");
+    // A window going away while locked tells the reader nothing: it holds no tree of it.
+    let other = h.toplevel(OTHER, 1, 200, 100);
+    publish(&mut h, other, "Other");
+    h.clear_log();
+    h.request(OTHER, Request::Destroy { surface: 1 }).unwrap();
+    assert!(!h.events_for(READER).iter().any(is_accessibility));
+    // Unlocked, it is given the window's tree as it is now.
+    h.clear_log();
+    h.scene.unlock();
+    h.pump();
+    assert_eq!(read_tree(&h, window)[0].1, "Secret mail");
+}
