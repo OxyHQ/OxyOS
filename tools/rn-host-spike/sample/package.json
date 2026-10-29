@@ -2,6 +2,7 @@
   "name": "oxyos-bloom-sample",
   "private": true,
   "devDependencies": {
-    "@tailwindcss/postcss": "4.3.2"
+    "@tailwindcss/postcss": "4.3.2",
+    "expo-clipboard": "~58.0.4"
   }
 }
