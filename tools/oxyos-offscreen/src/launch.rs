@@ -72,6 +72,9 @@ pub enum Step {
     MoveWindow { dx: i32, dy: i32 },
     /// The shell resizes the window, as maximizing or tiling does.
     ResizeWindow { width: u32, height: u32 },
+    /// The compositor minimizes the window, as a shell's shortcut does; only the shell brings it
+    /// back (its dock).
+    MinimizeWindow,
     /// The assistive technology acts on the application's node named `name` (the topmost
     /// surface first): activate or focus.
     Accessibility {
@@ -124,6 +127,7 @@ impl Step {
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
+            Step::MinimizeWindow => "window minimized".to_string(),
             Step::Accessibility { action, name } => format!("assistive {action:?} on {name:?}"),
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
@@ -189,6 +193,7 @@ impl Step {
             Step::ResizeWindow { width, height } => {
                 format!("\"resize_window\":[{width},{height}]")
             }
+            Step::MinimizeWindow => "\"minimize_window\":true".to_string(),
             Step::Accessibility { action, name } => {
                 format!("\"a11y_action\":[\"{action:?}\",{}]", json_string(name))
             }
@@ -272,7 +277,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
@@ -410,6 +415,7 @@ impl Launch {
                         height: u32::try_from(n[1])?,
                     }
                 }
+                Some("--minimize-window") => Step::MinimizeWindow,
                 Some("--a11y-action") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     let (action, name) = value.split_once(',').ok_or(USAGE)?;
@@ -642,6 +648,8 @@ fn settle(
     may_stay: bool,
     deadline: Instant,
     waiting_for: &str,
+    // Where the window was: a step may leave it off the screen (minimized), never the first frame.
+    window_before: Option<Rect>,
 ) -> Result<Settled> {
     // The shell's surfaces count too: a press on a panel changes the shell, not the application.
     let mut last = (before.to_vec(), Instant::now());
@@ -708,7 +716,11 @@ fn settle(
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= SETTLE
         {
-            if let Some(window) = session.compositor.surface_rect(CLIENT, WINDOW) {
+            if let Some(window) = session
+                .compositor
+                .surface_rect(CLIENT, WINDOW)
+                .or(window_before)
+            {
                 return Ok(Settled {
                     window,
                     first_frame_ns,
@@ -762,15 +774,17 @@ fn field_json(compositor: &Compositor) -> String {
     )
 }
 
-/// The input routed during a step: for the application, counts per surface and kind; for any
-/// other client, a count (`leaked`).
+/// The input routed during a step: for the application, counts per surface and kind; for the
+/// session's shell, its count (`shell`); for any other client, a count (`leaked`).
 fn delivered_json(compositor: &Compositor) -> String {
     let mut counts: std::collections::BTreeMap<u32, std::collections::BTreeMap<&str, usize>> =
         Default::default();
-    let mut leaked = 0;
+    let (mut shell, mut leaked) = (0, 0);
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {
             *counts.entry(surface).or_default().entry(kind).or_default() += 1;
+        } else if client > ClientId::MAX / 2 && client < crate::ime::IME {
+            shell += 1;
         } else {
             leaked += 1;
         }
@@ -782,6 +796,9 @@ fn delivered_json(compositor: &Compositor) -> String {
             format!("\"{surface}\":{{{}}}", kinds.join(","))
         })
         .collect();
+    if shell > 0 {
+        fields.push(format!("\"shell\":{shell}"));
+    }
     fields.push(format!("\"leaked\":{leaked}"));
     format!("{{{}}}", fields.join(","))
 }
@@ -1166,6 +1183,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             },
             oxyos_protocol::Size::new(*width, *height),
         ),
+        Step::MinimizeWindow => compositor.scene.minimize(SurfaceKey {
+            client: CLIENT,
+            id: WINDOW,
+        }),
         Step::Accessibility { action, name } => {
             // Popups (later surfaces) are above the window: the topmost node with that name.
             let found = shown(compositor).into_iter().rev().find_map(|(id, _, _)| {
@@ -1383,6 +1404,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         false,
         deadline,
         "the first frame",
+        None,
     )?;
     let mut window = first.window;
     if (window.y..window.bottom() as i32).all(|y| {
@@ -1475,6 +1497,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             *may_stay,
             Instant::now() + STEP_DEADLINE,
             &what,
+            Some(window),
         )?;
         window = answer.window;
         let now = session.compositor.framebuffer.clone();
@@ -1491,7 +1514,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let latency = since_input(answer.first_frame_ns);
         let flip_latency = since_input(answer.first_flip_ns);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1505,6 +1528,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             field_json(&session.compositor),
             session.ime.as_ref().map_or("null".to_string(), |ime| ime.json()),
             shell_json(&session.compositor),
+            session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
         ));
         snapshots.push(snapshot(
             &session.compositor,

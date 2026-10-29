@@ -4,6 +4,7 @@
 #include "text.h"
 
 #include <folly/dynamic.h>
+#include <oxyos_client.h>
 #include <jsi/JSIDynamic.h>
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <optional>
 #include <random>
 #include <set>
+#include <tuple>
 
 using namespace facebook;
 using namespace facebook::react;
@@ -214,6 +216,39 @@ std::shared_ptr<TurboModule> createHostModule(
     module->constants(folly::dynamic::object("HEIGHT", 0)("DEFAULT_BACKGROUND_COLOR", 0));
     module->unsupported({"setColor", "setTranslucent", "setStyle", "setHidden"});
   } else if (name == "KeyboardObserver") {
+    module->listeners();
+  } else if (name == "OxyOSShell") {
+    // The session's shell (sample/oxyos/shell-state.js): the compositor's windows and workspaces,
+    // and the shell's actions on them (docs/adr/0009-session-shell.mdx). Only a host run as the
+    // shell (`--shell`, with the shell grant) has them.
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.shell.manage) throw jsi::JSError(rt, "OxyOSShell: only the session's shell has it");
+    };
+    module->method("getState", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return jsi::valueFromDynamic(rt, services.shell.state());
+    });
+    auto number = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
+      return count > at && args[at].isNumber() ? static_cast<uint32_t>(args[at].asNumber()) : 0u;
+    };
+    for (auto [method, action, withWindow] : std::initializer_list<std::tuple<const char*, uint8_t, bool>>{
+             {"focusWindow", OXYOS_MANAGE_FOCUS, true},
+             {"closeWindow", OXYOS_MANAGE_CLOSE, true},
+             {"minimizeWindow", OXYOS_MANAGE_MINIMIZE, true},
+             {"moveWindowToWorkspace", OXYOS_MANAGE_MOVE, true},
+             {"activateWorkspace", OXYOS_MANAGE_ACTIVATE_WORKSPACE, false},
+             {"addWorkspace", OXYOS_MANAGE_ADD_WORKSPACE, false},
+             {"removeWorkspace", OXYOS_MANAGE_REMOVE_WORKSPACE, false}}) {
+      module->method(method, [&services, ready, number, action, withWindow](jsi::Runtime& rt, const jsi::Value* args,
+                                                                            size_t count) {
+        ready(rt);
+        // (window[, workspace]) or (workspace).
+        uint32_t window = withWindow ? number(rt, args, count, 0) : 0;
+        uint32_t workspace = number(rt, args, count, withWindow ? 1 : 0);
+        services.shell.manage(action, window, workspace);
+        return jsi::Value::undefined();
+      });
+    }
     module->listeners();
   } else if (name == "OxyOSClipboard") {
     // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the

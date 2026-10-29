@@ -1,0 +1,96 @@
+{
+  "about": "The compositor's windows in the OxyOS shell (ADR 0009, step 3): the application (sample/EditingProbe.tsx) is launched as Allo, an application the shell's dock does not pin, and the shell (OxyOSShell) is told its window by the compositor, so Allo joins the dock. Minimized by the compositor, the window leaves the screen and stays in the dock; a press on Allo there makes the shell ask the compositor to focus the application's newest window, which is restored and focused. Each step checks the window on the screen, its place, the dock's pixels, and that the application receives exactly its own events and React nothing it should not.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the shell is told the application's window: its application joins the dock",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "window_shown": true,
+        "window_rect": [
+          340,
+          178,
+          600,
+          360
+        ],
+        "output_pixels": {
+          "842,690": "#080108"
+        },
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "minimized, the window leaves the screen; its application stays in the dock",
+      "do": [
+        "minimize_window",
+        true
+      ],
+      "expect": {
+        "window_shown": false,
+        "output_pixels": {
+          "842,690": "#080108"
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "its application in the dock brings it back: the shell asks the compositor to focus its newest window",
+      "do": [
+        "press_output",
+        [
+          842,
+          700
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "window_rect": [
+          340,
+          178,
+          600,
+          360
+        ],
+        "focus_surface": 1,
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
+      }
+    }
+  ]
+}

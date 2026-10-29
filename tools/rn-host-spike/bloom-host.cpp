@@ -10,6 +10,7 @@
 #include "network.h"
 #include "popup.h"
 #include "safe-area.h"
+#include "shell-state.h"
 #include "shell-surface.h"
 #include "svg.h"
 #include "report.h"
@@ -395,13 +396,15 @@ int main(int argc, char** argv) {
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
+  // As the session's shell: what it knows of windows and workspaces, told from the first event.
+  oxyos::ShellState shellState;
   if (windowed) {
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
                          : std::make_unique<oxyos::Window>(socket, static_cast<uint32_t>(width),
                                                            static_cast<uint32_t>(height));
       while (!window->configured()) {
-        if (!window->dispatch([](const OxyOSEvent&) {})) {
+        if (!window->dispatch([&shellState](const OxyOSEvent& event) { shellState.observe(event); })) {
           std::cerr << "[host] the compositor closed the connection before configuring the window\n";
           return 1;
         }
@@ -409,6 +412,11 @@ int main(int argc, char** argv) {
       }
       window->resized();
       display = oxyos::Display{window->width(), window->height(), window->scale()};
+      // An application's window is named as its launcher says (the session's launch records;
+      // the development compositor's scenarios), for the shell.
+      const char* title = std::getenv("OXYOS_APP_TITLE");
+      const char* appId = std::getenv("OXYOS_APP_ID");
+      if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";
       return 1;
@@ -516,6 +524,14 @@ int main(int argc, char** argv) {
         },
         .hasText = [&window] { return window->clipboardHasText(); },
     };
+    if (shellMode) {
+      services.shell = {
+          .state = [&shellState] { return shellState.state(); },
+          .manage = [&window](uint8_t action, uint32_t target, uint32_t workspace) {
+            window->manage(action, target, workspace);
+          },
+      };
+    }
     window->onClipboardChanged([&instance, &window] {
       instance->callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
@@ -562,7 +578,15 @@ int main(int argc, char** argv) {
         worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
+        bool shellChanged = false, closeRequested = false;
         if (!window->dispatch([&](const OxyOSEvent& event) {
+              shellChanged |= shellState.observe(event);
+              // The shell asks the application to close its window: it finishes, as an Android
+              // activity does when its task is closed.
+              if (event.kind == OXYOS_EVENT_CLOSE_REQUESTED && event.surface == oxyos::Window::kToplevel) {
+                closeRequested = true;
+                oxyos::Report::get().input("close.requested", event.surface);
+              }
               if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
                   (event.kind == OXYOS_EVENT_KEY && event.flag) ||
                   (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE)) {
@@ -595,6 +619,11 @@ int main(int argc, char** argv) {
               editing.handle(event);
             })) {
           break;
+        }
+        if (closeRequested) break;
+        if (shellChanged) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSShellChanged", shellState.state()));
         }
         // Focus, caret and selection moves draw even when the tree did not change.
         bool edited = editing.edit() != drawn;

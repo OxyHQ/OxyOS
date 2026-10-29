@@ -4,6 +4,7 @@
 //! windows to its neighbour.
 
 use super::{DismissReason, Role, Scene, SurfaceKey};
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 /// Workspaces a session may have.
@@ -120,18 +121,18 @@ impl Scene {
         // The neighbour's number once `index` is gone.
         let neighbour = index.saturating_sub(1);
         for node in self.nodes.values_mut() {
-            if node.workspace == index {
-                node.workspace = neighbour;
-            } else if node.workspace > index {
-                node.workspace -= 1;
+            match node.workspace.cmp(&index) {
+                Ordering::Equal => node.workspace = neighbour,
+                Ordering::Greater => node.workspace -= 1,
+                Ordering::Less => {}
             }
         }
         self.workspaces.count -= 1;
         let active = self.workspaces.active;
-        if active == index {
-            self.workspaces.active = neighbour;
-        } else if active > index {
-            self.workspaces.active -= 1;
+        match active.cmp(&index) {
+            Ordering::Equal => self.workspaces.active = neighbour,
+            Ordering::Greater => self.workspaces.active -= 1,
+            Ordering::Less => {}
         }
         self.apply(before);
         true

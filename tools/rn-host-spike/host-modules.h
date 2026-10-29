@@ -87,10 +87,17 @@ struct ClipboardService {
   std::function<bool()> hasText;
 };
 
+// The session's shell (ADR 0009): what it knows of windows and workspaces, and what it asks.
+struct ShellService {
+  std::function<folly::dynamic()> state;
+  std::function<void(uint8_t action, uint32_t window, uint32_t workspace)> manage;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
   ClipboardService clipboard{};
+  ShellService shell{};
 };
 
 std::shared_ptr<facebook::react::TurboModule> createHostModule(
