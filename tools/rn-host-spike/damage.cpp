@@ -18,27 +18,25 @@ namespace {
 // Every view the window draws, where it draws it: the traversal `drawView` makes, popup subtrees
 // left out (they are drawn in their own surfaces), and an SVG view's elements too (they are its
 // picture: what changes in them changes the picture).
-void collect(const ViewTree& tree, Tag tag, Float ox, Float oy, std::unordered_map<Tag, Rect>& at,
+// Each view's rectangle where it is drawn: `parent` maps its parent's coordinates to the window's.
+// A transformed view's is the bounding box of its transformed frame.
+void collect(const ViewTree& tree, Tag tag, const Affine& parent, std::unordered_map<Tag, Rect>& at,
              std::unordered_map<Tag, const View*>& views) {
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) return;
   const ShadowView& view = it->second.view;
   if (view.componentName && ownSurface(view.componentName)) return;
-  const auto& frame = view.layoutMetrics.frame;
-  Point moved = transformOffset(view);
-  Rect rect{{ox + frame.origin.x + moved.x, oy + frame.origin.y + moved.y}, frame.size};
   // A modal is drawn at the window's origin, wherever it is in the tree.
-  if (view.componentName && isModal(view.componentName)) rect.origin = Point{0, 0};
-  at[tag] = rect;
+  bool modal = view.componentName && isModal(view.componentName);
+  Affine map = modal ? Affine{} : parent.after(viewTransform(view));
+  at[tag] = map.bounds(Rect{{0, 0}, view.layoutMetrics.frame.size});
   views[tag] = &it->second;
   if (view.componentName && isSvgView(view.componentName)) return;
-  Float childOx = rect.origin.x, childOy = rect.origin.y;
   if (view.componentName && std::string(view.componentName) == "ScrollView" && view.state) {
     const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state);
-    childOx -= state.getData().contentOffset.x;
-    childOy -= state.getData().contentOffset.y;
+    map = map.after(Affine::translation(-state.getData().contentOffset.x, -state.getData().contentOffset.y));
   }
-  for (Tag child : it->second.children) collect(tree, child, childOx, childOy, at, views);
+  for (Tag child : it->second.children) collect(tree, child, map, at, views);
 }
 
 Rect bounding(const std::vector<Rect>& rects) {
@@ -59,7 +57,7 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, cons
                                                       const TextInputEdit& edit) {
   std::unordered_map<Tag, Rect> at;
   std::unordered_map<Tag, const View*> views;
-  collect(tree, tree.root(), 0, 0, at, views);
+  collect(tree, tree.root(), Affine{}, at, views);
   return compare(tree, at, views, display, edit);
 }
 
@@ -69,7 +67,7 @@ std::optional<std::vector<Rect>> WindowDamage::update(const ViewTree& tree, Tag 
   std::unordered_map<Tag, const View*> views;
   auto it = tree.views().find(region);
   if (it != tree.views().end()) {
-    for (Tag child : it->second.children) collect(tree, child, origin.x, origin.y, at, views);
+    for (Tag child : it->second.children) collect(tree, child, Affine::translation(origin.x, origin.y), at, views);
   }
   return compare(tree, at, views, display, edit);
 }
