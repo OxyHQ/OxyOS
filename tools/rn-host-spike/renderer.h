@@ -150,6 +150,13 @@ inline constexpr const char* kPopupComponent = "OxyOSPopupView";
 inline constexpr const char* kShellSurfaceComponent = "OxyOSShellSurface";
 // Whether a view's subtree is drawn in a surface of its own, never in its root's.
 inline bool ownSurface(const std::string& name) { return name == kPopupComponent || name == kShellSurfaceComponent; }
+// React Native's Modal: on Android a window of its own over the activity's. Here its subtree is
+// drawn over the window's content, at the window's origin and size (modal.h lays it out), and
+// takes the window's input while it is shown.
+inline constexpr const char* kModalComponent = "ModalHostView";
+inline bool isModal(const std::string& name) { return name == kModalComponent; }
+// The modals shown in the window, in the order they are drawn: the last is on top.
+std::vector<facebook::react::Tag> modals(const ViewTree& tree);
 
 // Draws the window: the tree without popup subtrees. `edit` is the focused text input's caret,
 // selection and composition, drawn with its text.

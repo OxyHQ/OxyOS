@@ -43,8 +43,9 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   // RNGH's root view's minimum alpha for touches.
   if (gestures && props && props->opacity < 0.1f) return -1;
   std::string name = view.componentName ? view.componentName : "";
-  // A popup's or a shell region's subtree is in its own surface, not under the window's pointer.
-  if (ownSurface(name)) return -1;
+  // A popup's or a shell region's subtree is in its own surface, not under the window's pointer;
+  // a modal's is above the window's content (hitIn).
+  if (ownSurface(name) || isModal(name)) return -1;
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {
@@ -66,6 +67,19 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
 }
 
 Tag hitIn(const ViewTree& tree, const SurfaceContent& content, float x, float y, const GestureHit* gestures) {
+  if (!content.popup && content.view == tree.root()) {
+    // A modal shown takes the window's input, as its own window above the activity's does: its
+    // content is at the window's origin, and nothing under it is reached.
+    auto shown = modals(tree);
+    if (!shown.empty()) {
+      const auto& children = tree.views().at(shown.back()).children;
+      for (auto child = children.rbegin(); child != children.rend(); ++child) {
+        Tag found = hit(tree, *child, x, y, gestures);
+        if (found >= 0) return found;
+      }
+      return -1;
+    }
+  }
   if (!content.popup) return content.view < 0 ? -1 : hit(tree, content.view, x, y, gestures);
   // The view's children are laid out relative to it: a popup's is its surface's origin, a shell
   // region is where it is in its surface (the surface's origin is `content.origin`).

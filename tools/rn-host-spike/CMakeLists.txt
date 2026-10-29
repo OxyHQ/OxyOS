@@ -188,7 +188,7 @@ target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions 
 
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp
   reanimated-host.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp shell-state.cpp shell-surface.cpp svg.cpp
-  gesture-handler.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  gesture-handler.cpp modal.cpp expo-blur.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
@@ -202,7 +202,7 @@ set_source_files_properties(${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDec
 # (crates/oxyos-client-ffi), linked statically.
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxyos-client-ffi/include)
 target_include_directories(oxyos-bloom-host PRIVATE ${SVG_DIR}/common/cpp ${SVG_CODEGEN_DIR})
-target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview ${OXYOS_CLIENT_LIB} gcc_s util rt pthread m dl)
+target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview rrc_modal ${OXYOS_CLIENT_LIB} gcc_s util rt pthread m dl)
 # Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
 # Hermes already links.
 target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)

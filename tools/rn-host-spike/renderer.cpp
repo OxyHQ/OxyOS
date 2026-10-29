@@ -1,5 +1,7 @@
 #include "renderer.h"
 
+#include "expo-blur.h"
+
 #include "svg.h"
 #include "text.h"
 
@@ -9,6 +11,7 @@
 #include <react/renderer/components/scrollview/ScrollViewState.h>
 #include <react/renderer/components/text/ParagraphState.h>
 #include <react/renderer/components/view/ViewProps.h>
+#include <react/renderer/components/FBReactNativeSpec/Props.h>
 #include <react/renderer/core/ConcreteState.h>
 #include <react/renderer/graphics/Color.h>
 
@@ -319,7 +322,9 @@ class Painter {
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
                                             "AndroidTextInput", "AndroidHorizontalScrollContentView",
-                                            "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid"};
+                                            "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
+                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
+                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView"};
 
 // The input's text laid out as it is drawn: single-line inputs do not wrap.
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -510,8 +515,9 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   const auto& frame = view.layoutMetrics.frame;
   float x = ox + frame.origin.x, y = oy + frame.origin.y, w = frame.size.width, h = frame.size.height;
   std::string name = view.componentName ? view.componentName : "";
-  // A popup's or a shell region's subtree is drawn in its own surface, never in the window.
-  if (ownSurface(name)) return;
+  // A popup's or a shell region's subtree is drawn in its own surface, never in the window; a
+  // modal's over everything else (drawModals).
+  if (ownSurface(name) || isModal(name)) return;
   ++stats.views;
   if (!kImplemented.count(name)) {
     ++stats.unimplemented;
@@ -549,6 +555,12 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     Rgba background = rgba(props->backgroundColor);
     background.a *= opacity;
     painter.fill(x, y, w, h, border.borderRadii, background, clip);
+    // expo-blur's view without a blur target, as on Android: its tint over what is behind it.
+    if (auto tint = expoBlurTint(view)) {
+      Rgba color{((*tint >> 16) & 0xff) / 255.0f, ((*tint >> 8) & 0xff) / 255.0f, (*tint & 0xff) / 255.0f,
+                 ((*tint >> 24) & 0xff) / 255.0f * opacity};
+      painter.fill(x, y, w, h, border.borderRadii, color, clip);
+    }
     const auto& widths = border.borderWidths;
     if (widths.left > 0 || widths.top > 0 || widths.right > 0 || widths.bottom > 0) {
       Rgba color = rgba(border.borderColors.top ? border.borderColors.top : border.borderColors.left);
@@ -781,6 +793,41 @@ std::vector<Rect> TextInputGeometry::span(size_t from, size_t to) const {
   return rects;
 }
 
+namespace {
+
+void collectModals(const ViewTree& tree, Tag tag, std::vector<Tag>& out) {
+  auto it = tree.views().find(tag);
+  if (it == tree.views().end()) return;
+  std::string name = it->second.view.componentName ? it->second.view.componentName : "";
+  if (ownSurface(name)) return;
+  if (isModal(name)) {
+    auto props = std::dynamic_pointer_cast<const ModalHostViewProps>(it->second.view.props);
+    if (props && props->visible) out.push_back(tag);
+  }
+  for (Tag child : it->second.children) collectModals(tree, child, out);
+}
+
+// The modals shown, over the window's content: each its children at the window's origin, an
+// opaque one (not `transparent`) on white, as Android's dialog window for it.
+void drawModals(const ViewTree& tree, const Display& display, Painter& painter, RenderStats& stats,
+                const TextInputEdit& edit) {
+  Clip window{0, 0, display.width, display.height};
+  for (Tag modal : modals(tree)) {
+    const auto& entry = tree.views().at(modal);
+    auto props = std::static_pointer_cast<const ModalHostViewProps>(entry.view.props);
+    if (!props->transparent) painter.fill(0, 0, display.width, display.height, {}, Rgba{1, 1, 1, 1}, window);
+    for (Tag child : entry.children) drawView(tree, child, 0, 0, window, 1.0f, painter, stats, edit);
+  }
+}
+
+}  // namespace
+
+std::vector<Tag> modals(const ViewTree& tree) {
+  std::vector<Tag> out;
+  if (tree.root() >= 0) collectModals(tree, tree.root(), out);
+  return out;
+}
+
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
@@ -788,13 +835,17 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, c
   Painter painter(canvas, display.scale);
   RenderStats stats;
   drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
+  drawModals(tree, display, painter, stats, edit);
   return stats;
 }
 
 bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
   if (before.props == after.props) return true;
   std::string name = after.componentName ? after.componentName : "";
-  if ((before.componentName ? before.componentName : "") != name || name == "AndroidTextInput") return false;
+  // A text input's drawing and a blur view's tint read props of their own.
+  if ((before.componentName ? before.componentName : "") != name || name == "AndroidTextInput" || isExpoBlurView(name)) {
+    return false;
+  }
   auto a = std::dynamic_pointer_cast<const ViewProps>(before.props);
   auto b = std::dynamic_pointer_cast<const ViewProps>(after.props);
   if (!a || !b) return !a && !b;
@@ -826,6 +877,7 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
     painter.limit(x0, y0, x1, y1);
     RenderStats drawn;
     drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, drawn, edit);
+    drawModals(tree, display, painter, drawn, edit);
     if (!counted) {
       stats = std::move(drawn);
       counted = true;
@@ -836,6 +888,7 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
     Painter painter(canvas, display.scale);
     painter.limit(0, 0, 0, 0);
     drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, stats, edit);
+    drawModals(tree, display, painter, stats, edit);
   }
   return stats;
 }
@@ -867,6 +920,8 @@ std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offs
   if (it == tree.views().end()) return std::nullopt;
   const auto& view = it->second.view;
   Point position{offset.x + view.layoutMetrics.frame.origin.x, offset.y + view.layoutMetrics.frame.origin.y};
+  // A modal is at the window's origin, wherever it is in the tree.
+  if (isModal(view.componentName ? view.componentName : "")) position = Point{0, 0};
   if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
   Point children = position;
   if (std::string(view.componentName ? view.componentName : "") == "ScrollView" && view.state) {
