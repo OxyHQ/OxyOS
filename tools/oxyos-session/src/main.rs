@@ -7,9 +7,12 @@
 //! - its input is the seat's devices through libinput, with the keymap of `--layout`;
 //! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed.
 //!
-//! `oxyos-session [--layout LAYOUT] -- COMMAND [ARGS]...` runs COMMAND with
-//! `OXYOS_COMPOSITOR_SOCKET` naming the compositor. The session ends when it exits, on
-//! Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (the application is then asked to stop).
+//! `oxyos-session [--layout LAYOUT] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...` runs COMMAND
+//! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
+//! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
+//! that grants `shell`; COMMAND starts once the shell's panels have set the work area its window is
+//! placed in. The session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM
+//! (they are then asked to stop).
 
 use oxyos_compositor::{Compositor, Gpu, Result};
 use oxyos_compositor_core::{Output, Scene};
@@ -23,15 +26,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] -- COMMAND [ARGS]...";
+const USAGE: &str =
+    "usage: oxyos-session [--layout LAYOUT] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...";
+/// The shell's panels set the work area within this budget, or the session does not start.
+const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const OUTPUT_ID: u32 = 1;
 
 fn main() -> Result<()> {
     let mut args = std::env::args_os().skip(1);
     let mut layout = "us".to_string();
     let mut command: Vec<OsString> = Vec::new();
+    let mut shell_command: Option<Vec<OsString>> = None;
     while let Some(arg) = args.next() {
         match arg.to_str() {
+            Some("--shell") => {
+                let value = args
+                    .next()
+                    .and_then(|v| v.into_string().ok())
+                    .ok_or(USAGE)?;
+                shell_command = Some(value.split(',').map(OsString::from).collect());
+            }
             Some("--layout") => {
                 layout = args
                     .next()
@@ -139,6 +153,19 @@ fn main() -> Result<()> {
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, stop.clone())?;
     }
+    // The session's shell first, on its own socket, granted `shell`.
+    let shell_socket = runtime.join(format!("oxyos-{}-shell", std::process::id()));
+    let _shell_socket = RemoveOnDrop(shell_socket.clone());
+    let mut shell = match &shell_command {
+        Some(shell_command) => Some(start_shell(
+            &mut compositor,
+            &listener,
+            &shell_socket,
+            shell_command,
+            output,
+        )?),
+        None => None,
+    };
     let mut application = Command::new(&command[0])
         .args(&command[1..])
         .env("OXYOS_COMPOSITOR_SOCKET", &socket)
@@ -153,6 +180,15 @@ fn main() -> Result<()> {
             );
             break Ok(());
         }
+        if let Some(status) = shell
+            .as_mut()
+            .map(|shell| shell.try_wait())
+            .transpose()?
+            .flatten()
+        {
+            eprintln!("[session] the shell exited ({status})");
+            break Ok(());
+        }
         if compositor.ending || stop.load(Ordering::Relaxed) {
             eprintln!("[session] ending");
             break Ok(());
@@ -162,12 +198,57 @@ fn main() -> Result<()> {
         }
     };
     end(&mut application)?;
+    if let Some(shell) = shell.as_mut() {
+        end(shell)?;
+    }
+    compositor.shell_listener = None;
     // The last frame completes before the display and the devices are given back.
     compositor.complete_flip(true);
     compositor.input = None;
     compositor.display = None;
     compositor.seat = None;
     ended
+}
+
+/// Starts the session's shell on `socket`, granting `shell`, and serves the session until its
+/// panels have set the work area (it differs from the output).
+fn start_shell(
+    compositor: &mut Compositor,
+    listener: &Listener,
+    socket: &std::path::Path,
+    command: &[OsString],
+    output: Rect,
+) -> Result<std::process::Child> {
+    let shell_listener = Listener::bind(socket)?;
+    shell_listener.set_nonblocking(true)?;
+    compositor.shell_listener = Some(shell_listener);
+    let mut shell = Command::new(command.first().ok_or(USAGE)?)
+        .args(&command[1..])
+        .arg("--shell")
+        .arg(OUTPUT_ID.to_string())
+        .env("OXYOS_COMPOSITOR_SOCKET", socket)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .spawn()?;
+    let deadline = Instant::now() + SHELL_DEADLINE;
+    loop {
+        if let Some(status) = shell.try_wait()? {
+            return Err(format!("the shell exited ({status}) before its panels were shown").into());
+        }
+        if Instant::now() > deadline {
+            end(&mut shell)?;
+            return Err("the shell's panels were not shown in time".into());
+        }
+        compositor.serve(listener)?;
+        if compositor
+            .scene
+            .work_area(OUTPUT_ID)
+            .is_some_and(|area| area != output)
+        {
+            eprintln!("[session] the shell's panels are shown");
+            return Ok(shell);
+        }
+    }
 }
 
 /// Asks the application to stop (SIGTERM), and stops it if it has not within two seconds.
