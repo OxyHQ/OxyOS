@@ -7,6 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const bloom = process.env.BLOOM_DIR;
+// Expo's runtime replaces the global `fetch` with expo/fetch, whose native module OxyOS does not
+// provide; this, Expo's own switch, keeps React Native's fetch, which OxyOS answers (Networking,
+// crates/oxyos-net). It is inlined into the bundle (oxyos/inline-public-env.js).
+process.env.EXPO_PUBLIC_USE_RN_FETCH = '1';
 const require = createRequire(path.join(bloom, 'package.json'));
 const Metro = require('metro');
 const { getAndroidResourceFolderName, getAndroidResourceIdentifier } = require(

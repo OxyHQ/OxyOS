@@ -480,6 +480,21 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
+    // expo-clipboard's reads and writes carry the serial of the latest key or press the app
+    // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
+    // recent. JavaScript hears when the clipboard changes.
+    services.clipboard = {
+        .copy = [&window, &lastPress](const std::string& text) { return window->copyText(lastPress, text); },
+        .paste = [&window, &lastPress](std::function<void(std::string)> done) {
+          window->pasteText(lastPress, std::move(done));
+        },
+        .hasText = [&window] { return window->clipboardHasText(); },
+    };
+    window->onClipboardChanged([&instance, &window] {
+      instance->callFunctionOnModule(
+          "RCTDeviceEventEmitter", "emit",
+          folly::dynamic::array("OxyOSClipboardChanged", folly::dynamic::object("text", window->clipboardHasText())));
+    });
     oxyos::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
     std::vector<std::string> shownTexts;  // the texts of the window's latest frame
     // The window's frame as last drawn: the next one draws only what changed (damage.h).

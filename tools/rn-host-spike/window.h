@@ -75,6 +75,9 @@ class Window {
   }
   // Each turn: finishes pastes whose content arrived. True if any did.
   bool deliverPastes() { return clipboard_.deliver(); }
+  bool clipboardHasText() const { return clipboard_.hasText(); }
+  // Runs `changed` whenever what the clipboard holds is known anew.
+  void onClipboardChanged(std::function<void()> changed) { clipboard_.onChanged(std::move(changed)); }
 
  private:
   OxyOSClient* client_ = nullptr;
