@@ -52,6 +52,13 @@ class Report {
   void gesture(const folly::dynamic& line);
   // How far a text input's text is now scrolled within it (textinput.h).
   void textScroll(const facebook::react::ShadowView& view, float x, float y);
+  // A modal's window starting to animate in or out (modal.h): `event` is `in` or `out`, `kind`
+  // its animationType; `within` names the modal by its testID.
+  void modalAnimation(const char* event, const char* kind, const facebook::react::ShadowView& view,
+                      const std::string& within);
+  // How an animating modal's window is presented in a frame (modal.h): moved down by `offset`
+  // logical pixels of the window's `height`, at `alpha`.
+  void modalPresented(const char* event, const std::string& within, float offset, float alpha, float height);
   // A popup's lifecycle.
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());

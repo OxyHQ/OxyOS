@@ -197,6 +197,7 @@ class Mounter : public SchedulerDelegate {
       // returned even when nothing was committed.
       auto transaction = coordinator->pullTransaction();
       if (transaction && !transaction->getMutations().empty()) {
+        if (beforeApply) beforeApply(transaction->getMutations());
         tree_.apply(transaction->getMutations());
         ++transactions;
         // As each platform's mounting layer does: report the mount, which runs the UIManager's
@@ -217,6 +218,8 @@ class Mounter : public SchedulerDelegate {
   }
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
+  // A transaction about to be applied, its views still in the tree (a modal's last frame).
+  std::function<void(const ShadowViewMutationList&)> beforeApply;
   // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
   std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
   void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
@@ -582,6 +585,9 @@ int main(int argc, char** argv) {
     oxyos::WindowDamage windowDamage;
     // OXYOS_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
     static const bool checkDamage = std::getenv("OXYOS_HOST_DAMAGE_CHECK") != nullptr;
+    mounter.beforeApply = [&](const ShadowViewMutationList& mutations) {
+      modalHost.leaving(mutations, display, drawn);
+    };
     mounter.onCommand = [&](const ShadowView& view, const std::string& name, const folly::dynamic& args) {
       editing.command(view, name, args);
     };
@@ -703,6 +709,11 @@ int main(int argc, char** argv) {
         if (window->deliverPastes()) busy = true;
         if (resized || mounted) shellSurfaces.sync();
         if (resized || mounted) modalHost.sync(display);
+        // A modal's window animating in or out moves on once for each frame the window can take.
+        if (window->ready(oxyos::Window::kToplevel) && modalHost.tick(display)) {
+          dirty = true;
+          busy = true;
+        }
         popups.sync(lastPress);
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something

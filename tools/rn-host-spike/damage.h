@@ -23,7 +23,8 @@ class WindowDamage {
   // - children drawn in a new order, with their subtrees (children added or removed are new or
   //   gone views; a popup view is drawn elsewhere);
   // - an Image view showing another picture;
-  // - the text input whose caret, selection or composition moved.
+  // - the text input whose caret, selection or composition moved;
+  // - the whole window while a modal animates in or out (its window moves or fades over it).
   // Nothing (`std::nullopt`) means everything: the first frame, or a new size or scale.
   std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, const Display& display,
                                                            const TextInputEdit& edit);
@@ -50,6 +51,9 @@ class WindowDamage {
   Views seen_;
   std::optional<Display> display_;
   TextInputEdit edit_;
+  // How the modals animating were presented, those animating out included.
+  std::vector<std::pair<facebook::react::Tag, ModalPresentation>> presented_;
+  std::vector<ViewTree::Leaving> leaving_;
 };
 
 }  // namespace oxyos
