@@ -117,6 +117,9 @@ fn main() -> Result<()> {
     let own_uid = rustix::process::getuid().as_raw();
     let mut compositor = Compositor::new(scene, own_uid, output);
     compositor.pointer_images = pointer_images;
+    // A session waits for its devices, clients and display rather than turning every 5 ms; at
+    // most a quarter of a second, in which it notices its application or shell has exited.
+    compositor.idle_wait = Duration::from_millis(250);
     compositor.records = false;
     compositor.reads_back = false;
     compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
