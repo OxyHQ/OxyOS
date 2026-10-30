@@ -190,14 +190,18 @@ Body requestBody(const BlobStore& blobs, const folly::dynamic& data) {
 
 }  // namespace
 
+folly::dynamic deviceDimensions(const Display& display) {
+  folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
+      "scale", display.scale)("fontScale", 1.0);
+  return folly::dynamic::object("window", window)("screen", window);
+}
+
 std::shared_ptr<TurboModule> createHostModule(
     const std::string& name,
     const std::shared_ptr<CallInvoker>& invoker,
     const Display& display,
     HostServices& services) {
   auto module = std::make_shared<HostModule>(name, invoker);
-  folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
-      "scale", display.scale)("fontScale", 1.0);
 
   if (name == "PlatformConstants") {
     // React Native's Android spec, answered for OxyOS. `Version` is not a device's Android API
@@ -213,7 +217,7 @@ std::shared_ptr<TurboModule> createHostModule(
       throw jsi::JSError(rt, "OxyOS has no Android ID");
     });
   } else if (name == "DeviceInfo") {
-    module->constants(folly::dynamic::object("Dimensions", folly::dynamic::object("window", window)("screen", window)));
+    module->constants(folly::dynamic::object("Dimensions", deviceDimensions(display)));
   } else if (name == "SourceCode") {
     const char* url = std::getenv("OXYOS_SCRIPT_URL");
     module->constants(folly::dynamic::object("scriptURL", url ? url : ""));

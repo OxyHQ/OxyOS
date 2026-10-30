@@ -214,6 +214,11 @@ struct HostServices {
   std::function<void(const std::string& text)> announce;
 };
 
+// React Native's Dimensions for a window of `display`'s size and scale: DeviceInfo's constant at
+// start, and `didUpdateDimensions`' payload each time it changes, as Android's DeviceInfoModule
+// emits it on a configuration change.
+folly::dynamic deviceDimensions(const Display& display);
+
 std::shared_ptr<facebook::react::TurboModule> createHostModule(
     const std::string& name,
     const std::shared_ptr<facebook::react::CallInvoker>& invoker,

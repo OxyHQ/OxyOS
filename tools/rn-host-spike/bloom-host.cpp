@@ -1242,6 +1242,10 @@ int main(int argc, char** argv) {
         if (resized) {
           display = oxyos::Display{window->width(), window->height(), window->scale(), display.background};
           pointer.setScale(display.scale);
+          // useWindowDimensions and Dimensions follow the window (a resize, the output's scale or
+          // size changed in Settings), as Android tells them on a configuration change.
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("didUpdateDimensions", oxyos::deviceDimensions(display)));
           auto laying = Clock::now();
           layOut();
           oxyos::Report::get().layout(display.width, display.height,
