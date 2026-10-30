@@ -1,0 +1,27 @@
+{
+ "signatures": [
+  {
+   "keyid": "3336b222894653a1c328c2636b5ada9d8c2f53be3b927369d64e7087014bf619",
+   "sig": "9401e7ebe2d2a353d1ef9a4c66842541de7199b757821f9a6426418725384abddfa1d644e9ede652eacba856ac1a4fccc75222aa2f7ca03f1a9ffd0fdebccd02"
+  }
+ ],
+ "signed": {
+  "_type": "targets",
+  "expires": "2100-01-01T00:00:00Z",
+  "spec_version": "1.0.31",
+  "targets": {
+   "so.oxy.fixture/1/any/manifest.json": {
+    "custom": {
+     "oxyos": {
+      "note": "custom data travels with the target"
+     }
+    },
+    "hashes": {
+     "sha256": "5c91a58f0e1020847d0193d50500f3ae762e48097e87f838c23a989b54377554"
+    },
+    "length": 21
+   }
+  },
+  "version": 1
+ }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "oxyos-installd"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-install = { path = "../../crates/oxyos-install" }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+# `--client`: a request given as JSON, the answers printed as JSON.
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -35,6 +35,14 @@ jobs:
       - run: cargo test --workspace --locked
         env:
           XLOCALEDIR: ${{ github.workspace }}/config/includes.chroot_after_packages/usr/share/X11/locale
+      # The install service's compiler runs as root in a transient systemd unit (ADR 0030, step 2), and
+      # systemd may refuse as a transient unit's property what a unit file takes: only starting the
+      # unit, as root, proves its sandbox (crates/oxyos-install/src/tests/sandbox.rs).
+      - name: The compiler's sandbox under systemd, as root
+        run: |
+          test=$(cargo test --locked -p oxyos-install --lib --no-run --message-format=json \
+            | python3 -c 'import json, sys; print(*[m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m["profile"]["test"] and m.get("executable")])')
+          sudo "$test" --ignored --exact tests::sandbox::the_compilers_sandbox_runs_under_systemd
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 scripts/check-native-boundary.py
       - run: cargo run --locked -p oxyos-platform-probe

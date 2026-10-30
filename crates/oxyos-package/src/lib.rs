@@ -15,7 +15,9 @@
 //! which key is pinned. Those are `oxyos-installd`'s (decision 5); this crate gives it the checks.
 
 mod base64url;
-mod json;
+/// The strict JSON reader and RFC 8785 writer the package's documents use, for other documents
+/// that must be read as strictly (the store's TUF metadata, `oxyos-install`).
+pub mod json;
 mod manifest;
 mod signature;
 mod tree;
