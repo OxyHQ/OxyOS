@@ -458,12 +458,17 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 if let Err(e) = self.installer.check() {
                     return failed(&e, "checkUpdates", None);
                 }
+                // How often the store was read, in the log: two asking at once make one.
+                let read = Ok(format!(
+                    "checked; the store read {} times in all",
+                    self.installer.checks_made()
+                ));
                 match account {
-                    None => (
-                        Answer::Checked,
-                        outcome("checkUpdates", None, Ok("checked".into())),
+                    None => (Answer::Checked, outcome("checkUpdates", None, read)),
+                    Some(uid) => (
+                        self.state(uid, "checkUpdates").0,
+                        outcome("checkUpdates", None, read),
                     ),
-                    Some(uid) => self.state(uid, "checkUpdates"),
                 }
             }
             Request::UpdateState { uid } => {

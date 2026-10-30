@@ -1,0 +1,145 @@
+{
+  "module": "StoreProbe",
+  "window": [
+    520,
+    320
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "about": "Removing an installed application through the system's sheet (docs/adr/0030-installing-applications.mdx, decision 11): the account's data (its ADR 0030 directory in the run's home) removed by the session as the account, the install service's version collected; Cancelar removes nothing. At 1.25 on the ThinkPad's display (1600x1000).",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ]
+  },
+  "home": {
+    "items": {
+      ".local/share/oxyos/apps/so.oxy.inbox/notes.txt": "mine",
+      ".local/share/oxyos/apps/so.oxy.allo/keep.txt": "theirs"
+    }
+  },
+  "installd_final": {
+    "packages": {}
+  },
+  "steps": [
+    {
+      "name": "Status: Inbox installed, version 1",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Check: - · UpdateAll: - · Status: status v1",
+          "Asked: 1"
+        ]
+      }
+    },
+    {
+      "name": "Uninstall, pressed: the sheet asks",
+      "do": [
+        "press",
+        [
+          250,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 2"
+        ]
+      }
+    },
+    {
+      "name": "Cancelar: nothing removed",
+      "do": [
+        "press_output",
+        [
+          622,
+          471
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-refuse": 1,
+            "touchEnd@system-sheet-refuse": 1
+          }
+        },
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.inbox/notes.txt": "mine"
+        }
+      }
+    },
+    {
+      "name": "Uninstall again",
+      "do": [
+        "press",
+        [
+          250,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Install: - · Uninstall: cancelled · Open: -",
+          "Asked: 3"
+        ]
+      }
+    },
+    {
+      "name": "Eliminar in the shell's sheet: removed",
+      "do": [
+        "press_output",
+        [
+          750,
+          471
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-accept": 1,
+            "touchEnd@system-sheet-accept": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Status: not installed; its data gone, another's kept",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Install: - · Uninstall: uninstalled · Open: -",
+          "Check: - · UpdateAll: - · Status: status none"
+        ],
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.inbox/notes.txt": false,
+          ".local/share/oxyos/apps/so.oxy.allo/keep.txt": "theirs"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

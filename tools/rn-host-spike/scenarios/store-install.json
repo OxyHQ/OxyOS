@@ -1,9 +1,8 @@
 {
-  "about": "Installing from the store through the system's sheet (docs/adr/0030-installing-applications.mdx, decisions 5, 7 and 9), with a real oxyos-installd (its development mode, on directories of the run's own) and a repository where oxyos-pack published Inbox's package as the store would. The store probe asks; the shell shows the sheet (the store only waits); Cancel installs nothing; Instalar, pressed in the shell, installs it: fetched, compiled on the machine, the account's entry written, and the store opens it, the installed version, not the development registry's entry of the same id, given no system grant. With the sheet's answer taken from the store instead of the shell, nothing installs.",
   "module": "StoreProbe",
   "window": [
     520,
-    260
+    320
   ],
   "shell": "OxyOSShell",
   "app": {
@@ -16,14 +15,29 @@
       "updates"
     ]
   },
+  "about": "Installing from the store through the system's sheet (docs/adr/0030-installing-applications.mdx, decisions 5, 7 and 9), with a real oxyos-installd (its development mode) and a repository where oxyos-pack published Inbox's package as the store would. The store asks and waits; the shell shows the sheet; Cancelar installs nothing; Instalar installs it (fetched, compiled on the machine, the account's entry written, progress told); the store opens the installed version, given no system grant.",
   "installd": {
     "publish": [
       "so.oxy.inbox"
     ]
   },
+  "applications_launched": [
+    {
+      "id": "so.oxy.inbox",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "installd_final": {
+    "packages": {
+      "so.oxy.inbox": [
+        1
+      ]
+    }
+  },
   "steps": [
     {
-      "name": "Install, pressed in the store: it waits, and the shell shows the system's sheet",
+      "name": "Install, pressed in the store: it waits, the shell shows the sheet",
       "do": [
         "press",
         [
@@ -35,20 +49,16 @@
         "texts": [
           "Asked: 1",
           "Answer 0: none yet"
-        ],
-        "react": {
-          "touchStart@install": 1,
-          "touchEnd@install": 1
-        }
+        ]
       }
     },
     {
-      "name": "Cancelar, pressed in the shell's sheet: nothing is installed, and the store is told",
+      "name": "Cancelar in the shell's sheet: nothing installed",
       "do": [
         "press_output",
         [
-          684,
-          393
+          622,
+          431
         ]
       ],
       "expect": {
@@ -61,7 +71,7 @@
       }
     },
     {
-      "name": "Install again: the store's answer was that it was cancelled",
+      "name": "Install again: the first was cancelled",
       "do": [
         "press",
         [
@@ -71,18 +81,18 @@
       ],
       "expect": {
         "texts": [
-          "Answer 1: cancelled",
+          "Install: cancelled · Uninstall: - · Open: -",
           "Asked: 2"
         ]
       }
     },
     {
-      "name": "Instalar, pressed in the shell's sheet: the install service fetches, compiles and switches",
+      "name": "Instalar in the shell's sheet",
       "do": [
         "press_output",
         [
-          772,
-          393
+          750,
+          431
         ]
       ],
       "expect": {
@@ -95,7 +105,7 @@
       }
     },
     {
-      "name": "Status, pressed after a moment: the store was told Inbox is installed, its progress having come",
+      "name": "Status: installed, version 1, its progress told",
       "do": [
         "press",
         [
@@ -105,13 +115,13 @@
       ],
       "expect": {
         "texts": [
-          "Install: installed",
+          "Install: installed v1 · Uninstall: - · Open: -",
           "Asked: 3"
         ]
       }
     },
     {
-      "name": "Open: the session launches the installed version (the run's summary says it was the installed version, given no system grant)",
+      "name": "Open: the session launches the installed version",
       "do": [
         "press",
         [
@@ -124,13 +134,6 @@
           "Asked: 4"
         ]
       }
-    }
-  ],
-  "applications_launched": [
-    {
-      "id": "so.oxy.inbox",
-      "origin": "installed 1",
-      "settings": false
     }
   ]
 }

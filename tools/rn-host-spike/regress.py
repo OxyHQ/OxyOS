@@ -1350,8 +1350,9 @@ def install_service(spec, machine, offscreen):
     run = lambda *args: subprocess.run([str(a) for a in args], check=True, capture_output=True)
     run(pack, "store-keys", keys)
     run(pack, "repository", repository, keys)
+    developer = machine.packages / "development.key"
     for id in spec.get("publish", []):
-        run(pack, "publish", machine.by_id[id]["dir"], repository, keys, machine.packages / "development.key")
+        run(pack, "publish", machine.by_id[id]["dir"], repository, keys, developer)
     me = pwd.getpwuid(os.getuid())
     (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
     logs = open(base / "installd.log", "w")
@@ -1365,6 +1366,27 @@ def install_service(spec, machine, offscreen):
                                        str(base / "f"), "--passwd", str(base / "passwd")],
                                       stdout=logs, stderr=logs))
     wait_for(base / "i")
+    # Installed before the run, as an account that installed it earlier has it.
+    for id in spec.get("installed", []):
+        installd_ask(base / "i", [{"prepare": {"id": id}}, "commit"])
+    # Versions the store publishes afterwards: the same package's files, its manifest's
+    # versionCode, version and capabilities changed, packed and signed with the same key.
+    for later in spec.get("later", []):
+        source = pathlib.Path(machine.by_id[later["id"]]["dir"])
+        manifest = json.loads((source / "manifest.json").read_text())
+        dir = base / f"{later['id']}-{later['versionCode']}"
+        shutil.copytree(source, dir, ignore=shutil.ignore_patterns("manifest.json", "manifest.sig", "index.hbc"))
+        description = {key: value for key, value in manifest.items() if key not in ("files", "runtime")}
+        description["versionCode"] = later["versionCode"]
+        description["version"] = f"0.{later['versionCode']}.0"
+        description.pop("capabilities", None)
+        if later.get("capabilities"):
+            description["capabilities"] = [{"name": name, "purpose": {"en": "Scenario."}}
+                                           for name in later["capabilities"]]
+        (base / "description.json").write_text(json.dumps(description))
+        run(pack, "pack", dir, base / "description.json", machine.runtimes / str(manifest["runtime"]["abi"]) / "runtime.json", developer)
+        run(pack, "publish", dir, repository, keys, developer)
+    INSTALLD.update(state=state, log=base / "installd.log")
 
     def stop():
         for process in processes:
@@ -1373,6 +1395,53 @@ def install_service(spec, machine, offscreen):
         shutil.rmtree(base, ignore_errors=True)
     atexit.register(stop)
     return base / "i", state
+
+
+# The run's install service (`install_service`): its state and log, for the final checks.
+INSTALLD = {}
+
+
+def installd_ask(socket_path, requests):
+    """Requests on one connection to the install service (a plan is its connection's); "commit"
+    commits the last plan. The answers, each request's last."""
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    connection.connect(str(socket_path))
+    answers, plan = [], None
+    for request in requests:
+        if request == "commit":
+            request = {"commit": {"planId": plan}}
+        connection.send(json.dumps(request).encode())
+        while True:
+            answer = json.loads(connection.recv(1 << 20))
+            if "progress" not in answer:
+                break
+        if "plan" in answer:
+            plan = answer["plan"]["planId"]
+        if "refused" in answer:
+            raise RuntimeError(f"the install service refused {request}: {answer}")
+        answers.append(answer)
+    connection.close()
+    return answers
+
+
+def check_installd(wanted, failures):
+    """The scenario's `installd_final`: the versions the service keeps by id, and how many times
+    it read the store (checks asked at once make one)."""
+    state = INSTALLD.get("state")
+    if "packages" in wanted:
+        kept = {}
+        packages = state / "packages" if state else None
+        if packages and packages.is_dir():
+            for app in sorted(packages.iterdir()):
+                kept[app.name] = sorted(int(v.name) for v in app.iterdir() if v.name.isdigit())
+        if kept != wanted["packages"]:
+            failures.append(f"the install service keeps {kept}, expected {wanted['packages']}")
+    if "store_reads" in wanted:
+        text = INSTALLD["log"].read_text() if INSTALLD.get("log") else ""
+        reads = [int(n) for n in re.findall(r"the store read (\d+) times", text)]
+        got = max(reads, default=0)
+        if got != wanted["store_reads"]:
+            failures.append(f"the install service read the store {got} times, expected {wanted['store_reads']}")
 
 
 def wait_for(path, seconds=10):
@@ -1649,6 +1718,8 @@ def main():
         password = scenario["login"]["password"]
         if any(password in line for line in recorded):
             failures.append("the password is in the login program's record")
+    if "installd_final" in scenario:
+        check_installd(scenario["installd_final"], failures)
     if "applications_launched" in scenario and summary.get("applications") != scenario["applications_launched"]:
         failures.append(f"the shell started {summary.get('applications')}, expected exactly "
                         f"{scenario['applications_launched']}")

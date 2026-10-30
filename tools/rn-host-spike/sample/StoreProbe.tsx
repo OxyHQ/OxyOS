@@ -9,11 +9,17 @@ import { available, store, updates } from './oxyos/system';
 
 const ID = 'so.oxy.inbox';
 
-/** An answer as one line: its kind, and its reason when it has one. */
+/** An answer as one line: its kind, and its reason or what it came to when it has one. */
 function said(answer: any): string {
   if (!answer || typeof answer !== 'object') return String(answer);
   const kind = Object.keys(answer)[0];
   const value = answer[kind];
+  if (kind === 'status' && Array.isArray(value)) {
+    const app = value[0] ?? {};
+    return `status ${app.installed ? `v${app.versionCode}` : 'none'}${app.update ? ` update ${app.update.toVersionCode}` : ''}`;
+  }
+  if (kind === 'updated' && Array.isArray(value)) return `updated ${value.map((u: any) => u.outcome).join(',') || 'none'}`;
+  if (kind === 'installed' && value) return `installed v${value.versionCode}`;
   return value && typeof value === 'object' && 'reason' in value ? `${kind} ${value.reason}` : kind;
 }
 
@@ -31,39 +37,49 @@ function Button({ label, x, y, onPress }: { label: string; x: number; y: number;
   );
 }
 
+function Line({ y, children }: { y: number; children: string }) {
+  return <Text style={{ position: 'absolute', left: 20, top: y }}>{children}</Text>;
+}
+
 export default function StoreProbe() {
   const [answer, setAnswer] = React.useState({ count: 0, text: 'none yet' });
   const [progress, setProgress] = React.useState(0);
   const [state, setState] = React.useState(() => updates.current());
   React.useEffect(() => updates.subscribe(setState), []);
-  // Numbered, so each answer is drawn even when it says what the one before said.
   const [asked, setAsked] = React.useState(0);
   // Each action's last outcome on a line of its own: steady whenever it came.
   const [outcomes, setOutcomes] = React.useState<Record<string, string>>({});
-  const keep = (action: string, pending: Promise<any>) => {
-    show(pending);
-    pending.then((a) => setOutcomes((all) => ({ ...all, [action]: said(a) })));
-  };
   // What was asked, at once (a sheet may be waiting), then its answer when it comes.
   const show = (pending: Promise<any>) => {
     setAsked((n) => n + 1);
     pending.then((a) => setAnswer((last) => ({ count: last.count + 1, text: said(a) })));
   };
+  const keep = (action: string, pending: Promise<any>) => {
+    show(pending);
+    pending.then((a) => setOutcomes((all) => ({ ...all, [action]: said(a) })));
+  };
+  const listed = state
+    ? `${state.updates.length}${state.updates.map((u: any) => ` ${u.id} ${u.toVersionCode} ${u.status}`).join('')}`
+    : 'unknown';
   return (
     <View style={{ flex: 1, backgroundColor: 'white' }}>
-      <Text style={{ position: 'absolute', left: 20, top: 120 }}>{`Store: ${available ? 'available' : 'unavailable'}`}</Text>
-      <Text style={{ position: 'absolute', left: 20, top: 140 }}>{`Answer ${answer.count}: ${answer.text}`}</Text>
-      <Text style={{ position: 'absolute', left: 20, top: 160 }}>{`Progress: ${progress}`}</Text>
-      <Text style={{ position: 'absolute', left: 20, top: 180 }}>{`Updates: ${state ? state.updates.length : 'unknown'}`}</Text>
-      <Text style={{ position: 'absolute', left: 20, top: 200 }}>{`Asked: ${asked}`}</Text>
-      <Text style={{ position: 'absolute', left: 20, top: 220 }}>{`Install: ${outcomes.install ?? '-'}`}</Text>
-      <Text style={{ position: 'absolute', left: 260, top: 220 }}>{`Uninstall: ${outcomes.uninstall ?? '-'}`}</Text>
       <Button label="Install" x={20} y={20} onPress={() => keep('install', store.install(ID, () => setProgress((n) => n + 1)))} />
       <Button label="Uninstall" x={180} y={20} onPress={() => keep('uninstall', store.uninstall(ID))} />
-      <Button label="Open" x={340} y={20} onPress={() => show(store.open(ID))} />
-      <Button label="Check" x={20} y={70} onPress={() => show(updates.check())} />
-      <Button label="UpdateAll" x={180} y={70} onPress={() => show(updates.updateAll())} />
-      <Button label="Status" x={340} y={70} onPress={() => show(store.status([ID]))} />
+      <Button label="Open" x={340} y={20} onPress={() => keep('open', store.open(ID))} />
+      <Button label="Check" x={20} y={70} onPress={() => keep('check', updates.check())} />
+      <Button label="UpdateAll" x={180} y={70} onPress={() => keep('updateAll', updates.updateAll())} />
+      <Button label="Status" x={340} y={70} onPress={() => keep('status', store.status([ID]))} />
+      {/* Two checks at once: the install service reads the store once for both. */}
+      <Button label="CheckTwice" x={20} y={120} onPress={() => { keep('check', updates.check()); keep('check2', updates.check()); }} />
+      <Button label="Settings" x={180} y={120} onPress={() => keep('openSettings', store.open('so.oxy.settings'))} />
+      <Button label="Probe" x={340} y={120} onPress={() => keep('openProbe', store.open('so.oxy.permissionprobe'))} />
+      <Line y={170}>{`Store: ${available ? 'available' : 'unavailable'}`}</Line>
+      <Line y={190}>{`Answer ${answer.count}: ${answer.text}`}</Line>
+      <Line y={210}>{`Progress: ${progress}`}</Line>
+      <Line y={230}>{`Updates: ${listed}`}</Line>
+      <Line y={250}>{`Asked: ${asked}`}</Line>
+      <Line y={270}>{`Install: ${outcomes.install ?? '-'} · Uninstall: ${outcomes.uninstall ?? '-'} · Open: ${outcomes.open ?? '-'}`}</Line>
+      <Line y={290}>{`Check: ${outcomes.check ?? '-'} · UpdateAll: ${outcomes.updateAll ?? '-'} · Status: ${outcomes.status ?? '-'}`}</Line>
     </View>
   );
 }

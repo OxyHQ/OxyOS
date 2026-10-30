@@ -40,6 +40,7 @@ const icons = {
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
   'so.oxy.stash': 'tools/shell-preview/assets/apps/stash.png',
+  'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
 const entries = {
   'so.oxy.shell': 'entries/shell.js',
@@ -47,6 +48,8 @@ const entries = {
   'so.oxy.settings': 'entries/settings.js',
   'so.oxy.inbox': 'entries/inbox.js',
   'so.oxy.allo': 'entries/allo.js',
+  // A probe installed as an application of its own (the scenarios' install service publishes it).
+  'so.oxy.permissionprobe': 'entries/permission.js',
   // Stash, from its own checkout (STASH_DIR, oxyos/application-build.js), when one is given.
   ...(process.env.STASH_DIR ? { 'so.oxy.stash': 'oxyos/stash-application.js' } : {}),
 };
