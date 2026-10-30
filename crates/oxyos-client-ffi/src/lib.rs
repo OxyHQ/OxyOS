@@ -76,6 +76,9 @@ pub const OXYOS_EVENT_AUTHENTICATION_RESULT: u32 = 45;
 /// To the surface with keyboard focus: whether Caps Lock is on (flag), when it changes and after
 /// its focus when it is on; a surface gains focus with it off unless told.
 pub const OXYOS_EVENT_CAPS_LOCK: u32 = 46;
+/// To the session's shell: whether the application it asked for was started (ADR 0013): code,
+/// its request's serial; flag, started.
+pub const OXYOS_EVENT_LAUNCH_RESULT: u32 = 49;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -581,6 +584,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::LaunchResult { serial, launched } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_LAUNCH_RESULT,
+                code: serial,
+                flag: u8::from(launched),
+                ..out
+            }
+        }
         Event::CapsLock { surface, on } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_CAPS_LOCK,
@@ -777,6 +788,34 @@ pub unsafe extern "C" fn oxyos_client_create_lock_surface(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::CreateLockSurface { surface, output }) }
+}
+
+/// The session's shell asks for the application `id` (`length` bytes of UTF-8, at most 128) of
+/// the session's registry (ADR 0013); a LAUNCH_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `id` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_launch(
+    client: *mut OxyOSClient,
+    serial: u32,
+    id: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if id.is_null() || length == 0 || length > 128 {
+        return fail("an application id is 1 to 128 bytes");
+    }
+    // SAFETY: per the contract, `id` points to `length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(id.cast::<u8>(), length) };
+    let Ok(id) = std::str::from_utf8(bytes) else {
+        return fail("an application id is UTF-8");
+    };
+    status(client.launch(serial, id))
 }
 
 /// Locks the session (the session's shell, with the `shell` grant). 0 on success.

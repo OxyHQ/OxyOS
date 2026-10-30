@@ -306,3 +306,135 @@ pub fn find(directories: &[PathBuf], languages: &[String], id: &str) -> Option<A
 
 #[cfg(test)]
 mod tests;
+
+/// What a session starts applications with: the compositor's socket, and for Bloom
+/// applications the session's Bloom host, its bundle and their windows' size.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Runtime {
+    pub socket: PathBuf,
+    pub bloom_host: Option<PathBuf>,
+    pub bloom_bundle: Option<PathBuf>,
+    pub window: (u32, u32),
+    /// More of the applications' environment (a development compositor's report files).
+    pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+}
+
+/// How `application` is started in `runtime`: the program, its arguments and its environment:
+/// the compositor's socket, its id and name (its window's, until launch records give them), never
+/// another display's.
+pub fn command(
+    application: &Application,
+    runtime: &Runtime,
+) -> Result<std::process::Command, Error> {
+    let mut command = match &application.launch {
+        Launch::Exec(words) => {
+            let mut command = std::process::Command::new(&words[0]);
+            command.args(&words[1..]);
+            command
+        }
+        Launch::Bloom { module, bundle } => {
+            let host = runtime
+                .bloom_host
+                .as_ref()
+                .ok_or_else(|| Error("no Bloom host to run Bloom applications".into()))?;
+            let bundle = bundle
+                .as_ref()
+                .or(runtime.bloom_bundle.as_ref())
+                .ok_or_else(|| {
+                    Error(format!("{} has no bundle, nor the session", application.id))
+                })?;
+            let mut command = std::process::Command::new(host);
+            command
+                .arg(bundle)
+                .arg(module)
+                .args([
+                    "--window",
+                    &runtime.window.0.to_string(),
+                    &runtime.window.1.to_string(),
+                ])
+                .env("OXYOS_SCRIPT_URL", format!("file://{}", bundle.display()));
+            command
+        }
+    };
+    command
+        .envs(runtime.env.iter().map(|(name, value)| (name, value)))
+        .env("OXYOS_COMPOSITOR_SOCKET", &runtime.socket)
+        .env("OXYOS_APP_ID", &application.id)
+        .env("OXYOS_APP_TITLE", &application.name)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY");
+    Ok(command)
+}
+
+/// The processes a session started for applications (docs/adr/0013-launching-applications.mdx).
+pub struct Launcher {
+    pub runtime: Runtime,
+    directories: Vec<PathBuf>,
+    languages: Vec<String>,
+    /// Each process started, its pid and its application's id, until it exits.
+    children: Vec<(std::process::Child, String)>,
+}
+
+impl Launcher {
+    pub fn new(runtime: Runtime, directories: Vec<PathBuf>, languages: Vec<String>) -> Self {
+        Self {
+            runtime,
+            directories,
+            languages,
+            children: Vec::new(),
+        }
+    }
+
+    /// Starts the application `id` if the registry lists it; the pid it runs as.
+    pub fn launch(&mut self, id: &str) -> Result<u32, Error> {
+        let application = find(&self.directories, &self.languages, id)
+            .ok_or_else(|| Error(format!("no application {id:?}")))?;
+        let child = command(&application, &self.runtime)?
+            .spawn()
+            .map_err(|error| Error(format!("{id}: {error}")))?;
+        let pid = child.id();
+        self.children.push((child, application.id));
+        Ok(pid)
+    }
+
+    /// Forgets the processes that exited (they are waited for, so none lingers); the id of each.
+    pub fn reap(&mut self) -> Vec<String> {
+        let mut exited = Vec::new();
+        self.children
+            .retain_mut(|(child, id)| match child.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    exited.push(id.clone());
+                    false
+                }
+            });
+        exited
+    }
+
+    /// The application a running process it started is, by pid.
+    pub fn application_of(&self, pid: u32) -> Option<&str> {
+        self.children
+            .iter()
+            .find(|(child, _)| child.id() == pid)
+            .map(|(_, id)| id.as_str())
+    }
+
+    /// Stops every process it started: asked first (SIGTERM), then killed after `grace`.
+    pub fn end(&mut self, grace: std::time::Duration) {
+        for (child, _) in &self.children {
+            if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+                let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+            }
+        }
+        let deadline = std::time::Instant::now() + grace;
+        while !self.children.is_empty() && std::time::Instant::now() < deadline {
+            self.reap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        for (child, _) in &mut self.children {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.children.clear();
+    }
+}

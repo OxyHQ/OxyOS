@@ -326,6 +326,8 @@ pub struct Scene {
     authentication: lock::Authentication,
     /// Whether the keyboard's Caps Lock is on.
     caps_lock: bool,
+    /// Applications the shell asked for (ADR 0013).
+    launches: launch::Launches,
     /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
     appearances: Vec<appearances::Appearance>,
 }
@@ -585,6 +587,7 @@ impl Scene {
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
         self.forget_shell_client(client);
+        self.forget_launches(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -938,6 +941,12 @@ impl Scene {
             | Request::ActivateWorkspace { .. }
             | Request::AddWorkspace {}
             | Request::RemoveWorkspace { .. } => self.shell_request(client, request),
+            Request::LaunchApplication {
+                serial,
+                index,
+                last,
+                text,
+            } => self.launch_request(client, serial, index, last, text),
             Request::LockSession {}
             | Request::AuthenticateSecret { .. }
             | Request::Authenticate { .. } => self.lock_request(client, request),
@@ -2985,6 +2994,8 @@ mod shell;
 pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
 pub use lock::Secret;
+mod launch;
+pub use launch::LaunchRequest;
 mod appearances;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 

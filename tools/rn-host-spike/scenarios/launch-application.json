@@ -1,0 +1,40 @@
+{
+  "about": "Launching an application (ADR 0013): the shell's dock lists the session's registry (the development registry: Inbox, kept in the dock, and Allo); pressing Inbox, which has no window, has the shell ask the session for it by id, and the session (here the development compositor, as oxyos-session does) starts it from its registry entry with the shell's Bloom host. Its window appears over Allo's and the dock marks Inbox running; the shell is told it was started. With the compositor starting nothing, it fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "Inbox in the dock, with no window: the session starts it, its window shows and the dock marks it running",
+      "do": [
+        "press_output",
+        [
+          680,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "output_pixels": {
+          "640,235": "#f0e7eb",
+          "600,195": "#fff7f9",
+          "680,716": "#64717a",
+          "1100,400": "#5686ff"
+        },
+        "in_shell": {
+          "react": {
+            "touchStart@dock-so.oxy.inbox": 1,
+            "touchEnd@dock-so.oxy.inbox": 1
+          }
+        }
+      }
+    }
+  ]
+}

@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 oxyos-protocol = { path = "../../crates/oxyos-protocol" }
 oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
+oxyos-apps = { path = "../../crates/oxyos-apps" }
 oxyos-ipc = { path = "../../crates/oxyos-ipc" }
 oxyos-client = { path = "../../crates/oxyos-client" }
 oxyos-gpu = { path = "../../crates/oxyos-gpu" }

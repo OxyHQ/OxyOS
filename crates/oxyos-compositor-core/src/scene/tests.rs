@@ -5397,3 +5397,85 @@ fn the_dock_is_the_shells_bottom_panel() {
     h.present(key(SHELL, 2));
     assert_eq!(h.scene.dock(), Some(Rect::new(0, 1080 - 56, 1920, 56)));
 }
+
+#[test]
+fn the_shell_asks_for_an_application_by_id_and_is_answered() {
+    use super::launch::LaunchRequest;
+    let mut h = Harness::new();
+    let chunk = |text: &str| PreeditText::new(text).unwrap();
+    // Only the shell asks.
+    assert_eq!(
+        h.request(
+            APP,
+            Request::LaunchApplication {
+                serial: 1,
+                index: 0,
+                last: true,
+                text: chunk("so.oxy.allo"),
+            },
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    // An id longer than a chunk comes in order; the request is whole at its last chunk.
+    let id = "so.oxy.an-application-with-a-rather-long-id";
+    let chunks: Vec<&str> = vec![&id[..32], &id[32..]];
+    for (index, part) in chunks.iter().enumerate() {
+        h.request(
+            SHELL,
+            Request::LaunchApplication {
+                serial: 7,
+                index: index as u8,
+                last: index == chunks.len() - 1,
+                text: chunk(part),
+            },
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        h.scene.take_launches(),
+        vec![LaunchRequest {
+            client: SHELL,
+            serial: 7,
+            id: id.to_string()
+        }]
+    );
+    assert!(h.scene.take_launches().is_empty());
+    // Out of order: a protocol error.
+    assert_eq!(
+        h.request(
+            SHELL,
+            Request::LaunchApplication {
+                serial: 8,
+                index: 1,
+                last: true,
+                text: chunk("x"),
+            },
+        ),
+        Err(ErrorCode::InvalidOrder)
+    );
+    // The answer goes to the shell alone.
+    h.clear_log();
+    h.scene.launched(SHELL, 7, true);
+    h.pump();
+    assert_eq!(
+        h.events_for(SHELL),
+        vec![Event::LaunchResult {
+            serial: 7,
+            launched: true
+        }]
+    );
+    assert!(h.events_for(APP).is_empty());
+    // A shell that goes takes its unanswered requests with it.
+    h.request(
+        SHELL,
+        Request::LaunchApplication {
+            serial: 9,
+            index: 0,
+            last: true,
+            text: chunk("so.oxy.allo"),
+        },
+    )
+    .unwrap();
+    h.scene.disconnect(SHELL);
+    assert!(h.scene.take_launches().is_empty());
+}

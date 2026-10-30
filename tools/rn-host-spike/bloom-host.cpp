@@ -621,6 +621,10 @@ int main(int argc, char** argv) {
             window->manage(action, target, workspace);
           },
           .lock = [&window] { window->lockSession(); },
+          .launch = [&window, serial = uint32_t{0}](const std::string& id) mutable -> uint32_t {
+            ++serial;
+            return window->launch(serial, id) ? serial : 0;
+          },
           .authenticate = [&window, &shellSurfaces](const std::string& secret) {
             auto surface = shellSurfaces.lockSurface();
             return surface && window->authenticate(*surface, secret);
@@ -682,11 +686,13 @@ int main(int argc, char** argv) {
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
+        std::vector<OxyOSEvent> launchResults;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
               shellChanged |= shellState.observe(event);
               if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
+              if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
               if (event.kind == OXYOS_EVENT_CLOSE_REQUESTED && event.surface == oxyos::Window::kToplevel) {
@@ -737,6 +743,15 @@ int main(int argc, char** argv) {
         if (shellChanged) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellChanged", shellState.state()));
+        }
+        // Whether the applications the shell asked for were started (ADR 0013).
+        for (const auto& result : launchResults) {
+          oxyos::Report::get().input("launch.result", 0,
+                                     folly::dynamic::object("serial", result.code)("launched", result.flag != 0));
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSShellLaunch",
+                                    folly::dynamic::object("serial", result.code)("launched", result.flag != 0)));
         }
         // What came of the lock screen's password (docs/adr/0010-lock-screen.mdx).
         if (authenticated) {
