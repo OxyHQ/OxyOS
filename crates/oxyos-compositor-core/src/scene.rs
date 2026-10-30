@@ -433,8 +433,9 @@ fn fit(size: Size, scale_120: u32) -> Size {
     Size::new(size.width.min(limit), size.height.min(limit))
 }
 
-/// Buffer size for a logical size that `fit` already made representable.
-fn physical(size: Size, scale_120: u32) -> Size {
+/// Buffer size for a logical size that `fit` already made representable: `ceil(logical ×
+/// scale / 120)` per dimension (docs/adr/0001), the size a client draws for that scale.
+pub fn physical(size: Size, scale_120: u32) -> Size {
     let scale = |logical: u32| {
         (u64::from(logical) * u64::from(scale_120)).div_ceil(u64::from(SCALE_DENOMINATOR)) as u32
     };

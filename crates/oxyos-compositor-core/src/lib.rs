@@ -7,6 +7,7 @@ pub mod presentation;
 pub mod scene;
 
 pub use presentation::{Error, Extent, Frame, Presentation};
+pub use scene::physical;
 pub use scene::{
     AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, ClientId,
     ControlLevel, ControlRequest, DrawingPreferences, Grants, HardwareKey, LaunchRequest,
