@@ -104,10 +104,34 @@ AppShell gains `windowControls?: 'auto' | 'overlay'` (`auto`, the default, is de
 
    Tests: the coverage of a corner of radius 4 worked by hand (0, 51, 179 and 247 along its first row, mirrored in the other three corners), with an opacity (128 · 51/255 = 25); square layers against the digests of frames the reference composed before this step (at three opacities and two sizes); the profile (its ends, both sides of its edge, an entry 1.14σ out) and a shadow's pixels beside a side, below the window it is beneath, past a corner and at half size, each from the entry worked by hand; the Vulkan device against the reference with corners and shadows at six radii, four opacities, four scales and two profiles, and composed from damage (on Mesa's lavapipe: changing the shader's coverage, its distance or its clip each fails it); the frame file in its third and second formats; the scene's looks (toplevels, a dialog and its window, a menu, a panel, full-screen only from the frame drawn so and back, none active under the lock); and through real sockets, two windows: a corner pixel shows the desktop under the shadow's faint edge and the window is white inside the curve, the shadow below is darker than above and the active window's deeper, making the other active swaps them in a frame composed from its damage alone, and a full-screen window has neither. A change of look alone damages both shadows (failing when it is left out); every transition test's frames are still within their damage with shadows drawn. The development compositor's damaged share (`damaged_fraction_median`) now counts the union of the damage, not the sum of its rectangles, which a window's shadow overlapping itself in transition took past the whole output. Every host scenario that runs without a display passes with them (25, none of whose expected pixels needed to change: none is in a shadow), seven of them with every frame composed on lavapipe identical to the reference; the development compositor's own check that a dismissed menu leaves nothing compares a point below the window, now in its shadow, with what it showed once the window had arrived, not with the other window's colour.
 3. **Bloom:** the capability, `useWindow`, `WindowControls`, `WindowDragRegion`, AppShell keeping the room, and `SettingsLayout`, with Bloom's tests for each shape (sidebar, toolbar, overlay, none).
+
+   *Done* in Bloom ([OxyHQ/Bloom#517](https://github.com/OxyHQ/Bloom/pull/517), no release yet). The pieces:
+   - **The capability:** `@oxy.so/bloom/platform-surface` reports `window`, with `PlatformWindow` as above and `usePlatformWindow()`; reporting it without the object throws, as `popup-surface` does.
+   - **`@oxy.so/bloom/window`:**
+     - `useWindow()`, its state compared by value, so an equal state does not render again;
+     - `useWindowControlsRoom()`, zero without the capability or in full screen;
+     - `WindowControls`, three 20 px targets across `metrics.controls`, labelled in Bloom's 14 languages;
+     - `WindowDragRegion`, which claims a press only in the bubble phase, so any control inside wins; a second press within 500 ms zooms.
+   - **AppShell** keeps the room for each shape (`windowControls`). A shell or settings layout inside another one that holds the window's corner is a panel, so the controls are never drawn twice.
+   - **`SettingsLayout`** is split out of `SettingsModal`, sized by its own width; the modal is unchanged.
+   - **Tests:** each shape, the drag region against react-native-web's real responder system, and the layout's width tiers. 23 renders of the modal and the shell without the capability are identical to before.
 4. **The OxyOS adapter** in the Bloom host. A scenario on a sample window checks:
    - its controls (minimize into the dock, zoom filling the work area and back, close);
    - a move from its toolbar and a resize from its edge;
    - its look when active and inactive.
+
+   *Done* (all but closing and the inactive look, below). The pieces:
+   - **The adapter.** `sample/oxyos/platform-surface.js` gives Bloom the window when the host runs an application in a window of its own (not the shell, which has none). Its metrics are the ones above (`OxyOSWindow`'s constants), its state comes from `OXYOS_EVENT_ACTIVATED` and the configure's bits (`OxyOSWindowChanged` when they change), and its actions go through the C ABI.
+   - **Moving.** `startMove()` sends `BeginMove` with the press being handled.
+   - **Closing.** `close()` ends the application as the shell's close request does.
+   - **The scenario.** `scenarios/windows.json` (`sample/WindowProbe.tsx`, Bloom's `SettingsLayout` in a 900×600 window) checks:
+     - the page says the window is active, neither zoomed nor full screen;
+     - a press held on the rail's top band moves the window with the pointer, through the development compositor's new `grab` step, which holds the press while the application answers it, as a hand does;
+     - the green bubble zooms the window to the work area and the page is told, and pressing it again restores the frame;
+     - the band beyond the right edge resizes the window, its left edge staying;
+     - the yellow bubble minimizes it.
+
+   It passes; with the adapter's `window` taken away (no controls, no state) all six steps fail. **Not covered by a scenario yet:** the close bubble, which ends the host and so the run, and the inactive look, which needs a second window. They are covered by Bloom's tests and the scene's activation tests (step 1).
 5. **The Settings application** (`so.oxy.settings`), built on it.
 
 ## Not in this decision

@@ -97,7 +97,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "grab", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal"}
 
@@ -122,6 +122,9 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind == "drag_output":
         return args + ["--drag-output", ",".join(map(str, value))]
+    if kind == "grab":
+        # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
+        return args + ["--grab", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):

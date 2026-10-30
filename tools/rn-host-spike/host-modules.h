@@ -101,11 +101,30 @@ struct ShellService {
   std::function<bool(const std::string& secret)> authenticate;
 };
 
+// The application's own window (docs/adr/0016-windows.mdx), for Bloom's `window` capability:
+// its state ({ active, maximized, fullscreen }) and what its controls and drag regions do. Unset
+// in the shell, which has no window of its own.
+struct WindowService {
+  std::function<folly::dynamic()> state;
+  // The application asks to close its window: as the shell's close request, it finishes.
+  std::function<void()> close;
+  std::function<void()> minimize;
+  // Zooms the window, or restores it if it is zoomed.
+  std::function<void()> zoom;
+  // Moves the window with the pointer from the press being handled (false if there is none).
+  std::function<bool()> startMove;
+  std::function<void(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight)> setSizeLimits;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
   ClipboardService clipboard{};
   ShellService shell{};
+  // Whether the host runs an application in a window of its own (not the shell, not offscreen):
+  // known before JavaScript starts, so Bloom's adapter reports the `window` capability from it.
+  bool applicationWindow = false;
+  WindowService window{};
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

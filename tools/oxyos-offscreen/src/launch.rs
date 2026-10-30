@@ -79,6 +79,10 @@ pub enum Step {
     /// The same on the output, wherever it is (the shell's panels and overlays), moving in eight
     /// even steps, as a hand drags something across the screen.
     DragOutput { from: (i32, i32), to: (i32, i32) },
+    /// A press at a window-local point held while the application answers it (a window's drag
+    /// region asks the compositor to move the window, ADR 0016), then a drag by `by` in eight even
+    /// steps and the release, as a hand grabs a window by its toolbar.
+    Grab { from: (i32, i32), by: (i32, i32) },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -162,6 +166,7 @@ impl Step {
             ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
+            Step::Grab { from, by } => format!("grab at {from:?}, moved by {by:?}"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
@@ -235,6 +240,9 @@ impl Step {
             }
             Step::DragOutput { from, to } => {
                 format!("\"drag_output\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
+            }
+            Step::Grab { from, by } => {
+                format!("\"grab\":[{},{},{},{}]", from.0, from.1, by.0, by.1)
             }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
@@ -491,6 +499,13 @@ impl Launch {
                     Step::DragOutput {
                         from: (n[0], n[1]),
                         to: (n[2], n[3]),
+                    }
+                }
+                Some("--grab") => {
+                    let n = numbers(args.next(), 4)?;
+                    Step::Grab {
+                        from: (n[0], n[1]),
+                        by: (n[2], n[3]),
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
@@ -1426,6 +1441,28 @@ fn switch_terminal(
 }
 
 /// Injects one step's input into the scene.
+/// A grab (`Step::Grab`): the press, then the compositor serving the application until it is
+/// moving the window or two seconds have passed (it never asked: the drag then moves nothing),
+/// then the drag and the release. On the scene, with or without the virtual devices.
+fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -> Result<()> {
+    let start = (window.x + from.0, window.y + from.1);
+    if !window.contains_point(start.0, start.1) {
+        return Err(format!("({}, {}) is outside {window:?}", from.0, from.1).into());
+    }
+    session.compositor.scene.pointer_motion(start.0, start.1);
+    session.compositor.scene.pointer_button(BUTTON, true);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while session.compositor.scene.moving_window().is_none() && Instant::now() < deadline {
+        session.compositor.serve(&session.listener)?;
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    for (x, y) in drag_points(start, (start.0 + by.0, start.1 + by.1)) {
+        session.compositor.scene.pointer_motion(x, y);
+    }
+    session.compositor.scene.pointer_button(BUTTON, false);
+    Ok(())
+}
+
 fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> {
     let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
         if rect.contains_point(rect.x + x, rect.y + y) {
@@ -1580,7 +1617,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ExpectPopup
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
-        | Step::Accessibility { .. } => {}
+        | Step::Accessibility { .. }
+        | Step::Grab { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -1891,6 +1929,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let typed_as_text = match devices.as_mut() {
             _ if matches!(step, Step::Keyboard { .. } | Step::ImChange { .. }) => {
                 inject_input_method(&mut session, step)?;
+                0
+            }
+            _ if matches!(step, Step::Grab { .. }) => {
+                if let Step::Grab { from, by } = step {
+                    grab(&mut session, window, *from, *by)?;
+                }
                 0
             }
             _ if matches!(step, Step::Accessibility { .. }) => {
