@@ -3,5 +3,5 @@
 Type=Application
 Name=Settings
 Name[es]=Ajustes
-Icon=../../../../shell-preview/assets/apps/settings.svg
+Icon=../../../../shell-preview/assets/apps/settings.png
 X-OxyOS-Bloom-Module=OxyOSSettings

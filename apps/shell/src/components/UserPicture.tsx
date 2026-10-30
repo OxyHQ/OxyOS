@@ -1,26 +1,20 @@
 import React from "react";
 import { Image } from "react-native";
-import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
+import { OxyLogo } from "./OxyLogo";
 
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0]!.toUpperCase())
-    .join("");
+/** The picture of an account without one of its own: the Oxy mark, light on grey. */
+const DEFAULT_BACKGROUND = "#767576";
+const DEFAULT_MARK = "#c9c9cd";
 
 /**
- * A person's picture on the lock and login screens: their own when they have one, else their
- * initials. It is decorative: the name beside it says who it is.
+ * A person's picture on the lock and login screens: their own when they have one, else the
+ * system's default picture. It is decorative: the name beside it says who it is.
  */
 export function UserPicture({
-  name,
   picture,
   size = 64,
 }: {
-  name: string;
   /** The picture's file, as the platform gives it (`file://...`). */
   picture?: string | null;
   size?: number;
@@ -34,15 +28,13 @@ export function UserPicture({
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: "rgba(255,255,255,0.32)",
+        backgroundColor: DEFAULT_BACKGROUND,
       }}
     >
       {picture ? (
         <Image source={{ uri: picture }} style={{ width: size, height: size }} />
       ) : (
-        <Text style={{ color: "#fff", fontSize: size * 0.375, fontWeight: "600" }}>
-          {initials(name)}
-        </Text>
+        <OxyLogo width={size * 0.58} height={size * 0.58} fill={DEFAULT_MARK} />
       )}
     </Box>
   );

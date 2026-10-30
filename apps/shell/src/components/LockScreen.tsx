@@ -111,7 +111,7 @@ export function LockScreen({
           ))}
         </Box>
       ) : null}
-      <UserPicture name={name} />
+      <UserPicture />
       <Text
         style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
       >

@@ -30,9 +30,10 @@
     "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74"
   },
   "oxyos": {
-    "description": "Drawn in this repository for OxyOS's own applications.",
+    "description": "OxyOS's own applications' icons, given by the project's owner.",
     "files": [
-      "settings.svg"
+      "files.png",
+      "settings.png"
     ]
   }
 }

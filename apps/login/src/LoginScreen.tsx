@@ -115,7 +115,7 @@ function AccountChooser({
           onPress={() => choose(account.user)}
           style={{ alignItems: "center", opacity: account.user === chosen ? 1 : 0.6 }}
         >
-          <UserPicture name={account.name} picture={account.picture} />
+          <UserPicture picture={account.picture} />
           <Text style={{ ...white(15, account.user === chosen ? "600" : "400"), marginTop: 10 }}>
             {account.name}
           </Text>
@@ -191,7 +191,7 @@ export function LoginScreen({
           <AccountChooser accounts={accounts} chosen={account.user} choose={setChosen} />
         ) : (
           <>
-            <UserPicture name={account.name} picture={account.picture} />
+            <UserPicture picture={account.picture} />
             <Text style={{ ...white(15, "600"), marginTop: 10 }}>{account.name}</Text>
           </>
         )}
