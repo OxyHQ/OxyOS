@@ -128,7 +128,8 @@ class Machine:
                 self.process.kill()
                 self.process.wait()
         (self.directory / "serial.log").write_bytes(bytes(self.serial_log))
-        (self.directory / "OVMF_VARS.fd").unlink(missing_ok=True)
+        for name in ("OVMF_VARS.fd", "screen.ppm", "qmp.sock", "serial.sock"):
+            (self.directory / name).unlink(missing_ok=True)
 
     # QMP.
 

@@ -18,7 +18,7 @@ A Mac installs from its recovery system onto an erased disk, with no partition e
 
 ## Decision
 
-1. **The installer writes the image, never assembles a system.** What goes onto the disk is the live medium's own root filesystem, the squashfs that passed the acceptance tests and the contents audit (decision 8), copied whole; no package is downloaded or installed on the target and the network is not needed. The mechanism is **systemd-repart** (Debian's `systemd-repart`, systemd 257 in Trixie): partition definitions in the image (`/usr/lib/oxyos/install.repart.d/`), applied to the chosen disk with `--empty=force`, each partition formatted and filled in one declarative step (`Format=`, `CopyFiles=` from the squashfs live-boot mounts read-only at `/run/live/rootfs/filesystem.squashfs/`, never the live session's overlay, so nothing of the live user is copied). Then, in the copied root: the live system's packages purged (live-build writes the list, `live/filesystem.packages-remove`, which Debian's own live installer uses), the bootloader and its entry (decision 4), the initramfs rebuilt with the boot logo and, when encrypted, the unlock (decision 3).
+1. **The installer writes the image, never assembles a system.** What goes onto the disk is the live medium's own root filesystem, the squashfs that passed the acceptance tests and the contents audit (decision 8), copied whole; no package is downloaded or installed on the target and the network is not needed. The mechanism is **systemd-repart** (Debian's `systemd-repart`, systemd 257 in Trixie): partition definitions in the image (`/usr/lib/oxyos/install.repart.d/`), applied to the chosen disk with `--empty=force`, each partition formatted and filled in one declarative step (`Format=`, `CopyFiles=` from the squashfs live-boot mounts read-only at `/run/live/rootfs/filesystem.squashfs/`, never the live session's overlay, so nothing of the live user is copied). Then, in the copied root: the live system's packages purged (`live-boot`, `live-config`, `live-config-systemd`, `live-tools`; purging `live-tools` gives back `update-initramfs`, which it diverts to its own), the bootloader and its entry (decision 4), the initramfs rebuilt with the boot logo and, when encrypted, the unlock (decision 3).
 
    Rejected:
    - **debian-installer**, what the image ships today: its partitioner, its text UI (which can never be the Bloom app of decision 7), and its first user, which ADR 0020 forbids. It also installs the system again from its own logic rather than writing the image the tests saw.
@@ -27,7 +27,7 @@ A Mac installs from its recovery system onto an erased disk, with no partition e
    - **A script of our own** (`sfdisk`, `mkfs`, `rsync`): repart already does this declaratively and idempotently, encrypts, and is what systemd's image-based updates (decision 6) are built on.
 
 2. **The disk: the whole disk, GPT, two partitions.** The installer takes a whole internal disk, erased, as ChromeOS Flex and a Mac's erase-and-install do; it never resizes another system's partitions, and dual boot is not offered. Partitions carry the [Discoverable Partitions Specification](https://uapi-group.org/specifications/specs/discoverable_partitions_specification/)'s types, so systemd and the tools find them by type:
-   - **EFI system partition**, 1 GiB, FAT32, mounted at `/efi`: the bootloader and the boot entries' kernels and initramfs images (several kernel versions fit, a Debian initramfs with firmware is about 70 MB).
+   - **EFI system partition**, 1 GiB, FAT32, mounted at `/efi`: the bootloader and the boot entries' kernels and initramfs images (several kernel versions fit: the live image's initramfs is 128 MiB, initramfs-tools' `MODULES=most` and the firmware those modules load; an installed system can take `MODULES=dep`, its own hardware's).
    - **Root**, the rest, ext4 with its `encrypt` feature, so a home can later be encrypted with a key of its own (fscrypt, ADR 0020's "Not in this decision") without reformatting. Inside LUKS2 when encrypted (decision 3).
    - **No swap partition.** Hibernation is not in this decision; memory pressure is zram's, when it is added.
 
@@ -87,7 +87,20 @@ A Mac installs from its recovery system onto an erased disk, with no partition e
 
 ### Results of steps 1 to 3
 
-RESULTS_PLACEHOLDER
+On a developer's machine (WSL2, KVM), at commit `a5a99fcc2982`:
+
+- **Built.** `oxyos-base-1.0-a5a99fcc2982-amd64.iso`, 1.37 GiB, in 18 minutes with the package cache warm (22 without): 399 packages, 1.31 GiB installed, of which 841 MiB are firmware files; a 710 MiB squashfs and a 128 MiB initramfs.
+- **Booted.** All checks pass with UEFI (17), with Secure Boot through Debian's shim and Microsoft's keys (17) and with SeaBIOS (16), at 1920×1200 on QEMU's standard VGA; the boot logo's checks also pass on virtio-gpu. After Enter at the menu: the display black at 0.7 to 0.85 s, the Oxy mark, byte for byte the theme's `splash-1920x1200.png`, at 1.7 to 2.1 s (black for 0.9 to 1.4 s, nothing drawn), the console at 6.6 to 7.4 s. systemd: 1.9 s in the kernel and 3.7 to 3.9 s in userspace; the slowest units are `live-config` (1.9 s) and `ldconfig` (0.9 s). No failed unit, no error in the journal.
+- **Audited.** No forbidden package or file. Every package is in the manifest's dependency closure or put there by live-build. The configuration's files are in the image unchanged, and the initramfs carries the `oxyos` theme with `Theme=oxyos` and no label plugin. The residue is the documented one: `libx11-6`, `libx11-data`, `libx11-xcb1` and `libxcb1` (through `libpulse0`, from PipeWire), and `/etc/X11/xkb` and `/etc/X11/Xsession.d`, data directories of `xkb-data` and `dbus-user-session`. `--gate` refuses it.
+
+The first build found two defects, fixed here:
+- **Through live-build's firmware detection**, the image had astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`), and through `indi-dsi` Cairo, `libxcb-render0` and `libxcb-shm0`. The detection installs every package with a file under `/lib/firmware`. The manifest now names the firmware (`LB_FIRMWARE_CHROOT="false"`, enforced by `check-image-config.py`): 27 packages fewer.
+- **`oxyos-apt-setup.service` failed on every boot** (`203/EXEC`: the script was not executable), so the system was `degraded`. It is now an executable POSIX script, and `check-image-config.py` fails an included script without the executable bit.
+
+Seen, not changed:
+- The server firmware the detection chose stays in the manifest (`firmware-netronome` 141 MiB, `firmware-nvidia-tesla-535-gsp` 59 MiB, `firmware-marvell-prestera` 59 MiB, and smaller ones): about 280 MiB a laptop never loads. Dropping it is a product decision.
+- The BIOS path shows syslinux's text-mode cursor for a fraction of a second after Enter, before the kernel. The UEFI menu is GRUB at 800×600 (live-build's own `config.cfg`), which the kernel keeps until the display driver takes over.
+- The live medium's GRUB menu has no timeout: it waits for Enter.
 
 ## Not in this decision
 

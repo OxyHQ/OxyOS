@@ -15,9 +15,11 @@ No workflow builds or publishes an ISO. The previous `build-iso.yml` built the r
 An image pipeline returns together with the native session, not before it. It must:
 
 - install a real compositor/runtime built against the target userspace, with no placeholder login, fallback session or success on a missing binary;
-- boot-test the image (graphical acceptance, not the headless probe);
-- audit the dependency closure and the final package contents for X11, XWayland and Wayland;
+- boot-test the image (graphical acceptance, not the headless probe): `tools/image/acceptance` boots the console base today and checks its boot logo and services ([Boot acceptance tests](#boot-acceptance-tests)); the session's own checks join it with the session;
+- audit the dependency closure and the final package contents for X11, XWayland and Wayland: `scripts/check-image-contents.py --gate` on the built image ([Contents audit](#contents-audit));
 - carry signing/provenance and the resolved repository licence and asset review.
+
+Having the tests and the audit does not make the console base publishable: it still has no session. How an image gets onto a disk is [ADR 0022](./adr/0022-installing-oxyos).
 
 Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot check.
 
@@ -39,7 +41,7 @@ Live command line: `boot=live components quiet splash loglevel=3 vt.global_curso
 
 `archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth` and `x11-common` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
-Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`). They are inert libraries with no server or `DISPLAY`. Removing them needs a Debian change or our own build, and is part of the native image gate. This was found by resolving the Trixie package indices, not by a built image.
+Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`). They are inert libraries with no server or `DISPLAY`. Removing them needs a Debian change or our own build, and is part of the native image gate. A built image's audit confirms them, with `/etc/X11/xkb` (`xkb-data`'s keyboard layouts, which xkbcommon reads) and `/etc/X11/Xsession.d` (`dbus-user-session`'s snippet for X sessions, which nothing runs), and nothing else; `scripts/check-image-contents.py` reports them as residue and `--gate` refuses them.
 
 ### Accounts and login
 
@@ -126,7 +128,7 @@ The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf`
 
 Written under `acceptance/<image>/<firmware>/`: `results.json` (each check, the boot logo's timeline with the time after Enter of each change, the command line, the boot time), the frames as small PNGs (`1-bootloader-menu`, `2-black`, `3-mark`, `5-console`, `6-console-after-boot`, and any frame that failed a check), each boot's serial log and QEMU's log. The exit status is non-zero when a check fails.
 
-What QEMU cannot show: a real panel's mode and its firmware's logo, the time the panel is dark, the passphrase field at an encrypted disk, i915's handling of the CRTC. Those stay [ADR 0017](./adr/0017-boot-logo)'s step 3, on the ThinkPad.
+The screen is read about 35 times a second (a dump and its decoding take under 10 ms with KVM): a flash shorter than that can pass unseen. What QEMU cannot show: a real panel's mode and its firmware's logo, the time the panel is dark, the passphrase field at an encrypted disk, i915's handling of the CRTC. Those stay [ADR 0017](./adr/0017-boot-logo)'s step 3, on the ThinkPad.
 
 ### Static checks
 

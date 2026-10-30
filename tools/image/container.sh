@@ -79,7 +79,7 @@ build() {
         printf 'commit=%s\n' "${OXYOS_COMMIT:-unknown}"
         printf 'source_date_epoch=%s\n' "${SOURCE_DATE_EPOCH:-}"
         printf 'build_seconds=%s\n' "$((finished - started))"
-        dpkg-query -W --showformat='container_%{Package}=%{Version}\n' live-build debootstrap
+        dpkg-query -W --showformat='container_${Package}=${Version}\n' live-build debootstrap
         printf 'container_image=%s\n' "${OXYOS_CONTAINER_IMAGE:-}"
     } >"/work/out/${name}.build-info"
     (cd /work/out && sha256sum "${name}.iso" >"${name}.iso.sha256")

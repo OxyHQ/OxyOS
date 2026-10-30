@@ -132,6 +132,7 @@ def boot_logo(args, run):
         console_since, deadline = None, pressed + args.timeout
         before_mark_violation = None
         mismatch = None
+        mark_sizes = set()
         while time.monotonic() < deadline:
             frame = screen.grab()
             at = round(time.monotonic() - pressed, 2)
@@ -141,9 +142,11 @@ def boot_logo(args, run):
                 kind = "bootloader"
             if kind not in first:
                 first[kind] = at
-            if kind != phase:
-                timeline.append({"at": at, "shows": kind, **({"detail": detail} if detail else {})})
-                phase = kind
+            if (kind, frame.size) != phase:
+                timeline.append({"at": at, "shows": kind, "size": frame.size, **({"detail": detail} if detail else {})})
+                phase = (kind, frame.size)
+            if kind == "mark":
+                mark_sizes.add(frame.size)
             if kind == "other" and "mark" not in first and before_mark_violation is None:
                 before_mark_violation = {"at": at, **detail}
                 run.save(frame, "2-drawn-before-mark")
@@ -163,17 +166,19 @@ def boot_logo(args, run):
             time.sleep(args.interval)
         run.facts["boot_logo_timeline"] = timeline
         run.facts["seconds_from_enter"] = {k: v for k, v in first.items()}
-        run.check("the kernel takes the display to black, with nothing drawn on it",
-                  "black" in first or "mark" in first,
+        run.check("the kernel takes the display to black, with nothing drawn on it", "black" in first,
                   f"first black frame {first.get('black')} s after Enter")
         run.check("no text or cursor between the bootloader and the Oxy mark", before_mark_violation is None,
                   f"something drawn at {before_mark_violation}" if before_mark_violation else "every frame black")
-        expected = screen.mark_for(*args.resolution)
+        wanted = "x".join(map(str, args.resolution))
         run.check("the Oxy mark is the theme's own pixels, centred on black",
                   "mark" in first and mismatch is None,
-                  f"splash-{args.resolution[0]}x{args.resolution[1]}.png byte for byte, {first.get('mark')} s after Enter"
-                  if "mark" in first and mismatch is None else f"mismatch {mismatch}, mark seen: {'mark' in first}"
-                  + ("" if expected else " (no theme frame for this size)"))
+                  f"splash-{'/'.join(sorted(mark_sizes))}.png byte for byte, {first.get('mark')} s after Enter"
+                  if "mark" in first and mismatch is None else f"mismatch {mismatch}, mark seen: {'mark' in first}")
+        run.check("Plymouth draws at the display's preferred mode", mark_sizes == {wanted},
+                  f"mark at {', '.join(sorted(mark_sizes)) or 'no size'}, the display prefers {wanted}")
+        if "black" in first and "mark" in first:
+            run.facts["dark_seconds"] = round(first["mark"] - first["black"], 2)
         run.check("the console's prompt follows the mark", console_since is not None,
                   f"console after {first.get('other')} s" if console_since else "no console within the timeout")
     finally:
@@ -238,6 +243,9 @@ def system(args, run):
                   ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active)))
         plymouth = machine.run("pidof plymouthd || echo gone")
         run.check("Plymouth has quit", plymouth.strip() == "gone", plymouth.strip())
+        sources = machine.run("ls /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | tr '\\n' ' '")
+        run.check("apt's sources are deb822, the first boot's setup done",
+                  "debian.sources" in sources and "No such file" in sources and "oxyos.list" not in sources, sources)
         identity = machine.run(". /etc/os-release && printf '%s %s\\n' \"$ID\" \"$VERSION_ID\"")
         run.check("the system is OxyOS's base", identity.startswith("oxyos "), identity)
         if args.firmware != "bios":

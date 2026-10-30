@@ -41,8 +41,9 @@ STALE_REFERENCE_ALLOWED = {
 }
 
 # Image publication is retired until a native session exists. A workflow that
-# builds or releases an image must arrive together with boot acceptance tests.
-IMAGE_PUBLICATION = re.compile(r"\blb build\b|action-gh-release|\bgh release\b|oxy-downloads")
+# builds or releases an image must arrive together with the session; tools/image/
+# (the local build and its acceptance tests) is for developers' machines only.
+IMAGE_PUBLICATION = re.compile(r"\blb build\b|tools/image/|action-gh-release|\bgh release\b|oxy-downloads")
 
 LIVE_BUILD_HOOKS = "/usr/share/live/build/hooks/"
 
@@ -87,8 +88,8 @@ def check_publication():
             match = IMAGE_PUBLICATION.search(line)
             if match:
                 violations.append(
-                    f"{path.relative_to(ROOT)}:{number}: image build/publication {match.group(0)!r} "
-                    "without a native session and boot acceptance tests"
+                    f"{path.relative_to(ROOT)}:{number}: image build/publication {match.group(0)!r}: "
+                    "no workflow builds or publishes an image (AGENTS.md, image rules)"
                 )
     return violations
 

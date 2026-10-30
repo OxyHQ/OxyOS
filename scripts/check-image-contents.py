@@ -72,7 +72,8 @@ GENERATED = re.compile(
     r"^usr/lib/locale/locale-archive$|^usr/share/info/dir$|^usr/lib/modules/[^/]+/modules\.|"
     r"^usr/share/mime/|\.cache$|^usr/lib/x86_64-linux-gnu/gconv/gconv-modules\.cache$|"
     r"^usr/share/fonts/.*fonts\.(dir|scale)$|^usr/lib/python3[^/]*/.*__pycache__|"
-    r"^usr/share/icons/[^/]+/icon-theme\.cache$|^usr/lib/firmware/"
+    r"^usr/share/icons/[^/]+/icon-theme\.cache$|^usr/lib/firmware/|^usr/lib/udev/hwdb\.bin$|"
+    r"^usr/share/glib-2\.0/schemas/gschemas\.compiled$"
 )
 
 LISTING = re.compile(
@@ -314,7 +315,7 @@ def audit_image(audit, gate):
         parts = line.split()
         if len(parts) >= 9 and parts[4].isdigit():
             iso_files[parts[-1].strip("'")] = int(parts[4])
-    firmware = sum(s for s, n in installed if reasons.get(n) == "LB_FIRMWARE_CHROOT")
+    firmware = sum(size for rel, (_, size) in files.items() if FIRMWARE_PATH.match(rel))
     report.update({
         "packages": len(packages),
         "installed_bytes": sum(s for s, _ in installed),
@@ -344,7 +345,7 @@ def main():
     violations, residue, notes, report = audit_image(args.audit, args.gate)
     if report:
         print(f"{args.audit.name}: {report['packages']} packages, {mib(report['installed_bytes'])} installed "
-              f"({mib(report['firmware_bytes'])} firmware); root {mib(report['root_file_bytes'])} in files; "
+              f"({mib(report['firmware_bytes'])} of firmware files); root {mib(report['root_file_bytes'])} in files; "
               f"squashfs {mib(report['squashfs_bytes'] or 0)}; ISO {mib(report['iso_bytes'])}")
         print("largest packages: " + ", ".join(f"{p['package']} {mib(p['bytes'])}" for p in report["largest_packages"][:10]))
         print("largest ISO files: " + ", ".join(f"{p['path']} {mib(p['bytes'])}" for p in report["largest_iso_files"][:5]))
