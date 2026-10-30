@@ -69,6 +69,8 @@ if (APP) {
   // `_ctx`) with the path from the file to the project's `app/`, the project root
   // oxyos/babel-transformer.js gives it from here, in the workers Metro forks.
   process.env.EXPO_PROJECT_ROOT = APP.dir;
+  // Its React Compiler, when its config asks Expo for it (oxyos/babel-transformer.js).
+  process.env.OXYOS_REACT_COMPILER = APP.config.experiments?.reactCompiler ? '1' : '';
 }
 const isBare = (name) => !name.startsWith('.') && !path.isAbsolute(name);
 const packageOf = (name) => name.split('/').slice(0, name.startsWith('@') ? 2 : 1).join('/');
