@@ -23,21 +23,135 @@ pub(crate) fn json_string(text: &str) -> String {
     out
 }
 
+/// What the shell lists from, as the session launches from it: the image's system applications
+/// first, which no other source's entry can take the place of (docs/adr/0030-installing-
+/// applications.mdx, decision 7), the install service's entries for this account, then the
+/// development directories. What they may do is the session's to judge as it launches.
+struct Session {
+    policy: oxyos_apps::Policy,
+    installed: Option<std::path::PathBuf>,
+    directories: Vec<std::path::PathBuf>,
+    /// In the development compositor alone, its fixture of the install service's state directory
+    /// (`OXYOS_INSTALLED_FIXTURE`, as a scenario wrote it), whose entries are taken as the
+    /// service's. It changes only what this shell lists: what is launched, and as what, is the
+    /// session's to judge from its own source.
+    fixture: Option<std::path::PathBuf>,
+}
+
+impl Session {
+    fn read() -> Self {
+        let policy = oxyos_apps::Policy::system().unwrap_or_else(|error| {
+            eprintln!("[apps] system applications: {error}");
+            oxyos_apps::Policy::none()
+        });
+        let fixture = std::env::var_os("OXYOS_INSTALLED_FIXTURE").map(std::path::PathBuf::from);
+        let installed = oxyos_apps::session_user().map(|user| {
+            let root = fixture
+                .clone()
+                .unwrap_or_else(|| std::path::PathBuf::from(oxyos_apps::INSTALLED));
+            oxyos_apps::installed_applications(&root, &user)
+        });
+        Self {
+            policy,
+            installed,
+            directories: oxyos_apps::directories(),
+            fixture,
+        }
+    }
+
+    /// Root's (the session's rule), or the development compositor's fixture's.
+    fn trusted(&self, path: &std::path::Path) -> bool {
+        self.fixture
+            .as_ref()
+            .is_some_and(|root| path.starts_with(root))
+            || oxyos_apps::administrator_written(path)
+    }
+}
+
+/// A watch over what the shell lists from (`oxyos_apps::Watch`): readable when an application may
+/// have been installed, updated or removed.
+pub struct OxyOSApplicationsWatch {
+    watch: oxyos_apps::Watch,
+}
+
+/// A watch over the session's applications' sources; NULL on failure (oxyos_last_error).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub extern "C" fn oxyos_applications_watch_new() -> *mut OxyOSApplicationsWatch {
+    let session = Session::read();
+    let sources = oxyos_apps::sources(
+        &session.directories,
+        &session.policy,
+        session.installed.as_deref(),
+    );
+    match oxyos_apps::Watch::new(sources) {
+        Ok(watch) => Box::into_raw(Box::new(OxyOSApplicationsWatch { watch })),
+        Err(error) => {
+            fail(error);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Frees the watch. NULL is ignored.
+///
+/// # Safety
+/// `watch` is NULL or a pointer from `oxyos_applications_watch_new` not yet freed; it is invalid
+/// after.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_applications_watch_free(watch: *mut OxyOSApplicationsWatch) {
+    if !watch.is_null() {
+        // SAFETY: the pointer came from Box::into_raw in oxyos_applications_watch_new, freed once.
+        drop(unsafe { Box::from_raw(watch) });
+    }
+}
+
+/// The watch's descriptor, readable when the applications may have changed (for poll).
+///
+/// # Safety
+/// `watch` is a live pointer from `oxyos_applications_watch_new`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_applications_watch_fd(
+    watch: *mut OxyOSApplicationsWatch,
+) -> std::ffi::c_int {
+    use rustix::fd::AsRawFd;
+    // SAFETY: forwarded caller contract.
+    match unsafe { watch.as_ref() } {
+        Some(watch) => watch.watch.fd().as_raw_fd(),
+        None => fail("null watch"),
+    }
+}
+
+/// 1 when the applications may have changed since the last call (oxyos_applications then lists
+/// them as they are now), 0 otherwise; what the descriptor held is read.
+///
+/// # Safety
+/// `watch` is a live pointer from `oxyos_applications_watch_new`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_applications_watch_changed(
+    watch: *mut OxyOSApplicationsWatch,
+) -> u8 {
+    // SAFETY: forwarded caller contract.
+    match unsafe { watch.as_mut() } {
+        Some(watch) => u8::from(watch.watch.changed()),
+        None => 0,
+    }
+}
+
 /// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "pinned" (its
 /// place in the dock from 1, or null)}]`, sorted by name, in the session's language.
 pub fn applications_json() -> String {
-    // The shell lists what the session would launch: the image's system applications first,
-    // which no other directory's entry can take the place of (docs/adr/0030-installing-
-    // applications.mdx, decision 7). What they may do is the session's to judge as it launches.
-    let policy = oxyos_apps::Policy::system().unwrap_or_else(|error| {
-        eprintln!("[apps] system applications: {error}");
-        oxyos_apps::Policy::none()
-    });
+    let session = Session::read();
+    let trusted = |path: &std::path::Path| session.trusted(path);
     let (applications, skipped) = oxyos_apps::registry(
-        &oxyos_apps::directories(),
+        &session.directories,
         &oxyos_apps::languages(),
-        &policy,
-        &oxyos_apps::administrator_written,
+        &session.policy,
+        session.installed.as_deref(),
+        &trusted,
     );
     for line in skipped {
         eprintln!("[apps] {line}");

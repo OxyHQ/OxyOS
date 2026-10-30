@@ -142,8 +142,9 @@ pub struct Machine {
 }
 
 impl Machine {
-    /// The runtimes in `directory`: each `<abi>/runtime.json` (`{"abi": N, "api": M}`, its `abi`
-    /// its directory's name) beside its `hermesc`. One that cannot be read is left out.
+    /// The runtimes in `directory`: each `<abi>/runtime.json` (`oxyos_package::RuntimeDescription`:
+    /// `abi`, `api` and its framework's digests, its `abi` its directory's name) beside its
+    /// `hermesc`. One that cannot be read is left out.
     pub fn discover(directory: &Path, architecture: Architecture) -> Self {
         let mut runtimes = Vec::new();
         if let Ok(entries) = fs::read_dir(directory) {
@@ -159,17 +160,12 @@ impl Machine {
                 let Ok(bytes) = fs::read(dir.join("runtime.json")) else {
                     continue;
                 };
-                let Ok(value) = oxyos_package::json::parse(&bytes) else {
+                // The one reading of a runtime's description, the session's launcher's too.
+                let Ok(description) = oxyos_package::RuntimeDescription::parse(&bytes) else {
                     continue;
                 };
-                let number = |key| match member(&value, key) {
-                    Some(Value::Integer(n)) => u32::try_from(*n).ok(),
-                    _ => None,
-                };
-                if let (Some(a), Some(api)) = (number("abi"), number("api")) {
-                    if a == abi && dir.join("hermesc").is_file() {
-                        runtimes.push((Runtime { abi, api }, dir.join("hermesc")));
-                    }
+                if description.runtime.abi == abi && dir.join("hermesc").is_file() {
+                    runtimes.push((description.runtime, dir.join("hermesc")));
                 }
             }
         }

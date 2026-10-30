@@ -5,6 +5,7 @@
 //! oxyos-pack key KEY                        a new development key (its 32-byte seed, in hex)
 //! oxyos-pack pack DIR DESCRIPTION RUNTIME KEY
 //! oxyos-pack compile DIR HERMESC
+//! oxyos-pack entry DIR
 //! ```
 //!
 //! `pack` lists every file under DIR (but `manifest.json`, `manifest.sig` and `index.hbc` at its
@@ -14,9 +15,11 @@
 //! reads back) and signs it with KEY (`manifest.sig`). A link, a device or a file that is not
 //! readable refuses the package, as does a description `Manifest::parse` would refuse.
 //!
-//! `compile` does what `oxyos-installd` does on the machine: checks the tree against its manifest
-//! and compiles the source bundle it names with the runtime's compiler into `index.hbc` at the
-//! top (Hermes bytecode, which a package never carries: Hermes runs bytecode as trusted input).
+//! `compile` does what `oxyos-installd` does on the machine, with its code (`oxyos_install::compile`):
+//! checks the tree against its manifest and compiles the source bundle it names with the runtime's
+//! compiler into `index.hbc` at the top (Hermes bytecode, which a package never carries: Hermes runs
+//! bytecode as trusted input). `entry` prints the Desktop Entry `oxyos-installd` writes for the
+//! package installed at DIR (`oxyos_install::install::entry_text`), for a development registry.
 
 use oxyos_package::{
     open_directory, read_package, verify_tree, Manifest, SigningKey, HERMES_BYTECODE_MAGIC,
@@ -29,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC";
+    "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC | entry DIR";
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -45,6 +48,7 @@ fn main() -> ExitCode {
             Path::new(key),
         ),
         ["compile", dir, hermesc] => compile(Path::new(dir), Path::new(hermesc)),
+        ["entry", dir] => entry(Path::new(dir)),
         _ => Err(USAGE.to_string()),
     };
     match result {
@@ -344,32 +348,46 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 fn compile(dir: &Path, hermesc: &Path) -> Result<()> {
+    use oxyos_install::compile::{Compile, Hermesc};
     let fd = open_directory(dir).map_err(|error| error.to_string())?;
     let package = read_package(fd.as_fd()).map_err(|error| error.to_string())?;
     verify_tree(fd.as_fd(), &package.manifest, &["index.hbc"])
         .map_err(|error| error.to_string())?;
-    let source = dir.join(package.manifest.entry.bundle.as_str());
-    let out = dir.join("index.hbc.new");
-    let status = std::process::Command::new(hermesc)
-        .args(["-emit-binary", "-O", "-w", "-out"])
-        .arg(&out)
-        .arg(&source)
-        .status()
-        .map_err(|error| format!("{}: {error}", hermesc.display()))?;
-    if !status.success() {
-        let _ = std::fs::remove_file(&out);
-        return Err(format!("{} failed: {status}", hermesc.display()));
+    let source_path = dir.join(package.manifest.entry.bundle.as_str());
+    let source = std::fs::File::open(&source_path)
+        .map_err(|error| format!("{}: {error}", source_path.display()))?;
+    let new = dir.join("index.hbc.new");
+    let out = std::fs::File::create(&new).map_err(|error| format!("{}: {error}", new.display()))?;
+    // As the install service compiles when it is not root: the compiler run directly.
+    if let Err(error) = (Hermesc { confined: false }).compile(hermesc, &source, &out) {
+        let _ = std::fs::remove_file(&new);
+        return Err(error);
     }
-    let bytecode = std::fs::read(&out).map_err(|error| format!("{}: {error}", out.display()))?;
+    let bytecode = std::fs::read(&new).map_err(|error| format!("{}: {error}", new.display()))?;
     if !bytecode.starts_with(&HERMES_BYTECODE_MAGIC) {
-        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&new);
         return Err("the compiler's output is not Hermes bytecode".into());
     }
-    std::fs::rename(&out, dir.join("index.hbc")).map_err(|error| error.to_string())?;
+    std::fs::rename(&new, dir.join("index.hbc")).map_err(|error| error.to_string())?;
     println!(
         "{}: index.hbc, {} bytes",
         package.manifest.id,
         bytecode.len()
+    );
+    Ok(())
+}
+
+/// The entry `oxyos-installd` writes for the package installed at `dir` (its version's
+/// directory), on the runtime it was built for.
+fn entry(dir: &Path) -> Result<()> {
+    let fd = open_directory(dir).map_err(|error| error.to_string())?;
+    let package = read_package(fd.as_fd()).map_err(|error| error.to_string())?;
+    let dir = dir
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
+    print!(
+        "{}",
+        oxyos_install::install::entry_text(&package.manifest, &dir, package.manifest.runtime.abi)
     );
     Ok(())
 }

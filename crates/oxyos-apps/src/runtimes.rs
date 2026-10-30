@@ -18,66 +18,24 @@
 //! scenarios.
 
 use super::Error;
+use oxyos_package::{Runtime, RuntimeDescription, MAX_RUNTIME_DESCRIPTION};
 use std::path::{Path, PathBuf};
 
 /// Where the image keeps its runtimes.
 pub const RUNTIMES: &str = "/usr/lib/oxyos/runtimes";
 
-/// The most a `runtime.json` may be, in bytes.
-const DESCRIPTION_LIMIT: u64 = 4096;
-
-/// A runtime's two numbers, as its `runtime.json` declares them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Level {
-    pub abi: u32,
-    pub api: u32,
-}
-
 /// A runtime this machine has.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstalledRuntime {
-    pub level: Level,
+    /// Its numbers, as its `runtime.json` declares them (`oxyos_package::RuntimeDescription`,
+    /// the one reading of it, the install service's too).
+    pub level: Runtime,
     /// Its directory.
     pub directory: PathBuf,
     /// Its Bloom host.
     pub host: PathBuf,
     /// Its Hermes compiler.
     pub hermesc: PathBuf,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Description {
-    abi: u32,
-    api: u32,
-    /// The runtime's framework (decision 17): named here by its digests, and only read by the host.
-    #[allow(dead_code)]
-    framework: Option<Framework>,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-#[allow(dead_code)]
-struct Framework {
-    sha256: String,
-    size: u64,
-    manifest: String,
-}
-
-impl Level {
-    /// A `runtime.json`'s text: `abi` (from 1) and `api` (from 0), integers, and its framework's
-    /// digests; nothing else.
-    pub fn parse(text: &str) -> Result<Self, Error> {
-        let description: Description =
-            serde_json::from_str(text).map_err(|error| Error(format!("runtime.json: {error}")))?;
-        if description.abi == 0 {
-            return Err(Error("runtime.json: abi starts at 1".into()));
-        }
-        Ok(Self {
-            abi: description.abi,
-            api: description.api,
-        })
-    }
 }
 
 /// The runtime of `abi` in `runtimes`: its directory named by its number, its `runtime.json`
@@ -92,14 +50,16 @@ pub fn runtime(runtimes: &Path, abi: u32) -> Result<InstalledRuntime, Error> {
         ))
     };
     use std::io::Read;
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     std::fs::File::open(directory.join("runtime.json"))
-        .and_then(|file| file.take(DESCRIPTION_LIMIT + 1).read_to_string(&mut text))
+        .and_then(|file| {
+            file.take(MAX_RUNTIME_DESCRIPTION as u64 + 1)
+                .read_to_end(&mut bytes)
+        })
         .map_err(|error| lacks(error.to_string()))?;
-    if text.len() as u64 > DESCRIPTION_LIMIT {
-        return Err(lacks("runtime.json is too large".into()));
-    }
-    let level = Level::parse(&text).map_err(|Error(error)| lacks(error))?;
+    let level = RuntimeDescription::parse(&bytes)
+        .map_err(|error| lacks(format!("runtime.json: {error}")))?
+        .runtime;
     if level.abi != abi {
         return Err(lacks(format!("its runtime.json says abi {}", level.abi)));
     }
@@ -145,6 +105,6 @@ pub fn installed(runtimes: &Path) -> (Vec<InstalledRuntime>, Vec<Error>) {
             Err(error) => errors.push(error),
         }
     }
-    found.sort_by_key(|runtime| runtime.level);
+    found.sort_by_key(|runtime| (runtime.level.abi, runtime.level.api));
     (found, errors)
 }

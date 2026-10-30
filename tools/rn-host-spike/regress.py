@@ -126,6 +126,14 @@ runtime's host, its bytecode known by its source bundle's URL; any other module 
 from `probes/` on the runtime it was built for. The development registry the shell lists is
 `applications/` with each packaged application's bundle and runtime its package's.
 
+A scenario's `installed` ([{"package": ID, "capabilities": {NAME: DECISION}, "entry": [LINE]}]) is the
+install service's state for the run's user, as it would have it (docs/adr/0030-installing-applications.mdx,
+decision 7): each package's version copied into `packages/<id>/<versionCode>/`, its entry the one the
+service writes (`oxyos-pack entry`, beside the offscreen compositor) with the lines given added, and the
+account's decisions on its capabilities; the development compositor takes it as the service's
+(`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
+where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
+
 A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
 that moment where that time zone is (ADR 0012).
 
@@ -1249,6 +1257,29 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
 
 
 
+
+def installed_fixture(root, installed, machine, offscreen):
+    """The install service's state for this user, as `installed` describes it (see the header)."""
+    import pwd
+    import shutil
+    user = pwd.getpwuid(os.getuid()).pw_name
+    pack = pathlib.Path(offscreen).resolve().parent / "oxyos-pack"
+    applications = root / "users" / user / "applications"
+    applications.mkdir(parents=True, exist_ok=True)
+    for app in installed:
+        package = machine.by_id[app["package"]]
+        manifest = package["manifest"]
+        version = root / "packages" / manifest["id"] / str(manifest["versionCode"])
+        shutil.copytree(package["dir"], version)
+        entry = subprocess.run([str(pack), "entry", str(version)], check=True, capture_output=True,
+                               text=True).stdout
+        (applications / f"{manifest['id']}.desktop").write_text(entry + "".join(f"{line}\n" for line in app.get("entry", [])))
+        (root / "users" / user / f"{manifest['id']}.json").write_text(json.dumps({
+            "format": 1, "id": manifest["id"], "uid": os.getuid(), "user": user,
+            "current": manifest["versionCode"], "shown": False, "unshownExits": 0, "bad": [],
+            "capabilities": app.get("capabilities", {})}))
+    return root
+
 class Machine:
     """The runtimes and the applications' packages a scenario runs on (ADR 0030)."""
 
@@ -1281,23 +1312,22 @@ class Machine:
         return self.host(level["abi"]), self.probes / "index.js", self.probes / "index.js"
 
     def registry(self, into):
-        """The development registry (`applications/`) in `into`, each packaged application's bundle and
-        runtime its package's, and its icon where the entry's is."""
+        """The development registry (`applications/`) in `into`: each packaged application's entry the
+        one oxyos-installd writes for it (`packages/applications/`, `oxyos-pack entry`), with the
+        development registry's place in the dock; any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
         for entry in sorted(source.glob("*.desktop")):
-            lines = []
-            package = self.by_id.get(entry.stem)
-            for line in entry.read_text().splitlines():
-                if line.startswith("Icon=") and not line[5:].startswith("/"):
-                    line = "Icon=" + str((source / line[5:]).resolve())
-                if package and line.startswith(("X-OxyOS-Bloom-Bundle=", "X-OxyOS-Runtime=")):
-                    continue
-                lines.append(line)
-                if package and line == "[Desktop Entry]":
-                    lines.append(f"X-OxyOS-Bloom-Bundle={package['dir'] / 'index.hbc'}")
-                    lines.append(f"X-OxyOS-Runtime={package['manifest']['runtime']['abi']}")
+            text = entry.read_text().splitlines()
+            installed = self.packages / "applications" / entry.name
+            if entry.stem in self.by_id and installed.is_file():
+                lines = installed.read_text().splitlines()
+                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+            else:
+                lines = [("Icon=" + str((source / line[5:]).resolve()))
+                         if line.startswith("Icon=") and not line[5:].startswith("/") else line
+                         for line in text]
             (target / entry.name).write_text("\n".join(lines) + "\n")
         return into
 
@@ -1388,6 +1418,9 @@ def main():
         controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
+    if scenario.get("installed"):
+        command += ["--installed-fixture", str(installed_fixture(out / "installed", scenario["installed"],
+                                                                  machine, options.offscreen))]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -1544,6 +1577,9 @@ def main():
         password = scenario["login"]["password"]
         if any(password in line for line in recorded):
             failures.append("the password is in the login program's record")
+    if "applications_launched" in scenario and summary.get("applications") != scenario["applications_launched"]:
+        failures.append(f"the shell started {summary.get('applications')}, expected exactly "
+                        f"{scenario['applications_launched']}")
     if "final" in scenario:
         last = max(line["t"] for line in report + shell_report)
         # The output after the last step (or at launch, without steps), the window where it was then.

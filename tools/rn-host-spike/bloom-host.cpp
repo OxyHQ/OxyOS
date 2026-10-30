@@ -553,6 +553,7 @@ int main(int argc, char** argv) {
   uint32_t settingsSerial = 0;
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
+  if (shellMode) shellState.followApplications();
   if (windowed) {
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
@@ -1063,8 +1064,11 @@ int main(int argc, char** argv) {
         busy |= networking.deliver();
         busy |= files.deliver();
         busy |= deliverApplication(services);
-        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
-        bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
+        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx), and the applications
+        // the session's registry (docs/adr/0030-installing-applications.mdx): each looked at.
+        bool wallpaperChanged = shellMode && shellState.tick();
+        bool applicationsChanged = shellMode && shellState.applicationsChanged();
+        bool shellChanged = wallpaperChanged || applicationsChanged, closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
         std::vector<OxyOSEvent> launchResults;
         std::vector<OxyOSEvent> preferenceResults;
@@ -1525,6 +1529,9 @@ int main(int argc, char** argv) {
           for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
+          if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
+            fds.push_back({applications, POLLIN, 0});
+          }
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();

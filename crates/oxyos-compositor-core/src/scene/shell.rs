@@ -114,6 +114,17 @@ impl Scene {
         }
     }
 
+    /// The clients showing a window: a toplevel of theirs mapped (docs/adr/0030-installing-
+    /// applications.mdx, decision 10: an installed version that showed one is kept).
+    pub fn clients_showing_windows(&self) -> std::collections::BTreeSet<ClientId> {
+        self.shell_windows
+            .numbers
+            .keys()
+            .filter(|key| self.live(**key).is_some_and(|node| node.mapped))
+            .map(|key| key.client)
+            .collect()
+    }
+
     /// The number the shell knows a window by.
     pub fn window_number(&self, key: SurfaceKey) -> Option<u32> {
         self.shell_windows.numbers.get(&key).copied()

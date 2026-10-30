@@ -129,6 +129,7 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
         &[user.0.clone(), system.0.clone()],
         &[],
         &Policy::none(),
+        None,
         &|_| false,
     );
     let names: Vec<(&str, &str)> = apps
@@ -147,6 +148,7 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
             &[system.0.clone()],
             &[],
             &Policy::none(),
+            None,
             &|_| false,
             "so.oxy.allo"
         )
@@ -158,6 +160,7 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
             &[system.0.clone()],
             &[],
             &Policy::none(),
+            None,
             &|_| false,
             "so.oxy.none"
         ),
@@ -219,7 +222,9 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
         launcher.application_of(pid),
         Some(&Launched {
             id: "so.oxy.writer".into(),
-            grants: Grants::default()
+            grants: Grants::default(),
+            origin: Origin::Development,
+            capabilities: BTreeMap::new(),
         })
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -450,11 +455,11 @@ fn an_entry_grants_nothing_whoever_wrote_it() {
     // decision 7 closes (an installer writes root's files from what it downloads).
     let dir = Directory::new("grants-entry", &[("so.oxy.settings.desktop", SETTINGS)]);
     let trusted = as_if_root(&dir.0);
-    let (apps, skipped) = registry(&[dir.0.clone()], &[], &Policy::none(), &trusted);
+    let (apps, skipped) = registry(&[dir.0.clone()], &[], &Policy::none(), None, &trusted);
     assert!(skipped.is_empty(), "{skipped:?}");
     assert_eq!(
         apps.iter()
-            .map(|a| (a.id.as_str(), a.system))
+            .map(|a| (a.id.as_str(), a.origin == Origin::System))
             .collect::<Vec<_>>(),
         [("so.oxy.settings", false)]
     );
@@ -506,18 +511,28 @@ fn a_system_application_is_the_policys_entry_and_no_one_elses() {
     .unwrap();
     let trusted = as_if_root(&system.0);
     // The user's directory first, as `$XDG_DATA_HOME` is: the system's Settings still wins.
-    let (apps, skipped) = registry(&[user.0.clone(), system.0.clone()], &[], &policy, &trusted);
+    let (apps, skipped) = registry(
+        &[user.0.clone(), system.0.clone()],
+        &[],
+        &policy,
+        None,
+        &trusted,
+    );
     assert!(skipped.is_empty(), "{skipped:?}");
     assert_eq!(
         apps.iter()
-            .map(|a| (a.id.as_str(), a.name.as_str(), a.system))
+            .map(|a| (a.id.as_str(), a.name.as_str(), a.origin == Origin::System))
             .collect::<Vec<_>>(),
         [("so.oxy.settings", "Settings", true)]
     );
     // The policy's entry the user's: Settings is left out, said, and never the user's instead.
-    let (apps, skipped) = registry(&[user.0.clone(), system.0.clone()], &[], &policy, &|_| {
-        false
-    });
+    let (apps, skipped) = registry(
+        &[user.0.clone(), system.0.clone()],
+        &[],
+        &policy,
+        None,
+        &|_| false,
+    );
     assert!(apps.is_empty(), "{apps:?}");
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     // Nor through a link on the way to it: the path the policy names must be the real one.
@@ -530,7 +545,7 @@ fn a_system_application_is_the_policys_entry_and_no_one_elses() {
         r#""settings""#,
     ))
     .unwrap();
-    let (apps, _) = registry(&[], &[], &through_link, &trusted);
+    let (apps, _) = registry(&[], &[], &through_link, None, &trusted);
     assert!(apps.is_empty(), "{apps:?}");
 }
 
@@ -623,7 +638,7 @@ fn a_system_launch_runs_what_the_policy_names() {
             runtime: None,
         },
         pinned: None,
-        system: true,
+        origin: Origin::System,
     };
     let host = entries.join("host");
     let bundle = entries.join("bundle.js");
@@ -840,34 +855,10 @@ fn lay_out_runtime(runtimes: &Path, abi: u32, description: &str) -> PathBuf {
 
 #[test]
 fn a_runtime_is_its_directory_its_description_its_host_and_compiler() {
-    assert_eq!(
-        Level::parse(r#"{"abi":1,"api":3}"#),
-        Ok(Level { abi: 1, api: 3 })
-    );
-    assert_eq!(
-        Level::parse(&format!(
-            r#"{{"abi":1,"api":3,"framework":{{"sha256":"{0}","size":13727110,"manifest":"{0}"}}}}"#,
-            "0".repeat(64)
-        )),
-        Ok(Level { abi: 1, api: 3 })
-    );
-    for refused in [
-        r#"{"abi":0,"api":0}"#,
-        r#"{"abi":1}"#,
-        r#"{"abi":1,"api":1,"rn":"0.88"}"#,
-        r#"{"abi":1,"api":1,"framework":{"sha256":"x","size":1,"manifest":"x","modules":3}}"#,
-        r#"{"abi":1,"api":1,"api":2}"#,
-        r#"{"abi":"1","api":1}"#,
-        r#"{"abi":1.5,"api":1}"#,
-        r#"{"abi":-1,"api":1}"#,
-        "",
-    ] {
-        assert!(Level::parse(refused).is_err(), "{refused} was accepted");
-    }
     let dir = Directory::new("runtimes", &[]);
     let one = lay_out_runtime(&dir.0, 1, r#"{"abi":1,"api":2}"#);
     let found = runtime(&dir.0, 1).unwrap();
-    assert_eq!(found.level, Level { abi: 1, api: 2 });
+    assert_eq!(found.level, oxyos_package::Runtime { abi: 1, api: 2 });
     assert_eq!(found.host, one.join("oxyos-bloom-host"));
     assert_eq!(found.hermesc, one.join("hermesc"));
     // A runtime the machine lacks says which.
@@ -888,7 +879,7 @@ fn a_runtime_is_its_directory_its_description_its_host_and_compiler() {
     let (runtimes, errors) = installed_runtimes(&dir.0);
     assert_eq!(
         runtimes.iter().map(|r| r.level).collect::<Vec<_>>(),
-        [Level { abi: 1, api: 2 }]
+        [oxyos_package::Runtime { abi: 1, api: 2 }]
     );
     assert_eq!(errors.len(), 4, "{errors:?}");
 }
@@ -934,7 +925,7 @@ fn an_application_runs_on_its_runtimes_host() {
             runtime,
         },
         pinned: None,
-        system: false,
+        origin: Origin::Development,
     };
     let session = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1011,6 +1002,7 @@ fn an_application_whose_package_is_not_there_is_not_installed() {
         &[first.0.clone(), later.0.clone()],
         &[],
         &Policy::none(),
+        None,
         &|_| false,
     );
     // Said, not listed, and its id still the first directory's.
@@ -1021,7 +1013,7 @@ fn an_application_whose_package_is_not_there_is_not_installed() {
     let package = first.0.join("packages/so.oxy.stash");
     std::fs::create_dir_all(&package).unwrap();
     std::fs::write(package.join("index.hbc"), "").unwrap();
-    let (apps, skipped) = registry(&[first.0.clone()], &[], &Policy::none(), &|_| false);
+    let (apps, skipped) = registry(&[first.0.clone()], &[], &Policy::none(), None, &|_| false);
     assert!(skipped.is_empty(), "{skipped:?}");
     assert_eq!(
         apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
@@ -1049,7 +1041,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
             runtime: Some(1),
         },
         pinned: None,
-        system: true,
+        origin: Origin::System,
     };
     let system = |host: &Path| SystemApplication {
         entry: root.join("so.oxy.settings.desktop"),
@@ -1089,4 +1081,213 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
     );
     // A policy naming another host than the entry's runtime's: not started.
     assert!(pinned(&application, &system(&other_host), &session, &trusted).is_none());
+}
+
+// ---- the install service's applications (docs/adr/0030-installing-applications.mdx, decision 7)
+
+/// An entry as the install service writes one for an installed version (`entry_text`), its bundle
+/// in `version`, with what the test adds.
+fn installed_text(name: &str, version: &Path, more: &str) -> String {
+    format!(
+        "[Desktop Entry]\nType=Application\nName={name}\nIcon={}\nX-OxyOS-Bloom-Module=Inbox\nX-OxyOS-Bloom-Bundle={}\nX-OxyOS-Runtime=1\n{more}",
+        version.join("icon.png").display(),
+        version.join("index.hbc").display()
+    )
+}
+
+#[test]
+fn the_installed_applications_are_where_the_install_service_writes_them() {
+    let layout = oxyos_install::state::Layout::new(Path::new(INSTALLED));
+    assert_eq!(
+        installed_applications(Path::new(INSTALLED), "oxy-abc"),
+        layout.user_applications("oxy-abc")
+    );
+    assert_eq!(INSTALLED, oxyos_install::state::STATE_DIRECTORY);
+    // This process's user, by the account database.
+    let user = session_user().expect("this process's user is in /etc/passwd");
+    let passwd = std::fs::read_to_string("/etc/passwd").unwrap();
+    assert!(passwd
+        .lines()
+        .any(|line| line.starts_with(&format!("{user}:"))));
+}
+
+#[test]
+fn an_installed_application_is_the_install_services_and_comes_between() {
+    let state = Directory::new("installed-state", &[]);
+    let version = state.0.join("packages/so.oxy.inbox/12");
+    std::fs::create_dir_all(&version).unwrap();
+    std::fs::write(version.join("index.hbc"), "").unwrap();
+    let installed = installed_applications(&state.0, "oxy-test");
+    std::fs::create_dir_all(&installed).unwrap();
+    let write = |id: &str, text: &str| {
+        std::fs::write(installed.join(format!("{id}.desktop")), text).unwrap()
+    };
+    write(
+        "so.oxy.inbox",
+        &installed_text(
+            "Inbox",
+            &version,
+            "X-OxyOS-Package-Version=12\nX-OxyOS-Grants=settings\n",
+        ),
+    );
+    write(
+        "so.oxy.settings",
+        &installed_text("Not Settings", &version, "X-OxyOS-Package-Version=1\n"),
+    );
+    write(
+        "so.oxy.unversioned",
+        &installed_text("Unversioned", &version, ""),
+    );
+    write("so.oxy.native", "[Desktop Entry]\nType=Application\nName=Native\nExec=/bin/true\nX-OxyOS-Package-Version=1\n");
+    std::fs::write(
+        installed.parent().unwrap().join("so.oxy.inbox.json"),
+        r#"{"format":1,"id":"so.oxy.inbox","capabilities":{"network":"granted","files":"undecided","camera":"denied"}}"#,
+    )
+    .unwrap();
+    let development = Directory::new(
+        "installed-development",
+        &[
+            (
+                "so.oxy.inbox.desktop",
+                "[Desktop Entry]\nType=Application\nName=Mine\nExec=/bin/true\n",
+            ),
+            (
+                "so.oxy.other.desktop",
+                "[Desktop Entry]\nType=Application\nName=Other\nExec=/bin/true\n",
+            ),
+        ],
+    );
+    let system = Directory::new("installed-system", &[("so.oxy.settings.desktop", SETTINGS)]);
+    let policy = Policy::parse(&policy_of(
+        "so.oxy.settings",
+        &system.0.canonicalize().unwrap(),
+        Path::new("/bin/sh"),
+        r#""settings""#,
+    ))
+    .unwrap();
+    let state_root = state.0.canonicalize().unwrap();
+    let root = {
+        let system = as_if_root(&system.0);
+        move |path: &Path| path.starts_with(&state_root) || system(path)
+    };
+    let installed = installed.canonicalize().unwrap();
+    let (apps, skipped) = registry(
+        &[development.0.clone()],
+        &[],
+        &policy,
+        Some(&installed),
+        &root,
+    );
+    let listed: Vec<(&str, &str, &Origin)> = apps
+        .iter()
+        .map(|a| (a.id.as_str(), a.name.as_str(), &a.origin))
+        .collect();
+    // The system's Settings over the installed one; the installed Inbox over the development one.
+    assert_eq!(
+        listed,
+        [
+            (
+                "so.oxy.inbox",
+                "Inbox",
+                &Origin::Installed { version_code: 12 }
+            ),
+            ("so.oxy.other", "Other", &Origin::Development),
+            ("so.oxy.settings", "Settings", &Origin::System),
+        ]
+    );
+    assert!(apps
+        .iter()
+        .all(|a| a.origin.verified() != (a.id == "so.oxy.other")));
+    // Said: the installed Settings, the one naming no version, the native one.
+    assert_eq!(skipped.len(), 3, "{skipped:?}");
+    // The same entries, not root's: none of them, and never the development Inbox instead.
+    let (apps, _) = registry(
+        &[development.0.clone()],
+        &[],
+        &Policy::none(),
+        Some(&installed),
+        &|_| false,
+    );
+    assert_eq!(
+        apps.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        ["so.oxy.other"]
+    );
+
+    // Launched: installed, its version, its account's decisions, and no grant whatever its entry
+    // says.
+    let runtimes = state.0.join("runtimes");
+    lay_out_runtime(&runtimes, 1, r#"{"abi":1,"api":0}"#);
+    let mut launcher = Launcher::new(
+        Runtime {
+            socket: PathBuf::from("/run/oxyos-test"),
+            bloom_host: None,
+            bloom_bundle: None,
+            runtimes,
+            window: (960, 600),
+            env: Vec::new(),
+        },
+        vec![development.0.clone()],
+        vec![],
+    )
+    .with_installed_fixture(installed.clone());
+    launcher.policy = state.0.join("no-policy.json");
+    let pid = launcher.launch("so.oxy.inbox").unwrap();
+    let launched = launcher.application_of(pid).unwrap().clone();
+    assert_eq!(launched.origin, Origin::Installed { version_code: 12 });
+    assert_eq!(launched.grants, Grants::default());
+    assert_eq!(
+        launched
+            .capabilities
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("camera", "denied"),
+            ("files", "undecided"),
+            ("network", "granted")
+        ]
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut reaped = Vec::new();
+    while reaped.is_empty() && std::time::Instant::now() < deadline {
+        reaped = launcher.reap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        reaped
+            .iter()
+            .map(|(p, l)| (*p, l.id.as_str()))
+            .collect::<Vec<_>>(),
+        [(pid, "so.oxy.inbox")]
+    );
+}
+
+#[test]
+fn the_registrys_sources_are_followed_even_before_they_are_there() {
+    let dir = Directory::new("watch", &[]);
+    let installed = installed_applications(&dir.0, "oxy-test");
+    let development = dir.0.join("development");
+    std::fs::create_dir_all(&development).unwrap();
+    let mut watch = Watch::new(sources(
+        &[development.clone()],
+        &Policy::none(),
+        Some(&installed),
+    ))
+    .unwrap();
+    assert!(!watch.changed());
+    // A development entry written.
+    std::fs::write(development.join("so.oxy.x.desktop"), "[Desktop Entry]\n").unwrap();
+    assert!(watch.changed());
+    assert!(!watch.changed());
+    // The account's directory, not there when the watch began: its parents made, then an entry.
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    assert!(watch.changed());
+    std::fs::create_dir(&installed).unwrap();
+    assert!(watch.changed());
+    std::fs::write(installed.join("so.oxy.inbox.desktop"), "[Desktop Entry]\n").unwrap();
+    assert!(watch.changed());
+    // Removed.
+    std::fs::remove_file(installed.join("so.oxy.inbox.desktop")).unwrap();
+    assert!(watch.changed());
+    assert!(!watch.changed());
 }

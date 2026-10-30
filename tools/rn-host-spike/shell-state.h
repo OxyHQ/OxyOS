@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -56,8 +57,17 @@ class ShellState {
   // When tick should look again: the wallpaper's next frame, at most a minute away (the system's
   // clock may jump, or the machine sleep, meanwhile); none for no wallpaper or a fixed moment.
   std::optional<std::chrono::steady_clock::time_point> nextChange() const;
+  // The session's shell follows its applications (docs/adr/0030-installing-applications.mdx,
+  // decision 7): one installed, updated or removed is listed at once. The watch's descriptor
+  // (-1 without one) wakes the host; applicationsChanged lists them again when they may have
+  // changed, true if they did.
+  void followApplications();
+  int applicationsFd() const;
+  bool applicationsChanged();
 
  private:
+  std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> applicationsWatch_{
+      nullptr, oxyos_applications_watch_free};
   struct Window {
     std::string appId, title;
     uint32_t workspace = 0;

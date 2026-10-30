@@ -9,7 +9,8 @@
 //
 // with BLOOM_DIR (the Bloom checkout), OXYOS_PACK (the oxyos-pack program) and OXYOS_RUNTIME (a
 // runtime's directory: its runtime.json, hermesc and framework/). OUT gets one directory per package, named by
-// its id, `probes/` (the probes' bundle, Hermes bytecode as bundle.mjs makes it with HERMESC) and
+// its id, `applications/` (the Desktop Entry oxyos-installd writes for each, `oxyos-pack entry`),
+// `probes/` (the probes' bundle, Hermes bytecode as bundle.mjs makes it with HERMESC) and
 // `development.key`, made once and kept: a development key, never a publisher's.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -66,6 +67,8 @@ for (const [id, entry] of Object.entries(entries)) {
   fs.copyFileSync(path.join(repository, icons[id]), path.join(dir, 'icon.png'));
   console.log(run(pack, ['pack', dir, path.join(here, 'packages', `${id}.json`), path.join(runtime, 'runtime.json'), key]));
   console.log(run(pack, ['compile', dir, path.join(runtime, 'hermesc')]));
+  fs.mkdirSync(path.join(out, 'applications'), { recursive: true });
+  fs.writeFileSync(path.join(out, 'applications', `${id}.desktop`), run(pack, ['entry', dir]) + '\n');
 }
 
 // The probes, which scenarios run by their modules: one development bundle, compiled as today.

@@ -2967,6 +2967,38 @@ fn the_applications_are_listed_as_json_through_the_c_abi() {
 }
 
 #[test]
+fn the_applications_are_followed_through_the_c_abi() {
+    use crate::apps::*;
+    for declared in [
+        "OxyOSApplicationsWatch* oxyos_applications_watch_new(void);",
+        "void oxyos_applications_watch_free(OxyOSApplicationsWatch* watch);",
+        "int oxyos_applications_watch_fd(OxyOSApplicationsWatch* watch);",
+        "uint8_t oxyos_applications_watch_changed(OxyOSApplicationsWatch* watch);",
+    ] {
+        assert!(
+            HEADER.contains(declared),
+            "{declared} is not in oxyos_client.h"
+        );
+    }
+    let new: extern "C" fn() -> *mut OxyOSApplicationsWatch = oxyos_applications_watch_new;
+    let fd: unsafe extern "C" fn(*mut OxyOSApplicationsWatch) -> c_int =
+        oxyos_applications_watch_fd;
+    let changed: unsafe extern "C" fn(*mut OxyOSApplicationsWatch) -> u8 =
+        oxyos_applications_watch_changed;
+    let free: unsafe extern "C" fn(*mut OxyOSApplicationsWatch) = oxyos_applications_watch_free;
+    let watch = new();
+    assert!(!watch.is_null());
+    // SAFETY: a live watch, freed once; NULL is answered, not dereferenced.
+    unsafe {
+        assert!(fd(watch) >= 0);
+        assert!(changed(watch) <= 1);
+        assert_eq!(changed(std::ptr::null_mut()), 0);
+        free(watch);
+        free(std::ptr::null_mut());
+    }
+}
+
+#[test]
 fn the_shell_asks_for_an_application_through_the_c_abi() {
     assert_eq!(
         u32::from(

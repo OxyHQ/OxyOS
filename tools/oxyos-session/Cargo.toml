@@ -17,6 +17,9 @@ oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
+# Holding, and noting, the installed versions it runs (docs/adr/0030-installing-applications.mdx).
+oxyos-install = { path = "../../crates/oxyos-install" }
+serde_json = "1"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
 signal-hook = { version = "0.3", default-features = false }
 

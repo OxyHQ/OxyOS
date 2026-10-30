@@ -1597,6 +1597,7 @@ dependencies = [
 name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
+ "oxyos-install",
  "oxyos-package",
  "rustix",
  "serde",
@@ -1862,6 +1863,7 @@ dependencies = [
 name = "oxyos-pack"
 version = "0.1.0"
 dependencies = [
+ "oxyos-install",
  "oxyos-package",
  "ring",
  "serde",
@@ -1921,11 +1923,13 @@ dependencies = [
  "oxyos-controls",
  "oxyos-gpu",
  "oxyos-input",
+ "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-protocol",
  "oxyos-seat",
  "rustix",
+ "serde_json",
  "signal-hook",
 ]
 

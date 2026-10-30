@@ -135,13 +135,14 @@ fn what_the_system_would_refuse_is_refused_here() {
     assert!(dir.pack().is_err());
 }
 
-/// A program that does what a compiler would, as a shell script: writes `bytes` to its `-out`.
+/// A program that does what a compiler would, as a shell script: reads the source on its standard
+/// input and writes `bytes` to its standard output, as the runtime's `hermesc -emit-binary -O -`.
 fn compiler(dir: &Path, bytes: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(format!("hermesc-{}", bytes.len()));
     std::fs::write(
         &path,
-        format!("#!/bin/sh\nwhile [ \"$1\" != -out ]; do shift; done\nprintf '{bytes}' > \"$2\"\n"),
+        format!("#!/bin/sh\ncat > /dev/null\nprintf '{bytes}'\n"),
     )
     .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();

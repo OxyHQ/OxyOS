@@ -1214,6 +1214,16 @@ void oxyos_files_reply_free(OxyOSFilesReply* reply);
  * as an OxyOSNetPart), its size in `*size` if not NULL; OXYOS_ERROR with the reason in
  * oxyos_last_error. */
 int oxyos_files_open_read(OxyOSFiles* files, const char* uri, size_t length, uint64_t* size);
+/* A watch over what oxyos_applications lists from (docs/adr/0030-installing-applications.mdx,
+ * decision 7): the image's policy, the install service's entries for this account, the development
+ * directories, each followed even before it is there. NULL on failure (oxyos_last_error). */
+typedef struct OxyOSApplicationsWatch OxyOSApplicationsWatch;
+OxyOSApplicationsWatch* oxyos_applications_watch_new(void);
+void oxyos_applications_watch_free(OxyOSApplicationsWatch* watch);
+/* Readable when the applications may have changed (for poll). */
+int oxyos_applications_watch_fd(OxyOSApplicationsWatch* watch);
+/* 1 when they may have changed since the last call (list them again), 0 otherwise. */
+uint8_t oxyos_applications_watch_changed(OxyOSApplicationsWatch* watch);
 
 /* An application's key-value storage in `directory`, its data directory (crates/oxyos-app-storage,
  * React Native's AsyncStorage): a request as JSON, {"op": "get"|"remove", "keys": [...]},
