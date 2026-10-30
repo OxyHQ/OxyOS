@@ -1,4 +1,5 @@
-// Text for the OxyOS React Native host: FreeType faces, HarfBuzz shaping, greedy line breaking.
+// Text for the OxyOS React Native host: FreeType faces, HarfBuzz shaping, and greedy line breaking
+// at ICU's line break opportunities, ellipsized as Android's StaticLayout ellipsizes.
 // The same layout serves Fabric's measurement (TextLayoutManager) and drawing, so what Yoga sizes
 // is exactly what is painted.
 #pragma once
@@ -72,6 +73,10 @@ class TextEngine {
 
  private:
   TextEngine();
+  ParagraphLayout layoutUncached(
+      const facebook::react::AttributedString& text,
+      const facebook::react::ParagraphAttributes& paragraph,
+      float maxWidth);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

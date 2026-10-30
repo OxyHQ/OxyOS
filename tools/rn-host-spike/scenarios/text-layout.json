@@ -1,0 +1,35 @@
+{
+  "about": "How a paragraph breaks into lines and is cut at a number of lines (sample/TextLayoutProbe.tsx; text.h), as Android's StaticLayout does with the same props: lines break where ICU's line break rules allow (after a hyphen, not before an opening bracket glued to a letter), not only at spaces; a word wider than its line is broken between its characters, as many on each line as fit; at numberOfLines the last line shown holds the rest of its paragraph, ellipsized at its end (tail), at its start or middle when one line is shown (head, middle), cut without an ellipsis for clip; and no line is wider than its box. Each label is a file's name as Stash's icon view shows it, two centred lines of 12-point Inter in 84 points; the probe shows each line onTextLayout gave (an ellipsized line's text is all it stands for, as on Android). Before, lines broke only at spaces: a name with none was one line wider than its box, centred and cut on both sides ('e-setup-promp'), and a line cut at numberOfLines had no ellipsis.",
+  "module": "TextLayoutProbe",
+  "window": [
+    560,
+    400
+  ],
+  "steps": [
+    {
+      "name": "every label laid out as Android lays it out",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "hyphens: claude-setup- | prompt.md",
+          "unbreakable: cgqzbklp_400 | x400.jpg",
+          "tail: Tierras de  | Valdoria (1).png",
+          "brackets: 127.0.0.1_8080 | _(Nest Hub Max).png",
+          "unlimited: faircoin- | v3.0.3-linux- | x86_64.tar.gz",
+          "head: Tierras de Valdoria (1).png",
+          "middle: Tierras de Valdoria (1).png",
+          "clip: Tierras de ",
+          "short: src.zip"
+        ],
+        "absent": [
+          "(overflows)",
+          "not laid out"
+        ]
+      }
+    }
+  ]
+}

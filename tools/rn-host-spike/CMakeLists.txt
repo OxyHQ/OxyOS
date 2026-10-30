@@ -133,6 +133,9 @@ list(FILTER tlm_sources EXCLUDE REGEX "platform/cxx/react/renderer/textlayoutman
 list(APPEND tlm_sources ${CMAKE_CURRENT_SOURCE_DIR}/TextLayoutManager.cpp ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp)
 set_property(TARGET react_renderer_textlayoutmanager PROPERTY SOURCES ${tlm_sources})
 target_include_directories(react_renderer_textlayoutmanager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${TEXT_INCLUDES})
+# Lines break where ICU's line break iterator allows, as Android's do (text.cpp).
+target_include_directories(react_renderer_textlayoutmanager PRIVATE ${ICU_SYSROOT}/include)
+target_link_libraries(reactnative PUBLIC ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so)
 # The OxyOS platform header comes before the cxx platform's for every target that includes it.
 target_include_directories(react_renderer_textlayoutmanager BEFORE PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/platform)
 target_link_libraries(reactnative PUBLIC ${TEXT_LIBS})

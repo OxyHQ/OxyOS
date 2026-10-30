@@ -610,10 +610,13 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
                                             kWindowViewComponent};
 
-// The input's text laid out as it is drawn: single-line inputs do not wrap.
+// The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
+// number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
   float maxWidth = props.multiline ? width : std::numeric_limits<float>::infinity();
-  return TextEngine::shared().layout(text, props.paragraphAttributes, maxWidth);
+  auto paragraph = props.paragraphAttributes;
+  paragraph.maximumNumberOfLines = 0;
+  return TextEngine::shared().layout(text, paragraph, maxWidth);
 }
 
 // A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
