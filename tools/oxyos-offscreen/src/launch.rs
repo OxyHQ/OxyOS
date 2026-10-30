@@ -403,7 +403,7 @@ pub struct Launch {
     /// (docs/adr/0019-settings.mdx); the defaults, kept for the run alone, without it.
     pub preferences: Option<PathBuf>,
     /// `--grant-settings ID`: the application ID is given `settings` when it is launched, as a
-    /// session gives it to an entry only an administrator could have written. A fixture: a
+    /// session gives it to the system application the image's policy names. A fixture: a
     /// scenario's entries are the developer's.
     pub grant_settings: Option<String>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on

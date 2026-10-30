@@ -46,9 +46,9 @@
 //! `$XDG_CONFIG_HOME/oxyos/preferences` as the session starts, and the session is the file's one
 //! writer: reduce motion takes the transitions' time away, the screen reader preference starts
 //! the reader as `--reader-on` does, and every client is told the ones it draws with (an
-//! automatic appearance following the sun where the system's time zone is). Settings, an
-//! application the session launched from an entry only an administrator could have written
-//! (`X-OxyOS-Grants=settings`), changes them: each change is validated, written, applied (the
+//! automatic appearance following the sun where the system's time zone is). Settings, the
+//! system application the image's policy (`/usr/share/oxyos/system-apps.json`) gives `settings`,
+//! launched from the entry and running the host and bundle that policy names, changes them: each change is validated, written, applied (the
 //! screen reader started or stopped) and told to every client. `lock_after` arms the idle lock
 //! again from the change.
 //!
@@ -396,7 +396,11 @@ fn main() -> Result<()> {
         ),
         None => None,
     };
-    // The applications the shell asks for (ADR 0013).
+    // The applications the shell asks for (ADR 0013). The image's policy of system applications
+    // is read at each launch; one that cannot be used is said now, and grants nothing (ADR 0030).
+    if let Err(error) = oxyos_apps::Policy::system() {
+        eprintln!("oxyos-session: system applications: {error}");
+    }
     let env_path = |name| std::env::var_os(name).map(PathBuf::from);
     let mut launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
@@ -496,7 +500,7 @@ fn main() -> Result<()> {
         // is up (ADR 0018).
         displays.serve(&mut card, &mut compositor, &mut settings, Instant::now());
         // The windows of what it started are their registry application's (ADR 0013).
-        // An administrator's Settings is given `settings` (ADR 0019).
+        // The policy's Settings is given `settings` (ADR 0019, ADR 0030).
         compositor.name_clients(&|pid| {
             launcher.application_of(pid).map(|launched| LaunchRecord {
                 application: launched.id.clone(),

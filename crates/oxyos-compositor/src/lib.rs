@@ -925,7 +925,7 @@ impl Compositor {
     /// Applies launch records (docs/adr/0013-launching-applications.mdx): each client connected
     /// since the last call whose process `record_of` names (one the session started) is that
     /// application, its windows the registry's, whatever they claim, and has the grants its
-    /// record gives (ADR 0019: `settings`, for an administrator's entry). A client's record is
+    /// record gives (ADR 0019: `settings`, for the image's policy's Settings). A client's record is
     /// looked for once, when it has said Hello.
     pub fn name_clients(&mut self, record_of: &dyn Fn(u32) -> Option<LaunchRecord>) {
         for (client, peer) in self.peers.iter_mut() {

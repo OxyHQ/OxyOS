@@ -26,11 +26,18 @@ pub(crate) fn json_string(text: &str) -> String {
 /// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "pinned" (its
 /// place in the dock from 1, or null)}]`, sorted by name, in the session's language.
 pub fn applications_json() -> String {
-    // The shell lists applications; what they may do is the session's to judge as it launches.
+    // The shell lists what the session would launch: the image's system applications first,
+    // which no other directory's entry can take the place of (docs/adr/0030-installing-
+    // applications.mdx, decision 7). What they may do is the session's to judge as it launches.
+    let policy = oxyos_apps::Policy::system().unwrap_or_else(|error| {
+        eprintln!("[apps] system applications: {error}");
+        oxyos_apps::Policy::none()
+    });
     let (applications, skipped) = oxyos_apps::registry(
         &oxyos_apps::directories(),
         &oxyos_apps::languages(),
-        &|_| false,
+        &policy,
+        &oxyos_apps::administrator_written,
     );
     for line in skipped {
         eprintln!("[apps] {line}");

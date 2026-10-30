@@ -3,16 +3,22 @@
 //! data directories, each named by its application's id. Only OxyOS's own directory is read: the
 //! system's applications speak no OxyOS display protocol.
 //!
-//! An entry may ask for grants (`X-OxyOS-Grants`, docs/adr/0019-settings.mdx). They are honored
-//! only for an entry only an administrator could have written ([`administrator_written`]), and
-//! a launch keeps them only if what it runs is an administrator's too ([`Launcher::launch`]).
+//! System grants (`settings`, docs/adr/0019-settings.mdx) come from one place: the image's policy
+//! of system applications ([`Policy`], `/usr/share/oxyos/system-apps.json`), which names each
+//! system application's id, its entry, what it runs and its grants. An entry asks for nothing:
+//! ownership proves an administrator wrote a file, not that its contents are an administrator's
+//! choice (docs/adr/0030-installing-applications.mdx, decision 7). A launch has a system
+//! application's grants only if its entry and what it runs are the policy's, by real path, and
+//! only an administrator could have written them ([`administrator_written`],
+//! [`Launcher::launch`]). A policy's id is never another directory's: a user's entry cannot take
+//! a system application's name.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// What a launched application may do beyond an application's own, asked for by its entry
-/// (`X-OxyOS-Grants`, a `;`-separated list).
+/// What a launched application may do beyond an application's own: the system grants the policy
+/// gives it ([`Policy`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Grants {
     /// `settings`: it changes the user's preferences (docs/adr/0019-settings.mdx).
@@ -20,15 +26,223 @@ pub struct Grants {
 }
 
 impl Grants {
-    /// The grants a list names; names this system does not know grant nothing.
-    fn named(list: &str) -> Self {
+    /// The grants `names` name; a name this system does not know is an error, so a policy that
+    /// means something else says so.
+    fn named(names: &[String]) -> Result<Self, Error> {
         let mut grants = Self::default();
-        for name in list.split(';').map(str::trim) {
-            if name == "settings" {
-                grants.settings = true;
+        for name in names {
+            match name.as_str() {
+                "settings" if !grants.settings => grants.settings = true,
+                "settings" => return Err(Error("the grant \"settings\" is named twice".into())),
+                other => return Err(Error(format!("{other:?} is not a system grant"))),
             }
         }
-        grants
+        Ok(grants)
+    }
+}
+
+/// Where the image keeps its policy of system applications: in `/usr`, which is the image's
+/// (read-only on a published install, docs/adr/0023-installing-oxyos.mdx).
+pub const POLICY: &str = "/usr/share/oxyos/system-apps.json";
+
+/// The most a policy may be, in bytes.
+const POLICY_LIMIT: u64 = 64 * 1024;
+
+/// What a system application runs, as the policy names it: absolute paths, which the launch
+/// starts at their real paths.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Runs {
+    /// A native OxyOS client: the program its entry's `Exec` must start.
+    Exec(PathBuf),
+    /// A Bloom application: the Bloom host and the bundle it runs, whatever the session's are.
+    Bloom { host: PathBuf, bundle: PathBuf },
+}
+
+/// A system application, as the image's policy describes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemApplication {
+    /// Its entry: its name, icon and module, read here and nowhere else.
+    pub entry: PathBuf,
+    pub runs: Runs,
+    pub grants: Grants,
+}
+
+/// The image's policy of system applications (docs/adr/0030-installing-applications.mdx,
+/// decision 7): the one source of system grants. A JSON object:
+///
+/// ```json
+/// { "applications": { "so.oxy.settings": {
+///     "entry": "/usr/share/oxyos/applications/so.oxy.settings.desktop",
+///     "bloom": { "host": "/usr/lib/oxyos/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/bundle/index.js" },
+///     "grants": ["settings"] } } }
+/// ```
+///
+/// with `"exec": "/absolute/program"` in place of `"bloom"` for a native client. It is read
+/// strictly: an unknown key, an id named twice, a grant this system does not know, a path that is
+/// not absolute and plain, or both or neither of `exec` and `bloom` refuse the whole policy.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Policy {
+    applications: BTreeMap<String, SystemApplication>,
+}
+
+mod policy_json {
+    use serde::Deserialize;
+    use std::collections::BTreeMap;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct File {
+        #[serde(deserialize_with = "unique")]
+        pub applications: BTreeMap<String, Application>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Application {
+        pub entry: String,
+        pub exec: Option<String>,
+        pub bloom: Option<Bloom>,
+        pub grants: Vec<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Bloom {
+        pub host: String,
+        pub bundle: String,
+    }
+
+    /// A map whose keys are each named once: JSON's objects may repeat a key, and a reader that
+    /// keeps the last would read another policy than one that keeps the first.
+    fn unique<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<String, Application>, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = BTreeMap<String, Application>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an object of applications by id")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut out = BTreeMap::new();
+                while let Some((id, application)) = map.next_entry::<String, Application>()? {
+                    if out.insert(id.clone(), application).is_some() {
+                        return Err(serde::de::Error::custom(format!("{id:?} is named twice")));
+                    }
+                }
+                Ok(out)
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
+}
+
+/// Whether `path` is absolute with no `.` or `..`: what the trust rule can judge.
+fn plain(path: &Path) -> bool {
+    use std::path::Component;
+    path.is_absolute()
+        && path
+            .components()
+            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)))
+}
+
+impl Policy {
+    /// No system application: what a machine without the image's policy has.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// A policy from its text.
+    pub fn parse(text: &str) -> Result<Self, Error> {
+        let file: policy_json::File =
+            serde_json::from_str(text).map_err(|error| Error(format!("the policy: {error}")))?;
+        let path = |id: &str, what: &str, value: String| {
+            let path = PathBuf::from(value);
+            if plain(&path) {
+                Ok(path)
+            } else {
+                Err(Error(format!(
+                    "{id}'s {what} is not an absolute, plain path: {}",
+                    path.display()
+                )))
+            }
+        };
+        let mut applications = BTreeMap::new();
+        for (id, raw) in file.applications {
+            if !valid_id(&id) {
+                return Err(Error(format!("{id:?} is not an application id")));
+            }
+            let runs = match (raw.exec, raw.bloom) {
+                (Some(program), None) => Runs::Exec(path(&id, "exec", program)?),
+                (None, Some(bloom)) => Runs::Bloom {
+                    host: path(&id, "host", bloom.host)?,
+                    bundle: path(&id, "bundle", bloom.bundle)?,
+                },
+                _ => {
+                    return Err(Error(format!(
+                        "{id} must name what it runs: exec or bloom, one of them"
+                    )));
+                }
+            };
+            let grants =
+                Grants::named(&raw.grants).map_err(|Error(e)| Error(format!("{id}: {e}")))?;
+            let entry = path(&id, "entry", raw.entry)?;
+            if entry.file_name().and_then(|name| name.to_str()) != Some(&format!("{id}.desktop")) {
+                return Err(Error(format!("{id}'s entry is not named {id}.desktop")));
+            }
+            applications.insert(
+                id,
+                SystemApplication {
+                    entry,
+                    runs,
+                    grants,
+                },
+            );
+        }
+        Ok(Self { applications })
+    }
+
+    /// The policy at `path`, judged by `trusted` at its real path and read there. A machine with
+    /// no policy has none; one there that anyone but an administrator could have written, or that
+    /// is not a valid policy, is an error, and gives nothing.
+    pub fn read(path: &Path, trusted: &dyn Fn(&Path) -> bool) -> Result<Self, Error> {
+        match std::fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::none()),
+            _ => {}
+        }
+        let real = real_path(path)
+            .filter(|real| trusted(real))
+            .ok_or_else(|| Error(format!("{} is not an administrator's", path.display())))?;
+        use std::io::Read;
+        let mut text = String::new();
+        std::fs::File::open(&real)
+            .and_then(|file| file.take(POLICY_LIMIT + 1).read_to_string(&mut text))
+            .map_err(|error| Error(format!("{}: {error}", real.display())))?;
+        if text.len() as u64 > POLICY_LIMIT {
+            return Err(Error(format!(
+                "{} is larger than {POLICY_LIMIT} bytes",
+                real.display()
+            )));
+        }
+        Self::parse(&text)
+    }
+
+    /// The image's policy ([`POLICY`]), as an administrator wrote it; an error gives none.
+    pub fn system() -> Result<Self, Error> {
+        Self::read(Path::new(POLICY), &administrator_written)
+    }
+
+    /// The system application `id`, if the policy has it.
+    pub fn get(&self, id: &str) -> Option<&SystemApplication> {
+        self.applications.get(id)
+    }
+
+    /// Its system applications, by id.
+    pub fn applications(&self) -> impl Iterator<Item = (&str, &SystemApplication)> {
+        self.applications.iter().map(|(id, app)| (id.as_str(), app))
     }
 }
 
@@ -56,9 +270,9 @@ pub struct Application {
     pub launch: Launch,
     /// Its place in the dock, from 1, when it is kept there (`X-OxyOS-Pinned`).
     pub pinned: Option<u32>,
-    /// What its entry asks for (`X-OxyOS-Grants`), if only an administrator could have written
-    /// the entry; nothing otherwise.
-    pub grants: Grants,
+    /// Whether it is a system application: its entry is the one the image's policy names, and
+    /// only an administrator could have written it.
+    pub system: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -181,15 +395,14 @@ fn exec(value: &str) -> Result<Vec<String>, Error> {
 }
 
 /// The application an entry describes: `id`, the entry's `text`, in `directory`, named in
-/// `languages` (the most wanted first, as `es_ES`, `es`). Its grants are the entry's only if
-/// `trusted`: only an administrator could have written it. None for an entry not to list
-/// (`NoDisplay`, `Hidden`, not an application).
+/// `languages` (the most wanted first, as `es_ES`, `es`). An entry grants nothing: an
+/// `X-OxyOS-Grants` in it is not read (system grants are the policy's, [`Policy`]). None for an
+/// entry not to list (`NoDisplay`, `Hidden`, not an application).
 pub fn parse(
     id: &str,
     text: &str,
     directory: &Path,
     languages: &[String],
-    trusted: bool,
 ) -> Result<Option<Application>, Error> {
     if !valid_id(id) {
         return Err(Error(format!("{id:?} is not an application id")));
@@ -240,10 +453,7 @@ pub fn parse(
         icon: keys.get("Icon").map(|icon| relative(icon)),
         launch,
         pinned,
-        grants: match keys.get("X-OxyOS-Grants") {
-            Some(list) if trusted => Grants::named(list),
-            _ => Grants::default(),
-        },
+        system: false,
     }))
 }
 
@@ -289,13 +499,8 @@ pub fn lstat(path: &Path) -> Option<Status> {
 /// directory from it up to `/` are owned by root and writable by no group and no one else.
 /// Anyone who could change any of them could change what the path holds.
 pub fn trusted_by(path: &Path, stat: &dyn Fn(&Path) -> Option<Status>) -> bool {
-    use std::path::Component;
-    let plain = path.is_absolute()
-        && path
-            .components()
-            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)));
     let root_only = |status: Status| status.uid == 0 && status.mode & 0o022 == 0;
-    plain
+    plain(path)
         && stat(path).is_some_and(|file| file.kind == Kind::File && root_only(file))
         && path.ancestors().skip(1).all(|directory| {
             stat(directory).is_some_and(|d| d.kind == Kind::Directory && root_only(d))
@@ -354,27 +559,52 @@ pub fn languages_of(locale: &str) -> Vec<String> {
     out
 }
 
-/// An entry's text, and whether only an administrator could have written it, as `trusted` judges
-/// the entry at its real path. A trusted entry is read at the path judged, which only root can
-/// change, so what is read is what was judged.
-fn read_entry(path: &Path, trusted: &dyn Fn(&Path) -> bool) -> std::io::Result<(String, bool)> {
-    if let Some(real) = real_path(path).filter(|real| trusted(real)) {
-        return Ok((std::fs::read_to_string(real)?, true));
+/// A system application's entry, at the path the policy names: read only if that path is its
+/// real path (no link on the way) and `trusted` judges it an administrator's, so what is read is
+/// what was judged, and what an administrator chose.
+fn system_entry(
+    id: &str,
+    system: &SystemApplication,
+    languages: &[String],
+    trusted: &dyn Fn(&Path) -> bool,
+) -> Result<Option<Application>, Error> {
+    let entry = &system.entry;
+    if real_path(entry).as_deref() != Some(entry.as_path()) || !trusted(entry) {
+        return Err(Error(format!(
+            "{}: the policy's entry is not an administrator's",
+            entry.display()
+        )));
     }
-    Ok((std::fs::read_to_string(path)?, false))
+    let text = std::fs::read_to_string(entry).map_err(|error| Error(error.to_string()))?;
+    let directory = entry.parent().unwrap_or(Path::new("/"));
+    Ok(
+        parse(id, &text, directory, languages)?.map(|application| Application {
+            system: true,
+            ..application
+        }),
+    )
 }
 
-/// The applications in `directories`, the first directory's entry for an id winning, sorted by
-/// name; entries that cannot be read or are invalid are left out, each said in `skipped`. An
-/// entry's grants are honored if `trusted` says only an administrator could have written it
-/// (given its real path; [`administrator_written`] in a session).
+/// The applications: first the policy's system applications, from the entries it names, then
+/// those in `directories`, the first directory's entry for an id winning; sorted by name. A
+/// policy's id is its alone: another directory's entry for it is ignored, even when the policy's
+/// cannot be read. Entries that cannot be read or are invalid are left out, each said in
+/// `skipped`. `trusted` judges a file at its real path ([`administrator_written`] in a session).
 pub fn registry(
     directories: &[PathBuf],
     languages: &[String],
+    policy: &Policy,
     trusted: &dyn Fn(&Path) -> bool,
 ) -> (Vec<Application>, Vec<String>) {
     let mut found: BTreeMap<String, Option<Application>> = BTreeMap::new();
     let mut skipped = Vec::new();
+    for (id, system) in policy.applications() {
+        let application = system_entry(id, system, languages, trusted).unwrap_or_else(|error| {
+            skipped.push(format!("{id}: {error}"));
+            None
+        });
+        found.insert(id.to_string(), application);
+    }
     for directory in directories {
         let Ok(entries) = std::fs::read_dir(directory) else {
             continue;
@@ -389,13 +619,14 @@ pub fn registry(
             else {
                 continue;
             };
-            // An earlier directory's entry (even one not to list) hides a later one's.
+            // An earlier directory's entry (even one not to list) hides a later one's, and a
+            // system application's hides every directory's.
             if found.contains_key(id) {
                 continue;
             }
-            let parsed = read_entry(&path, trusted)
+            let parsed = std::fs::read_to_string(&path)
                 .map_err(|error| Error(error.to_string()))
-                .and_then(|(text, trusted)| parse(id, &text, directory, languages, trusted));
+                .and_then(|text| parse(id, &text, directory, languages));
             match parsed {
                 Ok(application) => {
                     found.insert(id.to_string(), application);
@@ -418,10 +649,11 @@ pub fn registry(
 pub fn find(
     directories: &[PathBuf],
     languages: &[String],
+    policy: &Policy,
     trusted: &dyn Fn(&Path) -> bool,
     id: &str,
 ) -> Option<Application> {
-    registry(directories, languages, trusted)
+    registry(directories, languages, policy, trusted)
         .0
         .into_iter()
         .find(|application| application.id == id)
@@ -496,38 +728,50 @@ pub struct Launched {
     pub grants: Grants,
 }
 
-/// The program an application with grants runs, by its real path, if only an administrator could
-/// have written it (`trusted`): it is given absolute, as an entry with grants must give it. A
-/// grant follows the program, not only the entry: an administrator's entry running a program
-/// anyone else could change would give that program the grant.
-fn administrators(program: &Path, trusted: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
+/// `program` at its real path, if it is the policy's `expected` there and only an administrator
+/// could have written it (`trusted`).
+fn administrators(
+    program: &Path,
+    expected: &Path,
+    trusted: &dyn Fn(&Path) -> bool,
+) -> Option<PathBuf> {
     if !program.is_absolute() {
         return None;
     }
     let real = program.canonicalize().ok()?;
-    trusted(&real).then_some(real)
+    (real == expected.canonicalize().ok()? && trusted(&real)).then_some(real)
 }
 
-/// `application` and `runtime` running only what an administrator wrote, by real paths, if they
-/// do: an `Exec`'s program, or the Bloom host and the bundle it runs.
+/// A system application and `runtime` running what its policy names, by real paths, if what is
+/// there is an administrator's: the program its entry's `Exec` starts, which must be the policy's,
+/// or the policy's Bloom host and bundle, whatever the session's are. A grant follows what runs,
+/// not only the entry: an administrator's entry running a program anyone else could change would
+/// give that program the grant.
 fn pinned(
     application: &Application,
+    system: &SystemApplication,
     runtime: &Runtime,
     trusted: &dyn Fn(&Path) -> bool,
 ) -> Option<(Application, Runtime)> {
     let mut application = application.clone();
     let mut runtime = runtime.clone();
-    match &mut application.launch {
-        Launch::Exec(words) => {
-            words[0] = administrators(Path::new(&words[0]), trusted)?
+    match (&mut application.launch, &system.runs) {
+        (Launch::Exec(words), Runs::Exec(program)) => {
+            words[0] = administrators(Path::new(&words[0]), program, trusted)?
                 .to_str()?
                 .to_string();
         }
-        Launch::Bloom { bundle, .. } => {
-            runtime.bloom_host = Some(administrators(runtime.bloom_host.as_deref()?, trusted)?);
-            let given = bundle.clone().or(runtime.bloom_bundle.clone())?;
-            *bundle = Some(administrators(&given, trusted)?);
+        (
+            Launch::Bloom { bundle, .. },
+            Runs::Bloom {
+                host,
+                bundle: policy,
+            },
+        ) => {
+            runtime.bloom_host = Some(administrators(host, host, trusted)?);
+            *bundle = Some(administrators(policy, policy, trusted)?);
         }
+        _ => return None,
     }
     Some((application, runtime))
 }
@@ -537,6 +781,9 @@ pub struct Launcher {
     pub runtime: Runtime,
     directories: Vec<PathBuf>,
     languages: Vec<String>,
+    /// Where the image's policy of system applications is ([`POLICY`]; the tests' own in tests).
+    /// It is read at each launch, as the registry is.
+    policy: PathBuf,
     /// Whether only an administrator could have written a file at a real path
     /// ([`administrator_written`]; the tests' own rule in tests).
     trusted: Box<dyn Fn(&Path) -> bool>,
@@ -550,22 +797,44 @@ impl Launcher {
             runtime,
             directories,
             languages,
+            policy: PathBuf::from(POLICY),
             trusted: Box::new(administrator_written),
             children: Vec::new(),
         }
     }
 
-    /// Starts the application `id` if the registry lists it; the pid it runs as. It has its
-    /// entry's grants only if what it runs is an administrator's too, and then runs it by its
-    /// real path, so what was judged is what runs.
+    /// The image's policy of system applications as it is now; one that cannot be judged or read
+    /// gives none (the session says why as it starts, [`Policy::system`]).
+    fn policy(&self) -> Policy {
+        Policy::read(&self.policy, &*self.trusted).unwrap_or_default()
+    }
+
+    /// Starts the application `id` if the registry lists it; the pid it runs as. A system
+    /// application runs what the policy names, by real path, so what was judged is what runs, and
+    /// has the policy's grants; one whose program, host or bundle is not the policy's or not an
+    /// administrator's is not started at all. Every other application has none.
     pub fn launch(&mut self, id: &str) -> Result<u32, Error> {
-        let application = find(&self.directories, &self.languages, &*self.trusted, id)
-            .ok_or_else(|| Error(format!("no application {id:?}")))?;
-        let granted = (application.grants != Grants::default())
-            .then(|| pinned(&application, &self.runtime, &*self.trusted))
-            .flatten();
-        let (mut command, grants) = match &granted {
-            Some((pinned, runtime)) => (command(pinned, runtime)?, pinned.grants),
+        let policy = self.policy();
+        let application = find(
+            &self.directories,
+            &self.languages,
+            &policy,
+            &*self.trusted,
+            id,
+        )
+        .ok_or_else(|| Error(format!("no application {id:?}")))?;
+        let (mut command, grants) = match policy.get(id).filter(|_| application.system) {
+            Some(system) => {
+                let (pinned, runtime) =
+                    pinned(&application, system, &self.runtime, &*self.trusted).ok_or_else(
+                        || {
+                            Error(format!(
+                                "{id}: what it runs is not what the policy names, or not an administrator's"
+                            ))
+                        },
+                    )?;
+                (command(&pinned, &runtime)?, system.grants)
+            }
             None => (command(&application, &self.runtime)?, Grants::default()),
         };
         let child = command
