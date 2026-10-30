@@ -163,6 +163,14 @@ pub struct Compositor {
     /// composed of each surface shown, which one going is drawn from.
     pub transitions: transitions::Transitions,
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
+    /// Where the last frame drew surfaces in transition (their rectangle and where they were
+    /// placed): what the next frame must compose again, with where they are drawn then.
+    transition_drawn: Vec<oxyos_gpu::Rect>,
+    /// The damage of the last frame composed (`None`: whole), for tests and records.
+    pub last_damage: Option<Vec<oxyos_gpu::Rect>>,
+    /// The next frame is composed, and whole: the first, or after the display came back or the
+    /// splash was shown.
+    recompose: bool,
     /// The time transitions run on: `CLOCK_MONOTONIC`, or a test's.
     pub clock: Option<Duration>,
     /// The session's splash (splash.rs), over everything from `show_splash` to `end_splash`.
@@ -289,6 +297,9 @@ impl Compositor {
             hinted_locked: false,
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
+            transition_drawn: Vec::new(),
+            last_damage: None,
+            recompose: true,
             clock: None,
             splash: None,
         }
@@ -567,7 +578,7 @@ impl Compositor {
             self.transitions.lock();
         }
         let animating = self.transitions.advance(now);
-        if started == 0 && list == self.composed && !animating {
+        if started == 0 && list == self.composed && !animating && !self.recompose {
             self.scene.end_frame(0, Clock::Synthetic);
             if pointer_moved {
                 self.present_pointer();
@@ -588,9 +599,8 @@ impl Compositor {
             ),
             _ => None,
         };
-        // While surfaces arrive or go, every frame is composed whole.
-        let damage = (!self.composed.is_empty() && !animating)
-            .then(|| output_damage(&self.composed, &list, &drawn));
+        let changed_damage =
+            (!self.recompose).then(|| output_damage(&self.composed, &list, &drawn));
         let output_rect = oxyos_gpu::Rect {
             x: self.output.x,
             y: self.output.y,
@@ -604,13 +614,19 @@ impl Compositor {
                 .map(|rect| u64::from(rect.width) * u64::from(rect.height))
                 .sum::<u64>()
         };
-        if self.records {
-            self.damaged.push(match &damage {
-                Some(rects) => (area(rects) as f64 / area(&[output_rect]) as f64).min(1.0),
-                None => 1.0,
-            });
-        }
         // Each surface's pixels, read from its shared buffer, and the covers.
+        // Where this frame draws surfaces in transition: their rectangle and where they are placed.
+        let mut transition_drawn: Vec<oxyos_gpu::Rect> = Vec::new();
+        let mut in_transition = |rect: Rect, placed: Rect| {
+            for r in [rect, placed] {
+                transition_drawn.push(oxyos_gpu::Rect {
+                    x: r.x,
+                    y: r.y,
+                    width: r.width,
+                    height: r.height,
+                });
+            }
+        };
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
         for item in list.iter().copied() {
@@ -651,6 +667,9 @@ impl Compositor {
                         }
                         // A lock surface fading in does so over the lock's cover.
                         let arriving = self.transitions.arriving(key, now);
+                        if self.transitions.is_arriving(key) {
+                            in_transition(rect, arriving.place(rect));
+                        }
                         if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
                             contents.push(Content::cover(rect));
                         }
@@ -687,6 +706,7 @@ impl Compositor {
         }
         // Surfaces going, over what stays, from their last frames.
         for (snapshot, _, at) in self.transitions.going(now) {
+            in_transition(snapshot.rect, at.place(snapshot.rect));
             contents.push(Content {
                 key: None,
                 rect: snapshot.rect,
@@ -703,6 +723,22 @@ impl Compositor {
             self.reads
                 .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         }
+        // What changed since the frame composed last (ADR 0005), and, while surfaces arrive or
+        // go, where they were drawn then and are drawn now (ADR 0011): an opacity or a scale
+        // changes no surface's frame.
+        let damage = changed_damage.map(|mut rects| {
+            rects.extend(self.transition_drawn.iter().copied());
+            rects.extend(transition_drawn.iter().copied());
+            rects
+        });
+        self.transition_drawn = transition_drawn;
+        if self.records {
+            self.damaged.push(match &damage {
+                Some(rects) => (area(rects) as f64 / area(&[output_rect]) as f64).min(1.0),
+                None => 1.0,
+            });
+        }
+        self.last_damage = damage.clone();
         let layers: Vec<oxyos_gpu::Layer<'_>> = contents
             .iter()
             .map(|content| oxyos_gpu::Layer {
@@ -783,6 +819,7 @@ impl Compositor {
             self.fail(client, ErrorCode::InvalidBuffer);
         }
         self.composed = self.scene.frame_list();
+        self.recompose = false;
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time, in
         // a later turn (`complete_flip`).
@@ -819,6 +856,7 @@ impl Compositor {
         self.splash = splash::splash(Size::new(self.output.width, self.output.height));
         // The next frame is composed whole, with it.
         self.composed.clear();
+        self.recompose = true;
     }
 
     pub fn showing_splash(&self) -> bool {
@@ -900,6 +938,7 @@ impl Compositor {
             Ok(None) => {
                 eprintln!("[kms] a frame never flipped");
                 self.composed.clear();
+                self.recompose = true;
                 (0, Clock::Synthetic)
             }
             Ok(Some(flip)) => {
@@ -916,6 +955,7 @@ impl Compositor {
                 self.display = None;
                 // Composed again for the director's checks, without the display.
                 self.composed.clear();
+                self.recompose = true;
                 (0, Clock::Synthetic)
             }
         };
@@ -971,6 +1011,7 @@ impl Compositor {
                     self.away = false;
                     // Composed again, and shown with a modeset.
                     self.composed.clear();
+                    self.recompose = true;
                 }
                 // A release while away, or an acquire while here: nothing to give or take.
                 oxyos_vt::Switch::Release | oxyos_vt::Switch::Acquire => {}
@@ -1028,6 +1069,7 @@ impl Compositor {
                         self.away = false;
                         // Composed again, and shown with a modeset.
                         self.composed.clear();
+                        self.recompose = true;
                     }
                 }
             }
