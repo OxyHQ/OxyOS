@@ -28,6 +28,23 @@ namespace {
 // Linux input code of the primary (left) button.
 constexpr uint32_t kPrimaryButton = 272;
 
+// A Linux button code as W3C's `button` (0 primary, 1 auxiliary, 2 secondary, 3 back, 4 forward)
+// and its bit in `buttons`; -1 for one W3C does not name.
+int w3cButton(uint32_t code) {
+  switch (code) {
+    case 272: return 0;  // BTN_LEFT
+    case 274: return 1;  // BTN_MIDDLE
+    case 273: return 2;  // BTN_RIGHT
+    case 275: return 3;  // BTN_SIDE
+    case 276: return 4;  // BTN_EXTRA
+    default: return -1;
+  }
+}
+int w3cButtonBit(int button) {
+  static const int bits[] = {1, 4, 2, 8, 16};
+  return button >= 0 && button < 5 ? bits[button] : 0;
+}
+
 // The pointer's shape over the views of `path` (root first), as Android resolves a pointer icon:
 // from the view under the pointer up, the first that sets one. An editable text input shows the
 // text shape, as Android's EditText; a view's `cursor` style its own (Android knows `pointer`,
@@ -255,6 +272,18 @@ void PointerInput::pinch(const SurfaceContent& content, const OxyOSEvent& event)
 }
 
 void PointerInput::handle(const OxyOSEvent& event) {
+  if (event.kind == OXYOS_EVENT_KEY) {
+    // Linux codes of the modifiers, left and right.
+    bool down = event.flag != 0;
+    switch (event.code) {
+      case 29: case 97: ctrl_ = down; break;
+      case 42: case 54: shift_ = down; break;
+      case 56: case 100: alt_ = down; break;
+      case 125: case 126: meta_ = down; break;
+      default: break;
+    }
+    return;
+  }
   // Protocol positions and distances are in 1/256 logical pixels.
   if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
   auto content = surfaces_(event.surface);
@@ -271,6 +300,9 @@ void PointerInput::handle(const OxyOSEvent& event) {
   y_ = y;
   if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) hover(*content, x, y);
   if (event.detail == OXYOS_POINTER_LEAVE && event.surface == hoveredSurface_) hover(std::nullopt, x, y);
+  if (event.detail == OXYOS_POINTER_PRESS || event.detail == OXYOS_POINTER_RELEASE) {
+    pointerButton(*content, event.code, event.detail == OXYOS_POINTER_PRESS, x, y);
+  }
   switch (event.detail) {
     case OXYOS_POINTER_PRESS:
       if (event.code == kPrimaryButton && !down_ && !pinching_) {
@@ -298,6 +330,8 @@ void PointerInput::handle(const OxyOSEvent& event) {
       break;
     case OXYOS_POINTER_LEAVE:
     case OXYOS_POINTER_CANCEL:
+      // The buttons' releases go elsewhere now: none is held here.
+      buttons_ = 0;
       if (down_) {
         if (!responderCancelled_) dispatch(Phase::Cancel, x, y);
         if (gestures_) gestures_(3, content_, x, y);
@@ -354,6 +388,54 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
   for (size_t i = common; i < now.size(); ++i) send(now[i], true);
   hovered_ = std::move(now);
   hoveredSurface_ = surface;
+}
+
+void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, bool down, float x, float y) {
+  int button = w3cButton(code);
+  if (button < 0) return;
+  int bit = w3cButtonBit(button);
+  // A release of a button not held (pressed before the window was entered) is no one's.
+  if (!down && !(buttons_ & bit)) return;
+  buttons_ = down ? buttons_ | bit : buttons_ & ~bit;
+  Tag target = hitTest(tree_, content, x, y);
+  if (target < 0) return;
+  auto it = tree_.views().find(target);
+  if (it == tree_.views().end()) return;
+  auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
+  if (!emitter) return;
+  Point page{content.origin.x + x, content.origin.y + y};
+  Point origin = windowFrame(tree_, target).value_or(Rect{}).origin;
+  PointerEvent event{};
+  event.pointerId = 1;
+  event.pointerType = "mouse";
+  event.isPrimary = true;
+  event.clientPoint = page;
+  event.screenPoint = page;
+  event.offsetPoint = {page.x - origin.x, page.y - origin.y};
+  event.width = 1;
+  event.height = 1;
+  event.pressure = down && button == 0 ? 0.5 : 0;
+  event.button = button;
+  event.buttons = buttons_;
+  event.ctrlKey = ctrl_;
+  event.shiftKey = shift_;
+  event.altKey = alt_;
+  event.metaKey = meta_;
+  if (Report::get().enabled()) {
+    std::string within;
+    auto path = ancestry(tree_, target);
+    for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
+      auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
+      if (props && !props->testId.empty()) within = props->testId;
+    }
+    Report::get().deliver(down ? "pointerDown" : "pointerUp", content.surface, it->second.view,
+                          folly::dynamic::object("x", page.x)("y", page.y)("within", within)("button", button));
+  }
+  if (down) {
+    emitter->onPointerDown(event);
+  } else {
+    emitter->onPointerUp(event);
+  }
 }
 
 void PointerInput::scroll(float dx, float dy) {

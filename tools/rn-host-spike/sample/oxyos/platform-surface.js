@@ -28,6 +28,9 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
     align: true,
     sideOffset: true,
     alignOffset: true,
+    hasPoint: true,
+    pointX: true,
+    pointY: true,
   },
   directEventTypes: {
     topDismiss: { registrationName: 'onDismiss' },
@@ -37,6 +40,7 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
 
 function PopupSurface({
   anchorRef,
+  point,
   side,
   align,
   sideOffset,
@@ -61,6 +65,11 @@ function PopupSurface({
       align={align}
       sideOffset={sideOffset}
       alignOffset={alignOffset}
+      // A context menu's press (Bloom's `point`): the popup is placed against that point of the
+      // anchor rather than its frame.
+      hasPoint={point != null}
+      pointX={point?.x ?? 0}
+      pointY={point?.y ?? 0}
       accessibilityRole={role}
       accessibilityLabel={label}
       onDismiss={(event) => onDismiss(event.nativeEvent.reason)}
