@@ -332,6 +332,32 @@ fn requests() -> Vec<Request> {
             serial: 5,
             enabled: true,
         },
+        Request::SetDisplayMode {
+            serial: 6,
+            output: 2,
+            width: 2560,
+            height: 1440,
+            refresh_mhz: 59_951,
+        },
+        Request::SetDisplayScale {
+            serial: 7,
+            output: 2,
+            scale_120: 150,
+        },
+        Request::SetDisplayOrigin {
+            serial: 8,
+            output: 2,
+            x: -1920,
+            y: 120,
+        },
+        Request::SetPrimaryDisplay {
+            serial: 9,
+            output: 2,
+        },
+        Request::ConfirmDisplays {
+            serial: 10,
+            keep: true,
+        },
     ]
 }
 
@@ -693,6 +719,41 @@ fn events() -> Vec<Event> {
         Event::NotificationPolicy {
             do_not_disturb: true,
             previews: false,
+        },
+        Event::DisplayName {
+            output: 2,
+            index: 0,
+            last: true,
+            text: PreeditText::new("DELL U2723QE").unwrap(),
+        },
+        Event::DisplayMode {
+            output: 2,
+            index: 0,
+            width: 3840,
+            height: 2160,
+            refresh_mhz: 60_000,
+            preferred: true,
+        },
+        Event::DisplayScale {
+            output: 2,
+            index: 2,
+            scale_120: 180,
+            recommended: true,
+        },
+        Event::Display {
+            output: 2,
+            rect: Rect::new(1536, 0, 2560, 1440),
+            scale_120: 180,
+            mode: 0,
+            width_mm: 597,
+            height_mm: 336,
+            primary: false,
+            builtin: false,
+        },
+        Event::DisplayRemoved { output: 2 },
+        Event::DisplayConfirmation {
+            output: 2,
+            seconds: 15,
         },
     ]
 }

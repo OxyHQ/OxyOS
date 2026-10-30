@@ -150,6 +150,24 @@ impl Settings {
         changed
     }
 
+    /// Keeps a change of what the session's displays keep (docs/adr/0018-several-displays.mdx):
+    /// a display's mode and scale, an arrangement. Written whole first; refused, with nothing
+    /// changed, if the file cannot be written, as any change is.
+    pub fn keep_displays(&mut self, change: impl FnOnce(&mut Preferences)) -> Result<(), String> {
+        let mut changed = self.preferences.clone();
+        change(&mut changed);
+        if changed == self.preferences {
+            return Ok(());
+        }
+        if let Some(file) = &self.file {
+            changed
+                .save(file)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+        }
+        self.preferences = changed;
+        Ok(())
+    }
+
     /// Sets one preference from its text and keeps it: whether it changed. Refused (and nothing
     /// changed) if it is not a value it takes or the file cannot be written: the file and the
     /// session never disagree.

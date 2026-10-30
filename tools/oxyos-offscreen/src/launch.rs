@@ -402,6 +402,10 @@ pub struct Launch {
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
     /// without it.
     pub outputs: Vec<((u32, u32), u32)>,
+    /// `--displays FILE`: the session's displays instead, on the virtual connectors FILE describes
+    /// (displays.rs), shown, arranged and changed from Settings as a session's are
+    /// (docs/adr/0018-several-displays.mdx), as the preferences keep them; a shell runs on each.
+    pub displays: Option<PathBuf>,
     /// `--login SOCKET`: the session is a login screen (docs/adr/0020-oxy-account-login.mdx),
     /// locked from the start, with no application: the shell (the Bloom host's `OxyOSLogin`) is
     /// all there is, and its passwords go to the login program listening at SOCKET (`oxyos-login
@@ -409,7 +413,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -458,6 +462,7 @@ impl Launch {
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut screens = Vec::new();
+        let mut displays = None;
         let mut command = Vec::new();
         let mut login = None;
         let mut args = args.iter();
@@ -528,6 +533,10 @@ impl Launch {
                 Some("--outputs") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     screens = outputs(value)?;
+                    continue;
+                }
+                Some("--displays") => {
+                    displays = Some(PathBuf::from(args.next().ok_or(USAGE)?));
                     continue;
                 }
                 Some("--lock-password") => {
@@ -776,6 +785,7 @@ impl Launch {
                 grant_settings,
                 controls,
                 outputs: screens,
+                displays,
                 login,
             },
         ))
@@ -2111,7 +2121,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         (None, true) => return Err("--seat needs --kms".into()),
         _ => None,
     };
+    if launch.displays.is_some() && (!launch.outputs.is_empty() || launch.kms.is_some()) {
+        return Err(
+            "--displays plays the session's displays: no --outputs or --kms with it".into(),
+        );
+    }
     let mut session = match launch.outputs.as_slice() {
+        // The displays are shown below, as the preferences keep them.
+        [] if launch.displays.is_some() => Session::with_outputs(&[])?,
         [] => Session::start()?,
         [_, _, ..] if launch.kms.is_some() => {
             return Err("--kms shows one output: --outputs names one at most".into())
@@ -2123,6 +2140,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session
         .settings
         .apply(&mut session.compositor, oxyos_compositor::settings::now());
+    if let Some(file) = &launch.displays {
+        session.follow_displays(file)?;
+    }
     session.grant_settings = launch.grant_settings.clone();
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.

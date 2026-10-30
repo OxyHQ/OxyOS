@@ -20,6 +20,8 @@ pub use drm_fourcc::DrmFourcc;
 
 mod display;
 pub use display::{Display, PointerImage};
+mod edid;
+pub use edid::{identity_safe, Edid};
 mod hotplug;
 pub use hotplug::Hotplug;
 
@@ -72,7 +74,61 @@ pub struct Mode {
     pub width: u16,
     pub height: u16,
     pub refresh_hz: u32,
+    /// Its refresh exactly, in millihertz, from its timings (59.94 Hz is 59940).
+    pub refresh_mhz: u32,
     pub preferred: bool,
+}
+
+impl Mode {
+    fn of(mode: &drm::control::Mode) -> Self {
+        let (width, height) = mode.size();
+        Self {
+            width,
+            height,
+            refresh_hz: mode.vrefresh(),
+            refresh_mhz: refresh_mhz(mode),
+            preferred: mode
+                .mode_type()
+                .contains(drm::control::ModeTypeFlags::PREFERRED),
+        }
+    }
+
+    /// Whether `mode` is this one: its pixels and refresh.
+    pub fn is(&self, mode: &drm::control::Mode) -> bool {
+        let of = Self::of(mode);
+        (of.width, of.height, of.refresh_mhz) == (self.width, self.height, self.refresh_mhz)
+    }
+}
+
+/// A mode's refresh in millihertz, from its pixel clock and totals as the kernel computes its
+/// `vrefresh` (`drm_mode_vrefresh`), to the nearest.
+fn refresh_mhz(mode: &drm::control::Mode) -> u32 {
+    let (_, _, htotal) = mode.hsync();
+    let (_, _, vtotal) = mode.vsync();
+    let mut frame = u64::from(htotal) * u64::from(vtotal);
+    let flags = mode.flags();
+    if flags.contains(drm::control::ModeFlags::DBLSCAN) {
+        frame *= 2;
+    }
+    if mode.vscan() > 1 {
+        frame *= u64::from(mode.vscan());
+    }
+    if frame == 0 {
+        return mode.vrefresh() * 1000;
+    }
+    let mut mhz = (u64::from(mode.clock()) * 1_000_000 + frame / 2) / frame;
+    if flags.contains(drm::control::ModeFlags::INTERLACE) {
+        mhz *= 2;
+    }
+    u32::try_from(mhz).unwrap_or(u32::MAX)
+}
+
+/// Whether the session drives a display at `mode`: progressive scan only, as every compositor
+/// does (an interlaced or double-scanned mode is a television's).
+pub(crate) fn drivable(mode: &drm::control::Mode) -> bool {
+    !mode
+        .flags()
+        .intersects(drm::control::ModeFlags::INTERLACE | drm::control::ModeFlags::DBLSCAN)
 }
 
 #[derive(Clone, Debug)]
@@ -85,6 +141,9 @@ pub struct Output {
     pub internal: bool,
     /// The physical size the display reports (its EDID), in millimetres; 0 when unknown.
     pub size_mm: (u32, u32),
+    /// What the display says of itself, if it says it (a connected one's EDID).
+    pub edid: Option<Edid>,
+    /// The modes it can be driven at, each once (progressive only), as the card lists them.
     pub modes: Vec<Mode>,
 }
 
@@ -95,6 +154,23 @@ impl Output {
             .iter()
             .find(|mode| mode.preferred)
             .or(self.modes.first())
+    }
+
+    /// Who the display is (docs/adr/0018-several-displays.mdx): its EDID's manufacturer, product
+    /// and serial, so that its settings follow it to any port; without a serial, its maker and
+    /// product on this connector; without an EDID, the connector.
+    pub fn identity(&self) -> String {
+        match &self.edid {
+            Some(edid) => edid.identity().unwrap_or_else(|| {
+                format!(
+                    "{}-{:04X}-{}",
+                    edid.manufacturer,
+                    edid.product,
+                    identity_safe(&self.name)
+                )
+            }),
+            None => identity_safe(&self.name),
+        }
     }
 }
 
@@ -174,31 +250,45 @@ impl Card {
                     | connector::Interface::LVDS
                     | connector::Interface::DSI
             );
-            let modes = info
-                .modes()
-                .iter()
-                .map(|mode| {
-                    let (width, height) = mode.size();
-                    Mode {
-                        width,
-                        height,
-                        refresh_hz: mode.vrefresh(),
-                        preferred: mode
-                            .mode_type()
-                            .contains(drm::control::ModeTypeFlags::PREFERRED),
-                    }
-                })
-                .collect();
+            let mut modes: Vec<Mode> = Vec::new();
+            for mode in info.modes().iter().filter(|mode| drivable(mode)) {
+                let mode = Mode::of(mode);
+                // The same pixels and refresh listed twice (two timings for one mode) is one
+                // choice; the preferred one's flag is kept.
+                match modes.iter_mut().find(|m| {
+                    (m.width, m.height, m.refresh_mhz)
+                        == (mode.width, mode.height, mode.refresh_mhz)
+                }) {
+                    Some(listed) => listed.preferred |= mode.preferred,
+                    None => modes.push(mode),
+                }
+            }
+            let connected = info.state() == connector::State::Connected;
             outputs.push(Output {
                 id: u32::from(handle),
                 name,
-                connected: info.state() == connector::State::Connected,
+                connected,
                 internal,
                 size_mm: info.size().unwrap_or((0, 0)),
+                edid: if connected { self.edid(handle) } else { None },
                 modes,
             });
         }
         Ok(outputs)
+    }
+
+    /// A connector's EDID, from its `EDID` property's blob; none if it has none or it is not one.
+    fn edid(&self, connector: connector::Handle) -> Option<Edid> {
+        let properties = self.get_properties(connector).ok()?;
+        for (&property, &value) in properties.iter() {
+            let named = self
+                .get_property(property)
+                .is_ok_and(|info| info.name().to_bytes() == b"EDID");
+            if named && value != 0 {
+                return Edid::parse(&self.get_property_blob(value).ok()?);
+            }
+        }
+        None
     }
 
     /// The page flips the kernel reported since the last call, and those read earlier for no

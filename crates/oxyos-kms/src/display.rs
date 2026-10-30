@@ -47,7 +47,7 @@ struct Cursor {
 }
 
 struct CursorImage {
-    _buffer: DumbBuffer,
+    buffer: DumbBuffer,
     framebuffer: framebuffer::Handle,
     hotspot: (u32, u32),
 }
@@ -134,13 +134,19 @@ impl Display {
             .into_iter()
             .find(|output| output.connected && !output.modes.is_empty())
             .ok_or_else(|| not_found("no connected output"))?;
-        Self::on_connector(card, connector.id, &[])
+        Self::on_connector(card, connector.id, None, &[])
     }
 
-    /// Prepares the connector `connector` (an [`Output`](crate::Output)'s id) of `card` at its
-    /// preferred mode, on a CRTC and planes none of `in_use` names (the other displays'
-    /// [`objects`](Self::objects)). The card stays shared: each display presents on its own CRTC.
-    pub fn on_connector(card: Rc<Card>, connector: u32, in_use: &[u32]) -> io::Result<Self> {
+    /// Prepares the connector `connector` (an [`Output`](crate::Output)'s id) of `card` at `mode`
+    /// (one of its [`modes`](crate::Output::modes); none: its preferred), on a CRTC and planes none
+    /// of `in_use` names (the other displays' [`objects`](Self::objects)). The card stays shared:
+    /// each display presents on its own CRTC.
+    pub fn on_connector(
+        card: Rc<Card>,
+        connector: u32,
+        mode: Option<&crate::Mode>,
+        in_use: &[u32],
+    ) -> io::Result<Self> {
         let resources = card.resource_handles()?;
         let connector = resources
             .connectors()
@@ -152,16 +158,27 @@ impl Display {
         if info.state() != connector::State::Connected {
             return Err(not_found("the output is not connected"));
         }
-        let mode = info
+        let drivable: Vec<Mode> = info
             .modes()
             .iter()
-            .find(|m| {
-                m.mode_type()
-                    .contains(drm::control::ModeTypeFlags::PREFERRED)
-            })
-            .or(info.modes().first())
             .copied()
-            .ok_or_else(|| not_found("the output has no mode"))?;
+            .filter(crate::drivable)
+            .collect();
+        let mode = match mode {
+            Some(wanted) => drivable
+                .iter()
+                .find(|m| wanted.is(m))
+                .ok_or_else(|| not_found("the output has no such mode"))?,
+            None => drivable
+                .iter()
+                .find(|m| {
+                    m.mode_type()
+                        .contains(drm::control::ModeTypeFlags::PREFERRED)
+                })
+                .or(drivable.first())
+                .ok_or_else(|| not_found("the output has no mode"))?,
+        };
+        let mode = *mode;
         let free = |handle: u32| !in_use.contains(&handle);
         let lit = info
             .current_encoder()
@@ -264,6 +281,21 @@ impl Display {
             .images
             .push(cursor_image(&self.card, cursor.size, image)?);
         Ok(cursor.images.len() - 1)
+    }
+
+    /// Lets go of the pointer images kept (`add_pointer_image`) but the display's own arrow, which
+    /// is then shown (the display is shown at another scale, its images chosen again for it).
+    pub fn clear_pointer_images(&mut self) {
+        let Some(cursor) = self.cursor.as_mut() else {
+            return;
+        };
+        for image in cursor.images.drain(1..) {
+            let _ = self.card.destroy_framebuffer(image.framebuffer);
+            let _ = self.card.destroy_dumb_buffer(image.buffer);
+        }
+        if let Some((x, y, _)) = self.pointer {
+            self.pointer = Some((x, y, 0));
+        }
     }
 
     /// The largest pointer image the cursor plane takes, if there is one.
@@ -372,6 +404,11 @@ impl Display {
         self.mode.vrefresh()
     }
 
+    /// The mode it is driven at, as the card lists it ([`Output::modes`](crate::Output::modes)).
+    pub fn mode(&self) -> crate::Mode {
+        crate::Mode::of(&self.mode)
+    }
+
     pub fn mode_name(&self) -> String {
         format!(
             "{}x{}@{}",
@@ -437,64 +474,7 @@ impl Display {
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
         if !self.configured {
             let blob = card.create_property_blob(&self.mode)?;
-            let (width, height) = self.size();
-            request.add_property(
-                self.connector,
-                property_handle(card, self.connector, "CRTC_ID")?,
-                property::Value::CRTC(Some(self.crtc)),
-            );
-            request.add_property(
-                self.crtc,
-                property_handle(card, self.crtc, "MODE_ID")?,
-                blob,
-            );
-            request.add_property(
-                self.crtc,
-                property_handle(card, self.crtc, "ACTIVE")?,
-                property::Value::Boolean(true),
-            );
-            for (name, value) in [
-                ("CRTC_ID", property::Value::CRTC(Some(self.crtc))),
-                ("SRC_X", property::Value::UnsignedRange(0)),
-                ("SRC_Y", property::Value::UnsignedRange(0)),
-                (
-                    "SRC_W",
-                    property::Value::UnsignedRange(u64::from(width) << 16),
-                ),
-                (
-                    "SRC_H",
-                    property::Value::UnsignedRange(u64::from(height) << 16),
-                ),
-                ("CRTC_X", property::Value::SignedRange(0)),
-                ("CRTC_Y", property::Value::SignedRange(0)),
-                ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
-                ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
-            ] {
-                request.add_property(self.plane, property_handle(card, self.plane, name)?, value);
-            }
-            // Planes another session left on the CRTC (a cursor, an overlay) are turned off; the
-            // cursor plane is the pointer's (below).
-            let cursor = self.cursor.as_ref().map(|cursor| cursor.plane);
-            for plane in card.plane_handles()? {
-                if plane == self.plane || Some(plane) == cursor {
-                    continue;
-                }
-                let on_crtc = card
-                    .get_plane(plane)
-                    .is_ok_and(|info| info.crtc() == Some(self.crtc));
-                if on_crtc {
-                    request.add_property(
-                        plane,
-                        property_handle(card, plane, "CRTC_ID")?,
-                        property::Value::CRTC(None),
-                    );
-                    request.add_property(
-                        plane,
-                        property_handle(card, plane, "FB_ID")?,
-                        property::Value::Framebuffer(None),
-                    );
-                }
-            }
+            self.add_modeset(&mut request, blob)?;
             self.mode_blob = Some(blob);
             flags |= AtomicCommitFlags::ALLOW_MODESET;
         } else {
@@ -563,6 +543,99 @@ impl Display {
         self.front = Some(framebuffer);
         self.shown_pointer = self.pointer;
         Ok(())
+    }
+
+    /// What a modeset adds to a commit: the connector on the CRTC at the display's mode (`blob`,
+    /// its property blob), active, the primary plane covering it, and the planes another session
+    /// left on the CRTC turned off.
+    fn add_modeset(
+        &self,
+        request: &mut atomic::AtomicModeReq,
+        blob: property::Value<'static>,
+    ) -> io::Result<()> {
+        let card = &*self.card;
+        let (width, height) = self.size();
+        request.add_property(
+            self.connector,
+            property_handle(card, self.connector, "CRTC_ID")?,
+            property::Value::CRTC(Some(self.crtc)),
+        );
+        request.add_property(
+            self.crtc,
+            property_handle(card, self.crtc, "MODE_ID")?,
+            blob,
+        );
+        request.add_property(
+            self.crtc,
+            property_handle(card, self.crtc, "ACTIVE")?,
+            property::Value::Boolean(true),
+        );
+        for (name, value) in [
+            ("CRTC_ID", property::Value::CRTC(Some(self.crtc))),
+            ("SRC_X", property::Value::UnsignedRange(0)),
+            ("SRC_Y", property::Value::UnsignedRange(0)),
+            (
+                "SRC_W",
+                property::Value::UnsignedRange(u64::from(width) << 16),
+            ),
+            (
+                "SRC_H",
+                property::Value::UnsignedRange(u64::from(height) << 16),
+            ),
+            ("CRTC_X", property::Value::SignedRange(0)),
+            ("CRTC_Y", property::Value::SignedRange(0)),
+            ("CRTC_W", property::Value::UnsignedRange(u64::from(width))),
+            ("CRTC_H", property::Value::UnsignedRange(u64::from(height))),
+        ] {
+            request.add_property(self.plane, property_handle(card, self.plane, name)?, value);
+        }
+        // Planes another session left on the CRTC (a cursor, an overlay) are turned off; the
+        // cursor plane is the pointer's (below).
+        let cursor = self.cursor.as_ref().map(|cursor| cursor.plane);
+        for plane in card.plane_handles()? {
+            if plane == self.plane || Some(plane) == cursor {
+                continue;
+            }
+            let on_crtc = card
+                .get_plane(plane)
+                .is_ok_and(|info| info.crtc() == Some(self.crtc));
+            if on_crtc {
+                request.add_property(
+                    plane,
+                    property_handle(card, plane, "CRTC_ID")?,
+                    property::Value::CRTC(None),
+                );
+                request.add_property(
+                    plane,
+                    property_handle(card, plane, "FB_ID")?,
+                    property::Value::Framebuffer(None),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the card takes the display at its mode, its CRTC and planes, before anything is
+    /// shown (an atomic commit that only tests): a mode the connector lists may still be beyond
+    /// what the link or the CRTC can drive.
+    pub fn test(&self) -> io::Result<()> {
+        let card = &*self.card;
+        let blob = card.create_property_blob(&self.mode)?;
+        let mut request = atomic::AtomicModeReq::new();
+        self.add_modeset(&mut request, blob)?;
+        request.add_property(
+            self.plane,
+            property_handle(card, self.plane, "FB_ID")?,
+            property::Value::Framebuffer(Some(self.buffers[0].1)),
+        );
+        let tested = card.atomic_commit(
+            AtomicCommitFlags::TEST_ONLY | AtomicCommitFlags::ALLOW_MODESET,
+            request,
+        );
+        if let property::Value::Blob(id) = blob {
+            let _ = card.destroy_property_blob(id);
+        }
+        tested
     }
 
     /// The presented frame's flip if it has happened: the kernel's timestamp of it
@@ -643,7 +716,7 @@ fn cursor_image(card: &Card, size: (u32, u32), image: &PointerImage) -> io::Resu
     }
     let framebuffer = card.add_framebuffer(&buffer, 32, 32)?;
     Ok(CursorImage {
-        _buffer: buffer,
+        buffer,
         framebuffer,
         hotspot: image.hotspot,
     })

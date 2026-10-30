@@ -10,8 +10,9 @@ pub use presentation::{Error, Extent, Frame, Presentation};
 pub use scene::physical;
 pub use scene::{
     AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, ClientId,
-    ControlLevel, ControlRequest, DrawingPreferences, Grants, HardwareKey, LaunchRequest,
-    NetworkStatus, Output, OutputId, PowerStatus, PreferenceChange, RenderItem, Role, Scene, Stats,
-    SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, WindowLook, MAX_PENDING_KEYS,
-    MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS, MAX_WORKSPACES,
+    ControlLevel, ControlRequest, DisplayChange, DisplayInfo, DisplayRequest, DrawingPreferences,
+    Grants, HardwareKey, LaunchRequest, ModeInfo, NetworkStatus, Output, OutputId, PowerStatus,
+    PreferenceChange, RenderItem, Role, Scene, Stats, SurfaceDamage, SurfaceKey, TextInputState,
+    TextTransaction, WindowLook, MAX_PENDING_KEYS, MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS,
+    MAX_WORKSPACES,
 };

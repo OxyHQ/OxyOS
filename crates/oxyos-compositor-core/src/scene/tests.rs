@@ -6794,6 +6794,7 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;
+mod displays;
 /// The menu bar (ADR 0021).
 mod menus;
 mod notifications;

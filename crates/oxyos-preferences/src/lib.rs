@@ -4,10 +4,17 @@
 //!
 //! Reading never fails: a missing or unreadable file, an unknown key or a bad value is the
 //! default for what it names, so preferences cannot stop a session from starting.
+//!
+//! The file also keeps the displays' settings (`displays`): each display's mode and scale, and
+//! the arrangement of each set of displays. They are the session's to change, through its
+//! displays (docs/adr/0018-several-displays.mdx), never through [`Preferences::set`].
 
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+
+pub mod displays;
+pub use displays::{Arrangement, DisplayMode, DisplaySettings};
 
 /// The longest value a preference takes, in bytes.
 pub const MAX_VALUE_BYTES: usize = 64;
@@ -74,6 +81,10 @@ pub struct Preferences {
     pub do_not_disturb: bool,
     /// What the lock screen shows of notifications.
     pub notification_previews: Previews,
+    /// Each display's mode and scale, by its identity, the one changed last at the end.
+    pub displays: Vec<(String, DisplaySettings)>,
+    /// Each set of displays' arrangement, by the set's key, the one changed last at the end.
+    pub arrangements: Vec<(String, Arrangement)>,
 }
 
 impl Default for Preferences {
@@ -89,6 +100,8 @@ impl Default for Preferences {
             clock_24h: true,
             do_not_disturb: false,
             notification_previews: Previews::default(),
+            displays: Vec::new(),
+            arrangements: Vec::new(),
         }
     }
 }
@@ -209,6 +222,63 @@ impl Preferences {
         })
     }
 
+    /// The mode and scale kept for the display `identity`, if any.
+    pub fn display(&self, identity: &str) -> Option<DisplaySettings> {
+        self.displays
+            .iter()
+            .find(|(kept, _)| kept == identity)
+            .map(|(_, settings)| *settings)
+    }
+
+    /// Keeps a display's mode and scale (the latest of at most [`displays::MAX_DISPLAYS`]).
+    pub fn keep_display(&mut self, identity: &str, settings: DisplaySettings) {
+        displays::keep(
+            &mut self.displays,
+            identity.to_string(),
+            settings,
+            displays::MAX_DISPLAYS,
+        );
+    }
+
+    /// The arrangement kept for the set of these displays, if any.
+    pub fn arrangement<'a>(
+        &self,
+        identities: impl IntoIterator<Item = &'a str>,
+    ) -> Option<&Arrangement> {
+        let key = displays::set_key(identities);
+        self.arrangements
+            .iter()
+            .find(|(kept, _)| *kept == key)
+            .map(|(_, arrangement)| arrangement)
+    }
+
+    /// Keeps the arrangement of its set of displays (the latest of at most
+    /// [`displays::MAX_ARRANGEMENTS`]).
+    pub fn keep_arrangement(&mut self, arrangement: Arrangement) {
+        displays::keep(
+            &mut self.arrangements,
+            arrangement.key(),
+            arrangement,
+            displays::MAX_ARRANGEMENTS,
+        );
+    }
+
+    /// A display's or an arrangement's line of the file; anything else, or a bad one, nothing.
+    fn read_display_line(&mut self, key: &str, value: &str) {
+        if let Some(identity) = key.strip_prefix("display.") {
+            if let (true, Some(settings)) = (
+                displays::is_identity(identity),
+                DisplaySettings::parse(value),
+            ) {
+                self.keep_display(identity, settings);
+            }
+        } else if let Some(set) = key.strip_prefix("arrangement.") {
+            if let Some(arrangement) = Arrangement::parse(set, value) {
+                self.keep_arrangement(arrangement);
+            }
+        }
+    }
+
     /// Reads the file's text: each `key = value` line it can, the defaults for the rest. Blank
     /// lines and lines starting with `#` are nothing.
     pub fn parse(text: &str) -> Self {
@@ -219,19 +289,30 @@ impl Preferences {
                 continue;
             }
             if let Some((key, value)) = line.split_once('=') {
-                // A bad line keeps the default; the next good one is still read.
-                let _ = preferences.set(key.trim(), value.trim());
+                let (key, value) = (key.trim(), value.trim());
+                if key.starts_with("display.") || key.starts_with("arrangement.") {
+                    preferences.read_display_line(key, value);
+                } else {
+                    // A bad line keeps the default; the next good one is still read.
+                    let _ = preferences.set(key, value);
+                }
             }
         }
         preferences
     }
 
-    /// The file's text: every key, in order.
+    /// The file's text: every key, in order, then the displays and their arrangements.
     pub fn to_text(&self) -> String {
         let mut text = String::from("# OxyOS preferences, written by the session.\n");
         for key in KEYS {
             let value = self.get(key).expect("every key has a value");
             text.push_str(&format!("{key} = {value}\n"));
+        }
+        for (identity, settings) in &self.displays {
+            text.push_str(&format!("display.{identity} = {}\n", settings.text()));
+        }
+        for (key, arrangement) in &self.arrangements {
+            text.push_str(&format!("arrangement.{key} = {}\n", arrangement.text()));
         }
         text
     }

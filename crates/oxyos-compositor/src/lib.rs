@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod controls;
+pub mod displays;
 pub mod idle;
 pub mod login;
 pub mod settings;
@@ -1097,6 +1098,51 @@ impl Compositor {
             screen.recompose = true;
         }
         self.confine_pointer();
+        Ok(())
+    }
+
+    /// Gives an output another rectangle and scale, and its screen the pixels it composes now
+    /// (`pixels`, its display's mode; none: its rectangle at its scale): a display at another
+    /// mode or scale, or moved (docs/adr/0018-several-displays.mdx). What is on it keeps its place
+    /// on it (the scene's `set_output_geometry`); its next frame is composed whole.
+    pub fn set_output_geometry(
+        &mut self,
+        id: OutputId,
+        rect: Rect,
+        scale_120: u32,
+        pixels: Option<(u32, u32)>,
+    ) -> Result<()> {
+        self.scene
+            .set_output_geometry(id, rect, scale_120)
+            .map_err(|code| format!("output {id}: {code:?}"))?;
+        if let Some(screen) = self.screen_mut(id) {
+            let (width, height) = pixels.unwrap_or((
+                scaled(rect.width, scale_120),
+                scaled(rect.height, scale_120),
+            ));
+            screen.rect = rect;
+            screen.scale_120 = scale_120;
+            if (width, height) != (screen.width, screen.height) {
+                screen.width = width;
+                screen.height = height;
+                screen.framebuffer = vec![DESKTOP; width as usize * height as usize];
+            }
+            screen.recompose = true;
+        }
+        self.confine_pointer();
+        Ok(())
+    }
+
+    /// Makes an output the primary, the first of the arrangement (it has the dock and takes the
+    /// windows of an output removed), its screen first as the scene's output is.
+    pub fn set_primary_output(&mut self, id: OutputId) -> Result<()> {
+        self.scene
+            .set_primary_output(id)
+            .map_err(|code| format!("output {id}: {code:?}"))?;
+        if let Some(index) = self.screens.iter().position(|screen| screen.id == id) {
+            let screen = self.screens.remove(index);
+            self.screens.insert(0, screen);
+        }
         Ok(())
     }
 

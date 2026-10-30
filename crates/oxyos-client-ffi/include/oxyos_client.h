@@ -70,6 +70,17 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_NOTIFICATION_WITHHELD 2
 #define OXYOS_NOTIFICATIONS_DO_NOT_DISTURB 1
 #define OXYOS_NOTIFICATIONS_PREVIEWS 2
+/* To Settings (docs/adr/0018-several-displays.mdx): each display, its modes and scale choices, its
+ * removal, and a mode on trial. */
+#define OXYOS_EVENT_DISPLAY_NAME 130
+#define OXYOS_EVENT_DISPLAY_MODE 131
+#define OXYOS_EVENT_DISPLAY_SCALE 132
+#define OXYOS_EVENT_DISPLAY 133
+#define OXYOS_EVENT_DISPLAY_REMOVED 134
+#define OXYOS_EVENT_DISPLAY_CONFIRMATION 135
+/* A DISPLAY's flag bits. */
+#define OXYOS_DISPLAY_PRIMARY 1
+#define OXYOS_DISPLAY_BUILTIN 2
 /* A SYSTEM_SHORTCUT's detail (docs/adr/0024-system-shortcuts.mdx). */
 #define OXYOS_SHORTCUT_SWITCHER_NEXT 1
 #define OXYOS_SHORTCUT_SWITCHER_PREVIOUS 2
@@ -299,7 +310,23 @@ typedef struct OxyOSClient OxyOSClient;
  *               kept.
  *   NOTIFICATION_POLICY  to the shell, on connecting and when it changes: flag,
  *               OXYOS_NOTIFICATIONS_DO_NOT_DISTURB and _PREVIEWS (the lock screen may show what
- *               notifications say). */
+ *               notifications say).
+ *   Displays (docs/adr/0018-several-displays.mdx). To Settings (its `settings` grant), each display
+ *   the session shows, by its output (code), when the grant is given and as it changes:
+ *   DISPLAY_NAME  a chunk of its name (the monitor's, else its connector's): detail, the chunk's
+ *               index (0 begins it); flag, the last; text.
+ *   DISPLAY_MODE  one of its modes: detail, its index (0 begins the list); width, height, its
+ *               pixels; x, its refresh in mHz; flag, the display prefers it.
+ *   DISPLAY_SCALE  one of its scale choices, from the most space to the largest text: detail, its
+ *               index (0 begins them); scale_120; flag, the one its density recommends.
+ *   DISPLAY     applies the name, modes and choices sent before it: x, y, width, height, its
+ *               rectangle in the global space (logical); scale_120; detail, its mode (an index of
+ *               its modes); surface and serial, its physical width and height in mm (0 unknown);
+ *               flag, OXYOS_DISPLAY_PRIMARY and _BUILTIN.
+ *   DISPLAY_REMOVED  the display `code` is no longer shown.
+ *   DISPLAY_CONFIRMATION  the display `code`'s mode is on trial and goes back unless
+ *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
+ *               back. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -554,6 +581,17 @@ int oxyos_client_set_control_muted(OxyOSClient* client, uint8_t control, bool mu
 int oxyos_client_set_wifi_enabled(OxyOSClient* client, bool enabled);
 int oxyos_client_set_appearance(OxyOSClient* client, uint32_t serial, bool dark);
 int oxyos_client_refresh_controls(OxyOSClient* client);
+/* Settings (its `settings` grant, docs/adr/0018-several-displays.mdx) changes a display, by its
+ * output, each answered by a PREFERENCE_RESULT with `serial`: one of its modes, shown on trial
+ * until kept (oxyos_client_confirm_displays, `keep`; or going back at once) within the seconds a
+ * DISPLAY_CONFIRMATION says; one of its scale choices (in 120ths); where it is wanted in the global
+ * space (placed beside the others, touching one); the primary (it has the dock). */
+int oxyos_client_set_display_mode(OxyOSClient* client, uint32_t serial, uint32_t output, uint32_t width,
+                                  uint32_t height, uint32_t refresh_mhz);
+int oxyos_client_set_display_scale(OxyOSClient* client, uint32_t serial, uint32_t output, uint32_t scale_120);
+int oxyos_client_set_display_origin(OxyOSClient* client, uint32_t serial, uint32_t output, int32_t x, int32_t y);
+int oxyos_client_set_primary_display(OxyOSClient* client, uint32_t serial, uint32_t output);
+int oxyos_client_confirm_displays(OxyOSClient* client, uint32_t serial, bool keep);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
 /* The same at a login screen (docs/adr/0020-oxy-account-login.mdx): the password is for `account`,
  * its Unix user's name (NUL-terminated, 1 to 31 bytes; null for the session's own user). */
