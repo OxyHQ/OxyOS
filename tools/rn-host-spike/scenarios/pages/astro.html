@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS first light</title>
+<style>
+html, body { margin: 0; height: 100%; }
+body { background: #2d6cdf; font: 24px sans-serif; }
+#press { position: absolute; left: 20px; top: 20px; width: 300px; height: 80px; border: 0; background: #ffffff; font: 24px sans-serif; }
+#choice { position: absolute; left: 20px; top: 470px; width: 300px; height: 40px; font: 24px sans-serif; }
+#field { position: absolute; left: 20px; top: 140px; width: 300px; height: 40px; font: 24px sans-serif; }
+</style>
+</head>
+<body>
+<button id="press">Press</button>
+<input id="field">
+<select id="choice"><option>One</option><option>Two</option><option>Three</option><option>Four</option><option>Five</option><option>Six</option></select>
+<script>
+const typedKeys = [];
+let shortcut = false;
+let typed = false;
+const paint = (color) => { document.body.style.background = color; };
+press.onclick = () => paint("#e8590c");
+document.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.key === "a" && event.code === "KeyA") {
+    shortcut = true;
+  } else if (event.key === "Backspace" || event.key === "Control") {
+  } else {
+    typedKeys.push(event.key);
+  }
+  if (document.activeElement !== field) {
+    field.focus();
+  }
+}, true);
+choice.onchange = () => paint(choice.value === "Six" ? "#f08c00" : "#e03131");
+field.addEventListener("input", () => {
+  if (field.value === "oxyos 1.0") {
+    typed = true;
+    paint(typedKeys.join("") === "oxyos 1.0" ? "#2f9e44" : "#e03131");
+    field.blur();
+  } else if (typed && field.value === "") {
+    paint(shortcut ? "#7048e8" : "#e03131");
+    field.blur();
+  }
+});
+</script>
+</body>
+</html>

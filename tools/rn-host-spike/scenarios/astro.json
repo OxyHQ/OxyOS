@@ -1,0 +1,159 @@
+{
+  "about": "Astro, Oxy's Chromium browser, as a native OxyOS application (ADR 0029): its own Ozone platform `oxyos` draws the window through Chromium's software compositing into buffers its GPU process owns, presented with no copy; it takes the pointer and the keys with their text, and resizes with one configure in flight. Run it with the engine as `--client` (regress.py --client out/Release_GN_x64_dev/chrome); no Bloom host. The page (pages/astro.html) paints its background: orange once its button is pressed, amber once Six is chosen in its select (Chromium's popup, an OxyOS popup surface grabbing the keyboard), green once the keys typed into its field are `oxyos 1.0` with each keydown's `key` right, purple once Ctrl+A and Backspace emptied it. A configure answered by a frame of another size, a key without its text or a drag that moves the far edges fails it.",
+  "window": [
+    1000,
+    600
+  ],
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro.html"
+  ],
+  "steps": [
+    {
+      "name": "the pointer presses the page's button",
+      "do": [
+        "press",
+        [
+          360,
+          107
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#e8590c",
+          "60,520": "#efdde1"
+        },
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the select opens its list as a popup surface of the window, with the keyboard",
+      "do": [
+        "press",
+        [
+          360,
+          537
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2
+      }
+    },
+    {
+      "name": "choosing Six in the list closes it and changes the select",
+      "do": [
+        "press",
+        [
+          360,
+          497
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "pixels": {
+          "900,450": "#f08c00"
+        }
+      }
+    },
+    {
+      "name": "keys typed with the session's layout reach the field, each keydown with its key",
+      "do": [
+        "keyboard",
+        "oxyos 1.0"
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#2f9e44"
+        },
+        "delivered": {
+          "1": {
+            "key.press": 9,
+            "key.release": 9
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A is a shortcut: it selects the field's text",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#2f9e44"
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Backspace deletes it",
+      "do": [
+        "key",
+        14
+      ],
+      "expect": {
+        "pixels": {
+          "900,450": "#7048e8"
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the right edge resized 100 px out at a hand's pace: every configure answered by a frame of its size, the other edges still",
+      "do": [
+        "drag_paced",
+        [
+          1143,
+          360,
+          1243,
+          360,
+          50,
+          125
+        ]
+      ],
+      "expect": {
+        "drag": {
+          "unanswered_max": 1,
+          "bounded": true,
+          "steady": [
+            "left",
+            "top",
+            "bottom"
+          ],
+          "presented_min": 10
+        },
+        "pixels": {
+          "1050,450": "#7048e8"
+        }
+      }
+    }
+  ]
+}

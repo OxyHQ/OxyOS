@@ -78,7 +78,7 @@ Keep the compositor outside root where device/session delegation allows. Privile
 
 Reference checkout reviewed: [Astro 5a6bf7d](https://github.com/OxyHQ/Astro/tree/5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74). Preserve the approach: native ownership, typed bridges, bounded lifecycle and measurements from input to presentation. Do not copy browser-specific window code into the OS compositor.
 
-Astro will need an Oxy platform integration. Chromium's Ozone layer is the candidate seam for windows/input/graphics, with additional work for dialogs, menus, IME, clipboard, accessibility, capture permissions and resource sharing. Chromium is not the desktop renderer. Porting it is a milestone, not an already supported application.
+Astro reaches OxyOS through an Ozone platform of its own, `oxyos` ([ADR 0029](./adr/0029-chromium-on-oxyos)): its windows, input and software buffers run on the development compositor; the GPU path, an engine built without X11 and Wayland, dialogs, menus, IME, clipboard, accessibility and capture permissions are that decision's later steps. Chromium is not the desktop renderer.
 
 ## Delivery gates
 

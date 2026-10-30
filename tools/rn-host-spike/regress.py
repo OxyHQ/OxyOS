@@ -107,6 +107,13 @@ through it (it gives the keys back), `compose_keys` steps have it compose them (
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
 before.
 
+A scenario with `client` (a list of arguments) runs a native OxyOS client that is not a Bloom
+application instead of the host: the program `--client` names, with those arguments, `{out}`,
+`{scenarios}`, `{width}` and `{height}` in them replaced by the run's directory, the scenarios'
+directory and the scenario's window. It has no host report, so only what the compositor sees is
+checked (pixels, delivered, focus_surface, popups, drag...). `astro.json` runs Astro this way
+(ADR 0029), with no `--host` or `--bundle`.
+
 A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
 that moment where that time zone is (ADR 0012).
 
@@ -1037,8 +1044,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
     parser.add_argument("--offscreen", required=True)
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
+    parser.add_argument("--host", help="the Bloom host (every scenario but a `client` one)")
+    parser.add_argument("--bundle", help="directory holding index.js and its assets")
+    parser.add_argument("--client", default=None,
+                        help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
     parser.add_argument("--reader", default=None,
                         help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
@@ -1062,7 +1071,14 @@ def main():
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "host-report.jsonl"
-    bundle = pathlib.Path(options.bundle).resolve() / "index.js"
+    if "client" in scenario:
+        if not options.client:
+            raise SystemExit("a scenario with `client` needs --client: the program it runs")
+        if scenario.get("shell") or "login" in scenario:
+            raise SystemExit("a `client` scenario runs one native client: no `shell` or `login`")
+    elif not options.host or not options.bundle:
+        raise SystemExit("--host and --bundle are needed: the Bloom host and its bundle")
+    bundle = pathlib.Path(options.bundle).resolve() / "index.js" if options.bundle else None
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
@@ -1131,7 +1147,14 @@ def main():
         command += ["--login", str(login[1])]
     for step in scenario["steps"]:
         command += director_args(step)
-    if login is None:
+    if "client" in scenario:
+        # A native OxyOS client that is not a Bloom application (ADR 0029: Astro, through Chromium's
+        # Ozone platform `oxyos`), with its arguments: {out} is the run's directory, {scenarios} this
+        # file's, {width} and {height} the scenario's window.
+        values = {"out": str(out), "scenarios": str(pathlib.Path(options.scenario).resolve().parent),
+                  "width": str(width), "height": str(height)}
+        command += ["--", options.client] + [argument.format(**values) for argument in scenario["client"]]
+    elif login is None:
         command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width),
                     str(height)]
     # Steps checked one by one below: refuse a scenario whose steps the director would not run.
