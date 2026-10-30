@@ -116,6 +116,16 @@ struct WindowService {
   std::function<void(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight)> setSizeLimits;
 };
 
+// The session's preferences (docs/adr/0019-settings.mdx): those every client draws by (`drawing`:
+// dark, reduceMotion, reduceTransparency, accent), and for Settings alone every preference as
+// kept (`values`, null without the grant) and a change (`set`: the request's serial, 0 if it could
+// not be sent or this client is not Settings). Unset without a connection to the compositor.
+struct SettingsService {
+  std::function<folly::dynamic()> drawing;
+  std::function<folly::dynamic()> values;
+  std::function<uint32_t(const std::string& key, const std::string& value)> set;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
@@ -125,6 +135,7 @@ struct HostServices {
   // known before JavaScript starts, so Bloom's adapter reports the `window` capability from it.
   bool applicationWindow = false;
   WindowService window{};
+  SettingsService settings{};
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

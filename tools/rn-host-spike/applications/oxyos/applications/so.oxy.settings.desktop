@@ -1,0 +1,7 @@
+# OxyOS's Settings (apps/settings, docs/adr/0019-settings.mdx), run from the session's Bloom bundle.
+[Desktop Entry]
+Type=Application
+Name=Settings
+Name[es]=Ajustes
+Icon=../../../../shell-preview/assets/apps/settings.svg
+X-OxyOS-Bloom-Module=OxyOSSettings

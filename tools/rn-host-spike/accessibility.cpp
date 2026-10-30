@@ -69,7 +69,21 @@ folly::dynamic stateOf(const ViewProps& props) {
   if (s.selected) state["selected"] = true;
   if (s.busy) state["busy"] = true;
   if (s.expanded) state["expanded"] = *s.expanded;
-  if (s.checked != AccessibilityState::None) state["checked"] = toString(s.checked);
+  // React Native's own spelling of the state ("Checked", toString's) is not the one this tree
+  // speaks: name each value, as Android's AccessibilityNodeInfo takes setChecked and setCheckable.
+  switch (s.checked) {
+    case AccessibilityState::Checked:
+      state["checked"] = "checked";
+      break;
+    case AccessibilityState::Unchecked:
+      state["checked"] = "unchecked";
+      break;
+    case AccessibilityState::Mixed:
+      state["checked"] = "mixed";
+      break;
+    case AccessibilityState::None:
+      break;
+  }
   return state;
 }
 

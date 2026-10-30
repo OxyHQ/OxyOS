@@ -483,6 +483,27 @@ int main(int argc, char** argv) {
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
+      // The session's preferences (docs/adr/0019-settings.mdx), from the connection's first events.
+      services.settings = {
+          .drawing = [&window] {
+            const auto& drawing = window->drawing();
+            return folly::dynamic::object("dark", drawing.dark)("reduceMotion", drawing.reduceMotion)(
+                "reduceTransparency", drawing.reduceTransparency)("accent", drawing.accent);
+          },
+          .values = [&window]() -> folly::dynamic {
+            if (!window->settingsGranted()) return nullptr;
+            folly::dynamic values = folly::dynamic::object;
+            for (const auto& [key, value] : window->preferences()) values[key] = value;
+            return values;
+          },
+          // Only Settings may ask: the session gave it the preferences with its grant. Anything
+          // else would be refused by the compositor, which closes the connection.
+          .set = [&window, serial = uint32_t{0}](const std::string& key, const std::string& value) mutable -> uint32_t {
+            if (!window->settingsGranted()) return 0;
+            ++serial;
+            return window->setPreference(serial, key, value) ? serial : 0;
+          },
+      };
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";
       return 1;
@@ -641,6 +662,10 @@ int main(int argc, char** argv) {
     // through it. A close asked by the application ends it as the shell's close request does.
     bool closeAsked = false;
     folly::dynamic toldWindowState = nullptr;
+    // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
+    std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    std::map<std::string, std::string> toldPreferences;
+    if (window) toldPreferences = window->preferences();
     if (!shellMode) {
       services.window = {
           .state = [&window] {
@@ -737,12 +762,14 @@ int main(int argc, char** argv) {
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
         std::vector<OxyOSEvent> launchResults;
+        std::vector<OxyOSEvent> preferenceResults;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
               shellChanged |= shellState.observe(event);
               if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_PREFERENCE_RESULT) preferenceResults.push_back(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
               if (event.kind == OXYOS_EVENT_ACTIVATED) {
@@ -795,6 +822,33 @@ int main(int argc, char** argv) {
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
           break;
+        }
+        // The session's preferences (docs/adr/0019-settings.mdx), as React Native's own modules tell
+        // a change on Android: the appearance (a configuration change), reduce motion; the rest to
+        // Bloom's adapter; and, to Settings, every preference as kept and what came of a change.
+        if (window && toldDrawing && !(*toldDrawing == window->drawing())) {
+          const auto& now = window->drawing();
+          auto emit = [&](const char* name, folly::dynamic payload) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(name, payload));
+          };
+          if (now.dark != toldDrawing->dark) {
+            emit("appearanceChanged", folly::dynamic::object("colorScheme", now.dark ? "dark" : "light"));
+          }
+          if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          emit("OxyOSPreferencesChanged", services.settings.drawing());
+          oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
+          toldDrawing = now;
+        }
+        if (window && window->preferences() != toldPreferences) {
+          toldPreferences = window->preferences();
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
+        }
+        for (const auto& result : preferenceResults) {
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSSettingsResult",
+                                    folly::dynamic::object("serial", result.code)("accepted", result.flag != 0)));
         }
         // The window's state, for its controls (docs/adr/0016-windows.mdx): whether it is active
         // (ACTIVATED), zoomed or full screen (its configures), told to JavaScript when it changes.

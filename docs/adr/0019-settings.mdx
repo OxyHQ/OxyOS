@@ -128,10 +128,30 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
 
    Not verified yet: a Bloom application following `Preferences` (step 3), Settings itself (step 4), and the session on a seat; no scenario runs this step.
 3. **The Bloom host:** `Appearance`, `AccessibilityInfo` and the accent from `Preferences`. A scenario changes the appearance and checks that a running application redraws dark, with no restart.
+
+   *Done, but the accent and reduce transparency.* The host's window keeps the drawing preferences from the connection's first events (`PREFERENCES`), and, for Settings alone, every preference as kept (`PREFERENCE`).
+   - **What JavaScript is told.** React Native's `Appearance` answers `getColorScheme` from them and is told `appearanceChanged` when the appearance changes, as Android's configuration change tells it. `AccessibilityInfo.isReduceMotionEnabled` answers from them and `reduceMotionDidChange` follows, as Android's animator scale does. `OxyOSPreferences` gives the accent and reduce transparency.
+   - **Not yet drawn.** Bloom does not draw the accent or reduce transparency yet: that needs an `appearance` capability in Bloom's adapter, its own step.
+   - **Settings.** `OxyOSSettings` gives Settings every preference, the change it asks for (only once the session has given it the preferences, so a client without the grant never sends one the compositor would refuse) and the machine's facts. The facts come from where the system keeps them: `/etc/hostname`, os-release's `PRETTY_NAME`, `/proc`'s processor and memory, `/etc/localtime`'s zone, systemd-timesyncd's synchronized flag and `/etc/default/keyboard`.
 4. **The Settings application:** its pages on `SettingsLayout` in an application window, its fixture in the browser, `OxyOSSettings` on OxyOS. A scenario changes reduce motion and the appearance through it and checks:
    - the shell and another application follow;
    - the file holds the change;
    - a session started again keeps it.
+
+   *Partly done.*
+   - **The application.** `apps/settings` draws its pages (Appearance, Wallpaper, Lock Screen, Accessibility, Keyboard, Date & Time, About) as Bloom's grouped sections in `SettingsLayout` in an application window, in Spanish or English. Its model is the session's (`sample/SettingsApp.tsx`: `OxyOSSettings` when granted, a fixture otherwise), and the Oxy menu's System Settings opens it.
+   - **The scenario.** `scenarios/settings.json` runs it granted (the development compositor's `--grant-settings`, with a preferences file of the run's own) and checks, step by step, what the session tells the application (`preferences`, from the host's report):
+     - choosing Dark makes it draw dark at once (a pixel of its page);
+     - Light makes it light again;
+     - an accent is told;
+     - at the end, the file holds the last choices.
+
+     It passes; granted to another application instead, every step fails.
+   - **Not yet:**
+     - the Accessibility and Date & Time pages, whose switches need React Native's native animated module in the host;
+     - the shell following the appearance;
+     - a second application in the scenario;
+     - a session started again.
 5. **The system's settings,** with the session's authentication dialog: their own decision.
 
 ## Not in this decision

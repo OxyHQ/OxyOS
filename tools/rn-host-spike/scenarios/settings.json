@@ -1,0 +1,133 @@
+{
+  "about": "OxyOS's Settings (apps/settings, sample/SettingsApp.tsx) changing the session's preferences (docs/adr/0019-settings.mdx): granted `settings` as a session grants an administrator's entry, it reads every preference as kept and asks the session for a change, which the session validates, keeps in the preferences file and tells every application. Choosing Dark: the session tells the application it draws dark, and Bloom draws Settings dark at once (React Native's Appearance, no restart); Auto: dark or light from the sun where the system's time zone is; Light: light again; an accent: the session tells it; Reduce motion on the Accessibility page: the session tells it and the switch shows it on. The file holds the last choices. Without the grant the application keeps its changes to itself and the session is told nothing, so every step fails.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "steps": [
+    {
+      "name": "Dark: the session keeps it and tells the application, which draws dark at once",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Dark"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "dark": true,
+          "accent": "oxy"
+        },
+        "pixels": {
+          "700,400": "#1f031d"
+        }
+      }
+    },
+    {
+      "name": "Light: light again",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Light"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "dark": false
+        }
+      }
+    },
+    {
+      "name": "An accent colour: the session tells the application",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "blue"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "dark": false,
+          "accent": "blue"
+        }
+      }
+    },
+    {
+      "name": "Accessibility: its page shows the switches as the session keeps them",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Accessibility"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Reduce motion"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Reduce motion",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reduce motion's switch on: the session keeps it and tells every application",
+      "do": [
+        "press",
+        [
+          890,
+          165
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "preferences": {
+          "reduceMotion": true
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Reduce motion",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "appearance": "light",
+      "accent": "blue",
+      "reduce_motion": "true"
+    }
+  }
+}

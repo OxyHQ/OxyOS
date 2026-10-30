@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -40,6 +42,69 @@ jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
 jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
   auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
+}
+
+// The first line of a file, or "" (a file that is not there says nothing).
+std::string firstLine(const char* path) {
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  return line;
+}
+
+// A `KEY=value` line's value in a shell-style file (os-release, /etc/default/keyboard), unquoted.
+std::string assignment(const char* path, const std::string& key) {
+  std::ifstream in(path);
+  for (std::string line; std::getline(in, line);) {
+    if (line.rfind(key + "=", 0) != 0) continue;
+    std::string value = line.substr(key.size() + 1);
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front()) {
+      value = value.substr(1, value.size() - 2);
+    }
+    return value;
+  }
+  return "";
+}
+
+// What OxyOS's Settings shows of the machine (apps/settings, docs/adr/0019-settings.mdx), read
+// from where the system keeps it: the computer's name, os-release's PRETTY_NAME, the processor's
+// model and the memory (/proc), the time zone (/etc/localtime's zone), whether systemd-timesyncd
+// has set the clock, and the keyboard's layout (/etc/default/keyboard). Read only: the system's
+// services change them (ADR 0019 decision 2). The display is the session's, not the host's: "".
+folly::dynamic systemFacts() {
+  std::string processor;
+  {
+    std::ifstream in("/proc/cpuinfo");
+    for (std::string line; std::getline(in, line);) {
+      if (line.rfind("model name", 0) == 0) {
+        auto colon = line.find(':');
+        if (colon != std::string::npos) processor = line.substr(line.find_first_not_of(' ', colon + 1));
+        break;
+      }
+    }
+  }
+  double memory = 0;
+  {
+    std::ifstream in("/proc/meminfo");
+    std::string key;
+    long kib = 0;
+    if (in >> key >> kib && key == "MemTotal:") memory = static_cast<double>(kib) * 1024;
+  }
+  std::string zone;
+  {
+    std::error_code error;
+    auto target = std::filesystem::read_symlink("/etc/localtime", error).string();
+    auto at = target.find("zoneinfo/");
+    if (!error && at != std::string::npos) zone = target.substr(at + 9);
+  }
+  std::string layout = assignment("/etc/default/keyboard", "XKBLAYOUT");
+  std::string variant = assignment("/etc/default/keyboard", "XKBVARIANT");
+  if (!variant.empty()) layout += " (" + variant + ")";
+  std::error_code error;
+  bool synchronized = std::filesystem::exists("/run/systemd/timesync/synchronized", error);
+  return folly::dynamic::object("computerName", firstLine("/etc/hostname"))(
+      "version", assignment("/etc/os-release", "PRETTY_NAME"))("processor", processor)("memoryBytes", memory)(
+      "display", "")("timeZone", zone)("automaticTime", synchronized)("keyboardLayout", layout);
 }
 
 std::string text(jsi::Runtime& rt, const jsi::Value& value) {
@@ -163,14 +228,25 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "Appearance") {
-    module->method("getColorScheme", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      return jsi::String::createFromAscii(rt, "light");
+    // The session's appearance (docs/adr/0019-settings.mdx), an automatic one resolved by the
+    // session; `appearanceChanged` when it changes, as Android's configuration change tells it.
+    module->method("getColorScheme", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      bool dark = services.settings.drawing && services.settings.drawing()["dark"].asBool();
+      return jsi::String::createFromAscii(rt, dark ? "dark" : "light");
     });
+    // The application's own choice stays its own (Bloom's theme), as on Android an app's night mode
+    // override does not change the system's.
     module->unsupported({"setColorScheme"});
     module->listeners();
   } else if (name == "AccessibilityInfo") {
-    // No assistive-technology or reduced-motion settings exist on OxyOS yet: report them off.
-    for (const char* query : {"isReduceMotionEnabled", "isTouchExplorationEnabled", "isAccessibilityServiceEnabled",
+    // Reduce motion is the session's preference (docs/adr/0019-settings.mdx), told with
+    // `reduceMotionDidChange` when it changes, as Android tells its animator duration scale.
+    module->method("isReduceMotionEnabled", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      bool reduced = services.settings.drawing && services.settings.drawing()["reduceMotion"].asBool();
+      return count > 0 ? call(rt, args[0], jsi::Value(reduced)) : jsi::Value::undefined();
+    });
+    // The other assistive-technology and display settings do not exist on OxyOS yet: off.
+    for (const char* query : {"isTouchExplorationEnabled", "isAccessibilityServiceEnabled",
                               "isHighTextContrastEnabled", "isGrayscaleEnabled", "isInvertColorsEnabled",
                               "isDarkerSystemColorsEnabled"}) {
       module->method(query, [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
@@ -304,6 +380,32 @@ std::shared_ptr<TurboModule> createHostModule(
       auto at = [&](size_t i) { return count > i && args[i].isNumber() ? static_cast<uint32_t>(args[i].asNumber()) : 0u; };
       services.window.setSizeLimits(at(0), at(1), at(2), at(3));
       return jsi::Value::undefined();
+    });
+    module->listeners();
+  } else if (name == "OxyOSPreferences") {
+    // What every application draws by that React Native's own modules do not carry: Bloom's accent
+    // colour and reduce transparency (sample/oxyos/platform-surface.js). `OxyOSPreferencesChanged`.
+    module->method("getState", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return services.settings.drawing ? jsi::valueFromDynamic(rt, services.settings.drawing()) : jsi::Value::null();
+    });
+    module->listeners();
+  } else if (name == "OxyOSSettings") {
+    // OxyOS's Settings (apps/settings): every preference as the session keeps it, a change asked of
+    // the session, and the system's facts. Only the client the session granted `settings` has its
+    // preferences; `OxyOSSettingsChanged` and `OxyOSSettingsResult` follow.
+    module->method("getValues", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return services.settings.values ? jsi::valueFromDynamic(rt, services.settings.values()) : jsi::Value::null();
+    });
+    module->method("setPreference", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSSettings.setPreference: a key and a value");
+      }
+      if (!services.settings.set) throw jsi::JSError(rt, "OxyOSSettings: no connection to the session");
+      return jsi::Value(static_cast<double>(
+          services.settings.set(args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt))));
+    });
+    module->method("getSystem", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return jsi::valueFromDynamic(rt, systemFacts());
     });
     module->listeners();
   } else if (name == "OxyOSClipboard") {

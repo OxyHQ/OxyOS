@@ -18,6 +18,7 @@ import PinchProbe from './PinchProbe';
 import MaterialProbe from './MaterialProbe';
 import A11yProbe from './A11yProbe';
 import WindowProbe from './WindowProbe';
+import SettingsApp from './SettingsApp';
 import AnimatedProbe from './AnimatedProbe';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
@@ -35,6 +36,7 @@ AppRegistry.registerComponent('PinchProbe', () => PinchProbe);
 AppRegistry.registerComponent('MaterialProbe', () => MaterialProbe);
 AppRegistry.registerComponent('A11yProbe', () => A11yProbe);
 AppRegistry.registerComponent('WindowProbe', () => WindowProbe);
+AppRegistry.registerComponent('OxyOSSettings', () => SettingsApp);
 AppRegistry.registerComponent('AnimatedProbe', () => AnimatedProbe);
 AppRegistry.registerComponent('IntlProbe', () => IntlProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
