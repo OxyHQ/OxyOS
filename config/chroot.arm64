@@ -1,0 +1,6 @@
+# config/chroot.arm64 - what differs on arm64 from config/chroot; live-build reads it after
+# config/chroot when LB_ARCHITECTURE is arm64 (config/bootstrap).
+
+# Debian's arm64 kernel (linux-image-arm64): the generic UEFI kernel, with the device trees of
+# the boards and laptops it supports.
+LB_LINUX_FLAVOURS_WITH_ARCH="arm64"

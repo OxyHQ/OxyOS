@@ -1,7 +1,10 @@
 # config/bootstrap - options for live-build(7), bootstrap stage
 
-# Select architecture to use
-LB_ARCHITECTURE="amd64"
+# Select architecture to use: amd64 unless the build sets LB_ARCHITECTURE (tools/image/build.sh
+# --arch arm64, which also runs the build in an arm64 container). live-build then reads each of
+# these files' override for the architecture after it, config/<file>.<architecture>: what
+# differs is there (config/binary.arm64, config/chroot.arm64), not in a copy of the tree.
+LB_ARCHITECTURE="${LB_ARCHITECTURE:-amd64}"
 
 # Select distribution to use
 LB_DISTRIBUTION="trixie"

@@ -18,26 +18,52 @@ SHIFTED = {"_": "minus", "+": "equal", ":": "semicolon", '"': "apostrophe", "|":
            "*": "8", "(": "9", ")": "0", "{": "bracket_left", "}": "bracket_right"}
 
 FIRMWARE = {
-    # name: (code, variables template, Secure Boot)
-    "uefi": ("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", False),
-    "secureboot": ("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_VARS_4M.ms.fd", True),
-    "bios": (None, None, False),
+    # architecture: {name: (code, variables template, Secure Boot)}
+    # amd64: Debian's ovmf. The Secure Boot variables hold Microsoft's keys, which Debian's shim
+    # is signed with.
+    "amd64": {
+        "uefi": ("/usr/share/OVMF/OVMF_CODE_4M.fd", "/usr/share/OVMF/OVMF_VARS_4M.fd", False),
+        "secureboot": ("/usr/share/OVMF/OVMF_CODE_4M.secboot.fd", "/usr/share/OVMF/OVMF_VARS_4M.ms.fd", True),
+        "bios": (None, None, False),
+    },
+    # arm64: Debian's qemu-efi-aarch64 (AAVMF, EDK2 for QEMU's virt machine). UEFI only.
+    "arm64": {
+        "uefi": ("/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd", "/usr/share/AAVMF/AAVMF_VARS.fd", False),
+        "secureboot": ("/usr/share/AAVMF/AAVMF_CODE.secboot.fd", "/usr/share/AAVMF/AAVMF_VARS.ms.fd", True),
+    },
 }
+
+# The serial port each machine has, which the kernel names: the PC's 16550 (ttyS0), the virt
+# machine's PL011 (ttyAMA0).
+SERIAL_CONSOLE = {"amd64": "ttyS0", "arm64": "ttyAMA0"}
+
+# The firmware each package provides, for the error that names what is missing.
+FIRMWARE_PACKAGE = {"amd64": "ovmf", "arm64": "qemu-efi-aarch64"}
 
 
 class Failure(Exception):
     pass
 
 
+def default_accel(architecture):
+    """KVM when the machine can run the image's architecture natively, else TCG."""
+    native = {"x86_64": "amd64", "aarch64": "arm64"}.get(os.uname().machine)
+    return "kvm" if native == architecture and os.access("/dev/kvm", os.R_OK | os.W_OK) else "tcg"
+
+
 class Machine:
     def __init__(self, image, directory, firmware="uefi", resolution=(1920, 1200), display="std",
-                 accel=None, memory=2048, cpus=2):
+                 accel=None, memory=2048, cpus=None, architecture="amd64"):
         self.image = pathlib.Path(image)
         self.directory = pathlib.Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.architecture = architecture
+        if firmware not in FIRMWARE[architecture]:
+            raise Failure(f"no {firmware} firmware on {architecture} (it boots {', '.join(FIRMWARE[architecture])})")
         self.firmware, self.resolution, self.display = firmware, resolution, display
-        self.accel = accel or ("kvm" if os.access("/dev/kvm", os.R_OK | os.W_OK) else "tcg")
-        self.memory, self.cpus = memory, cpus
+        self.accel = accel or default_accel(architecture)
+        # Emulated (TCG), more CPUs make up for each one's slowness: QEMU runs one thread each.
+        self.memory, self.cpus = memory, cpus or (2 if self.accel == "kvm" else 4)
         self.process = None
         self.serial_log = bytearray()
         self.serial_lock = threading.Lock()
@@ -48,31 +74,53 @@ class Machine:
 
     def command_line(self):
         width, height = self.resolution
-        machine = "q35,accel=" + self.accel
-        arguments = ["qemu-system-x86_64", "-nodefaults", "-no-reboot", "-display", "none",
-                     "-m", str(self.memory), "-smp", str(self.cpus),
-                     "-cpu", "host" if self.accel == "kvm" else "max"]
-        code, variables, secure = FIRMWARE[self.firmware]
+        arm = self.architecture == "arm64"
+        if arm:
+            # QEMU's virt machine, as AAVMF expects; the newest GIC the accelerator offers. With
+            # TCG, pointer authentication with QEMU's own algorithm: the architected one (QARMA)
+            # costs more to emulate than the rest of the CPU.
+            machine = "virt,gic-version=max,accel=" + self.accel
+            cpu = "host" if self.accel == "kvm" else "max,pauth-impdef=on"
+            arguments = ["qemu-system-aarch64"]
+        else:
+            machine = "q35,accel=" + self.accel
+            cpu = "host" if self.accel == "kvm" else "max"
+            arguments = ["qemu-system-x86_64"]
+        arguments += ["-nodefaults", "-no-reboot", "-display", "none",
+                      "-m", str(self.memory), "-smp", str(self.cpus), "-cpu", cpu]
+        code, variables, secure = FIRMWARE[self.architecture][self.firmware]
         if code:
             if not pathlib.Path(code).exists():
-                raise Failure(f"no {self.firmware} firmware at {code} (Debian's ovmf package)")
-            copy = self.directory / "OVMF_VARS.fd"
+                raise Failure(f"no {self.firmware} firmware at {code} (Debian's {FIRMWARE_PACKAGE[self.architecture]} package)")
+            copy = self.directory / "VARS.fd"
             shutil.copyfile(variables, copy)
-            if secure:
+            if secure and not arm:
+                # OVMF keeps its variables out of the OS's reach in SMM; the virt machine has no
+                # SMM, and AAVMF's Secure Boot needs none.
                 machine += ",smm=on"
                 arguments += ["-global", "driver=cfi.pflash01,property=secure,value=on"]
             arguments += ["-drive", f"if=pflash,format=raw,unit=0,readonly=on,file={code}",
                           "-drive", f"if=pflash,format=raw,unit=1,file={copy}"]
         arguments += ["-machine", machine]
         # A display whose preferred mode (its EDID) is the size under test.
-        if self.display == "virtio":
+        if arm:
+            # The virt machine has no VGA: virtio-gpu, which AAVMF draws its console on and the
+            # kernel's virtio-gpu driver takes over.
+            arguments += ["-device", f"virtio-gpu-pci,edid=on,xres={width},yres={height}"]
+        elif self.display == "virtio":
             arguments += ["-device", f"virtio-vga,edid=on,xres={width},yres={height}"]
         else:
             # bochs-drm offers only modes that fit its video memory twice: 16 MB drops 1920x1200.
             arguments += ["-device", f"VGA,edid=on,xres={width},yres={height},vgamem_mb=64"]
+        arguments += ["-drive", f"file={self.image},media=cdrom,readonly=on,if=none,id=cd"]
+        if arm:
+            # No IDE or PS/2 on virt: the medium on virtio-scsi, a USB keyboard (the one AAVMF's
+            # menu and GRUB read, where QMP's keys arrive).
+            arguments += ["-device", "virtio-scsi-pci,id=scsi", "-device", "scsi-cd,bus=scsi.0,drive=cd,bootindex=0",
+                          "-device", "qemu-xhci,id=usb", "-device", "usb-kbd,bus=usb.0"]
+        else:
+            arguments += ["-device", "ide-cd,drive=cd,bootindex=0"]
         arguments += [
-            "-drive", f"file={self.image},media=cdrom,readonly=on,if=none,id=cd",
-            "-device", "ide-cd,drive=cd,bootindex=0",
             "-nic", "user,model=virtio-net-pci",
             "-device", "virtio-rng-pci",
             "-qmp", f"unix:{self.directory / 'qmp.sock'},server=on,wait=off",
@@ -128,7 +176,7 @@ class Machine:
                 self.process.kill()
                 self.process.wait()
         (self.directory / "serial.log").write_bytes(bytes(self.serial_log))
-        for name in ("OVMF_VARS.fd", "screen.ppm", "qmp.sock", "serial.sock"):
+        for name in ("VARS.fd", "screen.ppm", "qmp.sock", "serial.sock"):
             (self.directory / name).unlink(missing_ok=True)
 
     # QMP.

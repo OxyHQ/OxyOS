@@ -71,11 +71,14 @@ RESIDUE_FILE = re.compile(r"/lib(X11|X11-xcb|xcb)\.so|^etc/X11/")
 # Paths a build generates in /usr that no package lists.
 GENERATED = re.compile(
     r"^usr/lib/locale/locale-archive$|^usr/share/info/dir$|^usr/lib/modules/[^/]+/modules\.|"
-    r"^usr/share/mime/|\.cache$|^usr/lib/x86_64-linux-gnu/gconv/gconv-modules\.cache$|"
+    r"^usr/share/mime/|\.cache$|^usr/lib/[^/]+-linux-gnu/gconv/gconv-modules\.cache$|"
     r"^usr/share/fonts/.*fonts\.(dir|scale)$|^usr/lib/python3[^/]*/.*__pycache__|"
     r"^usr/share/icons/[^/]+/icon-theme\.cache$|^usr/lib/firmware/|^usr/lib/udev/hwdb\.bin$|"
     r"^usr/share/glib-2\.0/schemas/gschemas\.compiled$"
 )
+
+# Each architecture's multiarch directory (/usr/lib/<triplet>), where Plymouth's plugins are.
+TRIPLET = {"amd64": "x86_64-linux-gnu", "arm64": "aarch64-linux-gnu"}
 
 LISTING = re.compile(
     r"^(?P<mode>\S+) (?P<owner>\S+)\s+(?P<size>\d+|\d+,\s*\d+) \d{4}-\d\d-\d\d \d\d:\d\d squashfs-root(?P<path>.*)$"
@@ -129,8 +132,13 @@ def providers(packages):
     return provided
 
 
-def sourced(path, name):
-    return CONFIG_CHECK.sourced(path, name)
+def sourced(path, name, architecture):
+    return CONFIG_CHECK.sourced(path, name, architecture)
+
+
+def architecture_of(packages):
+    """The image's architecture, as its own dpkg was built for."""
+    return packages.get("dpkg", {}).get("Architecture", "amd64")
 
 
 def package_files(audit):
@@ -152,26 +160,26 @@ def diverted(audit):
 FIRMWARE_PATH = re.compile(r"^(usr/)?lib/firmware/.")
 
 
-def roots(packages, files):
+def roots(packages, files, architecture):
     """What is installed on purpose: the manifest, and what live-build installs itself."""
     reasons = {}
-    for name in CONFIG_CHECK.manifest_packages():
+    for name in CONFIG_CHECK.manifest_packages(architecture):
         reasons[name] = "manifest"
     for name, fields in packages.items():
         if fields.get("Essential") == "yes" or fields.get("Priority") in ("required", "important"):
             reasons.setdefault(name, f"debootstrap ({fields.get('Priority', 'essential')})")
-    for word in sourced(CONFIG / "common", "DEBOOTSTRAP_OPTIONS").split():
+    for word in sourced(CONFIG / "common", "DEBOOTSTRAP_OPTIONS", architecture).split():
         if word.startswith("--include="):
             for name in word.split("=", 1)[1].split(","):
                 reasons.setdefault(name, "debootstrap --include")
-    for name in sourced(CONFIG / "chroot", "LB_KEYRING_PACKAGES").split():
+    for name in sourced(CONFIG / "chroot", "LB_KEYRING_PACKAGES", architecture).split():
         reasons.setdefault(name, "LB_KEYRING_PACKAGES")
-    kernel = sourced(CONFIG / "chroot", "LB_LINUX_PACKAGES").split()
-    flavours = sourced(CONFIG / "chroot", "LB_LINUX_FLAVOURS_WITH_ARCH").split()
+    kernel = sourced(CONFIG / "chroot", "LB_LINUX_PACKAGES", architecture).split()
+    flavours = sourced(CONFIG / "chroot", "LB_LINUX_FLAVOURS_WITH_ARCH", architecture).split()
     for base in kernel:
         for flavour in flavours:
             reasons.setdefault(f"{base}-{flavour.split(':', 1)[0]}", "LB_LINUX_PACKAGES")
-    if sourced(CONFIG / "binary", "LB_FIRMWARE_CHROOT") == "true":
+    if sourced(CONFIG / "binary", "LB_FIRMWARE_CHROOT", architecture) == "true":
         # live-build installs every package of the archive areas whose files are under
         # /lib/firmware (its Contents), and the microcode.
         for name in packages:
@@ -219,9 +227,13 @@ def audit_image(audit, gate):
     if not status.exists():
         return [f"{audit}: no var/lib/dpkg/status (run tools/image/build.sh audit)"], [], [], {}
     packages, leftovers = parse_status(status)
+    architecture = architecture_of(packages)
+    if architecture not in TRIPLET:
+        return [f"{audit}: an image for {architecture}, which config/ does not build"], [], [], {}
+    report["architecture"] = architecture
 
     files_of = package_files(audit)
-    reasons = roots(packages, files_of)
+    reasons = roots(packages, files_of, architecture)
     explained = closure(packages, reasons)
 
     def chain(name):
@@ -250,7 +262,7 @@ def audit_image(audit, gate):
     unexplained = sorted(set(packages) - set(explained))
     for name in unexplained:
         violations.append(f"package {name} is neither in the manifest nor in its dependency closure")
-    for name in sorted(CONFIG_CHECK.manifest_packages()):
+    for name in sorted(CONFIG_CHECK.manifest_packages(architecture)):
         if name not in packages:
             violations.append(f"manifest package {name} is not installed")
     if leftovers:
@@ -300,7 +312,7 @@ def audit_image(audit, gate):
     if initrd.exists():
         listed = set(initrd.read_text().split())
         for rel in ("usr/share/plymouth/themes/oxyos/oxyos.script", "usr/share/plymouth/themes/oxyos/oxyos.plymouth",
-                    "usr/share/plymouth/themes/oxyos/mark-1200.png", "usr/lib/x86_64-linux-gnu/plymouth/script.so"):
+                    "usr/share/plymouth/themes/oxyos/mark-1200.png", f"usr/lib/{TRIPLET[architecture]}/plymouth/script.so"):
             if not any(path.endswith(rel) for path in listed):
                 violations.append(f"initramfs lacks /{rel}")
         conf = audit / "initrd" / "etc" / "plymouth" / "plymouthd.conf"
@@ -328,7 +340,8 @@ def audit_image(audit, gate):
         "root_file_bytes": sum(size for _, size in files.values()),
         "squashfs_bytes": int((audit / "squashfs-size").read_text()) if (audit / "squashfs-size").exists() else None,
         "iso_bytes": int((audit / "iso-size").read_text()) if (audit / "iso-size").exists() else sum(iso_files.values()),
-        "initrd_bytes": iso_files.get("/live/initrd.img"),
+        # /live/initrd.img on amd64 (for syslinux); arm64 keeps only the kernel's versioned name.
+        "initrd_bytes": next((size for path, size in sorted(iso_files.items()) if path.startswith("/live/initrd.img")), None),
         "largest_packages": [{"package": n, "bytes": s} for s, n in installed[:15]],
         "largest_iso_files": [{"path": p, "bytes": s} for p, s in sorted(iso_files.items(), key=lambda i: -i[1])[:8]],
         "roots": {k: v for k, v in sorted(reasons.items()) if k in packages},
@@ -348,7 +361,7 @@ def main():
     args = parser.parse_args()
     violations, residue, notes, report = audit_image(args.audit, args.gate)
     if report:
-        print(f"{args.audit.name}: {report['packages']} packages, {mib(report['installed_bytes'])} installed "
+        print(f"{args.audit.name} ({report['architecture']}): {report['packages']} packages, {mib(report['installed_bytes'])} installed "
               f"({mib(report['firmware_bytes'])} of firmware files); root {mib(report['root_file_bytes'])} in files; "
               f"squashfs {mib(report['squashfs_bytes'] or 0)}; ISO {mib(report['iso_bytes'])}")
         print("largest packages: " + ", ".join(f"{p['package']} {mib(p['bytes'])}" for p in report["largest_packages"][:10]))

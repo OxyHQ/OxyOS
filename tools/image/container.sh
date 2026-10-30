@@ -2,12 +2,14 @@
 # What tools/image/build.sh runs inside its privileged debian:trixie container. Not meant to be
 # run on a host: it installs packages and builds as root in the current system.
 #
-#   container.sh build      build config/ (read-only at /src) in /work/build, the image in /work/out
+#   container.sh build      build config/ (read-only at /src) in /work/build/<arch>, the image in
+#                           /work/out
 #   container.sh extract I  extract the dpkg database and the file list of image I (under /work)
 #                           into /work/audit/<image name>/ for scripts/check-image-contents.py
 #   container.sh clean      remove the build tree (root-owned), keeping the package cache
 #
-# Environment: HOST_UID, HOST_GID (owner of what is left in /work/out and /work/audit),
+# Environment: OXYOS_ARCHITECTURE (amd64 or arm64: the image's, which must be this container's
+# own), HOST_UID, HOST_GID (owner of what is left in /work/out and /work/audit),
 # SOURCE_DATE_EPOCH, OXYOS_COMMIT, OXYOS_FRESH (1: drop the package and bootstrap caches first).
 set -eu
 
@@ -24,6 +26,9 @@ die() {
 
 [ -f /.dockerenv ] || [ -n "${OXYOS_IN_CONTAINER:-}" ] || die "run through tools/image/build.sh, not on a host"
 
+ARCHITECTURE=${OXYOS_ARCHITECTURE:-amd64}
+BUILD=/work/build/$ARCHITECTURE
+
 install_tools() {
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -q >/dev/null
@@ -37,12 +42,19 @@ hand_back() {
 
 build() {
     [ -d /src/config ] || die "/src/config missing: mount the repository at /src"
+    # A native build: live-build bootstraps and runs the chroot with this container's own
+    # architecture, so the image's must be it (build.sh runs the arm64 container for arm64).
+    [ "$(dpkg --print-architecture)" = "$ARCHITECTURE" ] ||
+        die "an $ARCHITECTURE image in a $(dpkg --print-architecture) container: run through tools/image/build.sh --arch"
+    # config/bootstrap takes the architecture from here, and live-build reads the
+    # config/<file>.<architecture> overrides by it.
+    export LB_ARCHITECTURE="$ARCHITECTURE"
     # The pinned live-build: another version may build a different image from the same config.
     install_tools "live-build=${LIVE_BUILD_VERSION}" apt-utils cpio file wget xz-utils bzip2 rsync \
         ca-certificates || die "live-build ${LIVE_BUILD_VERSION} is not installable; update LIVE_BUILD_VERSION in tools/image/container.sh deliberately"
 
-    mkdir -p /work/build /work/out
-    cd /work/build
+    mkdir -p "$BUILD" /work/out
+    cd "$BUILD"
     if [ "${OXYOS_FRESH:-0}" = 1 ]; then
         say "dropping the package and bootstrap caches"
         rm -rf cache
@@ -58,13 +70,13 @@ build() {
     mkdir -p .build
     touch .build/config
 
-    log=/work/out/build.log
-    say "lb build (SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-unset}, commit ${OXYOS_COMMIT:-unknown}); log in out/build.log"
+    log=/work/out/build-${ARCHITECTURE}.log
+    say "lb build ${ARCHITECTURE} (SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-unset}, commit ${OXYOS_COMMIT:-unknown}); log in out/build-${ARCHITECTURE}.log"
     started=$(date +%s)
     if ! lb build >"$log" 2>&1; then
         tail -n 40 "$log" >&2
         hand_back /work/out
-        die "lb build failed; full log in out/build.log"
+        die "lb build failed; full log in out/build-${ARCHITECTURE}.log"
     fi
     finished=$(date +%s)
 
@@ -72,11 +84,12 @@ build() {
     iso=$(ls ./*.hybrid.iso 2>/dev/null | head -n 1)
     [ -n "$iso" ] || die "lb build produced no .hybrid.iso"
     # "base": the console base system of config/, never the OxyOS desktop (docs/iso-build.mdx).
-    name="oxyos-base-${OS_VERSION}-${OXYOS_COMMIT:-unknown}-amd64"
+    name="oxyos-base-${OS_VERSION}-${OXYOS_COMMIT:-unknown}-${ARCHITECTURE}"
     mv "$iso" "/work/out/${name}.iso"
     cp chroot.packages.live "/work/out/${name}.packages"
     {
         printf 'commit=%s\n' "${OXYOS_COMMIT:-unknown}"
+        printf 'architecture=%s\n' "$ARCHITECTURE"
         printf 'source_date_epoch=%s\n' "${SOURCE_DATE_EPOCH:-}"
         printf 'build_seconds=%s\n' "$((finished - started))"
         dpkg-query -W --showformat='container_${Package}=${Version}\n' live-build debootstrap
@@ -109,7 +122,11 @@ extract() {
     } >"$dir/extract-list"
     unsquashfs -no-progress -d "$dir/root" -ef "$dir/extract-list" "$dir/filesystem.squashfs" >/dev/null
     # The initramfs: the boot logo must be in it, as Plymouth starts there.
-    xorriso -osirrox on -indev "$image" -extract /live/initrd.img "$dir/initrd.img" >/dev/null 2>&1
+    # live-build names it /live/initrd.img for syslinux (amd64); GRUB alone (arm64) keeps only the
+    # kernel's versioned name. The live medium has one kernel.
+    initrd=$(sed -n "s|.*'\(/live/initrd\.img[^']*\)'\$|\1|p" "$dir/iso-files.txt" | sort | head -n 1)
+    [ -n "$initrd" ] || die "no /live/initrd.img* on $image"
+    xorriso -osirrox on -indev "$image" -extract "$initrd" "$dir/initrd.img" >/dev/null 2>&1
     unmkinitramfs "$dir/initrd.img" "$dir/initrd-tree"
     (cd "$dir/initrd-tree" && find . | sed 's|^\./||' | sort) >"$dir/initrd-files.txt"
     mkdir -p "$dir/initrd/etc"
@@ -124,8 +141,8 @@ extract() {
 }
 
 clean() {
-    if [ -d /work/build ]; then
-        cd /work/build
+    if [ -d "$BUILD" ]; then
+        cd "$BUILD"
         lb clean --chroot --binary --stage --source >/dev/null 2>&1 || true
         find . -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf --one-file-system {} +
     fi
