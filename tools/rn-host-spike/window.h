@@ -83,6 +83,20 @@ class Window {
   bool maximized() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_MAXIMIZED; }
   bool fullscreen() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_FULLSCREEN; }
   bool active() const { return active_; }
+  // The session's preferences (docs/adr/0019-settings.mdx): those that change how every client
+  // draws, told to it from the first event; and, to Settings alone (the `settings` grant), every
+  // preference as kept, by key. `settingsGranted` once the session has told any.
+  struct Drawing {
+    bool dark = false, reduceMotion = false, reduceTransparency = false;
+    std::string accent;
+    bool operator==(const Drawing&) const = default;
+  };
+  const Drawing& drawing() const { return drawing_; }
+  const std::map<std::string, std::string>& preferences() const { return preferences_; }
+  bool settingsGranted() const { return !preferences_.empty(); }
+  // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
+  // answers. False if it could not be sent.
+  bool setPreference(uint32_t serial, const std::string& key, const std::string& value);
   // A surface id for a popup or a shell region, never used before on this connection.
   uint32_t allocate() { return nextSurface_++; }
   bool shell() const { return shell_.has_value(); }
@@ -144,6 +158,9 @@ class Window {
   OxyOSClient* client_ = nullptr;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
+  Drawing drawing_;
+  std::map<std::string, std::string> preferences_;
+  std::string receiving_;  // a preference's chunks so far
   bool active_ = false;
   uint64_t presented_ = 0;
   uint32_t nextSurface_ = kToplevel + 1;

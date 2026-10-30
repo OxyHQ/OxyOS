@@ -85,6 +85,21 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES || event.kind == OXYOS_EVENT_CLIPBOARD_TYPE ||
                event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY) {
       clipboard_.observe(event);
+    } else if (event.kind == OXYOS_EVENT_PREFERENCES) {
+      drawing_ = Drawing{.dark = (event.flag & OXYOS_PREFERENCES_DARK) != 0,
+                         .reduceMotion = (event.flag & OXYOS_PREFERENCES_REDUCE_MOTION) != 0,
+                         .reduceTransparency = (event.flag & OXYOS_PREFERENCES_REDUCE_TRANSPARENCY) != 0,
+                         .accent = event.text};
+      input(event);
+    } else if (event.kind == OXYOS_EVENT_PREFERENCE) {
+      if (event.detail == 0) receiving_.clear();
+      receiving_ += event.text;
+      if (event.flag) {
+        auto equals = receiving_.find('=');
+        if (equals != std::string::npos) preferences_[receiving_.substr(0, equals)] = receiving_.substr(equals + 1);
+        receiving_.clear();
+        input(event);
+      }
     } else if (event.kind == OXYOS_EVENT_ACTIVATED && event.surface == kToplevel) {
       active_ = event.flag != 0;
       input(event);
@@ -165,6 +180,10 @@ void Window::nameWindow(const std::string& title, const std::string& appId) {
 
 void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
   if (oxyos_client_manage(client_, action, window, workspace) != 0) failed("cannot manage a window");
+}
+
+bool Window::setPreference(uint32_t serial, const std::string& key, const std::string& value) {
+  return oxyos_client_set_preference(client_, serial, key.c_str(), value.c_str()) == 0;
 }
 
 void Window::beginMove(uint64_t serial) {

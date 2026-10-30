@@ -66,6 +66,13 @@ A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (
 beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
 what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
 
+A scenario with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) runs with a preferences file
+of its own written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
+`settings` as a session grants an administrator's entry. A step's `preferences` expectation checks
+what the session last told the application of how to draw (dark, reduceMotion,
+reduceTransparency, accent) by the time the step settled, each key given; the `final`
+`preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
+
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
 
@@ -302,7 +309,7 @@ def gesture_events(report, start, end):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None):
+               shell_report=None, spoken=None, preferences=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -533,6 +540,22 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 left.remove(match)
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
+    if "preferences" in expect:
+        told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
+                and line["t"] <= end]
+        last = told[-1] if told else {}
+        for key, value in expect["preferences"].items():
+            if last.get(key) != value:
+                fail(f"preferences told: {key} = {last.get(key)!r}, expected {value!r}")
+    if "preferences_file" in expect:
+        kept = {}
+        for line in (preferences.read_text().splitlines() if preferences else []):
+            if "=" in line and not line.lstrip().startswith("#"):
+                key, value = line.split("=", 1)
+                kept[key.strip()] = value.strip()
+        for key, value in expect["preferences_file"].items():
+            if kept.get(key) != value:
+                fail(f"preferences file: {key} = {kept.get(key)!r}, expected {value!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
@@ -625,6 +648,12 @@ def main():
         # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
         # application with the shell grant; its report is the application's with ".shell".
         command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
+    if "settings" in scenario:
+        # The user's preferences (ADR 0019), in a file of the run's own, and the application the
+        # session would grant `settings` to.
+        preferences = out / "preferences"
+        preferences.write_text("".join(f"{key} = {value}\n" for key, value in scenario["settings"].get("preferences", {}).items()))
+        command += ["--preferences", str(preferences), "--grant-settings", scenario["settings"]["app"]]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -701,7 +730,8 @@ def main():
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
-                           out / f"launch-{index + 2}.png", shell_report, spoken)
+                           out / f"launch-{index + 2}.png", shell_report, spoken,
+                           out / "preferences" if "settings" in scenario else None)
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":
@@ -712,7 +742,8 @@ def main():
         window = (summary["steps"][-1] if summary["steps"] else summary)["window"]
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last, "window": window}, report, start, failures,
-                   screenshot=out / f"launch-{len(scenario['steps']) + 1}.png")
+                   screenshot=out / f"launch-{len(scenario['steps']) + 1}.png",
+                   preferences=out / "preferences" if "settings" in scenario else None)
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
     renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]
