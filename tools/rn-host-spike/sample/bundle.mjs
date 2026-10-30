@@ -42,6 +42,15 @@ if (hermesc) {
   execFileSync(hermesc, ['-emit-binary', '-O', '-w', '-out', out, source], { stdio: 'inherit' });
   fs.rmSync(source);
 }
+// The application's public app config, embedded as an Android build embeds it (expo-constants'
+// `getAppConfig` writes `app.config` into the APK's assets): next to the bundle, by the module that
+// runs it, where the host's ExponentConstants reads it (oxyos/expo-adapter.js).
+const application = require(path.resolve('oxyos/application-build.js'));
+if (application) {
+  const config = path.resolve(outDir, 'applications', 'Stash', 'app.config');
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, JSON.stringify(application.config));
+}
 let copied = 0;
 for (const asset of result.assets ?? []) {
   asset.files.forEach((file, index) => {

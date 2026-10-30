@@ -28,6 +28,8 @@ import AnimatedProbe from './AnimatedProbe';
 import MenuBarProbe from './MenuBarProbe';
 import LoginSession from './LoginSession';
 import ExpoProbe from './ExpoProbe';
+// Stash, from its own checkout when the bundle is built with STASH_DIR (oxyos/stash-application.js).
+import './oxyos/stash-application';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
