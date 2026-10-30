@@ -2,8 +2,8 @@
 """Check the live-build image configuration and CI against the retired desktop stack.
 
 Scope: the files in this repository. It does not resolve Debian dependencies or
-inspect the packages of a built image; that needs a real build once a native
-session and its boot acceptance tests exist.
+inspect the packages of a built image: scripts/check-image-contents.py audits a
+built image (tools/image/build.sh), with this script's list of what is forbidden.
 """
 
 import pathlib
@@ -25,6 +25,13 @@ FORBIDDEN_PACKAGE = re.compile(
     r"|x11|xcb|wayland|gtk|gdk|webkit|appindicator|qt5|qt6"
 )
 
+# Firmware only servers and data centres have: OxyOS runs on laptops and desktops
+# (docs/iso-build.mdx, "Package manifest"). Consumer hardware's firmware is in the manifest.
+SERVER_FIRMWARE = re.compile(
+    r"^firmware-(bnx2|bnx2x|cavium|myricom|netronome|netxen|qlogic|marvell-prestera|ast|"
+    r"nvidia-tesla-[0-9]+-gsp|liquidio)$"
+)
+
 # Executables, configuration paths and environment of the retired session.
 STALE_REFERENCE = re.compile(
     r"oxyos-shell|labwc|xwayland|greetd|seatd|lxdm|tauri|webkit|/etc/X11|xorg\.conf|"
@@ -37,11 +44,13 @@ STALE_REFERENCE = re.compile(
 STALE_REFERENCE_ALLOWED = {
     CONFIG / "archives" / "no-display-stack.pref.chroot",
     ROOT / "scripts" / "check-native-boundary.py",
+    ROOT / "scripts" / "check-image-contents.py",
 }
 
 # Image publication is retired until a native session exists. A workflow that
-# builds or releases an image must arrive together with boot acceptance tests.
-IMAGE_PUBLICATION = re.compile(r"\blb build\b|action-gh-release|\bgh release\b|oxy-downloads")
+# builds or releases an image must arrive together with the session; tools/image/
+# (the local build and its acceptance tests) is for developers' machines only.
+IMAGE_PUBLICATION = re.compile(r"\blb build\b|tools/image/|action-gh-release|\bgh release\b|oxy-downloads")
 
 LIVE_BUILD_HOOKS = "/usr/share/live/build/hooks/"
 
@@ -64,6 +73,8 @@ def check_packages():
             for name in line.split("#", 1)[0].split():
                 if FORBIDDEN_PACKAGE.search(name):
                     violations.append(f"{path.relative_to(ROOT)}:{number}: retired package {name}")
+                if SERVER_FIRMWARE.search(name):
+                    violations.append(f"{path.relative_to(ROOT)}:{number}: server firmware {name}; OxyOS runs on laptops and desktops")
     return violations
 
 
@@ -86,8 +97,8 @@ def check_publication():
             match = IMAGE_PUBLICATION.search(line)
             if match:
                 violations.append(
-                    f"{path.relative_to(ROOT)}:{number}: image build/publication {match.group(0)!r} "
-                    "without a native session and boot acceptance tests"
+                    f"{path.relative_to(ROOT)}:{number}: image build/publication {match.group(0)!r}: "
+                    "no workflow builds or publishes an image (AGENTS.md, image rules)"
                 )
     return violations
 
@@ -106,6 +117,28 @@ def check_hooks():
     return violations
 
 
+def check_includes():
+    """A script the image includes must be executable (a unit's ExecStart= of a file without the
+    bit fails at every boot) and, when it is sh, parse."""
+    violations = []
+    includes = CONFIG / "includes.chroot_after_packages"
+    for path in sorted(p for p in includes.rglob("*") if p.is_file() and not p.is_symlink()):
+        with path.open("rb") as file:
+            first = file.readline()
+        if not first.startswith(b"#!"):
+            continue
+        relative = path.relative_to(ROOT)
+        if not path.stat().st_mode & 0o111:
+            violations.append(f"{relative}: a script without the executable bit")
+        if first.split()[0] in (b"#!/bin/sh", b"#!/usr/bin/sh"):
+            result = subprocess.run(["sh", "-n", str(path)], capture_output=True, text=True)
+            if result.returncode != 0:
+                violations.append(f"{relative}: {result.stderr.strip()}")
+        else:
+            violations.append(f"{relative}: scripts are POSIX sh ({first.decode(errors='replace').strip()})")
+    return violations
+
+
 def check_image_settings():
     violations = []
     # The graphical debian-installer runs an X.org server from the install media.
@@ -116,6 +149,13 @@ def check_image_settings():
     ).stdout
     if gui != "false":
         violations.append(f'config/binary: LB_DEBIAN_INSTALLER_GUI is "{gui}", must be "false"')
+    # live-build's firmware detection installs whatever has a file under /lib/firmware, drivers
+    # and their dependencies included (Cairo and the X11 client libraries, through astronomy
+    # camera drivers): the manifest names the firmware instead.
+    for setting in ("LB_FIRMWARE_CHROOT", "LB_FIRMWARE_BINARY"):
+        firmware = sourced(CONFIG / "binary", setting)
+        if firmware != "false":
+            violations.append(f'config/binary: {setting} is "{firmware}", must be "false" (the manifest names the firmware)')
     source = CONFIG / "oxyos.conf"
     installed = CONFIG / "includes.chroot_after_packages" / "etc" / "oxyos" / "oxyos.conf"
     if source.read_bytes() != installed.read_bytes():
@@ -177,14 +217,15 @@ def check_boot_logo():
 
 def main():
     violations = (
-        check_packages() + check_references() + check_publication() + check_hooks() + check_image_settings()
+        check_packages() + check_references() + check_publication() + check_hooks() + check_includes()
+        + check_image_settings()
         + check_boot_logo()
     )
     if violations:
         print("\n".join(violations), file=sys.stderr)
         return 1
     print("Image configuration check passed.")
-    print("Scope: repository files only; not a dependency closure or built-image audit.")
+    print("Scope: repository files only; scripts/check-image-contents.py audits a built image.")
     return 0
 
 

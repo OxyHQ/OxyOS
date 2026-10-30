@@ -40,5 +40,43 @@ wireless-tools
 ntfs-3g
 dosfstools
 
-# Hardware
+# Hardware: firmware and microcode for laptops and desktops, named here rather than chosen by
+# live-build's detection (LB_FIRMWARE_CHROOT), which installs every package with a file under
+# /lib/firmware: astronomy camera drivers (indi-dsi, libfishcamp1t64, libsbig4t64, which pull
+# Cairo and the X11 client libraries), telephony cards (dahdi-firmware-nonfree) and the b43
+# installers (they download firmware from the internet as they install). Server and data-centre
+# firmware is left out too, and scripts/check-image-config.py refuses it (SERVER_FIRMWARE):
+# NICs (bnx2, bnx2x, cavium, myricom, netronome, netxen), switch ASICs (marvell-prestera), HBAs
+# (qlogic), BMC graphics (ast) and data-centre GPUs (nvidia-tesla-*-gsp).
 firmware-linux-free
+firmware-linux
+firmware-linux-nonfree
+firmware-misc-nonfree
+amd64-microcode
+intel-microcode
+# Graphics: AMD, Intel (and its IPU cameras), NVIDIA's consumer GPUs.
+firmware-amd-graphics
+firmware-intel-graphics
+firmware-nvidia-graphics
+# Wireless and Bluetooth.
+wireless-regdb
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-ath9k-htc
+firmware-carl9170
+firmware-mediatek
+firmware-brcm80211
+firmware-libertas
+firmware-ipw2x00
+firmware-zd1211
+atmel-firmware
+bluez-firmware
+# Audio, and the other Intel devices of a laptop.
+firmware-sof-signed
+firmware-intel-sound
+firmware-intel-misc
+firmware-cirrus
+# TV tuners and capture cards a desktop may have.
+firmware-ivtv
+firmware-siano

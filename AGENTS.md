@@ -12,7 +12,7 @@ Bloom's application-layout compositor is distinct from the OS display compositor
 
 Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxyos-platform-probe`; `oxyos-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 
-Image: `python3 scripts/check-image-config.py`. The boundary script audits Cargo only; the image script audits `config/` and workflows only. Neither is a built-image or dependency-closure audit.
+Image: `python3 scripts/check-image-config.py` (`config/` and workflows; the boundary script audits Cargo). Locally, never in CI: `tools/image/build.sh` builds the console base in a privileged Trixie container under `~/oxyos-build` (never `/tmp`) and runs `scripts/check-image-contents.py`, the built image's audit; `python3 tools/image/acceptance ISO [--firmware uefi|secureboot|bios]` boot-tests it in QEMU (`docs/iso-build.mdx`). Installing: ADR 0023.
 
 ## Image rules (`config/`, see `docs/iso-build.mdx`)
 

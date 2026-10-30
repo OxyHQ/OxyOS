@@ -13,7 +13,7 @@ OxyOS is being rebuilt as a native Linux platform: an Oxy display compositor and
 ## Status
 
 - The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 2), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. The compositor session itself drives no display yet. `oxyos-gpu` composes frames on the CPU and on Vulkan, and `oxyos-kms` shows them on a real output through DRM/KMS ([ADR 0004](./adr/0004-gpu-composition)). The Bloom host renders Bloom offscreen.
-- `config/` builds a console-only Debian base system. There is no graphical session, and no OxyOS image is published until the native session and its boot acceptance tests exist.
+- `config/` builds a console-only Debian base system. There is no graphical session, and no OxyOS image is published until the native session is in it. The base is built, boot-tested in QEMU and audited locally (`tools/image/`); how OxyOS will be installed is [ADR 0023](./adr/0023-installing-oxyos).
 - The earlier React/Tauri shell on labwc/greetd is retired. See [Retired desktop stack](./retired-desktop-stack).
 
 The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/website](https://github.com/OxyHQ/website) repository.
@@ -34,7 +34,7 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 12. [ADR 0009: The session shell](./adr/0009-session-shell) (accepted; shell surfaces, workspaces and the shell protocol implemented): the shell, one React tree, as the compositor's background, panels and overlays, and the compositor's windows and workspaces shown and managed through a protocol for the `shell` grant.
 13. [Oxy account and session on OxyOS](./account-session): SDK owners to reuse, gaps and open decisions for the required account.
 14. [React Native's Android implementation on OxyOS](./react-native-android-adaptation): what the Bloom host reuses from React Native's Android implementation, what it implements and what it does not provide.
-15. [Base image configuration](./iso-build): the live-build base system and why image publication is retired.
+15. [Base image configuration](./iso-build): the live-build base system, why image publication is retired, and building, boot-testing and auditing it locally.
 16. [Retired desktop stack](./retired-desktop-stack): what was removed, what replaced each responsibility, open follow-ups.
 17. [Shell development preview](./shell-preview): edit real Bloom interfaces in a browser on macOS or Linux, independently of the native session.
 

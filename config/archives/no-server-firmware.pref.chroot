@@ -1,0 +1,7 @@
+# Server and data-centre firmware never enters the image (docs/iso-build.mdx, "Package
+# manifest"), not even as a recommendation: firmware-libertas, which consumer Marvell Wi-Fi
+# needs, recommends firmware-marvell-prestera (switch ASICs). Keep in step with
+# SERVER_FIRMWARE in scripts/check-image-config.py.
+Package: firmware-bnx2 firmware-bnx2x firmware-cavium firmware-myricom firmware-netronome firmware-netxen firmware-qlogic firmware-marvell-prestera firmware-ast firmware-liquidio firmware-nvidia-tesla-*-gsp
+Pin: release *
+Pin-Priority: -1

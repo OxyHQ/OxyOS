@@ -15,9 +15,11 @@ No workflow builds or publishes an ISO. The previous `build-iso.yml` built the r
 An image pipeline returns together with the native session, not before it. It must:
 
 - install a real compositor/runtime built against the target userspace, with no placeholder login, fallback session or success on a missing binary;
-- boot-test the image (graphical acceptance, not the headless probe);
-- audit the dependency closure and the final package contents for X11, XWayland and Wayland;
+- boot-test the image (graphical acceptance, not the headless probe): `tools/image/acceptance` boots the console base today and checks its boot logo and services ([Boot acceptance tests](#boot-acceptance-tests)); the session's own checks join it with the session;
+- audit the dependency closure and the final package contents for X11, XWayland and Wayland: `scripts/check-image-contents.py --gate` on the built image ([Contents audit](#contents-audit));
 - carry signing/provenance and the resolved repository licence and asset review.
+
+Having the tests and the audit does not make the console base publishable: it still has no session. How an image gets onto a disk is [ADR 0023](./adr/0023-installing-oxyos).
 
 Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot check.
 
@@ -35,11 +37,18 @@ Live command line: `boot=live components quiet splash loglevel=3 vt.global_curso
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities and free firmware. `LB_FIRMWARE_CHROOT`/`LB_FIRMWARE_BINARY` add the firmware packages.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode.
+
+**Firmware: laptops and desktops.** OxyOS runs on laptops and desktops, so the image carries the firmware of their hardware and not a server's. The manifest names it (`LB_FIRMWARE_CHROOT="false"` and `LB_FIRMWARE_BINARY="false"`, which the check script enforces):
+- **in:** the CPU microcode (Intel, AMD); graphics: AMD, Intel (with its IPU cameras) and NVIDIA's consumer GPUs (`firmware-nvidia-graphics`); Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom, Marvell, and the older USB and PCI adapters, with `wireless-regdb`; audio: Intel SOF and DSPs, Cirrus Logic amplifiers; Intel's other devices; TV tuners and capture cards; `firmware-misc-nonfree` for everything else small.
+- **out, refused:** firmware only servers and data centres have, matched by `SERVER_FIRMWARE` in `scripts/check-image-config.py` (in the manifest) and by the built image's audit. That covers network adapters (`firmware-bnx2`, `-bnx2x`, `-cavium`, `-myricom`, `-netronome`, `-netxen`, `-liquidio`), switch ASICs (`-marvell-prestera`), storage HBAs (`-qlogic`), BMC graphics (`-ast`) and data-centre GPUs (`-nvidia-tesla-*-gsp`). `archives/no-server-firmware.pref.chroot` pins them to -1 during the build: `firmware-libertas` recommends `firmware-marvell-prestera`, and a hard dependency on one fails the build.
+- **out, not firmware:** what live-build's own detection would add, since it installs every package with a file under `/lib/firmware`. In a built image that was astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`), and through them Cairo, `libxcb-render0` and `libxcb-shm0`; the telephony cards' `dahdi-firmware-nonfree`; and the two `b43` installers, which download firmware from the internet as they install.
+
+`LB_FIRMWARE_BINARY` is `"false"` as well: the detection would put its firmware, servers' included, in the debian-installer's pool on the ISO. The live installer copies the live system, so an installed system has the manifest's firmware; only the installer's own use of non-free firmware while it runs (Wi-Fi during the installation) is lost, until the installer leaves the image ([ADR 0023](./adr/0023-installing-oxyos), step 4).
 
 `archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth` and `x11-common` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
-Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`). They are inert libraries with no server or `DISPLAY`. Removing them needs a Debian change or our own build, and is part of the native image gate. This was found by resolving the Trixie package indices, not by a built image.
+Known residue, from Debian packaging rather than this configuration: `libpipewire-0.3-modules` depends on `libpulse0`, which links the X11 client libraries (`libx11-6`, `libx11-xcb1`, `libxcb1`). They are inert libraries with no server or `DISPLAY`. Removing them needs a Debian change or our own build, and is part of the native image gate. A built image's audit confirms them, with `/etc/X11/xkb` (`xkb-data`'s keyboard layouts, which xkbcommon reads) and `/etc/X11/Xsession.d` (`dbus-user-session`'s snippet for X sessions, which nothing runs), and nothing else; `scripts/check-image-contents.py` reports them as residue and `--gate` refuses them.
 
 ### Accounts and login
 
@@ -59,27 +68,78 @@ Device and seat delegation for the future compositor belongs to the session auth
 | `includes.chroot_after_packages/etc/plymouth/plymouthd.conf` | The boot logo: theme `oxyos`, no show delay, `DeviceScale=1` ([ADR 0017](./adr/0017-boot-logo)). Replaces `plymouth`'s conffile after the packages; live-build's `update-initramfs` in `chroot_hacks` then puts the theme in the initramfs. |
 | `includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/` | The Plymouth script theme: the session's splash, the Oxy mark on black, drawn by `tools/oxyos-boot-logo` from the session's own code (regenerate it with `cargo run -p oxyos-boot-logo -- <this directory>`; `cargo test` fails when it is stale), and a passphrase field. |
 | `includes.chroot_after_packages/usr/share/X11/locale/` | The compose tables the compositor's keyboard composes dead keys with (`crates/oxyos-input`): `compose.dir`, `locale.alias` and the 16 UTF-8 tables they name, copied unchanged from Debian's `libx11-data` 2:1.8.12-1 (MIT, `usr/share/doc/oxyos-compose-tables/copyright`). The package itself is not installed. These are data files at the directory xkbcommon reads by default, with no X11 code. |
-| `includes.chroot_after_packages/usr/lib/oxyos/apt-setup` + unit | First boot: rewrites `sources.list` as deb822 `debian.sources`, then removes itself. |
+| `includes.chroot_after_packages/usr/lib/oxyos/apt-setup` + unit | Each boot of the live system, an installed system's first: rewrites `sources.list` as deb822 `debian.sources` (and drops live-build's `oxyos.list`, which would repeat the security suite), then removes itself. POSIX `sh` and executable: the check script fails an included script that is not (the first built image's boot found it failing on every boot, `203/EXEC`). |
 | `preseed/`, `includes.installer/preseed.cfg` | Firmware licence acceptance; no root login. |
 | `bootloaders/` | live-build bootloader templates and OxyOS splash artwork. |
 
 New hooks are POSIX `sh` (`set -e`, `P:` progress lines) and must pass `sh -n`; the check script runs it on every hook.
 
-## Building locally
+## Building and testing locally
 
-For configuration work only; the result is a console base system, not OxyOS. Inside a privileged Trixie container:
+For development only: the result is the console base system, not OxyOS, and it is never published. Nothing here runs in CI; `scripts/check-image-config.py` fails a workflow that builds or publishes an image. How an image will get onto a disk, and the gate it passes first, is [ADR 0023](./adr/0023-installing-oxyos).
+
+### Building
 
 ```sh
-docker run --privileged --cap-add=ALL \
-  -v /proc:/proc -v /sys:/sys \
-  -v $PWD:/build -w /build \
-  -it --rm debian:trixie /bin/sh -c '
-    apt-get update && apt-get install -y live-build &&
-    mkdir -p .build && touch .build/config && lb build
-  '
+tools/image/build.sh            # build, then audit what was built
+tools/image/build.sh audit      # audit the newest image again
+tools/image/build.sh clean      # remove the build tree, keep the package cache
 ```
 
-`lb clean` (or `lb clean --all`) resets the build. Run the static checks before pushing:
+`build.sh` runs live-build in a privileged `debian:trixie` container (pinned by digest; `--privileged` for the chroot's mounts and device nodes), so nothing is installed on the host. The repository is mounted read-only; everything is written under `OXYOS_BUILD_DIR` (default `~/oxyos-build`; not `/tmp`, which is often RAM and a build needs several GB):
+
+| Path | What |
+| --- | --- |
+| `build/` | live-build's tree, a fresh copy of `config/` each build; `build/cache/` keeps the downloaded packages and the bootstrap stage between builds (`OXYOS_FRESH=1` drops them) |
+| `out/oxyos-base-<version>-<commit>-amd64.iso` | the image; *base* because it is the console base. `.packages` (every package and version installed), `.build-info` (commit, `SOURCE_DATE_EPOCH`, live-build's and debootstrap's versions, the container), `.iso.sha256`, `build.log` |
+| `audit/<image>/` | what the audit extracted |
+| `acceptance/<image>/<firmware>/` | the acceptance tests' screens, serial logs and results |
+
+What is pinned: the container image, live-build (`LIVE_BUILD_VERSION` in `tools/image/container.sh`: another version may build another image from the same configuration, so the build stops rather than use it), the configuration by commit (`-dirty` when `config/` or `tools/image/` has uncommitted changes) and `SOURCE_DATE_EPOCH`, the commit's time. Debian's packages come from the archive at build time; `.packages` records what was resolved. `build.sh` uses `docker`, or `sudo -n docker` when only that works; `DOCKER` overrides it.
+
+### Contents audit
+
+`scripts/check-image-contents.py` audits the built artifact, not the configuration (that is `check-image-config.py`, whose list of forbidden packages it shares). `build.sh audit` extracts from the image, in the container: the live root's dpkg database (`status`, each package's file list, the diversions), the list of every file with its size, the ISO's files, the initramfs's file list and its Plymouth configuration, and the files `config/` includes. The audit then fails when:
+
+- an installed package is a display server, Wayland compositor, greeter, toolkit runtime or desktop application, or a file is one (`Xorg`, `Xwayland`, `libwayland-server`, `libgtk-3`, `libQt6*`, session directories), whatever put it there;
+- a package is neither in the manifest nor in its dependency closure (Pre-Depends, Depends, Recommends) from what live-build installs itself (debootstrap's required and important packages, the kernel, the keyring, the firmware), or a manifest package is missing;
+- a file of `includes.chroot_after_packages/` is missing or differs in the image, or `/etc/os-release` is not OxyOS's;
+- the initramfs lacks the `oxyos` theme or Plymouth's script plugin, does not select `Theme=oxyos`, or carries the label plugin.
+
+It reports the sizes (the ISO, the squashfs, what packages install, the largest packages), what live-build's firmware detection added beyond firmware, files in `/usr` no package owns, and the known residue. `--gate` also fails on the residue: that is the bar a published image clears. `--json FILE` writes the report.
+
+### Boot acceptance tests
+
+```sh
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso                       # UEFI
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firmware secureboot  # Debian's shim
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firmware bios        # SeaBIOS, isolinux
+```
+
+The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf` for UEFI: `OVMF_CODE_4M.fd`, or `OVMF_CODE_4M.secboot.fd` with `OVMF_VARS_4M.ms.fd`'s Microsoft keys for Secure Boot). KVM is used when `/dev/kvm` is usable, else TCG with longer timeouts. The display is QEMU's standard VGA (`--display virtio` for virtio-gpu) with an EDID whose preferred mode is the size under test, 1920×1200 by default, the ThinkPad's: the theme must have a `splash-WxH.png` of that size, since the mark is compared pixel for pixel. Two boots:
+
+1. **The boot logo.** At the bootloader's menu the tests press Enter, as a person would, so the command line is exactly the shipped one. From then on the screen is read over QMP (`screendump`) many times a second and each frame classified: the bootloader's picture, black, the mark (the frame equal, byte for byte, to the theme's `splash-WxH.png` centred on black), something mark-sized in the centre that differs from it, or anything else. The checks:
+   - the kernel takes the display to black, with nothing drawn;
+   - from the first black frame until the mark, every frame is black: no kernel or initramfs text, no cursor;
+   - the mark is the theme's pixels;
+   - the console's prompt follows the mark.
+2. **The system.** At the menu the default entry is edited as a person edits it (GRUB: `e`, the end of the kernel's line, `Ctrl+X`; isolinux: `Tab`) to add `console=tty0 console=ttyS0,115200`: the kernel's standard way to have a console on the serial port. Nothing is added to the image for the tests. systemd starts a getty there, and the tests log in as live-config's live user with its default password. Over the serial console they check:
+   - the boot finishes `running` (`systemctl is-system-running --wait`), not `degraded`;
+   - no failed system or user unit;
+   - journald, udevd, D-Bus, logind, NetworkManager and both gettys active, and PipeWire's sockets in the user's session;
+   - Plymouth has quit;
+   - `/etc/os-release` is OxyOS's;
+   - UEFI and the Secure Boot state match the firmware.
+
+   They record systemd's boot time (`systemd-analyze`) and its slowest units, and the boot's error-level journal.
+
+Written under `acceptance/<image>/<firmware>/`: `results.json` (each check, the boot logo's timeline with the time after Enter of each change, the command line, the boot time), the frames as small PNGs (`1-bootloader-menu`, `2-black`, `3-mark`, `5-console`, `6-console-after-boot`, and any frame that failed a check), each boot's serial log and QEMU's log. The exit status is non-zero when a check fails.
+
+The screen is read about 35 times a second (a dump and its decoding take under 10 ms with KVM): a flash shorter than that can pass unseen. What QEMU cannot show: a real panel's mode and its firmware's logo, the time the panel is dark, the passphrase field at an encrypted disk, i915's handling of the CRTC. Those stay [ADR 0017](./adr/0017-boot-logo)'s step 3, on the ThinkPad.
+
+### Static checks
+
+Run before pushing:
 
 ```sh
 python3 scripts/check-image-config.py
