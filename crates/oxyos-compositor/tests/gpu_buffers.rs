@@ -619,3 +619,117 @@ fn what_the_compositor_does_not_take_fails_the_connection() {
         );
     }
 }
+
+/// A surface destroyed while a frame of it waits for its acquire point: the frame goes with it
+/// (its buffer released, its release point signalled once its acquire point has), and the
+/// connection carries on; a buffer destroyed while a frame of it waits, the same.
+#[test]
+fn a_frame_waiting_goes_with_its_surface_or_its_buffer() {
+    if !gpu_path() {
+        return;
+    }
+    let (mut compositor, listener, socket) = compositor("destroyed");
+    compositor.offer_gpu_buffers();
+    let client = std::thread::spawn(move || {
+        let (connection, _) = connect(&socket);
+        offer(&connection);
+        let mut seen = Vec::new();
+        let node = Arc::new(RenderNode::with_timelines(None).unwrap());
+        let timeline = Timeline::create(&node).unwrap();
+        connection
+            .send_request(
+                &Request::ImportTimeline { timeline: 1 },
+                Some(timeline.export().unwrap().as_fd()),
+            )
+            .unwrap();
+        let buffers = [filled(0xffff_0000).unwrap(), filled(0xff00_ff00).unwrap()];
+        for (index, buffer) in buffers.iter().enumerate() {
+            attach(&connection, index as u64 + 1, buffer);
+        }
+        for (surface, buffer, acquire) in [(1u32, 1u64, 1u64), (2, 2, 3)] {
+            connection
+                .send_request(
+                    &Request::CreateToplevel {
+                        surface,
+                        size: Size::new(WIDTH, HEIGHT),
+                    },
+                    None,
+                )
+                .unwrap();
+            let Event::Configure { serial, .. } = until(
+                &connection,
+                &mut seen,
+                |event| matches!(event, Event::Configure { surface: told, .. } if *told == surface),
+            ) else {
+                unreachable!()
+            };
+            for request in [
+                Request::SetSync {
+                    surface,
+                    acquire_timeline: 1,
+                    acquire_point: acquire,
+                    release_timeline: 1,
+                    release_point: acquire + 1,
+                },
+                Request::Submit {
+                    surface,
+                    sequence: u64::from(surface),
+                    buffer,
+                    configure: serial,
+                    extent: Size::new(WIDTH, HEIGHT),
+                },
+            ] {
+                connection.send_request(&request, None).unwrap();
+            }
+        }
+        // The first surface goes, the second's buffer goes.
+        connection
+            .send_request(&Request::Destroy { surface: 1 }, None)
+            .unwrap();
+        connection
+            .send_request(&Request::DestroyBuffer { buffer: 2 }, None)
+            .unwrap();
+        for buffer in [1, 2] {
+            until(
+                &connection,
+                &mut seen,
+                |event| matches!(event, Event::Released { buffer: told, .. } if *told == buffer),
+            );
+        }
+        assert!(
+            !seen
+                .iter()
+                .any(|event| matches!(event, Event::ProtocolError { .. })),
+            "{seen:?}"
+        );
+        timeline.signal(3).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while timeline.signalled().unwrap() < 4 {
+            assert!(
+                Instant::now() < deadline,
+                "the release points never signalled"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // Still connected: a request answered.
+        connection
+            .send_request(
+                &Request::CreateToplevel {
+                    surface: 3,
+                    size: Size::new(WIDTH, HEIGHT),
+                },
+                None,
+            )
+            .unwrap();
+        until(&connection, &mut seen, |event| {
+            matches!(event, Event::Configure { surface: 3, .. })
+        });
+    });
+    serve_until(
+        &mut compositor,
+        &listener,
+        |_| client.is_finished(),
+        |_| "the client finishing".into(),
+    );
+    client.join().unwrap();
+}

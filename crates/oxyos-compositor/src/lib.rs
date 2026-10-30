@@ -1088,6 +1088,7 @@ impl Compositor {
                 | Request::SetSync { .. }
                 | Request::Submit { .. }
                 | Request::DestroyBuffer { .. }
+                | Request::Destroy { .. }
         ) {
             match self.receive_gpu(client, request, fd) {
                 Some(Ok(())) => return self.retire(),

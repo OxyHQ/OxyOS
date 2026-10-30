@@ -406,6 +406,15 @@ impl Compositor {
                     }
                     self.supersede(key(surface), waiting);
                 }
+                // A buffer waiting on another surface is in use, as one shown is.
+                if self
+                    .gpu_buffers
+                    .waiting
+                    .iter()
+                    .any(|(held, waiting)| held.client == client && waiting.buffer == buffer)
+                {
+                    return Some(Err(ErrorCode::InvalidBuffer));
+                }
                 if self.gpu_buffers.failed.contains(&(client, buffer)) {
                     // A buffer the compositor could not import is never shown (decision 3).
                     self.send_to(
@@ -437,7 +446,12 @@ impl Compositor {
                         .insert((client, buffer), points.release);
                 }
                 if points.acquire.0 != 0 {
-                    let timeline = &self.gpu_buffers.timelines[&(client, points.acquire.0)];
+                    // Destroyed since SetSync named it.
+                    let Some(timeline) =
+                        self.gpu_buffers.timelines.get(&(client, points.acquire.0))
+                    else {
+                        return Some(Err(ErrorCode::InvalidMessage));
+                    };
                     let signalled = timeline
                         .signalled()
                         .is_ok_and(|latest| latest >= points.acquire.1);
@@ -464,6 +478,30 @@ impl Compositor {
                 if self.gpu_buffers.failed.remove(&(client, buffer)) =>
             {
                 Some(Ok(()))
+            }
+            // A buffer destroyed while a frame of it waits: the frame goes, and the scene ends
+            // the buffer as it ends any.
+            Request::DestroyBuffer { buffer } => {
+                let held: Vec<SurfaceKey> = self
+                    .gpu_buffers
+                    .waiting
+                    .iter()
+                    .filter(|(held, waiting)| held.client == client && waiting.buffer == buffer)
+                    .map(|(held, _)| *held)
+                    .collect();
+                for held in held {
+                    let waiting = self.gpu_buffers.waiting.remove(&held).expect("listed");
+                    self.supersede(held, waiting);
+                }
+                None
+            }
+            // A surface destroyed while a frame of it waits: the frame goes with it.
+            Request::Destroy { surface } => {
+                self.gpu_buffers.points.remove(&key(surface));
+                if let Some(waiting) = self.gpu_buffers.waiting.remove(&key(surface)) {
+                    self.supersede(key(surface), waiting);
+                }
+                None
             }
             _ => None,
         }
