@@ -215,9 +215,20 @@ impl Session {
             }
         }
         let Some(launcher) = self.launcher.as_mut() else {
+            // Nothing to start a notification's application with (ADR 0026).
+            for id in self.compositor.scene.take_notification_launches() {
+                self.compositor.scene.notification_launch_failed(&id);
+            }
             return;
         };
         launcher.reap();
+        // A notification pressed while its application ran nowhere (ADR 0026).
+        for id in self.compositor.scene.take_notification_launches() {
+            if let Err(error) = launcher.launch(&id) {
+                eprintln!("[launch] {error}");
+                self.compositor.scene.notification_launch_failed(&id);
+            }
+        }
         for request in self.compositor.scene.take_launches() {
             let launched = match launcher.launch(&request.id) {
                 Ok(_) => true,

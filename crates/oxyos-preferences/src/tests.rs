@@ -19,6 +19,25 @@ fn the_defaults_are_what_nothing_says() {
     assert_eq!(defaults.accent, "oxy");
     assert_eq!(defaults.lock_after, 5);
     assert!(defaults.clock_24h && !defaults.reduce_motion && !defaults.screen_reader);
+    // Notifications show as banners, and the lock screen says only whose they are.
+    assert!(!defaults.do_not_disturb);
+    assert_eq!(defaults.notification_previews, Previews::Unlocked);
+}
+
+#[test]
+fn notifications_previews_are_always_or_once_unlocked() {
+    let mut preferences = Preferences::default();
+    assert_eq!(
+        preferences.set("notification_previews", "never"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(
+        preferences.set("do_not_disturb", "on"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(preferences, Preferences::default());
+    assert_eq!(preferences.set("notification_previews", "always"), Ok(()));
+    assert_eq!(preferences.notification_previews, Previews::Always);
 }
 
 #[test]
@@ -94,6 +113,8 @@ fn what_is_written_reads_back_the_same() {
         ("lock_after", "15"),
         ("screen_reader", "true"),
         ("clock_24h", "false"),
+        ("do_not_disturb", "true"),
+        ("notification_previews", "always"),
     ] {
         preferences.set(key, value).unwrap();
         assert_eq!(preferences.get(key).as_deref(), Some(value));

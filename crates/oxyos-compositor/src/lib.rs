@@ -848,6 +848,9 @@ impl Compositor {
     }
 
     pub fn receive(&mut self, client: ClientId) {
+        // What notifications' rate is measured on (ADR 0026).
+        let now = self.now();
+        self.scene.set_clock(now);
         let Some(peer) = self.peers.get_mut(&client) else {
             return;
         };
@@ -2837,6 +2840,9 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         Event::MenuItemActivated { surface, .. } => (surface, "menu.activated"),
         // Asked to close a window: the shell's, the close bubble's or Super+W's (ADR 0024).
         Event::CloseRequested { surface } => (surface, "close.requested"),
+        // The person pressed one of its notifications, or an action of one (ADR 0026): of no
+        // surface.
+        Event::NotificationResponse { .. } => (0, "notification.response"),
         _ => return None,
     })
 }

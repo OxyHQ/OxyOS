@@ -6796,6 +6796,7 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 mod controls;
 /// The menu bar (ADR 0021).
 mod menus;
+mod notifications;
 mod shortcuts;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 

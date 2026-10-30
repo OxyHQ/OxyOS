@@ -84,6 +84,8 @@ impl Scene {
             self.shell_windows
                 .applications
                 .insert(client, id.to_string());
+            // Started for a notification's response (ADR 0026): it is given it now.
+            self.deliver_pending_responses(client, id);
         }
     }
 
@@ -186,14 +188,7 @@ impl Scene {
         match request {
             Request::FocusWindow { window: number } => {
                 if let Some(key) = window(self, number) {
-                    let node = &self.nodes[&key];
-                    let (workspace, hidden) = (node.workspace, node.hidden);
-                    self.activate_workspace(workspace);
-                    if hidden {
-                        self.restore(key);
-                    } else {
-                        self.activate(key);
-                    }
+                    self.show_window(key);
                 }
             }
             Request::CloseWindow { window: number } => {
@@ -247,6 +242,19 @@ impl Scene {
             _ => unreachable!("only the shell's requests are passed here"),
         }
         Ok(())
+    }
+
+    /// Shows a window and activates it: its workspace shown, the window restored (and with it
+    /// its application's windows hidden with it).
+    pub(super) fn show_window(&mut self, key: SurfaceKey) {
+        let node = &self.nodes[&key];
+        let (workspace, hidden) = (node.workspace, node.hidden);
+        self.activate_workspace(workspace);
+        if hidden {
+            self.restore(key);
+        } else {
+            self.activate(key);
+        }
     }
 
     /// What the shell sees now: each mapped window by its number.

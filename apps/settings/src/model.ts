@@ -6,6 +6,8 @@ import type { ImageSourcePropType } from "react-native";
  * the platform (OxyOS's `OxyOSSettings`, or a fixture in the browser), never invented by the UI.
  */
 export type Appearance = "light" | "dark" | "auto";
+/** When the lock screen may show what notifications say (docs/adr/0026-notifications.mdx). */
+export type NotificationPreviews = "always" | "unlocked";
 
 /** The user's preferences, as `crates/oxyos-preferences` keeps them. */
 export type Preferences = {
@@ -20,6 +22,9 @@ export type Preferences = {
   lockAfter: number;
   screenReader: boolean;
   clock24h: boolean;
+  /** Do Not Disturb: notifications are kept, none shown as a banner (docs/adr/0026-notifications.mdx). */
+  doNotDisturb: boolean;
+  notificationPreviews: NotificationPreviews;
 };
 
 export type Wallpaper = { id: string; name: string; preview?: ImageSourcePropType };
@@ -54,6 +59,8 @@ export const PREFERENCE_KEYS = {
   lockAfter: "lock_after",
   screenReader: "screen_reader",
   clock24h: "clock_24h",
+  doNotDisturb: "do_not_disturb",
+  notificationPreviews: "notification_previews",
 } as const satisfies Record<keyof Preferences, string>;
 
 /**

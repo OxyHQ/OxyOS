@@ -16,6 +16,7 @@
 #include "network.h"
 #include "popup.h"
 #include "safe-area.h"
+#include "notifications.h"
 #include "shell-state.h"
 #include "shell-surface.h"
 #include "svg.h"
@@ -719,6 +720,9 @@ int main(int argc, char** argv) {
           },
       };
     }
+    // The Control Center's preference changes (the appearance, Do Not Disturb), numbered together:
+    // each PREFERENCE_RESULT names one.
+    uint32_t controlSerial = 0;
     if (shellMode) {
       services.shell = {
           .state = [&shellState] { return shellState.state(); },
@@ -753,11 +757,78 @@ int main(int argc, char** argv) {
                 oxyos::Report::get().input("control.wifi", 0, folly::dynamic::object("enabled", enabled));
                 window->setWifiEnabled(enabled);
               },
-          .setAppearance = [&window, serial = uint32_t{0}](bool dark) mutable {
+          .setAppearance = [&window, &controlSerial](bool dark) {
             oxyos::Report::get().input("control.appearance", 0, folly::dynamic::object("dark", dark));
-            window->setAppearance(++serial, dark);
+            window->setAppearance(++controlSerial, dark);
           },
           .refreshControls = [&window] { window->refreshControls(); },
+          // A notification pressed in a banner or the Notification Center (ADR 0026), citing the
+          // press (or key) it was pressed with.
+          .activateNotification = [&window, &lastPress](uint32_t notification, uint8_t action,
+                                                         const std::string& reply) {
+            window->activateNotification(notification, action, lastPress, reply);
+            oxyos::Report::get().input("notification.activate", 0,
+                                       folly::dynamic::object("notification", notification)("action", action));
+          },
+          .removeNotification = [&window](uint32_t notification) { window->withdrawNotification(notification); },
+          // Do Not Disturb, the Control Center's (docs/adr/0026-notifications.mdx): a preference
+          // change as the appearance's, numbered with them.
+          .setDoNotDisturb = [&window, &controlSerial](bool enabled) {
+            oxyos::Report::get().input("control.do_not_disturb", 0, folly::dynamic::object("enabled", enabled));
+            window->setDoNotDisturb(++controlSerial, enabled);
+          },
+          .announce = [&window](const std::string& text, bool polite) {
+            window->announce(oxyos::Window::kToplevel, polite ? OXYOS_POLITE : OXYOS_ASSERTIVE, text);
+          },
+      };
+    }
+    // An application's notifications (docs/adr/0026-notifications.mdx), expo-notifications' on
+    // OxyOS: the content the adapter gives, posted as its serial, and the responses the session
+    // gives, kept until JavaScript takes them.
+    oxyos::NotificationTexts notificationTexts;
+    if (!shellMode && window) {
+      services.notifications.post = [&window](uint32_t serial, const folly::dynamic& content) {
+        auto text = [&](const folly::dynamic& object, const char* key) {
+          auto value = object.get_ptr(key);
+          return value && value->isString() ? value->getString() : std::string();
+        };
+        // The strings live until the call returns.
+        std::vector<std::string> strings;
+        strings.reserve(5 + 3 * 8);
+        auto keep = [&](std::string value) { return strings.emplace_back(std::move(value)).c_str(); };
+        std::vector<OxyOSNotificationAction> actions;
+        if (auto list = content.get_ptr("actions"); list && list->isArray()) {
+          for (const auto& action : *list) {
+            if (actions.size() == 8) break;
+            auto reply = action.get_ptr("reply");
+            auto background = action.get_ptr("background");
+            actions.push_back(OxyOSNotificationAction{
+                .id = keep(text(action, "id")),
+                .label = keep(text(action, "label")),
+                .reply = reply && reply->isString() ? keep(reply->getString()) : nullptr,
+                .background = background && background->isBool() && background->getBool(),
+            });
+          }
+        }
+        auto banner = content.get_ptr("banner");
+        OxyOSNotification notification{
+            .identifier = keep(text(content, "identifier")),
+            .title = keep(text(content, "title")),
+            .subtitle = keep(text(content, "subtitle")),
+            .body = keep(text(content, "body")),
+            .data = keep(text(content, "data")),
+            .actions = actions.empty() ? nullptr : actions.data(),
+            .action_count = actions.size(),
+            .banner = banner && banner->isBool() && banner->getBool(),
+        };
+        bool posted = window->postNotification(serial, notification);
+        if (!posted) std::cerr << "[host] the notification: " << oxyos_last_error() << "\n";
+        oxyos::Report::get().input("notification.post", oxyos::Window::kToplevel,
+                                   folly::dynamic::object("serial", serial)("sent", posted));
+        return posted;
+      };
+      services.notifications.withdraw = [&window](uint32_t notification) {
+        window->withdrawNotification(notification);
       };
     }
     window->onClipboardChanged([&instance, &window] {
@@ -823,6 +894,8 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> menuChoices;
         std::vector<OxyOSEvent> systemShortcuts;
         std::vector<OxyOSEvent> bezels;
+        std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
+        bool responded = false;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
@@ -834,6 +907,22 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_CONTROL_LEVEL && (event.flag & OXYOS_CONTROL_BEZEL)) {
                 bezels.push_back(event);
+              }
+              // An application's notifications (ADR 0026): what came of a post, the responses
+              // (their texts first) and those no longer kept.
+              if (!shellMode) {
+                notificationTexts.observe(event);
+                if (event.kind == OXYOS_EVENT_NOTIFICATION_RESULT) notificationResults.push_back(event);
+                if (event.kind == OXYOS_EVENT_NOTIFICATION_REMOVED) {
+                  notificationTexts.forget(event.code);
+                  notificationsRemoved.push_back(event);
+                }
+                if (event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE) {
+                  auto response = oxyos::notificationResponse(event, notificationTexts.take(event.code));
+                  oxyos::Report::get().input("notification.response", 0, response);
+                  services.notifications.responses.push_back(std::move(response));
+                  responded = true;
+                }
               }
               if (event.kind == OXYOS_EVENT_FOCUS) {
                 if (event.flag) {
@@ -878,7 +967,9 @@ int main(int argc, char** argv) {
                   // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
                   event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
                   // So is a system shortcut the shell shows: the search's field may cite it.
-                  event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) {
+                  event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ||
+                  // And a notification the person pressed (ADR 0026): its response may copy.
+                  event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE) {
                 lastPress = event.serial;
               }
               report(event);
@@ -966,6 +1057,22 @@ int main(int argc, char** argv) {
         if (shellChanged) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellChanged", shellState.state()));
+        }
+        // An application's notifications (ADR 0026): what came of its posts, those no longer kept,
+        // and that responses wait (JavaScript takes them, each once).
+        for (const auto& result : notificationResults) {
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSNotificationResult", oxyos::notificationResult(result)));
+        }
+        for (const auto& removed : notificationsRemoved) {
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSNotificationRemoved", folly::dynamic::object("notification", removed.code)));
+        }
+        if (responded) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSNotificationResponse", folly::dynamic::object()));
         }
         // Whether the applications the shell asked for were started (ADR 0013).
         for (const auto& result : launchResults) {

@@ -34,6 +34,24 @@ impl Appearance {
     }
 }
 
+/// Where the lock screen shows what notifications say (ADR 0026), as a Mac's *Show previews*:
+/// always, or only once the session is unlocked (it then shows how many each application has).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Previews {
+    Always,
+    #[default]
+    Unlocked,
+}
+
+impl Previews {
+    fn name(self) -> &'static str {
+        match self {
+            Previews::Always => "always",
+            Previews::Unlocked => "unlocked",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub appearance: Appearance,
@@ -51,6 +69,11 @@ pub struct Preferences {
     /// The screen reader is on when the session starts (ADR 0014).
     pub screen_reader: bool,
     pub clock_24h: bool,
+    /// Do Not Disturb (ADR 0026): notifications are kept in the Notification Center and shown as
+    /// no banner, and the screen reader says none.
+    pub do_not_disturb: bool,
+    /// What the lock screen shows of notifications.
+    pub notification_previews: Previews,
 }
 
 impl Default for Preferences {
@@ -64,6 +87,8 @@ impl Default for Preferences {
             lock_after: 5,
             screen_reader: false,
             clock_24h: true,
+            do_not_disturb: false,
+            notification_previews: Previews::default(),
         }
     }
 }
@@ -96,6 +121,8 @@ pub const KEYS: &[&str] = &[
     "lock_after",
     "screen_reader",
     "clock_24h",
+    "do_not_disturb",
+    "notification_previews",
 ];
 
 fn boolean(value: &str) -> Result<bool, Refused> {
@@ -152,6 +179,14 @@ impl Preferences {
             }
             "screen_reader" => self.screen_reader = boolean(value)?,
             "clock_24h" => self.clock_24h = boolean(value)?,
+            "do_not_disturb" => self.do_not_disturb = boolean(value)?,
+            "notification_previews" => {
+                self.notification_previews = match value {
+                    "always" => Previews::Always,
+                    "unlocked" => Previews::Unlocked,
+                    _ => return Err(Refused::BadValue),
+                }
+            }
             _ => return Err(Refused::UnknownKey),
         }
         Ok(())
@@ -168,6 +203,8 @@ impl Preferences {
             "lock_after" => self.lock_after.to_string(),
             "screen_reader" => self.screen_reader.to_string(),
             "clock_24h" => self.clock_24h.to_string(),
+            "do_not_disturb" => self.do_not_disturb.to_string(),
+            "notification_previews" => self.notification_previews.name().to_owned(),
             _ => return None,
         })
     }

@@ -1,5 +1,5 @@
 {
-  "about": "OxyOS's Settings (apps/settings, sample/SettingsApp.tsx) changing the session's preferences (docs/adr/0019-settings.mdx): granted `settings` as a session grants an administrator's entry, it reads every preference as kept and asks the session for a change, which the session validates, keeps in the preferences file and tells every application. Choosing Dark: the session tells the application it draws dark, and Bloom draws Settings dark at once (React Native's Appearance, no restart); Auto: dark or light from the sun where the system's time zone is; Light: light again; an accent: the session tells it and Bloom's palette follows it (the platform's `appearance` capability), the page tinted and the switch drawn in it; Reduce motion on the Accessibility page: the session tells it and the switch shows it on. The file holds the last choices. Without the grant the application keeps its changes to itself and the session is told nothing, so every step fails.",
+  "about": "OxyOS's Settings (apps/settings, sample/SettingsApp.tsx) changing the session's preferences (docs/adr/0019-settings.mdx): granted `settings` as a session grants an administrator's entry, it reads every preference as kept and asks the session for a change, which the session validates, keeps in the preferences file and tells every application. Choosing Dark: the session tells the application it draws dark, and Bloom draws Settings dark at once (React Native's Appearance, no restart); Auto: dark or light from the sun where the system's time zone is; Light: light again; an accent: the session tells it and Bloom's palette follows it (the platform's `appearance` capability), the page tinted and the switch drawn in it; Reduce motion on the Accessibility page: the session tells it and the switch shows it on; on the Notifications page (docs/adr/0026-notifications.mdx), Do Not Disturb on and Show previews: Always, each kept by the session. The file holds the last choices. Without the grant the application keeps its changes to itself and the session is told nothing, so every step fails.",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -127,13 +127,107 @@
           "874,165": "#006eaf"
         }
       }
+    },
+    {
+      "name": "Notifications (ADR 0026): its page shows Do Not Disturb and the lock screen's previews as the session keeps them",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Notifications"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Do Not Disturb",
+          "Show previews",
+          "Always",
+          "When unlocked"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Do Not Disturb",
+              "state": []
+            },
+            {
+              "name": "When unlocked",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "name": "Always",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Do Not Disturb's switch on: the session keeps it (the shell would show no banner)",
+      "do": [
+        "press",
+        [
+          890,
+          100
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Do Not Disturb",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "pixels": {
+          "874,100": "#006eaf"
+        }
+      }
+    },
+    {
+      "name": "Show previews: Always, kept by the session",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Always"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "name": "Always",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "name": "When unlocked",
+              "state": []
+            }
+          ]
+        }
+      }
     }
   ],
   "final": {
     "preferences_file": {
       "appearance": "light",
       "accent": "blue",
-      "reduce_motion": "true"
+      "reduce_motion": "true",
+      "do_not_disturb": "true",
+      "notification_previews": "always"
     }
   }
 }

@@ -421,6 +421,64 @@ std::shared_ptr<TurboModule> createHostModule(
                                       number(rt, args, count, 2));
       return jsi::Value::undefined();
     });
+    // Notifications (docs/adr/0026-notifications.mdx): (notification, action, reply) pressed, and
+    // (notification) removed, 0 for all.
+    module->method("activateNotification", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                       size_t count) {
+      ready(rt);
+      std::string reply = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
+      services.shell.activateNotification(number(rt, args, count, 0), static_cast<uint8_t>(number(rt, args, count, 1)),
+                                          reply);
+      return jsi::Value::undefined();
+    });
+    module->method("setDoNotDisturb", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      services.shell.setDoNotDisturb(count > 0 && args[0].isBool() && args[0].getBool());
+      return jsi::Value::undefined();
+    });
+    module->method("removeNotification", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                     size_t count) {
+      ready(rt);
+      services.shell.removeNotification(number(rt, args, count, 0));
+      return jsi::Value::undefined();
+    });
+    // (text, polite): to assistive technologies, after what they are saying or at once.
+    module->method("announce", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count > 0 && args[0].isString()) {
+        services.shell.announce(args[0].asString(rt).utf8(rt), count > 1 && args[1].isBool() && args[1].getBool());
+      }
+      return jsi::Value::undefined();
+    });
+    module->listeners();
+  } else if (name == "OxyOSNotifications") {
+    // An application's notifications, behind expo-notifications (sample/oxyos/expo-adapter.js,
+    // docs/adr/0026-notifications.mdx): posting, withdrawing, and the responses the session gave.
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.notifications.post) {
+        throw jsi::JSError(rt, "OxyOSNotifications: notifications need a connection to the compositor on OxyOS");
+      }
+    };
+    module->method("post", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 2 || !args[0].isNumber() || !args[1].isObject()) {
+        throw jsi::JSError(rt, "OxyOSNotifications.post: a serial and the notification");
+      }
+      return jsi::Value(services.notifications.post(static_cast<uint32_t>(args[0].asNumber()),
+                                                    jsi::dynamicFromValue(rt, args[1])));
+    });
+    module->method("withdraw", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      services.notifications.withdraw(count > 0 && args[0].isNumber() ? static_cast<uint32_t>(args[0].asNumber()) : 0);
+      return jsi::Value::undefined();
+    });
+    // Each response once: taken, it is JavaScript's.
+    module->method("takeResponses", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      folly::dynamic taken = folly::dynamic::array();
+      for (auto& response : services.notifications.responses) taken.push_back(std::move(response));
+      services.notifications.responses.clear();
+      return jsi::valueFromDynamic(rt, taken);
+    });
     module->listeners();
   } else if (name == "OxyOSWindow") {
     // The application's own window (sample/oxyos/platform-surface.js, docs/adr/0016-windows.mdx).

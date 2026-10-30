@@ -88,6 +88,7 @@ Input semantics:
 - **Preferences** ([ADR 0019](./adr/0019-settings)): every client is told the preferences it draws with (`Preferences`: dark, reduce motion, reduce transparency, the accent) when it connects and whenever they change. A client granted `settings` (by its launch record, never by a request) is told every preference as kept (`Preference`, `key=value` in chunks) and changes one with `SetPreference`, answered by `PreferenceResult`; any other client that asks is closed (`Unauthorized`).
 - **System shortcuts** ([ADR 0024](./adr/0024-system-shortcuts)): Super, and every key pressed while it is held, is the system's: no application or input method receives it, press, release or text, and while locked none acts. Keys are matched by their place (Linux key codes). The compositor acts on the active window itself (Super+W its close request, Super+Q every window of its application, Super+M, Super+H hiding the application until it is activated, Super+\` its next window, Super+Ctrl+F full screen); the application switcher (Super+Tab while Super is held) and the search (Super+Space) are sent to the shell of the active window's output, granted `shortcuts`, as `SystemShortcut` commands with a serial of its own. The shell is told each window's latest activation and whether it is hidden (`WindowUse`), hides and quits applications by a window (`HideApplication`, `QuitApplication`), and may focus its own panel or overlay citing an input it received (`FocusShellSurface`).
 - **Hardware keys and the Control Center** ([ADR 0025](./adr/0025-hardware-keys-and-control-center)): the volume, mute, microphone, display brightness and keyboard backlight keys (Linux key codes 113–115, 224, 225, 228–230, 248) are the system's, taken before the system shortcuts, the input method and every application, press and release, with any modifier and while locked; each press goes to the session, which acts on the machine. A client granted `shell` is told each level (`ControlLevel`: 0 to 65536, muted, available; `bezel` to the shell of the output in front for a key), the battery (`Power`), the network (`Network`, its SSID in one chunk) and Bluetooth (`Bluetooth`) when it connects and as they change, and asks for a level (`SetControlLevel`), a mute (`SetControlMuted`), Wi-Fi (`SetWifiEnabled`), the appearance (`SetAppearance`, a change of the `appearance` preference answered by `PreferenceResult`) and a fresh look (`RefreshControls`); none is taken while locked but the last, and any other client asking is closed (`Unauthorized`).
+- **Notifications** ([ADR 0026](./adr/0026-notifications)): an application posts one as its own serial, its texts in chunks (`NotificationText`: identifier, title, subtitle, body, data, each action's id, label and reply placeholder) then `PostNotification`, answered by `NotificationResult` (posted with the session's number for it, refused, throttled). Only a client whose process the session started is an application: the notification is its launch record's, never its claim. The session keeps them, at most 32 an application and 256 in all, 5 an application in any 10 seconds. A client granted `shell` is told each (`NotificationText`s, its application among them, then `Notification`: whether to show it as a banner now, its actions, its age, whether its texts are withheld while locked), their removal (`NotificationRemoved`) and the policy (`NotificationPolicy`: Do Not Disturb, previews on the lock screen); it removes them (`WithdrawNotification`) and activates one or an action citing an input it received (`ActivateNotification`, with a reply in chunks before it, `NotificationReply`). From its Control Center it turns Do Not Disturb on or off (`SetDoNotDisturb`), a change of the user's preference answered by a `PreferenceResult`, as `SetAppearance` is. The application gets one `NotificationResponse` after the notification's texts, the chosen action's id and the reply; its windows come forward, and the session starts it first if none of its clients runs.
 - **The menu bar** ([ADR 0021](./adr/0021-menu-bar)): a toplevel's menus go as one message in chunks, as an accessibility snapshot does (`MenusBegin` with a serial above the window's last, `MenuItem`s in order with parents first, a menu of the bar having none, `MenuText` chunks for labels and shortcuts, `MenusCommit`), replacing the last. Limits are 256 entries, nesting 4 deep, 128 bytes per label and 32 per shortcut, with closed sets of kinds and flags. A client granted `shell` is told the active window's menus (`MenuBar` … `MenuBarCommitted`, window 0 for none) whenever they or the active window change; it chooses a command by the window, the commit's serial and the command's index, and the compositor sends `MenuItemActivated` to the window's client only if that window is still active, that commit is still its menus and the index is an enabled command.
 - **Accessibility** ([ADR 0003](./adr/0003-accessibility-protocol)):
   - **Publishing:** an application publishes one snapshot per surface (`AccessibilityBegin`, `AccessibleNode`s in reading order with parents first, `AccessibleText` chunks for names and values, then `AccessibilityCommit`). Limits are 4096 nodes and 1024 bytes per text, with closed sets of roles and states.
@@ -174,6 +175,12 @@ Input semantics:
 | Request | 122 | SetWifiEnabled | 2 |
 | Request | 123 | SetAppearance | 6 |
 | Request | 124 | RefreshControls | 1 |
+| Request | 130 | NotificationText | 42 |
+| Request | 131 | PostNotification | 7 |
+| Request | 132 | WithdrawNotification | 5 |
+| Request | 133 | NotificationReply | 40 |
+| Request | 134 | ActivateNotification | 14 |
+| Request | 135 | SetDoNotDisturb | 6 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 35 |
 | Event | 3 | PopupDone | 6 |
@@ -242,6 +249,12 @@ Input semantics:
 | Event | 111 | Power | 8 |
 | Event | 112 | Network | 37 |
 | Event | 113 | Bluetooth | 3 |
+| Event | 120 | NotificationResult | 10 |
+| Event | 121 | NotificationText | 42 |
+| Event | 122 | Notification | 12 |
+| Event | 123 | NotificationResponse | 14 |
+| Event | 124 | NotificationRemoved | 5 |
+| Event | 125 | NotificationPolicy | 3 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 

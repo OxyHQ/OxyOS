@@ -169,6 +169,7 @@ export function TopBar({
   onCommand,
   controls,
   controlCenter,
+  clock,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -182,6 +183,8 @@ export function TopBar({
   controls?: ShellControls;
   /** Opens the Control Center, or closes it. */
   controlCenter: () => void;
+  /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
+  clock?: () => void;
 }) {
   const battery = batteryLabel(controls?.power);
   const wifi = wifiLabel(controls?.network);
@@ -295,14 +298,23 @@ export function TopBar({
           colors={{ background: "transparent", foreground: "#fff" }}
           onPress={controlCenter}
         />
-        <Text className="ml-1 text-[12px] leading-4 font-normal text-white">
-          {now.toLocaleDateString("es", {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-          })}{" "}
-          {now.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
-        </Text>
+        <Button
+          testID="shell-clock"
+          appearance="plain"
+          accessibilityLabel="Centro de notificaciones"
+          // Where the clock's text always was (its old `ml-1`), now pressable.
+          style={{ ...menuStyle, paddingLeft: 4, paddingRight: 0 }}
+          onPress={clock}
+        >
+          <Text className="text-[12px] leading-4 font-normal text-white">
+            {now.toLocaleDateString("es", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            })}{" "}
+            {now.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
+          </Text>
+        </Button>
       </Box>
     </Box>
   );

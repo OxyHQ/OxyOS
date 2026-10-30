@@ -9,7 +9,9 @@
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
 //! each with the caller contract it relies on.
 
-use oxyos_client::{Accessible, Client, Field, Menu, Poll};
+use oxyos_client::{
+    Accessible, Client, Field, Menu, NotificationActionPost, NotificationPost, Poll,
+};
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Control, Event, Format,
     Gravity, MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
@@ -216,6 +218,46 @@ pub const OXYOS_SHORTCUT_SWITCHER_DONE: u32 = 5;
 pub const OXYOS_SHORTCUT_SWITCHER_CANCEL: u32 = 6;
 pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
 
+/// Notifications (docs/adr/0026-notifications.mdx). To the application that posted one: what came
+/// of it (code: the session's number for it, 0 unless posted; detail: OXYOS_NOTIFICATION_POSTED,
+/// _REFUSED, _THROTTLED; width: the post's serial).
+pub const OXYOS_EVENT_NOTIFICATION_RESULT: u32 = 120;
+/// A chunk of a notification's text (code: the notification; height: OXYOS_NOTIFICATION_FIELD_*;
+/// width: the action it is of, from 1, else 0; detail: the chunk's index, 0 begins it; flag: the
+/// last), to the shell before its NOTIFICATION, to the application before its response.
+pub const OXYOS_EVENT_NOTIFICATION_TEXT: u32 = 121;
+/// To the session's shell, after its texts (code: the notification; flag: OXYOS_NOTIFICATION_BANNER,
+/// _WITHHELD bits; width: how many actions; detail: seconds since it was posted).
+pub const OXYOS_EVENT_NOTIFICATION: u32 = 122;
+/// To the application, after its texts: the person pressed it (width 0) or its action `width`;
+/// serial: a user input of the application's.
+pub const OXYOS_EVENT_NOTIFICATION_RESPONSE: u32 = 123;
+/// To the shell and the application: the notification `code` is no longer kept.
+pub const OXYOS_EVENT_NOTIFICATION_REMOVED: u32 = 124;
+/// To the shell (flag: OXYOS_NOTIFICATIONS_DO_NOT_DISTURB, _PREVIEWS bits).
+pub const OXYOS_EVENT_NOTIFICATION_POLICY: u32 = 125;
+/// A NOTIFICATION_RESULT's `detail`, the protocol's `NotificationOutcome`.
+pub const OXYOS_NOTIFICATION_POSTED: u32 = 1;
+pub const OXYOS_NOTIFICATION_REFUSED: u32 = 2;
+pub const OXYOS_NOTIFICATION_THROTTLED: u32 = 3;
+/// A NOTIFICATION_TEXT's `height`, the protocol's `NotificationField`.
+pub const OXYOS_NOTIFICATION_FIELD_IDENTIFIER: u32 = 1;
+pub const OXYOS_NOTIFICATION_FIELD_TITLE: u32 = 2;
+pub const OXYOS_NOTIFICATION_FIELD_SUBTITLE: u32 = 3;
+pub const OXYOS_NOTIFICATION_FIELD_BODY: u32 = 4;
+pub const OXYOS_NOTIFICATION_FIELD_DATA: u32 = 5;
+pub const OXYOS_NOTIFICATION_FIELD_ACTION_ID: u32 = 6;
+pub const OXYOS_NOTIFICATION_FIELD_ACTION_LABEL: u32 = 7;
+pub const OXYOS_NOTIFICATION_FIELD_ACTION_REPLY: u32 = 8;
+pub const OXYOS_NOTIFICATION_FIELD_APPLICATION: u32 = 9;
+pub const OXYOS_NOTIFICATION_FIELD_REPLY: u32 = 10;
+/// A NOTIFICATION's `flag` bits.
+pub const OXYOS_NOTIFICATION_BANNER: u8 = 1;
+pub const OXYOS_NOTIFICATION_WITHHELD: u8 = 2;
+/// A NOTIFICATION_POLICY's `flag` bits.
+pub const OXYOS_NOTIFICATIONS_DO_NOT_DISTURB: u8 = 1;
+pub const OXYOS_NOTIFICATIONS_PREVIEWS: u8 = 2;
+
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
 pub const OXYOS_FORMAT_ARGB8888: u32 = 0x3432_5241;
@@ -306,6 +348,35 @@ pub struct OxyOSAccessibleNode {
     pub has_selection: u8,
     pub selection_start: u32,
     pub selection_end: u32,
+}
+
+/// One of a notification's actions, as `oxyos_client_post_notification` takes it (ADR 0026).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSNotificationAction {
+    /// NUL-terminated UTF-8, not empty.
+    pub id: *const c_char,
+    pub label: *const c_char,
+    /// A reply action's placeholder (NUL-terminated, may be empty); NULL for a button.
+    pub reply: *const c_char,
+    /// It answers without bringing the application forward.
+    pub background: bool,
+}
+
+/// A notification an application posts (ADR 0026). Texts are NUL-terminated UTF-8, NULL or empty
+/// for none.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSNotification {
+    pub identifier: *const c_char,
+    pub title: *const c_char,
+    pub subtitle: *const c_char,
+    pub body: *const c_char,
+    pub data: *const c_char,
+    pub actions: *const OxyOSNotificationAction,
+    pub action_count: usize,
+    /// Shown as a banner as it arrives, as the session allows; else only kept.
+    pub banner: bool,
 }
 
 /// One entry of a window's menus, as `oxyos_client_set_menus` takes it (ADR 0021).
@@ -785,6 +856,98 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_BLUETOOTH,
                 detail: state as u32,
                 code: u32::from(connected),
+                ..out
+            }
+        }
+        Event::NotificationResult {
+            serial,
+            notification,
+            outcome,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION_RESULT,
+                code: notification,
+                detail: outcome as u32,
+                width: serial,
+                ..out
+            }
+        }
+        Event::NotificationText {
+            notification,
+            field,
+            action,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION_TEXT,
+                code: notification,
+                height: field as u32,
+                width: action.into(),
+                detail: index.into(),
+                flag: last.into(),
+                ..out
+            }
+        }
+        Event::Notification {
+            notification,
+            banner,
+            actions,
+            age_s,
+            withheld,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION,
+                code: notification,
+                width: actions.into(),
+                detail: age_s,
+                flag: if banner { OXYOS_NOTIFICATION_BANNER } else { 0 }
+                    | if withheld {
+                        OXYOS_NOTIFICATION_WITHHELD
+                    } else {
+                        0
+                    },
+                ..out
+            }
+        }
+        Event::NotificationResponse {
+            notification,
+            action,
+            serial,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION_RESPONSE,
+                code: notification,
+                width: action.into(),
+                serial,
+                ..out
+            }
+        }
+        Event::NotificationRemoved { notification } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION_REMOVED,
+                code: notification,
+                ..out
+            }
+        }
+        Event::NotificationPolicy {
+            do_not_disturb,
+            previews,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NOTIFICATION_POLICY,
+                flag: if do_not_disturb {
+                    OXYOS_NOTIFICATIONS_DO_NOT_DISTURB
+                } else {
+                    0
+                } | if previews {
+                    OXYOS_NOTIFICATIONS_PREVIEWS
+                } else {
+                    0
+                },
                 ..out
             }
         }
@@ -1773,6 +1936,157 @@ pub unsafe extern "C" fn oxyos_client_activate_menu_item(
                 index,
             },
         )
+    }
+}
+
+/// Posts a notification as `serial` (docs/adr/0026-notifications.mdx): a NOTIFICATION_RESULT with
+/// it answers. Texts longer than the protocol allows are cut at a character; more than 3 actions,
+/// data longer than 4096 bytes, an identifier longer than 64 or an action without an id or a label
+/// is OXYOS_ERROR, and nothing is sent. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `notification` points to a valid
+/// OxyOSNotification whose strings are NULL or NUL-terminated and whose `actions` point to
+/// `action_count` entries (or NULL with 0), all valid for the duration of the call.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_post_notification(
+    client: *mut OxyOSClient,
+    serial: u32,
+    notification: *const OxyOSNotification,
+) -> c_int {
+    if notification.is_null() {
+        return fail("null notification");
+    }
+    // SAFETY: per the contract, a valid notification.
+    let notification = unsafe { &*notification };
+    let text = |pointer: *const c_char| -> Option<&str> {
+        if pointer.is_null() {
+            Some("")
+        } else {
+            // SAFETY: the caller passes NULL or NUL-terminated strings that outlive the call.
+            unsafe { CStr::from_ptr(pointer) }.to_str().ok()
+        }
+    };
+    let actions: &[OxyOSNotificationAction] = if notification.action_count == 0 {
+        &[]
+    } else if notification.actions.is_null() {
+        return fail("null notification actions");
+    } else {
+        // SAFETY: the caller passes `action_count` valid entries.
+        unsafe { std::slice::from_raw_parts(notification.actions, notification.action_count) }
+    };
+    let mut posted = Vec::with_capacity(actions.len());
+    for action in actions {
+        let (Some(id), Some(label)) = (text(action.id), text(action.label)) else {
+            return fail("a notification's action is UTF-8");
+        };
+        if id.is_empty() || label.is_empty() {
+            return fail("a notification's action has an id and a label");
+        }
+        let reply = if action.reply.is_null() {
+            None
+        } else {
+            match text(action.reply) {
+                Some(reply) => Some(reply),
+                None => return fail("a notification's action is UTF-8"),
+            }
+        };
+        posted.push(NotificationActionPost {
+            id,
+            label,
+            reply,
+            background: action.background,
+        });
+    }
+    let (Some(identifier), Some(title), Some(subtitle), Some(body), Some(data)) = (
+        text(notification.identifier),
+        text(notification.title),
+        text(notification.subtitle),
+        text(notification.body),
+        text(notification.data),
+    ) else {
+        return fail("a notification is UTF-8");
+    };
+    let post = NotificationPost {
+        identifier,
+        title,
+        subtitle,
+        body,
+        data,
+        actions: &posted,
+        banner: notification.banner,
+    };
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.post_notification(serial, &post)),
+        None => fail("null client"),
+    }
+}
+
+/// Withdraws one of the application's notifications by the session's number for it (0: every one
+/// of its own); from the session's shell, any (0: all). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_withdraw_notification(
+    client: *mut OxyOSClient,
+    notification: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::WithdrawNotification { notification }) }
+}
+
+/// The session's shell turns Do Not Disturb on or off from its Control Center
+/// (docs/adr/0026-notifications.mdx): a change of the user's `do_not_disturb` preference,
+/// answered by a PREFERENCE_RESULT with `serial`, as `oxyos_client_set_appearance`. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_do_not_disturb(
+    client: *mut OxyOSClient,
+    serial: u32,
+    enabled: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetDoNotDisturb { serial, enabled }) }
+}
+
+/// The session's shell activates the notification (`action` 0) or its action `action` (from 1),
+/// citing `serial`, an input it received; `reply` is the text typed for a reply action (`length`
+/// bytes of UTF-8, cut at a character past 1024; NULL or 0 for none). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `reply` is NULL or points to `length`
+/// readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_activate_notification(
+    client: *mut OxyOSClient,
+    notification: u32,
+    action: u8,
+    serial: u64,
+    reply: *const c_char,
+    length: usize,
+) -> c_int {
+    let reply = if reply.is_null() || length == 0 {
+        ""
+    } else {
+        // SAFETY: per the contract, `reply` points to `length` readable bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(reply.cast::<u8>(), length) };
+        match std::str::from_utf8(bytes) {
+            Ok(reply) => reply,
+            Err(_) => return fail("a reply is UTF-8"),
+        }
+    };
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.activate_notification(notification, action, serial, reply)),
+        None => fail("null client"),
     }
 }
 

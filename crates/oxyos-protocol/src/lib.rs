@@ -16,10 +16,10 @@ pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
     Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, Clock, Control, DismissReason,
-    ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints, TextPurpose,
-    TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut,
+    TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -56,6 +56,15 @@ pub const MAX_MENU_LABEL_BYTES: usize = 128;
 pub const MAX_MENU_SHORTCUT_BYTES: usize = 32;
 /// `parent` of a menu of the bar.
 pub const NO_MENU_PARENT: u32 = u32::MAX;
+/// Notifications (ADR 0026): the most actions one offers, and the most bytes of each of its texts.
+/// An action is numbered from 1 (0 is the notification itself, pressed).
+pub const MAX_NOTIFICATION_ACTIONS: usize = 3;
+pub const MAX_NOTIFICATION_IDENTIFIER_BYTES: usize = 64;
+pub const MAX_NOTIFICATION_TITLE_BYTES: usize = 256;
+pub const MAX_NOTIFICATION_BODY_BYTES: usize = 2048;
+pub const MAX_NOTIFICATION_DATA_BYTES: usize = 4096;
+pub const MAX_NOTIFICATION_ACTION_BYTES: usize = 64;
+pub const MAX_NOTIFICATION_REPLY_BYTES: usize = 1024;
 /// Most windows one shell surface shows live (`PlaceWindowView`, ADR 0022).
 pub const MAX_WINDOW_VIEWS: usize = 64;
 /// A whole level of a control (`ControlLevel`, `SetControlLevel`, ADR 0025): 65536 is all of it.

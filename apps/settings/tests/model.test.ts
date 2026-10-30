@@ -8,7 +8,9 @@ test("preferences are named as the session's file names them", () => {
     "accent",
     "appearance",
     "clock_24h",
+    "do_not_disturb",
     "lock_after",
+    "notification_previews",
     "reduce_motion",
     "reduce_transparency",
     "screen_reader",
@@ -17,6 +19,8 @@ test("preferences are named as the session's file names them", () => {
   assert.equal(preferenceText<"wallpaper">(null), "");
   assert.equal(preferenceText<"reduceMotion">(true), "true");
   assert.equal(preferenceText<"lockAfter">(15), "15");
+  assert.equal(preferenceText<"notificationPreviews">("always"), "always");
+  assert.equal(preferenceText<"doNotDisturb">(false), "false");
 });
 
 test("lock after offers never, and a day at most", () => {

@@ -1,0 +1,372 @@
+{
+  "about": "Do Not Disturb (docs/adr/0026-notifications.mdx, the user's `do_not_disturb` preference, docs/adr/0019-settings.mdx): Allo posts one now (sample/NotificationProbe.tsx) and the session keeps it, but the shell shows no banner and the screen reader says nothing. The top bar's clock opens the Notification Center, which says Do Not Disturb is on and lists it under Allo; pressing it there brings Allo forward and its response listener hears it once. Then the Control Center's No molestar switch (ADR 0025's Control Center) turns it off, through the user's preference as Dark Mode goes, kept in the file; the next notification is a banner, said. With Do Not Disturb off from the start, the banner shows and is said, so the first step fails.",
+  "module": "NotificationProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "do_not_disturb": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one now: kept, but no banner and nothing said",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted",
+          "Responses: 0"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "announcements": [],
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        },
+        "transitions": {
+          "count": 0
+        },
+        "output_pixels": {
+          "1100,100": "#487bff"
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the clock opens the Notification Center: Do Not Disturb said, Allo's notification listed",
+      "do": [
+        "press_output",
+        [
+          1215,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 0"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Notificaciones",
+            "No molestar",
+            "Allo",
+            "Ana",
+            "¿Comemos juntos?",
+            "Borrar"
+          ],
+          "absent": [
+            "No hay notificaciones"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "Centro de notificaciones"
+            },
+            {
+              "role": "Button",
+              "name": "Borrar las notificaciones de Allo"
+            },
+            {
+              "role": "Button",
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            },
+            {
+              "role": "Button",
+              "name": "Responder"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pressed there, it opens in Allo: Allo comes forward and hears it once; the center closes",
+      "do": [
+        "press_output",
+        [
+          1060,
+          160
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1",
+          "Last: default - chat 7"
+        ],
+        "react": {},
+        "delivered": {
+          "0": {
+            "notification.response": 1
+          },
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1,
+        "at_absent": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "Centro de notificaciones"
+            },
+            {
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the top bar's Control Center (ADR 0025) shows Do Not Disturb on",
+      "do": [
+        "press_output",
+        [
+          1149,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "No molestar",
+            "Activado"
+          ]
+        },
+        "output_pixels": {
+          "978,150": "#2f6fe4"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Centro de control"
+            },
+            {
+              "role": "Switch",
+              "name": "No molestar",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "its switch turns Do Not Disturb off: the user's preference, kept by the session, which tells the shell; Allo told nothing",
+      "do": [
+        "press_output",
+        [
+          990,
+          150
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1"
+        ],
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "No molestar",
+            "Desactivado"
+          ]
+        },
+        "output_pixels": {
+          "978,150": "#dde0e8"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "No molestar",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press outside closes it; Allo has the keyboard again",
+      "do": [
+        "press_output",
+        [
+          200,
+          600
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1,
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Centro de control"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Avisar again: now the banner shows, slides in and is said",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted",
+          "Responses: 1"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Allo. Ana. ¿Comemos juntos?"
+          }
+        ],
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              908,
+              0,
+              372,
+              154
+            ]
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "notification",
+              "change": "arrived",
+              "first": 0,
+              "last": 255,
+              "ended": true
+            }
+          ],
+          "count": 1
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "do_not_disturb": "false"
+    }
+  }
+}

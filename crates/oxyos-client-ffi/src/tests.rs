@@ -48,7 +48,7 @@ fn fields(name: &str) -> Vec<Field> {
             }
             let declarator = words.next()?;
             let size = match kind {
-                "uint8_t" | "char" => 1,
+                "uint8_t" | "char" | "bool" => 1,
                 "uint16_t" => 2,
                 "int32_t" | "uint32_t" | "float" => 4,
                 "uint64_t" | "int64_t" | "size_t" | "double" => 8,
@@ -3131,6 +3131,8 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
 }
 /// The menu bar (ADR 0021).
 mod menus;
+/// Notifications (ADR 0026).
+mod notifications;
 
 #[test]
 fn the_header_matches_the_system_shortcuts_abi() {

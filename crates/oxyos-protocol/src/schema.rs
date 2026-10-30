@@ -4,9 +4,10 @@
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     AuthOutcome, BatteryState, BluetoothState, Clock, Control, DismissReason, ErrorCode, Format,
-    GesturePhase, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge, PointerKind, PointerShape,
-    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind,
-    Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
+    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
+    ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints,
+    TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -229,6 +230,26 @@ messages! {
         122 => SetWifiEnabled { enabled: bool },
         123 => SetAppearance { serial: u32, dark: bool },
         124 => RefreshControls {},
+        // Notifications (ADR 0026). An application posts one as its `serial`, its own: its texts in
+        // chunks (`index` 0 begins one, `last` ends it; `action` numbers an action's from 1, 0 for
+        // the others), then PostNotification, which NotificationResult answers. `banner`: shown as
+        // it arrives, as the session's preferences allow (else only kept in the Notification
+        // Center); `background`: bit n-1 set, action n answers without bringing the application
+        // forward. Only a process the session started (its launch record) is an application.
+        130 => NotificationText { serial: u32, field: NotificationField, action: u8, index: u8, last: bool, text: PreeditText },
+        131 => PostNotification { serial: u32, banner: bool, background: u8 },
+        // An application withdraws one of its own notifications by the number the session gave it
+        // (0: every one of its own); the session's shell (its `shell` grant) removes any (0: all).
+        132 => WithdrawNotification { notification: u32 },
+        // The session's shell: the reply typed for a notification, in chunks, before the activation
+        // it goes with; and the person pressing it (`action` 0) or one of its actions, citing the
+        // input's serial, a press or a key the shell received.
+        133 => NotificationReply { notification: u32, index: u8, last: bool, text: PreeditText },
+        134 => ActivateNotification { notification: u32, action: u8, serial: u64 },
+        // The session's shell (its `shell` grant), from its Control Center: Do Not Disturb on or off,
+        // a change of the user's `do_not_disturb` preference answered as SetPreference's with a
+        // PreferenceResult naming `serial`, as SetAppearance is. While locked it is refused.
+        135 => SetDoNotDisturb { serial: u32, enabled: bool },
     }
 }
 
@@ -385,6 +406,27 @@ messages! {
         112 => Network { wifi: WifiState, signal: u8, wired: bool, ssid: PreeditText },
         // Bluetooth: its adapter's state and how many devices are connected to it.
         113 => Bluetooth { state: BluetoothState, connected: u8 },
+        // Notifications (ADR 0026). To the application that posted its `serial`: what came of it,
+        // and the number the session gave it (0 unless posted).
+        120 => NotificationResult { serial: u32, notification: u32, outcome: NotificationOutcome },
+        // A notification's texts in chunks, as the request's: to the session's shell, before its
+        // Notification; to an application, before its NotificationResponse.
+        121 => NotificationText { notification: u32, field: NotificationField, action: u8, index: u8, last: bool, text: PreeditText },
+        // To the session's shell, after its texts, as one is posted and when the shell connects:
+        // `banner`, show it now (the preferences allow it, the session is unlocked); `actions`,
+        // how many it offers; `age_s`, seconds since it was posted; `withheld`, its texts but its
+        // application's are kept from the shell while the session is locked, and told on unlock.
+        122 => Notification { notification: u32, banner: bool, actions: u8, age_s: u32, withheld: bool },
+        // To the application, after its texts (the notification's own, the chosen action's id and
+        // the reply typed): the person pressed it (`action` 0) or its action `action`. `serial` is
+        // a user input, as a key press's is. Delivered once, to one of the application's clients;
+        // the session starts the application first if none runs.
+        123 => NotificationResponse { notification: u32, action: u8, serial: u64 },
+        // To the session's shell and the application whose it was: it is no longer kept.
+        124 => NotificationRemoved { notification: u32 },
+        // To the session's shell, when it connects and whenever they change: whether Do Not
+        // Disturb silences banners, and whether the lock screen may show what notifications say.
+        125 => NotificationPolicy { do_not_disturb: bool, previews: bool },
     }
 }
 

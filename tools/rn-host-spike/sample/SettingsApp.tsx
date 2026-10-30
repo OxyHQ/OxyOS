@@ -16,6 +16,7 @@ import {
   PREFERENCE_KEYS,
   preferenceText,
   type Appearance,
+  type NotificationPreviews,
   type Preferences,
   type SettingsActions,
   type SettingsSnapshot,
@@ -38,6 +39,8 @@ const FIXTURE: SettingsSnapshot = {
     lockAfter: 5,
     screenReader: false,
     clock24h: true,
+    doNotDisturb: false,
+    notificationPreviews: 'unlocked',
   },
   wallpapers: [{ id: 'solar-gradients', name: 'Solar Gradients' }],
   system: {
@@ -64,6 +67,9 @@ function preferencesOf(values: Record<string, string>): Preferences {
     lockAfter: Number(values[PREFERENCE_KEYS.lockAfter] ?? 5),
     screenReader: flag(PREFERENCE_KEYS.screenReader),
     clock24h: flag(PREFERENCE_KEYS.clock24h),
+    doNotDisturb: flag(PREFERENCE_KEYS.doNotDisturb),
+    notificationPreviews:
+      (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
   };
 }
 

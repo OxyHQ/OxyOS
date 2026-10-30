@@ -12,6 +12,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiLockLine,
+  RiNotification3Line,
   RiPaletteLine,
 } from "@oxy.so/bloom/icons";
 import {
@@ -39,6 +40,7 @@ import {
   formatMemory,
   LOCK_AFTER_CHOICES,
   type Appearance,
+  type NotificationPreviews,
   type SettingsActions,
   type SettingsSnapshot,
 } from "./model";
@@ -198,6 +200,47 @@ function WallpaperPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
+/** Notifications (docs/adr/0026-notifications.mdx): Do Not Disturb, and when the lock screen may
+    show what notifications say, as a Mac's Notifications settings. */
+function NotificationsPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.notifications;
+  const { doNotDisturb, notificationPreviews } = snapshot.preferences;
+  return (
+    <View style={PAGE}>
+      <GroupedSection>
+        <ToggleItem
+          title={words.doNotDisturb}
+          description={words.doNotDisturbDescription}
+          value={doNotDisturb}
+          onChange={(on) => actions.setPreference("doNotDisturb", on)}
+          testID="do-not-disturb"
+        />
+      </GroupedSection>
+      <GroupedSection footer={words.previewsDescription}>
+        <GroupedSectionItem
+          title={words.previews}
+          testID="notification-previews-row"
+          rightElement={
+            <SegmentedControl<NotificationPreviews>
+              label={words.previews}
+              type="radio"
+              value={notificationPreviews}
+              onValueChange={(value) => actions.setPreference("notificationPreviews", value)}
+              testID="notification-previews"
+            >
+              {(["always", "unlocked"] as const).map((when) => (
+                <SegmentedControlItem key={when} value={when} testID={`notification-previews-${when}`}>
+                  <SegmentedControlItemText>{words[when]}</SegmentedControlItemText>
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
+          }
+        />
+      </GroupedSection>
+    </View>
+  );
+}
+
 function LockScreenPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.lockScreen;
   const items = LOCK_AFTER_CHOICES.map((minutes) => ({
@@ -325,6 +368,7 @@ export function Settings({
       items: [
         { key: "appearance", label: words.appearance, icon: RiPaletteLine, page: "appearance" },
         { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
+        { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
         { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
         { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
       ],
@@ -342,6 +386,7 @@ export function Settings({
   const pages: Record<string, SettingsModalPage> = {
     appearance: { title: words.appearance, content: <AppearancePage {...props} /> },
     wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
+    notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
     "lock-screen": { title: words.lockScreen, content: <LockScreenPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },

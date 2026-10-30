@@ -303,6 +303,35 @@ fn requests() -> Vec<Request> {
             dark: true,
         },
         Request::RefreshControls {},
+        Request::NotificationText {
+            serial: 4,
+            field: NotificationField::ActionLabel,
+            action: 2,
+            index: 1,
+            last: true,
+            text: PreeditText::new("Responder").unwrap(),
+        },
+        Request::PostNotification {
+            serial: 4,
+            banner: true,
+            background: 0b10,
+        },
+        Request::WithdrawNotification { notification: 0 },
+        Request::NotificationReply {
+            notification: 9,
+            index: 0,
+            last: true,
+            text: PreeditText::new("ahora voy").unwrap(),
+        },
+        Request::ActivateNotification {
+            notification: 9,
+            action: 1,
+            serial: 42,
+        },
+        Request::SetDoNotDisturb {
+            serial: 5,
+            enabled: true,
+        },
     ]
 }
 
@@ -635,7 +664,65 @@ fn events() -> Vec<Event> {
             state: BluetoothState::On,
             connected: 2,
         },
+        Event::NotificationResult {
+            serial: 4,
+            notification: 9,
+            outcome: NotificationOutcome::Posted,
+        },
+        Event::NotificationText {
+            notification: 9,
+            field: NotificationField::Application,
+            action: 0,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.allo").unwrap(),
+        },
+        Event::Notification {
+            notification: 9,
+            banner: true,
+            actions: 2,
+            age_s: 0,
+            withheld: false,
+        },
+        Event::NotificationResponse {
+            notification: 9,
+            action: 0,
+            serial: 43,
+        },
+        Event::NotificationRemoved { notification: 9 },
+        Event::NotificationPolicy {
+            do_not_disturb: true,
+            previews: false,
+        },
     ]
+}
+
+#[test]
+fn notification_fields_and_outcomes_are_closed_sets() {
+    assert!(NotificationField::from_raw(0).is_none());
+    assert!(NotificationField::from_raw(11).is_none());
+    assert_eq!(
+        NotificationField::from_raw(10),
+        Some(NotificationField::Reply)
+    );
+    assert!(NotificationOutcome::from_raw(0).is_none());
+    assert!(NotificationOutcome::from_raw(4).is_none());
+    // A field byte out of the set is an invalid message, not a field the receiver guesses.
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::NotificationText {
+            serial: 1,
+            field: NotificationField::Title,
+            action: 0,
+            index: 0,
+            last: true,
+            text: PreeditText::new("Hola").unwrap(),
+        },
+    )
+    .unwrap();
+    bytes[4 + 1 + 4] = 11;
+    assert!(read_request(&mut Cursor::new(bytes)).is_err());
 }
 
 #[test]

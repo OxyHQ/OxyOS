@@ -10,8 +10,9 @@ import type { StyleProp, ViewStyle } from "react-native";
  */
 export type ShellSurfaceProps = {
   /** A lock region is the lock screen: all that shows while the session is locked. A
-      notification is above everything but the lock and takes no input (a hardware key's bezel,
-      docs/adr/0025-hardware-keys-and-control-center.mdx). */
+      notification is above everything but the lock: a hardware key's bezel takes no input
+      (docs/adr/0025-hardware-keys-and-control-center.mdx); one at the right edge is a banner, at
+      the output's top-right corner, which takes presses (docs/adr/0026-notifications.mdx). */
   kind: "panel" | "overlay" | "notification" | "lock";
   edge?: "top" | "bottom" | "left" | "right";
   /** Whether a panel keeps its strip of the output out of where windows are placed. */
@@ -49,6 +50,9 @@ export type ShellPlatform = {
   /** Where the platform shows windows live (the overview's cards); without it, a window's
       `thumbnail` if it has one, or its icon. */
   WindowView?: ComponentType<WindowViewProps>;
+  /** Says `text` to assistive technologies, politely (after what they are saying) or at once;
+      without it, React Native's announcement, which interrupts. */
+  announce?: (text: string, polite: boolean) => void;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

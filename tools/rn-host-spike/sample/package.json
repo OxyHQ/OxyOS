@@ -3,6 +3,7 @@
   "private": true,
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.2",
-    "expo-clipboard": "~58.0.4"
+    "expo-clipboard": "~58.0.4",
+    "expo-notifications": "~58.1.6"
   }
 }
