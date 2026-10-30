@@ -1,0 +1,78 @@
+---
+title: "ADR 0018: Several displays"
+description: How the session drives every display of its card, as a Mac does — arranged side by side, each at its own mode, scale and refresh, the pointer crossing between them, the shell's top bar on each and the dock on the primary — and follows monitors plugged in and out.
+order: 27
+---
+
+# ADR 0018: Several displays
+
+Status: **accepted; implemented** in the compositor, the session and the development compositor (steps 1 to 3). Not yet run with a second display: the ThinkPad needs an external monitor for that ([Validation](#validation)). Builds on [ADR 0004](./0004-gpu-composition) (composition and output), [ADR 0005](./0005-damage) (damage), [ADR 0006](./0006-seat) (the seat), [ADR 0009](./0009-session-shell) (the shell), [ADR 0010](./0010-lock-screen) (the lock) and [ADR 0011](./0011-transitions) (transitions).
+
+## Problem
+
+The session shows one display: the first connected connector of the first card with one, at its size, at scale 1. A second monitor stays dark, and one plugged in later is never seen. The scene already holds several outputs: each has a rectangle in a global space of logical pixels and a scale, windows open on the output under the pointer and are moved between outputs (and asked for buffers at the new scale), popups follow their anchor's output, panels keep their output's work area, the lock covers every output without a lock surface, and a removed output's windows go to another. Everything around it is single:
+- the compositor composes one framebuffer, the global space's origin at its top-left corner, at scale 1;
+- it has one display, one CRTC, one pair of scanout buffers, one flip on its way and one cursor plane;
+- the scene's frame is one: every surface's frame begins and completes together;
+- the pointer is confined to one rectangle;
+- the shell is told its output by an argument (`--shell OUTPUT`): clients cannot learn the outputs ([ADR 0009](./0009-session-shell), step 1).
+
+A Mac is the model. Its displays are arranged side by side, the pointer crosses where they meet, a window dragged across moves to the other display and is drawn at its density, each display has the menu bar and the Dock is on the main display, and unplugging a display moves its windows to the one left.
+
+## Decision
+
+1. **One card.** The session drives every connected connector of the card it opens (the first with a connected output, as before), each on a CRTC and planes of its own: the card's displays share its descriptor and its events (`oxyos_kms::Display::on_connector`; flips read for one CRTC wait in the card for that CRTC's display). A connector for which no CRTC is free is not shown, and the session says so. Several GPUs are not in this decision: an output of a second card (a dock's DisplayLink, a discrete GPU's ports) needs buffers shared between devices (PRIME) and a composition per device. The ThinkPad's NVIDIA T550 has no outputs.
+2. **The arrangement.** Outputs are side by side, left to right, top-aligned, with no gap, in the global space's logical pixels. The built-in panel (eDP, LVDS, DSI) comes first, then the other connectors in the card's order. The first is the **primary**: it has the dock and takes the windows of an output that goes. A monitor plugged in comes at the right end. One unplugged goes: those right of it move left to close the gap, with what is on them, and the primary takes its windows (the scene's `remove_output`). With nothing connected, the outputs stay, unshown, until a display comes, and an output for it takes their windows (the scene keeps every window on some output). A connector whose preferred mode changes (another monitor on the same port) is a new output. There is no arrangement setting, no saved arrangement and no mirroring yet.
+3. **Mode and scale.** Each output is driven at its preferred mode, the panel's native one, and its refresh. Its scale is its density over a reference, to the nearest quarter, from 1 to 3, in pixels per inch from its mode and the physical size its EDID gives: 135 for a built-in panel, seen from closer, 110 for a monitor (`oxyos_compositor::arrangement`). An unknown or implausible size (a projector's, an aspect ratio given as a size) is scale 1. The output's logical size is its pixels at its scale, rounded up. So:
+
+   | Display | Density | Scale | Logical size |
+   | --- | --- | --- | --- |
+   | ThinkPad P14s Gen 3, 14-inch 1920×1200 panel | 162 ppi | 1.25 | 1536×960 |
+   | 27-inch 3840×2160 monitor | 163 ppi | 1.5 | 2560×1440 |
+   | 27-inch 2560×1440 monitor | 109 ppi | 1 | 2560×1440 |
+   | 24-inch 1920×1080 monitor | 92 ppi | 1 | 1920×1080 |
+
+   The ThinkPad's panel was at scale 1 before this decision; it is now drawn at 1.25. A setting to choose another scale is not in this decision.
+4. **Each output composes and flips on its own.** Each output is a screen of the compositor (`oxyos_compositor::Screen`): it composes the scene's frame list clipped to its rectangle and scaled to its pixels (each layer's edges rounded to the nearest pixel, so what meets in the global space meets on the screen; nearest-neighbour as before), with its own damage relative to the last frame it composed, on its own CRTC, at its own vblank. The scene's frame is per output (`Scene::begin_frame_on`, `end_frame_on`): an output's frame presents the queued frames of the surfaces on it (the output a surface was placed on) and completes at that output's flip, whatever the others do, so a window on a 144 Hz monitor is paced by that monitor alone. A surface shown across two outputs is composed on both, from its latest frame, and presented with its own. A buffer replaced is released once no frame in flight that may read it remains: an output's frame may read the surfaces shown on it. A surface's own damage is used on an output only when that output composed the frame it is relative to; otherwise its whole rectangle is composed there. One Vulkan device composes every output, each into a pair of scanout buffers of its own; damage concerns only an output's own pair.
+5. **The pointer crosses where outputs meet.** One pointer, in the global space, moves within the outputs' rectangles (not their bounding box): it crosses to the next output where they meet and slides along an edge where none continues, as a Mac's does at a shorter display's edge. It is shown on the cursor plane of the display it is over and hidden on the others; each display has its own images, chosen at its scale (32 pixels at 1.5 are 48). Absolute devices span the outputs' bounding box. A display without a cursor plane shows no pointer, as before; the pointer is not composed into frames.
+6. **The shell: one per output, the top bar on every one, the dock on the primary.** The session starts its shell once for each output (the Bloom host's `--shell OUTPUT`, as before), on its socket granting `shell` and `lock`, and starts one for each output plugged in and stops the one of each output unplugged. Each is the same React tree, its root the background of its own output, as ADR 0009 decided for one. The compositor owns windows and workspaces, so the shells agree. As before, a shell that exits ends the session, unless the session is locked: that output's shell is then started again. The cost is a JavaScript runtime for each display.
+
+   Every output has the top bar: macOS shows the menu bar on every display since 10.9, and on OxyOS the top bar is also where the clock, the status and the overview's button are. Only the primary has the dock, as only a Mac's main display has the Dock by default: one dock for the session, where windows minimize to from any output (the transition's target, the scene's `dock`). The launcher and the overview open on the output whose dock or top bar opened them. When the primary goes, the next output becomes the primary and its shell shows the dock. Workspaces are the session's, shared by every output (a Mac with "Displays have separate Spaces" off): switching shows the workspace's windows on every output.
+
+   The protocol tells shell clients the outputs: `Output` (event 55: its id, its rectangle in the global space, scale, refresh, and whether it is the primary), for every output when the shell connects and as one is added or changes, and `OutputRemoved` (event 56). Each shell client is told what changed since it was last told, as with windows (ADR 0009). Applications are not told: nothing they do needs the arrangement. The Bloom host's shell state carries them (`output`, `outputs`), and the shell draws the dock only once told that its output is the primary, so that another output's never shows one for a moment.
+7. **The lock covers every output.** As [ADR 0010](./0010-lock-screen) decided: each output's shell makes a lock surface on its output, and an output without a ready one shows the compositor's cover, a new output too until its shell's lock surface is ready. The lock is on screen, and the machine may sleep, once every display shows a locked frame.
+8. **Hotplug through the kernel's uevents.** The session listens for the card's `HOTPLUG=1` uevents on the kernel's netlink group (the one udev reads; from the kernel alone, port 0), which wake its turn, and then reads the connectors again and follows them (decision 2). Coming back from another session (logind resumes the card) reads them again too, since monitors may have come or gone meanwhile. An output that goes has its frame on its way completed unshown, its CRTC and planes turned off and freed, and its scanout buffers freed.
+9. **The development compositor runs several outputs.** `oxyos-offscreen --launch --outputs WxH[@SCALE],...` composes outputs of those pixels at those scales, arranged as the session arranges its displays, each into its own frame, and starts a shell on each; the director's points are in the global space, and each output's frame is written beside the primary's (`launch-N.output-ID.png`). With `--kms`, it still shows one output on one display.
+
+## Steps
+
+1. **Outputs in the compositor.** The scene's per-output frames, releases per frame, outputs moved with what is on them, windows left on no output going to the next output added, and the shell told the outputs (`Output`, `OutputRemoved`, in the protocol, its schema, the documentation's table and the C ABI); the compositor's screens, composition, damage, splash and transitions per output; the pointer confined to the outputs; the GPU's scanout buffers per display.
+
+   *Done.* `crates/oxyos-compositor-core/src/scene/tests/outputs.rs` checks each output's frame presenting and completing on its own, a release waiting only for the frames that may read the buffer (a window across two outputs waits for both), an output moved taking its windows and panels, the shell told the outputs and the primary (and a new primary when the first goes), and windows left on no output going to the next one. `crates/oxyos-compositor/tests/outputs.rs`, through real sockets: each screen composes its part of the global space at its own scale (a 100×60 window is 150×90 pixels at 1.5), a new frame of a window composes only the screen it is on, the splash is centred on every screen, and a window on an output removed is drawn on the primary at the primary's scale. The pointer's confinement and the screens' placement are unit-tested; `oxyos-gpu` checks two displays' scanout buffers interleaving, each frame byte for byte the reference's, on a device that exports DMA-BUF (lavapipe does not: the test skips there).
+2. **Displays in the session.** Every connector a display on its own CRTC sharing the card; flips per CRTC; the arrangement, the modes and the scales; hotplug; a shell per output.
+
+   *Done.* `oxyos-kms`: connectors' physical size and whether they are built in, `Display::on_connector`, `objects`, `turn_off`, the card's flips kept for the display of their CRTC, and `Hotplug` (the uevent's filter unit-tested). `oxyos-session`: `displays::plan` (unit-tested on the ThinkPad's connectors: the panel first, monitors plugged in at the right and unplugged closing the gap, another monitor on a port, nothing connected) and its application to the compositor, a shell per output, each display's pointer images at its scale.
+3. **The shell's dock on the primary.** The Bloom host's shell state learns the outputs; `apps/shell`'s `Shell` takes `dock`; the session's shell passes it from its output being the primary.
+
+   *Done.* `scenarios/session-two-outputs.json` runs the shell on a 1280×720 output at 1 and, right of it, a 1920×1080 output at 1.5 (1280×720 logical). Each output has its background and top bar; only the primary has the dock, and each output's work area leaves out its own panels. The application's window, moved onto the second output, is drawn there at 1.5 and takes its presses; the second output's top bar opens its menu under the item, on that output. With a dock on every output, or a window drawn at scale 1 there, it fails.
+
+## Validation
+
+What is checked without hardware: the scene, the compositor's screens through real sockets, the session's plan, the fixture's scenario with two outputs, and every existing scenario on one output. What only a machine with a second display checks, on the ThinkPad with a monitor on USB-C (DisplayPort) or HDMI:
+- both displays lit at their preferred modes, the panel the primary at 1.25, the monitor at its own scale, with the session's log naming each output, its connector, mode, scale and place;
+- a frame per output at each display's own refresh (a 60 Hz panel and a monitor at another rate), on the GPU into each display's own buffers;
+- the pointer crossing between them where they meet, shown on the cursor plane of the one it is over, at its scale;
+- a window dragged across, drawn sharp on the monitor once it has redrawn at its scale;
+- the top bar on both, the dock on the panel only;
+- unplugging the monitor: its windows on the panel, its CRTC off, the session going on; plugging it in again: lit at the right, its shell's top bar on it;
+- locking with both: the lock screen on both, sleep held until both show it;
+- a switch to another terminal and back with both displays, and with the monitor plugged in or out while away;
+- a boot through the boot logo with the monitor connected ([ADR 0017](./0017-boot-logo)): each display keeps the CRTC already lighting it where it is free.
+
+## Not in this decision
+
+- Several GPUs, mirroring, rotation, and an arrangement or a scale the user chooses and the session keeps.
+- Modes other than the preferred one, variable refresh, and the display's colour (HDR, profiles).
+- Workspaces of their own for each display, and the shell's overview showing each display's windows (`WindowState` does not say which output a window is on).
+- Telling applications the outputs, and windows following their output's scale change while dragged across before they redraw (they are drawn at the old scale, scaled, until then).
+- A pointer composed into frames for displays without a cursor plane.

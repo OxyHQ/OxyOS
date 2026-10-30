@@ -1,0 +1,235 @@
+{
+  "about": "The session's shell on two outputs (ADR 0018): a 1280x720 primary at scale 1 and, right of it, a 1920x1080 output at 1.5 (1280x720 logical pixels), with a shell (sample/ShellProbe.tsx's OxyOSShell) on each. Each output has its background and its top bar, kept out of its own work area; only the primary has the dock, as a Mac's main display has the Dock and every display the menu bar. The application's window, moved onto the second output, is asked for frames at its scale and drawn there at 1.5, and takes its presses there; the second output's top bar opens its menu as a popup of its panel, under the item, on that output, and a press outside closes it. Each step checks the shells' surfaces and every output's work area, the window's place, its frame's size, and pixels of the second output in its own pixels: the window's edges at 1.5 its logical place (900 by 540 pixels, the wallpaper beyond them under its shadow) and its corners rounded at 1.5.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "1280x720,1920x1080@1.5",
+  "steps": [
+    {
+      "name": "the window moves onto the second output: each output has its background and top bar, only the primary the dock",
+      "do": [
+        "move-window",
+        [
+          1280,
+          0
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              1280,
+              0,
+              1280,
+              720
+            ],
+            [
+              1280,
+              0,
+              1280,
+              28
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "work_areas": {
+            "1": [
+              0,
+              28,
+              1280,
+              636
+            ],
+            "2": [
+              1280,
+              28,
+              1280,
+              692
+            ]
+          }
+        },
+        "window_rect": [
+          1620,
+          166,
+          600,
+          360
+        ],
+        "window_shown": true,
+        "react": {},
+        "frame_px": {
+          "window": [
+            900,
+            540
+          ]
+        },
+        "screen_pixels": {
+          "2": {
+            "509,519": "#4169d2",
+            "510,519": "#ffffff",
+            "1409,519": "#ffffff",
+            "1410,519": "#4269d3",
+            "960,788": "#ffffff",
+            "960,789": "#4465ba",
+            "515,254": "#406fe8"
+          }
+        }
+      }
+    },
+    {
+      "name": "the window takes its presses on the second output",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "window_rect": [
+          1620,
+          166,
+          600,
+          360
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        }
+      }
+    },
+    {
+      "name": "the second output's top bar opens its Ver menu as a popup of its panel, under the item, on that output",
+      "do": [
+        "press_output",
+        [
+          1404,
+          16
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              1280,
+              0,
+              1280,
+              720
+            ],
+            [
+              1280,
+              0,
+              1280,
+              28
+            ],
+            [
+              1381,
+              32,
+              220,
+              108
+            ]
+          ],
+          "top": [
+            1381,
+            32,
+            220,
+            108
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "a press outside it closes the menu",
+      "do": [
+        "press_output",
+        [
+          2400,
+          600
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              1280,
+              0,
+              1280,
+              720
+            ],
+            [
+              1280,
+              0,
+              1280,
+              28
+            ]
+          ]
+        },
+        "react": {}
+      }
+    }
+  ]
+}

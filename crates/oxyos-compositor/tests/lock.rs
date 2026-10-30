@@ -58,7 +58,7 @@ fn compositor() -> (Compositor, std::rc::Rc<std::cell::Cell<u32>>) {
             },
         )
         .unwrap();
-    let mut compositor = Compositor::new(scene, 0, output);
+    let mut compositor = Compositor::new(scene, 0);
     let (ready, signal) = rustix::pipe::pipe().unwrap();
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     compositor.authentication = Some(Box::new(Fixture {

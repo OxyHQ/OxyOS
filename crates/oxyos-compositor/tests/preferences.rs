@@ -39,7 +39,7 @@ fn settings_changes_a_preference_and_every_application_follows() {
         })
         .unwrap();
     let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&directory).unwrap());
-    let mut compositor = Compositor::new(scene, uid, output);
+    let mut compositor = Compositor::new(scene, uid);
     let file = directory.join("oxyos").join("preferences");
     // An automatic appearance with no sun to follow (no place): light.
     let mut settings = Settings::load(Some(file.clone()), None);

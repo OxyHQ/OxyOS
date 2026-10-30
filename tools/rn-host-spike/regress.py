@@ -17,7 +17,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - popups: how many popups of the application are shown after the step;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
-  they leave, exactly, and whether the session is "locked" (ADR 0010);
+  they leave on the primary and "work_areas" on every output (by id), exactly, and whether the
+  session is "locked" (ADR 0010);
 - at / at_absent: nodes the session's assistive technology holds (or must not), as it received
   the trees (ADR 0003): by "window", "shell" (the shell's surfaces, the lock screen's among
   them) or the application's popups, each node matching the keys given ({} matches any): role,
@@ -28,7 +29,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting);
-- output_pixels: as pixels, in output coordinates rather than the window's;
+- output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
+- screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
+  (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
@@ -68,6 +71,10 @@ what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [2
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
+
+A scenario with `outputs` ("WxH[@SCALE],..."; ADR 0018) runs on those outputs, arranged as a
+session arranges its displays (left to right, top-aligned, the first the primary), with a shell
+on each; steps' points are in the global space.
 
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
@@ -557,6 +564,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "output_pixels" in expect:
         # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
         check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
+    for output, pixels in expect.get("screen_pixels", {}).items():
+        # Another output's colours, in its own pixels, from its own snapshot beside the primary's.
+        shot = pathlib.Path(screenshot).with_suffix(f".output-{output}.png")
+        check_pixels(name, {**expect, "pixels": pixels}, shot, [0, 0],
+                     lambda message: fail(f"output {output}: {message}"))
     if "im" in expect:
         im, wanted = result.get("im") or {}, expect["im"]
         differing = {k: im.get(k) for k, v in wanted.items() if im.get(k) != v}
@@ -621,9 +633,13 @@ def main():
     if options.uinput:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
         command += ["--layout", scenario.get("layout", "us")]
+    if scenario.get("outputs"):
+        # Several outputs (ADR 0018), a shell on each.
+        command += ["--outputs", scenario["outputs"]]
     if scenario.get("shell"):
         # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
-        # application with the shell grant; its report is the application's with ".shell".
+        # application with the shell grant; its report is the application's with ".shell" (another
+        # output's shell's with ".shell.ID").
         command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with

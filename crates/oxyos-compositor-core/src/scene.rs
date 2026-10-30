@@ -23,6 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub type ClientId = u32;
 pub type OutputId = u32;
+/// A frame of the scene: of one output (each composes and flips on its own), or of all
+/// (`None`, `begin_frame`).
+type FrameOf = Option<OutputId>;
 
 pub const MAX_CLIENTS: usize = 64;
 pub const MAX_SURFACES_PER_CLIENT: usize = 64;
@@ -144,6 +147,8 @@ struct Node {
     /// What changed in the frame presenting (or last presented), relative to the one displayed
     /// before it.
     presenting_damage: SurfaceDamage,
+    /// The frame its in-flight frame is presented in (`begin_frame_on`).
+    presenting_in: FrameOf,
     /// A window's workspace (ADR 0009): the one active when it was made. Only a toplevel's
     /// counts; what is under it follows it.
     workspace: u32,
@@ -340,8 +345,13 @@ pub struct Scene {
     /// Buffers no consumer will read again and the client cannot reuse: the backend may drop
     /// their memory and file descriptors.
     retired: Vec<(ClientId, u64)>,
-    frame_in_flight: bool,
-    deferred: Vec<(SurfaceKey, u64)>,
+    /// The frames between `begin_frame` and `end_frame`: the scene's (`None`) or an output's
+    /// (docs/adr/0018-several-displays.mdx), with the surfaces whose buffers each may read (those
+    /// shown on its output; every one for the scene's).
+    frames_in_flight: BTreeMap<FrameOf, Option<BTreeSet<SurfaceKey>>>,
+    /// Releases waiting for the frames in flight when they were asked for that may still read
+    /// the buffer.
+    deferred: Vec<(SurfaceKey, u64, BTreeSet<FrameOf>)>,
     accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
     /// What each surface with a text field told about it (ADR 0008).
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
@@ -424,11 +434,88 @@ impl Scene {
             return Err(ErrorCode::InvalidGeometry);
         }
         self.outputs.push(output);
+        // Windows left on no output (the last one went) come to this one, as to the one left
+        // when theirs is removed.
+        let orphans: Vec<SurfaceKey> = self
+            .roots
+            .iter()
+            .copied()
+            .filter(|key| {
+                let node = &self.nodes[key];
+                !node.dismissed
+                    && matches!(node.role, Role::Toplevel | Role::Dialog)
+                    && !self.outputs.iter().any(|o| o.id == node.output)
+            })
+            .collect();
+        for key in orphans {
+            self.rehome(key, output);
+        }
+        if !self.outputs.is_empty() {
+            self.place_candidates();
+            self.refresh_pointer_focus();
+        }
         Ok(())
     }
 
+    /// The outputs in their arrangement's order: the first is the primary, which has the dock
+    /// and takes the windows of an output removed (docs/adr/0018-several-displays.mdx).
     pub fn outputs(&self) -> &[Output] {
         &self.outputs
+    }
+
+    /// The output a point of the global space is on, else the primary.
+    pub fn output_at_point(&self, x: i32, y: i32) -> Option<Output> {
+        self.output_at(i64::from(x), i64::from(y))
+    }
+
+    /// Moves an output to `origin` in the global space (the arrangement closing the gap one
+    /// removed left): what is on it moves with it, as it is shown. Its windows keep their place
+    /// on it, its shell and lock surfaces their edges.
+    pub fn set_output_origin(&mut self, id: OutputId, origin: (i32, i32)) -> Result<(), ErrorCode> {
+        let output = self
+            .outputs
+            .iter_mut()
+            .find(|o| o.id == id)
+            .ok_or(ErrorCode::InvalidGeometry)?;
+        let delta = (
+            i64::from(origin.0) - i64::from(output.rect.x),
+            i64::from(origin.1) - i64::from(output.rect.y),
+        );
+        if delta == (0, 0) {
+            return Ok(());
+        }
+        if i64::from(origin.0).abs() > i64::from(MAX_COORDINATE)
+            || i64::from(origin.1).abs() > i64::from(MAX_COORDINATE)
+        {
+            return Err(ErrorCode::InvalidGeometry);
+        }
+        output.rect = Rect::new(origin.0, origin.1, output.rect.width, output.rect.height);
+        let shift = |(x, y): (i32, i32)| {
+            (
+                (i64::from(x) + delta.0) as i32,
+                (i64::from(y) + delta.1) as i32,
+            )
+        };
+        // Roots alone: children are placed relative to them.
+        let roots: Vec<SurfaceKey> = self
+            .roots
+            .iter()
+            .copied()
+            .filter(|key| self.nodes[key].output == id)
+            .collect();
+        for key in roots {
+            let node = self.nodes.get_mut(&key).expect("a root");
+            node.origin = shift(node.origin);
+            node.pending = node
+                .pending
+                .map(|(serial, origin, size)| (serial, shift(origin), size));
+            node.restore = node.restore.map(|(origin, size)| (shift(origin), size));
+            self.reconstrain_children(key);
+        }
+        self.refresh_accessibility_geometry();
+        self.place_candidates();
+        self.refresh_pointer_focus();
+        Ok(())
     }
 
     /// Popups and output-bound shell/lock surfaces on the removed output are dismissed; windows
@@ -458,36 +545,44 @@ impl Scene {
                 // Placed again next to the caret, wherever it is now (below).
                 Role::Candidates => {}
                 Role::Toplevel | Role::Dialog => {
-                    // Windows on a removed output are not visible anywhere; moving them is a
-                    // compositor-owned move, applied at once like a drag, so their last content
-                    // shows on the surviving output while new buffers are prepared.
+                    // To the primary; with none left, to the next output added.
                     if let Some(target) = self.outputs.first().copied() {
-                        let fullscreen = node.fullscreen;
-                        let mut size = node.pending.map_or(node.size, |(_, _, size)| size);
-                        if node.parent.is_none() {
-                            let origin = if fullscreen {
-                                size = Size::new(target.rect.width, target.rect.height);
-                                (target.rect.x, target.rect.y)
-                            } else {
-                                self.centered(size, target.id)
-                            };
-                            let restore = node.restore.map(|(_, restored)| {
-                                (self.centered(restored, target.id), restored)
-                            });
-                            let node = self.nodes.get_mut(&key).expect("present");
-                            node.origin = origin;
-                            node.restore = restore;
-                            node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
-                        }
-                        self.nodes.get_mut(&key).expect("present").output = target.id;
-                        self.reconfigure(key, None, size);
-                        self.reconstrain_children(key);
+                        self.rehome(key, target);
                     }
                 }
             }
         }
         self.place_candidates();
         self.refresh_pointer_focus();
+    }
+
+    /// Moves a window of an output gone to `target`. Windows on a removed output are not visible
+    /// anywhere; moving them is a compositor-owned move, applied at once like a drag, so their
+    /// last content shows on `target` while new buffers are prepared.
+    fn rehome(&mut self, key: SurfaceKey, target: Output) {
+        let Some(node) = self.nodes.get(&key) else {
+            return;
+        };
+        let fullscreen = node.fullscreen;
+        let mut size = node.pending.map_or(node.size, |(_, _, size)| size);
+        if node.parent.is_none() {
+            let origin = if fullscreen {
+                size = Size::new(target.rect.width, target.rect.height);
+                (target.rect.x, target.rect.y)
+            } else {
+                self.centered(size, target.id)
+            };
+            let restore = node
+                .restore
+                .map(|(_, restored)| (self.centered(restored, target.id), restored));
+            let node = self.nodes.get_mut(&key).expect("present");
+            node.origin = origin;
+            node.restore = restore;
+            node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
+        }
+        self.nodes.get_mut(&key).expect("present").output = target.id;
+        self.reconfigure(key, None, size);
+        self.reconstrain_children(key);
     }
 
     /// Logical geometry is unchanged; affected surfaces are asked for buffers at the new scale
@@ -701,7 +796,7 @@ impl Scene {
             if !self
                 .deferred
                 .iter()
-                .any(|(k, b)| k.client == client && *b == buffer)
+                .any(|(k, b, _)| k.client == client && *b == buffer)
             {
                 self.retired.push((client, buffer));
             }
@@ -1359,6 +1454,7 @@ impl Scene {
                 unshown: None,
                 last_extent: None,
                 presenting_damage: SurfaceDamage::Whole,
+                presenting_in: None,
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
             },
@@ -1626,7 +1722,7 @@ impl Scene {
             || self
                 .deferred
                 .iter()
-                .any(|(key, b)| key.client == client && *b == buffer)
+                .any(|(key, b, _)| key.client == client && *b == buffer)
     }
 
     /// The registered layout of a client buffer, for the backend that reads it.
@@ -1649,7 +1745,7 @@ impl Scene {
         if self
             .deferred
             .iter()
-            .any(|(held, buffer)| held.client == key.client && *buffer == frame.buffer)
+            .any(|(held, buffer, _)| held.client == key.client && *buffer == frame.buffer)
         {
             return Err(ErrorCode::InvalidBuffer);
         }
@@ -1784,10 +1880,20 @@ impl Scene {
     }
 
     fn release(&mut self, key: SurfaceKey, buffer: u64) {
-        if self.frame_in_flight {
-            self.deferred.push((key, buffer));
-            return;
+        let reading: BTreeSet<FrameOf> = self
+            .frames_in_flight
+            .iter()
+            .filter(|(_, reads)| reads.as_ref().is_none_or(|reads| reads.contains(&key)))
+            .map(|(frame, _)| *frame)
+            .collect();
+        if reading.is_empty() {
+            self.release_now(key, buffer);
+        } else {
+            self.deferred.push((key, buffer, reading));
         }
+    }
+
+    fn release_now(&mut self, key: SurfaceKey, buffer: u64) {
         self.emit(
             key.client,
             Event::Released {
@@ -3003,14 +3109,29 @@ impl Scene {
     /// Moves every queued frame to the backend. Releases requested until `end_frame` wait,
     /// because the composition may still read displayed buffers.
     pub fn begin_frame(&mut self) -> usize {
-        self.frame_in_flight = true;
+        self.begin(None)
+    }
+
+    /// Moves the queued frames of the surfaces on `output` to the backend: what that output's
+    /// frame presents, completed by `end_frame_on` at its own flip, whatever the other outputs'
+    /// frames do (docs/adr/0018-several-displays.mdx). A surface is on the output it was placed
+    /// on; one shown across two is composed on both, and presented with its own.
+    pub fn begin_frame_on(&mut self, output: OutputId) -> usize {
+        self.begin(Some(output))
+    }
+
+    fn begin(&mut self, frame: FrameOf) -> usize {
         let mut started = 0;
         let mut arriving = Vec::new();
         for (key, node) in self.nodes.iter_mut() {
+            if frame.is_some_and(|output| node.output != output) {
+                continue;
+            }
             if !node.presentation.is_presenting()
                 && node.presentation.has_queued()
                 && node.presentation.begin_present().ok().flatten().is_some()
             {
+                node.presenting_in = frame;
                 // Relative to the frame displayed now: everything the client drew since.
                 node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
@@ -3023,6 +3144,22 @@ impl Scene {
         for key in arriving {
             self.appeared(key, appearances::Change::Arrived);
         }
+        // What the frame may read: an output's, the surfaces shown on it.
+        let reads = frame.map(|output| {
+            let rect = self.output(output).map(|output| output.rect);
+            self.frame_list()
+                .into_iter()
+                .filter_map(|item| match item {
+                    RenderItem::Surface { key, rect: at, .. }
+                        if rect.is_some_and(|rect| at.intersects(rect)) =>
+                    {
+                        Some(key)
+                    }
+                    _ => None,
+                })
+                .collect()
+        });
+        self.frames_in_flight.insert(frame, reads);
         started
     }
 
@@ -3035,13 +3172,31 @@ impl Scene {
     /// Completes the frame: in-flight frames become displayed, surfaces with their first ready
     /// content map, replaced buffers are released and feedback carries the timestamp's clock.
     pub fn end_frame(&mut self, timestamp_ns: u64, clock: Clock) {
+        self.end(None, timestamp_ns, clock);
+    }
+
+    /// Completes `output`'s frame (`begin_frame_on`), as `end_frame` does the scene's.
+    pub fn end_frame_on(&mut self, output: OutputId, timestamp_ns: u64, clock: Clock) {
+        self.end(Some(output), timestamp_ns, clock);
+    }
+
+    fn end(&mut self, frame: FrameOf, timestamp_ns: u64, clock: Clock) {
         let keys: Vec<SurfaceKey> = self
             .nodes
             .iter()
-            .filter(|(_, node)| node.presentation.is_presenting())
+            .filter(|(_, node)| {
+                node.presentation.is_presenting()
+                    && (frame.is_none() || node.presenting_in == frame)
+            })
             .map(|(key, _)| *key)
             .collect();
-        self.frame_in_flight = false;
+        // The scene's frame ends every one; an output's, its own.
+        match frame {
+            None => self.frames_in_flight.clear(),
+            Some(_) => {
+                self.frames_in_flight.remove(&frame);
+            }
+        }
         let mut newly_mapped = Vec::new();
         let mut resized = Vec::new();
         for key in keys {
@@ -3077,9 +3232,17 @@ impl Scene {
                 self.release(key, previous.buffer);
             }
         }
-        for (key, buffer) in std::mem::take(&mut self.deferred) {
-            self.release(key, buffer);
+        // Releases waiting for no frame still in flight go now.
+        let mut waiting = Vec::new();
+        for (key, buffer, mut frames) in std::mem::take(&mut self.deferred) {
+            frames.retain(|of| self.frames_in_flight.contains_key(of));
+            if frames.is_empty() {
+                self.release_now(key, buffer);
+            } else {
+                waiting.push((key, buffer, frames));
+            }
         }
+        self.deferred.extend(waiting);
         // A parent's new geometry is on screen: re-place popups whose constrained geometry changed.
         for key in resized {
             self.reconstrain_children(key);

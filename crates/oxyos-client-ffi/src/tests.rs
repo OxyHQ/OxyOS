@@ -1621,6 +1621,11 @@ fn the_header_matches_the_window_management_abi() {
             OXYOS_EVENT_WINDOW_CLOSED.into(),
         ),
         ("OXYOS_EVENT_WORKSPACES", OXYOS_EVENT_WORKSPACES.into()),
+        ("OXYOS_EVENT_OUTPUT", OXYOS_EVENT_OUTPUT.into()),
+        (
+            "OXYOS_EVENT_OUTPUT_REMOVED",
+            OXYOS_EVENT_OUTPUT_REMOVED.into(),
+        ),
         (
             "OXYOS_EVENT_CLOSE_REQUESTED",
             OXYOS_EVENT_CLOSE_REQUESTED.into(),
@@ -1756,6 +1761,30 @@ fn window_events_convert_field_by_field() {
     assert_eq!(
         (spaces.kind, spaces.detail, spaces.code),
         (OXYOS_EVENT_WORKSPACES, 3, 1)
+    );
+    let output = convert(&Event::Output {
+        output: 2,
+        rect: oxyos_protocol::Rect::new(1536, 0, 1707, 960),
+        scale_120: 180,
+        refresh_mhz: 59_951,
+        primary: false,
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            output.kind,
+            output.code,
+            (output.x, output.y, output.width, output.height),
+            output.scale_120,
+            output.detail,
+            output.flag
+        ),
+        (OXYOS_EVENT_OUTPUT, 2, (1536, 0, 1707, 960), 180, 59_951, 0)
+    );
+    let removed = convert(&Event::OutputRemoved { output: 2 }).unwrap();
+    assert_eq!(
+        (removed.kind, removed.code),
+        (OXYOS_EVENT_OUTPUT_REMOVED, 2)
     );
 }
 

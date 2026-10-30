@@ -22,6 +22,7 @@ export function Shell({
   command,
   lock,
   platform = inPlace,
+  dock = true,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -32,6 +33,11 @@ export function Shell({
   lock?: ShellLock;
   /** Where the regions are drawn: separate surfaces on OxyOS, in place elsewhere. */
   platform?: ShellPlatform;
+  /**
+   * Whether this display has the dock: the primary has it, as a Mac's main display has the Dock;
+   * every display has the top bar (docs/adr/0018-several-displays.mdx).
+   */
+  dock?: boolean;
 }) {
   const { Surface } = platform;
   const [view, setView] = useState<"desktop" | "launcher" | "overview">(
@@ -98,7 +104,7 @@ export function Shell({
             top: 0,
             left: 0,
             right: 0,
-            bottom: DOCK_HEIGHT,
+            bottom: dock ? DOCK_HEIGHT : 0,
             display: view === "launcher" ? "flex" : "none",
           }}
         >
@@ -112,15 +118,17 @@ export function Shell({
             dismiss={dismiss}
           />
         </Surface>
-        <Surface kind="panel" edge="bottom" exclusive>
-          <Dock
-            snapshot={snapshot}
-            view={view}
-            activateApp={activateApp}
-            toggleLauncher={() => toggle("launcher")}
-            toggleOverview={() => toggle("overview")}
-          />
-        </Surface>
+        {dock && (
+          <Surface kind="panel" edge="bottom" exclusive>
+            <Dock
+              snapshot={snapshot}
+              view={view}
+              activateApp={activateApp}
+              toggleLauncher={() => toggle("launcher")}
+              toggleOverview={() => toggle("overview")}
+            />
+          </Surface>
+        )}
         {/* The lock screen: a surface of its own, all the compositor shows while locked. The
             desktop stays as it was beneath, as it is when the session unlocks. */}
         {lock?.locked && (

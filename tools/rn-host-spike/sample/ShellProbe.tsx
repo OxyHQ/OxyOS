@@ -88,8 +88,11 @@ function ProbeShell({
   now = PROBE_TIME,
   lock,
   wallpaper,
+  dock,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
+  /** Whether this display has the dock (the primary's); the window probe's has it. */
+  dock?: boolean;
   shown?: ShellSnapshot;
   act?: ShellActions;
   now?: Date;
@@ -107,6 +110,7 @@ function ProbeShell({
             now={now}
             lock={lock}
             platform={platform}
+            dock={dock}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -129,6 +133,10 @@ export function ShellSession() {
   const now = useMinuteClock();
   const state = shell.state;
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
+  // The dock is the primary display's (ADR 0018); none until the compositor has told this shell
+  // its output, so that another display's never shows one for a moment.
+  type Told = { id: number; primary: boolean };
+  const dock = (state.outputs ?? []).some((output: Told) => output.id === state.output && output.primary);
   const windows = state.windows.map(
     (window: { id: number; appId: string; title: string; workspace: number; minimized: boolean; launched: boolean }) => ({
       id: String(window.id),
@@ -187,6 +195,14 @@ export function ShellSession() {
     answer: shell.authentication ?? undefined,
   };
   return (
-    <ProbeShell platform={oxyosShell} shown={shown} act={act} now={now} lock={lock} wallpaper={state.wallpaper ?? undefined} />
+    <ProbeShell
+      platform={oxyosShell}
+      shown={shown}
+      act={act}
+      now={now}
+      lock={lock}
+      wallpaper={state.wallpaper ?? undefined}
+      dock={dock}
+    />
   );
 }

@@ -193,9 +193,12 @@ struct Scanout {
     width: u32,
     height: u32,
     released: bool,
-    /// What changed since this target was last written (frames composed into the others),
-    /// or `None` when its content is unknown (never written, or a whole frame since).
+    /// What changed since this target was last written (frames composed into the others of its
+    /// display), or `None` when its content is unknown (never written, or a whole frame since).
     stale: Option<Vec<crate::Rect>>,
+    /// The display's targets made together (`add_scanout_targets`), which take turns showing
+    /// its frames: a frame's damage concerns only them (docs/adr/0018-several-displays.mdx).
+    group: u64,
 }
 
 /// A scanout target for a display: its DMA-BUF, size and pitch, XRGB8888 with the linear
@@ -284,8 +287,11 @@ pub struct VulkanCompositor {
     last_gpu_phases: Option<(f64, f64)>,
     /// Whether the device exports memory as DMA-BUF (Linux), for scanout targets.
     dma_buf: bool,
-    /// Output buffers exported for display (`scanout_targets`).
-    scanout: Vec<Scanout>,
+    /// Output buffers exported for displays (`scanout_targets`, `add_scanout_targets`), by
+    /// index; an index stays its target's until it is removed.
+    scanout: Vec<Option<Scanout>>,
+    /// The group the next targets made together take.
+    next_group: u64,
     /// The output buffer the descriptor set's binding 1 names now.
     bound_output: vk::Buffer,
     /// The compute queue's family.
@@ -355,6 +361,7 @@ impl VulkanCompositor {
             last_gpu_phases: None,
             dma_buf: opened.dma_buf,
             scanout: Vec::new(),
+            next_group: 0,
             bound_output: vk::Buffer::null(),
             family: opened.family,
             kept: None,
@@ -638,10 +645,7 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
         damage: Option<&[crate::Rect]>,
     ) -> Result<(), Error> {
-        let target = self
-            .scanout
-            .get(index)
-            .ok_or_else(|| Error(format!("no scanout target {index}")))?;
+        let target = self.target(index)?;
         let (width, height) = (target.width, target.height);
         self.run(
             width,
@@ -664,10 +668,7 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
         damage: Option<&[crate::Rect]>,
     ) -> Result<(), Error> {
-        let target = self
-            .scanout
-            .get(index)
-            .ok_or_else(|| Error(format!("no scanout target {index}")))?;
+        let target = self.target(index)?;
         let (width, height) = (target.width, target.height);
         self.run(
             width,
@@ -679,6 +680,13 @@ impl VulkanCompositor {
         )?;
         self.kept = Some((width, height));
         Ok(())
+    }
+
+    fn target(&self, index: usize) -> Result<&Scanout, Error> {
+        self.scanout
+            .get(index)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| Error(format!("no scanout target {index}")))
     }
 
     /// The frame the last [`compose_to_scanout_kept`](Self::compose_to_scanout_kept) copied,
@@ -737,6 +745,7 @@ impl VulkanCompositor {
             Some((index, _)) => self
                 .scanout
                 .get(index)
+                .and_then(Option::as_ref)
                 .and_then(|target| target.stale.clone()),
             None => (self.output_holds == Some((width, height))).then(Vec::new),
         };
@@ -800,11 +809,14 @@ impl VulkanCompositor {
             self.source_next = 0;
         }
         let target = match scanout {
-            Some(index) => self.scanout[index].buffer.buffer,
+            Some(index) => self.target(index)?.buffer.buffer,
             None => self.buffers[1].as_ref().expect("reserved").buffer,
         };
         // A scanout buffer the display had comes back to this queue before it is written.
-        let acquire = scanout.is_some_and(|index| self.scanout[index].released);
+        let acquire = match scanout {
+            Some(index) => self.target(index)?.released,
+            None => false,
+        };
         let family = self.family;
         self.bind_output(target);
         let [Some(source), _, Some(upload), Some(readback)] = &self.buffers else {
@@ -1179,9 +1191,23 @@ impl VulkanCompositor {
             None
         };
         if let Some(index) = scanout {
-            self.scanout[index].released = true;
-            // This target holds the frame now; the others lack what changed in it.
-            for (other, target) in self.scanout.iter_mut().enumerate() {
+            let group = {
+                let target = self.scanout[index].as_mut().expect("composed into");
+                target.released = true;
+                target.group
+            };
+            // This target holds the frame now; the others of its display lack what changed in it.
+            let others = self
+                .scanout
+                .iter_mut()
+                .enumerate()
+                .filter_map(|(other, target)| {
+                    target
+                        .as_mut()
+                        .filter(|target| target.group == group)
+                        .map(|target| (other, target))
+                });
+            for (other, target) in others {
                 target.stale = if other == index {
                     Some(Vec::new())
                 } else {
@@ -1220,7 +1246,8 @@ impl VulkanCompositor {
     }
 
     /// Creates `count` output buffers of `width` × `height` that a display can scan out, and
-    /// returns their DMA-BUFs (replacing earlier ones). Needs a device that exports DMA-BUF.
+    /// returns their DMA-BUFs (replacing every earlier one): targets 0 to `count - 1`. Needs a
+    /// device that exports DMA-BUF.
     #[cfg(target_os = "linux")]
     pub fn scanout_targets(
         &mut self,
@@ -1228,45 +1255,103 @@ impl VulkanCompositor {
         width: u32,
         height: u32,
     ) -> Result<Vec<ScanoutTarget>, Error> {
+        let indices: Vec<usize> = (0..self.scanout.len()).collect();
+        self.remove_scanout_targets(&indices);
+        self.scanout.clear();
+        Ok(self
+            .add_scanout_targets(count, width, height)?
+            .into_iter()
+            .map(|(_, target)| target)
+            .collect())
+    }
+
+    /// Creates `count` more output buffers of `width` × `height` for one more display, which take
+    /// turns showing its frames, and returns each one's index (for `compose_to_scanout`) and
+    /// DMA-BUF. The other displays' targets are kept, at their indices.
+    #[cfg(target_os = "linux")]
+    pub fn add_scanout_targets(
+        &mut self,
+        count: usize,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<(usize, ScanoutTarget)>, Error> {
         use std::os::fd::FromRawFd;
         if !self.dma_buf {
             return Err(Error("the device cannot export DMA-BUF".into()));
         }
-        for old in std::mem::take(&mut self.scanout) {
-            self.free(old.buffer);
-        }
-        self.bound_output = vk::Buffer::null();
+        let group = self.next_group;
+        self.next_group += 1;
         let loader = ash::khr::external_memory_fd::Device::new(&self.instance, &self.device);
-        let mut targets = Vec::with_capacity(count);
+        let mut targets: Vec<(usize, ScanoutTarget)> = Vec::with_capacity(count);
         for _ in 0..count {
-            let buffer = self.buffer(Role::Scanout, u64::from(width) * u64::from(height) * 4)?;
-            let info = vk::MemoryGetFdInfoKHR::default()
-                .memory(buffer.memory)
-                .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
-            // SAFETY: the memory was allocated exportable as DMA-BUF and is live.
-            let fd = match unsafe { loader.get_memory_fd(&info) } {
-                // SAFETY: vkGetMemoryFdKHR returns a new descriptor that the caller owns.
-                Ok(fd) => unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) },
+            let made = self
+                .buffer(Role::Scanout, u64::from(width) * u64::from(height) * 4)
+                .and_then(|buffer| {
+                    let info = vk::MemoryGetFdInfoKHR::default()
+                        .memory(buffer.memory)
+                        .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+                    // SAFETY: the memory was allocated exportable as DMA-BUF and is live.
+                    match unsafe { loader.get_memory_fd(&info) } {
+                        // SAFETY: vkGetMemoryFdKHR returns a new descriptor that the caller owns.
+                        Ok(fd) => Ok((buffer, unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) })),
+                        Err(error) => {
+                            self.free(buffer);
+                            Err(error.into())
+                        }
+                    }
+                });
+            let (buffer, fd) = match made {
+                Ok(made) => made,
                 Err(error) => {
-                    self.free(buffer);
-                    return Err(error.into());
+                    // None of the display's targets are kept without the others.
+                    let made: Vec<usize> = targets.iter().map(|(index, _)| *index).collect();
+                    self.remove_scanout_targets(&made);
+                    return Err(error);
                 }
             };
-            self.scanout.push(Scanout {
+            let target = Scanout {
                 buffer,
                 width,
                 height,
                 released: false,
                 stale: None,
-            });
-            targets.push(ScanoutTarget {
-                fd,
-                width,
-                height,
-                pitch: width * 4,
-            });
+                group,
+            };
+            let index = match self.scanout.iter().position(Option::is_none) {
+                Some(free) => {
+                    self.scanout[free] = Some(target);
+                    free
+                }
+                None => {
+                    self.scanout.push(Some(target));
+                    self.scanout.len() - 1
+                }
+            };
+            targets.push((
+                index,
+                ScanoutTarget {
+                    fd,
+                    width,
+                    height,
+                    pitch: width * 4,
+                },
+            ));
         }
         Ok(targets)
+    }
+
+    /// Frees the scanout targets at `indices` (a display that went away); their indices may be
+    /// given to targets made later. No frame is being composed into them: each composition waits
+    /// for its fence.
+    pub fn remove_scanout_targets(&mut self, indices: &[usize]) {
+        for &index in indices {
+            if let Some(target) = self.scanout.get_mut(index).and_then(Option::take) {
+                if self.bound_output == target.buffer.buffer {
+                    self.bound_output = vk::Buffer::null();
+                }
+                self.free(target.buffer);
+            }
+        }
     }
 
     /// Makes the buffers at least this large, binding new device buffers to the set.
@@ -1451,7 +1536,7 @@ impl Drop for VulkanCompositor {
                 self.free(buffer);
             }
         }
-        for scanout in std::mem::take(&mut self.scanout) {
+        for scanout in std::mem::take(&mut self.scanout).into_iter().flatten() {
             self.free(scanout.buffer);
         }
         // SAFETY: no submission is pending (each compose waits for its fence); every handle was

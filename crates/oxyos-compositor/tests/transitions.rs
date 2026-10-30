@@ -65,7 +65,7 @@ fn session(name: &str) -> (Session, (i32, i32)) {
         })
         .unwrap();
     let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&directory).unwrap());
-    let mut compositor = Compositor::new(scene, uid, output);
+    let mut compositor = Compositor::new(scene, uid);
     compositor.clock = Some(Duration::from_secs(100));
     let (destroy, destroyed) = mpsc::channel::<()>();
     std::thread::spawn(move || {
@@ -206,19 +206,26 @@ impl Session {
     /// its damage: a display composing only the damage shows the same frame as one composing it
     /// whole. True if the frame was composed from its damage (not whole).
     fn damage_covers_changes(&mut self, ms: u64) -> bool {
-        let before = self.compositor.framebuffer.clone();
+        let before = self.compositor.screens[0].framebuffer.clone();
         let frames = self.compositor.frames;
         self.compositor.clock = Some(Duration::from_secs(100) + Duration::from_millis(ms));
         self.compositor.serve(&self.listener).unwrap();
         if self.compositor.frames == frames {
-            assert_eq!(self.compositor.framebuffer, before, "no frame, no change");
+            assert_eq!(
+                self.compositor.screens[0].framebuffer, before,
+                "no frame, no change"
+            );
             return true;
         }
-        let Some(damage) = self.compositor.last_damage.clone() else {
+        let Some(damage) = self.compositor.screens[0].last_damage.clone() else {
             return false;
         };
         let width = 640;
-        for (index, (old, new)) in before.iter().zip(&self.compositor.framebuffer).enumerate() {
+        for (index, (old, new)) in before
+            .iter()
+            .zip(&self.compositor.screens[0].framebuffer)
+            .enumerate()
+        {
             if old == new {
                 continue;
             }

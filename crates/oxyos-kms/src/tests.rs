@@ -59,3 +59,46 @@ fn the_crtc_already_lighting_the_output_is_kept() {
     );
     assert_eq!(display::choose_crtc(Some(crtc(58)), &[]), None);
 }
+
+#[test]
+fn a_hotplug_is_a_drm_change_of_the_card_itself() {
+    let event = |fields: &[&str]| {
+        let mut bytes = b"change@/devices/pci0000:00/0000:00:02.0/drm/card1".to_vec();
+        for field in fields {
+            bytes.push(0);
+            bytes.extend(field.as_bytes());
+        }
+        bytes.push(0);
+        bytes
+    };
+    let plugged = event(&[
+        "ACTION=change",
+        "SUBSYSTEM=drm",
+        "HOTPLUG=1",
+        "DEVNAME=dri/card1",
+        "SEQNUM=4242",
+    ]);
+    assert!(crate::hotplug::is_hotplug(&plugged, "dri/card1"));
+    // Another card's, a change that is no hotplug, another subsystem's.
+    assert!(!crate::hotplug::is_hotplug(&plugged, "dri/card0"));
+    assert!(!crate::hotplug::is_hotplug(
+        &event(&["ACTION=change", "SUBSYSTEM=drm", "DEVNAME=dri/card1"]),
+        "dri/card1"
+    ));
+    assert!(!crate::hotplug::is_hotplug(
+        &event(&[
+            "ACTION=change",
+            "SUBSYSTEM=input",
+            "HOTPLUG=1",
+            "DEVNAME=dri/card1"
+        ]),
+        "dri/card1"
+    ));
+    // A field only resembling one is not it; nothing, or a header alone, is no event.
+    assert!(!crate::hotplug::is_hotplug(
+        &event(&["SUBSYSTEM=drm", "HOTPLUG=10", "DEVNAME=dri/card1"]),
+        "dri/card1"
+    ));
+    assert!(!crate::hotplug::is_hotplug(b"", "dri/card1"));
+    assert!(!crate::hotplug::is_hotplug(b"SUBSYSTEM=drm", "dri/card1"));
+}

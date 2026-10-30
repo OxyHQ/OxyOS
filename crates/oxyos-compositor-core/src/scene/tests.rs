@@ -6,6 +6,8 @@ use oxyos_protocol::{
 };
 use std::collections::HashMap;
 
+mod outputs;
+
 const APP: ClientId = 1;
 const OTHER: ClientId = 2;
 const SHELL: ClientId = 3;

@@ -98,6 +98,11 @@ pub const OXYOS_PREFERENCES_REDUCE_TRANSPARENCY: u8 = 4;
 /// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
 pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
 pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
+/// To the session's shell (ADR 0018): an output, added or changed (code: its id; x, y, width,
+/// height: its rectangle in the global space, logical; scale_120; detail: its refresh in mHz;
+/// flag: whether it is the primary, which has the dock), and an output removed (code).
+pub const OXYOS_EVENT_OUTPUT: u32 = 55;
+pub const OXYOS_EVENT_OUTPUT_REMOVED: u32 = 56;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -607,6 +612,33 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_WORKSPACES,
                 detail: count,
                 code: active,
+                ..out
+            }
+        }
+        Event::Output {
+            output,
+            rect,
+            scale_120,
+            refresh_mhz,
+            primary,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_OUTPUT,
+                code: output,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                scale_120,
+                detail: refresh_mhz,
+                flag: u8::from(primary),
+                ..out
+            }
+        }
+        Event::OutputRemoved { output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_OUTPUT_REMOVED,
+                code: output,
                 ..out
             }
         }

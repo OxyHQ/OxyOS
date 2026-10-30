@@ -2,19 +2,26 @@
 //! card offers, which needs no DRM master: its connectors and their modes, and its planes with
 //! the format and modifier pairs each accepts (`IN_FORMATS`), the compatibility the buffer ABI
 //! must be checked against before it is frozen.
+//!
+//! A card drives several outputs, each a [`Display`] on a CRTC of its own sharing the card
+//! (docs/adr/0018-several-displays.mdx); [`Hotplug`] hears when its connectors change.
 
 use drm::control::{connector, Device as ControlDevice};
 use drm::{ClientCapability, Device};
+use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd};
 use std::path::Path;
+use std::time::Duration;
 
 pub use drm::control::framebuffer::Handle as Framebuffer;
 pub use drm_fourcc::DrmFourcc;
 
 mod display;
 pub use display::{Display, PointerImage};
+mod hotplug;
+pub use hotplug::Hotplug;
 
 /// A DMA-BUF imported through PRIME, as `add_planar_framebuffer` takes it.
 struct Imported {
@@ -44,12 +51,16 @@ impl drm::buffer::PlanarBuffer for Imported {
     }
 }
 
-/// An open DRM card.
-pub struct Card(File);
+/// An open DRM card. Its displays share it, and its events: the flips read for one CRTC wait here
+/// for the display of that CRTC (`Display::flip_done`).
+pub struct Card {
+    file: File,
+    flips: RefCell<Vec<(drm::control::crtc::Handle, Duration)>>,
+}
 
 impl AsFd for Card {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.0.as_fd()
+        self.file.as_fd()
     }
 }
 
@@ -66,9 +77,25 @@ pub struct Mode {
 
 #[derive(Clone, Debug)]
 pub struct Output {
+    /// The connector's object id, which `Display::on_connector` takes.
+    pub id: u32,
     pub name: String,
     pub connected: bool,
+    /// A panel built into the machine (eDP, LVDS, DSI), not a monitor plugged into it.
+    pub internal: bool,
+    /// The physical size the display reports (its EDID), in millimetres; 0 when unknown.
+    pub size_mm: (u32, u32),
     pub modes: Vec<Mode>,
+}
+
+impl Output {
+    /// The mode it is driven at: its preferred (the panel's native), else its first.
+    pub fn preferred_mode(&self) -> Option<&Mode> {
+        self.modes
+            .iter()
+            .find(|mode| mode.preferred)
+            .or(self.modes.first())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,7 +125,10 @@ impl Card {
     /// The same with a card someone else opened (the session's seat manager, which makes it
     /// DRM master while the session is active).
     pub fn from_fd(fd: std::os::fd::OwnedFd) -> io::Result<Self> {
-        let card = Self(File::from(fd));
+        let card = Self {
+            file: File::from(fd),
+            flips: RefCell::new(Vec::new()),
+        };
         card.set_client_capability(ClientCapability::UniversalPlanes, true)?;
         card.set_client_capability(ClientCapability::Atomic, true)?;
         Ok(card)
@@ -138,6 +168,12 @@ impl Card {
         for &handle in resources.connectors() {
             let info = self.get_connector(handle, false)?;
             let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
+            let internal = matches!(
+                info.interface(),
+                connector::Interface::EmbeddedDisplayPort
+                    | connector::Interface::LVDS
+                    | connector::Interface::DSI
+            );
             let modes = info
                 .modes()
                 .iter()
@@ -154,12 +190,36 @@ impl Card {
                 })
                 .collect();
             outputs.push(Output {
+                id: u32::from(handle),
                 name,
                 connected: info.state() == connector::State::Connected,
+                internal,
+                size_mm: info.size().unwrap_or((0, 0)),
                 modes,
             });
         }
         Ok(outputs)
+    }
+
+    /// The page flips the kernel reported since the last call, and those read earlier for no
+    /// display yet, for `crtc`: their timestamps (CLOCK_MONOTONIC). Never blocks; flips of other
+    /// CRTCs stay for their displays.
+    fn flips_of(&self, crtc: drm::control::crtc::Handle, read: bool) -> io::Result<Vec<Duration>> {
+        if read {
+            for event in self.receive_events()? {
+                if let drm::control::Event::PageFlip(flip) = event {
+                    self.flips.borrow_mut().push((flip.crtc, flip.duration));
+                }
+            }
+        }
+        let mut flips = self.flips.borrow_mut();
+        let mine = flips
+            .iter()
+            .filter(|(of, _)| *of == crtc)
+            .map(|(_, at)| *at)
+            .collect();
+        flips.retain(|(of, _)| *of != crtc);
+        Ok(mine)
     }
 
     pub fn planes(&self) -> io::Result<Vec<Plane>> {

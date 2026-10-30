@@ -4,7 +4,9 @@
 // module (host-modules.cpp) and hears `OxyOSShellChanged` when it changes. Also whether the session
 // is locked (docs/adr/0010-lock-screen.mdx), the session's user, whom the lock screen names, and
 // whether Caps Lock is on, which its password field shows; and the wallpaper's frame that shows the
-// sun now (docs/adr/0012-solar-wallpaper.mdx), from the solar wallpaper OXYOS_WALLPAPER names.
+// sun now (docs/adr/0012-solar-wallpaper.mdx), from the solar wallpaper OXYOS_WALLPAPER names. And
+// the outputs (docs/adr/0018-several-displays.mdx): the shell runs on one, `output`, and has the dock
+// only on the primary.
 #pragma once
 
 #include <oxyos_client.h>
@@ -22,11 +24,14 @@ class ShellState {
  public:
   // Takes in a window or workspace event; true if what the shell knows changed.
   bool observe(const OxyOSEvent& event);
-  ShellState();
+  // The shell of the output `output`.
+  explicit ShellState(uint32_t output);
   // { windows: [{ id, appId, title, workspace, minimized, focused, launched }], workspaces, active, locked,
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
-//   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }] }
-// The applications are the session's registry (docs/adr/0013-launching-applications.mdx).
+  //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }],
+  //   output, outputs: [{ id, x, y, width, height, scale, primary }] }
+  // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
+  // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
   // Each turn: true if the wallpaper's frame changed (the sun moved on to another).
   bool tick();
@@ -42,6 +47,13 @@ class ShellState {
   std::map<uint32_t, std::string> title_, appId_;
   uint32_t workspaces_ = 1, active_ = 0;
   bool locked_ = false;
+  struct Output {
+    int32_t x = 0, y = 0;
+    uint32_t width = 0, height = 0, scale120 = 120;
+    bool primary = false;
+  };
+  uint32_t output_;
+  std::map<uint32_t, Output> outputs_;
   // Whether Caps Lock is on, as told to the shell's focused surface (off when it gains focus,
   // unless told).
   bool capsLock_ = false;

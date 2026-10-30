@@ -491,7 +491,10 @@ impl Keyboard {
 pub struct Input {
     libinput: Libinput,
     keyboard: Keyboard,
-    bounds: (f64, f64),
+    /// Where the pointer may be: the outputs' rectangles (x, y, width, height), side by side
+    /// (docs/adr/0018-several-displays.mdx). Absolute devices (a tablet, the development
+    /// compositor's virtual mouse) span their bounding box.
+    area: Vec<(f64, f64, f64, f64)>,
     pointer: (f64, f64),
     /// The pinch going on: how far its fingers have turned (libinput reports each step's turn).
     pinch_rotation: f64,
@@ -524,9 +527,29 @@ impl Input {
             libinput,
             keyboard: Keyboard::new(layout)?,
             pointer: (bounds.0 / 2.0, bounds.1 / 2.0),
-            bounds,
+            area: vec![(0.0, 0.0, bounds.0, bounds.1)],
             pinch_rotation: 0.0,
         })
+    }
+
+    /// Where the pointer may be from now on: the outputs' rectangles. It moves within them,
+    /// crossing where they meet; one outside them goes to the nearest point of one.
+    pub fn set_area(&mut self, area: Vec<(f64, f64, f64, f64)>) {
+        if area.is_empty() {
+            return;
+        }
+        self.area = area;
+        self.pointer = confine(&self.area, self.pointer.0, self.pointer.1);
+    }
+
+    /// The area's bounding box: what an absolute device spans.
+    fn bounds(&self) -> (f64, f64, f64, f64) {
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for &(x, y, width, height) in &self.area {
+            (x0, y0) = (x0.min(x), y0.min(y));
+            (x1, y1) = (x1.max(x + width), y1.max(y + height));
+        }
+        (x0, y0, x1 - x0, y1 - y0)
     }
 
     /// Whether dead keys and compose sequences compose (the locale has a compose table).
@@ -562,9 +585,10 @@ impl Input {
                     actions.push(self.motion());
                 }
                 input::Event::Pointer(PointerEvent::MotionAbsolute(motion)) => {
+                    let (x, y, width, height) = self.bounds();
                     self.move_to(
-                        motion.absolute_x_transformed(self.bounds.0 as u32),
-                        motion.absolute_y_transformed(self.bounds.1 as u32),
+                        x + motion.absolute_x_transformed(width as u32),
+                        y + motion.absolute_y_transformed(height as u32),
                     );
                     actions.push(self.motion());
                 }
@@ -640,10 +664,7 @@ impl Input {
     }
 
     fn move_to(&mut self, x: f64, y: f64) {
-        self.pointer = (
-            x.clamp(0.0, self.bounds.0 - 1.0),
-            y.clamp(0.0, self.bounds.1 - 1.0),
-        );
+        self.pointer = confine(&self.area, x, y);
     }
 
     fn motion(&self) -> Action {
@@ -652,6 +673,22 @@ impl Input {
             y: self.pointer.1,
         }
     }
+}
+
+/// The point of `area` (rectangles: x, y, width, height) nearest to (x, y): itself when it is in
+/// one, else the nearest point of the nearest. A pointer pushed past an edge where no output
+/// continues stays at it, and slides along it.
+pub fn confine(area: &[(f64, f64, f64, f64)], x: f64, y: f64) -> (f64, f64) {
+    area.iter()
+        .map(|&(left, top, width, height)| {
+            let at = (
+                x.clamp(left, left + (width - 1.0).max(0.0)),
+                y.clamp(top, top + (height - 1.0).max(0.0)),
+            );
+            ((at.0 - x).powi(2) + (at.1 - y).powi(2), at)
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map_or((x, y), |(_, at)| at)
 }
 
 fn scroll_action(scroll: &impl PointerScrollEvent) -> Action {

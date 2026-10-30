@@ -325,6 +325,14 @@ fn events() -> Vec<Event> {
             last: false,
             text: PreeditText::new("lock_after=15").unwrap(),
         },
+        Event::Output {
+            output: 2,
+            rect: Rect::new(1536, 0, 1707, 960),
+            scale_120: 180,
+            refresh_mhz: 59_951,
+            primary: false,
+        },
+        Event::OutputRemoved { output: 2 },
         Event::LockState { locked: true },
         Event::CapsLock {
             surface: 5,

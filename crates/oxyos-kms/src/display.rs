@@ -5,21 +5,24 @@
 //! The pointer is shown on the CRTC's cursor plane where it has one: one of the images the
 //! display keeps, each in a buffer of its own (its own arrow first), placed in every commit, so
 //! moving the pointer or changing its image only commits the frame already shown again.
+//!
+//! Several displays share a card, each on a connector, a CRTC and planes of its own
+//! (docs/adr/0018-several-displays.mdx): [`Display::on_connector`] takes what no other uses.
 
 use crate::Card;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::dumbbuffer::DumbBuffer;
 use drm::control::{
-    atomic, connector, crtc, framebuffer, plane, property, AtomicCommitFlags, Device as _, Event,
-    Mode,
+    atomic, connector, crtc, framebuffer, plane, property, AtomicCommitFlags, Device as _, Mode,
 };
 use drm::{Device as _, DriverCapability};
 use std::io;
+use std::rc::Rc;
 use std::time::Duration;
 
 /// A connector driven by this process: its mode, CRTC, primary plane and two buffers.
 pub struct Display {
-    card: Card,
+    card: Rc<Card>,
     connector: connector::Handle,
     crtc: crtc::Handle,
     plane: plane::Handle,
@@ -114,52 +117,66 @@ impl Display {
     /// Takes DRM master and prepares the first connected connector at its preferred mode.
     pub fn open(card: Card) -> io::Result<Self> {
         card.acquire_master_lock()?;
-        Self::prepare(card)
+        Self::first_connected(Rc::new(card))
     }
 
     /// The same with a card the session's seat manager opened and made DRM master (logind's
     /// `TakeDevice`): master is the seat manager's to drop and restore, and the kernel refuses
     /// the request to anyone but the card's opener.
     pub fn open_from_seat(card: Card) -> io::Result<Self> {
-        Self::prepare(card)
+        Self::first_connected(Rc::new(card))
     }
 
-    fn prepare(card: Card) -> io::Result<Self> {
+    /// The card's first connected connector.
+    fn first_connected(card: Rc<Card>) -> io::Result<Self> {
+        let connector = card
+            .outputs()?
+            .into_iter()
+            .find(|output| output.connected && !output.modes.is_empty())
+            .ok_or_else(|| not_found("no connected output"))?;
+        Self::on_connector(card, connector.id, &[])
+    }
+
+    /// Prepares the connector `connector` (an [`Output`](crate::Output)'s id) of `card` at its
+    /// preferred mode, on a CRTC and planes none of `in_use` names (the other displays'
+    /// [`objects`](Self::objects)). The card stays shared: each display presents on its own CRTC.
+    pub fn on_connector(card: Rc<Card>, connector: u32, in_use: &[u32]) -> io::Result<Self> {
         let resources = card.resource_handles()?;
-        let (connector, mode) = resources
+        let connector = resources
             .connectors()
             .iter()
-            .filter_map(|&handle| {
-                let info = card.get_connector(handle, false).ok()?;
-                if info.state() != connector::State::Connected {
-                    return None;
-                }
-                let mode = info
-                    .modes()
-                    .iter()
-                    .find(|m| {
-                        m.mode_type()
-                            .contains(drm::control::ModeTypeFlags::PREFERRED)
-                    })
-                    .or(info.modes().first())
-                    .copied()?;
-                Some((handle, mode))
-            })
-            .next()
-            .ok_or_else(|| not_found("no connected output"))?;
+            .copied()
+            .find(|&handle| u32::from(handle) == connector)
+            .ok_or_else(|| not_found("no such connector"))?;
         let info = card.get_connector(connector, false)?;
+        if info.state() != connector::State::Connected {
+            return Err(not_found("the output is not connected"));
+        }
+        let mode = info
+            .modes()
+            .iter()
+            .find(|m| {
+                m.mode_type()
+                    .contains(drm::control::ModeTypeFlags::PREFERRED)
+            })
+            .or(info.modes().first())
+            .copied()
+            .ok_or_else(|| not_found("the output has no mode"))?;
+        let free = |handle: u32| !in_use.contains(&handle);
         let lit = info
             .current_encoder()
             .and_then(|encoder| card.get_encoder(encoder).ok())
             .and_then(|encoder| encoder.crtc());
+        // Of the CRTCs it may use, those no other display has.
         let possible: Vec<crtc::Handle> = info
             .encoders()
             .iter()
             .filter_map(|&encoder| card.get_encoder(encoder).ok())
             .flat_map(|encoder| resources.filter_crtcs(encoder.possible_crtcs()))
+            .filter(|&crtc| free(u32::from(crtc)))
             .collect();
         let crtc =
-            choose_crtc(lit, &possible).ok_or_else(|| not_found("no CRTC for the output"))?;
+            choose_crtc(lit, &possible).ok_or_else(|| not_found("no free CRTC for the output"))?;
         let primary = card
             .plane_handles()?
             .into_iter()
@@ -167,9 +184,10 @@ impl Display {
                 let Ok(info) = card.get_plane(handle) else {
                     return false;
                 };
-                resources
-                    .filter_crtcs(info.possible_crtcs())
-                    .contains(&crtc)
+                free(u32::from(handle))
+                    && resources
+                        .filter_crtcs(info.possible_crtcs())
+                        .contains(&crtc)
                     && property_value(&card, handle, "type").ok() == Some(1)
             })
             .ok_or_else(|| not_found("no primary plane for the CRTC"))?;
@@ -189,7 +207,7 @@ impl Display {
             shown_pointer: None,
             front: None,
         };
-        display.cursor = display.prepare_cursor(&resources).ok().flatten();
+        display.cursor = display.prepare_cursor(&resources, in_use).ok().flatten();
         for _ in 0..2 {
             let buffer = display.card.create_dumb_buffer(
                 (u32::from(width), u32::from(height)),
@@ -207,14 +225,17 @@ impl Display {
     fn prepare_cursor(
         &self,
         resources: &drm::control::ResourceHandles,
+        in_use: &[u32],
     ) -> io::Result<Option<Cursor>> {
-        let card = &self.card;
+        let card = &*self.card;
         let plane = card.plane_handles()?.into_iter().find(|&handle| {
-            card.get_plane(handle).is_ok_and(|info| {
-                resources
-                    .filter_crtcs(info.possible_crtcs())
-                    .contains(&self.crtc)
-            }) && property_value(card, handle, "type").ok() == Some(2)
+            !in_use.contains(&u32::from(handle))
+                && card.get_plane(handle).is_ok_and(|info| {
+                    resources
+                        .filter_crtcs(info.possible_crtcs())
+                        .contains(&self.crtc)
+                })
+                && property_value(card, handle, "type").ok() == Some(2)
         });
         let Some(plane) = plane else {
             return Ok(None);
@@ -283,6 +304,63 @@ impl Display {
     /// The card this display drives (to import buffers into it, for one).
     pub fn card(&self) -> &Card {
         &self.card
+    }
+
+    /// The card's objects this display uses: its CRTC and planes, which another display of the
+    /// same card must not take (`on_connector`).
+    pub fn objects(&self) -> Vec<u32> {
+        let mut objects = vec![u32::from(self.crtc), u32::from(self.plane)];
+        objects.extend(self.cursor.as_ref().map(|cursor| u32::from(cursor.plane)));
+        objects
+    }
+
+    /// The connector it drives (an [`Output`](crate::Output)'s id).
+    pub fn connector(&self) -> u32 {
+        u32::from(self.connector)
+    }
+
+    /// Turns the output off, its CRTC and planes freed for another (its monitor was unplugged).
+    /// A frame on its way is never completed: the display is dropped after this.
+    pub fn turn_off(&mut self) -> io::Result<()> {
+        if !self.configured {
+            return Ok(());
+        }
+        let card = &*self.card;
+        let mut request = atomic::AtomicModeReq::new();
+        request.add_property(
+            self.connector,
+            property_handle(card, self.connector, "CRTC_ID")?,
+            property::Value::CRTC(None),
+        );
+        request.add_property(
+            self.crtc,
+            property_handle(card, self.crtc, "MODE_ID")?,
+            property::Value::Blob(0),
+        );
+        request.add_property(
+            self.crtc,
+            property_handle(card, self.crtc, "ACTIVE")?,
+            property::Value::Boolean(false),
+        );
+        let planes = [
+            Some(self.plane),
+            self.cursor.as_ref().map(|cursor| cursor.plane),
+        ];
+        for plane in planes.into_iter().flatten() {
+            request.add_property(
+                plane,
+                property_handle(card, plane, "CRTC_ID")?,
+                property::Value::CRTC(None),
+            );
+            request.add_property(
+                plane,
+                property_handle(card, plane, "FB_ID")?,
+                property::Value::Framebuffer(None),
+            );
+        }
+        card.atomic_commit(AtomicCommitFlags::ALLOW_MODESET, request)?;
+        self.configured = false;
+        Ok(())
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -488,40 +566,32 @@ impl Display {
     }
 
     /// The presented frame's flip if it has happened: the kernel's timestamp of it
-    /// (CLOCK_MONOTONIC). Never blocks; the card is readable once it has (`card().as_fd()`).
+    /// (CLOCK_MONOTONIC). Never blocks; the card is readable once it has (`card().as_fd()`). The
+    /// card's flips of other CRTCs, read here, wait for their displays.
     pub fn flip_done(&self) -> io::Result<Option<Duration>> {
         use rustix::event::{poll, PollFd, PollFlags, Timespec};
-        let mut fds = [PollFd::new(&self.card, PollFlags::IN)];
+        let mut fds = [PollFd::new(&*self.card, PollFlags::IN)];
         let now = Timespec {
             tv_sec: 0,
             tv_nsec: 0,
         };
-        match poll(&mut fds, Some(&now)) {
-            Ok(0) | Err(rustix::io::Errno::INTR) => return Ok(None),
-            Ok(_) => {}
+        let readable = match poll(&mut fds, Some(&now)) {
+            Ok(0) | Err(rustix::io::Errno::INTR) => false,
+            Ok(_) => true,
             Err(error) => return Err(error.into()),
-        }
-        for event in self.card.receive_events()? {
-            if let Event::PageFlip(flip) = event {
-                if flip.crtc == self.crtc {
-                    return Ok(Some(flip.duration));
-                }
-            }
-        }
-        Ok(None)
+        };
+        Ok(self.card.flips_of(self.crtc, readable)?.pop())
     }
 
     /// Waits for the presented frame's flip; returns the kernel's timestamp of it
     /// (CLOCK_MONOTONIC).
     pub fn wait_flip(&self) -> io::Result<Duration> {
+        let mut read = false;
         loop {
-            for event in self.card.receive_events()? {
-                if let Event::PageFlip(flip) = event {
-                    if flip.crtc == self.crtc {
-                        return Ok(flip.duration);
-                    }
-                }
+            if let Some(flip) = self.card.flips_of(self.crtc, read)?.pop() {
+                return Ok(flip);
             }
+            read = true;
         }
     }
 }
@@ -535,7 +605,10 @@ impl Drop for Display {
         if let Some(property::Value::Blob(blob)) = self.mode_blob.take() {
             let _ = self.card.destroy_property_blob(blob);
         }
-        let _ = self.card.release_master_lock();
+        // The last display of the card gives master back; others still present on it.
+        if Rc::strong_count(&self.card) == 1 {
+            let _ = self.card.release_master_lock();
+        }
     }
 }
 

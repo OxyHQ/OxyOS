@@ -1,7 +1,10 @@
 //! The OxyOS session: the compositor (`oxyos-compositor`) on a real seat, running the
 //! applications it launches. It runs as the user of a logind session on a seat, from a login on
 //! a terminal, never as root (docs/adr/0006-seat.mdx):
-//! - its display is the first card with a connected output, at that output's size;
+//! - its displays are every connected output of the first card with one
+//!   (docs/adr/0018-several-displays.mdx): side by side, left to right, top-aligned, the built-in
+//!   panel first (the primary, which has the dock), each at its preferred mode, at a scale from
+//!   its density, composed and flipped on its own; monitors plugged in and out are followed;
 //! - frames are composed on the GPU straight into the display's scanout buffers where Vulkan
 //!   exports DMA-BUF, otherwise on the CPU, only what changed (docs/adr/0005-damage.mdx);
 //! - its input is the seat's devices through libinput, with the system's keyboard
@@ -15,9 +18,10 @@
 //! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...]
 //! [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...]` runs COMMAND
 //! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
-//! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
-//! that grants `shell` and `lock` (the shell is the lock screen as well); COMMAND, if given,
-//! starts once the shell's panels have set the work area its window is placed in. With a shell
+//! (ADR 0009) starts first, one on each output: PROGRAM with its ARGs, then `--shell OUTPUT`, on a
+//! socket of its own that grants `shell` and `lock` (the shell is the lock screen as well);
+//! COMMAND, if given, starts once the shells' panels have set the work areas windows are placed
+//! in. An output plugged in gets a shell of its own; one unplugged, its shell stopped. With a shell
 //! COMMAND may be left out: the session is the desktop alone. Without one it is required. The
 //! session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then
 //! asked to stop). A shell
@@ -44,22 +48,24 @@
 //! screen reader started or stopped) and told to every client. `lock_after` is kept: the session
 //! has no idle lock yet.
 //!
-//! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
-//! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
-//! (`--pointer`, every shape its `Install.inf` names) closest to SIZE pixels (32 by default).
+//! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
+//! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
+//! images of a Windows cursor file or cursor scheme's folder (`--pointer`, every shape its
+//! `Install.inf` names) closest to SIZE pixels at the display's scale (32 by default).
 //!
 //! Started at boot by a unit of `Type=notify` (docs/adr/0017-boot-logo.mdx), the session sends
-//! `READY=1` once its first frame, the splash, has flipped on the display; the unit then lets the
+//! `READY=1` once its first frame, the splash, has flipped on a display; the unit then lets the
 //! boot logo go, which showed the same pixels until then.
 
 mod cursor_file;
+mod displays;
 mod notify;
 
 use oxyos_compositor::settings::{self, Settings};
 use oxyos_compositor::{Authentication, Compositor, Gpu, LaunchRecord, Result};
-use oxyos_compositor_core::{Grants, Output, Scene};
+use oxyos_compositor_core::{Grants, OutputId, Scene};
 use oxyos_ipc::Listener;
-use oxyos_protocol::{AuthOutcome, PointerShape, Rect};
+use oxyos_protocol::{AuthOutcome, PointerShape};
 use rustix::fd::BorrowedFd;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -73,9 +79,8 @@ use std::time::{Duration, Instant};
 const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] \
                      [--shell PROGRAM,ARG...] [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...] \
                      (COMMAND is required without a shell)";
-/// The shell's panels set the work area within this budget, or the session does not start.
+/// The shells' panels set the work areas within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
-const OUTPUT_ID: u32 = 1;
 /// The PAM service the lock checks passwords under (`/etc/pam.d/oxyos`).
 const PAM_SERVICE: &str = "oxyos";
 /// A shell that exits while locked is started again, but no sooner than this after the last.
@@ -155,39 +160,10 @@ fn main() -> Result<()> {
     if let Err(error) = seat.hold_sleep() {
         eprintln!("[session] holding sleep back: {error}; sleep will not wait for the lock");
     }
-    let (display, card) = open_display(&seat)?;
-    let mut display = display;
-    let pointer_images = show_pointer(&mut display, pointer.as_ref());
-    let (width, height) = display.size();
-    eprintln!(
-        "[session] showing on {} ({})",
-        card.display(),
-        display.mode_name()
-    );
-    let output = Rect::new(0, 0, width, height);
-    let mut scene = Scene::new();
-    scene
-        .add_output(Output {
-            id: OUTPUT_ID,
-            rect: output,
-            scale_120: 120,
-            refresh_mhz: display.refresh_hz() * 1000,
-        })
-        .map_err(|code| format!("output: {code:?}"))?;
-
-    // The socket applications connect to, in the user's runtime directory.
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .ok_or("no XDG_RUNTIME_DIR: run oxyos-session in a login session")?;
-    let socket = runtime.join(format!("oxyos-{}", std::process::id()));
-    let listener = Listener::bind(&socket)?;
-    listener.set_nonblocking(true)?;
-    let _socket = RemoveOnDrop(socket.clone());
-
+    let (card, card_path) = open_card(&seat)?;
     let own_uid = rustix::process::getuid().as_raw();
-    let mut compositor = Compositor::new(scene, own_uid, output);
-    compositor.pointer_images = pointer_images;
-    // A session waits for its devices, clients and display rather than turning every 5 ms; at
+    let mut compositor = Compositor::new(Scene::new(), own_uid);
+    // A session waits for its devices, clients and displays rather than turning every 5 ms; at
     // most a quarter of a second, in which it notices its application or shell has exited.
     compositor.idle_wait = Duration::from_millis(250);
     compositor.records = false;
@@ -195,33 +171,13 @@ fn main() -> Result<()> {
     settings.apply(&mut compositor, settings::now());
     compositor.reads_back = false;
     compositor.authentication = Some(Box::new(pam));
-    // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).
-    compositor.show_splash();
-    // Its first frame on the display: the service manager that started the session lets the
-    // boot logo go (ADR 0017). Failing to tell it never ends the session.
-    if let Some(notify) = notify {
-        compositor.on_first_flip = Some(Box::new(move || match notify.ready() {
-            Ok(()) => eprintln!("[session] on screen: the service manager is told (READY=1)"),
-            Err(error) => eprintln!("[session] telling the service manager it is ready: {error}"),
-        }));
-    }
-    compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
+    compositor.card_device = Some(oxyos_seat::Device::of(&card_path)?);
     compositor.seat = Some(seat.clone());
-    // On the GPU straight into the display's buffers where the device exports them.
+    // On the GPU straight into the displays' buffers where the device exports them.
     match oxyos_gpu::VulkanCompositor::new() {
-        Ok(mut gpu) if gpu.exports_dma_buf() => {
-            use std::os::fd::AsFd;
-            for target in gpu.scanout_targets(2, width, height)? {
-                let framebuffer = display.card().import_dmabuf(
-                    target.fd.as_fd(),
-                    target.width,
-                    target.height,
-                    target.pitch,
-                )?;
-                compositor.scanout.push(framebuffer);
-            }
+        Ok(gpu) if gpu.exports_dma_buf() => {
             eprintln!(
-                "[session] composing on {} ({:?}) into the display's buffers",
+                "[session] composing on {} ({:?}) into the displays' buffers",
                 gpu.device_name(),
                 gpu.device_kind()
             );
@@ -243,7 +199,46 @@ fn main() -> Result<()> {
         ),
         Err(error) => eprintln!("[session] no Vulkan device ({error}): composing on the CPU"),
     }
-    compositor.display = Some(display);
+    // Every connected output, arranged (ADR 0018).
+    let mut outputs = Outputs {
+        card,
+        path: card_path,
+        shown: Vec::new(),
+        next_id: 1,
+        pointer,
+    };
+    outputs.follow(&mut compositor)?;
+    if compositor.screens.is_empty() {
+        return Err(format!("{}: no output could be shown", outputs.path.display()).into());
+    }
+    // The card's connectors changing: monitors plugged in and out.
+    let name = outputs.path.file_name().and_then(|name| name.to_str());
+    match name.map(oxyos_kms::Hotplug::open) {
+        Some(Ok(hotplug)) => compositor.hotplug = Some(hotplug),
+        Some(Err(error)) => {
+            eprintln!("[session] hotplug events: {error}; monitors plugged in are not seen")
+        }
+        None => {}
+    }
+    // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).
+    compositor.show_splash();
+    // Its first frame on a display: the service manager that started the session lets the boot
+    // logo go (ADR 0017). Failing to tell it never ends the session.
+    if let Some(notify) = notify {
+        compositor.on_first_flip = Some(Box::new(move || match notify.ready() {
+            Ok(()) => eprintln!("[session] on screen: the service manager is told (READY=1)"),
+            Err(error) => eprintln!("[session] telling the service manager it is ready: {error}"),
+        }));
+    }
+
+    // The socket applications connect to, in the user's runtime directory.
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .ok_or("no XDG_RUNTIME_DIR: run oxyos-session in a login session")?;
+    let socket = runtime.join(format!("oxyos-{}", std::process::id()));
+    let listener = Listener::bind(&socket)?;
+    listener.set_nonblocking(true)?;
+    let _socket = RemoveOnDrop(socket.clone());
 
     let open_seat = seat.clone();
     let close_seat = seat.clone();
@@ -257,27 +252,32 @@ fn main() -> Result<()> {
     let layout = layout
         .or_else(oxyos_input::Layout::system)
         .unwrap_or_else(|| oxyos_input::Layout::named("us"));
-    let input = oxyos_input::Input::open_with((width, height), &layout, Some((open, close)))?;
+    // The pointer moves over every output: absolute devices span their bounding box.
+    let bounds = compositor
+        .screens
+        .iter()
+        .fold((0, 0), |(width, height), screen| {
+            (
+                width.max(screen.rect.right().max(0) as u32),
+                height.max(screen.rect.bottom().max(0) as u32),
+            )
+        });
+    let input = oxyos_input::Input::open_with(bounds, &layout, Some((open, close)))?;
     eprintln!("[session] input from seat0, layout {layout}");
     compositor.input = Some(input);
+    compositor.confine_pointer();
 
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, stop.clone())?;
     }
-    // The session's shell first, on its own socket, granted `shell`.
+    // The session's shells first, on their own socket, granted `shell`: one on each output.
     let shell_socket = runtime.join(format!("oxyos-{}-shell", std::process::id()));
     let _shell_socket = RemoveOnDrop(shell_socket.clone());
-    let mut shell = match &shell_command {
-        Some(shell_command) => Some(start_shell(
-            &mut compositor,
-            &listener,
-            &shell_socket,
-            shell_command,
-            output,
-        )?),
-        None => None,
-    };
+    let mut shells: BTreeMap<OutputId, std::process::Child> = BTreeMap::new();
+    if let Some(shell_command) = &shell_command {
+        shells = start_shells(&mut compositor, &listener, &shell_socket, shell_command)?;
+    }
     // The screen reader's socket, only when the session has one (ADR 0014).
     let reader_socket = runtime.join(format!("oxyos-{}-reader", std::process::id()));
     let _reader_socket = RemoveOnDrop(reader_socket.clone());
@@ -318,6 +318,21 @@ fn main() -> Result<()> {
     );
     let mut shell_started = Instant::now();
     let ended = loop {
+        // Monitors plugged in and out (ADR 0018): an output added gets a shell of its own; one
+        // removed, its shell stopped.
+        if compositor.take_hotplug() {
+            let (added, removed) = outputs.follow(&mut compositor)?;
+            for output in removed {
+                if let Some(mut shell) = shells.remove(&output) {
+                    end(&mut shell)?;
+                }
+            }
+            if let Some(shell_command) = &shell_command {
+                for output in added {
+                    shells.insert(output, spawn_shell(&shell_socket, shell_command, output)?);
+                }
+            }
+        }
         for id in launcher.reap() {
             eprintln!("[session] {id} exited");
         }
@@ -380,26 +395,33 @@ fn main() -> Result<()> {
             );
             break Ok(());
         }
-        if let Some(status) = shell
-            .as_mut()
-            .map(|shell| shell.try_wait())
-            .transpose()?
-            .flatten()
-        {
+        let mut exited = None;
+        for (output, shell) in shells.iter_mut() {
+            if let Some(status) = shell.try_wait()? {
+                exited = Some((*output, status));
+                break;
+            }
+        }
+        if let Some((output, status)) = exited {
             if !compositor.scene.is_locked() {
-                eprintln!("[session] the shell exited ({status})");
+                eprintln!("[session] the shell of output {output} exited ({status})");
                 break Ok(());
             }
             // Failing closed: the session stays locked, under the covers, until the shell is
             // back and shows the lock screen.
-            eprintln!("[session] the shell exited ({status}) while locked");
-            shell = None;
+            eprintln!("[session] the shell of output {output} exited ({status}) while locked");
+            shells.remove(&output);
         }
-        if let (None, Some(shell_command)) = (&shell, &shell_command) {
-            if shell_started.elapsed() >= SHELL_RESTART {
-                eprintln!("[session] starting the shell again");
+        if let Some(shell_command) = &shell_command {
+            let missing = compositor
+                .screens
+                .iter()
+                .map(|screen| screen.id)
+                .find(|output| !shells.contains_key(output));
+            if let Some(output) = missing.filter(|_| shell_started.elapsed() >= SHELL_RESTART) {
+                eprintln!("[session] starting the shell of output {output} again");
                 shell_started = Instant::now();
-                shell = Some(spawn_shell(&shell_socket, shell_command)?);
+                shells.insert(output, spawn_shell(&shell_socket, shell_command, output)?);
             }
         }
         if compositor.ending || stop.load(Ordering::Relaxed) {
@@ -414,7 +436,7 @@ fn main() -> Result<()> {
         end(application)?;
     }
     launcher.end(Duration::from_secs(2));
-    if let Some(shell) = shell.as_mut() {
+    for shell in shells.values_mut() {
         end(shell)?;
     }
     if let Some(reader) = reader.as_mut() {
@@ -425,51 +447,68 @@ fn main() -> Result<()> {
     // The last frame completes before the display and the devices are given back.
     compositor.complete_flip(true);
     compositor.input = None;
-    compositor.display = None;
+    for screen in &mut compositor.screens {
+        screen.display = None;
+    }
     compositor.seat = None;
     ended
 }
 
-/// Starts the session's shell on `socket`, granting `shell`, and serves the session until its
-/// panels have set the work area (it differs from the output).
-fn start_shell(
+/// Starts the session's shells on `socket`, granting `shell`, one on each output, and serves the
+/// session until each one's panels have set its output's work area (it differs from the output).
+fn start_shells(
     compositor: &mut Compositor,
     listener: &Listener,
     socket: &std::path::Path,
     command: &[OsString],
-    output: Rect,
-) -> Result<std::process::Child> {
+) -> Result<BTreeMap<OutputId, std::process::Child>> {
     let shell_listener = Listener::bind(socket)?;
     shell_listener.set_nonblocking(true)?;
     compositor.shell_listener = Some(shell_listener);
-    let mut shell = spawn_shell(socket, command)?;
+    let mut shells = BTreeMap::new();
+    for screen in &compositor.screens {
+        shells.insert(screen.id, spawn_shell(socket, command, screen.id)?);
+    }
     let deadline = Instant::now() + SHELL_DEADLINE;
     loop {
-        if let Some(status) = shell.try_wait()? {
-            return Err(format!("the shell exited ({status}) before its panels were shown").into());
+        for (output, shell) in shells.iter_mut() {
+            if let Some(status) = shell.try_wait()? {
+                return Err(format!(
+                    "the shell of output {output} exited ({status}) before its panels were shown"
+                )
+                .into());
+            }
         }
         if Instant::now() > deadline {
-            end(&mut shell)?;
-            return Err("the shell's panels were not shown in time".into());
+            for shell in shells.values_mut() {
+                end(shell)?;
+            }
+            return Err("the shells' panels were not shown in time".into());
         }
         compositor.serve(listener)?;
-        if compositor
-            .scene
-            .work_area(OUTPUT_ID)
-            .is_some_and(|area| area != output)
-        {
-            eprintln!("[session] the shell's panels are shown");
-            return Ok(shell);
+        let shown = compositor.scene.outputs().iter().all(|output| {
+            compositor
+                .scene
+                .work_area(output.id)
+                .is_some_and(|area| area != output.rect)
+        });
+        if shown {
+            eprintln!("[session] the shells' panels are shown");
+            return Ok(shells);
         }
     }
 }
 
-/// The session's shell, on `socket`.
-fn spawn_shell(socket: &std::path::Path, command: &[OsString]) -> Result<std::process::Child> {
+/// The session's shell of `output`, on `socket`.
+fn spawn_shell(
+    socket: &std::path::Path,
+    command: &[OsString],
+    output: OutputId,
+) -> Result<std::process::Child> {
     Ok(Command::new(command.first().ok_or(USAGE)?)
         .args(&command[1..])
         .arg("--shell")
-        .arg(OUTPUT_ID.to_string())
+        .arg(output.to_string())
         .env("OXYOS_COMPOSITOR_SOCKET", socket)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
@@ -544,21 +583,24 @@ impl Authentication for Pam {
     }
 }
 
-/// The pointer's images on the display's cursor plane, by shape: from a cursor file (the arrow)
-/// or a cursor scheme's folder (every shape its `Install.inf` names), else the display's own
-/// arrow. Without a cursor plane, or with files it cannot read, the session says so and goes on.
+/// The pointer's images on a display's cursor plane, by shape: from a cursor file (the arrow) or
+/// a cursor scheme's folder (every shape its `Install.inf` names), each the image closest to its
+/// size at the display's scale (in 120ths), else the display's own arrow. Without a cursor
+/// plane, or with files it cannot read, the session says so and goes on.
 fn show_pointer(
     display: &mut oxyos_kms::Display,
     pointer: Option<&(PathBuf, u32)>,
+    scale_120: u32,
 ) -> BTreeMap<PointerShape, Vec<(usize, Duration)>> {
     let mut images = BTreeMap::new();
     let Some(max) = display.pointer_size() else {
-        eprintln!("[session] the display has no cursor plane: the pointer is not shown");
+        eprintln!("[session] the display has no cursor plane: the pointer is not shown on it");
         return images;
     };
     let Some((path, size)) = pointer else {
         return images;
     };
+    let size = &oxyos_compositor::scaled(*size, scale_120);
     let files = if path.is_dir() {
         match cursor_file::scheme(path) {
             Ok(files) => files,
@@ -625,7 +667,7 @@ fn end(application: &mut std::process::Child) -> Result<()> {
 }
 
 /// The first card with a connected output, opened through the seat, and its path.
-fn open_display(seat: &oxyos_seat::Seat) -> Result<(oxyos_kms::Display, PathBuf)> {
+fn open_card(seat: &oxyos_seat::Seat) -> Result<(Rc<oxyos_kms::Card>, PathBuf)> {
     let mut cards: Vec<PathBuf> = std::fs::read_dir("/dev/dri")?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
         .filter(|path| {
@@ -643,10 +685,18 @@ fn open_display(seat: &oxyos_seat::Seat) -> Result<(oxyos_kms::Display, PathBuf)
                     "the session is not active: its terminal must be shown",
                 ));
             }
-            oxyos_kms::Display::open_from_seat(oxyos_kms::Card::from_fd(fd)?)
+            let card = oxyos_kms::Card::from_fd(fd)?;
+            let connected = card
+                .outputs()?
+                .iter()
+                .any(|output| output.connected && !output.modes.is_empty());
+            if !connected {
+                return Err(std::io::Error::other("no connected output"));
+            }
+            Ok(card)
         });
         match opened {
-            Ok(display) => return Ok((display, path)),
+            Ok(card) => return Ok((Rc::new(card), path)),
             Err(error) => {
                 if let Ok(device) = oxyos_seat::Device::of(&path) {
                     let _ = seat.close(device);
@@ -656,6 +706,148 @@ fn open_display(seat: &oxyos_seat::Seat) -> Result<(oxyos_kms::Display, PathBuf)
         }
     }
     Err(last.unwrap_or_else(|| "no DRM card".to_string()).into())
+}
+
+/// The outputs the session shows on its card (docs/adr/0018-several-displays.mdx), in the
+/// arrangement's order, as the compositor's screens are.
+struct Outputs {
+    card: Rc<oxyos_kms::Card>,
+    path: PathBuf,
+    shown: Vec<displays::Shown>,
+    next_id: OutputId,
+    /// `--pointer`: the cursor file or scheme each display's pointer images come from.
+    pointer: Option<(PathBuf, u32)>,
+}
+
+impl Outputs {
+    /// Reads the card's connectors and follows them: outputs gone are removed (their windows go
+    /// to the primary), those left close up, and new ones are shown at the right end, each on a
+    /// display of its own. Returns the outputs added and removed.
+    fn follow(&mut self, compositor: &mut Compositor) -> Result<(Vec<OutputId>, Vec<OutputId>)> {
+        let connectors: Vec<displays::Connector> = self
+            .card
+            .outputs()?
+            .iter()
+            .map(displays::Connector::of)
+            .collect();
+        let plan = displays::plan(&self.shown, &connectors, self.next_id);
+        let name = |id: Option<u32>| {
+            connectors
+                .iter()
+                .find(|connector| Some(connector.id) == id)
+                .map_or("?", |connector| connector.name.as_str())
+                .to_string()
+        };
+        for &id in &plan.remove {
+            let connector = self.shown.iter().find(|shown| shown.output.id == id);
+            eprintln!(
+                "[session] output {id} ({}) is gone",
+                name(connector.and_then(|shown| shown.connector))
+            );
+            compositor.remove_output(id);
+            self.shown.retain(|shown| shown.output.id != id);
+        }
+        if plan.dark {
+            eprintln!("[session] no output is connected: nothing is shown until one is");
+            for shown in &mut self.shown {
+                compositor.detach_display(shown.output.id);
+                shown.connector = None;
+            }
+        }
+        for &(id, origin) in &plan.moves {
+            compositor.move_output(id, origin)?;
+            if let Some(shown) = self.shown.iter_mut().find(|shown| shown.output.id == id) {
+                (shown.output.rect.x, shown.output.rect.y) = origin;
+            }
+        }
+        let mut added = Vec::new();
+        for shown in plan.add {
+            let output = shown.output;
+            self.next_id = self.next_id.max(output.id + 1);
+            let connector = shown.connector.expect("an output added is on a connector");
+            let in_use: Vec<u32> = compositor
+                .screens
+                .iter()
+                .filter_map(|screen| screen.display.as_ref())
+                .flat_map(|display| display.objects())
+                .collect();
+            let mut display =
+                match oxyos_kms::Display::on_connector(self.card.clone(), connector, &in_use) {
+                    Ok(display) => display,
+                    Err(error) => {
+                        eprintln!("[session] {} is not shown: {error}", name(Some(connector)));
+                        continue;
+                    }
+                };
+            let pointer = show_pointer(&mut display, self.pointer.as_ref(), output.scale_120);
+            // Its own scanout buffers on the GPU, taking turns.
+            let mut scanout = Vec::new();
+            if let (Some(gpu), true) = (&mut compositor.gpu, compositor.gpu_only) {
+                use std::os::fd::AsFd;
+                let (width, height) = display.size();
+                let imported = match gpu.compositor.add_scanout_targets(2, width, height) {
+                    Ok(targets) => {
+                        let indices: Vec<usize> = targets.iter().map(|(index, _)| *index).collect();
+                        let imported = targets
+                            .iter()
+                            .map(|(index, target)| {
+                                display
+                                    .card()
+                                    .import_dmabuf(
+                                        target.fd.as_fd(),
+                                        target.width,
+                                        target.height,
+                                        target.pitch,
+                                    )
+                                    .map(|framebuffer| (*index, framebuffer))
+                            })
+                            .collect::<std::io::Result<Vec<_>>>()
+                            .map_err(|error| error.to_string());
+                        if imported.is_err() {
+                            gpu.compositor.remove_scanout_targets(&indices);
+                        }
+                        imported
+                    }
+                    Err(error) => Err(error.to_string()),
+                };
+                match imported {
+                    Ok(imported) => scanout = imported,
+                    Err(error) => {
+                        eprintln!(
+                            "[session] {} is not shown: its scanout buffers: {error}",
+                            name(Some(connector))
+                        );
+                        continue;
+                    }
+                }
+            }
+            eprintln!(
+                "[session] output {} on {}: {} at {}x scale, {}x{} at ({}, {}){}",
+                output.id,
+                name(Some(connector)),
+                display.mode_name(),
+                f64::from(output.scale_120) / 120.0,
+                output.rect.width,
+                output.rect.height,
+                output.rect.x,
+                output.rect.y,
+                if compositor.screens.is_empty() {
+                    ", the primary"
+                } else {
+                    ""
+                }
+            );
+            compositor.add_output(output, Some(display.size()))?;
+            let screen = compositor.screen_mut(output.id).expect("just added");
+            screen.display = Some(display);
+            screen.scanout = scanout;
+            screen.pointer_images = pointer;
+            self.shown.push(shown);
+            added.push(output.id);
+        }
+        // Outputs gone and their shells' surfaces with them; those added composed from now on.
+        Ok((added, plan.remove))
+    }
 }
 
 /// Removes the socket when the session ends.
