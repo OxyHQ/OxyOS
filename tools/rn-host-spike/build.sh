@@ -136,13 +136,15 @@ host-build/oxyos-rn-spike "$HERE/tree.js"
 # React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
 # compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
 # resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
-# The host is laid out as runtime 1 (docs/adr/0030-installing-applications.mdx, decision 2), and each
-# application is a package of its own, compiled with that runtime's hermesc; the probes are one
-# development bundle (sample/packages.mjs).
+# The host is laid out as runtime 1 (docs/adr/0030-installing-applications.mdx, decision 2), with its
+# framework, and each application is a package of its own, compiled with that runtime's hermesc; the
+# probes are one development bundle (sample/packages.mjs).
 rm -rf "$WORK/runtimes" && cmake --install host-build --prefix "$WORK/runtimes/1" >/dev/null
 cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxyos-pack
-(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" \
-  OXYOS_PACK="$REPO/target/release/oxyos-pack" OXYOS_RUNTIME="$WORK/runtimes/1" node packages.mjs "$WORK/packages")
+# The runtime's framework (React Native's JavaScript, React, Bloom; ADR 0030, decision 17), then the
+# applications built against it.
+(cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" node framework.mjs "$WORK/runtimes/1" \
+  && BLOOM_DIR="$BLOOM_DIR" OXYOS_PACK="$REPO/target/release/oxyos-pack" OXYOS_RUNTIME="$WORK/runtimes/1" node packages.mjs "$WORK/packages")
 OXYOS_SCRIPT_URL="file://$WORK/packages/so.oxy.inbox/bundle/index.js" \
   "$WORK/runtimes/1/oxyos-bloom-host" "$WORK/packages/so.oxy.inbox/index.hbc" OxyBloom "$WORK/bloom.png" 1024 640
 

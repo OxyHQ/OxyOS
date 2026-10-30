@@ -1,9 +1,6 @@
 // The probes, in one development bundle: what scenarios run by their modules to check the host.
 // Applications are packages of their own, each its own bundle (entries/, packages.mjs;
 // docs/adr/0030-installing-applications.mdx).
-import './oxyos/expo-adapter';
-// expo-file-system's native module, once the adapter installed Expo's globals.
-import './oxyos/expo-file-system';
 import './global.css';
 import { AppRegistry } from 'react-native';
 import AndroidProbe from './AndroidProbe';

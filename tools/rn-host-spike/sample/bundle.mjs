@@ -61,4 +61,18 @@ for (const asset of result.assets ?? []) {
     copied += 1;
   });
 }
+// The runtime's framework (OXYOS_FRAMEWORK_BUILD, metro.config.js): what it provides, the manifest
+// applications are built against: every module's key and id, whether an application may name it,
+// and the version of each package (docs/adr/0030-installing-applications.mdx, decision 17).
+if (process.env.OXYOS_FRAMEWORK_BUILD === '1') {
+  const { recorded } = createRequire(import.meta.url)('./framework-ids.js');
+  const modules = {};
+  const packages = {};
+  for (const described of recorded.values()) {
+    if (described.app) continue;
+    modules[described.key] = { id: described.id, public: described.public };
+    if (described.name) packages[described.name] = described.version;
+  }
+  fs.writeFileSync(path.resolve(outDir, 'framework.json'), JSON.stringify({ packages, modules }));
+}
 console.log(JSON.stringify({ bundle: out, bytecode: Boolean(hermesc), assets: copied }));

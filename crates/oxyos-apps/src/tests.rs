@@ -844,10 +844,18 @@ fn a_runtime_is_its_directory_its_description_its_host_and_compiler() {
         Level::parse(r#"{"abi":1,"api":3}"#),
         Ok(Level { abi: 1, api: 3 })
     );
+    assert_eq!(
+        Level::parse(&format!(
+            r#"{{"abi":1,"api":3,"framework":{{"sha256":"{0}","size":13727110,"manifest":"{0}"}}}}"#,
+            "0".repeat(64)
+        )),
+        Ok(Level { abi: 1, api: 3 })
+    );
     for refused in [
         r#"{"abi":0,"api":0}"#,
         r#"{"abi":1}"#,
         r#"{"abi":1,"api":1,"rn":"0.88"}"#,
+        r#"{"abi":1,"api":1,"framework":{"sha256":"x","size":1,"manifest":"x","modules":3}}"#,
         r#"{"abi":1,"api":1,"api":2}"#,
         r#"{"abi":"1","api":1}"#,
         r#"{"abi":1.5,"api":1}"#,

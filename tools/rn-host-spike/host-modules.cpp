@@ -396,6 +396,11 @@ std::shared_ptr<TurboModule> createHostModule(
     });
   } else if (name == "DeviceInfo") {
     module->constants(folly::dynamic::object("Dimensions", deviceDimensions(display)));
+  } else if (name == "OxyOSRuntime") {
+    // The runtime's numbers (an application's package names the ones it was built for) and its
+    // framework's URL, which the framework's assets are resolved beside (oxyos/framework-init.js).
+    module->constants(folly::dynamic::object("abi", services.runtime.abi)("api", services.runtime.api)(
+        "frameworkURL", services.runtime.frameworkURL));
   } else if (name == "SourceCode") {
     const char* url = std::getenv("OXYOS_SCRIPT_URL");
     module->constants(folly::dynamic::object("scriptURL", url ? url : ""));

@@ -50,10 +50,23 @@ pub struct InstalledRuntime {
 struct Description {
     abi: u32,
     api: u32,
+    /// The runtime's framework (decision 17): named here by its digests, and only read by the host.
+    #[allow(dead_code)]
+    framework: Option<Framework>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct Framework {
+    sha256: String,
+    size: u64,
+    manifest: String,
 }
 
 impl Level {
-    /// A `runtime.json`'s text: exactly `abi` (from 1) and `api` (from 0), integers, nothing else.
+    /// A `runtime.json`'s text: `abi` (from 1) and `api` (from 0), integers, and its framework's
+    /// digests; nothing else.
     pub fn parse(text: &str) -> Result<Self, Error> {
         let description: Description =
             serde_json::from_str(text).map_err(|error| Error(format!("runtime.json: {error}")))?;
