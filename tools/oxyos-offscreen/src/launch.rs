@@ -1670,18 +1670,23 @@ fn drag_paced(
         if compositor.frames != last_frame {
             last_frame = compositor.frames;
             composed += 1;
-            let scale = compositor
-                .scene
-                .outputs()
-                .first()
-                .map_or(120, |output| u64::from(output.scale_120));
+            // Each screen's frame draws the window from its buffer, made at the scale of the
+            // output its centre is on.
             let at_its_size = |rect: Rect, extent: oxyos_protocol::Size| {
+                let scale = compositor
+                    .scene
+                    .output_at_point(
+                        rect.x + rect.width as i32 / 2,
+                        rect.y + rect.height as i32 / 2,
+                    )
+                    .map_or(120, |output| u64::from(output.scale_120));
                 u64::from(rect.width) * scale == u64::from(extent.width) * 120
                     && u64::from(rect.height) * scale == u64::from(extent.height) * 120
             };
             scaled += compositor
-                .composed
+                .screens
                 .iter()
+                .flat_map(|screen| &screen.composed)
                 .filter(|item| {
                     matches!(item, RenderItem::Surface { key: k, rect, frame }
                         if *k == key && !at_its_size(*rect, frame.extent))

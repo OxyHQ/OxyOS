@@ -253,3 +253,187 @@ fn a_window_on_an_output_removed_moves_to_the_primary_at_its_scale() {
     assert_ne!(left.pixel(x + 100, y + 30), 0x0020_a0f0);
     assert_ne!(left.pixel(x + 50, y + 60), 0x0020_a0f0);
 }
+
+/// An application whose 100x60 window is filled with `colour` at the scale each configure asks
+/// for, answering every configure, that asks to be zoomed (or restored) when `asks` says.
+fn zooming_application(socket: std::path::PathBuf, colour: u32, asks: mpsc::Receiver<bool>) {
+    std::thread::spawn(move || {
+        let mut client = Client::connect(&socket).unwrap();
+        client
+            .send(&Request::CreateToplevel {
+                surface: 1,
+                size: Size::new(100, 60),
+            })
+            .unwrap();
+        loop {
+            match client.poll().unwrap() {
+                oxyos_client::Poll::Event(Event::Configure {
+                    serial,
+                    rect,
+                    scale_120,
+                    ..
+                }) => {
+                    let extent = |length: u32| (length * scale_120).div_ceil(120);
+                    let extent = Size::new(extent(rect.width), extent(rect.height));
+                    let pixels: Vec<u8> = std::iter::repeat_n(
+                        colour.to_le_bytes(),
+                        (extent.width * extent.height) as usize,
+                    )
+                    .flatten()
+                    .collect();
+                    client.present(1, serial, extent, &pixels).unwrap();
+                }
+                oxyos_client::Poll::Event(_) => continue,
+                oxyos_client::Poll::Closed => return,
+                oxyos_client::Poll::Empty => match asks.try_recv() {
+                    Ok(enabled) => client
+                        .send(&Request::SetMaximized {
+                            surface: 1,
+                            enabled,
+                        })
+                        .unwrap(),
+                    Err(mpsc::TryRecvError::Disconnected) => return,
+                    Err(mpsc::TryRecvError::Empty) => {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                },
+            }
+        }
+    });
+}
+
+impl Session {
+    /// Composes at `ms` past the clock's start, checking on every screen that what changed is
+    /// within that screen's damage.
+    fn compose_at(&mut self, ms: u64) {
+        let before: Vec<Vec<u32>> = self
+            .compositor
+            .screens
+            .iter()
+            .map(|screen| screen.framebuffer.clone())
+            .collect();
+        self.compositor.clock = Some(Duration::from_secs(100) + Duration::from_millis(ms));
+        self.compositor.serve(&self.listener).unwrap();
+        for (screen, before) in self.compositor.screens.iter().zip(&before) {
+            let Some(damage) = &screen.last_damage else {
+                continue;
+            };
+            for (index, (old, new)) in before.iter().zip(&screen.framebuffer).enumerate() {
+                let (x, y) = (
+                    (index % screen.width as usize) as i32,
+                    (index / screen.width as usize) as i32,
+                );
+                assert!(
+                    old == new
+                        || damage.iter().any(|r| x >= r.x
+                            && y >= r.y
+                            && x < r.x + r.width as i32
+                            && y < r.y + r.height as i32),
+                    "screen {}: ({x}, {y}) changed at {ms} ms outside its damage",
+                    screen.id
+                );
+            }
+        }
+    }
+
+    /// Serves at `ms`, every frame within its damage, until `done`.
+    fn compose_until(&mut self, ms: u64, what: &str, done: impl Fn(&Compositor) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !done(&self.compositor) {
+            assert!(Instant::now() < deadline, "{what} not in time");
+            self.compose_at(ms);
+        }
+    }
+}
+
+#[test]
+fn a_window_zooms_to_its_outputs_work_area_drawn_on_every_screen_it_crosses() {
+    let mut s = session("zoom");
+    let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
+    let colour = 0x0020_80c0;
+    // Opened on the right output, at 1.5.
+    s.compositor.scene.pointer_motion(800, 100);
+    let (ask, asks) = mpsc::channel();
+    zooming_application(s.socket.clone(), colour, asks);
+    s.until("the window", |c| c.surface_rect(1, 1).is_some());
+    let start = s.compositor.surface_rect(1, 1).unwrap();
+    assert!(RIGHT.contains(start), "{start:?}");
+    s.compose_at(0);
+    // Zoomed: it fills its own output's work area (the right one's, without panels), its frame
+    // drawn between on that screen, nothing of it on the other.
+    let serial = s.compositor.scene.configure_serial(window).unwrap();
+    ask.send(true).unwrap();
+    s.compose_until(0, "the zoom", |c| {
+        c.scene.configure_serial(window) > Some(serial)
+    });
+    s.compose_at(60);
+    let between = s
+        .compositor
+        .transitions
+        .zooming(window, Duration::from_secs(100) + Duration::from_millis(60))
+        .unwrap();
+    assert!(
+        RIGHT.contains(between) && between != RIGHT && between.width > start.width,
+        "{between:?}"
+    );
+    assert_eq!(
+        s.compositor.pixel(
+            between.x + between.width as i32 / 2,
+            between.y + between.height as i32 / 2
+        ),
+        colour
+    );
+    s.compose_until(1000, "the zoom's end", |c| {
+        c.transitions.is_empty() && c.surface_rect(1, 1) == Some(RIGHT)
+    });
+    s.compose_at(1100);
+    // Nothing of it on the left screen but the edge of its shadow.
+    assert!(s.compositor.screens[0]
+        .framebuffer
+        .iter()
+        .all(|&pixel| pixel != colour));
+    // Restored, then across the two outputs, its origin on the left one: zoomed, it fills the
+    // left output's work area, its frame between drawn on both screens while it crosses them.
+    ask.send(false).unwrap();
+    s.compose_until(1100, "the restore", |c| c.surface_rect(1, 1) == Some(start));
+    s.compose_until(2500, "the restore's end", |c| c.transitions.is_empty());
+    s.compositor.scene.move_window_to(window, (590, 100));
+    s.compose_until(2500, "the move", |c| {
+        c.surface_rect(1, 1) == Some(Rect::new(590, 100, 100, 60))
+    });
+    let serial = s.compositor.scene.configure_serial(window).unwrap();
+    ask.send(true).unwrap();
+    s.compose_until(2500, "the zoom", |c| {
+        c.scene.configure_serial(window) > Some(serial)
+    });
+    s.compose_at(2540);
+    let between = s
+        .compositor
+        .transitions
+        .zooming(
+            window,
+            Duration::from_secs(100) + Duration::from_millis(2540),
+        )
+        .unwrap();
+    assert!(
+        between.right() > i64::from(RIGHT.x) && between.x < 590,
+        "{between:?}"
+    );
+    let middle = between.y + between.height as i32 / 2;
+    assert_eq!(
+        s.compositor.pixel(RIGHT.x + 2, middle),
+        colour,
+        "on the right screen"
+    );
+    assert_eq!(
+        s.compositor.pixel(between.x + 2, middle),
+        colour,
+        "on the left screen"
+    );
+    s.compose_until(3500, "the zoom's end", |c| {
+        c.transitions.is_empty() && c.surface_rect(1, 1) == Some(LEFT)
+    });
+    s.compose_at(3600);
+    assert_ne!(s.compositor.pixel(RIGHT.x + 2, middle), colour);
+    assert_eq!(s.compositor.pixel(320, 240), colour);
+}
