@@ -206,19 +206,16 @@ impl Scene {
             }
             Request::SetWifiEnabled { enabled } => ControlRequest::SetWifi(enabled),
             Request::SetAppearance { serial, dark } => {
-                if self.locked {
-                    self.preference_set(client, serial, false);
-                    return Ok(());
-                }
                 // The appearance is a preference like any other, kept and told by the session
                 // (ADR 0019); the shell may change this one alone.
                 let value = if dark { "dark" } else { "light" };
-                return self.ask_preference(PreferenceChange {
-                    client,
-                    serial,
-                    key: "appearance".to_string(),
-                    value: value.to_string(),
-                });
+                return self.ask_control_preference(client, serial, "appearance", value);
+            }
+            // Do Not Disturb (docs/adr/0026-notifications.mdx), the same way: the user's
+            // `do_not_disturb` preference.
+            Request::SetDoNotDisturb { serial, enabled } => {
+                let value = if enabled { "true" } else { "false" };
+                return self.ask_control_preference(client, serial, "do_not_disturb", value);
             }
             Request::RefreshControls {} => ControlRequest::Refresh,
             _ => unreachable!("only the Control Center's requests come here"),
@@ -227,6 +224,27 @@ impl Scene {
             self.ask_control(request);
         }
         Ok(())
+    }
+
+    /// One of the preferences the Control Center changes, asked as Settings asks; while locked,
+    /// refused at once.
+    fn ask_control_preference(
+        &mut self,
+        client: ClientId,
+        serial: u32,
+        key: &str,
+        value: &str,
+    ) -> Result<(), ErrorCode> {
+        if self.locked {
+            self.preference_set(client, serial, false);
+            return Ok(());
+        }
+        self.ask_preference(PreferenceChange {
+            client,
+            serial,
+            key: key.to_string(),
+            value: value.to_string(),
+        })
     }
 
     /// The key presses and the Control Center's requests since the last call, in order: the
@@ -313,7 +331,8 @@ impl Scene {
         }
     }
 
-    fn shell_clients(&self) -> Vec<ClientId> {
+    /// The clients the session's shell runs as (its `shell` grant).
+    pub(super) fn shell_clients(&self) -> Vec<ClientId> {
         self.clients
             .iter()
             .filter(|(_, grants)| grants.shell)

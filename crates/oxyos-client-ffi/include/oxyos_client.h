@@ -43,6 +43,33 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_SIZE 80
 #define OXYOS_EVENT_SYSTEM_SHORTCUT 100
 #define OXYOS_EVENT_WINDOW_USE 101
+/* Notifications (docs/adr/0026-notifications.mdx). */
+#define OXYOS_EVENT_NOTIFICATION_RESULT 120
+#define OXYOS_EVENT_NOTIFICATION_TEXT 121
+#define OXYOS_EVENT_NOTIFICATION 122
+#define OXYOS_EVENT_NOTIFICATION_RESPONSE 123
+#define OXYOS_EVENT_NOTIFICATION_REMOVED 124
+#define OXYOS_EVENT_NOTIFICATION_POLICY 125
+/* What came of a posted notification (a NOTIFICATION_RESULT's detail). */
+#define OXYOS_NOTIFICATION_POSTED 1
+#define OXYOS_NOTIFICATION_REFUSED 2
+#define OXYOS_NOTIFICATION_THROTTLED 3
+/* Which text of a notification a NOTIFICATION_TEXT's chunk is (its height). */
+#define OXYOS_NOTIFICATION_FIELD_IDENTIFIER 1
+#define OXYOS_NOTIFICATION_FIELD_TITLE 2
+#define OXYOS_NOTIFICATION_FIELD_SUBTITLE 3
+#define OXYOS_NOTIFICATION_FIELD_BODY 4
+#define OXYOS_NOTIFICATION_FIELD_DATA 5
+#define OXYOS_NOTIFICATION_FIELD_ACTION_ID 6
+#define OXYOS_NOTIFICATION_FIELD_ACTION_LABEL 7
+#define OXYOS_NOTIFICATION_FIELD_ACTION_REPLY 8
+#define OXYOS_NOTIFICATION_FIELD_APPLICATION 9
+#define OXYOS_NOTIFICATION_FIELD_REPLY 10
+/* A NOTIFICATION's flag bits, and a NOTIFICATION_POLICY's. */
+#define OXYOS_NOTIFICATION_BANNER 1
+#define OXYOS_NOTIFICATION_WITHHELD 2
+#define OXYOS_NOTIFICATIONS_DO_NOT_DISTURB 1
+#define OXYOS_NOTIFICATIONS_PREVIEWS 2
 /* A SYSTEM_SHORTCUT's detail (docs/adr/0024-system-shortcuts.mdx). */
 #define OXYOS_SHORTCUT_SWITCHER_NEXT 1
 #define OXYOS_SHORTCUT_SWITCHER_PREVIOUS 2
@@ -250,7 +277,29 @@ typedef struct OxyOSClient OxyOSClient;
  *   To an application:
  *   MENU_ITEM_ACTIVATED  serial: the choice (a user input, as a key press's); code: the serial of
  *               the commit (oxyos_client_set_menus) the entry is in; detail: its index there. The
- *               person chose it in the shell's bar. */
+ *               person chose it in the shell's bar.
+ *   Notifications (docs/adr/0026-notifications.mdx):
+ *   NOTIFICATION_RESULT  to the application that posted one: width, the post's serial; detail,
+ *               OXYOS_NOTIFICATION_POSTED, _REFUSED (the session did not start this process) or
+ *               _THROTTLED (more than 5 in 10 seconds); code, the session's number for it (0 unless
+ *               posted).
+ *   NOTIFICATION_TEXT  a chunk of a notification's text: code, the notification; height,
+ *               OXYOS_NOTIFICATION_FIELD_*; width, the action it is of (from 1; 0 for the others);
+ *               detail, the chunk's index (0 begins it); flag, whether it is the last; text, the
+ *               chunk. To the shell before its NOTIFICATION (the application, title, subtitle,
+ *               body, each action's label and reply placeholder); to the application before its
+ *               NOTIFICATION_RESPONSE (identifier, title, subtitle, body, data, the chosen action's
+ *               id, the reply typed).
+ *   NOTIFICATION  to the shell, the notification `code` whole: flag, OXYOS_NOTIFICATION_BANNER
+ *               (show it now) and _WITHHELD (only its application was told: the session is locked);
+ *               width, how many actions; detail, seconds since it was posted.
+ *   NOTIFICATION_RESPONSE  to the application: the person pressed the notification `code` (width
+ *               0) or its action `width`; serial, a user input of the application's. Once.
+ *   NOTIFICATION_REMOVED  to the shell and the application: the notification `code` is no longer
+ *               kept.
+ *   NOTIFICATION_POLICY  to the shell, on connecting and when it changes: flag,
+ *               OXYOS_NOTIFICATIONS_DO_NOT_DISTURB and _PREVIEWS (the lock screen may show what
+ *               notifications say). */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -441,6 +490,44 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
+/* Notifications (docs/adr/0026-notifications.mdx). One of a notification's actions: its id and label
+ * (NUL-terminated UTF-8, not empty), a reply action's placeholder (may be empty; NULL for a button),
+ * and whether it answers without bringing the application forward. */
+typedef struct OxyOSNotificationAction {
+  const char* id;
+  const char* label;
+  const char* reply;
+  bool background;
+} OxyOSNotificationAction;
+/* A notification an application posts: its own identifier (posting it again replaces it), title,
+ * subtitle, body and data (given back with a response), NUL-terminated UTF-8 or NULL; at most 3
+ * actions; whether it is shown as a banner as it arrives (as the session allows). */
+typedef struct OxyOSNotification {
+  const char* identifier;
+  const char* title;
+  const char* subtitle;
+  const char* body;
+  const char* data;
+  const OxyOSNotificationAction* actions;
+  size_t action_count;
+  bool banner;
+} OxyOSNotification;
+/* Posts a notification as `serial`; a NOTIFICATION_RESULT with it answers. Texts longer than the
+ * protocol takes are cut at a character; more than 3 actions, more than 4096 bytes of data, a longer
+ * identifier than 64 bytes or an action without an id or label: OXYOS_ERROR, nothing sent. */
+int oxyos_client_post_notification(OxyOSClient* client, uint32_t serial, const OxyOSNotification* notification);
+/* Withdraws one of the application's own notifications (0: all of its own); from the session's shell,
+ * any (0: all). */
+int oxyos_client_withdraw_notification(OxyOSClient* client, uint32_t notification);
+/* The session's shell activates a notification (`action` 0) or its action `action` (from 1), citing
+ * `serial`, an input it received, with the reply typed for a reply action (`length` bytes of UTF-8;
+ * NULL for none). The compositor ignores it while locked or for an input the shell did not receive. */
+/* The session's shell turns Do Not Disturb on or off from its Control Center: a change of the user's
+ * do_not_disturb preference, answered by a PREFERENCE_RESULT with `serial`, as
+ * oxyos_client_set_appearance. Refused while locked. */
+int oxyos_client_set_do_not_disturb(OxyOSClient* client, uint32_t serial, bool enabled);
+int oxyos_client_activate_notification(OxyOSClient* client, uint32_t notification, uint8_t action, uint64_t serial,
+                                       const char* reply, size_t length);
 /* The lock (ADR 0010). The lock surface of `output` (the `lock` grant): it covers the output and is
  * all that shows while locked; a configure answers. Locking the session (the `shell` grant). The
  * password typed in a lock surface (`length` bytes of UTF-8, at most 512), submitted for the

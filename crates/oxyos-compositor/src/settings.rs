@@ -96,6 +96,14 @@ impl Settings {
             .transitions
             .set_reduce_motion(preferences.reduce_motion);
         compositor.set_lock_after(preferences.lock_after);
+        // Notifications (docs/adr/0026-notifications.mdx): Do Not Disturb and the lock screen's
+        // previews.
+        compositor.scene.set_notification_policy(
+            oxyos_compositor_core::scene::NotificationPolicy {
+                do_not_disturb: preferences.do_not_disturb,
+                previews: preferences.notification_previews == oxyos_preferences::Previews::Always,
+            },
+        );
         let drawing = DrawingPreferences {
             dark,
             reduce_motion: preferences.reduce_motion,
@@ -358,6 +366,63 @@ mod tests {
         ask(&mut compositor, 3, "lock_after=0");
         settings.serve(&mut compositor, DAY);
         assert_eq!(compositor.idle.deadline(), None);
+    }
+
+    #[test]
+    fn do_not_disturb_and_previews_are_the_shells_notification_policy() {
+        const SHELL: ClientId = 7;
+        let mut compositor = compositor();
+        compositor
+            .scene
+            .connect(
+                SHELL,
+                Grants {
+                    shell: true,
+                    ..Grants::default()
+                },
+            )
+            .unwrap();
+        let policies = |compositor: &mut Compositor| -> Vec<(bool, bool)> {
+            compositor
+                .scene
+                .drain_events()
+                .into_iter()
+                .filter_map(|(to, event)| match event {
+                    Event::NotificationPolicy {
+                        do_not_disturb,
+                        previews,
+                    } if to == SHELL => Some((do_not_disturb, previews)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut settings = Settings::new(Preferences::default(), None, None);
+        settings.apply(&mut compositor, DAY);
+        assert_eq!(policies(&mut compositor), [(false, false)]);
+        ask(&mut compositor, 1, "do_not_disturb=true");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["do_not_disturb"]);
+        assert_eq!(policies(&mut compositor), [(true, false)]);
+        ask(&mut compositor, 2, "notification_previews=always");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(policies(&mut compositor), [(true, true)]);
+        // Another preference changing tells the shell nothing new.
+        ask(&mut compositor, 3, "reduce_motion=true");
+        settings.serve(&mut compositor, DAY);
+        assert!(policies(&mut compositor).is_empty());
+        // The shell's Control Center turns it off the same way: kept, applied and told.
+        compositor
+            .scene
+            .handle(
+                SHELL,
+                Request::SetDoNotDisturb {
+                    serial: 4,
+                    enabled: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(settings.serve(&mut compositor, DAY), ["do_not_disturb"]);
+        assert!(!settings.preferences().do_not_disturb);
+        assert_eq!(policies(&mut compositor), [(false, true)]);
     }
 
     #[test]

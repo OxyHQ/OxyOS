@@ -27,9 +27,9 @@ pub(super) struct Launches {
 /// Text a client sends in chunks for one of its requests (`request`, its serial): `index` 0 begins
 /// it, each next chunk follows in order, `last` completes it, and the whole text then. A chunk out
 /// of order or text beyond `max` bytes is a protocol error, and what was received is dropped.
-pub(super) fn assemble(
-    receiving: &mut BTreeMap<(ClientId, u32), (String, u8)>,
-    request: (ClientId, u32),
+pub(super) fn assemble<K: Ord + Copy>(
+    receiving: &mut BTreeMap<K, (String, u8)>,
+    request: K,
     index: u8,
     last: bool,
     text: PreeditText,

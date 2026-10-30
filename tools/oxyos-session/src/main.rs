@@ -429,6 +429,24 @@ fn main() -> Result<()> {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
+        // A notification pressed while its application ran nowhere (ADR 0026): the session starts
+        // it, and its first client is given the response.
+        for id in compositor.scene.take_notification_launches() {
+            let started = !greeter
+                && match launcher.launch(&id) {
+                    Ok(pid) => {
+                        eprintln!("[session] started {id} ({pid}) for a notification");
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] not started for a notification: {error}");
+                        false
+                    }
+                };
+            if !started {
+                compositor.scene.notification_launch_failed(&id);
+            }
+        }
         if let Some(status) = reader
             .as_mut()
             .map(|reader| reader.try_wait())

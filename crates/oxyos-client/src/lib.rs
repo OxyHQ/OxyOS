@@ -5,12 +5,15 @@
 //! and, through `oxyos-client-ffi`, the native Bloom host.
 
 use oxyos_ipc::{create_shared_memory, write_at, Connection};
+use oxyos_protocol::NotificationField;
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
     ClientConnection, Event, Format, MenuField, MenuFlags, MenuKind, Politeness, PreeditText, Rect,
     Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
     MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
-    MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
+    MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES, MAX_NOTIFICATION_BODY_BYTES,
+    MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES, MAX_NOTIFICATION_REPLY_BYTES,
+    MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -345,6 +348,148 @@ impl Client {
             })?;
         }
         Ok(())
+    }
+
+    /// Posts a notification as `serial` (ADR 0026): its texts in chunks, each cut at a character
+    /// to the protocol's limit, then the post; a `NotificationResult` with `serial` answers. Data
+    /// longer than its limit is refused rather than cut (cut JSON is no JSON), as are more than
+    /// [`MAX_NOTIFICATION_ACTIONS`] actions.
+    pub fn post_notification(&self, serial: u32, post: &NotificationPost) -> io::Result<()> {
+        if post.actions.len() > MAX_NOTIFICATION_ACTIONS
+            || post.data.len() > MAX_NOTIFICATION_DATA_BYTES
+            || post.identifier.len() > MAX_NOTIFICATION_IDENTIFIER_BYTES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "at most 3 actions, 4096 bytes of data and a 64-byte identifier",
+            ));
+        }
+        let text = |field, action, value: &str, limit| -> io::Result<()> {
+            if value.is_empty() {
+                return Ok(());
+            }
+            let chunks = TextChunk::split(truncate(value, limit));
+            let count = chunks.len();
+            for (index, chunk) in chunks.iter().enumerate() {
+                self.send(&Request::NotificationText {
+                    serial,
+                    field,
+                    action,
+                    index: index as u8,
+                    last: index + 1 == count,
+                    text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                })?;
+            }
+            Ok(())
+        };
+        text(
+            NotificationField::Identifier,
+            0,
+            post.identifier,
+            MAX_NOTIFICATION_IDENTIFIER_BYTES,
+        )?;
+        text(
+            NotificationField::Title,
+            0,
+            post.title,
+            MAX_NOTIFICATION_TITLE_BYTES,
+        )?;
+        text(
+            NotificationField::Subtitle,
+            0,
+            post.subtitle,
+            MAX_NOTIFICATION_TITLE_BYTES,
+        )?;
+        text(
+            NotificationField::Body,
+            0,
+            post.body,
+            MAX_NOTIFICATION_BODY_BYTES,
+        )?;
+        text(
+            NotificationField::Data,
+            0,
+            post.data,
+            MAX_NOTIFICATION_DATA_BYTES,
+        )?;
+        let mut background = 0u8;
+        for (index, action) in post.actions.iter().enumerate() {
+            let n = index as u8 + 1;
+            text(
+                NotificationField::ActionId,
+                n,
+                action.id,
+                MAX_NOTIFICATION_ACTION_BYTES,
+            )?;
+            text(
+                NotificationField::ActionLabel,
+                n,
+                action.label,
+                MAX_NOTIFICATION_ACTION_BYTES,
+            )?;
+            if let Some(placeholder) = action.reply {
+                // A reply action with no placeholder still says it is one: an empty text.
+                let placeholder = truncate(placeholder, MAX_NOTIFICATION_ACTION_BYTES);
+                if placeholder.is_empty() {
+                    self.send(&Request::NotificationText {
+                        serial,
+                        field: NotificationField::ActionReply,
+                        action: n,
+                        index: 0,
+                        last: true,
+                        text: PreeditText::default(),
+                    })?;
+                } else {
+                    text(
+                        NotificationField::ActionReply,
+                        n,
+                        placeholder,
+                        MAX_NOTIFICATION_ACTION_BYTES,
+                    )?;
+                }
+            }
+            if action.background {
+                background |= 1 << index;
+            }
+        }
+        self.send(&Request::PostNotification {
+            serial,
+            banner: post.banner,
+            background,
+        })
+    }
+
+    /// Withdraws one of the application's notifications by the session's number for it (0: every
+    /// one of its own), or, from the session's shell, any (0: all).
+    pub fn withdraw_notification(&self, notification: u32) -> io::Result<()> {
+        self.send(&Request::WithdrawNotification { notification })
+    }
+
+    /// The session's shell activates a notification (`action` 0) or its action `action`, citing
+    /// the input `serial` it received; `reply`, the text typed for a reply action, cut at a
+    /// character to the protocol's limit.
+    pub fn activate_notification(
+        &self,
+        notification: u32,
+        action: u8,
+        serial: u64,
+        reply: &str,
+    ) -> io::Result<()> {
+        let chunks = TextChunk::split(truncate(reply, MAX_NOTIFICATION_REPLY_BYTES));
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::NotificationReply {
+                notification,
+                index: index as u8,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        self.send(&Request::ActivateNotification {
+            notification,
+            action,
+            serial,
+        })
     }
 
     pub fn name_window(&self, surface: u32, app_id: bool, text: &str) -> io::Result<()> {
@@ -686,6 +831,32 @@ pub struct Accessible<'a> {
     pub custom: &'a str,
     /// A text field's selection, in bytes of its value; never a secure field's.
     pub selection: Option<(u32, u32)>,
+}
+
+/// A notification an application posts (ADR 0026); empty texts are none.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NotificationPost<'a> {
+    /// The application's own identifier for it: posting it again replaces it.
+    pub identifier: &'a str,
+    pub title: &'a str,
+    pub subtitle: &'a str,
+    pub body: &'a str,
+    /// What the application keeps with it, given back with a response (its JSON, for Expo).
+    pub data: &'a str,
+    pub actions: &'a [NotificationActionPost<'a>],
+    /// Shown as a banner as it arrives, as the session allows; else only kept.
+    pub banner: bool,
+}
+
+/// One of a notification's actions.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NotificationActionPost<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    /// A reply action's placeholder (it may be empty); none for a button.
+    pub reply: Option<&'a str>,
+    /// It answers without bringing the application forward.
+    pub background: bool,
 }
 
 /// One entry of a window's menus (`Client::set_menus`, ADR 0021).

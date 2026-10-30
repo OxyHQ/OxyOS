@@ -419,6 +419,10 @@ pub struct Scene {
     menu_bars: menus::MenuBars,
     /// The windows each shell surface shows live (ADR 0022).
     window_views: BTreeMap<SurfaceKey, window_views::SurfaceViews>,
+    /// The notifications kept for the session (ADR 0026).
+    notifications: notifications::Notifications,
+    /// The time, as the program running the compositor last told it (`set_clock`).
+    clock: std::time::Duration,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -831,6 +835,7 @@ impl Scene {
         }
         if new.shell {
             self.tell_controls(client);
+            self.tell_notifications(client);
         }
         Ok(())
     }
@@ -848,6 +853,7 @@ impl Scene {
         self.forget_menu_bar_client(client);
         self.forget_launches(client);
         self.forget_preference_changes(client);
+        self.forget_notification_client(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -1227,6 +1233,7 @@ impl Scene {
             | Request::SetControlMuted { .. }
             | Request::SetWifiEnabled { .. }
             | Request::SetAppearance { .. }
+            | Request::SetDoNotDisturb { .. }
             | Request::RefreshControls {} => self.control_request(client, request),
             Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
                 self.window_view_request(client, request)
@@ -1243,6 +1250,11 @@ impl Scene {
                 last,
                 text,
             } => self.preference_request(client, serial, index, last, text),
+            Request::NotificationText { .. }
+            | Request::PostNotification { .. }
+            | Request::WithdrawNotification { .. }
+            | Request::NotificationReply { .. }
+            | Request::ActivateNotification { .. } => self.notification_request(client, request),
             Request::LockSession {}
             | Request::AuthenticateSecret { .. }
             | Request::Authenticate { .. }
@@ -1493,6 +1505,13 @@ impl Scene {
     ) -> ((i32, i32), Size) {
         if kind == ShellKind::Background {
             return ((output.x, output.y), Size::new(output.width, output.height));
+        }
+        // A notification (a banner, ADR 0026) is at the output's top-right corner, its own size
+        // there, whatever its edge: it slides in from beside itself at the right edge (ADR 0011).
+        if kind == ShellKind::Notification {
+            let size = Size::new(size.width.min(output.width), size.height.min(output.height));
+            let x = output.right() - i64::from(size.width);
+            return ((x as i32, output.y), size);
         }
         let thickness_v = size.height.min(output.height);
         let thickness_h = size.width.min(output.width);
@@ -2700,6 +2719,7 @@ impl Scene {
         self.refresh_pointer_focus();
         self.show_accessibility_after_lock();
         self.tell_lock_state();
+        self.tell_withheld_notifications();
     }
 
     pub fn is_locked(&self) -> bool {
@@ -3510,6 +3530,12 @@ mod launch;
 pub use launch::LaunchRequest;
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
+/// Notifications (docs/adr/0026-notifications.mdx).
+mod notifications;
+pub use notifications::{
+    NotificationPolicy, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION, NOTIFICATION_BURST,
+    NOTIFICATION_WINDOW,
+};
 mod appearances;
 mod menus;
 mod window_views;

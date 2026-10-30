@@ -188,6 +188,23 @@ wire_enum! {
     BluetoothState: u8 { Unavailable = 0, Off = 1, On = 2 }
 }
 wire_enum! {
+    /// Which text of a notification a chunk belongs to (ADR 0026): the posting application's own
+    /// identifier for it, its title, subtitle and body, the data it keeps with it (given back with
+    /// a response), an action's identifier, label and reply placeholder (an action with one is a
+    /// reply), the application it is from (to the shell, the launch record's) and the reply typed
+    /// (to the application, with a response).
+    NotificationField: u8 {
+        Identifier = 1, Title = 2, Subtitle = 3, Body = 4, Data = 5, ActionId = 6,
+        ActionLabel = 7, ActionReply = 8, Application = 9, Reply = 10,
+    }
+}
+wire_enum! {
+    /// What came of a notification an application posted (ADR 0026): kept (and shown, as the
+    /// session's preferences allow), refused (the session did not start the client's process, so
+    /// it is no application's), or refused for now (too many in a short time).
+    NotificationOutcome: u8 { Posted = 1, Refused = 2, Throttled = 3 }
+}
+wire_enum! {
     /// What an entry of a window's menus is (ADR 0021): a menu of the bar (a root), a command, a
     /// submenu of commands, or a separator between them.
     MenuKind: u8 { Menu = 1, Item = 2, Submenu = 3, Separator = 4 }
