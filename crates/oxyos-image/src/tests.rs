@@ -128,3 +128,94 @@ fn covering_keeps_both_sides_at_least_the_box() {
     assert_eq!(Fit::Covering(9000, 9000).size(5120, 2880), (5120, 2880));
     assert_eq!(Fit::Whole.size(5120, 2880), (5120, 2880));
 }
+
+/// Reduces as `reduce` did before it streamed its rows: every source row reduced across first,
+/// then down. What `reduce` gives must be exactly this.
+fn reduce_every_row_first(rgba: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
+    fn weights(source: u32, target: u32) -> Vec<Vec<(usize, f32)>> {
+        let scale = source as f32 / target as f32;
+        (0..target)
+            .map(|i| {
+                let (start, end) = (i as f32 * scale, (i + 1) as f32 * scale);
+                let mut taps = Vec::new();
+                let mut s = start.floor() as usize;
+                while (s as f32) < end && s < source as usize {
+                    let covered = (end.min(s as f32 + 1.0) - start.max(s as f32)).max(0.0);
+                    if covered > 0.0 {
+                        taps.push((s, covered / scale));
+                    }
+                    s += 1;
+                }
+                taps
+            })
+            .collect()
+    }
+    let (columns, rows) = (weights(from.0, to.0), weights(from.1, to.1));
+    let (source_width, target_width) = (from.0 as usize, to.0 as usize);
+    let mut across = vec![0f32; target_width * from.1 as usize * 4];
+    for y in 0..from.1 as usize {
+        let row = &rgba[y * source_width * 4..(y + 1) * source_width * 4];
+        for (x, taps) in columns.iter().enumerate() {
+            let out = &mut across[(y * target_width + x) * 4..][..4];
+            for &(s, weight) in taps {
+                for c in 0..4 {
+                    out[c] += f32::from(row[s * 4 + c]) * weight;
+                }
+            }
+        }
+    }
+    let mut out = vec![0u8; target_width * to.1 as usize * 4];
+    for (y, taps) in rows.iter().enumerate() {
+        for x in 0..target_width {
+            let mut sum = [0f32; 4];
+            for &(s, weight) in taps {
+                let pixel = &across[(s * target_width + x) * 4..][..4];
+                for c in 0..4 {
+                    sum[c] += pixel[c] * weight;
+                }
+            }
+            for c in 0..4 {
+                out[(y * target_width + x) * 4 + c] = sum[c].round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn reducing_row_by_row_gives_the_same_pixels() {
+    let (width, height, raw, _) = decode_rgba(&wallpaper()).unwrap();
+    // An even ratio, an uneven one, and one axis kept either way.
+    for to in [(1280, 720), (1000, 563), (5120, 1000), (37, 2880)] {
+        assert_eq!(
+            reduce(&raw, (width, height), to),
+            reduce_every_row_first(&raw, (width, height), to),
+            "reduced to {to:?}"
+        );
+    }
+}
+
+#[test]
+fn converting_a_slice_at_a_time_gives_the_same_pixels() {
+    let (_, _, raw, profile) = decode_rgba(&wallpaper()).unwrap();
+    let profile = profile.unwrap();
+    // More than a few slices, the last one short, with every alpha.
+    let mut pixels: Vec<u8> = raw[..TRANSFORM_CHUNK * 5 + 1024].to_vec();
+    for (i, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+        pixel[3] = i as u8;
+    }
+    let mut whole = pixels.clone();
+    ColorProfile::new_from_slice(&profile)
+        .unwrap()
+        .create_transform_8bit(
+            Layout::Rgba,
+            &ColorProfile::new_srgb(),
+            Layout::Rgba,
+            TransformOptions::default(),
+        )
+        .unwrap()
+        .transform(&pixels, &mut whole)
+        .unwrap();
+    to_srgb(&mut pixels, &profile).unwrap();
+    assert_eq!(pixels, whole);
+}
