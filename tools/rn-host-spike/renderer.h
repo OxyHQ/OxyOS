@@ -50,6 +50,10 @@ struct Picture {
   int width = 0, height = 0;
   std::vector<uint8_t> pixels;
   float naturalWidth = 0, naturalHeight = 0;
+  // Which picture this is, for the GPU painter's upload of it (docs/adr/0031-gpu-buffers.mdx): a
+  // picture is never changed once made, and each one made has its own.
+  uint64_t id = next();
+  static uint64_t next();
 };
 
 struct Canvas;
@@ -135,12 +139,42 @@ struct RenderStats {
   std::vector<WindowView> windowViews;
 };
 
+// A canvas drawn on the GPU (docs/adr/0031-gpu-buffers.mdx, decision 12): the painter's, freed
+// with the last canvas holding it.
+struct GpuCanvas;
+
 // Pixels are 0xAARRGGBB, premultiplied, row-major, `width * scale` by `height * scale`. A window's
-// canvas starts opaque white; a popup's starts transparent.
+// canvas starts opaque white; a popup's starts transparent. Drawn on the GPU, its pixels are the
+// GPU's (`gpu`) and `pixels` is empty: canvasPixels reads them.
 struct Canvas {
   int width = 0, height = 0;
   std::vector<uint32_t> pixels;
+  std::shared_ptr<GpuCanvas> gpu;
 };
+
+// The painter canvases are drawn with (docs/adr/0031-gpu-buffers.mdx, decision 12): the GPU's,
+// once set (a painter on the device the compositor shares buffers with), else the CPU's. A canvas
+// drawn on one and then on the other is drawn whole again, or read back. Unset, for good, when the
+// GPU path fails.
+void setGpuPaint(OxyOSPaint* paint);
+OxyOSPaint* gpuPaint();
+// While it lives, canvases are drawn on the CPU on this thread whatever is set (the render check).
+struct CpuPaintScope {
+  CpuPaintScope();
+  ~CpuPaintScope();
+};
+// The painter's canvas a canvas drawn on the GPU is (0 for one drawn on the CPU).
+uint32_t gpuCanvasId(const Canvas& canvas);
+// A canvas's pixels, read back from the GPU when it is drawn there.
+std::vector<uint32_t> canvasPixels(const Canvas& canvas);
+// The largest difference of any channel between two frames of one size, and how many pixels
+// differ by more than 3 levels in a channel (decision 13's parity check).
+struct FrameDifference {
+  int largest = 0;
+  size_t beyondThree = 0;
+  size_t pixels = 0;
+};
+FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b);
 
 // The focused text input's editing state, drawn over its text (textinput.h owns it). Offsets
 // are UTF-8 byte offsets into the input's text.

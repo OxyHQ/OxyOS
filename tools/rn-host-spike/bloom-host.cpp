@@ -1361,14 +1361,28 @@ int main(int argc, char** argv) {
             if (checkDamage && damage) {
               oxyos::Canvas whole;
               oxyos::draw(tree, display, whole, drawn);
+              auto wholePixels = oxyos::canvasPixels(whole), drawnPixels = oxyos::canvasPixels(windowCanvas);
               size_t differing = 0;
-              for (size_t i = 0; i < whole.pixels.size() && i < windowCanvas.pixels.size(); ++i) {
-                differing += whole.pixels[i] != windowCanvas.pixels[i];
+              for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+                differing += wholePixels[i] != drawnPixels[i];
               }
               if (differing) {
                 std::cerr << "[host] a frame drawn from its damage differs in " << differing << " pixels\n";
                 oxyos::Report::get().damageMismatch(oxyos::Window::kToplevel, differing);
               }
+            }
+            // Drawn on the GPU: the same frame drawn whole on the CPU must look the same (ADR 0031,
+            // decision 13).
+            static const bool checkRender = std::getenv("OXYOS_HOST_RENDER_CHECK") != nullptr;
+            if (checkRender && windowCanvas.gpu) {
+              oxyos::Canvas cpu;
+              {
+                oxyos::CpuPaintScope onCpu;
+                oxyos::draw(tree, display, cpu, drawn);
+              }
+              auto difference = oxyos::compareFrames(oxyos::canvasPixels(windowCanvas), cpu.pixels);
+              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference.largest, difference.beyondThree,
+                                               difference.pixels);
             }
             // The damage in the canvas's pixels, rounded outward.
             std::vector<OxyOSRect> pixels;

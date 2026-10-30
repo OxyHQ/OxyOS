@@ -253,10 +253,11 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
       if (checkDamage) {
         Canvas whole;
         drawRegion(tree_, tag, at, display, whole, edit);
-        if (whole.pixels != region.canvas.pixels) {
+        auto wholePixels = canvasPixels(whole), drawnPixels = canvasPixels(region.canvas);
+        if (wholePixels != drawnPixels) {
           size_t differing = 0;
-          for (size_t i = 0; i < whole.pixels.size() && i < region.canvas.pixels.size(); ++i) {
-            differing += whole.pixels[i] != region.canvas.pixels[i];
+          for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+            differing += wholePixels[i] != drawnPixels[i];
           }
           std::cerr << "[host] a shell region left undrawn differs in " << differing << " pixels\n";
           Report::get().damageMismatch(region.surface, std::max<size_t>(differing, 1));
@@ -275,14 +276,27 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     if (checkDamage && damage) {
       Canvas whole;
       drawRegion(tree_, tag, at, display, whole, edit);
+      auto wholePixels = canvasPixels(whole), drawnPixels = canvasPixels(region.canvas);
       size_t differing = 0;
-      for (size_t i = 0; i < whole.pixels.size() && i < region.canvas.pixels.size(); ++i) {
-        differing += whole.pixels[i] != region.canvas.pixels[i];
+      for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+        differing += wholePixels[i] != drawnPixels[i];
       }
       if (differing) {
         std::cerr << "[host] a shell region's frame drawn from its damage differs in " << differing << " pixels\n";
         Report::get().damageMismatch(region.surface, differing);
       }
+    }
+    // Drawn on the GPU: the same region drawn whole on the CPU must look the same (ADR 0031,
+    // decision 13).
+    static const bool checkRender = std::getenv("OXYOS_HOST_RENDER_CHECK") != nullptr;
+    if (checkRender && region.canvas.gpu) {
+      Canvas cpu;
+      {
+        CpuPaintScope onCpu;
+        drawRegion(tree_, tag, at, display, cpu, edit);
+      }
+      auto difference = compareFrames(canvasPixels(region.canvas), cpu.pixels);
+      Report::get().renderCheck(region.surface, difference.largest, difference.beyondThree, difference.pixels);
     }
     // The damage in the canvas's pixels, rounded outward.
     std::vector<OxyOSRect> pixels;

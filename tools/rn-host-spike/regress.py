@@ -1073,6 +1073,13 @@ def main():
                         help="also compose every frame on a Vulkan device; any difference fails")
     parser.add_argument("--check-damage", action="store_true",
                         help="the host draws every frame whole too; a frame drawn from its damage that differs fails")
+    parser.add_argument("--renderer", choices=["cpu", "gpu"], default=None,
+                        help="the host's painter (docs/adr/0031-gpu-buffers.mdx): the CPU's, or the GPU's (failing "
+                             "when the compositor offers no GPU it can share buffers with); by default the GPU's "
+                             "where one is offered")
+    parser.add_argument("--check-render", action="store_true",
+                        help="the host draws every frame on the CPU too; a GPU frame with more than 0.1%% of its "
+                             "pixels more than 3 levels off, or any pixel more than 32, fails")
     parser.add_argument("--gpu-only", action="store_true",
                         help="compose on the Vulkan device alone, with no CPU reference (measures it)")
     options = parser.parse_args()
@@ -1198,6 +1205,10 @@ def main():
         refusing.bind(("127.0.0.1", port + 1))
     if options.check_damage:
         env["OXYOS_HOST_DAMAGE_CHECK"] = "1"
+    if options.renderer:
+        env["OXYOS_HOST_RENDERER"] = options.renderer
+    if options.check_render:
+        env["OXYOS_HOST_RENDER_CHECK"] = "1"
     if scenario.get("wallpaper"):
         # The solar wallpaper (ADR 0012) at a moment and a time zone the scenario fixes: the
         # wallpaper's folder (from the repository's root), "TZ" and "now" (unix seconds).
@@ -1242,6 +1253,19 @@ def main():
     for line in report:
         if line["kind"] == "damage_mismatch":
             failures.append(f"the host's frame drawn from its damage differs in {line['pixels']} pixels")
+    # A frame drawn on the GPU that does not look as the CPU draws it (ADR 0031, decision 13).
+    checked = [line for line in list(report) + list(shell_report or []) if line["kind"] == "render_check"]
+    for line in checked:
+        share = line["beyond_three"] / max(line["pixels"], 1)
+        if share > 0.001 or line["largest"] > 32:
+            failures.append(f"surface {line['surface']}'s frame on the GPU differs from the CPU's: "
+                            f"{line['beyond_three']} of {line['pixels']} pixels by more than 3 levels, "
+                            f"{line['largest']} at most")
+    if options.check_render:
+        if options.renderer != "cpu" and not checked:
+            failures.append("--check-render, but no frame was drawn on the GPU")
+        worst = max((line["largest"] for line in checked), default=0)
+        print(f"render check: {len(checked)} GPU frames compared, largest difference {worst}", file=sys.stderr)
     if login is not None:
         # What the login program would have started, in order: each line begins as expected.
         wanted = scenario["login"].get("record", [])

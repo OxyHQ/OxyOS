@@ -24,8 +24,8 @@ when a budget (BUDGETS) is exceeded. A frame's budget is a refresh of the displa
 runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz without one), so a
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
-Usage: perf.py --offscreen BIN --host BIN --bundle DIR [--out DIR] [--runs N] [--gpu-only] [--check]
-               [interactions] [cold-start] [idle]
+Usage: perf.py --offscreen BIN --host BIN --bundle DIR [--out DIR] [--runs N] [--gpu-only]
+               [--renderer cpu|gpu] [--check] [interactions] [cold-start] [idle]
 """
 
 import argparse
@@ -226,6 +226,8 @@ def run_scenario(options, scenario, out, during=None):
                "--host", options.host, "--bundle", options.bundle, "--out", str(out)]
     if options.gpu_only:
         command += ["--gpu-only"]
+    if options.renderer:
+        command += ["--renderer", options.renderer]
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sampler = Sampler(run.pid)
     sampler.start()
@@ -448,6 +450,8 @@ def main():
     parser.add_argument("--out", default=None)
     parser.add_argument("--runs", type=int, default=3, help="runs of each scenario, pooled")
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")
+    parser.add_argument("--renderer", choices=["cpu", "gpu"], default=None,
+                        help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
     parts = options.parts or ["interactions", "cold-start", "idle"]

@@ -182,16 +182,61 @@ bool Window::ready(uint32_t id) const {
   return it != surfaces_.end() && it->second.configure != 0 && it->second.inFlight == 0;
 }
 
+void Window::choosePainter() {
+  if (painterChosen_) return;
+  painterChosen_ = true;
+  const char* asked = std::getenv("OXYOS_HOST_RENDERER");
+  std::string renderer = asked ? asked : "";
+  if (renderer == "cpu") {
+    std::cerr << "[window] drawing on the CPU (OXYOS_HOST_RENDERER=cpu)\n";
+    return;
+  }
+  uint64_t device = 0;
+  std::string why;
+  if (oxyos_client_gpu_device(client_, &device) != 1) {
+    why = "the compositor offers no GPU buffers";
+  } else if (OxyOSPaint* paint = oxyos_paint_new(client_)) {
+    if (oxyos_paint_exports(paint)) {
+      setGpuPaint(paint);
+      std::cerr << "[window] drawing on the GPU: " << oxyos_paint_device_name(paint) << "\n";
+      return;
+    }
+    why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
+    oxyos_paint_free(paint);
+  } else {
+    why = oxyos_last_error();
+  }
+  if (renderer == "gpu") failed("OXYOS_HOST_RENDERER=gpu, but " + why);
+  std::cerr << "[window] drawing on the CPU: " << why << "\n";
+}
+
 void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
   Surface& target = surfaces_.at(id);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
   // protocol's XRGB8888 / premultiplied ARGB8888 layout.
   uint32_t format = id == kToplevel ? OXYOS_FORMAT_XRGB8888 : OXYOS_FORMAT_ARGB8888;
-  auto sequence = oxyos_client_present_damaged(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
-                                             static_cast<uint32_t>(canvas.height), format,
-                                             reinterpret_cast<const uint8_t*>(canvas.pixels.data()),
-                                             canvas.pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
+  int64_t sequence = -1;
+  if (canvas.gpu) {
+    // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
+    sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
+                                   gpuCanvasId(canvas), format, damage.data(), damage.size());
+    if (sequence < 0) {
+      std::cerr << "[window] the GPU path stops (" << oxyos_last_error() << "): drawing on the CPU\n";
+      setGpuPaint(nullptr);
+    }
+  }
+  if (sequence < 0) {
+    std::vector<uint32_t> pixels = canvasPixels(canvas);
+    if (pixels.size() != static_cast<size_t>(canvas.width) * canvas.height) failed("cannot read a frame back");
+    sequence = oxyos_client_present_damaged(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
+                                          static_cast<uint32_t>(canvas.height), format,
+                                          reinterpret_cast<const uint8_t*>(pixels.data()),
+                                          pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
+  }
   if (sequence < 0) failed("cannot present");
+  // The next frames are drawn on the GPU where the compositor offers one (its table came after
+  // Welcome, before this first configure was answered).
+  choosePainter();
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
               << " for configure " << target.configure << "\n";
@@ -387,6 +432,7 @@ uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool n
 
 void Window::destroy(uint32_t id) {
   if (surfaces_.erase(id) == 0) return;
+  if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
   if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");
 }
 

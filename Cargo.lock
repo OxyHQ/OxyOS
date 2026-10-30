@@ -1578,6 +1578,7 @@ dependencies = [
  "oxyos-intl",
  "oxyos-ipc",
  "oxyos-net",
+ "oxyos-paint",
  "oxyos-protocol",
  "oxyos-solar",
  "oxyos-vector",

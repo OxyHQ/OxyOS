@@ -175,6 +175,17 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
     auto stats = drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, edit);
     double renderMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    // Drawn on the GPU: the same popup drawn on the CPU must look the same (ADR 0031, decision 13).
+    static const bool checkRender = std::getenv("OXYOS_HOST_RENDER_CHECK") != nullptr;
+    if (checkRender && canvas.gpu) {
+      Canvas cpu;
+      {
+        CpuPaintScope onCpu;
+        drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, cpu, edit);
+      }
+      auto difference = compareFrames(canvasPixels(canvas), cpu.pixels);
+      Report::get().renderCheck(popup.surface, difference.largest, difference.beyondThree, difference.pixels);
+    }
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
     accessibility_.publish(popup.surface, tag);

@@ -155,6 +155,12 @@ void Report::damageMismatch(uint32_t surface, size_t pixels) {
   write(folly::dynamic::object("kind", "damage_mismatch")("surface", surface)("pixels", pixels));
 }
 
+void Report::renderCheck(uint32_t surface, int largest, size_t beyondThree, size_t pixels) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "render_check")("surface", surface)("largest", largest)(
+      "beyond_three", beyondThree)("pixels", pixels));
+}
+
 void Report::input(const char* event, uint32_t surface, const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

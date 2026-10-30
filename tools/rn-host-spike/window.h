@@ -243,6 +243,10 @@ class Window {
 
  private:
   OxyOSClient* client_ = nullptr;
+  // Whether the painter was chosen (docs/adr/0031-gpu-buffers.mdx, decision 12): the GPU's once
+  // the compositor names a GPU this process can share buffers with, the CPU's otherwise.
+  bool painterChosen_ = false;
+  void choosePainter();
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   Drawing drawing_;
