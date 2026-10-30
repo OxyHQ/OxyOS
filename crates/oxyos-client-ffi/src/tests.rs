@@ -3825,3 +3825,81 @@ fn asking_for_key_text_sends_the_request() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+/// The painter's structs as the header lays them out (docs/adr/0031, decision 12).
+#[test]
+fn the_painters_structs_match_the_header() {
+    use crate::paint::{
+        OxyOSPaintCommon, OxyOSPaintFill, OxyOSPaintGlyph, OxyOSPaintImage, OxyOSPaintLayer,
+        OxyOSPaintSmooth,
+    };
+    use std::mem::{offset_of, size_of};
+    macro_rules! layout {
+        ($name:ident, [$($field:ident),*]) => {{
+            let found = fields(stringify!($name));
+            assert_eq!(names(&found), [$(stringify!($field)),*], stringify!($name));
+            let rust = [$(offset_of!($name, $field)),*];
+            assert_eq!(c_offsets(&found), (rust.to_vec(), size_of::<$name>()), stringify!($name));
+        }};
+    }
+    layout!(
+        OxyOSPaintCommon,
+        [x0, y0, x1, y1, scale, clip, color, opacity]
+    );
+    layout!(OxyOSPaintFill, [rect, radii, hole, hole_rect, hole_radii]);
+    layout!(
+        OxyOSPaintImage,
+        [picture, canvas, rect, bounds, radii, tinted]
+    );
+    layout!(OxyOSPaintLayer, [canvas, layer_scale, origin, inverse]);
+    layout!(OxyOSPaintGlyph, [x, y, mask]);
+    layout!(OxyOSPaintSmooth, [source, sigma, rect, bounds, radii]);
+}
+
+/// A painter through the C ABI: a canvas cleared, a rounded fill into it and read back, as the
+/// Bloom host draws on the GPU; skipped without a Vulkan device.
+#[test]
+#[allow(unsafe_code)]
+fn a_painter_draws_and_reads_back_through_the_c_abi() {
+    use crate::paint::*;
+    // SAFETY: a null client is allowed (any device); every pointer below is live for its call.
+    unsafe {
+        let paint = oxyos_paint_new(std::ptr::null_mut());
+        if paint.is_null() {
+            eprintln!("no Vulkan device for painting, skipped");
+            return;
+        }
+        assert!(!oxyos_paint_device_name(paint).is_null());
+        let canvas = oxyos_paint_canvas(paint, 4, 4, 0xffff_ffff);
+        assert_ne!(canvas, 0);
+        let common = OxyOSPaintCommon {
+            x0: 0,
+            y0: 0,
+            x1: 4,
+            y1: 4,
+            scale: 1.0,
+            clip: [-1e9, -1e9, 1e9, 1e9],
+            color: [0.0, 0.0, 0.0, 1.0],
+            opacity: 1.0,
+        };
+        let fill = OxyOSPaintFill {
+            rect: [1.0, 1.0, 2.0, 2.0],
+            ..OxyOSPaintFill::default()
+        };
+        assert_eq!(oxyos_paint_fill(paint, canvas, &common, &fill), 0);
+        let mut out = [0u32; 16];
+        assert_eq!(
+            oxyos_paint_canvas_read(paint, canvas, out.as_mut_ptr(), 16),
+            16
+        );
+        assert_eq!(out[0], 0xffff_ffff);
+        assert_eq!(out[5], 0xff00_0000);
+        assert_eq!(
+            oxyos_paint_fill(paint, 999, &common, &fill),
+            0,
+            "no such canvas: nothing"
+        );
+        oxyos_paint_canvas_free(paint, canvas);
+        oxyos_paint_free(paint);
+    }
+}

@@ -1275,6 +1275,131 @@ int64_t oxyos_intl_format_number(const char* locale, size_t locale_length, const
 int64_t oxyos_intl_resolve_number(const char* locale, size_t locale_length, const char* options,
                                   size_t options_length, char* out, size_t capacity);
 
+/* A painter on the GPU for native clients (docs/adr/0031-gpu-buffers.mdx, decision 12): canvases of
+ * 0xAARRGGBB premultiplied pixels on a Vulkan device, drawn into by operations with a CPU painter's
+ * arithmetic per pixel, presented in the client's GPU buffers (DMA-BUFs, explicit
+ * synchronization). Each operation names the device pixels it may touch, [x0, x1) x [y0, y1),
+ * worked out by the caller as its CPU painter works them out; operations run in order at the next
+ * present, read or flush. Used by one thread at a time. */
+typedef struct OxyOSPaint OxyOSPaint;
+
+/* What every operation has: its pixels, the canvas's scale (device pixels per logical pixel), its
+ * clip (logical x0, y0, x1, y1), its straight colour (R, G, B, A from 0 to 1) and its opacity. */
+typedef struct OxyOSPaintCommon {
+  int32_t x0;
+  int32_t y0;
+  int32_t x1;
+  int32_t y1;
+  float scale;
+  float clip[4];
+  float color[4];
+  float opacity;
+} OxyOSPaintCommon;
+
+/* A rounded box (x, y, width, height; radii top-left, top-right, bottom-left, bottom-right), less
+ * a hole (a border ring) when `hole`. */
+typedef struct OxyOSPaintFill {
+  float rect[4];
+  float radii[4];
+  bool hole;
+  float hole_rect[4];
+  float hole_radii[4];
+} OxyOSPaintFill;
+
+/* A picture (`picture`, when `canvas` is 0) or a canvas stretched over `rect`, bilinear at each
+ * pixel's centre, rounded by `radii` over `bounds`, tinted in the common colour when `tinted`. */
+typedef struct OxyOSPaintImage {
+  uint64_t picture;
+  uint32_t canvas;
+  float rect[4];
+  float bounds[4];
+  float radii[4];
+  bool tinted;
+} OxyOSPaintImage;
+
+/* A canvas drawn through an affine map: `inverse` (a, b, c, d, tx, ty) takes the target's logical
+ * pixels to the layer's, whose origin is `origin`, at `layer_scale` pixels per logical pixel. */
+typedef struct OxyOSPaintLayer {
+  uint32_t canvas;
+  float layer_scale;
+  float origin[2];
+  float inverse[6];
+} OxyOSPaintLayer;
+
+/* A glyph of a run: its mask's top-left device pixel and the mask's key (oxyos_paint_glyph). */
+typedef struct OxyOSPaintGlyph {
+  int32_t x;
+  int32_t y;
+  uint64_t mask;
+} OxyOSPaintGlyph;
+
+/* A canvas's levels blurred by `sigma` (its device pixels) and drawn at full precision, dithered,
+ * over `rect`, rounded by `radii` over `bounds`. */
+typedef struct OxyOSPaintSmooth {
+  uint32_t source;
+  float sigma;
+  float rect[4];
+  float bounds[4];
+  float radii[4];
+} OxyOSPaintSmooth;
+
+/* new: on the GPU the client's compositor composes on (its GPU table's render node), else any Vulkan
+ * device; NULL with oxyos_last_error() when there is none. device_name: valid while it lives.
+ * exports: whether it can present (it exports DMA-BUFs); it paints either way. */
+OxyOSPaint* oxyos_paint_new(OxyOSClient* client);
+void oxyos_paint_free(OxyOSPaint* paint);
+const char* oxyos_paint_device_name(OxyOSPaint* paint);
+bool oxyos_paint_exports(OxyOSPaint* paint);
+
+/* Canvases. canvas: `width` x `height`, every pixel `value`; its number, or 0. resize: its pixels
+ * kept where both sizes have them (top left), the rest `value`. copy: as everything drawn so far
+ * leaves it; 0 on failure. read: up to `count` pixels into `out`, once what is drawn is done; the
+ * canvas's pixel count, or OXYOS_ERROR. clear: a box set to `value`. */
+uint32_t oxyos_paint_canvas(OxyOSPaint* paint, uint32_t width, uint32_t height, uint32_t value);
+int oxyos_paint_canvas_resize(OxyOSPaint* paint, uint32_t canvas, uint32_t width, uint32_t height, uint32_t value);
+uint32_t oxyos_paint_canvas_copy(OxyOSPaint* paint, uint32_t canvas);
+void oxyos_paint_canvas_free(OxyOSPaint* paint, uint32_t canvas);
+int64_t oxyos_paint_canvas_read(OxyOSPaint* paint, uint32_t canvas, uint32_t* out, size_t count);
+int oxyos_paint_clear(OxyOSPaint* paint, uint32_t canvas, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
+                      uint32_t value);
+
+/* What is uploaded once, by the caller's key: a picture (premultiplied R, G, B, A bytes; NULL for
+ * one known) and a glyph mask (coverage bytes). 1 when uploaded, 0 when known (nothing is read),
+ * OXYOS_ERROR. Unused for a while, they are forgotten and uploaded again when given again. */
+int oxyos_paint_picture(OxyOSPaint* paint, uint64_t key, uint32_t width, uint32_t height, const uint8_t* rgba);
+void oxyos_paint_forget_picture(OxyOSPaint* paint, uint64_t key);
+int oxyos_paint_glyph(OxyOSPaint* paint, uint64_t key, uint32_t width, uint32_t height, const uint8_t* mask);
+bool oxyos_paint_has_glyph(OxyOSPaint* paint, uint64_t key);
+
+/* Operations; each 0, or OXYOS_ERROR. glyphs: a run in the common colour, its alpha with the
+ * opacity in it. blur: a canvas blurred in place (a Gaussian as three box passes). smooth: a
+ * canvas's levels blurred, drawn onto another. mask: `content` kept by the alpha of `mask`, a
+ * canvas of its size. */
+int oxyos_paint_fill(OxyOSPaint* paint, uint32_t canvas, const OxyOSPaintCommon* common, const OxyOSPaintFill* fill);
+int oxyos_paint_image(OxyOSPaint* paint, uint32_t canvas, const OxyOSPaintCommon* common,
+                      const OxyOSPaintImage* image);
+int oxyos_paint_layer(OxyOSPaint* paint, uint32_t canvas, const OxyOSPaintCommon* common,
+                      const OxyOSPaintLayer* layer);
+int oxyos_paint_glyphs(OxyOSPaint* paint, uint32_t canvas, const OxyOSPaintCommon* common,
+                       const OxyOSPaintGlyph* glyphs, size_t count);
+int oxyos_paint_blur(OxyOSPaint* paint, uint32_t canvas, float sigma);
+int oxyos_paint_smooth(OxyOSPaint* paint, uint32_t canvas, const OxyOSPaintCommon* common,
+                       const OxyOSPaintSmooth* smooth);
+int oxyos_paint_mask(OxyOSPaint* paint, uint32_t content, uint32_t mask);
+int oxyos_paint_flush(OxyOSPaint* paint);
+
+/* Presents `canvas` on `surface` in answer to `configure`, as `format` (OXYOS_FORMAT_ARGB8888,
+ * premultiplied, or XRGB8888), of which `count` rectangles at `damage` changed since the surface's
+ * previous frame (0: everything): copied into one of the surface's GPU buffers (a modifier from the
+ * compositor's table, the surface's scanout table first; each buffer its own timeline), submitted
+ * with its acquire point (the copy's completion) and release point, a buffer drawn into again only
+ * once released. Returns the frame's sequence number, or -1: the GPU path cannot go on (no buffer
+ * both take, one the compositor could not import, the device lost), and the caller presents in
+ * shared memory. forget_surface: its buffers freed (the surface is destroyed). */
+int64_t oxyos_paint_present(OxyOSPaint* paint, OxyOSClient* client, uint32_t surface, uint64_t configure,
+                            uint32_t canvas, uint32_t format, const OxyOSRect* damage, size_t count);
+void oxyos_paint_forget_surface(OxyOSPaint* paint, OxyOSClient* client, uint32_t surface);
+
 #ifdef __cplusplus
 }
 #endif
