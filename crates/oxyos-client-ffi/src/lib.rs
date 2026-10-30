@@ -31,6 +31,7 @@ pub mod gpu;
 pub mod images;
 pub mod intl;
 pub mod net;
+pub mod paint;
 pub mod solar;
 #[cfg(test)]
 mod tests;
