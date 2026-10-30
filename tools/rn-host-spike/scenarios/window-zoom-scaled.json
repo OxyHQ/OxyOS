@@ -1,0 +1,46 @@
+{
+  "about": "A window zoomed on the ThinkPad's display (1600×1000 at 1.25) with the session's shell (docs/adr/0016-windows.mdx): Bloom's SettingsLayout in a window (sample/WindowProbe.tsx), its green bubble zooming it to the work area between the top bar and the dock, its frame going there on a spring (a `zoomed` transition, eased out) and its corners square there: the page to the work area's every corner, in whole device pixels, the top bar right above it and the dock right below, no desktop between; pressed again, it restores its frame and its corners round again, the desktop at its corner. With the corners drawn round when zoomed, the work area's corners show the desktop and it fails.",
+  "module": "WindowProbe",
+  "window": [900, 600],
+  "shell": "OxyOSShell",
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The window opens between the top bar and the dock, its corners round: the desktop at its corner",
+      "do": ["press", [600, 300]],
+      "expect": {
+        "window_rect": [190, 86, 900, 600],
+        "texts": ["active yes, zoomed no, full screen no"],
+        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9"}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "The green bubble zooms it to the work area, its frame going there on a spring and its corners square: the page in the work area's every corner pixel, the top bar right above and the dock right below",
+      "do": ["press", [72, 26]],
+      "expect": {
+        "window_rect": [0, 28, 1280, 716],
+        "texts": ["active yes, zoomed yes, full screen no"],
+        "transitions": {"seen": [{"kind": "window", "change": "zoomed", "ended": true, "eased": true}], "frames_min": 5},
+        "output_pixels": {
+          "0,35": "#f1dde9",
+          "1599,35": "#f7ebf0",
+          "0,929": "#f1dde9",
+          "1599,929": "#f7ebf0",
+          "0,34": "#4271ec",
+          "0,930": "#8a94c4"
+        }
+      }
+    },
+    {
+      "name": "Pressed again, it restores its frame, its corners round again: the desktop at its corner",
+      "do": ["press", [72, 26]],
+      "expect": {
+        "window_rect": [190, 86, 900, 600],
+        "texts": ["active yes, zoomed no, full screen no"],
+        "transitions": {"seen": [{"kind": "window", "change": "zoomed", "ended": true, "eased": true}], "frames_min": 5},
+        "output_pixels": {"237,107": "#4272ee", "260,130": "#f1dde9", "0,35": "#487bff"}
+      }
+    }
+  ]
+}

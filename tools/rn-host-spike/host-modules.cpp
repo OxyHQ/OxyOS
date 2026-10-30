@@ -599,10 +599,14 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "OxyOSKeyboard") {
     // The window's keys, offered to JavaScript before the focused view (sample/oxyos/platform-surface.js,
     // docs/adr/0021-menu-bar.mdx): `setListener(fn)`, fn({ key, code, altKey, ctrlKey, metaKey, shiftKey,
-    // repeat }) returning true for a key it took. Only an application's window has it.
-    module->constants(folly::dynamic::object("available", services.applicationWindow));
+    // repeat }) returning true for a key it took. An application's window has it, and the shell, for
+    // the keys its surfaces receive (Launchpad's arrows and Return).
+    bool available = services.applicationWindow || services.shellWindow;
+    module->constants(folly::dynamic::object("available", available));
     module->method("setListener", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (!services.applicationWindow) throw jsi::JSError(rt, "OxyOSKeyboard: only an application's window has it");
+      if (!services.applicationWindow && !services.shellWindow) {
+        throw jsi::JSError(rt, "OxyOSKeyboard: only an application's window or the shell has it");
+      }
       if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
         throw jsi::JSError(rt, "OxyOSKeyboard.setListener: a function");
       }

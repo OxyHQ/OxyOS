@@ -820,19 +820,30 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   auto target = tree.views().find(blurTarget.target);
   if (!blurAt || !targetAt || target == tree.views().end()) return;
   const float scale = painter.scale(), sigma = blurTarget.radius * scale;
+  // A wide blur (16 device pixels of deviation or more: Launchpad's backdrop, 37 at 1.25) is
+  // worked out on the target drawn reduced, as Dimezis' view draws it into a bitmap scaled down:
+  // k times smaller (an eighth of the deviation, at most 8), blurred by what the Gaussian has left
+  // to do at that size (drawing it reduced and stretching it back blur by about k²/4 of variance
+  // between them), and stretched back over the view, bilinearly. What a blur that wide keeps is
+  // far coarser than k pixels, so it is within a level or two of the blur at full size, for a
+  // k²th of the drawing and the blurring: Launchpad's backdrop at 1.25 took 230 ms, now 45, most
+  // of it the stretch back.
+  const int k = sigma >= 16 ? std::min(8, static_cast<int>(sigma / 8)) : 1;
+  const float reducedScale = scale / k;
+  const float reducedSigma = k > 1 ? std::sqrt(std::max(0.25f, sigma * sigma - k * k / 4.0f)) / k : sigma;
   // What the blur reads around a pixel: three standard deviations.
-  const int margin = static_cast<int>(std::ceil(3 * sigma));
+  const int margin = static_cast<int>(std::ceil(3 * reducedSigma));
   Canvas layer;
-  layer.width = painted.x1 - painted.x0 + 2 * margin;
-  layer.height = painted.y1 - painted.y0 + 2 * margin;
+  layer.width = (painted.x1 - painted.x0 + k - 1) / k + 2 * margin;
+  layer.height = (painted.y1 - painted.y0 + k - 1) / k + 2 * margin;
   layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
-  const float left = static_cast<float>(painted.x0 - margin) / scale;
-  const float top = static_cast<float>(painted.y0 - margin) / scale;
+  const float left = static_cast<float>(painted.x0) / scale - margin / reducedScale;
+  const float top = static_cast<float>(painted.y0) / scale - margin / reducedScale;
   // The target where it is relative to this view, in the layer's coordinates.
   Affine map = viewTransform(target->second.view);
   float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx - left;
   float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty - top;
-  Painter inside(layer, scale);
+  Painter inside(layer, reducedScale);
   inside.placesWindows = false;
   RenderStats unseen;
   ++drawingBlurTarget;
@@ -841,8 +852,8 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
                 std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()},
            1.0f, inside, unseen, edit);
   --drawingBlurTarget;
-  gaussianBlur(layer, sigma);
-  painter.image(asPicture(layer), left, top, layer.width / scale, layer.height / scale,
+  gaussianBlur(layer, reducedSigma);
+  painter.image(asPicture(layer), left, top, layer.width / reducedScale, layer.height / reducedScale,
                 clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity, std::nullopt);
 }
 

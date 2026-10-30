@@ -8,7 +8,9 @@
 #include <cstdlib>
 #include <iostream>
 #include <cmath>
+#include <algorithm>
 #include <set>
+#include <vector>
 
 using namespace facebook::react;
 
@@ -102,10 +104,14 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
     placed.edge = OXYOS_EDGE_NONE;
     Float left = std::floor(region->origin.x);
     placed.strip = Rect{{left, 0}, {width - left, std::ceil(region->origin.y + region->size.height)}};
-  } else if (props->kind == "overlay" || props->kind == "notification") {
+  } else if (props->kind == "overlay" || props->kind == "backdrop" || props->kind == "notification") {
     // A notification (the bezel of a hardware key, docs/adr/0025-hardware-keys-and-control-center.mdx)
-    // is above the overlays and takes no input: presses go through it to what is under it.
-    placed.kind = props->kind == "overlay" ? OXYOS_SHELL_OVERLAY : OXYOS_SHELL_NOTIFICATION;
+    // is above the overlays and takes no input: presses go through it to what is under it. A
+    // backdrop is an overlay's (Launchpad's blurred wallpaper), which the compositor fades and
+    // never scales (docs/adr/0011-transitions.mdx).
+    placed.kind = props->kind == "overlay"    ? OXYOS_SHELL_OVERLAY
+                  : props->kind == "backdrop" ? OXYOS_SHELL_BACKDROP
+                                              : OXYOS_SHELL_NOTIFICATION;
     placed.edge = OXYOS_EDGE_NONE;
     placed.strip = Rect{{0, 0}, {width, height}};
   } else {
@@ -148,9 +154,17 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
 void ShellSurfaceHost::sync() {
   if (!window_.shell()) return;
   std::set<Tag> mounted;
+  // In the order React made them, earlier first: a region shown in the same commit as one after
+  // it in the tree (a backdrop and its overlay) is made first, so it is beneath it. A view's tag
+  // is given when it is made, a sibling's subtree wholly before the next sibling's.
+  std::vector<Tag> regions;
   for (const auto& [tag, entry] : tree_.views()) {
     const auto& view = entry.view;
-    if (std::string(view.componentName ? view.componentName : "") != kShellSurfaceComponent) continue;
+    if (std::string(view.componentName ? view.componentName : "") == kShellSurfaceComponent) regions.push_back(tag);
+  }
+  std::sort(regions.begin(), regions.end());
+  for (Tag tag : regions) {
+    const auto& view = tree_.views().at(tag).view;
     auto placed = place(tag);
     if (!placed) continue;
     mounted.insert(tag);
@@ -179,6 +193,7 @@ void ShellSurfaceHost::sync() {
       Report::get().popup("shell.open", surface, &view,
                           folly::dynamic::object("kind", placed->kind == kLock                      ? "lock"
                                                          : placed->kind == OXYOS_SHELL_OVERLAY        ? "overlay"
+                                                         : placed->kind == OXYOS_SHELL_BACKDROP       ? "backdrop"
                                                          : placed->kind == OXYOS_SHELL_NOTIFICATION ? "notification"
                                                                                                       : "panel")(
                               "width", placed->strip.size.width)("height", placed->strip.size.height));

@@ -1,5 +1,5 @@
 {
-  "about": "An application window as ADR 0016 draws it (sample/WindowProbe.tsx: Bloom's SettingsLayout in a window, its controls Bloom's at the rail's top): the page told the window's state (active, zoomed, full screen) through Bloom's `window` capability and the host's adapter; the rail's top band moving the window (the compositor's BeginMove, from the press the application handles); the green bubble zooming it to the work area and restoring it, its frame animated between (a `zoomed` transition); the compositor resizing it from the band beyond its edge, and following a hand's paced drag of the other edge frame by frame (one configure in flight); the yellow bubble minimizing it. Without the adapter's `window` the page says it has none and the bubbles are not drawn, so every step fails.",
+  "about": "An application window as ADR 0016 draws it (sample/WindowProbe.tsx: Bloom's SettingsLayout in a window, its controls Bloom's at the rail's top): the page told the window's state (active, zoomed, full screen) through Bloom's `window` capability and the host's adapter; the rail's top band moving the window (the compositor's BeginMove, from the press the application handles); the green bubble zooming it to the work area, its corners square there, and restoring it, its corners round again, its frame animated between on a spring (a `zoomed` transition); the compositor resizing it from the band beyond its edge, and following a hand's paced drag of the other edge frame by frame (one configure in flight); the yellow bubble minimizing it. Without the adapter's `window` the page says it has none and the bubbles are not drawn, so every step fails.",
   "module": "WindowProbe",
   "window": [
     900,
@@ -54,7 +54,7 @@
       "allow_unchanged": true
     },
     {
-      "name": "The green bubble zooms the window to the work area, and the page is told",
+      "name": "The green bubble zooms the window to the work area, its frame going there on a spring and its corners square: the page to the output's every corner; the page is told",
       "do": [
         "press",
         [
@@ -77,16 +77,23 @@
             {
               "kind": "window",
               "change": "zoomed",
-              "ended": true
+              "ended": true,
+              "eased": true
             }
           ],
           "frames_min": 5
+        },
+        "output_pixels": {
+          "0,0": "#f1dde9",
+          "1279,0": "#f7ebf0",
+          "0,719": "#f1dde9",
+          "1279,719": "#f7ebf0"
         }
       },
       "allow_unchanged": true
     },
     {
-      "name": "Pressed again, it restores the frame the window had",
+      "name": "Pressed again, it restores the frame the window had, its corners round again: the desktop at its corner",
       "do": [
         "press",
         [
@@ -109,10 +116,15 @@
             {
               "kind": "window",
               "change": "zoomed",
-              "ended": true
+              "ended": true,
+              "eased": true
             }
           ],
           "frames_min": 5
+        },
+        "output_pixels": {
+          "90,20": "#0e1216",
+          "100,30": "#f1dde9"
         }
       },
       "allow_unchanged": true

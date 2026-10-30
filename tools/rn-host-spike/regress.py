@@ -54,10 +54,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
-  by a distinct one having every key given ("kind": window, popup, overlay, panel,
+  by a distinct one having every key given ("kind": window, popup, overlay, backdrop, panel,
   notification, lock; "change": arrived, gone, minimized, restored, workspace_in_forward,
   workspace_in_back, workspace_out_forward, workspace_out_back; "arriving"; "first" and "last",
-  the opacities of the first and last frames drawn; "ended");
+  the opacities of the first and last frames drawn; "ended"), and its curve, from each frame it
+  drew: "eased", its opacity and its size and place each only ever going toward their end and,
+  in the first half of its time, half again ahead of a linear motion of the same length (eased
+  out, as a spring from rest is; a linear one fails); "lasts_ms", [least, most] for its last frame's time;
+  "frame_gap_ms", [median, most] for the time between its frames (at display rate, 16.7); "still",
+  its size and place never changing (reduce motion's crossfade);
   "count", how many it ran, exactly ("change" is also "zoomed": a window's frame zooming, ADR 0016);
 - drag: for a `drag_paced` step (a press moved on the output in N motions at a rate, the compositor
   serving the application between them, as a hand drags a window's edge): "unanswered_max", the
@@ -511,6 +516,54 @@ def check_animated(expect, report, start, end, fail, kind="animated"):
                         break
 
 
+CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms")
+
+
+def check_curve(wanted, seen, fail):
+    """A transition's frames (`path`: [ms, opacity, moved in thousandths]) against its `eased`,
+    `lasts_ms` and `frame_gap_ms` (see the module's documentation)."""
+    if not any(key in wanted for key in CURVE_KEYS):
+        return
+    path = seen.get("path") or []
+    name = f"the {seen['kind']} {seen['change']} transition"
+    if len(path) < 3:
+        fail(f"{name} drew {len(path)} frames, too few to tell its curve")
+        return
+    times = [ms for ms, _, _ in path]
+    if "lasts_ms" in wanted:
+        low, high = wanted["lasts_ms"]
+        # Its last frame drawn in it, within a display frame of its end.
+        if not low <= times[-1] <= high:
+            fail(f"{name} drew its last frame {times[-1]} ms in, expected {low} to {high}")
+    if "frame_gap_ms" in wanted:
+        gaps = sorted(b - a for a, b in zip(times, times[1:]))
+        median, most = gaps[len(gaps) // 2], gaps[-1]
+        if median > wanted["frame_gap_ms"][0] or most > wanted["frame_gap_ms"][1]:
+            fail(f"{name}'s frames came {median} ms apart (median), {most} at most; expected at most "
+                 f"{wanted['frame_gap_ms']}: {times}")
+    if wanted.get("eased"):
+        arriving = seen["arriving"]
+        span = times[-1] + 1000 / 60
+        opacities = [o if arriving else 255 - o for _, o, _ in path]
+        moved = [m for _, _, m in path]
+        for label, values, end in (("opacity", opacities, 255), ("size and place", moved, 1000)):
+            # Nothing of it changes (a zoom's opacity, a fade's size): nothing to ease.
+            if len(set(values)) == 1:
+                continue
+            if any(b < a for a, b in zip(values, values[1:])):
+                fail(f"{name}'s {label} went back: {values}")
+            # Eased out: in the first half of its time, from its third display frame on, half
+            # again ahead of a linear motion of the same length (a spring released from rest is
+            # quick at first and slow to arrive: a critically damped one is 0.81 of the way a third
+            # of the way through, a linear one 0.33).
+            behind = [(ms, v) for (ms, _, _), v in zip(path, values)
+                      if 34 <= ms <= span / 2 and v + end * 0.02 < min(end, 1.5 * end * ms / span)]
+            if behind:
+                fail(f"{name}'s {label} was behind a linear motion at {behind}: not eased out ({values})")
+    if wanted.get("still") and any(m != 1000 for _, _, m in path):
+        fail(f"{name} grew, shrank or moved ({[m for _, _, m in path]}): expected a crossfade alone")
+
+
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
                shell_report=None, spoken=None, preferences=None):
     expect = step.get("expect", {})
@@ -525,7 +578,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     for line in report:
         if line["kind"] == "popup" and line["t"] <= end:
             lifecycle[line["surface"]] = line["event"]
-    closed = {surface for surface, event in lifecycle.items() if event in ("close", "dismissed")}
+    closed = {surface for surface, event in lifecycle.items() if event in ("close", "dismissed", "shell.close")}
     frames = latest_frames(report, end, closed)
     shown = [text for frame in frames.values() for text in frame["texts"]]
     window = frames.get(1, {})
@@ -766,12 +819,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if "count" in wanted and len(ran["seen"]) != wanted["count"]:
             fail(f"{len(ran['seen'])} transitions ran, expected {wanted['count']}: {ran['seen']}")
         left = list(ran["seen"])
+        shown = [{k: v for k, v in t.items() if k != "path"} for t in ran["seen"]]
         for transition in wanted.get("seen", []):
-            match = next((t for t in left if all(t.get(k) == v for k, v in transition.items())), None)
+            plain = {k: v for k, v in transition.items() if k not in CURVE_KEYS}
+            match = next((t for t in left if all(t.get(k) == v for k, v in plain.items())), None)
             if match is None:
-                fail(f"no transition {transition} among {ran['seen']}")
+                fail(f"no transition {transition} among {shown}")
             else:
                 left.remove(match)
+                check_curve(transition, match, fail)
     if "drag" in expect:
         # A drag at a hand's pace (`drag_paced`): what the window showed meanwhile.
         drag, wanted = result.get("drag") or {}, expect["drag"]
