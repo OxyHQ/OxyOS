@@ -13,6 +13,11 @@
 //! [`Launcher::launch`]). A policy's id is never another directory's: a user's entry cannot take
 //! a system application's name.
 
+mod runtimes;
+mod watch;
+pub use runtimes::{installed as installed_runtimes, runtime, InstalledRuntime, RUNTIMES};
+pub use watch::Watch;
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -251,11 +256,13 @@ impl Policy {
 pub enum Launch {
     /// A native OxyOS client: the program and its arguments, from `Exec`.
     Exec(Vec<String>),
-    /// A Bloom application, run by the session's Bloom host: its module, and its bundle when the
-    /// entry names one (relative to the entry; else the session's).
+    /// A Bloom application, run by a Bloom host: its module, its bundle when the entry names one
+    /// (relative to the entry; else the session's), and the runtime it was built for
+    /// (`X-OxyOS-Runtime`, its `abi`), whose host runs it; without one, the session's host does.
     Bloom {
         module: String,
         bundle: Option<PathBuf>,
+        runtime: Option<u32>,
     },
 }
 
@@ -270,9 +277,77 @@ pub struct Application {
     pub launch: Launch,
     /// Its place in the dock, from 1, when it is kept there (`X-OxyOS-Pinned`).
     pub pinned: Option<u32>,
-    /// Whether it is a system application: its entry is the one the image's policy names, and
-    /// only an administrator could have written it.
-    pub system: bool,
+    /// Where its entry comes from, which decides what it is to the platform.
+    pub origin: Origin,
+}
+
+/// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
+/// decision 7): the registry's three sources, in the order an id is taken from them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// The image's policy names it: a system application, its entry the policy's, an
+    /// administrator's.
+    System,
+    /// The install service installed this version of it for the session's account: its entry the
+    /// service's (`/var/lib/oxyos/apps/users/<user>/applications`), root's.
+    Installed { version_code: u64 },
+    /// A development entry, from the XDG data directories: it runs, but it is not verified, has no
+    /// system grant, no capability and no Oxy identity, and never takes an id the first two have.
+    Development,
+}
+
+impl Origin {
+    /// Whether the platform knows what it is: a system or an installed application.
+    pub fn verified(&self) -> bool {
+        !matches!(self, Origin::Development)
+    }
+}
+
+/// Where the install service keeps its state (`oxyos_install::state::STATE_DIRECTORY`).
+pub const INSTALLED: &str = "/var/lib/oxyos/apps";
+
+/// The entries of the applications the install service installed for `user`, under its state
+/// directory `root` ([`INSTALLED`]): `users/<user>/applications`, as it writes them.
+pub fn installed_applications(root: &Path, user: &str) -> PathBuf {
+    root.join("users").join(user).join("applications")
+}
+
+/// The session's user: the name the account database gives this process's real user id.
+pub fn session_user() -> Option<String> {
+    let uid = rustix::process::getuid().as_raw();
+    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        let name = fields.next()?;
+        let _password = fields.next()?;
+        (fields.next()?.parse::<u32>().ok()? == uid).then(|| name.to_string())
+    })
+}
+
+/// An account's decisions on an installed application's capabilities (decision 8), as the install
+/// service keeps them beside its entries (`users/<user>/<id>.json`'s `capabilities`): each
+/// capability's name and `granted`, `denied` or `undecided`. None that can be read is none given.
+pub fn capability_decisions(installed: &Path, id: &str) -> BTreeMap<String, String> {
+    let Some(file) = installed
+        .parent()
+        .map(|user| user.join(format!("{id}.json")))
+    else {
+        return BTreeMap::new();
+    };
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return BTreeMap::new();
+    };
+    let Ok(serde_json::Value::Object(state)) = serde_json::from_str::<serde_json::Value>(&text)
+    else {
+        return BTreeMap::new();
+    };
+    match state.get("capabilities") {
+        Some(serde_json::Value::Object(decisions)) => decisions
+            .iter()
+            .filter_map(|(name, decision)| Some((name.clone(), decision.as_str()?.to_string())))
+            .collect(),
+        _ => BTreeMap::new(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -443,6 +518,19 @@ pub fn parse(
         (Some(module), _) => Launch::Bloom {
             module: module.clone(),
             bundle: keys.get("X-OxyOS-Bloom-Bundle").map(|b| relative(b)),
+            runtime: match keys.get("X-OxyOS-Runtime") {
+                None => None,
+                Some(abi) => Some(
+                    Some(abi)
+                        .filter(|abi| {
+                            !abi.starts_with('0') && abi.bytes().all(|b| b.is_ascii_digit())
+                        })
+                        .and_then(|abi| abi.parse::<u32>().ok())
+                        .ok_or_else(|| {
+                            Error(format!("{id}'s X-OxyOS-Runtime is not an abi from 1"))
+                        })?,
+                ),
+            },
         },
         (None, Some(value)) => Launch::Exec(exec(value)?),
         (None, None) => return Err(Error(format!("{id} has neither Exec nor a Bloom module"))),
@@ -453,7 +541,7 @@ pub fn parse(
         icon: keys.get("Icon").map(|icon| relative(icon)),
         launch,
         pinned,
-        system: false,
+        origin: Origin::Development,
     }))
 }
 
@@ -625,31 +713,123 @@ fn system_entry(
     let directory = entry.parent().unwrap_or(Path::new("/"));
     Ok(
         parse(id, &text, directory, languages)?.map(|application| Application {
-            system: true,
+            origin: Origin::System,
             ..application
         }),
     )
 }
 
-/// The applications: first the policy's system applications, from the entries it names, then
-/// those in `directories`, the first directory's entry for an id winning; sorted by name. A
-/// policy's id is its alone: another directory's entry for it is ignored, even when the policy's
-/// cannot be read. Entries that cannot be read or are invalid are left out, each said in
-/// `skipped`. `trusted` judges a file at its real path ([`administrator_written`] in a session).
+/// An entry the install service wrote for this account, at `path`: read only if that is its real
+/// path and `trusted` judges it an administrator's (the service's, root's), and only as the version
+/// it names (`X-OxyOS-Package-Version`), of a Bloom application on a runtime with its bundle.
+fn installed_entry(
+    id: &str,
+    path: &Path,
+    languages: &[String],
+    trusted: &dyn Fn(&Path) -> bool,
+) -> Result<Option<Application>, Error> {
+    if real_path(path).as_deref() != Some(path) || !trusted(path) {
+        return Err(Error(format!(
+            "{}: not the install service's",
+            path.display()
+        )));
+    }
+    let text = std::fs::read_to_string(path).map_err(|error| Error(error.to_string()))?;
+    let version_code = keys(&text)
+        .get("X-OxyOS-Package-Version")
+        .and_then(|code| code.parse::<u64>().ok())
+        .filter(|&code| code > 0)
+        .ok_or_else(|| Error(format!("{}: no X-OxyOS-Package-Version", path.display())))?;
+    let directory = path.parent().unwrap_or(Path::new("/"));
+    let Some(application) = parse(id, &text, directory, languages)? else {
+        return Ok(None);
+    };
+    if !matches!(
+        application.launch,
+        Launch::Bloom {
+            bundle: Some(_),
+            runtime: Some(_),
+            ..
+        }
+    ) {
+        return Err(Error(format!(
+            "{}: an installed application is a Bloom bundle on a runtime",
+            path.display()
+        )));
+    }
+    Ok(Some(Application {
+        origin: Origin::Installed { version_code },
+        ..application
+    }))
+}
+
+/// `application` if what it runs is there: a Bloom application whose own bundle is not is not
+/// installed (its entry names where its package will be), and is said so.
+fn present(application: Option<Application>) -> Result<Option<Application>, Error> {
+    match &application {
+        Some(Application {
+            launch:
+                Launch::Bloom {
+                    bundle: Some(bundle),
+                    ..
+                },
+            ..
+        }) if !bundle.is_file() => Err(Error(format!(
+            "not installed: its bundle {} is not there",
+            bundle.display()
+        ))),
+        _ => Ok(application),
+    }
+}
+
+/// The applications (docs/adr/0030-installing-applications.mdx, decision 7): first the policy's
+/// system applications, from the entries it names; then the ones the install service installed for
+/// the session's account, from `installed` ([`installed_applications`]); then those in
+/// `directories`, the first directory's entry for an id winning; sorted by name. An id from the
+/// first two is theirs alone: a later source's entry for it is ignored, even when theirs cannot be
+/// read. Entries that cannot be read or are invalid are left out, each said in `skipped`. `trusted`
+/// judges a file at its real path ([`administrator_written`] in a session).
 pub fn registry(
     directories: &[PathBuf],
     languages: &[String],
     policy: &Policy,
+    installed: Option<&Path>,
     trusted: &dyn Fn(&Path) -> bool,
 ) -> (Vec<Application>, Vec<String>) {
     let mut found: BTreeMap<String, Option<Application>> = BTreeMap::new();
     let mut skipped = Vec::new();
     for (id, system) in policy.applications() {
-        let application = system_entry(id, system, languages, trusted).unwrap_or_else(|error| {
-            skipped.push(format!("{id}: {error}"));
-            None
-        });
+        let application = system_entry(id, system, languages, trusted)
+            .and_then(present)
+            .unwrap_or_else(|error| {
+                skipped.push(format!("{id}: {error}"));
+                None
+            });
         found.insert(id.to_string(), application);
+    }
+    if let Some(entries) = installed.and_then(|dir| std::fs::read_dir(dir).ok()) {
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        paths.sort();
+        for path in paths {
+            let Some(id) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(".desktop"))
+            else {
+                continue;
+            };
+            if found.contains_key(id) {
+                skipped.push(format!("{}: {id} is a system application", path.display()));
+                continue;
+            }
+            let application = installed_entry(id, &path, languages, trusted)
+                .and_then(present)
+                .unwrap_or_else(|error| {
+                    skipped.push(format!("{id}: {error}"));
+                    None
+                });
+            found.insert(id.to_string(), application);
+        }
     }
     for directory in directories {
         let Ok(entries) = std::fs::read_dir(directory) else {
@@ -673,9 +853,14 @@ pub fn registry(
             let parsed = std::fs::read_to_string(&path)
                 .map_err(|error| Error(error.to_string()))
                 .and_then(|text| parse(id, &text, directory, languages));
-            match parsed {
-                Ok(application) => {
+            match parsed.map(present) {
+                Ok(Ok(application)) => {
                     found.insert(id.to_string(), application);
+                }
+                // Not installed: said, and its id still this directory's.
+                Ok(Err(error)) => {
+                    skipped.push(format!("{}: {error}", path.display()));
+                    found.insert(id.to_string(), None);
                 }
                 Err(error) => skipped.push(format!("{}: {error}", path.display())),
             }
@@ -691,15 +876,30 @@ pub fn registry(
     (applications, skipped)
 }
 
+/// What the registry reads, to follow ([`Watch`]): the image's policy and the entries it names,
+/// the install service's entries for the account (`installed`), and `directories`.
+pub fn sources(directories: &[PathBuf], policy: &Policy, installed: Option<&Path>) -> Vec<PathBuf> {
+    let mut sources = vec![PathBuf::from(POLICY)];
+    sources.extend(
+        policy
+            .applications()
+            .map(|(_, system)| system.entry.clone()),
+    );
+    sources.extend(installed.map(Path::to_path_buf));
+    sources.extend(directories.iter().cloned());
+    sources
+}
+
 /// The application with `id` in `directories`, if any lists it.
 pub fn find(
     directories: &[PathBuf],
     languages: &[String],
     policy: &Policy,
+    installed: Option<&Path>,
     trusted: &dyn Fn(&Path) -> bool,
     id: &str,
 ) -> Option<Application> {
-    registry(directories, languages, policy, trusted)
+    registry(directories, languages, policy, installed, trusted)
         .0
         .into_iter()
         .find(|application| application.id == id)
@@ -713,11 +913,31 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Runtime {
     pub socket: PathBuf,
+    /// The session's Bloom host and bundle: what a development entry naming no runtime and no
+    /// bundle runs.
     pub bloom_host: Option<PathBuf>,
     pub bloom_bundle: Option<PathBuf>,
+    /// Where the runtimes an entry names are ([`RUNTIMES`] in a session).
+    pub runtimes: PathBuf,
     pub window: (u32, u32),
     /// More of the applications' environment (a development compositor's report files).
     pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+}
+
+/// The URL a bundle is known by to its JavaScript (React Native's `SourceCode.scriptURL`), which
+/// its assets are found beside: a package's compiled `index.hbc` is its source bundle's, the file
+/// its manifest names (`entry.bundle`, with its assets next to it); any other bundle is itself.
+pub fn script_url(bundle: &Path) -> PathBuf {
+    let package = bundle
+        .file_name()
+        .filter(|name| *name == "index.hbc")
+        .and(bundle.parent());
+    let source = package.and_then(|directory| {
+        let manifest = std::fs::read(directory.join("manifest.json")).ok()?;
+        let manifest = oxyos_package::Manifest::parse(&manifest).ok()?;
+        Some(directory.join(manifest.entry.bundle.as_str()))
+    });
+    source.unwrap_or_else(|| bundle.to_path_buf())
 }
 
 /// How `application` is started in `runtime`: the program, its arguments and its environment:
@@ -733,11 +953,22 @@ pub fn command(
             command.args(&words[1..]);
             command
         }
-        Launch::Bloom { module, bundle } => {
-            let host = runtime
-                .bloom_host
-                .as_ref()
-                .ok_or_else(|| Error("no Bloom host to run Bloom applications".into()))?;
+        Launch::Bloom {
+            module,
+            bundle,
+            runtime: abi,
+        } => {
+            let host = match abi {
+                Some(abi) => {
+                    runtimes::runtime(&runtime.runtimes, *abi)
+                        .map_err(|Error(why)| Error(format!("{}: {why}", application.id)))?
+                        .host
+                }
+                None => runtime
+                    .bloom_host
+                    .clone()
+                    .ok_or_else(|| Error("no Bloom host to run Bloom applications".into()))?,
+            };
             let bundle = bundle
                 .as_ref()
                 .or(runtime.bloom_bundle.as_ref())
@@ -753,7 +984,10 @@ pub fn command(
                     &runtime.window.0.to_string(),
                     &runtime.window.1.to_string(),
                 ])
-                .env("OXYOS_SCRIPT_URL", format!("file://{}", bundle.display()));
+                .env(
+                    "OXYOS_SCRIPT_URL",
+                    format!("file://{}", script_url(bundle).display()),
+                );
             command
         }
     };
@@ -772,6 +1006,13 @@ pub fn command(
 pub struct Launched {
     pub id: String,
     pub grants: Grants,
+    /// What it is to the platform: a system application, an installed version, or a development
+    /// entry ([`Origin::verified`]).
+    pub origin: Origin,
+    /// An installed application's account's decisions on its capabilities, as the install service
+    /// keeps them ([`capability_decisions`]); none for any other. Phase 4's host modules enforce
+    /// them.
+    pub capabilities: BTreeMap<String, String>,
 }
 
 /// `program` at its real path, if it is the policy's `expected` there and only an administrator
@@ -808,13 +1049,25 @@ fn pinned(
                 .to_string();
         }
         (
-            Launch::Bloom { bundle, .. },
+            Launch::Bloom {
+                bundle,
+                runtime: abi,
+                ..
+            },
             Runs::Bloom {
                 host,
                 bundle: policy,
             },
         ) => {
-            runtime.bloom_host = Some(administrators(host, host, trusted)?);
+            let host = administrators(host, host, trusted)?;
+            // An entry naming its runtime runs that runtime's host: the policy's must be it.
+            if let Some(level) = abi.take() {
+                let runtime_host = runtimes::runtime(&runtime.runtimes, level).ok()?.host;
+                if runtime_host.canonicalize().ok()? != host {
+                    return None;
+                }
+            }
+            runtime.bloom_host = Some(host);
             *bundle = Some(administrators(policy, policy, trusted)?);
         }
         _ => return None,
@@ -830,6 +1083,9 @@ pub struct Launcher {
     /// Where the image's policy of system applications is ([`POLICY`]; the tests' own in tests).
     /// It is read at each launch, as the registry is.
     policy: PathBuf,
+    /// The install service's entries for the session's account ([`installed_applications`]), if
+    /// it has an account.
+    installed: Option<PathBuf>,
     /// Whether only an administrator could have written a file at a real path
     /// ([`administrator_written`]; the tests' own rule in tests).
     trusted: Box<dyn Fn(&Path) -> bool>,
@@ -844,9 +1100,28 @@ impl Launcher {
             directories,
             languages,
             policy: PathBuf::from(POLICY),
+            installed: None,
             trusted: Box::new(administrator_written),
             children: Vec::new(),
         }
+    }
+
+    /// The launcher with the install service's entries for the session's account (`installed`,
+    /// [`installed_applications`]) as the registry's second source.
+    pub fn with_installed(mut self, installed: Option<PathBuf>) -> Self {
+        self.installed = installed;
+        self
+    }
+
+    /// The development compositor's fixture of the install service (docs/adr/0030, decision 7):
+    /// `installed`'s entries, which a scenario wrote, taken as if the service had written them.
+    /// Never a session's: a session's installed entries are root's, and judged so.
+    pub fn with_installed_fixture(mut self, installed: PathBuf) -> Self {
+        let fixture = installed.clone();
+        let trusted = std::mem::replace(&mut self.trusted, Box::new(|_| false));
+        self.trusted = Box::new(move |path| path.starts_with(&fixture) || trusted(path));
+        self.installed = Some(installed);
+        self
     }
 
     /// The image's policy of system applications as it is now; one that cannot be judged or read
@@ -865,11 +1140,15 @@ impl Launcher {
             &self.directories,
             &self.languages,
             &policy,
+            self.installed.as_deref(),
             &*self.trusted,
             id,
         )
         .ok_or_else(|| Error(format!("no application {id:?}")))?;
-        let (mut command, grants) = match policy.get(id).filter(|_| application.system) {
+        let system = policy
+            .get(id)
+            .filter(|_| application.origin == Origin::System);
+        let (mut command, grants) = match system {
             Some(system) => {
                 let (pinned, runtime) =
                     pinned(&application, system, &self.runtime, &*self.trusted).ok_or_else(
@@ -887,27 +1166,36 @@ impl Launcher {
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
         let pid = child.id();
+        let capabilities = match (&application.origin, &self.installed) {
+            (Origin::Installed { .. }, Some(installed)) => capability_decisions(installed, id),
+            _ => BTreeMap::new(),
+        };
         self.children.push((
             child,
             Launched {
                 id: application.id,
                 grants,
+                origin: application.origin,
+                capabilities,
             },
         ));
         Ok(pid)
     }
 
-    /// Forgets the processes that exited (they are waited for, so none lingers); the id of each.
-    pub fn reap(&mut self) -> Vec<String> {
+    /// Forgets the processes that exited (they are waited for, so none lingers); the pid of
+    /// each and what it was launched as.
+    pub fn reap(&mut self) -> Vec<(u32, Launched)> {
         let mut exited = Vec::new();
-        self.children
-            .retain_mut(|(child, launched)| match child.try_wait() {
-                Ok(None) => true,
+        let mut index = 0;
+        while index < self.children.len() {
+            match self.children[index].0.try_wait() {
+                Ok(None) => index += 1,
                 _ => {
-                    exited.push(launched.id.clone());
-                    false
+                    let (child, launched) = self.children.remove(index);
+                    exited.push((child.id(), launched));
                 }
-            });
+            }
+        }
         exited
     }
 

@@ -114,7 +114,25 @@ application instead of the host: the program `--client` names, with those argume
 `{scenarios}`, `{width}` and `{height}` in them replaced by the run's directory, the scenarios'
 directory and the scenario's window. It has no host report, so only what the compositor sees is
 checked (pixels, delivered, focus_surface, popups, drag...). `astro.json` runs Astro this way
-(ADR 0029), with no `--host` or `--bundle`.
+(ADR 0029), with no `--runtimes` or `--packages`.
+
+Bloom scenarios run on the machine's applications as packages (docs/adr/0030-installing-applications.mdx):
+`--packages DIR` holds one package per application (as `sample/packages.mjs` makes them: its
+manifest, its source bundle, the `index.hbc` compiled from it) and `probes/`, the probes' development
+bundle; `--runtimes DIR` holds the runtimes they were built for (`DIR/<abi>/oxyos-bloom-host`,
+`runtime.json`, as `cmake --install` lays one out). A scenario's `module`, `shell` or the
+development registry's applications that a package provides run from that package, on its
+runtime's host, its bytecode known by its source bundle's URL; any other module is a probe, run
+from `probes/` on the runtime it was built for. The development registry the shell lists is
+`applications/` with each packaged application's bundle and runtime its package's.
+
+A scenario's `installed` ([{"package": ID, "capabilities": {NAME: DECISION}, "entry": [LINE]}]) is the
+install service's state for the run's user, as it would have it (docs/adr/0030-installing-applications.mdx,
+decision 7): each package's version copied into `packages/<id>/<versionCode>/`, its entry the one the
+service writes (`oxyos-pack entry`, beside the offscreen compositor) with the lines given added, and the
+account's decisions on its capabilities; the development compositor takes it as the service's
+(`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
+where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
 A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
 that moment where that time zone is (ADR 0012).
@@ -184,7 +202,7 @@ once every step has run; a scenario may have no steps at all.
 Also reports render times per frame and the launch time. Exit status 0 only if every
 expectation holds.
 
-Usage: regress.py SCENARIO.json --offscreen BIN --host BIN --bundle DIR [--out DIR]
+Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [--out DIR]
 """
 
 import argparse
@@ -1238,12 +1256,87 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     return end
 
 
+
+
+def installed_fixture(root, installed, machine, offscreen):
+    """The install service's state for this user, as `installed` describes it (see the header)."""
+    import pwd
+    import shutil
+    user = pwd.getpwuid(os.getuid()).pw_name
+    pack = pathlib.Path(offscreen).resolve().parent / "oxyos-pack"
+    applications = root / "users" / user / "applications"
+    applications.mkdir(parents=True, exist_ok=True)
+    for app in installed:
+        package = machine.by_id[app["package"]]
+        manifest = package["manifest"]
+        version = root / "packages" / manifest["id"] / str(manifest["versionCode"])
+        shutil.copytree(package["dir"], version)
+        entry = subprocess.run([str(pack), "entry", str(version)], check=True, capture_output=True,
+                               text=True).stdout
+        (applications / f"{manifest['id']}.desktop").write_text(entry + "".join(f"{line}\n" for line in app.get("entry", [])))
+        (root / "users" / user / f"{manifest['id']}.json").write_text(json.dumps({
+            "format": 1, "id": manifest["id"], "uid": os.getuid(), "user": user,
+            "current": manifest["versionCode"], "shown": False, "unshownExits": 0, "bad": [],
+            "capabilities": app.get("capabilities", {})}))
+    return root
+
+class Machine:
+    """The runtimes and the applications' packages a scenario runs on (ADR 0030)."""
+
+    def __init__(self, runtimes, packages):
+        self.runtimes = runtimes.resolve()
+        self.packages = packages.resolve()
+        # Each package by its entry's module and by its id, from its manifest.
+        self.by_module, self.by_id = {}, {}
+        for manifest_path in sorted(self.packages.glob("*/manifest.json")):
+            manifest = json.loads(manifest_path.read_text())
+            package = {"dir": manifest_path.parent, "manifest": manifest}
+            self.by_module[manifest["entry"]["module"]] = package
+            self.by_id[manifest["id"]] = package
+        self.probes = self.packages / "probes"
+
+    def host(self, abi):
+        host = self.runtimes / str(abi) / "oxyos-bloom-host"
+        if not host.is_file():
+            raise SystemExit(f"runtime {abi} is not in {self.runtimes}")
+        return host
+
+    def run(self, module):
+        """The host, the bundle and the script URL `module` runs with: its package's, else a probe's."""
+        package = self.by_module.get(module)
+        if package:
+            directory = package["dir"]
+            return (self.host(package["manifest"]["runtime"]["abi"]), directory / "index.hbc",
+                    directory / package["manifest"]["entry"]["bundle"])
+        level = json.loads((self.probes / "runtime.json").read_text())
+        return self.host(level["abi"]), self.probes / "index.js", self.probes / "index.js"
+
+    def registry(self, into):
+        """The development registry (`applications/`) in `into`: each packaged application's entry the
+        one oxyos-installd writes for it (`packages/applications/`, `oxyos-pack entry`), with the
+        development registry's place in the dock; any other entry as it is, its icon where its is."""
+        source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
+        target = into / "oxyos" / "applications"
+        target.mkdir(parents=True, exist_ok=True)
+        for entry in sorted(source.glob("*.desktop")):
+            text = entry.read_text().splitlines()
+            installed = self.packages / "applications" / entry.name
+            if entry.stem in self.by_id and installed.is_file():
+                lines = installed.read_text().splitlines()
+                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+            else:
+                lines = [("Icon=" + str((source / line[5:]).resolve()))
+                         if line.startswith("Icon=") and not line[5:].startswith("/") else line
+                         for line in text]
+            (target / entry.name).write_text("\n".join(lines) + "\n")
+        return into
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
     parser.add_argument("--offscreen", required=True)
-    parser.add_argument("--host", help="the Bloom host (every scenario but a `client` one)")
-    parser.add_argument("--bundle", help="directory holding index.js and its assets")
+    parser.add_argument("--runtimes", help="the runtimes (every scenario but a `client` one): DIR/<abi>/")
+    parser.add_argument("--packages", help="the applications' packages, and probes/ (sample/packages.mjs)")
     parser.add_argument("--client", default=None,
                         help="the native OxyOS client a scenario with `client` runs instead of the Bloom host")
     parser.add_argument("--out", default=None)
@@ -1274,9 +1367,10 @@ def main():
             raise SystemExit("a scenario with `client` needs --client: the program it runs")
         if scenario.get("shell") or "login" in scenario:
             raise SystemExit("a `client` scenario runs one native client: no `shell` or `login`")
-    elif not options.host or not options.bundle:
-        raise SystemExit("--host and --bundle are needed: the Bloom host and its bundle")
-    bundle = pathlib.Path(options.bundle).resolve() / "index.js" if options.bundle else None
+    elif not options.runtimes or not options.packages:
+        raise SystemExit("--runtimes and --packages are needed: the runtimes and the applications")
+    if "client" not in scenario:
+        machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
     width, height = scenario.get("window", [1024, 640])
 
     command = [options.offscreen, "--launch", "--out", str(out)] + (["--gpu"] if options.gpu else [])
@@ -1303,10 +1397,11 @@ def main():
             for display in scenario["displays"]))
         command += ["--displays", str(displays)]
     if scenario.get("shell"):
-        # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
+        # The session's shell (ADR 0009), its package's Bloom host and bundle started before the
         # application with the shell grant; its report is the application's with ".shell" (another
         # output's shell's with ".shell.ID").
-        command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
+        shell_host, shell_bundle, _ = machine.run(scenario["shell"])
+        command += ["--shell", f"{shell_host},{shell_bundle},{scenario['shell']}"]
     # The user's preferences (ADR 0019), in a file of the run's own: light unless the scenario says
     # otherwise, so what a scenario sees never depends on the time of day it runs at (an automatic
     # appearance follows the sun). With `settings`, the application the session would grant it to.
@@ -1323,6 +1418,9 @@ def main():
         controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
+    if scenario.get("installed"):
+        command += ["--installed-fixture", str(installed_fixture(out / "installed", scenario["installed"],
+                                                                  machine, options.offscreen))]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -1353,17 +1451,23 @@ def main():
                   "width": str(width), "height": str(height)}
         command += ["--", options.client] + [argument.format(**values) for argument in scenario["client"]]
     elif login is None:
-        command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width),
+        app_host, app_bundle, app_script = machine.run(scenario.get("module", "OxyBloom"))
+        command += ["--", str(app_host), str(app_bundle), scenario.get("module", "OxyBloom"), "--window", str(width),
                     str(height)]
     # Steps checked one by one below: refuse a scenario whose steps the director would not run.
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
-    env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
+    env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path))
     # glibc fills what it frees (and what it hands out) with this byte, so a use of freed memory
     # crashes the run every time instead of only when the memory happened to be reused: a host
     # destroying JavaScript's pending timers after its runtime crashed one exit in tens, and with
     # this every exit that does it.
     env["MALLOC_PERTURB_"] = "165"
+    if "client" not in scenario:
+        # The runtimes the applications' entries name (ADR 0030), the scenario's in place of the image's.
+        command[2:2] = ["--runtimes", str(machine.runtimes)]
+        if login is None:
+            env["OXYOS_SCRIPT_URL"] = f"file://{app_script}"
     # What applications keep (their data and cache directories, application.h) is the run's own,
     # never the user's; a scenario's `app_data` is there before the application starts.
     for kept in ("xdg-data", "xdg-cache"):
@@ -1372,8 +1476,8 @@ def main():
     env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
-        # machine's.
-        env["XDG_DATA_DIRS"] = str(pathlib.Path(__file__).resolve().parent / "applications")
+        # machine's, each packaged one from its package.
+        env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry"))
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
@@ -1473,6 +1577,9 @@ def main():
         password = scenario["login"]["password"]
         if any(password in line for line in recorded):
             failures.append("the password is in the login program's record")
+    if "applications_launched" in scenario and summary.get("applications") != scenario["applications_launched"]:
+        failures.append(f"the shell started {summary.get('applications')}, expected exactly "
+                        f"{scenario['applications_launched']}")
     if "final" in scenario:
         last = max(line["t"] for line in report + shell_report)
         # The output after the last step (or at launch, without steps), the window where it was then.

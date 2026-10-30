@@ -19,6 +19,7 @@ mod base64url;
 /// that must be read as strictly (the store's TUF metadata, `oxyos-install`).
 pub mod json;
 mod manifest;
+mod runtime;
 mod signature;
 mod tree;
 
@@ -27,6 +28,7 @@ pub use manifest::{
     Runtime, Sha256, Text, MAX_FILES, MAX_FILE_SIZE, MAX_MANIFEST_SIZE, MAX_PATH_LENGTH, RESERVED,
     SYSTEM_GRANTS,
 };
+pub use runtime::{FrameworkDigests, RuntimeDescription, MAX_RUNTIME_DESCRIPTION};
 pub use signature::{
     lineage_accepts, lineage_current, DeveloperSignature, KeyId, Lineage, PublicKey,
     ReleaseStatement, Rotation, SignedRelease, SigningKey,

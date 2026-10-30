@@ -1,0 +1,18 @@
+{
+  "id": "so.oxy.settings",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "Settings",
+  "names": {
+    "es": "Ajustes"
+  },
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "OxyOSSettings"
+  },
+  "architectures": [
+    "any"
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "about": "An installed application (docs/adr/0030-installing-applications.mdx, decision 7), on the ThinkPad's display (1600x1000 at 1.25) beside Allo: the install service has Inbox's package installed for this account (its version copied into its store, its entry the one the service writes, with a line asking for `settings` added, and the account's decisions on its capabilities). The development registry also has an entry of its own for so.oxy.inbox, which is ignored: an installed id is the service's. Launchpad lists it, its search finds it, and Return starts the installed version, from the service's entry, given no `settings` whatever its entry asks; the run's summary says it was the installed version. With the development entry taking its place, or the grant given, the run fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "installed": [
+    {
+      "package": "so.oxy.inbox",
+      "capabilities": {
+        "network": "granted",
+        "camera": "denied"
+      },
+      "entry": [
+        "X-OxyOS-Grants=settings"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "name": "Super+Space opens Launchpad, its search taking the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          57
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_shell": {
+          "react": {
+            "focus@launcher-search": 1,
+            "selectionChange@launcher-search": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "what is typed searches: the installed Inbox, alone",
+      "do": [
+        "keyboard",
+        "inb"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "react": {
+            "keyPress@launcher-search": 3,
+            "change@launcher-search": 3,
+            "selectionChange@launcher-search": 3
+          },
+          "texts": [
+            "Inbox"
+          ],
+          "absent": [
+            "Settings"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return starts it: the install service's version, its window arriving as Launchpad goes",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ]
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "arriving": true,
+              "ended": true
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.inbox",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ]
+}

@@ -36,6 +36,7 @@
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
 #include <cxxreact/JSBigString.h>
+#include <folly/json.h>
 #include <cxxreact/MessageQueueThread.h>
 #include <react/featureflags/ReactNativeFeatureFlags.h>
 #include <react/featureflags/ReactNativeFeatureFlagsDefaults.h>
@@ -274,19 +275,45 @@ class Mounter : public SchedulerDelegate {
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
-std::string readFile(const std::string& path) {
-  std::ifstream file(path, std::ios::binary);
-  std::stringstream content;
-  content << file.rdbuf();
-  return content.str();
-}
-
 void crashed(int signal) {
   void* frames[64];
   int count = backtrace(frames, 64);
   dprintf(2, "[host] fatal signal %d\n", signal);
   backtrace_symbols_fd(frames, count, 2);
   _exit(128 + signal);
+}
+
+// The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): the
+// directory its executable is in, its runtime.json's numbers, and its framework, which every
+// application's JavaScript runtime evaluates before the application's own bundle.
+struct RuntimeFacts {
+  int abi = 0;
+  int api = 0;
+  std::string framework;
+  std::string frameworkURL;
+};
+
+RuntimeFacts runtimeFacts() {
+  char exe[4096];
+  ssize_t length = readlink("/proc/self/exe", exe, sizeof exe - 1);
+  if (length <= 0) throw std::runtime_error("cannot read /proc/self/exe");
+  std::string directory(exe, static_cast<size_t>(length));
+  directory = directory.substr(0, directory.rfind('/'));
+  std::ifstream description(directory + "/runtime.json");
+  if (!description) throw std::runtime_error(directory + " is not a runtime: it has no runtime.json");
+  std::stringstream text;
+  text << description.rdbuf();
+  auto parsed = folly::parseJson(text.str());
+  RuntimeFacts facts;
+  facts.abi = static_cast<int>(parsed["abi"].asInt());
+  facts.api = static_cast<int>(parsed["api"].asInt());
+  facts.framework = directory + "/framework/framework.hbc";
+  // The framework's URL is its source's, which its assets are beside; only its bytecode ships.
+  facts.frameworkURL = "file://" + directory + "/framework/framework.js";
+  if (!std::ifstream(facts.framework).good()) {
+    throw std::runtime_error("runtime " + std::to_string(facts.abi) + " has no framework: " + facts.framework);
+  }
+  return facts;
 }
 
 void stage(const char* name) {
@@ -405,6 +432,14 @@ int main(int argc, char** argv) {
   services.emit = [&instance](const std::string& event, folly::dynamic body) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
   };
+  RuntimeFacts runtimeOf;
+  try {
+    runtimeOf = runtimeFacts();
+  } catch (const std::exception& error) {
+    std::cerr << "[host] " << error.what() << "\n";
+    return 1;
+  }
+  services.runtime = {runtimeOf.abi, runtimeOf.api, runtimeOf.frameworkURL};
   oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
   oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); }, refresh);
@@ -518,6 +553,7 @@ int main(int argc, char** argv) {
   uint32_t settingsSerial = 0;
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
+  if (shellMode) shellState.followApplications();
   if (windowed) {
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})
@@ -613,7 +649,19 @@ int main(int argc, char** argv) {
   }
 
   stage("load script");
-  instance->loadScript(std::make_unique<JSBigStdString>(readFile(bundlePath)), bundlePath);
+  // The framework and the application's bundle are mapped from their files, never copied: the
+  // framework's pages are the same for every application running on this runtime. The framework
+  // is evaluated first, in the same turn (React Native's `beforeLoad`), so the application's
+  // modules find React Native, React and Bloom defined, and React Native initialized.
+  std::shared_ptr<const jsi::Buffer> framework = JSBigFileString::fromPath(runtimeOf.framework);
+  instance->loadScript(
+      JSBigFileString::fromPath(bundlePath), bundlePath,
+      [framework, url = runtimeOf.frameworkURL](jsi::Runtime& runtime) {
+        stage("framework");
+        runtime.evaluateJavaScript(framework, url);
+        stage("bundle");
+      },
+      nullptr);
 
   stage("surface");
   SurfaceHandler surface(moduleName, 1);
@@ -1016,8 +1064,11 @@ int main(int argc, char** argv) {
         busy |= networking.deliver();
         busy |= files.deliver();
         busy |= deliverApplication(services);
-        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
-        bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
+        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx), and the applications
+        // the session's registry (docs/adr/0030-installing-applications.mdx): each looked at.
+        bool wallpaperChanged = shellMode && shellState.tick();
+        bool applicationsChanged = shellMode && shellState.applicationsChanged();
+        bool shellChanged = wallpaperChanged || applicationsChanged, closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
         std::vector<OxyOSEvent> launchResults;
         std::vector<OxyOSEvent> preferenceResults;
@@ -1478,6 +1529,9 @@ int main(int argc, char** argv) {
           for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
+          if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
+            fds.push_back({applications, POLLIN, 0});
+          }
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();

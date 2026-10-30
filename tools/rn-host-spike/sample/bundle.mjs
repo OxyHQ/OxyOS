@@ -46,7 +46,7 @@ if (hermesc) {
 // `getAppConfig` writes `app.config` into the APK's assets): next to the bundle, by the module that
 // runs it, where the host's ExponentConstants reads it (oxyos/expo-adapter.js).
 const application = require(path.resolve('oxyos/application-build.js'));
-if (application) {
+if (application && path.resolve(entry) === path.resolve('oxyos/stash-application.js')) {
   const config = path.resolve(outDir, 'applications', 'Stash', 'app.config');
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, JSON.stringify(application.config));
@@ -60,5 +60,21 @@ for (const asset of result.assets ?? []) {
     fs.copyFileSync(file, dest);
     copied += 1;
   });
+}
+// The runtime's framework (OXYOS_FRAMEWORK_BUILD, metro.config.js): what it provides, the manifest
+// applications are built against: every module's key and id, whether an application may name it,
+// and the version of each package (docs/adr/0030-installing-applications.mdx, decision 17).
+if (process.env.OXYOS_FRAMEWORK_BUILD === '1') {
+  const { recorded } = createRequire(import.meta.url)('./framework-ids.js');
+  const modules = {};
+  const packages = {};
+  for (const described of recorded.values()) {
+    if (described.app) continue;
+    modules[described.key] = { id: described.id, public: described.public };
+    // A package may be in it in more than one version (two 0.x minors, two majors), each its own
+    // modules.
+    if (described.name) packages[described.name] = [...new Set([...(packages[described.name] ?? []), described.version])].sort();
+  }
+  fs.writeFileSync(path.resolve(outDir, 'framework.json'), JSON.stringify({ packages, modules }));
 }
 console.log(JSON.stringify({ bundle: out, bytecode: Boolean(hermesc), assets: copied }));

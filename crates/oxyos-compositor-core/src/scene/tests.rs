@@ -5664,6 +5664,47 @@ fn a_launched_processs_windows_are_its_registry_applications() {
     assert_eq!(h.scene.application(APP), None);
 }
 
+#[test]
+fn a_client_shows_a_window_once_a_toplevel_of_its_is_mapped() {
+    // What the session tells the install service of an installed version (ADR 0030, decision 10).
+    let mut h = Harness::new();
+    assert!(h.scene.clients_showing_windows().is_empty());
+    h.request(
+        APP,
+        Request::CreateToplevel {
+            surface: 1,
+            size: Size::new(400, 300),
+        },
+    )
+    .unwrap();
+    // Made, not yet presented: not shown.
+    assert!(!h.scene.clients_showing_windows().contains(&APP));
+    h.present(key(APP, 1));
+    assert_eq!(
+        h.scene
+            .clients_showing_windows()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [APP]
+    );
+    h.toplevel(OTHER, 1, 400, 300);
+    assert_eq!(
+        h.scene
+            .clients_showing_windows()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [APP, OTHER]
+    );
+    h.scene.disconnect(APP);
+    assert_eq!(
+        h.scene
+            .clients_showing_windows()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        [OTHER]
+    );
+}
+
 // ---- the user's preferences (ADR 0019) --------------------------------------------------------
 
 /// Settings, given its grant by its launch record after it connected.

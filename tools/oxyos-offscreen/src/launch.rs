@@ -416,6 +416,14 @@ pub struct Launch {
     /// session gives it to the system application the image's policy names. A fixture: a
     /// scenario's entries are the developer's.
     pub grant_settings: Option<String>,
+    /// `--runtimes DIR`: where the runtimes an application's entry names are
+    /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
+    /// image's (`/usr/lib/oxyos/runtimes`).
+    pub runtimes: Option<PathBuf>,
+    /// `--installed-fixture ROOT`: the install service's state directory, as a scenario wrote it
+    /// (docs/adr/0030-installing-applications.mdx, decision 7): its entries for this user are the
+    /// registry's second source, taken as the service's. A fixture: a session's are root's.
+    pub installed_fixture: Option<PathBuf>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx), played as FILE describes it
     /// (`oxyos_controls::Fake`), which it writes back as the session changes it; each step's
@@ -440,7 +448,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -523,6 +531,8 @@ impl Launch {
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
+        let mut runtimes = None;
+        let mut installed_fixture = None;
         let mut screens = Vec::new();
         let mut displays = None;
         let mut command = Vec::new();
@@ -585,6 +595,14 @@ impl Launch {
                 }
                 Some("--controls") => {
                     controls = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--installed-fixture") => {
+                    installed_fixture = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--runtimes") => {
+                    runtimes = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--grant-settings") => {
@@ -867,6 +885,8 @@ impl Launch {
                 reader_locale,
                 preferences,
                 grant_settings,
+                runtimes,
+                installed_fixture,
                 controls,
                 outputs: screens,
                 displays,
@@ -934,6 +954,20 @@ fn start_shell(
             .env("OXYOS_COMPOSITOR_SOCKET", &socket)
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY");
+        // The shell lists the fixture's installed applications too (ADR 0030, decision 7).
+        if let Some(root) = &session.installed_fixture {
+            shell.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        // A Bloom host's bundle is known to its JavaScript by its source's URL, beside its
+        // assets: a package's compiled bundle by the source its manifest names (ADR 0030).
+        if let Some(bundle) = command
+            .get(1)
+            .map(std::path::Path::new)
+            .filter(|b| b.is_file())
+        {
+            let url = oxyos_apps::script_url(bundle);
+            shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
+        }
         // A Bloom host's report is its own: the primary's shell's goes beside the application's,
         // another output's beside that.
         if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
@@ -2392,6 +2426,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    session.installed_fixture = launch.installed_fixture.clone();
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
         let fake = oxyos_controls::Fake::from_file(file.clone())?;
@@ -2406,23 +2441,36 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
     // The shell's applications, from the registry, run with the shell's own Bloom host and bundle.
     if let Some(shell) = &launch.shell {
-        session.launcher = Some(oxyos_apps::Launcher::new(
-            oxyos_apps::Runtime {
-                socket: session.socket.clone(),
-                bloom_host: shell.first().map(PathBuf::from),
-                bloom_bundle: shell.get(1).map(PathBuf::from),
-                window: (600, 360),
-                // A launched Bloom host's report goes beside the application's, not into it.
-                env: std::env::var_os("OXYOS_HOST_REPORT")
-                    .map(|mut report| {
-                        report.push(".launched");
-                        vec![("OXYOS_HOST_REPORT".into(), report)]
-                    })
-                    .unwrap_or_default(),
-            },
-            oxyos_apps::directories(),
-            oxyos_apps::languages(),
-        ));
+        session.launcher = Some(
+            oxyos_apps::Launcher::new(
+                oxyos_apps::Runtime {
+                    socket: session.socket.clone(),
+                    bloom_host: shell.first().map(PathBuf::from),
+                    bloom_bundle: shell.get(1).map(PathBuf::from),
+                    runtimes: launch
+                        .runtimes
+                        .clone()
+                        .unwrap_or_else(|| PathBuf::from(oxyos_apps::RUNTIMES)),
+                    window: (600, 360),
+                    // A launched Bloom host's report goes beside the application's, not into it.
+                    env: std::env::var_os("OXYOS_HOST_REPORT")
+                        .map(|mut report| {
+                            report.push(".launched");
+                            vec![("OXYOS_HOST_REPORT".into(), report)]
+                        })
+                        .unwrap_or_default(),
+                },
+                oxyos_apps::directories(),
+                oxyos_apps::languages(),
+            )
+            .with_installed(None),
+        );
+        if let Some(root) = &launch.installed_fixture {
+            let user = oxyos_apps::session_user().unwrap_or_default();
+            session.launcher = session.launcher.take().map(|launcher| {
+                launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
+            });
+        }
     }
     if let Some(password) = &launch.lock_password {
         session.compositor.authentication =
@@ -2982,10 +3030,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         })
         .collect::<Vec<_>>()
         .join(",");
+    // What the shell had started, as each was launched (ADR 0030, decision 7).
+    let applications = session
+        .application_launches
+        .iter()
+        .map(|(id, origin, settings)| {
+            format!("{{\"id\":{id:?},\"origin\":{origin:?},\"settings\":{settings}}}")
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     session.finish(&mut children)?;
     drop(seat);
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"applications\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         session_outputs,
         launch.command.first().cloned().unwrap_or_default(),
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
@@ -2994,6 +3051,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         window.width,
         window.height,
         answered.join(","),
+        applications,
         snapshots.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
     );
     Ok(())

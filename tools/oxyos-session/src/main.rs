@@ -80,6 +80,7 @@
 //! display is told to the login program, which tells the service manager.
 
 mod cursor_file;
+mod installd;
 
 use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
@@ -402,17 +403,29 @@ fn main() -> Result<()> {
         eprintln!("oxyos-session: system applications: {error}");
     }
     let env_path = |name| std::env::var_os(name).map(PathBuf::from);
+    // The applications the install service installed for this account are the registry's second
+    // source, and each version launched is held, then noted shown and exited (ADR 0030, decisions
+    // 7 and 10). The login screen launches nothing and holds nothing.
+    let installed = oxyos_apps::session_user().map(|user| {
+        oxyos_apps::installed_applications(std::path::Path::new(oxyos_apps::INSTALLED), &user)
+    });
+    let installd =
+        (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
+    let mut versions = Versions::default();
     let mut launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
             socket: socket.clone(),
             bloom_host: env_path("OXYOS_BLOOM_HOST"),
             bloom_bundle: env_path("OXYOS_BLOOM_BUNDLE"),
+            // The image's runtimes, never an environment variable's (ADR 0030, decision 2).
+            runtimes: PathBuf::from(oxyos_apps::RUNTIMES),
             window: (960, 600),
             env: Vec::new(),
         },
         oxyos_apps::directories(),
         oxyos_apps::languages(),
-    );
+    )
+    .with_installed(installed);
     let mut shell_started = Instant::now();
     let ended = loop {
         // What woke the turn of children exiting: they are looked at below, every turn.
@@ -433,8 +446,17 @@ fn main() -> Result<()> {
                 }
             }
         }
-        for id in launcher.reap() {
-            eprintln!("[session] {id} exited");
+        for (pid, launched) in launcher.reap() {
+            eprintln!("[session] {} exited", launched.id);
+            if let Some(note) = versions.exited(pid, &launched) {
+                installd.as_ref().inspect(|i| i.note(note));
+            }
+        }
+        // An installed version showing its first window (ADR 0030, decision 10).
+        if versions.awaiting() {
+            for note in versions.shown(&compositor.pids_showing_windows()) {
+                installd.as_ref().inspect(|i| i.note(note));
+            }
         }
         for request in compositor.scene.take_launches() {
             let launched = if greeter {
@@ -445,6 +467,12 @@ fn main() -> Result<()> {
                 match launcher.launch(&request.id) {
                     Ok(pid) => {
                         eprintln!("[session] started {} ({pid})", request.id);
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
                         true
                     }
                     Err(error) => {
@@ -464,6 +492,12 @@ fn main() -> Result<()> {
                 && match launcher.launch(&id) {
                     Ok(pid) => {
                         eprintln!("[session] started {id} ({pid}) for a notification");
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
                         true
                     }
                     Err(error) => {
@@ -678,20 +712,84 @@ fn lock_shown(compositor: &Compositor) -> bool {
             .any(|item| matches!(item, oxyos_compositor_core::RenderItem::Cover { .. }))
 }
 
+/// The installed versions the session launched, by process, until each showed a window and
+/// exited (docs/adr/0030-installing-applications.mdx, decision 10).
+#[derive(Default)]
+struct Versions {
+    /// Each process of an installed version, and whether it showed a window.
+    running: BTreeMap<u32, (String, u64, bool)>,
+}
+
+impl Versions {
+    /// A process launched: held, if it is an installed version.
+    fn launched(&mut self, pid: u32, launched: &oxyos_apps::Launched) -> Option<installd::Note> {
+        let oxyos_apps::Origin::Installed { version_code } = launched.origin else {
+            return None;
+        };
+        self.running
+            .insert(pid, (launched.id.clone(), version_code, false));
+        Some(installd::Note::Hold {
+            id: launched.id.clone(),
+            version_code,
+        })
+    }
+
+    fn awaiting(&self) -> bool {
+        self.running.values().any(|(_, _, shown)| !shown)
+    }
+
+    /// Each process showing its first window, of those `showing` names.
+    fn shown(&mut self, showing: &std::collections::BTreeSet<u32>) -> Vec<installd::Note> {
+        let mut notes = Vec::new();
+        for (pid, (id, version_code, shown)) in self.running.iter_mut() {
+            if !*shown && showing.contains(pid) {
+                *shown = true;
+                notes.push(installd::Note::Shown {
+                    id: id.clone(),
+                    version_code: *version_code,
+                });
+            }
+        }
+        notes
+    }
+
+    /// A process exited: whether it showed a window, for the service to keep or roll back.
+    fn exited(&mut self, pid: u32, launched: &oxyos_apps::Launched) -> Option<installd::Note> {
+        let (id, version_code, shown) = self.running.remove(&pid)?;
+        debug_assert_eq!(id, launched.id);
+        Some(installd::Note::Exited {
+            id,
+            version_code,
+            shown,
+        })
+    }
+}
+
 /// The session's shell of `output`, on `socket`.
 fn spawn_shell(
     socket: &std::path::Path,
     command: &[OsString],
     output: OutputId,
 ) -> Result<std::process::Child> {
-    Ok(Command::new(command.first().ok_or(USAGE)?)
+    let mut shell = Command::new(command.first().ok_or(USAGE)?);
+    shell
         .args(&command[1..])
         .arg("--shell")
         .arg(output.to_string())
         .env("OXYOS_COMPOSITOR_SOCKET", socket)
         .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .spawn()?)
+        .env_remove("WAYLAND_DISPLAY");
+    // A Bloom host's bundle is known to its JavaScript by its source's URL, beside its assets: a
+    // package's compiled bundle by the source its manifest names (ADR 0030).
+    if let Some(bundle) = command
+        .get(1)
+        .map(std::path::Path::new)
+        .filter(|b| b.is_file())
+    {
+        let url = oxyos_apps::script_url(bundle);
+        shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
+    }
+    Ok(shell.spawn()?)
 }
 
 /// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch

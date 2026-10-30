@@ -135,8 +135,18 @@ The application's process started to its first frame on the output; the same bef
 | WindowProbe | 84 / 86 | 3.9 | 0.9 | 0.2 | 4.4 | 12.7 | 52.9 |
 | Allo beside the shell | 64 / 64 | 4.0 | 0.9 | 0.1 | 4.4 | 12.6 | 30.1 |
 
-The bundle is one 9.5 MB Hermes bytecode file with every probe and app in it; evaluating it takes
-13 ms. The rest is React's first render, layout, mount and draw: the application's own work.
+These were measured with one 9.5 MB Hermes bytecode file holding every probe and application;
+evaluating it took 13 ms. Each application is now a package of its own, built against its runtime's
+framework ([ADR 0030](./adr/0030-installing-applications), decision 17): the framework (React
+Native, React, Bloom; 13.8 MB of bytecode, 4,671 modules) is mapped from its file, shared by every
+process, and evaluated first, in 7 to 16 ms; an application's own bytecode is 0.18 to 0.30 MB.
+Decision 17 has the measurements against a package carrying them itself (disk, PSS and USS with
+five applications running, first frames). The rest is React's first render, layout, mount and draw:
+the application's own work.
+
+`perf.py applications` measures applications side by side: the shell, Settings and three more on one
+compositor, and each host's RSS, PSS and USS from `/proc/PID/smaps_rollup`, with what of each
+bytecode file is resident and shared.
 
 ### Idle
 

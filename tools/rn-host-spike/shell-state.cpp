@@ -60,6 +60,22 @@ static int64_t solarNow() {
   return fixed ? std::atoll(fixed) : static_cast<int64_t>(std::time(nullptr));
 }
 
+void ShellState::followApplications() {
+  applicationsWatch_.reset(oxyos_applications_watch_new());
+  if (!applicationsWatch_) std::cerr << "[host] the applications are not followed: " << oxyos_last_error() << "\n";
+}
+
+int ShellState::applicationsFd() const {
+  return applicationsWatch_ ? oxyos_applications_watch_fd(applicationsWatch_.get()) : -1;
+}
+
+bool ShellState::applicationsChanged() {
+  if (!applicationsWatch_ || !oxyos_applications_watch_changed(applicationsWatch_.get())) return false;
+  auto before = applications_;
+  readApplications();
+  return applications_ != before;
+}
+
 void ShellState::readApplications() {
   int64_t length = oxyos_applications(nullptr, 0);
   if (length < 0) {

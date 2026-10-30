@@ -133,6 +133,13 @@ struct Session {
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
+    /// Each application the shell had started, as it was launched (docs/adr/0030-installing-
+    /// applications.mdx, decision 7): its id, where its entry came from, and whether it was given
+    /// `settings`; the run's summary reports them (`applications`).
+    pub application_launches: Vec<(String, String, bool)>,
+    /// `--installed-fixture ROOT`: the install service's state directory a scenario wrote, which
+    /// the shell it starts lists from too.
+    pub installed_fixture: Option<PathBuf>,
     /// `--displays FILE`: the session's displays, on virtual connectors (displays.rs), shown and
     /// changed from Settings as a session's are.
     displays: Option<(oxyos_compositor::displays::Displays, displays::Virtual)>,
@@ -196,6 +203,8 @@ impl Session {
             grant_settings: None,
             controls: None,
             launched_clients: Default::default(),
+            application_launches: Vec::new(),
+            installed_fixture: None,
             displays: None,
         })
     }
@@ -263,7 +272,24 @@ impl Session {
         }
         for request in self.compositor.scene.take_launches() {
             let launched = match launcher.launch(&request.id) {
-                Ok(_) => true,
+                Ok(pid) => {
+                    if let Some(launched) = launcher.application_of(pid) {
+                        let origin = match &launched.origin {
+                            oxyos_apps::Origin::System => "system".to_string(),
+                            oxyos_apps::Origin::Installed { version_code } => {
+                                format!("installed {version_code}")
+                            }
+                            oxyos_apps::Origin::Development => "development".to_string(),
+                        };
+                        // What it is given: its launch record's grants, and the fixture's
+                        // (`--grant-settings`), as `name_clients` gives them.
+                        let settings = launched.grants.settings
+                            || self.grant_settings.as_deref() == Some(launched.id.as_str());
+                        self.application_launches
+                            .push((launched.id.clone(), origin, settings));
+                    }
+                    true
+                }
                 Err(error) => {
                     eprintln!("[launch] {error}");
                     false

@@ -927,6 +927,17 @@ impl Compositor {
     /// application, its windows the registry's, whatever they claim, and has the grants its
     /// record gives (ADR 0019: `settings`, for the image's policy's Settings). A client's record is
     /// looked for once, when it has said Hello.
+    /// The processes (by pid, their connections' credentials) showing a window: a toplevel of
+    /// theirs mapped. The session tells the install service an installed version showed one
+    /// (docs/adr/0030-installing-applications.mdx, decision 10).
+    pub fn pids_showing_windows(&self) -> std::collections::BTreeSet<u32> {
+        self.scene
+            .clients_showing_windows()
+            .into_iter()
+            .filter_map(|client| u32::try_from(self.peers.get(&client)?.pid).ok())
+            .collect()
+    }
+
     pub fn name_clients(&mut self, record_of: &dyn Fn(u32) -> Option<LaunchRecord>) {
         for (client, peer) in self.peers.iter_mut() {
             if peer.named || peer.protocol.version().is_none() {

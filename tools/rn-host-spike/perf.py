@@ -14,7 +14,12 @@ step's expected result) and measures, from what the processes report and from /p
   of the host's start in between (the host's report's `stage` lines);
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
   nothing happens, after the session settled;
-- memory: every process's resident memory (anonymous and file-backed) while idle, and its peak.
+- memory: every process's resident memory (anonymous and file-backed) while idle, and its peak;
+- applications side by side: the shell, Settings and three more applications on one compositor, and
+  each host's memory from /proc/PID/smaps_rollup once all have drawn: RSS, PSS (a shared page's
+  size divided among the processes mapping it) and USS (its private pages), and what of each
+  bytecode file (the runtime's framework, an application's index.hbc) is resident and shared
+  (docs/adr/0030-installing-applications.mdx, decision 17).
 
 The development compositor turns every 5 ms when nothing wakes it, so its own idle numbers say
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
@@ -24,8 +29,8 @@ when a budget (BUDGETS) is exceeded. A frame's budget is a refresh of the displa
 runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz without one), so a
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
-Usage: perf.py --offscreen BIN --host BIN --bundle DIR [--out DIR] [--runs N] [--gpu-only] [--check]
-               [interactions] [cold-start] [idle]
+Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only] [--check]
+               [interactions] [cold-start] [idle] [applications]
 """
 
 import argparse
@@ -85,6 +90,12 @@ IDLES = [
     ("Settings", SETTINGS_APP),
 ]
 IDLE_WAIT_MS = 9000
+
+# Applications side by side: the shell and Settings run by the compositor, and these joining on its
+# socket as further applications, each in a window of its own.
+SIDE_BY_SIDE = {**SETTINGS_APP, "shell": "OxyOSShell"}
+SIDE_BY_SIDE_WAIT_MS = 40000
+JOINING = [("Inbox", "OxyBloom"), ("Allo", "EditingProbe"), ("WindowProbe", "WindowProbe")]
 IDLE_SETTLE_S = 2.0
 IDLE_WINDOW_S = 5.0
 
@@ -223,7 +234,7 @@ def run_scenario(options, scenario, out, during=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile. Returns (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
-               "--host", options.host, "--bundle", options.bundle, "--out", str(out)]
+               "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out)]
     if options.gpu_only:
         command += ["--gpu-only"]
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -380,6 +391,97 @@ def idle(options, name, scenario, out):
             | {"peak_rss_mib": peaks.get(who)} for who, samples in measured.items()}
 
 
+
+def smaps(pid):
+    """A process's memory from smaps_rollup (kB), and each bytecode file it maps: resident and
+    proportional (kB), and whether its resident pages are shared."""
+    rollup = {}
+    for line in pathlib.Path(f"/proc/{pid}/smaps_rollup").read_text().splitlines()[1:]:
+        key, _, value = line.partition(":")
+        if value.strip().endswith("kB"):
+            rollup[key] = int(value.split()[0])
+    files, current = {}, None
+    for line in pathlib.Path(f"/proc/{pid}/smaps").read_text().splitlines():
+        fields = line.split()
+        if len(fields) >= 5 and "-" in fields[0] and not fields[0].endswith(":"):
+            current = fields[5] if len(fields) > 5 and fields[5].endswith(".hbc") else None
+            if current:
+                files.setdefault(current, {"Rss": 0, "Pss": 0, "Shared_Clean": 0, "Private_Clean": 0, "Private_Dirty": 0})
+        elif current and fields and fields[0].rstrip(":") in files[current]:
+            files[current][fields[0].rstrip(":")] += int(fields[1])
+    return rollup, files
+
+
+def applications(options, out):
+    """Each host's RSS, PSS and USS with the shell, Settings and three more applications running."""
+    sys.path.insert(0, str(HERE))
+    from regress import Machine
+    path = scenario_file(out, "applications side by side", SIDE_BY_SIDE,
+                         [{"name": "applications run side by side", "do": ["wait", SIDE_BY_SIDE_WAIT_MS],
+                           "allow_unchanged": True, "expect": {}}])
+    measured = []
+
+    def during(sampler, run_out):
+        report = run_out / "host-report.jsonl"
+        deadline = time.monotonic() + 60
+        while not (report.exists() and '"kind":"frame"' in report.read_text()):
+            if time.monotonic() > deadline:
+                return
+            time.sleep(0.05)
+        settings = next(pid for pid, process in sampler.snapshot().items() if process[0] == "OxyOSSettings")
+        environ = dict(item.split("=", 1) for item in
+                       pathlib.Path(f"/proc/{settings}/environ").read_text().split("\0") if "=" in item)
+        machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
+        joined = []
+        for name, module in JOINING:
+            host, bundle, script = machine.run(module)
+            joined.append((name, subprocess.Popen(
+                [str(host), str(bundle), module, "--window", "800", "500"],
+                env=dict(os.environ, OXYOS_COMPOSITOR_SOCKET=environ["OXYOS_COMPOSITOR_SOCKET"],
+                         OXYOS_SCRIPT_URL=f"file://{script}",
+                         OXYOS_HOST_REPORT=str(run_out / f"joined-{module}.jsonl")),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)))
+        try:
+            deadline = time.monotonic() + 60
+            for name, process in joined:
+                report = run_out / f"joined-{process.args[2]}.jsonl"
+                while not (report.exists() and '"kind":"frame"' in report.read_text()):
+                    if time.monotonic() > deadline or process.poll() is not None:
+                        raise SystemExit(f"{name} drew no frame")
+                    time.sleep(0.05)
+            time.sleep(IDLE_SETTLE_S)
+            hosts = [(process[0], pid) for pid, process in sampler.snapshot().items()
+                     if process[0] in ("OxyOSShell", "OxyOSSettings")]
+            hosts += [(name, process.pid) for name, process in joined]
+            for who, pid in hosts:
+                rollup, files = smaps(pid)
+                measured.append({"who": who, "rss_mib": rollup.get("Rss", 0) / 1024,
+                                 "pss_mib": rollup.get("Pss", 0) / 1024,
+                                 "uss_mib": (rollup.get("Private_Clean", 0) + rollup.get("Private_Dirty", 0)) / 1024,
+                                 "bytecode": {os.path.basename(os.path.dirname(f)) + "/" + os.path.basename(f):
+                                              {key: round(value / 1024, 2) for key, value in kib.items()}
+                                              for f, kib in files.items()}})
+        finally:
+            for _, process in joined:
+                process.terminate()
+            for _, process in joined:
+                process.wait()
+
+    runs = []
+    for run in range(options.runs):
+        measured.clear()
+        run_scenario(options, path, out / f"applications-{run + 1}", during)
+        runs.append(list(measured))
+    by_who = {}
+    for run in runs:
+        for sample in run:
+            by_who.setdefault(sample["who"], []).append(sample)
+    result = {who: {key: round(statistics.median(sample[key] for sample in samples), 2)
+                    for key in ("rss_mib", "pss_mib", "uss_mib")} | {"bytecode": samples[-1]["bytecode"]}
+              for who, samples in by_who.items()}
+    result["total"] = {key: round(sum(r[key] for r in result.values()), 2) for key in ("rss_mib", "pss_mib", "uss_mib")}
+    return result
+
 def table(rows, header):
     lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     lines += ["| " + " | ".join(str(cell) for cell in row) + " |" for row in rows]
@@ -406,6 +508,11 @@ def show(results):
                 for name, r in results["cold_start"].items()]
         print(table(rows, ["application", "first frame ms p50/p95/max", "stages (median ms, each to the next)"]))
         print()
+    if "applications" in results:
+        rows = [[who, m["rss_mib"], m["pss_mib"], m["uss_mib"],
+                 ", ".join(f"{name} {kib['Rss']} resident, {kib['Pss']} PSS" for name, kib in m.get("bytecode", {}).items())]
+                for who, m in results["applications"].items()]
+        print(table(rows, ["side by side", "RSS MiB", "PSS MiB", "USS MiB", "bytecode mapped (MiB)"]))
     if "idle" in results:
         rows = [[name, who, f"{m['cpu_percent']:.2f}", f"{m['wakeups_per_s']:.1f}", f"{m['rss_mib']:.0f}",
                  f"{m['anon_mib']:.0f}", f"{m['file_mib']:.0f}", m["peak_rss_mib"]]
@@ -441,17 +548,17 @@ def check(results):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("parts", nargs="*", help="interactions, cold-start, idle (all by default)")
+    parser.add_argument("parts", nargs="*", help="interactions, cold-start, idle, applications (all by default)")
     parser.add_argument("--offscreen", required=True)
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--bundle", required=True)
+    parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
+    parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
     parser.add_argument("--out", default=None)
     parser.add_argument("--runs", type=int, default=3, help="runs of each scenario, pooled")
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    parts = options.parts or ["interactions", "cold-start", "idle"]
-    if not set(parts) <= {"interactions", "cold-start", "idle"}:
+    parts = options.parts or ["interactions", "cold-start", "idle", "applications"]
+    if not set(parts) <= {"interactions", "cold-start", "idle", "applications"}:
         parser.error(f"unknown parts {parts}")
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-perf-"))
     out.mkdir(parents=True, exist_ok=True)
@@ -464,6 +571,8 @@ def main():
         results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS}
     if "idle" in parts:
         results["idle"] = {name: idle(options, name, scenario, out) for name, scenario in IDLES}
+    if "applications" in parts:
+        results["applications"] = applications(options, out)
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)
     print(f"\n{out / 'perf.json'}")

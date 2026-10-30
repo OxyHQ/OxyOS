@@ -230,6 +230,13 @@ struct HostServices {
   std::function<void()> blurFocusedInput;
   // Sends an event to RCTDeviceEventEmitter, from the JavaScript thread.
   std::function<void(const std::string& event, folly::dynamic body)> emit;
+  // The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): its
+  // numbers, and where its framework is known from (its assets are beside it), `OxyOSRuntime`'s.
+  struct Runtime {
+    int abi = 0;
+    int api = 0;
+    std::string frameworkURL;
+  } runtime{};
 };
 
 // React Native's Dimensions for a window of `display`'s size and scale: DeviceInfo's constant at

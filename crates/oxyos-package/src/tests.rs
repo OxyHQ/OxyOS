@@ -1259,3 +1259,45 @@ fn texts_by_language_are_kept_sorted() {
         expected
     );
 }
+
+// ---- a runtime's description (runtime.json; ADR 0030, decisions 2 and 17) ---------------------
+
+#[test]
+fn a_runtimes_description_is_read_strictly() {
+    let digest = "0".repeat(64);
+    assert_eq!(
+        RuntimeDescription::parse(br#"{"abi":1,"api":3}"#),
+        Ok(RuntimeDescription {
+            runtime: Runtime { abi: 1, api: 3 },
+            framework: None
+        })
+    );
+    let with_framework = format!(
+        r#"{{"abi":1,"api":3,"framework":{{"sha256":"{digest}","size":13849134,"manifest":"{digest}"}}}}"#
+    );
+    let read = RuntimeDescription::parse(with_framework.as_bytes()).unwrap();
+    assert_eq!(read.runtime, Runtime { abi: 1, api: 3 });
+    assert_eq!(read.framework.map(|f| f.size), Some(13849134));
+    for refused in [
+        r#"{"abi":0,"api":0}"#.to_string(),
+        r#"{"abi":1}"#.to_string(),
+        r#"{"abi":1,"api":1,"rn":"0.88"}"#.to_string(),
+        r#"{"abi":1,"api":1,"api":2}"#.to_string(),
+        r#"{"abi":"1","api":1}"#.to_string(),
+        r#"{"abi":1.5,"api":1}"#.to_string(),
+        r#"{"abi":-1,"api":1}"#.to_string(),
+        r#"{"abi":4294967296,"api":1}"#.to_string(),
+        r#"{"abi":1,"api":1,"framework":{"sha256":"x","size":1,"manifest":"x"}}"#.to_string(),
+        format!(r#"{{"abi":1,"api":1,"framework":{{"sha256":"{digest}","size":1}}}}"#),
+        format!(
+            r#"{{"abi":1,"api":1,"framework":{{"sha256":"{digest}","size":1,"manifest":"{digest}","modules":3}}}}"#
+        ),
+        String::new(),
+        " ".repeat(MAX_RUNTIME_DESCRIPTION + 1),
+    ] {
+        assert!(
+            RuntimeDescription::parse(refused.as_bytes()).is_err(),
+            "{refused} was accepted"
+        );
+    }
+}
