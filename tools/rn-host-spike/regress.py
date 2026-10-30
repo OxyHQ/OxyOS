@@ -1179,7 +1179,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     for app, files in expect.get("app_data", {}).items():
         # What the application kept, as JSON, once the run ended.
         for name, content in files.items():
-            path = preferences.parent / "xdg-data" / "oxyos" / "apps" / app / name
+            run = preferences.parent
+            data_home = run / "home" / ".local/share" if (run / "home").is_dir() else run / "xdg-data"
+            path = data_home / "oxyos" / "apps" / app / name
             kept = json.loads(path.read_text()) if path.exists() else None
             if kept != content:
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
@@ -1363,11 +1365,6 @@ def main():
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
     env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
-    for app, files in scenario.get("app_data", {}).items():
-        directory = out / "xdg-data" / "oxyos" / "apps" / app
-        directory.mkdir(parents=True, exist_ok=True)
-        for name, content in files.items():
-            (directory / name).write_text(json.dumps(content))
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's.
@@ -1411,6 +1408,12 @@ def main():
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(home_root / ".cache")
+    # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
+    for app, files in scenario.get("app_data", {}).items():
+        directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, content in files.items():
+            (directory / name).write_text(json.dumps(content))
     if "locale" in scenario:
         env["LANG"] = env["LC_ALL"] = scenario["locale"]
     if "tz" in scenario:
