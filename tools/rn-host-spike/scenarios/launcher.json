@@ -1,5 +1,5 @@
 {
-  "about": "Launchpad as a Mac's (docs/adr/0009-session-shell.mdx, docs/adr/0011-transitions.mdx), on the ThinkPad's display (1600×1000 at 1.25), with Allo (sample/EditingProbe.tsx) open: the dock's button opens it over the whole screen but the dock, its backdrop (the wallpaper, blurred and darkened) a surface of its own that fades in while its icons settle from larger, each easing out on the compositor's springs, never linearly; its search takes the keyboard as it opens, so Allo is told it lost it; every icon on the icon grid's body, the same size and shape (Inbox's square picture rounded, Allo's round one on white, Settings' own drawing); the arrows move a highlight through the icons, said to the screen reader as the selected button, and take nothing from the search; Escape closes it, its icons growing back as they fade over the fading backdrop, and Allo has the keyboard again; Super+Space opens it again with its search focused, what is typed searches with the first result highlighted, and Return opens it, the launcher going as Inbox's window arrives. Without the shell's keys offered before its field, the arrows reach the field and nothing is highlighted, and it fails; with the backdrop moving as an overlay does, it is not still, and it fails.",
+  "about": "Launchpad as a Mac's (docs/adr/0009-session-shell.mdx, docs/adr/0011-transitions.mdx), on the ThinkPad's display (1600×1000 at 1.25), with Allo (sample/EditingProbe.tsx) open: the dock's button opens it over the whole screen but the dock, its backdrop (the wallpaper, blurred and darkened, a smooth gradient without bands: the blur kept at full precision, stretched back bilinearly and dithered as it is written) a surface of its own that fades in while its icons settle from larger, each easing out on the compositor's springs, never linearly; its search takes the keyboard as it opens, so Allo is told it lost it; every icon on the icon grid's body, the same size and shape (Inbox's square picture rounded, Allo's round one on white, Settings' own drawing); the arrows move a highlight through the icons, said to the screen reader as the selected button, and take nothing from the search; Escape closes it, its icons growing back as they fade over the fading backdrop, and Allo has the keyboard again; Super+Space opens it again with its search focused, what is typed searches with the first result highlighted, and Return opens it, the launcher going as Inbox's window arrives. Without the shell's keys offered before its field, the arrows reach the field and nothing is highlighted, and it fails; with the backdrop moving as an overlay does, it is not still, and it fails; with the reduced blur quantized to 8 bits before it is stretched, its gradient bands, and it fails.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -13,7 +13,7 @@
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "the dock's first button opens Launchpad: its blurred backdrop fades in, its icons settle from larger, both on springs; its search takes the keyboard",
+      "name": "the dock's first button opens Launchpad: its blurred backdrop fades in, its icons settle from larger, both on springs; its search takes the keyboard; the blurred backdrop a smooth gradient, dithered, without bands",
       "do": [
         "press_output",
         [
@@ -119,6 +119,16 @@
           "1300,500": "#486fd4",
           "100,10": "#4069d4",
           "200,187": "#416ad3"
+        },
+        "smooth": {
+          "region": [
+            1000,
+            560,
+            1400,
+            720
+          ],
+          "max_step": 2,
+          "median_run_max": 3
         }
       }
     },

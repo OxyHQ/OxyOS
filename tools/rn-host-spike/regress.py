@@ -33,6 +33,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
+- smooth: a region of the output ("region": [x0, y0, x1, y1] in its pixels) showing a smooth
+  gradient without banding: neighbouring pixels differ by at most "max_step" levels (2), and down
+  its columns a level holds for at most "median_run_max" rows (3) as the median of its runs: a
+  gradient quantized to 8 bits without dithering holds each level for a band of rows;
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
@@ -408,6 +412,36 @@ def check_pixels(name, expect, screenshot, window, fail):
         got = pixel(window[0] + x, window[1] + y)
         if any(abs(a - b) > tolerance for a, b in zip(got, want)):
             fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected {colour}")
+
+
+def check_smooth(name, wanted, screenshot, fail):
+    """The step's `smooth`: a region of the output that shows a smooth gradient (a wide blur)
+    without banding."""
+    pixel = png_pixel_reader(screenshot)
+    x0, y0, x1, y1 = wanted["region"]
+    steepest, runs = 0, []
+    for x in range(x0, x1):
+        column = [pixel(x, y) for y in range(y0, y1)]
+        run = 1
+        for a, b in zip(column, column[1:]):
+            steepest = max(steepest, max(abs(p - q) for p, q in zip(a, b)))
+            if a == b:
+                run += 1
+            else:
+                runs.append(run)
+                run = 1
+        runs.append(run)
+        if x + 1 < x1:
+            for y in range(y0, y1, 8):
+                steepest = max(steepest, max(abs(p - q) for p, q in zip(pixel(x, y), pixel(x + 1, y))))
+    if steepest > wanted.get("max_step", 2):
+        fail(f"neighbouring pixels in {wanted['region']} differ by up to {steepest} levels, expected at most "
+             f"{wanted.get('max_step', 2)}: a step, not a gradient")
+    runs.sort()
+    median = runs[len(runs) // 2]
+    if median > wanted.get("median_run_max", 3):
+        fail(f"down the columns of {wanted['region']} a level holds for {median} rows (median): bands, "
+             f"expected at most {wanted.get('median_run_max', 3)} (a gradient dithered as it is written)")
 
 
 def gesture_events(report, start, end):
@@ -931,6 +965,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "output_pixels" in expect:
         # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
         check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
+    if "smooth" in expect:
+        check_smooth(name, expect["smooth"], screenshot, fail)
     for output, pixels in expect.get("screen_pixels", {}).items():
         # Another output's colours, in its own pixels, from its own snapshot beside the primary's.
         shot = pathlib.Path(screenshot).with_suffix(f".output-{output}.png")
