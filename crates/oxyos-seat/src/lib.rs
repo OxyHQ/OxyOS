@@ -13,10 +13,15 @@
 //!   (`loginctl lock-session`) and the machine about to sleep; [`Seat::hold_sleep`] delays
 //!   sleep until [`Seat::release_sleep`], once the session is locked on screen, and
 //!   [`Seat::set_locked_hint`] tells logind whether it is locked.
+//! - Idle (the idle lock, ADR 0010): [`Seat::set_idle_hint`] tells logind whether the session is
+//!   idle (its `IdleHint`, which its `IdleAction` follows), and [`Seat::events`] reports when
+//!   the user's processes begin or stop holding idle back with logind's own inhibitor
+//!   (`systemd-inhibit --what=idle`, as a video player does).
 //!
 //! Dropping the [`Seat`] gives control back.
 
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -76,6 +81,23 @@ pub enum Event {
     Lock,
     /// The machine is about to sleep (`true`), or woke (`false`).
     PrepareForSleep(bool),
+    /// The session's user began (`true`) or stopped holding idle back: one of their processes
+    /// holds a logind *block* inhibitor of `idle` ([`holds_idle`]). Reported once as the seat is
+    /// taken if one is held already, then as it changes.
+    IdleInhibited(bool),
+}
+
+/// One of logind's inhibitors, as `ListInhibitors` lists it: what it inhibits (`:`-separated),
+/// who and why, its mode (`block`, `delay`), and the user and process holding it.
+pub type Inhibitor = (String, String, String, String, u32, u32);
+
+/// Whether `inhibitors` hold idle back for the session of user `uid`: one of that user's
+/// processes holds a *block* inhibitor of `idle`. Another user's does not keep this session
+/// from going idle and locking; delay inhibitors do not apply to idle.
+pub fn holds_idle(inhibitors: &[Inhibitor], uid: u32) -> bool {
+    inhibitors.iter().any(|(what, _, _, mode, owner, _)| {
+        *owner == uid && mode == "block" && what.split(':').any(|what| what == "idle")
+    })
 }
 
 fn failed(error: zbus::Error) -> io::Error {
@@ -139,6 +161,66 @@ impl Seat {
         let signals = Proxy::new(&connection, LOGIND, path, SESSION).map_err(failed)?;
         let incoming = signals.receive_all_signals().map_err(failed)?;
         let sleeping = manager.receive_signal("PrepareForSleep").map_err(failed)?;
+        // The inhibitors held: logind says its `BlockInhibited` changed. Listened to before the
+        // first look, so no change between them is missed.
+        let properties = Proxy::new(
+            &connection,
+            LOGIND,
+            "/org/freedesktop/login1",
+            "org.freedesktop.DBus.Properties",
+        )
+        .map_err(failed)?
+        .receive_signal("PropertiesChanged")
+        .map_err(failed)?;
+        let uid = rustix::process::getuid().as_raw();
+        let idle_held = move |manager: &Proxy<'static>| {
+            manager
+                .call::<_, _, Vec<Inhibitor>>("ListInhibitors", &())
+                .map(|inhibitors| holds_idle(&inhibitors, uid))
+        };
+        let mut held = idle_held(&manager).unwrap_or(false);
+        if held {
+            // The receiver is this function's: the event is queued.
+            let _ = sender.send(Event::IdleInhibited(true));
+            wake_write.write_all(&[1])?;
+        }
+        let (inhibit_sender, mut inhibit_wake, inhibit_manager) =
+            (sender.clone(), wake_write.try_clone()?, manager.clone());
+        std::thread::Builder::new()
+            .name("oxyos-seat-inhibitors".into())
+            .spawn(move || {
+                type Changed = (
+                    String,
+                    HashMap<String, zbus::zvariant::OwnedValue>,
+                    Vec<String>,
+                );
+                for message in properties {
+                    let Ok((interface, changed, invalidated)) =
+                        message.body().deserialize::<Changed>()
+                    else {
+                        continue;
+                    };
+                    let inhibitors_changed = interface == "org.freedesktop.login1.Manager"
+                        && (changed.contains_key("BlockInhibited")
+                            || invalidated.iter().any(|name| name == "BlockInhibited"));
+                    if !inhibitors_changed {
+                        continue;
+                    }
+                    // A failed look keeps what was known.
+                    let Ok(now) = idle_held(&inhibit_manager) else {
+                        continue;
+                    };
+                    if now == held {
+                        continue;
+                    }
+                    held = now;
+                    if inhibit_sender.send(Event::IdleInhibited(held)).is_err()
+                        || inhibit_wake.write_all(&[1]).is_err()
+                    {
+                        return;
+                    }
+                }
+            })?;
         let (sleep_sender, mut sleep_wake) = (sender.clone(), wake_write.try_clone()?);
         std::thread::Builder::new()
             .name("oxyos-seat-sleep".into())
@@ -271,6 +353,16 @@ impl Seat {
             .map_err(failed)
     }
 
+    /// Tells logind whether the session is idle (its `IdleHint`): no input for the time the
+    /// session locks after, and nothing holding idle back. logind refuses it from a session
+    /// whose type is not graphical (systemd 257 takes it from x11, wayland and mir sessions
+    /// alone, and judges a terminal's session by its terminal's use).
+    pub fn set_idle_hint(&self, idle: bool) -> io::Result<()> {
+        self.session
+            .call::<_, _, ()>("SetIdleHint", &(idle))
+            .map_err(failed)
+    }
+
     /// What logind did since the last call; never blocks.
     pub fn events(&self) -> Vec<Event> {
         let mut drained = [0u8; 64];
@@ -295,6 +387,42 @@ impl Drop for Seat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn inhibitor(what: &str, mode: &str, uid: u32) -> Inhibitor {
+        let text = String::from;
+        (
+            text(what),
+            text("mpv"),
+            text("Playing"),
+            text(mode),
+            uid,
+            42,
+        )
+    }
+
+    #[test]
+    fn only_the_users_own_block_inhibitor_of_idle_holds_idle_back() {
+        assert!(!holds_idle(&[], 1000));
+        assert!(holds_idle(&[inhibitor("idle", "block", 1000)], 1000));
+        // Among others of what it inhibits.
+        assert!(holds_idle(&[inhibitor("sleep:idle", "block", 1000)], 1000));
+        // A delay inhibitor (the session's own, for sleep), another user's, or one of
+        // something else does not.
+        assert!(!holds_idle(&[inhibitor("idle", "delay", 1000)], 1000));
+        assert!(!holds_idle(&[inhibitor("idle", "block", 1001)], 1000));
+        assert!(!holds_idle(
+            &[inhibitor("sleep:shutdown", "block", 1000)],
+            1000
+        ));
+        assert!(!holds_idle(&[inhibitor("idleness", "block", 1000)], 1000));
+        assert!(holds_idle(
+            &[
+                inhibitor("sleep", "delay", 1000),
+                inhibitor("idle", "block", 1000)
+            ],
+            1000
+        ));
+    }
 
     #[test]
     fn a_device_is_named_by_its_numbers() {

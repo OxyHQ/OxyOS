@@ -315,6 +315,8 @@ pub struct Scene {
     last_press: Option<Press>,
     /// Serial of the latest user press, key or touch-down, delivered or consumed.
     last_user_serial: u64,
+    /// Counts the person's input, of every kind and wherever it goes (`Scene::activity`).
+    activity: u64,
     /// Per client: the serial at connect or of the latest user input delivered to it. A window
     /// mapped after the user interacted elsewhere does not take focus.
     activation: BTreeMap<ClientId, u64>,
@@ -2637,6 +2639,18 @@ impl Scene {
         self.caps_lock
     }
 
+    /// Counts the person's input: every key, pointer motion, button, scroll, pinch and touch,
+    /// and the text the keyboard types, wherever it goes (an application, the shell, the lock
+    /// screen, nothing). The session's idle lock is armed again whenever it changes (ADR 0010);
+    /// what clients draw and the time passing never change it.
+    pub fn activity(&self) -> u64 {
+        self.activity
+    }
+
+    fn user_input(&mut self) {
+        self.activity = self.activity.wrapping_add(1);
+    }
+
     /// The keyboard's Caps Lock came on or went off: the surface with keyboard focus is told.
     pub fn set_caps_lock(&mut self, on: bool) {
         if self.caps_lock == on {
@@ -2718,6 +2732,7 @@ impl Scene {
     }
 
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
+        self.user_input();
         self.pointer = (x, y);
         if let Some(moving) = self.moving {
             self.move_window(moving, x, y);
@@ -2847,6 +2862,7 @@ impl Scene {
     }
 
     pub fn pointer_button(&mut self, button: u32, pressed: bool) {
+        self.user_input();
         let serial = self.next_serial();
         if pressed {
             self.buttons_down += 1;
@@ -2964,6 +2980,7 @@ impl Scene {
     /// A wheel or touchpad scroll, in 1/256 logical pixels, for the surface under the pointer
     /// (or holding its capture). It is not a press: it authorizes no grab and activates nothing.
     pub fn pointer_scroll(&mut self, dx: i32, dy: i32) {
+        self.user_input();
         let Some(target) = self.pointer_target() else {
             return;
         };
@@ -2984,6 +3001,7 @@ impl Scene {
     /// `rotation_256` are as the Pinch event carries them. A pinch that began over no surface,
     /// or whose surface went, reaches nothing.
     pub fn pointer_pinch(&mut self, phase: GesturePhase, scale_65536: u32, rotation_256: i32) {
+        self.user_input();
         if phase == GesturePhase::Begin {
             self.pinch = self.pointer_target();
         }
@@ -3013,6 +3031,7 @@ impl Scene {
     /// previous composition, with the composing cursor at byte `cursor`; empty text ends it.
     /// Returns false, delivering nothing, for a cursor outside it or inside a character.
     pub fn preedit(&mut self, text: &str, cursor: usize) -> bool {
+        self.user_input();
         let Ok(cursor) = u32::try_from(cursor) else {
             return false;
         };
@@ -3028,6 +3047,7 @@ impl Scene {
     /// Text committed by the keyboard layout, for the focused surface. It counts as user input,
     /// like a key press, and ends any composition.
     pub fn text(&mut self, text: &str) {
+        self.user_input();
         self.text_transaction(&TextTransaction {
             commit: text,
             ..TextTransaction::default()
@@ -3046,6 +3066,7 @@ impl Scene {
     /// A key from the keyboard: the screen reader's first (ADR 0014), then the shell's
     /// shortcuts, then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
+        self.user_input();
         if !self.reader_key(key, pressed) {
             self.surface_key(key, pressed);
         }
@@ -3115,6 +3136,7 @@ impl Scene {
     }
 
     pub fn touch_down(&mut self, id: u32, x: i32, y: i32) {
+        self.user_input();
         if self.touches.contains_key(&id) || self.touches.len() >= MAX_TOUCH_POINTS {
             return;
         }
@@ -3147,6 +3169,7 @@ impl Scene {
     }
 
     pub fn touch_motion(&mut self, id: u32, x: i32, y: i32) {
+        self.user_input();
         if let Some(Some(target)) = self.touches.get(&id).copied() {
             let serial = self.next_serial();
             self.touch_event(target, serial, TouchKind::Motion, id, x, y);
@@ -3154,6 +3177,7 @@ impl Scene {
     }
 
     pub fn touch_up(&mut self, id: u32) {
+        self.user_input();
         if let Some(Some(target)) = self.touches.remove(&id) {
             let serial = self.next_serial();
             self.touch_event(target, serial, TouchKind::Up, id, 0, 0);

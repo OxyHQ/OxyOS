@@ -25,6 +25,7 @@ use std::error::Error;
 use std::time::{Duration, Instant};
 
 pub mod arrangement;
+pub mod idle;
 pub mod settings;
 pub mod splash;
 pub mod transitions;
@@ -387,14 +388,20 @@ pub struct Compositor {
     sleeping: bool,
     /// What logind was last told of the lock.
     hinted_locked: bool,
+    /// logind refused the session's idle hint (it takes one only from a graphical session
+    /// type): it is not told again.
+    idle_hint_refused: bool,
     /// Surfaces arriving and going, animated (docs/adr/0011-transitions.mdx), and the last frame
     /// composed of each surface shown, which one going is drawn from.
     pub transitions: transitions::Transitions,
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
-    /// The time transitions run on: `CLOCK_MONOTONIC`, or a test's.
+    /// The time transitions and the idle lock run on: `CLOCK_MONOTONIC`, or a test's.
     pub clock: Option<Duration>,
+    /// The idle lock (idle.rs, ADR 0010): the session locks after the user's `lock_after` with no
+    /// input. Never, until something sets it (`set_lock_after`).
+    pub idle: idle::Idle,
     /// The session's splash (splash.rs), over everything on every screen from `show_splash` to
     /// `end_splash`: one for each.
     splash: Vec<transitions::Snapshot>,
@@ -574,10 +581,12 @@ impl Compositor {
             checking: None,
             sleeping: false,
             hinted_locked: false,
+            idle_hint_refused: false,
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
             transition_frames: 0,
             clock: None,
+            idle: idle::Idle::default(),
             splash: Vec::new(),
             gpu_holds: None,
             on_first_flip: None,
@@ -1669,6 +1678,19 @@ impl Compositor {
                         eprintln!("[seat] holding sleep back: {error}");
                     }
                 }
+                // The user's processes hold idle back, or no longer (a video playing).
+                oxyos_seat::Event::IdleInhibited(held) => {
+                    eprintln!(
+                        "[idle] {}",
+                        if held {
+                            "held back: the session does not lock while it is"
+                        } else {
+                            "no longer held back"
+                        }
+                    );
+                    let now = self.now();
+                    self.idle.set_held(held, now);
+                }
                 oxyos_seat::Event::Resumed(device, fd) => {
                     drop(fd);
                     if Some(device) == self.card_device && self.away {
@@ -1946,10 +1968,45 @@ impl Compositor {
         Some((layout.extent, layout.format, pixels))
     }
 
+    /// The session locks after `minutes` with no input (0: never); a change arms the idle
+    /// lock's deadline again from now. The user's `lock_after` (settings.rs).
+    pub fn set_lock_after(&mut self, minutes: u32) {
+        let now = self.now();
+        self.idle.set_lock_after(minutes, now);
+    }
+
+    /// One turn of the idle lock: the person's input since the last arms it again, and once its
+    /// deadline passes the session locks (unless it is already) and logind is told it is idle.
+    pub fn follow_idle(&mut self) {
+        let now = self.now();
+        let turn = self
+            .idle
+            .turn(self.scene.activity(), self.scene.is_locked(), now);
+        if turn.lock {
+            eprintln!(
+                "[idle] no input for {:?}: the session locks",
+                self.idle.lock_after().unwrap_or_default()
+            );
+            self.scene.lock();
+        }
+        if let (Some(idle), Some(seat), false) = (turn.idle, &self.seat, self.idle_hint_refused) {
+            if let Err(error) = seat.set_idle_hint(idle) {
+                // systemd 257 takes it only from an x11, wayland or mir session, never a
+                // terminal's: once refused, it is not asked again.
+                eprintln!("[seat] the idle hint: {error}; logind is not told again");
+                self.idle_hint_refused = true;
+            }
+        }
+    }
+
     /// How long a turn may wait: until the animated pointer's next step, the first connection
-    /// still without its Hello reaches its deadline, or `idle_wait`, whichever is soonest.
+    /// still without its Hello reaches its deadline, the idle lock's deadline, or `idle_wait`,
+    /// whichever is soonest.
     fn next_wake(&self) -> Duration {
         let mut wait = self.idle_wait;
+        if let Some(deadline) = self.idle.deadline() {
+            wait = wait.min(deadline.saturating_sub(self.now()));
+        }
         // A transition running composes a frame for every refresh (a display's flip wakes the
         // turn sooner).
         if !self.transitions.is_empty() {
@@ -1972,11 +2029,14 @@ impl Compositor {
 
     /// One turn of the compositor: accepts connections, handles every readable client, composes
     /// a frame and sends events. Waits for a client, the listener, the display's flip, the devices
-    /// or the seat, at most until the pointer's next step, a connection's deadline or `idle_wait`.
+    /// or the seat, at most until the pointer's next step, a connection's deadline, the idle
+    /// lock's or `idle_wait`.
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {
         self.follow_terminal()?;
         self.follow_seat()?;
         self.read_input();
+        // The input just read arms the idle lock again before the turn waits for its deadline.
+        self.follow_idle();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener, every client and, with a frame on its way, the display (its flip);
         // never block on any one of them.
@@ -2088,6 +2148,8 @@ impl Compositor {
             }
         }
         self.expire_pending();
+        // A turn that waited until the deadline locks now, and composes the lock.
+        self.follow_idle();
         self.authenticate();
         self.frame();
         self.follow_lock();
@@ -2533,6 +2595,51 @@ mod tests {
         assert_eq!((same.x, same.y, same.radius), (600, 10, 6));
         assert!(matches!(same.paint, oxyos_gpu::Paint::Shadow(_, at) if at == shadow));
         assert!(left.layer(&oxyos_gpu::Layer { x: 640, ..layer }).is_none());
+    }
+
+    #[test]
+    fn a_turn_waits_for_the_idle_locks_deadline_and_never_wakes_for_it_otherwise() {
+        let (minute, second) = (Duration::from_secs(60), Duration::from_secs(1));
+        let output = Rect::new(0, 0, 64, 64);
+        let mut scene = Scene::new();
+        scene
+            .add_output(oxyos_compositor_core::Output {
+                id: 1,
+                rect: output,
+                scale_120: 120,
+                refresh_mhz: 60_000,
+            })
+            .unwrap();
+        let mut compositor = Compositor::new(scene, 0);
+        // A turn with nothing else to wake for waits an hour.
+        let hour = 60 * minute;
+        compositor.idle_wait = hour;
+        compositor.clock = Some(10 * minute);
+        // Nothing set it (the development compositor's own run) or 0: no deadline.
+        assert_eq!(compositor.next_wake(), hour);
+        compositor.set_lock_after(0);
+        assert_eq!(compositor.next_wake(), hour);
+        compositor.set_lock_after(1);
+        assert_eq!(compositor.next_wake(), minute);
+        compositor.clock = Some(10 * minute + 45 * second);
+        compositor.follow_idle();
+        assert_eq!(compositor.next_wake(), 15 * second);
+        // Input arms it again: a minute from it.
+        compositor.scene.pointer_motion(3, 3);
+        compositor.follow_idle();
+        assert_eq!(compositor.next_wake(), minute);
+        assert!(!compositor.scene.is_locked());
+        // At the deadline the session locks; locked and idle, nothing is left to wake for.
+        compositor.clock = Some(11 * minute + 45 * second);
+        compositor.follow_idle();
+        assert!(compositor.scene.is_locked());
+        assert_eq!(compositor.next_wake(), hour);
+        // Idle held back (a video playing): no deadline while it is.
+        compositor.scene.key(30, true);
+        compositor.follow_idle();
+        assert_eq!(compositor.next_wake(), minute);
+        compositor.idle.set_held(true, 11 * minute + 45 * second);
+        assert_eq!(compositor.next_wake(), hour);
     }
 
     #[test]

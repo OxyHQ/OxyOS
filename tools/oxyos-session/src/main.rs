@@ -12,8 +12,10 @@
 //!   login, so the lock screen takes the same password), or `--layout`'s;
 //! - Ctrl+Alt+Fn switches terminals, and logind's switches are followed;
 //! - the session locks (docs/adr/0010-lock-screen.mdx) on Ctrl+Super+Q, at the shell's request,
-//!   when logind asks and before the machine sleeps; only a password PAM accepts for the session's
-//!   user, under the service `oxyos`, unlocks it.
+//!   when logind asks, before the machine sleeps, and after the user's `lock_after` minutes with
+//!   no input (unless one of the user's processes holds logind's idle inhibitor, as a video
+//!   player does); only a password PAM accepts for the session's user, under the service
+//!   `oxyos`, unlocks it.
 //!
 //! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...]
 //! [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...]` runs COMMAND
@@ -45,8 +47,8 @@
 //! automatic appearance following the sun where the system's time zone is). Settings, an
 //! application the session launched from an entry only an administrator could have written
 //! (`X-OxyOS-Grants=settings`), changes them: each change is validated, written, applied (the
-//! screen reader started or stopped) and told to every client. `lock_after` is kept: the session
-//! has no idle lock yet.
+//! screen reader started or stopped) and told to every client. `lock_after` arms the idle lock
+//! again from the change.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the

@@ -1017,6 +1017,49 @@ fn lock_dismisses_popups_covers_outputs_and_survives_lock_client_crash() {
 }
 
 #[test]
+fn activity_counts_the_persons_input_and_nothing_else() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let before = h.scene.activity();
+    // What clients do and frames shown are not the person's input.
+    h.present(window);
+    h.scene.begin_frame();
+    h.scene.end_frame(0, Clock::Synthetic);
+    h.pump();
+    assert_eq!(h.scene.activity(), before);
+    // Every kind of input counts, wherever it goes: a window, nothing, the lock screen's covers.
+    let inputs: [&dyn Fn(&mut Scene); 11] = [
+        &|scene| scene.pointer_motion(w.x + 5, w.y + 5),
+        &|scene| scene.pointer_button(BUTTON, true),
+        &|scene| scene.pointer_button(BUTTON, false),
+        &|scene| scene.pointer_scroll(0, 256),
+        &|scene| scene.pointer_pinch(GesturePhase::Begin, 65536, 0),
+        &|scene| scene.key(30, true),
+        &|scene| scene.keyboard(30, false, None),
+        &|scene| scene.text("a"),
+        &|scene| scene.touch_down(1, 0, 0),
+        &|scene| scene.touch_motion(1, 3, 3),
+        &|scene| scene.touch_up(1),
+    ];
+    for locked in [false, true] {
+        if locked {
+            h.scene.lock();
+        }
+        for input in inputs {
+            let seen = h.scene.activity();
+            input(&mut h.scene);
+            assert_ne!(h.scene.activity(), seen, "locked: {locked}");
+        }
+    }
+    // Locking and unlocking are not input.
+    let seen = h.scene.activity();
+    h.scene.unlock();
+    h.scene.lock();
+    assert_eq!(h.scene.activity(), seen);
+}
+
+#[test]
 fn shell_panels_reserve_work_area_and_transparent_regions_pass_input_through() {
     let mut h = Harness::new();
     h.request(

@@ -6,7 +6,7 @@ order: 19
 
 # ADR 0010: The lock screen
 
-Status: **accepted; implemented** (steps 1 to 3, see step 3 for the ThinkPad's results). Builds on [ADR 0001](./0001-native-platform-boundaries) (roles, grants, the secure lock), [ADR 0006](./0006-seat) (the session on a logind seat) and [ADR 0009](./0009-session-shell) (the session's shell).
+Status: **accepted; implemented** (steps 1 to 4, see step 3 for the ThinkPad's results; step 4 is not verified on it yet). Builds on [ADR 0001](./0001-native-platform-boundaries) (roles, grants, the secure lock), [ADR 0006](./0006-seat) (the session on a logind seat), [ADR 0009](./0009-session-shell) (the session's shell) and [ADR 0019](./0019-settings) (the user's `lock_after`).
 
 ## Problem
 
@@ -32,6 +32,13 @@ A session cannot be locked. The compositor's core already holds the lock (`Scene
 3. **A password reaches PAM through the compositor, and only PAM unlocks.** New requests, `AuthenticateSecret { surface, secret }` (the password in chunks, as text is, at most 512 bytes, Linux-PAM's longest answer) and `Authenticate { surface }`, are accepted only from a lock surface; given while the session is not locked, a password is dropped. The session authority (`oxyos-session`, the user's own process) checks it with **PAM**, the system's established mechanism, as the session's user, under the service `oxyos` (`/etc/pam.d/oxyos`: the system's `common-auth` and `common-account`). The check runs off the compositor's thread (PAM may take seconds: `pam_faildelay`), one at a time; the answer is an event, `AuthenticationResult { surface, outcome, wait_s }` (`accepted`, `rejected`, `busy`, `throttled`, and the seconds until another may be tried). Only `accepted` calls `Scene::unlock`. After five rejections in a row each further attempt waits longer (30 s, then doubling to 15 min), as macOS's does; an unlock resets it. The secret is overwritten in memory once PAM has it, and never logged or reported. Clients with the `lock` grant are told when the session locks and unlocks (`LockState`), and when they connect while it is locked.
 
 4. **Failing closed.** If the lock screen's client goes away while locked (it crashed, or was killed), the session stays locked under the compositor's covers and the session starts the shell again; until a lock surface returns, nothing but the covers is shown and nothing reaches any application. No failure path calls `unlock`.
+5. **Left alone, the session locks.** With no input from the person for the user's `lock_after` minutes ([ADR 0019](./0019-settings); 5 by default, 0 never), the session locks as with the triggers of decision 1, as a Mac asks for its password once it has been left alone.
+   - **Input is the person's:** a key, the pointer moving, a button, a scroll, a pinch, a touch, wherever it goes (the lock screen included). What clients draw, their requests and the time passing are not.
+   - **The deadline is computed, never polled.** The compositor's turn waits until it at most, and does not wake for it while nothing can lock.
+   - **It is armed again** by input, by `lock_after` changing (from the change), by unlocking, and when idle is no longer held back (a video ending does not lock the session at once). Reaching it while locked locks nothing again.
+   - **Idle held back.** While one of the session user's processes holds logind's *block* inhibitor of `idle` (`systemd-inhibit --what=idle`, as video players take it), the session does not lock; another user's does not count. No protocol request is needed: logind's inhibitor is the system's mechanism, and logind says who holds it.
+   - **logind is told** that the session is idle once the deadline passes, and that it is not on the next input (`SetIdleHint`), as GNOME tells it, so that logind's `IdleAction` follows the session.
+   - **The display stays on.** Dimming it and turning it off are not decided here: a Mac sets them apart from the lock (*Turn display off when inactive*), and they need a preference of their own and work on the display ([Not in this decision](#not-in-this-decision)).
 
 ## Steps
 
@@ -52,9 +59,36 @@ A session cannot be locked. The compositor's core already holds the lock (`Scene
    - `pam_unix`'s account check logs `setuid failed: Operation not permitted` as a non-root caller; the check still answers (the unlock above went through it).
 
    The shell killed while locked was not repeated on the ThinkPad; the session's restart path is the one the scene's and compositor's tests exercise.
+4. **The idle lock** (decision 5): the person's input counted, the deadline on the compositor's clock, `lock_after` from the session's preferences, logind's idle inhibitor and idle hint. Tested with an injected clock, no real waiting; a scenario plays the time passing.
+
+   *Done.*
+   - **Input.** `Scene::activity` counts the person's input at the scene's entry points: keys (`key`, `keyboard`), the keyboard's text and composition, pointer motion, buttons, scrolls, pinches and touches. A test checks that every kind counts, locked or not and wherever it goes, and that a client's frames, frames shown, locking and unlocking do not.
+   - **The deadline.** `oxyos_compositor::idle::Idle` keeps it. Its tests:
+     - it locks exactly at the deadline, not a nanosecond before, and then has nothing left to wake for;
+     - any input arms it again;
+     - 0 never locks, nor does a compositor nothing set it for (the development compositor's own runs);
+     - changing `lock_after` arms it from the change, and the same value again changes nothing;
+     - locked already, reaching it locks nothing again, and the session is still idle for logind; unlocking arms it;
+     - idle held back never locks, and its end arms the deadline again;
+     - input on the lock screen tells logind the session is no longer idle.
+   - **The turn.** `Compositor::follow_idle` runs at the start of every turn, so that the input just read arms the deadline before the turn waits, and again before the frame, so that a turn that waited until the deadline composes the lock. `next_wake` waits until the deadline at most. A test: with an hour-long `idle_wait`, the turn waits the deadline's last 15 s, a minute after input, and the hour again once locked or held back.
+   - **The preference.** `Settings::apply` gives `lock_after` to the compositor (`set_lock_after`). A test: `SetPreference` makes it one minute four minutes in, and the session locks a minute after the change; another preference changing does not arm it again; 0 takes the deadline away.
+   - **logind.** `oxyos-seat` has `Seat::set_idle_hint`, and `Event::IdleInhibited` from logind's `BlockInhibited` changing (`PropertiesChanged`, listened to before the first look), with `ListInhibitors` filtered to the session's user (`holds_idle`; tested: a delay inhibitor, another user's, or one of something else does not hold idle back). On this machine's systemd 257, `systemd-inhibit --what=idle` changes `BlockInhibited` with a signal as it starts and as it ends, and `ListInhibitors` lists it as a block of `idle` by uid 1000.
+   - **logind refuses the idle hint from a terminal's session.** systemd 257 takes `SetIdleHint` only from x11, wayland and mir sessions ("Idle hint control is not supported on non-graphical and non-user sessions", tried here on a `tty` session); it judges a terminal's session by when its terminal was last used, which an OxyOS session, reading its keyboard through libinput, does not touch. `oxyos-session` from a terminal login is such a session: the compositor says so once and does not ask again. The hint takes effect once a launcher of its own starts the session as a graphical one ([Not in this decision](#not-in-this-decision)); OxyOS is no x11, wayland or mir session, and the session does not claim to be one with `SetType`. The lock does not depend on it.
+   - **The development compositor.** `--idle SECONDS` (a scenario's `idle` step) counts that time as passed with no input, at once (`Idle::pass`), on top of the real time the run takes. `scenarios/idle-lock.json`, at the default five minutes: four minutes lock nothing; a press in the window arms the lock again, so four more lock nothing; one more locks the session with only the lock screen shown; an hour more while locked changes nothing; the password unlocks; four minutes after the unlock lock nothing, and one more locks it again. Without the press, the run fails at the step after it.
+
+   Not verified yet: the session on the ThinkPad, left alone, and a video player holding idle back there.
 
 ## Not in this decision
 
 - **The login screen** (before a session exists, as macOS's login window): a separate program that authenticates and then starts the user's session. It needs its own decision.
-- An idle timeout that locks after a set time; notifications and media controls on the lock screen; biometrics.
+- **Dimming and turning off the display when idle** (a Mac's *Turn display off when inactive*, before or with the lock). It needs:
+  - a preference of its own (Settings' Lock screen page);
+  - the display off by an atomic commit of the CRTC's `ACTIVE` off, no frame flipped while it is, and input turning it on again with a modeset;
+  - the sleep inhibitor's "lock on screen" judged with the display off.
+
+  It is verifiable only on a display, which the machine this step was built on has none of. The deadline it needs is decision 5's.
+- **An application holding idle back by the platform's API** (React Native's `expo-keep-awake`, a video playing): the Bloom host taking logind's idle inhibitor for it, or a protocol request if the compositor should judge by what is on screen.
+- **The session's type for logind:** a graphical login that starts the session as a graphical one, so that logind takes its idle hint (step 4).
+- Notifications and media controls on the lock screen; biometrics.
 - Switching to another terminal while locked: the lock protects the graphical session; a text terminal's login is the system's own.
