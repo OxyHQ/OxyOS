@@ -81,7 +81,7 @@ A session cannot be locked. The compositor's core already holds the lock (`Scene
 
 ## Not in this decision
 
-- **The login screen** (before a session exists, as macOS's login window): a separate program that authenticates and then starts the user's session. It needs its own decision.
+- **The login screen** (before a session exists, as macOS's login window): a separate program that authenticates and then starts the user's session, decided in [ADR 0020](./0020-oxy-account-login).
 - **Dimming and turning off the display when idle** (a Mac's *Turn display off when inactive*, before or with the lock). It needs:
   - a preference of its own (Settings' Lock screen page);
   - the display off by an atomic commit of the CRTC's `ACTIVE` off, no frame flipped while it is, and input turning it on again with a modeset;
@@ -89,6 +89,6 @@ A session cannot be locked. The compositor's core already holds the lock (`Scene
 
   It is verifiable only on a display, which the machine this step was built on has none of. The deadline it needs is decision 5's.
 - **An application holding idle back by the platform's API** (React Native's `expo-keep-awake`, a video playing): the Bloom host taking logind's idle inhibitor for it, or a protocol request if the compositor should judge by what is on screen.
-- **The session's type for logind:** a graphical login that starts the session as a graphical one, so that logind takes its idle hint (step 4).
+- **The session's type for logind:** a graphical login that starts the session as a graphical one, so that logind takes its idle hint (step 4). The login program ([ADR 0020](./0020-oxy-account-login), step 2) starts it as `tty`: logind's graphical types are x11, wayland and mir, which OxyOS is not, so the hint stays refused until logind takes another.
 - Notifications and media controls on the lock screen; biometrics.
 - Switching to another terminal while locked: the lock protects the graphical session; a text terminal's login is the system's own.
