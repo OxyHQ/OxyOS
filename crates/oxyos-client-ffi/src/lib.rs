@@ -9,11 +9,11 @@
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the items below,
 //! each with the caller contract it relies on.
 
-use oxyos_client::{Accessible, Client, Field, Poll};
+use oxyos_client::{Accessible, Client, Field, Menu, Poll};
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity,
-    PanelEdge, Politeness, Positioner, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
-    TextHints, TextPurpose, TEXT_CHUNK_BYTES,
+    MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, Rect, Request, SecretChunk, ShellKind,
+    Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -95,6 +95,28 @@ pub const OXYOS_EVENT_PREFERENCE: u32 = 54;
 pub const OXYOS_PREFERENCES_DARK: u8 = 1;
 pub const OXYOS_PREFERENCES_REDUCE_MOTION: u8 = 2;
 pub const OXYOS_PREFERENCES_REDUCE_TRANSPARENCY: u8 = 4;
+/// To the session's shell (ADR 0021): the active window's menus, begun, entry by entry, text by
+/// text, then committed.
+pub const OXYOS_EVENT_MENU_BAR: u32 = 70;
+pub const OXYOS_EVENT_MENU_BAR_ITEM: u32 = 71;
+pub const OXYOS_EVENT_MENU_BAR_TEXT: u32 = 72;
+pub const OXYOS_EVENT_MENU_BAR_COMMITTED: u32 = 73;
+/// To an application: a command of its menus chosen in the shell's bar.
+pub const OXYOS_EVENT_MENU_ITEM_ACTIVATED: u32 = 74;
+/// What a menu entry is (`OxyOSMenuItem.kind`, a MENU_BAR_ITEM's `height`).
+pub const OXYOS_MENU_MENU: u8 = 1;
+pub const OXYOS_MENU_ITEM: u8 = 2;
+pub const OXYOS_MENU_SUBMENU: u8 = 3;
+pub const OXYOS_MENU_SEPARATOR: u8 = 4;
+/// A menu entry's state bits (`OxyOSMenuItem.flags`, a MENU_BAR_ITEM's `flag`).
+pub const OXYOS_MENU_DISABLED: u8 = 1;
+pub const OXYOS_MENU_CHECKABLE: u8 = 2;
+pub const OXYOS_MENU_CHECKED: u8 = 4;
+/// Which text of an entry a MENU_BAR_TEXT carries (its `height`).
+pub const OXYOS_MENU_LABEL: u32 = 1;
+pub const OXYOS_MENU_SHORTCUT: u32 = 2;
+/// `parent` of a menu of the bar.
+pub const OXYOS_NO_MENU_PARENT: u32 = u32::MAX;
 /// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
 pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
 pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
@@ -228,6 +250,23 @@ pub struct OxyOSAccessibleNode {
     pub has_selection: u8,
     pub selection_start: u32,
     pub selection_end: u32,
+}
+
+/// One entry of a window's menus, as `oxyos_client_set_menus` takes it (ADR 0021).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSMenuItem {
+    /// Index of the menu or submenu it is in, earlier in the list; OXYOS_NO_MENU_PARENT for a
+    /// menu of the bar.
+    pub parent: u32,
+    /// OXYOS_MENU_MENU, _ITEM, _SUBMENU or _SEPARATOR.
+    pub kind: u8,
+    /// OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
+    pub flags: u8,
+    /// NUL-terminated UTF-8; NULL for none (a separator).
+    pub label: *const c_char,
+    /// A command's key chord, NUL-terminated; NULL for none.
+    pub shortcut: *const c_char,
 }
 
 /// A focused text field, as `oxyos_client_text_input` takes it (ADR 0008).
@@ -696,6 +735,74 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_ACTIVATED,
                 surface,
                 flag: u8::from(active),
+                ..out
+            }
+        }
+        Event::MenuBar {
+            window,
+            serial,
+            items,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR,
+                code: window,
+                detail: serial,
+                width: items,
+                ..out
+            }
+        }
+        Event::MenuBarItem {
+            window,
+            index,
+            parent,
+            kind,
+            flags,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR_ITEM,
+                code: window,
+                detail: index,
+                width: parent,
+                height: kind as u32,
+                flag: flags.bits(),
+                ..out
+            }
+        }
+        Event::MenuBarText {
+            window,
+            index,
+            field,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR_TEXT,
+                code: window,
+                detail: index,
+                height: field as u32,
+                ..out
+            }
+        }
+        Event::MenuBarCommitted { window } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR_COMMITTED,
+                code: window,
+                ..out
+            }
+        }
+        Event::MenuItemActivated {
+            surface,
+            serial,
+            menus,
+            index,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_ITEM_ACTIVATED,
+                surface,
+                serial,
+                code: menus,
+                detail: index,
                 ..out
             }
         }
@@ -1326,6 +1433,93 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility(
     match unsafe { self::client(client) } {
         Some(client) => status(client.publish_accessibility(surface, &accessible)),
         None => fail("null client"),
+    }
+}
+
+/// Declares a toplevel's menus (ADR 0021), replacing its last: `count` entries in order, each
+/// parent before what it holds, as the commit `serial` (above every earlier one of the window;
+/// a MENU_ITEM_ACTIVATED names it with the chosen entry's index). A label longer than the
+/// protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
+/// be another. More entries, an unknown kind or flags: OXYOS_ERROR, and nothing is sent. 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `items` points to `count` entries (or
+/// is NULL with `count` 0), whose `label` and `shortcut` are NULL or NUL-terminated strings.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_menus(
+    client: *mut OxyOSClient,
+    surface: u32,
+    serial: u32,
+    items: *const OxyOSMenuItem,
+    count: usize,
+) -> c_int {
+    let items: &[OxyOSMenuItem] = if count == 0 {
+        &[]
+    } else if items.is_null() {
+        return fail("null menu items");
+    } else {
+        // SAFETY: the caller passes `count` valid entries.
+        unsafe { std::slice::from_raw_parts(items, count) }
+    };
+    let text = |pointer: *const c_char| -> Option<&str> {
+        if pointer.is_null() {
+            Some("")
+        } else {
+            // SAFETY: the caller passes NULL or NUL-terminated strings that outlive the call.
+            unsafe { CStr::from_ptr(pointer) }.to_str().ok()
+        }
+    };
+    let mut menus = Vec::with_capacity(items.len());
+    for item in items {
+        let (Some(kind), Some(flags), Some(label), Some(shortcut)) = (
+            MenuKind::from_raw(item.kind),
+            MenuFlags::new(item.flags),
+            text(item.label),
+            text(item.shortcut),
+        ) else {
+            return fail("invalid menu entry");
+        };
+        menus.push(Menu {
+            parent: item.parent,
+            kind,
+            flags,
+            label,
+            shortcut,
+        });
+    }
+    // SAFETY: forwarded caller contract.
+    match unsafe { self::client(client) } {
+        Some(client) => status(client.set_menus(surface, serial, &menus)),
+        None => fail("null client"),
+    }
+}
+
+/// The session's shell chooses the entry `index` of the commit `serial` of window `window`'s
+/// menus, as a MENU_BAR told them (ADR 0021). The compositor sends it on only if they are still
+/// the active window's. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_activate_menu_item(
+    client: *mut OxyOSClient,
+    window: u32,
+    serial: u32,
+    index: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::ActivateMenuItem {
+                window,
+                serial,
+                index,
+            },
+        )
     }
 }
 

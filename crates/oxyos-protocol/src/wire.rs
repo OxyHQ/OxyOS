@@ -157,6 +157,16 @@ wire_enum! {
     ReaderCommand: u8 { Next = 1, Previous = 2, Activate = 3 }
 }
 wire_enum! {
+    /// What an entry of a window's menus is (ADR 0021): a menu of the bar (a root), a command, a
+    /// submenu of commands, or a separator between them.
+    MenuKind: u8 { Menu = 1, Item = 2, Submenu = 3, Separator = 4 }
+}
+wire_enum! {
+    /// Which text of a menu entry a chunk belongs to: its label, or a command's shortcut as a key
+    /// chord (`Mod+N`, `Mod+Shift+Z`; `Mod` is Ctrl on OxyOS), which the bar shows and never runs.
+    MenuField: u8 { Label = 1, Shortcut = 2 }
+}
+wire_enum! {
     /// What a text field is for (ADR 0008).
     TextPurpose: u8 {
         Normal = 0, Digits = 1, Number = 2, Phone = 3, Url = 4, Email = 5, Name = 6,
@@ -365,6 +375,48 @@ impl Wire for AccessibleActions {
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
         Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible actions"))
+    }
+}
+
+/// A menu entry's state, as bits (ADR 0021). Unknown bits are invalid; which bits an entry of
+/// each kind may carry is the compositor's check.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MenuFlags(u8);
+
+impl MenuFlags {
+    /// It cannot be chosen now (a command or a submenu), and neither can what is in it.
+    pub const DISABLED: u8 = 1 << 0;
+    /// A command with a check: a check item, or one item of a radio group.
+    pub const CHECKABLE: u8 = 1 << 1;
+    /// Its check is on (only with `CHECKABLE`).
+    pub const CHECKED: u8 = 1 << 2;
+    const ALL: u8 = (1 << 3) - 1;
+
+    /// The flags with these bits, if every bit is known.
+    pub const fn new(bits: u8) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn contains(self, bit: u8) -> bool {
+        self.0 & bit == bit
+    }
+}
+
+impl Wire for MenuFlags {
+    const SIZE: usize = 1;
+    fn put(&self, out: &mut Vec<u8>) {
+        out.push(self.0);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(bytes[0]).ok_or_else(|| invalid("unknown menu flags"))
     }
 }
 

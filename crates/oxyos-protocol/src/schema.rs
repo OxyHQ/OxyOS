@@ -3,9 +3,10 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
-    AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
+    AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, MenuField, MenuFlags,
+    MenuKind, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
+    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints,
+    TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -178,6 +179,20 @@ messages! {
         // `key=value` in chunks as SetAppId's; `serial`, its own, names the change in
         // PreferenceResult. The session validates it, keeps it and applies it.
         62 => SetPreference { serial: u32, index: u8, last: bool, text: PreeditText },
+        // A toplevel's menus (ADR 0021), sent as an accessibility snapshot is: MenusBegin with the
+        // commit's `serial` (above every earlier one of the window) and how many entries follow,
+        // each entry in order (a menu of the bar has no parent; any other's parent is an earlier
+        // menu or submenu), their labels and shortcuts in chunks, then MenusCommit, which
+        // replaces the window's menus; none (0 entries) is none. A command is chosen by its
+        // index in the commit that declared it, so a choice made before a recommit is refused.
+        80 => MenusBegin { surface: u32, serial: u32, items: u32 },
+        81 => MenuItem { surface: u32, index: u32, parent: u32, kind: MenuKind, flags: MenuFlags },
+        82 => MenuText { surface: u32, index: u32, field: MenuField, text: TextChunk },
+        83 => MenusCommit { surface: u32 },
+        // The session's shell (its `shell` grant) chooses a command of the active window's menus,
+        // by the window's number, the commit's serial and the command's index in it, as it was
+        // told them (MenuBar). Anything else is answered with nothing.
+        84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
     }
 }
 
@@ -296,6 +311,18 @@ messages! {
         // which has the dock); and its removal.
         55 => Output { output: u32, rect: Rect, scale_120: u32, refresh_mhz: u32, primary: bool },
         56 => OutputRemoved { output: u32 },
+        // To the session's shell (ADR 0021): the active window's menus, as that window committed
+        // them, whenever they or the active window change: MenuBar with the window's number (0:
+        // none is active), the commit's serial (0: it declared none) and how many entries follow,
+        // the entries in order and their texts in chunks as the window sent them, then
+        // MenuBarCommitted. A shell that connects is told them at once.
+        70 => MenuBar { window: u32, serial: u32, items: u32 },
+        71 => MenuBarItem { window: u32, index: u32, parent: u32, kind: MenuKind, flags: MenuFlags },
+        72 => MenuBarText { window: u32, index: u32, field: MenuField, text: TextChunk },
+        73 => MenuBarCommitted { window: u32 },
+        // To an application: the person chose one of its commands in the shell's bar, the entry
+        // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
+        74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
     }
 }
 

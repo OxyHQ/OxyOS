@@ -7,9 +7,10 @@
 use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
-    ClientConnection, Event, Format, Politeness, PreeditText, Rect, Request, Size, TextChunk,
-    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MAX_PREFERENCE_BYTES,
-    MIN_VERSION, VERSION,
+    ClientConnection, Event, Format, MenuField, MenuFlags, MenuKind, Politeness, PreeditText, Rect,
+    Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
+    MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
+    MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -439,6 +440,59 @@ impl Client {
         self.send(&Request::AccessibilityCommit { surface })
     }
 
+    /// Declares a toplevel's menus (ADR 0021) as the commit `serial`, replacing its last: entries
+    /// in order, each parent before what it holds. A label longer than the protocol allows is cut
+    /// at a character boundary; a shortcut longer is left out (a cut chord would be another).
+    /// More entries than it allows is an error. The compositor checks the rest (serials that
+    /// rise, parents, kinds and flags) and refuses malformed menus as a protocol error.
+    pub fn set_menus(&self, surface: u32, serial: u32, entries: &[Menu<'_>]) -> io::Result<()> {
+        let items = u32::try_from(entries.len())
+            .ok()
+            .filter(|count| *count <= MAX_MENU_ITEMS)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "too many menu entries"))?;
+        self.send(&Request::MenusBegin {
+            surface,
+            serial,
+            items,
+        })?;
+        for (index, entry) in (0..).zip(entries) {
+            self.send(&Request::MenuItem {
+                surface,
+                index,
+                parent: entry.parent,
+                kind: entry.kind,
+                flags: entry.flags,
+            })?;
+            let shortcut = if entry.shortcut.len() <= MAX_MENU_SHORTCUT_BYTES {
+                entry.shortcut
+            } else {
+                ""
+            };
+            for (field, text) in [
+                (
+                    MenuField::Label,
+                    truncate(entry.label, MAX_MENU_LABEL_BYTES),
+                ),
+                (MenuField::Shortcut, shortcut),
+            ] {
+                if entry.kind == MenuKind::Separator
+                    || (field == MenuField::Shortcut && entry.kind != MenuKind::Item)
+                {
+                    continue;
+                }
+                for text in TextChunk::split(text) {
+                    self.send(&Request::MenuText {
+                        surface,
+                        index,
+                        field,
+                        text,
+                    })?;
+                }
+            }
+        }
+        self.send(&Request::MenusCommit { surface })
+    }
+
     /// Announces `text` to assistive technologies (ADR 0003), as Android's
     /// `announceForAccessibility` and live regions do: after what they are saying, or at once.
     /// Text longer than the protocol allows is cut at a character boundary; empty text is not
@@ -632,6 +686,19 @@ pub struct Accessible<'a> {
     pub custom: &'a str,
     /// A text field's selection, in bytes of its value; never a secure field's.
     pub selection: Option<(u32, u32)>,
+}
+
+/// One entry of a window's menus (`Client::set_menus`, ADR 0021).
+#[derive(Clone, Copy, Debug)]
+pub struct Menu<'a> {
+    /// Index of the menu or submenu it is in, earlier in the list; `NO_MENU_PARENT` for a menu
+    /// of the bar.
+    pub parent: u32,
+    pub kind: MenuKind,
+    pub flags: MenuFlags,
+    pub label: &'a str,
+    /// A command's key chord (`Mod+N`); empty for none.
+    pub shortcut: &'a str,
 }
 
 /// Custom action labels within the protocol's limit, whole lines only: a label cut short would

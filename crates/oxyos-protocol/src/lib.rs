@@ -16,9 +16,9 @@ pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
     Anchor, AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase,
-    Gravity, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
-    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints,
-    TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    Gravity, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind,
+    Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -41,6 +41,17 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 /// The longest `key=value` of a preference changed (`SetPreference`) or told (`Preference`,
 /// ADR 0019), in bytes.
 pub const MAX_PREFERENCE_BYTES: usize = 128;
+/// Most entries (menus, commands, submenus and separators) in one window's menus (ADR 0021).
+pub const MAX_MENU_ITEMS: u32 = 256;
+/// How deep a window's menus nest: a menu of the bar is at depth 1, its entries at 2; so at most
+/// two submenus deep.
+pub const MAX_MENU_DEPTH: u32 = 4;
+/// Most bytes of a menu entry's label.
+pub const MAX_MENU_LABEL_BYTES: usize = 128;
+/// Most bytes of a command's shortcut (one chunk: `Mod+Shift+Z` and its like).
+pub const MAX_MENU_SHORTCUT_BYTES: usize = 32;
+/// `parent` of a menu of the bar.
+pub const NO_MENU_PARENT: u32 = u32::MAX;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

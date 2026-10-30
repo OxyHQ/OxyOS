@@ -373,6 +373,8 @@ pub struct Scene {
     reader_keys: reader::ReaderKeys,
     /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
     appearances: Vec<appearances::Appearance>,
+    /// Windows' menus and what the shell was told of the active one's (ADR 0021).
+    menu_bars: menus::MenuBars,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -759,6 +761,7 @@ impl Scene {
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
         self.forget_shell_client(client);
+        self.forget_menu_bar_client(client);
         self.forget_launches(client);
         self.forget_preference_changes(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
@@ -1125,6 +1128,30 @@ impl Scene {
             ),
             Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
             Request::Minimize { surface } => self.minimize_request(key(surface)),
+            Request::MenusBegin {
+                surface,
+                serial,
+                items,
+            } => self.menus_begin(key(surface), serial, items),
+            Request::MenuItem {
+                surface,
+                index,
+                parent,
+                kind,
+                flags,
+            } => self.menu_item(key(surface), index, parent, kind, flags),
+            Request::MenuText {
+                surface,
+                index,
+                field,
+                text,
+            } => self.menu_text(key(surface), index, field, text),
+            Request::MenusCommit { surface } => self.menus_commit(key(surface)),
+            Request::ActivateMenuItem {
+                window,
+                serial,
+                index,
+            } => self.activate_menu_item(client, window, serial, index),
             Request::FocusWindow { .. }
             | Request::CloseWindow { .. }
             | Request::MinimizeWindow { .. }
@@ -2069,6 +2096,7 @@ impl Scene {
         self.forget_text_input(key);
         self.forget_secrets(Some(key));
         self.forget_window(key);
+        self.forget_menus(key);
         if self.active == Some(key) {
             self.active = None;
         }
@@ -3277,6 +3305,8 @@ impl Scene {
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
         // The shell is told what changed of windows and workspaces since it was last told.
         self.tell_shell();
+        // Then the active window's menus, once it knows the window (ADR 0021).
+        self.tell_menu_bar();
         std::mem::take(&mut self.events)
     }
 
@@ -3337,10 +3367,12 @@ pub use launch::LaunchRequest;
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod appearances;
+mod menus;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
+pub use menus::{MenuEntry, Menus};
 
 #[cfg(test)]
 mod tests;

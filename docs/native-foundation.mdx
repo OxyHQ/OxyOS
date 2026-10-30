@@ -84,6 +84,7 @@ Input semantics:
 - **The session's shell** ([ADR 0009](./adr/0009-session-shell)): applications name their windows (`SetTitle`, `SetAppId`, in chunks). A client granted `shell` is told each mapped window by a number the compositor gives it, with its workspace, state, title and application id, and the workspaces, only what changed since it was last told; it focuses, minimizes, moves and closes windows (the application is asked, `CloseRequested`) and manages workspaces. Only the active workspace's windows are shown, take input and can have focus.
 - **The input method** ([ADR 0008](./adr/0008-input-method)): a client granted `input_method`, at most one, serves the focused field while it has text input enabled and is not a password, PIN or sensitive. It is told the field's state, never its surface, client or place on screen; receives the keys first (after the compositor's shortcuts) and answers each, the keys it gives back reaching the application in order; and sends changes that apply at `InputMethodCommit`, naming the field state they were made for. Deactivation delivers the keys it holds first; past 64 unanswered keys every held key goes on. Its one candidates surface (`CreateInputCandidates`) is placed by the compositor below the caret, never focused, and shown only while it serves a field with a known caret; its configure carries only its size.
 - **Preferences** ([ADR 0019](./adr/0019-settings)): every client is told the preferences it draws with (`Preferences`: dark, reduce motion, reduce transparency, the accent) when it connects and whenever they change. A client granted `settings` (by its launch record, never by a request) is told every preference as kept (`Preference`, `key=value` in chunks) and changes one with `SetPreference`, answered by `PreferenceResult`; any other client that asks is closed (`Unauthorized`).
+- **The menu bar** ([ADR 0021](./adr/0021-menu-bar)): a toplevel's menus go as one message in chunks, as an accessibility snapshot does (`MenusBegin` with a serial above the window's last, `MenuItem`s in order with parents first, a menu of the bar having none, `MenuText` chunks for labels and shortcuts, `MenusCommit`), replacing the last. Limits are 256 entries, nesting 4 deep, 128 bytes per label and 32 per shortcut, with closed sets of kinds and flags. A client granted `shell` is told the active window's menus (`MenuBar` … `MenuBarCommitted`, window 0 for none) whenever they or the active window change; it chooses a command by the window, the commit's serial and the command's index, and the compositor sends `MenuItemActivated` to the window's client only if that window is still active, that commit is still its menus and the index is an enabled command.
 - **Accessibility** ([ADR 0003](./adr/0003-accessibility-protocol)):
   - **Publishing:** an application publishes one snapshot per surface (`AccessibilityBegin`, `AccessibleNode`s in reading order with parents first, `AccessibleText` chunks for names and values, then `AccessibilityCommit`). Limits are 4096 nodes and 1024 bytes per text, with closed sets of roles and states.
   - **Reading:** only a client granted `accessibility` receives committed snapshots, with global rectangles, and their removal.
@@ -153,6 +154,11 @@ Input semantics:
 | Request | 60 | SetMaximized | 6 |
 | Request | 61 | Minimize | 5 |
 | Request | 62 | SetPreference | 40 |
+| Request | 80 | MenusBegin | 13 |
+| Request | 81 | MenuItem | 15 |
+| Request | 82 | MenuText | 43 |
+| Request | 83 | MenusCommit | 5 |
+| Request | 84 | ActivateMenuItem | 13 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 35 |
 | Event | 3 | PopupDone | 6 |
@@ -209,6 +215,11 @@ Input semantics:
 | Event | 54 | Preference | 36 |
 | Event | 55 | Output | 30 |
 | Event | 56 | OutputRemoved | 5 |
+| Event | 70 | MenuBar | 13 |
+| Event | 71 | MenuBarItem | 15 |
+| Event | 72 | MenuBarText | 43 |
+| Event | 73 | MenuBarCommitted | 5 |
+| Event | 74 | MenuItemActivated | 21 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
