@@ -35,9 +35,14 @@
 //! `screen_reader`, so its keys (Ctrl+Alt with an arrow or Space) reach it alone.
 //!
 //! The user's preferences (docs/adr/0019-settings.mdx) are read from
-//! `$XDG_CONFIG_HOME/oxyos/preferences` as the session starts: reduce motion takes the
-//! transitions' time away, and the screen reader preference starts the reader as `--reader-on`
-//! does.
+//! `$XDG_CONFIG_HOME/oxyos/preferences` as the session starts, and the session is the file's one
+//! writer: reduce motion takes the transitions' time away, the screen reader preference starts
+//! the reader as `--reader-on` does, and every client is told the ones it draws with (an
+//! automatic appearance following the sun where the system's time zone is). Settings, an
+//! application the session launched from an entry only an administrator could have written
+//! (`X-OxyOS-Grants=settings`), changes them: each change is validated, written, applied (the
+//! screen reader started or stopped) and told to every client. `lock_after` is kept: the session
+//! has no idle lock yet.
 //!
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
@@ -50,8 +55,9 @@
 mod cursor_file;
 mod notify;
 
-use oxyos_compositor::{Authentication, Compositor, Gpu, Result};
-use oxyos_compositor_core::{Output, Scene};
+use oxyos_compositor::settings::{self, Settings};
+use oxyos_compositor::{Authentication, Compositor, Gpu, LaunchRecord, Result};
+use oxyos_compositor_core::{Grants, Output, Scene};
 use oxyos_ipc::Listener;
 use oxyos_protocol::{AuthOutcome, PointerShape, Rect};
 use rustix::fd::BorrowedFd;
@@ -131,11 +137,9 @@ fn main() -> Result<()> {
         return Err(USAGE.into());
     }
     // The user's preferences; what the file does not say (or is not there) is the default.
-    let preferences = oxyos_preferences::session_path()
-        .map(|path| oxyos_preferences::Preferences::load(&path))
-        .unwrap_or_default();
+    let mut settings = Settings::session();
     // The screen reader the user keeps on starts with the session, when there is one to start.
-    let reader_on = reader_on || preferences.screen_reader && reader_program.is_some();
+    let reader_on = reader_on || settings.preferences().screen_reader && reader_program.is_some();
 
     // The lock's authentication path first: without one the session never starts, as it could
     // lock and never unlock.
@@ -187,9 +191,8 @@ fn main() -> Result<()> {
     // most a quarter of a second, in which it notices its application or shell has exited.
     compositor.idle_wait = Duration::from_millis(250);
     compositor.records = false;
-    compositor
-        .transitions
-        .set_reduce_motion(preferences.reduce_motion);
+    // Applied before any client connects, so each is told them with its Welcome.
+    settings.apply(&mut compositor, settings::now());
     compositor.reads_back = false;
     compositor.authentication = Some(Box::new(pam));
     // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).
@@ -343,20 +346,28 @@ fn main() -> Result<()> {
             reader = None;
         }
         if compositor.take_reader_toggle() {
-            match (reader.take(), &reader_program) {
-                (Some(mut running), _) => {
-                    eprintln!("[session] stopping the screen reader");
-                    end(&mut running)?;
-                }
-                (None, Some(program)) => {
-                    eprintln!("[session] starting the screen reader");
-                    reader = Some(spawn_reader(&reader_socket, program)?);
-                }
-                (None, None) => eprintln!("[session] no screen reader (--reader)"),
+            let on = reader.is_none();
+            switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
+        }
+        // The changes Settings asked for, and the sun an automatic appearance follows.
+        for key in settings.serve(&mut compositor, settings::now()) {
+            eprintln!("[session] {key} changed");
+            if key == "screen_reader" {
+                let on = settings.preferences().screen_reader;
+                switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
             }
         }
         // The windows of what it started are their registry application's (ADR 0013).
-        compositor.name_clients(&|pid| launcher.application_of(pid).map(String::from));
+        // An administrator's Settings is given `settings` (ADR 0019).
+        compositor.name_clients(&|pid| {
+            launcher.application_of(pid).map(|launched| LaunchRecord {
+                application: launched.id.clone(),
+                grants: Grants {
+                    settings: launched.grants.settings,
+                    ..Grants::default()
+                },
+            })
+        });
         if let Some(status) = application
             .as_mut()
             .map(|application| application.try_wait())
@@ -463,6 +474,29 @@ fn spawn_shell(socket: &std::path::Path, command: &[OsString]) -> Result<std::pr
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .spawn()?)
+}
+
+/// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch
+/// (Super+F5) or the preference.
+fn switch_reader(
+    reader: &mut Option<std::process::Child>,
+    program: Option<&OsString>,
+    socket: &std::path::Path,
+    on: bool,
+) -> Result<()> {
+    match (reader.take(), program, on) {
+        (Some(mut running), _, false) => {
+            eprintln!("[session] stopping the screen reader");
+            end(&mut running)?;
+        }
+        (None, Some(program), true) => {
+            eprintln!("[session] starting the screen reader");
+            *reader = Some(spawn_reader(socket, program)?);
+        }
+        (None, None, true) => eprintln!("[session] no screen reader (--reader)"),
+        (running, _, _) => *reader = running,
+    }
+    Ok(())
 }
 
 /// The session's screen reader, on `socket`, in the session's language.

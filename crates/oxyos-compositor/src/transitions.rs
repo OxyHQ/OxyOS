@@ -267,6 +267,10 @@ impl Transitions {
         self.reduced = reduced;
     }
 
+    pub fn reduce_motion(&self) -> bool {
+        self.reduced
+    }
+
     fn reduce(&self, motion: Motion) -> Motion {
         if self.reduced {
             Motion {

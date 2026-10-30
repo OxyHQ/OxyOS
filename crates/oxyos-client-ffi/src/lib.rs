@@ -81,6 +81,20 @@ pub const OXYOS_EVENT_CAPS_LOCK: u32 = 46;
 pub const OXYOS_EVENT_LAUNCH_RESULT: u32 = 49;
 /// A toplevel became, or stopped being, the active window (ADR 0016); `flag` says which.
 pub const OXYOS_EVENT_ACTIVATED: u32 = 51;
+/// To Settings (ADR 0019): whether the change it asked for was taken: code, its serial; flag,
+/// taken.
+pub const OXYOS_EVENT_PREFERENCE_RESULT: u32 = 52;
+/// To every client (ADR 0019), when it connects and whenever they change: the preferences it
+/// draws with. flag: OXYOS_PREFERENCES_* bits; text: Bloom's accent colour, by name.
+pub const OXYOS_EVENT_PREFERENCES: u32 = 53;
+/// To Settings (ADR 0019): a chunk of one preference as kept, `key=value`: detail, the chunk's
+/// index (0 begins it); flag, whether it is the last; text, the chunk.
+pub const OXYOS_EVENT_PREFERENCE: u32 = 54;
+/// A PREFERENCES event's `flag` bits: dark (an automatic appearance resolved), every transition
+/// takes no time, glass is drawn opaque.
+pub const OXYOS_PREFERENCES_DARK: u8 = 1;
+pub const OXYOS_PREFERENCES_REDUCE_MOTION: u8 = 2;
+pub const OXYOS_PREFERENCES_REDUCE_TRANSPARENCY: u8 = 4;
 /// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
 pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
 pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
@@ -611,6 +625,40 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::PreferenceResult { serial, accepted } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_PREFERENCE_RESULT,
+                code: serial,
+                flag: u8::from(accepted),
+                ..out
+            }
+        }
+        Event::Preferences {
+            dark,
+            reduce_motion,
+            reduce_transparency,
+            accent,
+        } => {
+            let bytes = accent.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_PREFERENCES,
+                flag: u8::from(dark) * OXYOS_PREFERENCES_DARK
+                    + u8::from(reduce_motion) * OXYOS_PREFERENCES_REDUCE_MOTION
+                    + u8::from(reduce_transparency) * OXYOS_PREFERENCES_REDUCE_TRANSPARENCY,
+                ..out
+            }
+        }
+        Event::Preference { index, last, text } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_PREFERENCE,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
         Event::Activated { surface, active } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_ACTIVATED,
@@ -843,6 +891,36 @@ pub unsafe extern "C" fn oxyos_client_launch(
         return fail("an application id is UTF-8");
     };
     status(client.launch(serial, id))
+}
+
+/// Settings (with the `settings` grant, ADR 0019) changes the preference `key` (NUL-terminated,
+/// not empty, no `=`) to `value` (NUL-terminated, may be empty), at most 128 bytes as
+/// `key=value`; a PREFERENCE_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `key` and `value` are NUL-terminated
+/// strings valid for the duration of the call.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_preference(
+    client: *mut OxyOSClient,
+    serial: u32,
+    key: *const c_char,
+    value: *const c_char,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if key.is_null() || value.is_null() {
+        return fail("null preference");
+    }
+    // SAFETY: per the contract, both are NUL-terminated strings.
+    let (key, value) = unsafe { (CStr::from_ptr(key), CStr::from_ptr(value)) };
+    let (Ok(key), Ok(value)) = (key.to_str(), value.to_str()) else {
+        return fail("a preference is UTF-8");
+    };
+    status(client.set_preference(serial, key, value))
 }
 
 /// Locks the session (the session's shell, with the `shell` grant). 0 on success.

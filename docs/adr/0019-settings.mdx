@@ -6,7 +6,7 @@ order: 28
 
 # ADR 0019: Settings
 
-Status: **accepted** (chosen with the platform's author); step 1 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0011](./0011-transitions) (reduce motion), [ADR 0012](./0012-solar-wallpaper), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0014](./0014-screen-reader), [ADR 0015](./0015-application-model) and [ADR 0016](./0016-windows).
+Status: **accepted** (chosen with the platform's author); steps 1 and 2 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0011](./0011-transitions) (reduce motion), [ADR 0012](./0012-solar-wallpaper), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0014](./0014-screen-reader), [ADR 0015](./0015-application-model) and [ADR 0016](./0016-windows).
 
 ## Problem
 
@@ -38,9 +38,14 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - `clock_24h`.
 2. **The system's settings stay the system's.** The time zone and automatic time (systemd-timedated), the keyboard layout (systemd-localed, which writes `/etc/default/keyboard`) and the computer's name (systemd-hostnamed) are changed through those services, as their own command-line tools change them. The session calls them over the system bus as the user, and polkit decides. A change that needs an administrator is asked for by the session's own authentication dialog, never by the application. Until that dialog exists ([Not in this decision](#not-in-this-decision)), Settings shows these settings and their current values and says they cannot be changed yet. The session follows a change it learns of (the keyboard layout of new strokes; the time zone of the clock and the wallpaper).
 3. **Only Settings may change them, by its launch record.** A new grant, `settings`:
-   - **Who gets it.** The session gives it to a client whose process it launched ([ADR 0013](./0013-launching-applications)) as an application whose entry has `X-OxyOS-Grants=settings` and comes from a system data directory: one in `$XDG_DATA_DIRS`, which only an administrator can write. An entry in `$XDG_DATA_HOME`, which any program the user runs can write, grants nothing.
+   - **Who gets it.** The session gives it to a client whose process it launched ([ADR 0013](./0013-launching-applications)) as an application whose entry asks for it (`X-OxyOS-Grants=settings`, a `;`-separated list), when only an administrator could have written that entry and what it runs.
+   - **Decided by ownership, not by where the entry was found.** `$XDG_DATA_DIRS` is the user's to set (a profile can put a directory of the user's there), so an entry found in it proves nothing. An entry is an administrator's when it is a file, not a link, and it and every directory from it up to `/` (its directory's links resolved) are owned by root and writable by no group and no one else: whoever else could change any of them could change what the entry says. The session reads such an entry at the path it judged.
+   - **What it runs is judged too.** The program must be an administrator's by the same rule, at its real path, and is started there: an `Exec` given absolute (one the `PATH` finds is whatever the `PATH` finds), or the session's Bloom host and the bundle it runs. Otherwise an administrator's entry would hand the grant to a program the user can replace.
+   - **Everything else grants nothing.** An entry in `$XDG_DATA_HOME`, a link, or one whose program the user can change still runs as an application, with an application's grants.
+   - **What it is not.** It keeps the protocol's changes to the one application the system ships for them. It does not shield Settings from other programs running as the user, which can write the preferences file or trace its process; that is sandboxing's ([Not in this decision](#not-in-this-decision)).
    - **What it allows.** With it, a client may change preferences (`SetPreference`) and ask for system changes (`SetSystemSetting`).
-   - **Everyone else.** Every client is told the preferences that change how it draws; none can change them.
+   - **What it is told.** Every preference as the session keeps it (`Preference`, `key=value`), all of them when the grant is given and each one that changes, so Settings shows what is kept.
+   - **Everyone else.** Every client is told the preferences that change how it draws; none can change them, and a client that asks without the grant is closed.
 
    This is the first grant given by a launch record, as ADR 0013 left for its own decision.
 4. **Every application follows them at once.** The compositor tells every client the preferences that change how it draws: `appearance` (resolved to light or dark), `accent`, `reduce_motion` and `reduce_transparency`. It tells them when the client connects and whenever they change (`Preferences`, an event). The Bloom host gives them to React Native's own APIs, which Bloom and applications already follow:
@@ -89,6 +94,39 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - a user entry claiming the grant gets none;
    - a client without it is refused;
    - every client is told a change.
+
+   *Done.*
+   - **The grant.** `crates/oxyos-apps` reads `X-OxyOS-Grants` (`Application.grants`). `registry` takes the rule an entry is judged by: in a session `administrator_written`, which is `trusted_by` over `lstat`, a seam the tests give a described filesystem. `Launcher::launch` keeps an entry's grants only if what it runs is an administrator's too, and starts it by its real path; `application_of` says what a process was launched as. `Compositor::name_clients` takes a `LaunchRecord` (the application and its grants) and gives them with `Scene::grant`, the counterpart of `revoke`, which only the program running the compositor calls.
+   - **The protocol.**
+     - `SetPreference` (request 62: a serial, `key=value` in chunks) is accepted from the `settings` grant alone (`Unauthorized` otherwise) and handed whole to the program running the compositor (`Scene::take_preference_changes`). It answers with `preference_set` (event 52, `PreferenceResult`); text with no `=` is refused by the scene itself.
+     - `Preferences` (event 53: dark, reduce motion, reduce transparency, the accent) goes to every client when it connects and whenever they change.
+     - `Preference` (event 54, `key=value` in chunks) goes to clients with the grant.
+     - The accent is now at most 32 bytes, one chunk, so a change of how clients draw arrives in one event.
+     - The C ABI has `oxyos_client_set_preference`, `OXYOS_EVENT_PREFERENCE_RESULT`, `OXYOS_EVENT_PREFERENCES` (`OXYOS_PREFERENCES_*` bits, the accent as its text) and `OXYOS_EVENT_PREFERENCE`.
+   - **The session.** `oxyos_compositor::settings::Settings` keeps the preferences for the program running the compositor:
+     - a change is validated, written whole, applied (reduce motion to the transitions) and told; one that cannot be written is refused, and nothing changes;
+     - an automatic appearance is dark while the sun is below the horizon where the system's time zone is (`oxyos_solar::night_at`), looked at again only when it next crosses it; it is light where the zone has no place.
+
+     `oxyos-session` uses it with the user's file, and starts or stops its reader when `screen_reader` changes. `lock_after` is kept and told, but nothing follows it: the session has no idle lock yet. The development compositor plays the session with `--preferences FILE` (never the developer's own file). For scenarios, whose entries are the developer's, it has a fixture, `--grant-settings ID`.
+
+   Tests:
+   - **The trust rule,** over a described filesystem: each way someone else could change the entry refuses it (the user's entry; an entry or directory its group or anyone may write; a link as the entry or on the way). Over the real one, a user's entry and a link to it are not trusted.
+   - **The registry:** a user entry claiming the grant, the user's own Settings hiding the system's, and a link in the system's directory get none.
+   - **Launches:** a program the `PATH` finds or the user owns keeps no grant, nor a Bloom host or bundle that is not an administrator's.
+   - **The scene:**
+     - a client without the grant, the shell included, is refused;
+     - chunks are assembled and handed over;
+     - a revoked or departed client's changes are dropped;
+     - every client is told on connect and on a change, Settings every preference;
+     - a grant one client holds at a time is refused whole.
+   - **The session's preferences:** a change is kept in the file, applied and told; a refused one or one that cannot be written changes nothing; the appearance follows the sun.
+   - **Through real sockets:**
+     - Settings, granted by its launch record, is told every preference and changes the appearance;
+     - the file holds it;
+     - an application connected before follows with no restart;
+     - one asking without the grant is closed.
+
+   Not verified yet: a Bloom application following `Preferences` (step 3), Settings itself (step 4), and the session on a seat; no scenario runs this step.
 3. **The Bloom host:** `Appearance`, `AccessibilityInfo` and the accent from `Preferences`. A scenario changes the appearance and checks that a running application redraws dark, with no restart.
 4. **The Settings application:** its pages on `SettingsLayout` in an application window, its fixture in the browser, `OxyOSSettings` on OxyOS. A scenario changes reduce motion and the appearance through it and checks:
    - the shell and another application follow;
@@ -101,3 +139,4 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
 - The session's polkit authentication agent (the dialog an administrator's change asks for), and changing the system's settings through it.
 - Displays (arrangement, resolution, scale), sound, networks, Bluetooth, notifications, users and the Oxy account: each comes with the decision that adds what it sets.
 - Preferences of applications (each keeps its own); syncing preferences with the Oxy account.
+- Sandboxing applications from one another (#35, #36): without it, any program running as the user can write the preferences file or trace Settings.

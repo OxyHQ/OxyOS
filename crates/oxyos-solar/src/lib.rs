@@ -202,5 +202,19 @@ pub fn frame_at(anchors: &[Anchor], unix_seconds: i64, place: Place) -> Option<(
     Some((now, next))
 }
 
+/// Whether the sun is below the horizon at `unix_seconds` from `place` (an automatic appearance
+/// is dark then, docs/adr/0019-settings.mdx), and when (unix seconds) it next crosses it, looked
+/// for minute by minute over the next day as [`frame_at`] looks; a day on where it does not (a
+/// polar day or night), to look again then.
+pub fn night_at(unix_seconds: i64, place: Place) -> (bool, i64) {
+    let night = |t: i64| position(t, place).elevation < 0.0;
+    let now = night(unix_seconds);
+    let next = (1..=24 * 60)
+        .map(|minute| unix_seconds - unix_seconds.rem_euclid(60) + minute * 60)
+        .find(|&t| night(t) != now)
+        .unwrap_or(unix_seconds + 86_400);
+    (now, next)
+}
+
 #[cfg(test)]
 mod tests;

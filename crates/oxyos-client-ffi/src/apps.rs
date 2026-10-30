@@ -26,8 +26,12 @@ fn json_string(text: &str) -> String {
 /// The session's applications as JSON: `[{"id", "name", "icon" (a file, or null), "pinned" (its
 /// place in the dock from 1, or null)}]`, sorted by name, in the session's language.
 pub fn applications_json() -> String {
-    let (applications, skipped) =
-        oxyos_apps::registry(&oxyos_apps::directories(), &oxyos_apps::languages());
+    // The shell lists applications; what they may do is the session's to judge as it launches.
+    let (applications, skipped) = oxyos_apps::registry(
+        &oxyos_apps::directories(),
+        &oxyos_apps::languages(),
+        &|_| false,
+    );
     for line in skipped {
         eprintln!("[apps] {line}");
     }

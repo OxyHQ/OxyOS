@@ -62,6 +62,9 @@ pub struct Grants {
     /// The screen reader (ADR 0014): its keys (Ctrl+Alt with an arrow or Space) are taken from
     /// the keyboard and sent to it alone. At most one connected client holds it.
     pub screen_reader: bool,
+    /// Settings (ADR 0019): changes the user's preferences (`SetPreference`) and is told every
+    /// one as it is kept. Given from launch records, by [`Scene::grant`].
+    pub settings: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -353,6 +356,9 @@ pub struct Scene {
     caps_lock: bool,
     /// Applications the shell asked for (ADR 0013).
     launches: launch::Launches,
+    /// The user's preferences as the program running the compositor told them, and the changes
+    /// Settings asked for (ADR 0019).
+    preferences: preferences::Preferences,
     /// The screen reader's keys held and taken (ADR 0014).
     reader_keys: reader::ReaderKeys,
     /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
@@ -585,6 +591,16 @@ impl Scene {
         if self.clients.len() >= MAX_CLIENTS {
             return Err(ErrorCode::QuotaExceeded);
         }
+        self.check_grants(grants)?;
+        self.clients.insert(client, Grants::default());
+        self.activation.insert(client, self.serial);
+        // Every client draws as the user prefers from its first frame.
+        self.tell_drawing(client);
+        self.grant(client, grants)
+    }
+
+    /// Whether `grants` can be given now: the grants one client at a time holds are not held.
+    fn check_grants(&self, grants: Grants) -> Result<(), ErrorCode> {
         // One input method at a time: the session chooses it.
         if grants.input_method && self.input_method.is_some() {
             return Err(ErrorCode::Unauthorized);
@@ -593,18 +609,48 @@ impl Scene {
         if grants.screen_reader && self.screen_reader().is_some() {
             return Err(ErrorCode::Unauthorized);
         }
-        self.clients.insert(client, grants);
-        self.activation.insert(client, self.serial);
-        if grants.accessibility {
+        Ok(())
+    }
+
+    /// Adds capabilities to a connected client: the counterpart of [`Scene::revoke`]. Only the
+    /// session authority, the program running the compositor, calls it, from what it knows of
+    /// the client's process (its launch record, ADR 0013); no request can. A grant one client at
+    /// a time holds is refused while another holds it (`Unauthorized`), and nothing is given.
+    pub fn grant(&mut self, client: ClientId, granted: Grants) -> Result<(), ErrorCode> {
+        let Some(&held) = self.clients.get(&client) else {
+            return Ok(());
+        };
+        let new = Grants {
+            shell: granted.shell && !held.shell,
+            lock: granted.lock && !held.lock,
+            shortcuts: granted.shortcuts && !held.shortcuts,
+            accessibility: granted.accessibility && !held.accessibility,
+            input_method: granted.input_method && !held.input_method,
+            screen_reader: granted.screen_reader && !held.screen_reader,
+            settings: granted.settings && !held.settings,
+        };
+        self.check_grants(new)?;
+        let grants = self.clients.get_mut(&client).expect("connected");
+        grants.shell |= new.shell;
+        grants.lock |= new.lock;
+        grants.shortcuts |= new.shortcuts;
+        grants.accessibility |= new.accessibility;
+        grants.input_method |= new.input_method;
+        grants.screen_reader |= new.screen_reader;
+        grants.settings |= new.settings;
+        if new.accessibility {
             self.replay_accessibility(client);
         }
-        if grants.input_method {
+        if new.input_method {
             self.input_method = Some(input_method::InputMethod::new(client));
             self.refresh_input_method();
         }
         // A lock screen that connects while locked (the shell started again) makes its surfaces.
-        if grants.lock && self.locked {
+        if new.lock && self.locked {
             self.emit(client, Event::LockState { locked: true });
+        }
+        if new.settings {
+            self.tell_preferences(client);
         }
         Ok(())
     }
@@ -619,6 +665,7 @@ impl Scene {
         self.forget_input_method(client);
         self.forget_shell_client(client);
         self.forget_launches(client);
+        self.forget_preference_changes(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -678,8 +725,12 @@ impl Scene {
         grants.accessibility &= !revoked.accessibility;
         grants.input_method &= !revoked.input_method;
         grants.screen_reader &= !revoked.screen_reader;
+        grants.settings &= !revoked.settings;
         if revoked.input_method {
             self.forget_input_method(client);
+        }
+        if revoked.settings {
+            self.forget_preference_changes(client);
         }
         let keys: Vec<SurfaceKey> = self
             .nodes
@@ -992,6 +1043,12 @@ impl Scene {
                 last,
                 text,
             } => self.launch_request(client, serial, index, last, text),
+            Request::SetPreference {
+                serial,
+                index,
+                last,
+                text,
+            } => self.preference_request(client, serial, index, last, text),
             Request::LockSession {}
             | Request::AuthenticateSecret { .. }
             | Request::Authenticate { .. } => self.lock_request(client, request),
@@ -3114,6 +3171,8 @@ mod lock;
 pub use lock::Secret;
 mod launch;
 pub use launch::LaunchRequest;
+mod preferences;
+pub use preferences::{DrawingPreferences, PreferenceChange};
 mod appearances;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;

@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+pub mod settings;
 pub mod splash;
 pub mod transitions;
 pub mod window;
@@ -47,12 +48,21 @@ pub struct Peer {
     /// Presses routed to this client (the development compositor counts them).
     pub presses: usize,
     accepted: Instant,
-    /// What it may do, decided when it connected.
+    /// What it may do, decided when it connected (its launch record adds to it in the scene).
     grants: Grants,
     /// Its process, as the kernel gave it when it connected.
     pub pid: i32,
     /// Its launch record was looked for (ADR 0013).
     named: bool,
+}
+
+/// What the program running the compositor knows of a client's process from its launch records
+/// (docs/adr/0013-launching-applications.mdx): the application it started it as, and what that
+/// application may do beyond an application's own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchRecord {
+    pub application: String,
+    pub grants: Grants,
 }
 
 pub struct Compositor {
@@ -432,10 +442,11 @@ impl Compositor {
     }
 
     /// Applies launch records (docs/adr/0013-launching-applications.mdx): each client connected
-    /// since the last call whose process `application_of` names (one the session started) is
-    /// that application, its windows the registry's, whatever they claim. A client's record is
+    /// since the last call whose process `record_of` names (one the session started) is that
+    /// application, its windows the registry's, whatever they claim, and has the grants its
+    /// record gives (ADR 0019: `settings`, for an administrator's entry). A client's record is
     /// looked for once, when it has said Hello.
-    pub fn name_clients(&mut self, application_of: &dyn Fn(u32) -> Option<String>) {
+    pub fn name_clients(&mut self, record_of: &dyn Fn(u32) -> Option<LaunchRecord>) {
         for (client, peer) in self.peers.iter_mut() {
             if peer.named || peer.protocol.version().is_none() {
                 continue;
@@ -444,8 +455,15 @@ impl Compositor {
             let Ok(pid) = u32::try_from(peer.pid) else {
                 continue;
             };
-            if let Some(id) = application_of(pid) {
-                self.scene.set_application(*client, &id);
+            let Some(record) = record_of(pid) else {
+                continue;
+            };
+            self.scene.set_application(*client, &record.application);
+            if let Err(code) = self.scene.grant(*client, record.grants) {
+                eprintln!(
+                    "[compositor] {} is not given {:?}: {code:?}",
+                    record.application, record.grants
+                );
             }
         }
     }

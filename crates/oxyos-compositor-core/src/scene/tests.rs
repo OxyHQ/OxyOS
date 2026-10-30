@@ -1,8 +1,8 @@
 use super::*;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
-    PreeditText, ReaderCommand, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES,
-    MAX_ACCESSIBLE_TEXT_BYTES, MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
+    PreeditText, ReaderCommand, TextChunk, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES,
+    MAX_ACCESSIBLE_TEXT_BYTES, MAX_PREFERENCE_BYTES, MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::collections::HashMap;
 
@@ -5529,6 +5529,295 @@ fn a_launched_processs_windows_are_its_registry_applications() {
     // Gone with its client.
     h.scene.disconnect(APP);
     assert_eq!(h.scene.application(APP), None);
+}
+
+// ---- the user's preferences (ADR 0019) --------------------------------------------------------
+
+/// Settings, given its grant by its launch record after it connected.
+const SETTINGS: ClientId = 9;
+
+fn drawing(dark: bool, accent: &str) -> DrawingPreferences {
+    DrawingPreferences {
+        dark,
+        reduce_motion: false,
+        reduce_transparency: true,
+        accent: PreeditText::new(accent).unwrap(),
+    }
+}
+
+fn values(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect()
+}
+
+/// The preferences `client` was told, each `key=value` whole.
+fn told_preferences(h: &Harness, client: ClientId) -> Vec<String> {
+    let mut told = Vec::new();
+    let mut text = String::new();
+    for event in h.events_for(client) {
+        if let Event::Preference {
+            index,
+            last,
+            text: chunk,
+        } = event
+        {
+            if index == 0 {
+                text.clear();
+            }
+            text.push_str(chunk.as_str());
+            if last {
+                told.push(std::mem::take(&mut text));
+            }
+        }
+    }
+    told
+}
+
+fn set_preference(
+    h: &mut Harness,
+    client: ClientId,
+    serial: u32,
+    text: &str,
+) -> Result<(), ErrorCode> {
+    let chunks = TextChunk::split(text);
+    let count = chunks.len();
+    for (index, chunk) in chunks.iter().enumerate() {
+        h.request(
+            client,
+            Request::SetPreference {
+                serial,
+                index: index as u8,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).unwrap(),
+            },
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn only_settings_changes_preferences_and_its_changes_are_handed_over_whole() {
+    let mut h = Harness::new();
+    // No client has the grant by connecting, nor by asking: the shell is refused as well.
+    for client in [APP, SHELL] {
+        assert_eq!(
+            set_preference(&mut h, client, 1, "appearance=dark"),
+            Err(ErrorCode::Unauthorized)
+        );
+    }
+    assert!(h.scene.take_preference_changes().is_empty());
+    h.scene.connect(SETTINGS, Grants::default()).unwrap();
+    h.scene
+        .grant(
+            SETTINGS,
+            Grants {
+                settings: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    // Longer than a chunk, in order; whole at its last chunk.
+    let long = format!("wallpaper={}", "a".repeat(40));
+    set_preference(&mut h, SETTINGS, 7, &long).unwrap();
+    set_preference(&mut h, SETTINGS, 8, "reduce_motion=true").unwrap();
+    assert_eq!(
+        h.scene.take_preference_changes(),
+        vec![
+            PreferenceChange {
+                client: SETTINGS,
+                serial: 7,
+                key: "wallpaper".into(),
+                value: "a".repeat(40),
+            },
+            PreferenceChange {
+                client: SETTINGS,
+                serial: 8,
+                key: "reduce_motion".into(),
+                value: "true".into(),
+            },
+        ]
+    );
+    assert!(h.scene.take_preference_changes().is_empty());
+    // The answer goes to Settings alone.
+    h.clear_log();
+    h.scene.preference_set(SETTINGS, 7, true);
+    h.pump();
+    assert_eq!(
+        h.events_for(SETTINGS),
+        vec![Event::PreferenceResult {
+            serial: 7,
+            accepted: true
+        }]
+    );
+    assert!(h.events_for(APP).is_empty());
+    // Text that is no change is refused at once, with nothing handed over.
+    h.clear_log();
+    set_preference(&mut h, SETTINGS, 9, "appearance").unwrap();
+    assert_eq!(
+        h.events_for(SETTINGS),
+        vec![Event::PreferenceResult {
+            serial: 9,
+            accepted: false
+        }]
+    );
+    assert!(h.scene.take_preference_changes().is_empty());
+    // Out of order, or too long: protocol errors.
+    assert_eq!(
+        h.request(
+            SETTINGS,
+            Request::SetPreference {
+                serial: 10,
+                index: 1,
+                last: true,
+                text: PreeditText::new("x").unwrap(),
+            },
+        ),
+        Err(ErrorCode::InvalidOrder)
+    );
+    assert_eq!(
+        set_preference(&mut h, SETTINGS, 11, &"k".repeat(MAX_PREFERENCE_BYTES + 1)),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    // Revoked, it asks no more; and a client that goes takes its unanswered changes.
+    set_preference(&mut h, SETTINGS, 12, "clock_24h=false").unwrap();
+    h.scene.revoke(
+        SETTINGS,
+        Grants {
+            settings: true,
+            ..Grants::default()
+        },
+    );
+    assert!(h.scene.take_preference_changes().is_empty());
+    assert_eq!(
+        set_preference(&mut h, SETTINGS, 13, "clock_24h=false"),
+        Err(ErrorCode::Unauthorized)
+    );
+}
+
+#[test]
+fn every_client_is_told_the_preferences_it_draws_with_and_settings_every_one() {
+    let mut h = Harness::new();
+    // Nothing until the program running the compositor says what they are.
+    assert!(h
+        .events_for(APP)
+        .iter()
+        .all(|event| !matches!(event, Event::Preferences { .. })));
+    h.clear_log();
+    let kept = values(&[
+        ("appearance", "auto"),
+        ("accent", "jade"),
+        ("lock_after", "5"),
+        ("wallpaper", ""),
+    ]);
+    h.scene.set_preferences(drawing(false, "jade"), &kept);
+    h.pump();
+    let preferences = Event::Preferences {
+        dark: false,
+        reduce_motion: false,
+        reduce_transparency: true,
+        accent: PreeditText::new("jade").unwrap(),
+    };
+    for client in [APP, OTHER, SHELL, LOCKER] {
+        assert_eq!(h.events_for(client), vec![preferences], "{client}");
+    }
+    // A client connecting is told at once; Settings, given its grant, every preference as kept.
+    h.clear_log();
+    h.scene.connect(SETTINGS, Grants::default()).unwrap();
+    h.pump();
+    assert_eq!(h.events_for(SETTINGS), vec![preferences]);
+    assert!(told_preferences(&h, SETTINGS).is_empty());
+    h.scene
+        .grant(
+            SETTINGS,
+            Grants {
+                settings: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    h.pump();
+    assert_eq!(
+        told_preferences(&h, SETTINGS),
+        [
+            "appearance=auto",
+            "accent=jade",
+            "lock_after=5",
+            "wallpaper="
+        ]
+    );
+    // Told again, nothing changed: nothing is sent.
+    h.clear_log();
+    h.scene.set_preferences(drawing(false, "jade"), &kept);
+    h.pump();
+    assert!(h.log.is_empty(), "{:?}", h.log);
+    // A preference that does not change how clients draw: Settings alone is told it.
+    let kept = values(&[
+        ("appearance", "auto"),
+        ("accent", "jade"),
+        ("lock_after", "15"),
+        ("wallpaper", ""),
+    ]);
+    h.scene.set_preferences(drawing(false, "jade"), &kept);
+    h.pump();
+    assert_eq!(told_preferences(&h, SETTINGS), ["lock_after=15"]);
+    assert!(h.events_for(APP).is_empty());
+    // The sun went down: every client draws dark, Settings still sees `auto`.
+    h.clear_log();
+    h.scene.set_preferences(drawing(true, "jade"), &kept);
+    h.pump();
+    let dark = Event::Preferences {
+        dark: true,
+        reduce_motion: false,
+        reduce_transparency: true,
+        accent: PreeditText::new("jade").unwrap(),
+    };
+    for client in [APP, OTHER, SHELL, LOCKER, SETTINGS] {
+        assert_eq!(h.events_for(client), vec![dark], "{client}");
+    }
+}
+
+#[test]
+fn a_grant_one_client_holds_at_a_time_is_refused_whole_while_another_holds_it() {
+    let mut h = Harness::new();
+    h.scene
+        .grant(
+            APP,
+            Grants {
+                input_method: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        h.scene.grant(
+            OTHER,
+            Grants {
+                input_method: true,
+                settings: true,
+                ..Grants::default()
+            },
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    // Nothing was given.
+    assert_eq!(
+        set_preference(&mut h, OTHER, 1, "appearance=dark"),
+        Err(ErrorCode::Unauthorized)
+    );
+    // Granting what a client holds is nothing new; a client gone is given nothing.
+    assert_eq!(
+        h.scene.grant(
+            APP,
+            Grants {
+                input_method: true,
+                ..Grants::default()
+            },
+        ),
+        Ok(())
+    );
+    assert_eq!(h.scene.grant(42, Grants::default()), Ok(()));
 }
 
 // ---- the screen reader's keys (ADR 0014) -----------------------------------------------------

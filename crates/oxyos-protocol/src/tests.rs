@@ -221,6 +221,12 @@ fn requests() -> Vec<Request> {
             enabled: true,
         },
         Request::Minimize { surface: 1 },
+        Request::SetPreference {
+            serial: 4,
+            index: 0,
+            last: true,
+            text: PreeditText::new("appearance=dark").unwrap(),
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -303,6 +309,21 @@ fn events() -> Vec<Event> {
         Event::Activated {
             surface: 1,
             active: true,
+        },
+        Event::PreferenceResult {
+            serial: 4,
+            accepted: false,
+        },
+        Event::Preferences {
+            dark: true,
+            reduce_motion: false,
+            reduce_transparency: true,
+            accent: PreeditText::new("ocean-blue").unwrap(),
+        },
+        Event::Preference {
+            index: 1,
+            last: false,
+            text: PreeditText::new("lock_after=15").unwrap(),
         },
         Event::LockState { locked: true },
         Event::CapsLock {

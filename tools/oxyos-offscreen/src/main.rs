@@ -106,6 +106,13 @@ struct Session {
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
+    /// The user's preferences, played as the session keeps them (docs/adr/0019-settings.mdx):
+    /// from `--preferences FILE`, never the developer's own; the defaults without it.
+    settings: oxyos_compositor::settings::Settings,
+    /// `--grant-settings ID`: the development compositor's fixture for an administrator's entry
+    /// (a session gives `settings` only to an entry root wrote): the application `ID`, launched,
+    /// is given `settings`.
+    grant_settings: Option<String>,
 }
 
 impl Session {
@@ -141,18 +148,32 @@ impl Session {
             reader: reader::Reader::default(),
             launcher: None,
             app: None,
+            settings: oxyos_compositor::settings::Settings::from_file(None),
+            grant_settings: None,
         })
     }
 
     /// Starts the applications the shell asked for that the registry lists, and answers it;
-    /// names the windows of what was started (ADR 0013).
+    /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
         let (launcher, app) = (&self.launcher, &self.app);
-        self.compositor.name_clients(&|pid| match app {
-            Some((started, id)) if *started == pid => Some(id.clone()),
-            _ => launcher
-                .as_ref()
-                .and_then(|launcher| launcher.application_of(pid).map(String::from)),
+        let grant_settings = self.grant_settings.as_deref();
+        self.compositor.name_clients(&|pid| {
+            let (id, settings) = match app {
+                Some((started, id)) if *started == pid => (id.clone(), false),
+                _ => {
+                    let launched = launcher.as_ref()?.application_of(pid)?;
+                    (launched.id.clone(), launched.grants.settings)
+                }
+            };
+            let fixture = grant_settings == Some(id.as_str());
+            Some(oxyos_compositor::LaunchRecord {
+                grants: Grants {
+                    settings: settings || fixture,
+                    ..Grants::default()
+                },
+                application: id,
+            })
         });
         let Some(launcher) = self.launcher.as_mut() else {
             return;
@@ -169,6 +190,15 @@ impl Session {
             self.compositor
                 .scene
                 .launched(request.client, request.serial, launched);
+        }
+    }
+
+    /// The changes Settings asked for, kept as the session keeps them. The screen reader is the
+    /// scenario's (`--reader`): its preference is kept and told, not followed.
+    fn serve_preferences(&mut self) {
+        let now = oxyos_compositor::settings::now();
+        for key in self.settings.serve(&mut self.compositor, now) {
+            eprintln!("[preferences] {key} changed");
         }
     }
 

@@ -38,6 +38,9 @@ pub const MAX_ACCESSIBLE_TEXT_BYTES: usize = 1024;
 pub const NO_ACCESSIBLE_PARENT: u32 = u32::MAX;
 /// The longest announcement (`AccessibilityAnnounce`, ADR 0003), in bytes.
 pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
+/// The longest `key=value` of a preference changed (`SetPreference`) or told (`Preference`,
+/// ADR 0019), in bytes.
+pub const MAX_PREFERENCE_BYTES: usize = 128;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.
