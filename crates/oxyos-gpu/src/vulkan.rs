@@ -58,22 +58,19 @@ fn updatable<'a>(
     (version == from && length == words && copied <= length).then_some((offset, changed))
 }
 
-/// Damage clipped to the output, without empty rectangles. Past eight, one rectangle holding
-/// them all: each region costs a dispatch per layer.
+/// Damage clipped to the output as rectangles that do not overlap (`crate::disjoint`), each
+/// pixel composed once. Past 32, one rectangle holding them all: each is a dispatch.
 fn merged(regions: Vec<crate::Rect>, output: &crate::Rect) -> Vec<crate::Rect> {
-    let clipped: Vec<crate::Rect> = regions
-        .iter()
-        .filter_map(|region| region.intersect(output))
-        .collect();
-    if clipped.len() <= 8 {
-        return clipped;
+    let disjoint = crate::disjoint(&regions, output);
+    if disjoint.len() <= 32 {
+        return disjoint;
     }
-    vec![clipped[1..]
+    vec![disjoint[1..]
         .iter()
-        .fold(clipped[0], |all, region| all.bounding(region))]
+        .fold(disjoint[0], |all, region| all.bounding(region))]
 }
 
-/// Push constants of `shaders/compose.wgsl`'s `Layer`.
+/// A layer as `shaders/compose.wgsl`'s `Layer`: an entry of the frame's layer table.
 #[derive(Clone, Copy, Default)]
 struct Push {
     x: i32,
@@ -107,8 +104,37 @@ struct Push {
     filter: u32,
 }
 
-/// The push constants' size: 29 words, within the 128 bytes every device has.
+/// A layer table entry's size: 29 words.
 const PUSH_BYTES: usize = 29 * 4;
+
+/// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
+/// output's size, the background and the layers' count. 8 words, within the 128 bytes every
+/// device has.
+const FRAME_BYTES: usize = 8 * 4;
+
+fn frame_bytes(
+    region: &crate::Rect,
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: u32,
+) -> [u8; FRAME_BYTES] {
+    let words = [
+        region.x as u32,
+        region.y as u32,
+        region.width,
+        region.height,
+        width,
+        height,
+        background,
+        layers,
+    ];
+    let mut bytes = [0; FRAME_BYTES];
+    for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
+        chunk.copy_from_slice(&word.to_ne_bytes());
+    }
+    bytes
+}
 
 impl Push {
     /// The whole layer in one dispatch.
@@ -226,6 +252,8 @@ enum Role {
     Readback,
     /// An output exported as DMA-BUF for a display.
     Scanout,
+    /// The frame's layer table, written by the host, read by the shader.
+    Layers,
 }
 
 #[derive(Debug)]
@@ -246,6 +274,14 @@ impl From<vk::Result> for Error {
 }
 
 /// The chosen device and its queue.
+/// What a composition writes: the compositor's own output buffer (read back, at once or, deferred,
+/// once done) or a scanout target (`keep`: also copied for `read_kept`, and waited for).
+#[derive(Clone, Copy)]
+enum Destination {
+    Output { deferred: bool },
+    Scanout { index: usize, keep: bool },
+}
+
 struct Opened {
     device: ash::Device,
     queue: vk::Queue,
@@ -257,6 +293,8 @@ struct Opened {
     timestamp_period: f32,
     timestamp_bits: u32,
     dma_buf: bool,
+    /// Whether a semaphore its submissions signal can be exported as a sync file.
+    sync_file: bool,
 }
 
 pub struct VulkanCompositor {
@@ -275,7 +313,7 @@ pub struct VulkanCompositor {
     command: vk::CommandBuffer,
     fence: vk::Fence,
     queries: vk::QueryPool,
-    buffers: [Option<Buffer>; 4],
+    buffers: [Option<Buffer>; 5],
     device_name: String,
     kind: DeviceKind,
     timestamp_period: f32,
@@ -309,6 +347,17 @@ pub struct VulkanCompositor {
     source_next: u64,
     /// The bytes the last frame uploaded.
     last_uploaded: u64,
+    /// Whether the last submission was not waited for yet (`complete`): a frame whose
+    /// completion was handed to its display as a sync file (`compose_to_scanout`), or one
+    /// composed `deferred`. Every composition, readback and buffer freed first completes it.
+    submitted: bool,
+    /// With a device that exports them: the semaphore a deferred submission signals, exported as
+    /// a sync file, and the loader that exports it. None: every submission is waited for.
+    completion: Option<(vk::Semaphore, ash::khr::external_semaphore_fd::Device)>,
+    /// The last deferred submission's completion as a sync file, until it is taken.
+    completed_when: Option<std::os::fd::OwnedFd>,
+    /// The device's time for each frame completed and not yet taken (`take_completed_ms`).
+    completed_ms: Vec<f64>,
 }
 
 impl VulkanCompositor {
@@ -353,7 +402,7 @@ impl VulkanCompositor {
             command: vk::CommandBuffer::null(),
             fence: vk::Fence::null(),
             queries: vk::QueryPool::null(),
-            buffers: [None, None, None, None],
+            buffers: [None, None, None, None, None],
             device_name: opened.name,
             kind: opened.kind,
             timestamp_period: opened.timestamp_period,
@@ -371,8 +420,15 @@ impl VulkanCompositor {
             resident: std::collections::HashMap::new(),
             source_next: 0,
             last_uploaded: 0,
+            submitted: false,
+            completion: None,
+            completed_when: None,
+            completed_ms: Vec::new(),
         };
         this.build(opened.family)?;
+        if opened.sync_file {
+            this.completion = this.completion_semaphore().ok();
+        }
         // A device can name DMA-BUF export and still be unable to allocate memory it exports
         // (Mesa's lavapipe without a render node): it exports DMA-BUF only if a buffer can be
         // made and handed out as one, so a session composes on the CPU there instead of failing.
@@ -380,6 +436,23 @@ impl VulkanCompositor {
             this.dma_buf = false;
         }
         Ok(this)
+    }
+
+    /// The semaphore deferred submissions signal, exportable as a sync file, and its loader.
+    fn completion_semaphore(
+        &self,
+    ) -> Result<(vk::Semaphore, ash::khr::external_semaphore_fd::Device), Error> {
+        let mut export = vk::ExportSemaphoreCreateInfo::default()
+            .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+        // SAFETY: the device is live; the create info outlives the call.
+        let semaphore = unsafe {
+            self.device.create_semaphore(
+                &vk::SemaphoreCreateInfo::default().push_next(&mut export),
+                None,
+            )
+        }?;
+        let loader = ash::khr::external_semaphore_fd::Device::new(&self.instance, &self.device);
+        Ok((semaphore, loader))
     }
 
     /// Makes one small exportable buffer, exports it as DMA-BUF and frees both.
@@ -448,11 +521,36 @@ impl VulkanCompositor {
                     .iter()
                     .any(|extension| extension.extension_name_as_c_str() == Ok(*name))
             });
-        let extensions: Vec<*const std::ffi::c_char> = if dma_buf {
+        let mut extensions: Vec<*const std::ffi::c_char> = if dma_buf {
             wanted.iter().map(|name| name.as_ptr()).collect()
         } else {
             Vec::new()
         };
+        // A frame's completion as a sync file, for a display to wait on rather than the
+        // compositor's thread (`compose_to_scanout`): a semaphore exported as SYNC_FD.
+        let semaphore_fd = ash::khr::external_semaphore_fd::NAME;
+        let sync_file = cfg!(target_os = "linux")
+            && available
+                .iter()
+                .any(|extension| extension.extension_name_as_c_str() == Ok(semaphore_fd))
+            && {
+                let mut properties = vk::ExternalSemaphoreProperties::default();
+                // SAFETY: `physical` is live; Vulkan 1.1 has the query in its core.
+                unsafe {
+                    instance.get_physical_device_external_semaphore_properties(
+                        physical,
+                        &vk::PhysicalDeviceExternalSemaphoreInfo::default()
+                            .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD),
+                        &mut properties,
+                    )
+                };
+                properties
+                    .external_semaphore_features
+                    .contains(vk::ExternalSemaphoreFeatureFlags::EXPORTABLE)
+            };
+        if sync_file {
+            extensions.push(semaphore_fd.as_ptr());
+        }
         // SAFETY: `physical` belongs to the instance; the create info and the extension names
         // (static strings) outlive the call.
         let device = unsafe {
@@ -481,13 +579,14 @@ impl VulkanCompositor {
             timestamp_period: properties.limits.timestamp_period,
             timestamp_bits,
             dma_buf,
+            sync_file,
         })
     }
 
     /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
     fn build(&mut self, family: u32) -> Result<(), Error> {
         let device = &self.device;
-        let bindings = [0, 1].map(|binding| {
+        let bindings = [0, 1, 2].map(|binding| {
             vk::DescriptorSetLayoutBinding::default()
                 .binding(binding)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -503,7 +602,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(PUSH_BYTES as u32)];
+                .size(FRAME_BYTES as u32)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -529,7 +628,7 @@ impl VulkanCompositor {
             self.pipeline = pipelines.map_err(|(_, result)| Error::from(result))?[0];
             let sizes = [vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(2)];
+                .descriptor_count(3)];
             self.pool = device.create_descriptor_pool(
                 &vk::DescriptorPoolCreateInfo::default()
                     .max_sets(1)
@@ -581,6 +680,12 @@ impl VulkanCompositor {
         self.dma_buf
     }
 
+    /// Whether a frame composed for a display is handed over with its completion as a sync file
+    /// (`compose_to_scanout`) rather than waited for.
+    pub fn exports_sync_file(&self) -> bool {
+        self.completion.is_some()
+    }
+
     /// How long the device spent composing the last frame, in milliseconds, between the end of
     /// its uploads and the end of its last layer (GPU timestamps); `None` where the queue has
     /// no timestamps.
@@ -601,7 +706,9 @@ impl VulkanCompositor {
     }
 
     /// The last frame's host time, in milliseconds: copying the layers' pixels into the upload
-    /// buffer, and waiting from submission to the fence (the device's whole work for it).
+    /// buffer, and the thread's wait for the device: from submission to the fence for a frame
+    /// waited for at once, the wait left for a deferred one when it was completed (nothing,
+    /// when the device was done by then).
     pub fn last_host_ms(&self) -> (f64, f64) {
         self.last_host_ms
     }
@@ -616,8 +723,60 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
     ) -> Result<Vec<u32>, Error> {
         Ok(self
-            .run(width, height, background, layers, None, None)?
+            .run(
+                width,
+                height,
+                background,
+                layers,
+                Destination::Output { deferred: false },
+                None,
+            )?
             .unwrap_or_default())
+    }
+
+    /// Composes as `compose`, returning once the commands are submitted, with their completion
+    /// as a sync file when the device gives one; `read_deferred` waits for it and reads the frame.
+    pub fn compose_deferred(
+        &mut self,
+        width: u32,
+        height: u32,
+        background: u32,
+        layers: &[Layer<'_>],
+    ) -> Result<Option<std::os::fd::OwnedFd>, Error> {
+        self.run(
+            width,
+            height,
+            background,
+            layers,
+            Destination::Output { deferred: true },
+            None,
+        )?;
+        Ok(self.completed_when.take())
+    }
+
+    /// The frame the last `compose_deferred` composed, once the device finished it.
+    pub fn read_deferred(&mut self) -> Result<Vec<u32>, Error> {
+        let (width, height) = self
+            .output_holds
+            .ok_or_else(|| Error("no frame was composed".into()))?;
+        self.complete()?;
+        Ok(self.read_back(width as usize * height as usize)?)
+    }
+
+    /// Waits for the last submission, if it was not waited for yet, and reads its timestamps.
+    fn complete(&mut self) -> Result<(), Error> {
+        if !self.submitted {
+            return Ok(());
+        }
+        let waiting = std::time::Instant::now();
+        // SAFETY: the fence was given to the last submission, which is pending or done.
+        unsafe {
+            self.device.wait_for_fences(&[self.fence], true, u64::MAX)?;
+            self.device.reset_fences(&[self.fence])?;
+        }
+        self.submitted = false;
+        self.last_host_ms.1 = waiting.elapsed().as_secs_f64() * 1e3;
+        self.read_timestamps()
     }
 
     /// The same, composing only `damage`, what changed since the previous frame composed here
@@ -632,12 +791,22 @@ impl VulkanCompositor {
         damage: &[crate::Rect],
     ) -> Result<Vec<u32>, Error> {
         Ok(self
-            .run(width, height, background, layers, None, Some(damage))?
+            .run(
+                width,
+                height,
+                background,
+                layers,
+                Destination::Output { deferred: false },
+                Some(damage),
+            )?
             .unwrap_or_default())
     }
 
     /// Composes into scanout target `index` (`scanout_targets`) for a display to show; nothing
-    /// is read back. Returns once the device has finished writing it. With `damage`, what
+    /// is read back. With a device that exports sync files, returns once the commands are
+    /// submitted, with the frame's completion as a sync file for the display to wait on (an
+    /// atomic commit's IN_FENCE_FD): the caller's thread never waits for the device. Otherwise
+    /// returns once the device has finished writing it, and `None`. With `damage`, what
     /// changed since the previous frame (on any target), only that and what changed since this
     /// target was last written are composed; without it, the whole frame.
     pub fn compose_to_scanout(
@@ -646,7 +815,7 @@ impl VulkanCompositor {
         background: u32,
         layers: &[Layer<'_>],
         damage: Option<&[crate::Rect]>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<std::os::fd::OwnedFd>, Error> {
         let target = self.target(index)?;
         let (width, height) = (target.width, target.height);
         self.run(
@@ -654,10 +823,10 @@ impl VulkanCompositor {
             height,
             background,
             layers,
-            Some((index, false)),
+            Destination::Scanout { index, keep: false },
             damage,
         )?;
-        Ok(())
+        Ok(self.completed_when.take())
     }
 
     /// The same, also copying the frame (in the same submission, before the display has it) for
@@ -677,7 +846,7 @@ impl VulkanCompositor {
             height,
             background,
             layers,
-            Some((index, true)),
+            Destination::Scanout { index, keep: true },
             damage,
         )?;
         self.kept = Some((width, height));
@@ -694,6 +863,7 @@ impl VulkanCompositor {
     /// The frame the last [`compose_to_scanout_kept`](Self::compose_to_scanout_kept) copied,
     /// row by row at the scanout target's size; it is read once.
     pub fn read_kept(&mut self) -> Result<Vec<u32>, Error> {
+        self.complete()?;
         let (width, height) = self
             .kept
             .take()
@@ -732,9 +902,22 @@ impl VulkanCompositor {
         height: u32,
         background: u32,
         layers: &[Layer<'_>],
-        scanout: Option<(usize, bool)>,
+        into: Destination,
         damage: Option<&[crate::Rect]>,
     ) -> Result<Option<Vec<u32>>, Error> {
+        // A scanout target (and whether its frame is also kept), and whether the frame is
+        // returned once submitted rather than once done: a display's only with a sync file to
+        // wait on, since the display shows the buffer as soon as it has it.
+        let (scanout, deferred) = match into {
+            Destination::Output { deferred } => (None, deferred),
+            Destination::Scanout { index, keep } => {
+                (Some((index, keep)), !keep && self.completion.is_some())
+            }
+        };
+        // The last submission's buffers, command buffer and descriptors are reused: it is done
+        // first (a frame shown since: it was, long ago).
+        self.complete()?;
+        self.completed_when = None;
         let output = crate::Rect {
             x: 0,
             y: 0,
@@ -783,6 +966,7 @@ impl VulkanCompositor {
             (frame_words * 8).max(4),
             (frame_words * 4).max(4),
             out_bytes,
+            (layers.len() * PUSH_BYTES).max(PUSH_BYTES) as u64,
         )?;
         if self.buffers[0].as_ref().map(|buffer| buffer.buffer) != source {
             // A new source buffer holds no pixels.
@@ -821,7 +1005,8 @@ impl VulkanCompositor {
         };
         let family = self.family;
         self.bind_output(target);
-        let [Some(source), _, Some(upload), Some(readback)] = &self.buffers else {
+        let [Some(source), _, Some(upload), Some(readback), Some(table_buffer)] = &self.buffers
+        else {
             unreachable!("reserved");
         };
 
@@ -953,35 +1138,16 @@ impl VulkanCompositor {
         }
         self.last_uploaded = uploaded * 4;
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
-        // Every layer whole, or, region by region, the background and the parts of the layers
-        // within it.
-        let pushes: Vec<Push> = match &regions {
-            None => layer_pushes.iter().flatten().copied().collect(),
-            Some(regions) => regions
-                .iter()
-                .flat_map(|region| {
-                    let background = Push {
-                        x: region.x,
-                        y: region.y,
-                        width: region.width,
-                        height: region.height,
-                        out_width: width,
-                        out_height: height,
-                        mode: 2,
-                        color: background,
-                        opacity: 255,
-                        ..Push::default()
-                    }
-                    .whole();
-                    std::iter::once(background).chain(
-                        layer_pushes
-                            .iter()
-                            .flatten()
-                            .filter_map(|push| push.within(region)),
-                    )
-                })
-                .collect(),
-        };
+        // The layers drawn, bottom to top, into the table the shader reads; and what it composes:
+        // the whole output, or each damaged region (each pixel of it once, every layer over it).
+        let table: Vec<Push> = layer_pushes.iter().flatten().copied().collect();
+        let regions = regions.unwrap_or_else(|| vec![output]);
+        let words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
+        // SAFETY: the table buffer is mapped, coherent and holds at least a layer per layer
+        // (`reserve`); the last submission, which read it, is done (`complete`).
+        unsafe {
+            std::ptr::copy_nonoverlapping(words.as_ptr(), table_buffer.mapped, words.len());
+        }
         let timing = self.queries != vk::QueryPool::null();
 
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -1050,9 +1216,6 @@ impl VulkanCompositor {
             if !copies.is_empty() {
                 device.cmd_copy_buffer(command, upload.buffer, source.buffer, &copies);
             }
-            if regions.is_none() {
-                device.cmd_fill_buffer(command, target, 0, out_bytes, background);
-            }
             barrier(
                 vk::AccessFlags::TRANSFER_WRITE,
                 vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
@@ -1076,27 +1239,21 @@ impl VulkanCompositor {
                 &[self.set],
                 &[],
             );
-            for push in &pushes {
+            for region in &regions {
                 device.cmd_push_constants(
                     command,
                     self.pipeline_layout,
                     vk::ShaderStageFlags::COMPUTE,
                     0,
-                    &push.bytes(),
+                    &frame_bytes(region, width, height, background, table.len() as u32),
                 );
                 device.cmd_dispatch(
                     command,
-                    push.count_x.div_ceil(8),
-                    push.count_y.div_ceil(8),
+                    region.width.div_ceil(8),
+                    region.height.div_ceil(8),
                     1,
                 );
-                // Layers compose in order: each sees the one below written.
-                barrier(
-                    vk::AccessFlags::SHADER_WRITE,
-                    vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
-                    vk::PipelineStageFlags::COMPUTE_SHADER,
-                    vk::PipelineStageFlags::COMPUTE_SHADER,
-                );
+                // Regions do not overlap and nothing reads the output: they run together.
             }
             if timing {
                 device.cmd_write_timestamp(
@@ -1168,41 +1325,60 @@ impl VulkanCompositor {
             }
             device.end_command_buffer(command)?;
             let commands = [command];
-            let submitting = std::time::Instant::now();
+            // Deferred, with a device that exports its completion: the submission also signals
+            // the completion semaphore, exported as a sync file for whoever waits on the frame.
+            let signal: Vec<vk::Semaphore> = self
+                .completion
+                .as_ref()
+                .filter(|_| deferred)
+                .map(|(semaphore, _)| *semaphore)
+                .into_iter()
+                .collect();
             device.queue_submit(
                 self.queue,
-                &[vk::SubmitInfo::default().command_buffers(&commands)],
+                &[vk::SubmitInfo::default()
+                    .command_buffers(&commands)
+                    .signal_semaphores(&signal)],
                 self.fence,
             )?;
-            device.wait_for_fences(&[self.fence], true, u64::MAX)?;
-            device.reset_fences(&[self.fence])?;
-            self.last_host_ms.1 = submitting.elapsed().as_secs_f64() * 1e3;
+            self.submitted = true;
         }
-        self.last_gpu_ms = if timing {
-            let mut ticks = [0u64; 4];
-            // SAFETY: the four queries were written by the completed submission.
-            unsafe {
-                self.device.get_query_pool_results(
-                    self.queries,
-                    0,
-                    &mut ticks,
-                    vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
-                )
-            }?;
-            let mask = if self.timestamp_bits >= 64 {
-                u64::MAX
-            } else {
-                (1u64 << self.timestamp_bits) - 1
-            };
-            let ms = |from: usize, to: usize| {
-                let elapsed = (ticks[to] & mask).wrapping_sub(ticks[from] & mask) & mask;
-                elapsed as f64 * f64::from(self.timestamp_period) / 1e6
-            };
-            self.last_gpu_phases = Some((ms(2, 0), ms(1, 3)));
-            Some(ms(0, 1))
-        } else {
-            None
-        };
+        if let (Some(&semaphore), Some((_, loader))) = (
+            self.completion
+                .as_ref()
+                .filter(|_| deferred)
+                .map(|(semaphore, _)| semaphore),
+            self.completion.as_ref(),
+        ) {
+            use std::os::fd::FromRawFd;
+            let info = vk::SemaphoreGetFdInfoKHR::default()
+                .semaphore(semaphore)
+                .handle_type(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
+            // SAFETY: the semaphore has a signal operation pending (the submission above); the
+            // export unsignals it for the next one.
+            match unsafe { loader.get_semaphore_fd(&info) } {
+                Ok(fd) if fd >= 0 => {
+                    // SAFETY: vkGetSemaphoreFdKHR returns a new descriptor the caller owns.
+                    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
+                    self.completed_when = Some(fd);
+                }
+                // -1: the submission is done already; nothing to wait on.
+                Ok(_) => {}
+                Err(error) => {
+                    // The semaphore stays signaled: never used again. Every frame is waited for.
+                    eprintln!(
+                        "[gpu] a frame's completion as a sync file: {error}; frames are waited for"
+                    );
+                    self.complete()?;
+                    let (semaphore, _) = self.completion.take().expect("exporting from it");
+                    // SAFETY: its signal operation completed with the submission waited for.
+                    unsafe { self.device.destroy_semaphore(semaphore, None) };
+                }
+            }
+        }
+        if !deferred {
+            self.complete()?;
+        }
         if let Some(index) = scanout {
             let group = {
                 let target = self.scanout[index].as_mut().expect("composed into");
@@ -1236,7 +1412,55 @@ impl VulkanCompositor {
             return Ok(None);
         }
         self.output_holds = Some((width, height));
+        if deferred {
+            // Read once it is done (`read_deferred`).
+            return Ok(None);
+        }
         Ok(Some(self.read_back(out_words)?))
+    }
+
+    /// The last submission's timestamps (once it completed): the device's time composing it and
+    /// around that (`last_gpu_ms`, `last_gpu_phases`).
+    fn read_timestamps(&mut self) -> Result<(), Error> {
+        self.last_gpu_ms = if self.queries != vk::QueryPool::null() {
+            let mut ticks = [0u64; 4];
+            // SAFETY: the four queries were written by the completed submission.
+            unsafe {
+                self.device.get_query_pool_results(
+                    self.queries,
+                    0,
+                    &mut ticks,
+                    vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+                )
+            }?;
+            let mask = if self.timestamp_bits >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << self.timestamp_bits) - 1
+            };
+            let ms = |from: usize, to: usize| {
+                let elapsed = (ticks[to] & mask).wrapping_sub(ticks[from] & mask) & mask;
+                elapsed as f64 * f64::from(self.timestamp_period) / 1e6
+            };
+            self.last_gpu_phases = Some((ms(2, 0), ms(1, 3)));
+            Some(ms(0, 1))
+        } else {
+            None
+        };
+        if let Some(ms) = self.last_gpu_ms {
+            // Kept until taken, a few seconds' frames at most.
+            if self.completed_ms.len() >= 1024 {
+                self.completed_ms.remove(0);
+            }
+            self.completed_ms.push(ms);
+        }
+        Ok(())
+    }
+
+    /// The device's time composing each frame completed since the last call (GPU timestamps;
+    /// a frame handed to its display completes when the next is composed), in ms.
+    pub fn take_completed_ms(&mut self) -> Vec<f64> {
+        std::mem::take(&mut self.completed_ms)
     }
 
     /// Points the descriptor set's output binding at `buffer`.
@@ -1354,9 +1578,12 @@ impl VulkanCompositor {
     }
 
     /// Frees the scanout targets at `indices` (a display that went away); their indices may be
-    /// given to targets made later. No frame is being composed into them: each composition waits
-    /// for its fence.
+    /// given to targets made later.
     pub fn remove_scanout_targets(&mut self, indices: &[usize]) {
+        // A frame on its way into one of them is done first.
+        if let Err(error) = self.complete() {
+            eprintln!("[gpu] waiting for the last frame: {error}");
+        }
         for &index in indices {
             if let Some(target) = self.scanout.get_mut(index).and_then(Option::take) {
                 if self.bound_output == target.buffer.buffer {
@@ -1373,6 +1600,7 @@ impl VulkanCompositor {
         source_bytes: u64,
         upload_bytes: u64,
         out_bytes: u64,
+        layers_bytes: u64,
     ) -> Result<(), Error> {
         let mut rebind = false;
         for (slot, role, bytes) in [
@@ -1380,6 +1608,7 @@ impl VulkanCompositor {
             (1, Role::Output, out_bytes),
             (2, Role::Upload, upload_bytes),
             (3, Role::Readback, out_bytes),
+            (4, Role::Layers, layers_bytes),
         ] {
             if self.buffers[slot]
                 .as_ref()
@@ -1391,23 +1620,23 @@ impl VulkanCompositor {
             if let Some(old) = self.buffers[slot].replace(buffer) {
                 self.free(old);
             }
-            rebind |= slot < 2;
+            rebind |= slot < 2 || slot == 4;
             if slot == 1 {
                 // A new output buffer holds no frame.
                 self.output_holds = None;
             }
         }
         if rebind {
-            let [Some(source), Some(output), ..] = &self.buffers else {
+            let [Some(source), Some(output), _, _, Some(table)] = &self.buffers else {
                 unreachable!("reserved");
             };
-            let infos = [source, output].map(|buffer| {
+            let infos = [source, output, table].map(|buffer| {
                 [vk::DescriptorBufferInfo::default()
                     .buffer(buffer.buffer)
                     .offset(0)
                     .range(vk::WHOLE_SIZE)]
             });
-            let writes = [0, 1].map(|binding| {
+            let writes = [0, 1, 2].map(|binding| {
                 vk::WriteDescriptorSet::default()
                     .dst_set(self.set)
                     .dst_binding(binding)
@@ -1466,13 +1695,18 @@ impl VulkanCompositor {
                 Memory::empty(),
                 Memory::DEVICE_LOCAL,
             ),
+            Role::Layers => (
+                Usage::STORAGE_BUFFER,
+                Memory::HOST_VISIBLE | Memory::HOST_COHERENT,
+                Memory::DEVICE_LOCAL,
+            ),
         };
         let export = role == Role::Scanout;
         let mut external = vk::ExternalMemoryBufferCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
         let mut exported = vk::ExportMemoryAllocateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
-        let host = matches!(role, Role::Upload | Role::Readback);
+        let host = matches!(role, Role::Upload | Role::Readback | Role::Layers);
         // SAFETY: the device is live; on failure every object created here is destroyed.
         unsafe {
             let mut create = vk::BufferCreateInfo::default()
@@ -1544,6 +1778,10 @@ impl VulkanCompositor {
 
 impl Drop for VulkanCompositor {
     fn drop(&mut self) {
+        // The last submission is done before what it uses goes.
+        if let Err(error) = self.complete() {
+            eprintln!("[gpu] waiting for the last frame: {error}");
+        }
         for slot in 0..self.buffers.len() {
             if let Some(buffer) = self.buffers[slot].take() {
                 self.free(buffer);
@@ -1552,12 +1790,15 @@ impl Drop for VulkanCompositor {
         for scanout in std::mem::take(&mut self.scanout).into_iter().flatten() {
             self.free(scanout.buffer);
         }
-        // SAFETY: no submission is pending (each compose waits for its fence); every handle was
+        // SAFETY: no submission is pending (completed above); every handle was
         // created from this device or instance and is destroyed once, children first; null
         // handles are ignored.
         unsafe {
             self.device.destroy_query_pool(self.queries, None);
             self.device.destroy_fence(self.fence, None);
+            if let Some((semaphore, _)) = self.completion.take() {
+                self.device.destroy_semaphore(semaphore, None);
+            }
             self.device.destroy_command_pool(self.commands, None);
             self.device.destroy_descriptor_pool(self.pool, None);
             self.device.destroy_pipeline(self.pipeline, None);

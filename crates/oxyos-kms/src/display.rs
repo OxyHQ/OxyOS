@@ -469,6 +469,19 @@ impl Display {
     /// Shows any framebuffer of the display's size (an imported DMA-BUF, for one): a modeset
     /// the first time, a page flip after it.
     pub fn present_framebuffer(&mut self, framebuffer: framebuffer::Handle) -> io::Result<()> {
+        self.present_framebuffer_after(framebuffer, None)
+    }
+
+    /// The same for a frame still being written: `completion` signals once it is done (the
+    /// device's sync file for it, `VulkanCompositor::compose_to_scanout`). It goes with the commit
+    /// as the plane's IN_FENCE_FD: the kernel flips to the frame once it signals, and the caller's
+    /// thread goes on at once. A plane without that property is waited on here first.
+    pub fn present_framebuffer_after(
+        &mut self,
+        framebuffer: framebuffer::Handle,
+        completion: Option<std::os::fd::OwnedFd>,
+    ) -> io::Result<()> {
+        use std::os::fd::AsRawFd;
         let card = &self.card;
         let mut request = atomic::AtomicModeReq::new();
         let mut flags = AtomicCommitFlags::PAGE_FLIP_EVENT;
@@ -485,6 +498,16 @@ impl Display {
             property_handle(card, self.plane, "FB_ID")?,
             property::Value::Framebuffer(Some(framebuffer)),
         );
+        if let Some(completion) = &completion {
+            match property_handle(card, self.plane, "IN_FENCE_FD") {
+                Ok(handle) => request.add_property(
+                    self.plane,
+                    handle,
+                    property::Value::SignedRange(i64::from(completion.as_raw_fd())),
+                ),
+                Err(_) => wait_readable(completion)?,
+            }
+        }
         if let Some(cursor) = &self.cursor {
             let plane = cursor.plane;
             let (width, height) = cursor.size;
@@ -732,6 +755,19 @@ pub(crate) fn choose_crtc(
 ) -> Option<crtc::Handle> {
     lit.filter(|lit| possible.contains(lit))
         .or_else(|| possible.first().copied())
+}
+
+/// Waits until `fd` (a sync file) is readable: what it stands for is done.
+fn wait_readable(fd: &std::os::fd::OwnedFd) -> io::Result<()> {
+    use rustix::event::{poll, PollFd, PollFlags};
+    loop {
+        let mut fds = [PollFd::new(fd, PollFlags::IN)];
+        match poll(&mut fds, None) {
+            Ok(_) => return Ok(()),
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 
 fn property_handle(

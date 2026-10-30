@@ -161,6 +161,51 @@ fn vulkan_matches_the_reference() {
     assert_eq!(empty, vec![5; 256]);
 }
 
+/// A frame composed deferred returns once submitted, with its completion as a sync file where
+/// the device exports one (as a display's frames are, `compose_to_scanout`): the file becomes
+/// readable once the device is done, and the frame then reads back as the reference. A
+/// composition after it waits for it first, deferred or not.
+#[test]
+fn a_deferred_frame_completes_as_its_sync_file_says() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    eprintln!(
+        "{} exports sync files: {}",
+        gpu.device_name(),
+        gpu.exports_sync_file()
+    );
+    let (window, popup) = frame();
+    let layers = layers(&window, &popup);
+    let cpu = compose_cpu(320, 200, 0x0011_2233, &layers);
+    for _ in 0..3 {
+        let completion = gpu
+            .compose_deferred(320, 200, 0x0011_2233, &layers)
+            .unwrap();
+        assert_eq!(completion.is_some(), gpu.exports_sync_file());
+        if let Some(completion) = &completion {
+            let mut fds = [rustix::event::PollFd::new(
+                completion,
+                rustix::event::PollFlags::IN,
+            )];
+            let timeout = rustix::event::Timespec {
+                tv_sec: 10,
+                tv_nsec: 0,
+            };
+            assert_eq!(rustix::event::poll(&mut fds, Some(&timeout)).unwrap(), 1);
+        }
+        assert_eq!(gpu.read_deferred().unwrap(), cpu);
+    }
+    // Deferred, then another composition at once: the first is done before the second begins.
+    gpu.compose_deferred(320, 200, 0x0011_2233, &layers)
+        .unwrap();
+    assert_eq!(gpu.compose(16, 16, 5, &[]).unwrap(), vec![5; 256]);
+}
+
 /// A frame composed into a scanout target and kept reads back as the reference composed it,
 /// once; a later composition replaces it. Where the device exports no DMA-BUF, it says so.
 #[cfg(target_os = "linux")]
@@ -296,6 +341,93 @@ fn damaged_composition_is_the_reference() {
         gpu.compose_damaged(7, 3, 0x0011_2233, &first, &[]).unwrap(),
         compose_cpu(7, 3, 0x0011_2233, &first)
     );
+}
+
+/// The CPU composition from damage: a frame composed whole, then each next one composing only
+/// what changed onto it, is the reference's every time, with corners, a shadow, filtering and
+/// clips; any damage over an unchanged frame changes nothing; and damage that leaves out where
+/// the popup was leaves it there, so the limit is real.
+#[test]
+fn the_cpu_composition_from_damage_is_the_reference() {
+    let (window, popup) = frame();
+    let profile = ShadowProfile::new(24, 90);
+    let mut first = shadowed(&window, &popup, &profile, 16, 255, 256);
+    // A window drawn smaller (filtered) and clipped, as the overview shows one.
+    first.push(Layer {
+        x: 70,
+        y: 50,
+        width: 40,
+        height: 30,
+        filter: Filter::Box,
+        clip: Some(Rect {
+            x: 75,
+            y: 55,
+            width: 30,
+            height: 20,
+        }),
+        radius: 6,
+        ..first[1]
+    });
+    let mut out = compose_cpu(120, 90, 0x0011_2233, &first);
+    let mut shown = first.clone();
+    for (dx, dy) in [(15, -20), (-30, 25), (1, 1), (40, 0)] {
+        // The popup is the second layer after the shadow.
+        let mut moved = shown.clone();
+        let before = Rect {
+            x: moved[2].x,
+            y: moved[2].y,
+            width: moved[2].width,
+            height: moved[2].height,
+        };
+        moved[2].x += dx;
+        moved[2].y += dy;
+        let after = Rect {
+            x: moved[2].x,
+            y: moved[2].y,
+            ..before
+        };
+        compose_cpu_damaged(&mut out, 120, 90, 0x0011_2233, &moved, &[before, after]);
+        assert_eq!(
+            out,
+            compose_cpu(120, 90, 0x0011_2233, &moved),
+            "moved by ({dx}, {dy})"
+        );
+        shown = moved;
+    }
+    let whole = out.clone();
+    for damage in [
+        Rect {
+            x: -10,
+            y: -10,
+            width: 30,
+            height: 200,
+        },
+        Rect {
+            x: 59,
+            y: 33,
+            width: 1,
+            height: 1,
+        },
+        Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 90,
+        },
+    ] {
+        compose_cpu_damaged(&mut out, 120, 90, 0x0011_2233, &shown, &[damage]);
+        assert_eq!(out, whole, "{damage:?}");
+    }
+    let mut moved = shown.clone();
+    moved[2].x -= 25;
+    let after = Rect {
+        x: moved[2].x,
+        y: moved[2].y,
+        width: moved[2].width,
+        height: moved[2].height,
+    };
+    compose_cpu_damaged(&mut out, 120, 90, 0x0011_2233, &moved, &[after]);
+    assert_ne!(out, compose_cpu(120, 90, 0x0011_2233, &moved));
 }
 
 /// Scanout targets alternate: each frame composes its damage and what changed since its target

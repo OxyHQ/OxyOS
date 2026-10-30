@@ -219,3 +219,39 @@ fn converting_a_slice_at_a_time_gives_the_same_pixels() {
     to_srgb(&mut pixels, &profile).unwrap();
     assert_eq!(pixels, whole);
 }
+
+#[test]
+fn a_jpeg_drawn_smaller_is_decoded_smaller_and_looks_the_same() {
+    let bytes = wallpaper();
+    // The smallest of a half, a quarter and an eighth of 5120 × 2880 still covering the target.
+    for (target, decoded) in [
+        ((1280, 720), (1280, 720)),
+        ((1000, 563), (1280, 720)),
+        ((2000, 1200), (2560, 1440)),
+        ((300, 100), (640, 360)),
+    ] {
+        let (width, height, _, profile) = decode_jpeg_reduced(&bytes, target).unwrap();
+        assert_eq!((width, height), decoded, "for {target:?}");
+        assert!(profile.is_some(), "the profile goes with it");
+    }
+    // Within a level of what decoding it whole and averaging gives, on average: the same picture.
+    let (_, _, small, _) = decode_jpeg_reduced(&bytes, (1280, 720)).unwrap();
+    let (width, height, whole, _) = decode_rgba(&bytes).unwrap();
+    let reference = reduce(&whole, (width, height), (1280, 720));
+    let difference: u64 = small
+        .iter()
+        .zip(&reference)
+        .map(|(a, b)| u64::from(a.abs_diff(*b)))
+        .sum();
+    let mean = difference as f64 / small.len() as f64;
+    eprintln!("decoded at a quarter: {mean:.2} levels from decoded whole, on average");
+    assert!(mean < 1.0, "{mean:.2} levels apart on average");
+    // `decode` takes that way, and keeps the image's own size as its natural one.
+    let image = decode(&bytes, Fit::Within(1280, 800)).unwrap();
+    assert_eq!(
+        (image.width, image.height, image.natural),
+        (1280, 720, (5120, 2880))
+    );
+    // A JPEG cut short is the whole decode's, which shows what arrived.
+    assert!(decode_jpeg_reduced(&bytes[..400_000], (512, 288)).is_none());
+}
