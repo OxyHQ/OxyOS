@@ -326,6 +326,21 @@ impl Paint {
         paint.free = vec![(0, paint.heap.words)];
         paint.records = paint.host_buffer(1 << 16)?;
         paint.bind();
+        // Both entry points run once, now: a driver that compiles a pipeline when it first runs
+        // (lavapipe) does it before the first frame, not in one (it took 0.5 to 1.8 s there).
+        let warm = paint.canvas(1, 1, 0)?;
+        paint.flush()?;
+        let pixel = Pixels {
+            x0: 0,
+            y0: 0,
+            x1: 1,
+            y1: 1,
+        };
+        paint.clear(warm, pixel, 1)?;
+        paint.clear(warm, pixel, 2)?;
+        paint.flush()?;
+        paint.wait()?;
+        paint.free_canvas(warm);
         Ok(paint)
     }
 

@@ -250,22 +250,31 @@ The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./ad
 step 3). Measured with `perf.py --renderer cpu` and `--renderer gpu`, two runs each, in
 `tools/gpu-vm` (16 vCPUs of this machine), on lavapipe: its "GPU" is the same CPU, shared with the
 compositor and the host, so these numbers say what the host's own thread saves and what the GPU path
-costs around it, never a GPU's speed. p50 / p95 in ms.
+costs around it, never a GPU's speed. p50 / p95 in ms; "first" is the GPU painter's first version
+(an operation per dispatch, a barrier after each), "now" with operations binned into tiles.
 
-| interaction | host draw, CPU painter | host draw, GPU painter | host frame work, CPU | host frame work, GPU |
-|---|---|---|---|---|
-| live resize | 2.76 / 5.97 | 0.61 / 2.24 | 10.65 / 14.6 | 36.66 / 401.7 |
-| zoom | 0.18 / 0.29 | 0.11 / 0.28 | 1.66 / 13.6 | 8.36 / 20.6 |
-| overview (the shell) | 0.14 / 6.35 | 0.06 / 0.63 | 0.77 / 8.8 | 6.2 / 45.1 |
-| Settings scroll | 0.65 / 0.84 | 0.20 / 0.36 | 2.76 / 4.9 | 8.35 / 12.8 |
+| interaction | host draw, CPU | host draw, GPU now | frame work, CPU | frame work, GPU first | frame work, GPU now |
+|---|---|---|---|---|---|
+| live resize | 2.70 / 5.97 | 0.63 / 0.94 | 10.14 / 14.17 | 36.66 / 401.7 | 16.71 / 23.72 |
+| zoom | 0.18 / 0.36 | 0.12 / 0.25 | 2.02 / 15.15 | 8.36 / 20.6 | 4.62 / 22.84 |
+| overview (the shell) | 0.11 / 6.92 | 0.03 / 0.64 | 2.24 / 13.1 | 6.2 / 45.1 | 1.2 / 10.63 |
+| Settings scroll | 0.66 / 0.96 | 0.20 / 0.33 | 2.94 / 4.85 | 8.35 / 12.8 | 4.03 / 7.15 |
 
-- **The host's thread draws 2–10 times less.** It records operations, and the device works the
+Where a live resize's present goes now (the host's report, `present` lines, median / p95 ms, every
+frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13, its timeline
+0.01 / 0.01, the old size's freed 0.17 / 0.51, the frame's operations recorded and submitted
+0.05 / 0.12, and `sync` 6.81 / 10.30: lavapipe drawing the frame before its sync-file export returns.
+
+- **The host's thread draws 3–20 times less.** It records operations, and the device works the
   pixels out.
-- **Its frame work grows here.** The frame before is waited for, lavapipe's drawing runs on the same
-  cores, and a live resize allocates, exports and attaches an image (and a timeline) for every new
-  size: 402 ms at the 95th percentile. That allocation is the GPU path's own cost to remove
-  (images reused across sizes), measured on the ThinkPad first.
-- **Memory.** Each host holds 50–110 MiB more resident: the Vulkan driver and its heap of canvases.
+- **A new size costs about 0.5 ms**: making, exporting and attaching an image, a timeline, and
+  freeing the old size's. The protocol's buffer-is-the-configured-size rule is not what was slow.
+- **What was slow was an operation per dispatch**: 138 dispatches behind full barriers for a
+  resize's frame, 20 ms on lavapipe. Binned into tiles they are a few dispatches.
+- **What remains here is lavapipe drawing**, on the CPU cores the host's frame shares, waited for by
+  its sync-file export. A GPU draws on its own and its export returns at once: the ThinkPad says how
+  much of the 16.7 ms that leaves.
+- **Memory.** Each host holds 60–170 MiB more resident: the Vulkan driver and its heap of canvases.
 
 ## What remains
 

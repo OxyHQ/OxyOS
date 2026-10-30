@@ -468,6 +468,14 @@ class CpuPainter final : public Painter {
   void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
              float opacity = 1) {
     if (layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f || opacity <= 0) return;
+    // A layer drawn on the GPU (a modal's last frame, drawn before the GPU path stopped, or drawn
+    // on the CPU again by the render check): its pixels read back first.
+    if (layer.gpu) {
+      Canvas read{layer.width, layer.height, canvasPixels(layer), nullptr};
+      if (!read.pixels.empty()) this->layer(read, layerScale, area, map, clip, opacity);
+      return;
+    }
+    if (layer.pixels.size() < static_cast<size_t>(layer.width) * layer.height) return;
     Rect drawn = map.bounds(area);
     Clip box = Clip{drawn.origin.x, drawn.origin.y, drawn.getMaxX(), drawn.getMaxY()}.intersect(clip);
     if (box.empty()) return;
