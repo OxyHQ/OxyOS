@@ -254,180 +254,212 @@ pub(crate) fn disjoint(rects: &[Rect], output: &Rect) -> Vec<Rect> {
 /// compositor shows them: 0x00RRGGBB per pixel, row by row. The reference composition.
 pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>]) -> Vec<u32> {
     let mut out = vec![background; width as usize * height as usize];
+    let whole = Rect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
     for layer in layers.iter().filter(|layer| layer.valid()) {
-        // Within the output and the layer's clip.
-        let clip = layer.clip.unwrap_or(Rect {
-            x: 0,
-            y: 0,
-            width,
-            height,
-        });
-        let x0 = layer.x.max(0).max(clip.x);
-        let y0 = layer.y.max(0).max(clip.y);
-        let x1 = (i64::from(layer.x) + i64::from(layer.width))
-            .min(i64::from(width))
-            .min(clip.right());
-        let y1 = (i64::from(layer.y) + i64::from(layer.height))
-            .min(i64::from(height))
-            .min(clip.bottom());
-        let radius = layer.corner_radius();
-        // A filtered layer's weights, for the columns and rows shown.
-        let filtered = (layer.filtered() && i64::from(x0) < x1 && i64::from(y0) < y1).then(|| {
-            let axis = |start: i32, end: i64, at: i32, length: u32, extent: u32| {
-                let from = (i64::from(start) - i64::from(at)) as u32;
-                let to = (end - i64::from(at)) as u32;
-                filter::Axis::new(from, to, length, extent)
-            };
-            (
-                axis(x0, x1, layer.x, layer.width, layer.extent.0),
-                axis(y0, y1, layer.y, layer.height, layer.extent.1),
-            )
-        });
-        // A layer at its pixels' own size takes each pixel as it is, with no scaling to work out;
-        // an opaque one at full opacity is copied where it covers a pixel whole: away from its
-        // rounded corners, each pixel is its source's (what the blending below gives there).
-        let one_to_one = (layer.width, layer.height) == layer.extent;
-        let copied = one_to_one && matches!(layer.paint, Paint::Opaque(_)) && layer.opacity == 255;
-        for y in i64::from(y0)..y1 {
-            let ly = (y - i64::from(layer.y)) as u64;
-            let sy = if one_to_one {
-                ly
-            } else {
-                ly * u64::from(layer.extent.1) / u64::from(layer.height)
-            };
-            let rows = filtered
-                .as_ref()
-                .map(|(columns, rows)| (columns, rows.get((y - i64::from(y0)) as usize)));
-            // The columns of this row (the layer's) that no rounded corner touches.
-            let whole =
-                if u64::from(radius) <= ly && ly + u64::from(radius) < u64::from(layer.height) {
-                    0..u64::from(layer.width)
+        draw_cpu(&mut out, width, height, layer, whole);
+    }
+    out
+}
+
+/// The same into `out`, the frame composed before at this size, composing only `damage` (what
+/// changed since, docs/adr/0005-damage.mdx): each of its rectangles filled with `background`
+/// and the layers drawn within it, every other pixel kept. Each pixel is what `compose_cpu`
+/// makes of it: none depends on what else is composed.
+pub fn compose_cpu_damaged(
+    out: &mut [u32],
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: &[Layer<'_>],
+    damage: &[Rect],
+) {
+    let output = Rect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
+    for rect in disjoint(damage, &output) {
+        for y in rect.y as usize..rect.bottom() as usize {
+            let row = y * width as usize;
+            out[row + rect.x as usize..row + rect.right() as usize].fill(background);
+        }
+        for layer in layers.iter().filter(|layer| layer.valid()) {
+            draw_cpu(out, width, height, layer, rect);
+        }
+    }
+}
+
+/// Draws `layer` onto `out` (`width` × `height`) within `within`.
+fn draw_cpu(out: &mut [u32], width: u32, height: u32, layer: &Layer<'_>, within: Rect) {
+    // Within the output, the layer's clip and `within`.
+    let Some(clip) = layer
+        .clip
+        .map_or(Some(within), |clip| clip.intersect(&within))
+    else {
+        return;
+    };
+    let x0 = layer.x.max(0).max(clip.x);
+    let y0 = layer.y.max(0).max(clip.y);
+    let x1 = (i64::from(layer.x) + i64::from(layer.width))
+        .min(i64::from(width))
+        .min(clip.right());
+    let y1 = (i64::from(layer.y) + i64::from(layer.height))
+        .min(i64::from(height))
+        .min(clip.bottom());
+    let radius = layer.corner_radius();
+    // A filtered layer's weights, for the columns and rows shown.
+    let filtered = (layer.filtered() && i64::from(x0) < x1 && i64::from(y0) < y1).then(|| {
+        let axis = |start: i32, end: i64, at: i32, length: u32, extent: u32| {
+            let from = (i64::from(start) - i64::from(at)) as u32;
+            let to = (end - i64::from(at)) as u32;
+            filter::Axis::new(from, to, length, extent)
+        };
+        (
+            axis(x0, x1, layer.x, layer.width, layer.extent.0),
+            axis(y0, y1, layer.y, layer.height, layer.extent.1),
+        )
+    });
+    // A layer at its pixels' own size takes each pixel as it is, with no scaling to work out;
+    // an opaque one at full opacity is copied where it covers a pixel whole: away from its
+    // rounded corners, each pixel is its source's (what the blending below gives there).
+    let one_to_one = (layer.width, layer.height) == layer.extent;
+    let copied = one_to_one && matches!(layer.paint, Paint::Opaque(_)) && layer.opacity == 255;
+    for y in i64::from(y0)..y1 {
+        let ly = (y - i64::from(layer.y)) as u64;
+        let sy = if one_to_one {
+            ly
+        } else {
+            ly * u64::from(layer.extent.1) / u64::from(layer.height)
+        };
+        let rows = filtered
+            .as_ref()
+            .map(|(columns, rows)| (columns, rows.get((y - i64::from(y0)) as usize)));
+        // The columns of this row (the layer's) that no rounded corner touches.
+        let whole = if u64::from(radius) <= ly && ly + u64::from(radius) < u64::from(layer.height) {
+            0..u64::from(layer.width)
+        } else {
+            u64::from(radius)..u64::from(layer.width.saturating_sub(radius))
+        };
+        // The output's columns copied whole, at once.
+        let copy = match layer.paint {
+            Paint::Opaque(pixels) if copied => {
+                let from = (i64::from(x0)).max(i64::from(layer.x) + whole.start as i64);
+                let to = x1.min(i64::from(layer.x) + whole.end as i64);
+                if from < to {
+                    let row = y as usize * width as usize;
+                    let source = (sy * u64::from(layer.extent.0)) as usize
+                        + (from - i64::from(layer.x)) as usize;
+                    let pixels = &pixels[source * 4..(source + (to - from) as usize) * 4];
+                    for (out, pixel) in out[row + from as usize..row + to as usize]
+                        .iter_mut()
+                        .zip(pixels.chunks_exact(4))
+                    {
+                        *out = u32::from_le_bytes([pixel[0], pixel[1], pixel[2], 0]);
+                    }
+                }
+                from..to
+            }
+            _ => 0..0,
+        };
+        // A shadow's columns wholly beneath what casts it (`beneath` all of the pixel): none of
+        // it is drawn there.
+        let hidden = match layer.paint {
+            Paint::Shadow(_, shadow) => {
+                let clip = &shadow.clip;
+                let cy = ly as i64 - i64::from(clip.y);
+                if cy < 0 || cy >= i64::from(clip.height) {
+                    0..0
                 } else {
-                    u64::from(radius)..u64::from(layer.width.saturating_sub(radius))
-                };
-            // The output's columns copied whole, at once.
-            let copy = match layer.paint {
-                Paint::Opaque(pixels) if copied => {
-                    let from = (i64::from(x0)).max(i64::from(layer.x) + whole.start as i64);
-                    let to = x1.min(i64::from(layer.x) + whole.end as i64);
-                    if from < to {
-                        let row = y as usize * width as usize;
-                        let source = (sy * u64::from(layer.extent.0)) as usize
-                            + (from - i64::from(layer.x)) as usize;
-                        let pixels = &pixels[source * 4..(source + (to - from) as usize) * 4];
-                        for (out, pixel) in out[row + from as usize..row + to as usize]
-                            .iter_mut()
-                            .zip(pixels.chunks_exact(4))
-                        {
-                            *out = u32::from_le_bytes([pixel[0], pixel[1], pixel[2], 0]);
-                        }
-                    }
-                    from..to
-                }
-                _ => 0..0,
-            };
-            // A shadow's columns wholly beneath what casts it (`beneath` all of the pixel): none of
-            // it is drawn there.
-            let hidden = match layer.paint {
-                Paint::Shadow(_, shadow) => {
-                    let clip = &shadow.clip;
-                    let cy = ly as i64 - i64::from(clip.y);
-                    if cy < 0 || cy >= i64::from(clip.height) {
-                        0..0
+                    let r = i64::from(shape::radius_on(
+                        shadow.clip_radius,
+                        clip.width,
+                        clip.height,
+                    ));
+                    let inset = if r <= cy && cy + r < i64::from(clip.height) {
+                        0
                     } else {
-                        let r = i64::from(shape::radius_on(
-                            shadow.clip_radius,
-                            clip.width,
-                            clip.height,
-                        ));
-                        let inset = if r <= cy && cy + r < i64::from(clip.height) {
-                            0
-                        } else {
-                            r
-                        };
-                        let at = i64::from(layer.x) + i64::from(clip.x);
-                        at + inset..at + i64::from(clip.width) - inset
-                    }
-                }
-                _ => 0..0,
-            };
-            for x in i64::from(x0)..x1 {
-                if copy.contains(&x) || hidden.contains(&x) {
-                    continue;
-                }
-                let lx = (x - i64::from(layer.x)) as u64;
-                let index = y as usize * width as usize + x as usize;
-                // How much of the pixel the layer covers: all of it, but at its rounded corners
-                // and, a shadow, within what it is beneath.
-                let mut coverage =
-                    shape::corner_coverage(lx as u32, ly as u32, layer.width, layer.height, radius);
-                if let Paint::Shadow(_, shadow) = layer.paint {
-                    coverage = coverage * (255 - beneath(lx as u32, ly as u32, &shadow)) / 255;
-                }
-                if coverage == 0 {
-                    continue;
-                }
-                let source_index = || {
-                    let sx = if one_to_one {
-                        lx
-                    } else {
-                        lx * u64::from(layer.extent.0) / u64::from(layer.width)
+                        r
                     };
-                    (sy * u64::from(layer.extent.0) + sx) as usize
+                    let at = i64::from(layer.x) + i64::from(clip.x);
+                    at + inset..at + i64::from(clip.width) - inset
+                }
+            }
+            _ => 0..0,
+        };
+        for x in i64::from(x0)..x1 {
+            if copy.contains(&x) || hidden.contains(&x) {
+                continue;
+            }
+            let lx = (x - i64::from(layer.x)) as u64;
+            let index = y as usize * width as usize + x as usize;
+            // How much of the pixel the layer covers: all of it, but at its rounded corners
+            // and, a shadow, within what it is beneath.
+            let mut coverage =
+                shape::corner_coverage(lx as u32, ly as u32, layer.width, layer.height, radius);
+            if let Paint::Shadow(_, shadow) = layer.paint {
+                coverage = coverage * (255 - beneath(lx as u32, ly as u32, &shadow)) / 255;
+            }
+            if coverage == 0 {
+                continue;
+            }
+            let source_index = || {
+                let sx = if one_to_one {
+                    lx
+                } else {
+                    lx * u64::from(layer.extent.0) / u64::from(layer.width)
                 };
-                // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).
-                let (source, alpha) = match (layer.paint, rows) {
-                    (
-                        Paint::Opaque(pixels) | Paint::Premultiplied(pixels),
-                        Some((columns, rows)),
-                    ) => filter::sample(
+                (sy * u64::from(layer.extent.0) + sx) as usize
+            };
+            // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).
+            let (source, alpha) = match (layer.paint, rows) {
+                (Paint::Opaque(pixels) | Paint::Premultiplied(pixels), Some((columns, rows))) => {
+                    filter::sample(
                         pixels,
                         layer.extent.0,
                         columns.get((x - i64::from(x0)) as usize),
                         rows,
                         matches!(layer.paint, Paint::Opaque(_)),
-                    ),
-                    (Paint::Fill(color), _) => (color & 0x00ff_ffff, 255),
-                    (Paint::Opaque(pixels), _) => {
-                        (pixel(pixels, source_index()) & 0x00ff_ffff, 255)
-                    }
-                    (Paint::Premultiplied(pixels), _) => {
-                        let source = pixel(pixels, source_index());
-                        (source & 0x00ff_ffff, source >> 24)
-                    }
-                    (Paint::Shadow(profile, shadow), _) => {
-                        let entry = shape::shadow_entry(
-                            lx as u32,
-                            ly as u32,
-                            &shadow.shape,
-                            shape::radius_on(
-                                shadow.radius,
-                                shadow.shape.width,
-                                shadow.shape.height,
-                            ),
-                            shadow.scale,
-                            layer.extent.0,
-                        );
-                        let source = pixel(profile, entry as usize);
-                        (source & 0x00ff_ffff, source >> 24)
-                    }
-                };
-                // Scaled by the layer's opacity at this pixel (its opacity by its coverage), then
-                // source-over: at 255 an opaque pixel is copied and a premultiplied one blended,
-                // as without an opacity.
-                let opacity = u32::from(layer.opacity) * coverage / 255;
-                let keep = 255 - alpha * opacity / 255;
-                let under = out[index];
-                let channel = |shift: u32| {
-                    let s = ((source >> shift) & 0xff) * opacity / 255;
-                    let d = (under >> shift) & 0xff;
-                    (s + d * keep / 255).min(255) << shift
-                };
-                out[index] = channel(16) | channel(8) | channel(0);
-            }
+                    )
+                }
+                (Paint::Fill(color), _) => (color & 0x00ff_ffff, 255),
+                (Paint::Opaque(pixels), _) => (pixel(pixels, source_index()) & 0x00ff_ffff, 255),
+                (Paint::Premultiplied(pixels), _) => {
+                    let source = pixel(pixels, source_index());
+                    (source & 0x00ff_ffff, source >> 24)
+                }
+                (Paint::Shadow(profile, shadow), _) => {
+                    let entry = shape::shadow_entry(
+                        lx as u32,
+                        ly as u32,
+                        &shadow.shape,
+                        shape::radius_on(shadow.radius, shadow.shape.width, shadow.shape.height),
+                        shadow.scale,
+                        layer.extent.0,
+                    );
+                    let source = pixel(profile, entry as usize);
+                    (source & 0x00ff_ffff, source >> 24)
+                }
+            };
+            // Scaled by the layer's opacity at this pixel (its opacity by its coverage), then
+            // source-over: at 255 an opaque pixel is copied and a premultiplied one blended,
+            // as without an opacity.
+            let opacity = u32::from(layer.opacity) * coverage / 255;
+            let keep = 255 - alpha * opacity / 255;
+            let under = out[index];
+            let channel = |shift: u32| {
+                let s = ((source >> shift) & 0xff) * opacity / 255;
+                let d = (under >> shift) & 0xff;
+                (s + d * keep / 255).min(255) << shift
+            };
+            out[index] = channel(16) | channel(8) | channel(0);
         }
     }
-    out
 }
 
 /// How much of a shadow's pixel (`x`, `y`) what it is beneath covers, 0 to 255.

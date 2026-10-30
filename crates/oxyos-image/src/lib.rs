@@ -328,8 +328,28 @@ impl Fit {
 
 /// Decodes an image into sRGB, premultiplied, at the size `fit` asks for.
 pub fn decode(bytes: &[u8], fit: Fit) -> Result<Image, Error> {
-    let (width, height, mut rgba, profile) = decode_rgba(bytes)?;
-    let target = fit.size(width, height);
+    // A JPEG wanted at half its size or less is decoded smaller (`decode_jpeg_reduced`); any
+    // other image, or a JPEG the scaled decoder cannot read whole, is decoded whole.
+    let reduced = match format(bytes)? {
+        Format::Jpeg => {
+            let natural = size(bytes)?;
+            checked(natural.0, natural.1)?;
+            let target = fit.size(natural.0, natural.1);
+            (target.0 * 2 <= natural.0 && target.1 * 2 <= natural.1)
+                .then(|| decode_jpeg_reduced(bytes, target))
+                .flatten()
+                .map(|decoded| (natural, decoded))
+        }
+        Format::Png => None,
+    };
+    let (natural, (width, height, mut rgba, profile)) = match reduced {
+        Some(reduced) => reduced,
+        None => {
+            let decoded = decode_rgba(bytes)?;
+            ((decoded.0, decoded.1), decoded)
+        }
+    };
+    let target = fit.size(natural.0, natural.1);
     // An opaque image is reduced first and converted after, on far fewer pixels; one with
     // transparency is converted while its colours are still straight, then premultiplied.
     let opaque = rgba.chunks_exact(4).all(|pixel| pixel[3] == 255);
@@ -352,9 +372,37 @@ pub fn decode(bytes: &[u8], fit: Fit) -> Result<Image, Error> {
     Ok(Image {
         width: target.0,
         height: target.1,
-        natural: (width, height),
+        natural,
         pixels,
     })
+}
+
+/// A JPEG decoded at a half, a quarter or an eighth of its size from its DCT coefficients (as
+/// libjpeg's scale-on-decode, jpeg-decoder's `scale`): the smallest of those still at least
+/// `target` on both axes, as straight RGBA, with its ICC profile. A 5120 × 2880 wallpaper drawn
+/// at 1280 × 720 is decoded at 1280 × 720 (3.5 MiB), never whole (56 MiB). None when the scaled
+/// decoder cannot read it whole (a JPEG cut short, which the whole decode shows what arrived of)
+/// or gives a colour format other than grey or RGB.
+fn decode_jpeg_reduced(bytes: &[u8], target: (u32, u32)) -> Option<Decoded> {
+    let mut decoder = jpeg_decoder::Decoder::new(Cursor::new(bytes));
+    let (width, height) = decoder
+        .scale(u16::try_from(target.0).ok()?, u16::try_from(target.1).ok()?)
+        .ok()?;
+    let samples = decoder.decode().ok()?;
+    let format = decoder.info()?.pixel_format;
+    let (width, height) = (u32::from(width), u32::from(height));
+    let pixels = width as usize * height as usize;
+    let rgba: Vec<u8> = match format {
+        jpeg_decoder::PixelFormat::RGB24 if samples.len() == pixels * 3 => samples
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        jpeg_decoder::PixelFormat::L8 if samples.len() == pixels => {
+            samples.iter().flat_map(|&g| [g, g, g, 255]).collect()
+        }
+        _ => return None,
+    };
+    (width >= target.0 && height >= target.1).then(|| (width, height, rgba, decoder.icc_profile()))
 }
 
 /// Reads and decodes a file, as [`decode`].
