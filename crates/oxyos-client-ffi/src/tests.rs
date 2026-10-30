@@ -2319,6 +2319,7 @@ fn declaration(name: &str) -> String {
             "int64_t" => "i64".into(),
             "int64_t*" => "*mut i64".into(),
             "uint32_t*" => "*mut u32".into(),
+            "uint64_t*" => "*mut u64".into(),
             "int" => "i32".into(),
             "uint32_t" => "u32".into(),
             "uint64_t" => "u64".into(),
@@ -2326,7 +2327,6 @@ fn declaration(name: &str) -> String {
             "OxyOSClient*" => format!("*mut {}", std::any::type_name::<OxyOSClient>()),
             "const OxyOSRect*" => format!("*const {}", std::any::type_name::<OxyOSRect>()),
             "size_t*" => "*mut usize".into(),
-            "uint64_t*" => "*mut u64".into(),
             "const uint8_t*" => "*const u8".into(),
             "OxyOSFiles*" => format!("*mut {}", std::any::type_name::<crate::files::OxyOSFiles>()),
             "OxyOSFilesReply*" => format!(
@@ -2338,6 +2338,17 @@ fn declaration(name: &str) -> String {
                 std::any::type_name::<crate::files::OxyOSFilesReply>()
             ),
             "uint8_t" => "u8".into(),
+            "OxyOSGpuFormat*" => format!(
+                "*mut {}",
+                std::any::type_name::<crate::gpu::OxyOSGpuFormat>()
+            ),
+            "const OxyOSDmabufPlane*" => format!(
+                "*const {}",
+                std::any::type_name::<crate::gpu::OxyOSDmabufPlane>()
+            ),
+            "const OxyOSSync*" => {
+                format!("*const {}", std::any::type_name::<crate::gpu::OxyOSSync>())
+            }
             "const OxyOSSolarAnchor*" => format!(
                 "*const {}",
                 std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
@@ -3271,6 +3282,8 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
 }
 /// The menu bar (ADR 0021).
 mod displays;
+/// GPU buffers (ADR 0031).
+mod gpu;
 mod menus;
 /// Notifications (ADR 0026).
 mod notifications;

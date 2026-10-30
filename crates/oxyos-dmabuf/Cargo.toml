@@ -1,0 +1,25 @@
+[package]
+name = "oxyos-dmabuf"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# DRM syncobj timelines on a render node (docs/adr/0031-gpu-buffers.mdx, decision 6).
+drm = "0.15"
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "mm", "event"] }
+
+[dev-dependencies]
+rustix = { version = "1.1.6", default-features = false, features = ["pipe"] }
+
+# The workspace forbids `unsafe`. Mapping a DMA-BUF and its ioctls need it, so this crate denies it
+# instead and allows it item by item; every unsafe block states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

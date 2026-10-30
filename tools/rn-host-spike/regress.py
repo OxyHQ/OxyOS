@@ -17,6 +17,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   input routed to any other client; and, given `launched`, what the applications the shell
   launched received, by kind (exact; "close.requested" among them);
 - popups: how many popups of the application are shown after the step;
+- gpu_frames: the application's frames of GPU buffers (DMA-BUFs, docs/adr/0031-gpu-buffers.mdx)
+  the compositor latched since the run began, at least "latched_min", and at least "waited_min"
+  of them held until their acquire point signalled: frames that took the GPU path, not shared
+  memory;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
   they leave on the primary and "work_areas" on every output (by id), exactly, and whether the
@@ -1329,6 +1333,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         count = len(result.get("popups", [result["popup"]] if "popup" in result else []))
         if count != expect["popups"]:
             fail(f"{count} popups shown, expected {expect['popups']}")
+    if "gpu_frames" in expect:
+        got = result.get("gpu_frames", {"latched": 0, "waited": 0})
+        for key in ("latched", "waited"):
+            least = expect["gpu_frames"].get(f"{key}_min", 0)
+            if got[key] < least:
+                fail(f"{got[key]} frames of GPU buffers {key}, expected at least {least}")
     if "shell" in expect:
         # The shell's surfaces (output rectangles, bottom to top) and the work area they leave.
         held = result.get("shell") or {}

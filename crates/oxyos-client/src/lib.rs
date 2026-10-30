@@ -19,9 +19,11 @@ use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
 use std::path::Path;
 
+mod gpu;
 #[cfg(test)]
 mod tests;
 mod text_input;
+pub use gpu::{GpuChange, GpuTable, SyncPoints, MAX_PLANES};
 pub use text_input::{Field, Transaction};
 
 /// The compositor closed the connection. A socket closed while requests were still unread
@@ -81,6 +83,8 @@ pub struct Client {
     offers: std::collections::VecDeque<(u32, Offer)>,
     next_offer: u32,
     text_inputs: text_input::TextInputs,
+    /// GPU buffers: the compositor's tables and this connection's timelines (ADR 0031).
+    gpu: gpu::Gpu,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -113,6 +117,7 @@ impl Client {
             offers: std::collections::VecDeque::new(),
             next_offer: 0,
             text_inputs: text_input::TextInputs::default(),
+            gpu: gpu::Gpu::default(),
         })
     }
 
@@ -336,6 +341,17 @@ impl Client {
         configure: u64,
         damage: Option<&[Rect]>,
     ) -> io::Result<u64> {
+        let presented = self.queue_damage(surface, buffer, damage)?;
+        self.submit_queued(surface, buffer, configure, presented)
+    }
+
+    /// Sends a submit's damage for a caller-owned buffer, clipped to it; what the submit records.
+    pub(crate) fn queue_damage(
+        &mut self,
+        surface: u32,
+        buffer: u64,
+        damage: Option<&[Rect]>,
+    ) -> io::Result<(Size, Option<Vec<Rect>>)> {
         let extent = self
             .attached
             .iter()
@@ -357,6 +373,17 @@ impl Client {
                 rect: *rect,
             })?;
         }
+        Ok((extent, damage))
+    }
+
+    /// The submit after [`Client::queue_damage`]: the frame's sequence, recorded with its damage.
+    pub(crate) fn submit_queued(
+        &mut self,
+        surface: u32,
+        buffer: u64,
+        configure: u64,
+        (extent, damage): (Size, Option<Vec<Rect>>),
+    ) -> io::Result<u64> {
         self.sequence += 1;
         self.history.push_back(Presented {
             surface,
@@ -880,6 +907,7 @@ impl Client {
     /// Frees released buffers for reuse; a protocol error ends the connection.
     fn observe(&mut self, event: Event) -> io::Result<Event> {
         self.observe_text_input(&event);
+        self.gpu.observe(&event);
         match event {
             // A paste of what this client copied: written into its pipe from a thread, so a
             // slow reader stalls neither the client nor the compositor.

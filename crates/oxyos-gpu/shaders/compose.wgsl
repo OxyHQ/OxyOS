@@ -49,6 +49,9 @@ struct Layer {
     // another size, docs/adr/0011-transitions.mdx, step 5); 0, nearest neighbour (at 1:1, the
     // pixels as they are).
     sampling: u32,
+    // A client's GPU buffer the layer is drawn from (docs/adr/0031-gpu-buffers.mdx): its slot in
+    // `images`, plus one; 0, its pixels are in `src`.
+    image: u32,
 }
 
 // The region of the output a dispatch composes, the output's size, its background and how many
@@ -69,6 +72,14 @@ var<push_constant> frame: Frame;
 @group(0) @binding(1) var<storage, read_write> dst: array<u32>;
 // The frame's layers, bottom to top: each one's `base_*` and `count_*` the part of it drawn.
 @group(0) @binding(2) var<storage, read> layers: array<Layer>;
+//@images-binding
+
+// Pixel (x, y) of layer `i`'s pixels, 0xAARRGGBB: from `src`, or from the client's GPU buffer
+// (an 8-bit UNORM image, so each channel loads as a level / 255 and rounds back exactly).
+fn texel(i: u32, x: u32, y: u32) -> u32 {
+    //@images-texel
+    return src[layers[i].src_offset + y * layers[i].src_width + x];
+}
 
 // Half-pixel distances beyond this from a shadow's shape are taken as this (`shape::FAR`).
 const FAR: i32 = 8192;
@@ -206,7 +217,7 @@ fn sample(i: u32, lx: u32, ly: u32, opaque: bool) -> u32 {
             let to_x = through(columns, x);
             let wx = to_x - before;
             before = to_x;
-            let pixel = src[layers[i].src_offset + y * layers[i].src_width + x];
+            let pixel = texel(i, x, y);
             var alpha = pixel >> 24u;
             if (opaque) {
                 alpha = 255u;
@@ -255,7 +266,7 @@ fn blend(i: u32, lx: u32, ly: u32, coverage: u32, under: u32) -> u32 {
         } else {
             let sx = lx * layers[i].src_width / layers[i].width;
             let sy = ly * layers[i].src_height / layers[i].height;
-            pixel = src[layers[i].src_offset + sy * layers[i].src_width + sx];
+            pixel = texel(i, sx, sy);
         }
         source = pixel & 0xffffffu;
         if (layers[i].mode == 1u) {

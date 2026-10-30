@@ -70,6 +70,13 @@ pub fn write(
             Paint::Premultiplied(pixels) => (1, 0, pixels, None),
             Paint::Fill(color) => (2, color, &[], None),
             Paint::Shadow(pixels, shadow) => (3, 0, pixels, Some(shadow)),
+            // A client's GPU buffer is written as the pixels the CPU read of it.
+            Paint::Imported {
+                opaque: true,
+                pixels,
+                ..
+            } => (0, 0, pixels, None),
+            Paint::Imported { pixels, .. } => (1, 0, pixels, None),
         };
         out.write_all(&layer.x.to_le_bytes())?;
         out.write_all(&layer.y.to_le_bytes())?;

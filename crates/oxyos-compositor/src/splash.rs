@@ -39,7 +39,7 @@ pub fn splash(size: Size) -> Option<Snapshot> {
     };
     let picture = oxyos_vector::render(&[mark], size.width, size.height)?;
     // Premultiplied R, G, B, A over black is R, G, B: the frame's pixels, B, G, R, X in memory.
-    let pixels = picture
+    let pixels: Vec<u8> = picture
         .pixels
         .chunks_exact(4)
         .flat_map(|rgba| [rgba[2], rgba[1], rgba[0], 0xff])
@@ -48,7 +48,7 @@ pub fn splash(size: Size) -> Option<Snapshot> {
         rect: Rect::new(0, 0, size.width, size.height),
         extent: size,
         format: Format::Xrgb8888,
-        pixels: std::rc::Rc::new(pixels),
+        pixels: std::rc::Rc::new(pixels.into()),
         look: None,
         views: Vec::new(),
     })

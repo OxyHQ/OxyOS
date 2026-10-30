@@ -1,0 +1,28 @@
+[package]
+name = "oxyos-gpu-client"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-client = { path = "../../crates/oxyos-client" }
+oxyos-protocol = { path = "../../crates/oxyos-protocol" }
+# Vulkan, loaded at run time, as oxyos-gpu does (docs/adr/0004).
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "fs"] }
+
+# The workspace forbids `unsafe`. Vulkan needs it, so this crate denies it instead and allows it
+# item by item; every unsafe block states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+
+[dev-dependencies]
+oxyos-dmabuf = { path = "../../crates/oxyos-dmabuf" }
+oxyos-ipc = { path = "../../crates/oxyos-ipc" }

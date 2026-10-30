@@ -2019,3 +2019,169 @@ fn an_opaque_layer_at_its_own_size_is_its_pixels_as_drawn_from_any_other() {
         );
     }
 }
+
+/// Clients' GPU buffers (docs/adr/0031-gpu-buffers.mdx): a DMA-BUF imported with the linear
+/// modifier and sampled in place composes exactly as the same pixels uploaded do, opaque or
+/// premultiplied, at its size or filtered, rounded, translucent and clipped; a frame naming an
+/// import the device dropped draws the pixels the CPU read instead.
+#[test]
+fn a_dma_buf_sampled_in_place_composes_as_its_pixels_do() {
+    use std::os::fd::AsFd;
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let argb = 0x3432_5241;
+    let xrgb = 0x3432_5258;
+    if !gpu
+        .dma_buf_formats()
+        .iter()
+        .any(|format| format.fourcc == argb && format.modifier == 0 && format.planes == 1)
+    {
+        eprintln!("{} imports no linear DMA-BUF, skipped", gpu.device_name());
+        return;
+    }
+    let (window, popup) = frame();
+    // Each buffer in a DMA-BUF of its own, its rows padded to a stride of 80 pixels beyond an
+    // offset, as a GPU's allocation may be.
+    let stride = 80 * 4;
+    let made = |pixels: &[u8], width: u32, height: u32| {
+        let offset = 256u32;
+        let size = u64::from(offset) + u64::from(stride) * u64::from(height);
+        let (memfd, buffer) = match oxyos_dmabuf::shared_dmabuf(size) {
+            Ok(made) => made,
+            Err(error) => {
+                eprintln!("no udmabuf ({error}), skipped; tools/gpu-vm runs it");
+                return None;
+            }
+        };
+        for row in 0..height {
+            let start = (row * width * 4) as usize;
+            rustix::io::pwrite(
+                &memfd,
+                &pixels[start..start + width as usize * 4],
+                u64::from(offset + row * stride),
+            )
+            .unwrap();
+        }
+        Some((buffer, offset))
+    };
+    let Some((window_buffer, window_offset)) = made(&window, 64, 48) else {
+        return;
+    };
+    let (popup_buffer, popup_offset) = made(&popup, 20, 30).expect("udmabuf");
+    let import = |gpu: &mut VulkanCompositor,
+                  fourcc,
+                  buffer: &oxyos_dmabuf::DmaBuf,
+                  offset,
+                  width,
+                  height| {
+        gpu.import_dma_buf(
+            fourcc,
+            0,
+            width,
+            height,
+            &[DmaBufPlane {
+                fd: buffer.as_fd(),
+                offset,
+                stride,
+            }],
+        )
+        .unwrap()
+    };
+    let window_image = import(&mut gpu, xrgb, &window_buffer, window_offset, 64, 48);
+    let popup_image = import(&mut gpu, argb, &popup_buffer, popup_offset, 20, 30);
+    let reference = layers(&window, &popup);
+    let imported: Vec<Layer<'_>> = reference
+        .iter()
+        .map(|layer| match layer.paint {
+            Paint::Opaque(pixels) => Layer {
+                paint: Paint::Imported {
+                    image: window_image,
+                    opaque: true,
+                    pixels,
+                },
+                ..*layer
+            },
+            Paint::Premultiplied(pixels) => Layer {
+                paint: Paint::Imported {
+                    image: popup_image,
+                    opaque: false,
+                    pixels,
+                },
+                ..*layer
+            },
+            _ => *layer,
+        })
+        .collect();
+    // Filtered smaller, rounded, translucent and clipped.
+    let mut drawn = imported.clone();
+    drawn[0].width = 40;
+    drawn[0].height = 30;
+    drawn[0].filter = Filter::Box;
+    drawn[0].radius = 8;
+    drawn[1].opacity = 180;
+    drawn[1].clip = Some(Rect {
+        x: 72,
+        y: 44,
+        width: 10,
+        height: 20,
+    });
+    for layers in [&imported, &drawn] {
+        for (width, height) in [(120, 90), (1280, 720)] {
+            let cpu = compose_cpu(width, height, 0x0011_2233, layers);
+            let vulkan = gpu.compose(width, height, 0x0011_2233, layers).unwrap();
+            assert_eq!(vulkan, cpu, "{width}x{height}");
+        }
+    }
+    // The GPU samples the buffer itself: with no pixels read, it composes what they would.
+    let unread: Vec<Layer<'_>> = imported
+        .iter()
+        .map(|layer| match layer.paint {
+            Paint::Imported { image, opaque, .. } => Layer {
+                paint: Paint::Imported {
+                    image,
+                    opaque,
+                    pixels: &[],
+                },
+                ..*layer
+            },
+            _ => *layer,
+        })
+        .collect();
+    assert_eq!(
+        gpu.compose(120, 90, 0x0011_2233, &unread).unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &imported)
+    );
+    // A frame waited for read them and is done.
+    assert!(!gpu.reads_dma_buf(window_image));
+    gpu.forget_dma_buf(window_image);
+    // Forgotten, the window is drawn from the pixels the CPU read.
+    assert_eq!(
+        gpu.compose(120, 90, 0x0011_2233, &imported).unwrap(),
+        compose_cpu(120, 90, 0x0011_2233, &imported)
+    );
+    let refused = gpu.import_dma_buf(
+        argb,
+        0,
+        64,
+        4096,
+        &[DmaBufPlane {
+            fd: window_buffer.as_fd(),
+            offset: 0,
+            stride,
+        }],
+    );
+    assert!(
+        refused.is_err(),
+        "a DMA-BUF smaller than its image is refused"
+    );
+    assert!(
+        gpu.import_dma_buf(argb, 0x0100_0000_0000_0001, 64, 48, &[])
+            .is_err(),
+        "a modifier not in the table is refused"
+    );
+}

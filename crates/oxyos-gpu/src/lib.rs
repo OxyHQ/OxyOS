@@ -18,6 +18,17 @@ pub enum Paint<'a> {
     /// ([`ShadowProfile`]), each output pixel the profile's for its distance from the shape
     /// casting it, never within what it is beneath.
     Shadow(&'a [u8], Shadow),
+    /// A client's GPU buffer (docs/adr/0031-gpu-buffers.mdx), imported into the Vulkan compositor
+    /// as `image` ([`VulkanCompositor::import_dma_buf`]) and sampled there in place: opaque
+    /// (XRGB8888) or premultiplied (ARGB8888). `pixels` are its pixels as the CPU read them (B, G,
+    /// R, X or A in memory, rows of the extent), what the CPU composition draws; empty when they
+    /// were not read, and then the CPU draws nothing of it. A Vulkan compositor that does not hold
+    /// `image` draws `pixels` as it draws any layer's.
+    Imported {
+        image: u64,
+        opaque: bool,
+        pixels: &'a [u8],
+    },
 }
 
 /// Where a shadow is, relative to its layer's rectangle (output pixels): the rounded rectangle
@@ -110,10 +121,28 @@ pub struct Source {
 impl Layer<'_> {
     fn pixels(&self) -> Option<&[u8]> {
         match self.paint {
-            Paint::Opaque(pixels) | Paint::Premultiplied(pixels) | Paint::Shadow(pixels, _) => {
-                Some(pixels)
-            }
+            Paint::Opaque(pixels)
+            | Paint::Premultiplied(pixels)
+            | Paint::Shadow(pixels, _)
+            | Paint::Imported { pixels, .. } => Some(pixels),
             Paint::Fill(_) => None,
+        }
+    }
+
+    /// The layer as the CPU draws it: a GPU buffer's pixels as the CPU read them, opaque or
+    /// premultiplied; `None` for a GPU buffer whose pixels were not read.
+    fn on_cpu(&self) -> Option<Layer<'_>> {
+        match self.paint {
+            Paint::Imported { pixels: [], .. } => None,
+            Paint::Imported { opaque, pixels, .. } => Some(Layer {
+                paint: if opaque {
+                    Paint::Opaque(pixels)
+                } else {
+                    Paint::Premultiplied(pixels)
+                },
+                ..*self
+            }),
+            _ => Some(*self),
         }
     }
 
@@ -121,10 +150,13 @@ impl Layer<'_> {
     /// of at most `MAX_PROFILE` entries.
     fn valid(&self) -> bool {
         let needed = u64::from(self.extent.0) * u64::from(self.extent.1) * 4;
+        let imported = matches!(self.paint, Paint::Imported { pixels, .. } if pixels.is_empty());
         self.width > 0
             && self.height > 0
             && self.pixels().is_none_or(|pixels| {
-                self.extent.0 > 0 && self.extent.1 > 0 && pixels.len() as u64 >= needed
+                self.extent.0 > 0
+                    && self.extent.1 > 0
+                    && (imported || pixels.len() as u64 >= needed)
             })
             && match self.paint {
                 Paint::Shadow(_, shadow) => {
@@ -146,7 +178,10 @@ impl Layer<'_> {
     /// they are, as before filtering.
     fn filtered(&self) -> bool {
         self.filter == Filter::Box
-            && matches!(self.paint, Paint::Opaque(_) | Paint::Premultiplied(_))
+            && matches!(
+                self.paint,
+                Paint::Opaque(_) | Paint::Premultiplied(_) | Paint::Imported { .. }
+            )
             && (filter::scaled(self.extent.0, self.width)
                 || filter::scaled(self.extent.1, self.height))
             && filter::filters(self.extent.0, self.width)
@@ -259,7 +294,9 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
         height,
     };
     for layer in layers.iter().filter(|layer| layer.valid()) {
-        draw_cpu(&mut out, width, height, layer, whole);
+        if let Some(layer) = layer.on_cpu() {
+            draw_cpu(&mut out, width, height, &layer, whole);
+        }
     }
     out
 }
@@ -288,7 +325,9 @@ pub fn compose_cpu_damaged(
             out[row + rect.x as usize..row + rect.right() as usize].fill(background);
         }
         for layer in layers.iter().filter(|layer| layer.valid()) {
-            draw_cpu(out, width, height, layer, rect);
+            if let Some(layer) = layer.on_cpu() {
+                draw_cpu(out, width, height, &layer, rect);
+            }
         }
     }
 }
@@ -426,6 +465,8 @@ fn draw_cpu(out: &mut [u32], width: u32, height: u32, layer: &Layer<'_>, within:
                     )
                 }
                 (Paint::Fill(color), _) => (color & 0x00ff_ffff, 255),
+                // Drawn as `on_cpu` makes it: opaque or premultiplied pixels.
+                (Paint::Imported { .. }, _) => unreachable!("drawn as its pixels"),
                 (Paint::Opaque(pixels), _) => (pixel(pixels, source_index()) & 0x00ff_ffff, 255),
                 (Paint::Premultiplied(pixels), _) => {
                     let source = pixel(pixels, source_index());
@@ -481,14 +522,26 @@ pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};
 mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::ScanoutTarget;
-pub use vulkan::{DeviceKind, VulkanCompositor};
+pub use vulkan::{DeviceKind, DmaBufFormat, DmaBufPlane, VulkanCompositor};
 
-/// The SPIR-V of the composition shader (`shaders/compose.wgsl`).
-fn shader() -> Vec<u32> {
-    include_bytes!(concat!(env!("OUT_DIR"), "/compose.spv"))
+fn words(bytes: &[u8]) -> Vec<u32> {
+    bytes
         .chunks_exact(4)
         .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
         .collect()
+}
+
+/// The SPIR-V of the composition shader (`shaders/compose.wgsl`).
+fn shader() -> Vec<u32> {
+    words(include_bytes!(concat!(env!("OUT_DIR"), "/compose.spv")))
+}
+
+/// The same, also sampling clients' GPU buffers in place (docs/adr/0031-gpu-buffers.mdx).
+fn shader_images() -> Vec<u32> {
+    words(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/compose_images.spv"
+    )))
 }
 
 #[cfg(test)]

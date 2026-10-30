@@ -376,6 +376,28 @@ fn requests() -> Vec<Request> {
             input: 42,
             capability: 1,
         },
+        Request::AttachDmabufPlane {
+            buffer: 9,
+            plane: 1,
+            offset: 4096,
+            stride: 7680,
+        },
+        Request::AttachDmabuf {
+            buffer: 9,
+            format: Format::Argb8888,
+            modifier: 0x0100_0000_0000_0002,
+            extent: Size::new(1920, 1200),
+            planes: 2,
+        },
+        Request::ImportTimeline { timeline: 3 },
+        Request::DestroyTimeline { timeline: 3 },
+        Request::SetSync {
+            surface: 1,
+            acquire_timeline: 3,
+            acquire_point: 10,
+            release_timeline: 3,
+            release_point: 11,
+        },
     ]
 }
 
@@ -661,6 +683,26 @@ fn events() -> Vec<Event> {
         Event::CapabilityResult {
             serial: 12,
             granted: false,
+        },
+        Event::GpuDevice {
+            device: 0xe280,
+            formats: 2,
+        },
+        Event::GpuFormat {
+            index: 1,
+            format: Format::Xrgb8888,
+            modifier: 0,
+        },
+        Event::BufferFailed { buffer: 9 },
+        Event::GpuScanout {
+            surface: 1,
+            formats: 1,
+        },
+        Event::GpuScanoutFormat {
+            surface: 1,
+            index: 0,
+            format: Format::Argb8888,
+            modifier: 0x0100_0000_0000_0001,
         },
         Event::WindowState {
             window: 7,
@@ -1358,6 +1400,18 @@ fn buffer_layouts_are_checked_without_overflow() {
     }
     .carries_fd());
     assert!(!Request::Goodbye {}.carries_fd());
+    // A DMA-BUF's planes and a timeline come with their descriptors; the buffer they make and
+    // the points named on them carry none.
+    for request in requests() {
+        let expected = matches!(
+            request,
+            Request::AttachBuffer { .. }
+                | Request::ClipboardReceive { .. }
+                | Request::AttachDmabufPlane { .. }
+                | Request::ImportTimeline { .. }
+        );
+        assert_eq!(request.carries_fd(), expected, "{request:?}");
+    }
 }
 
 #[test]

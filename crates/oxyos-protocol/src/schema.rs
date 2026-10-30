@@ -284,6 +284,18 @@ messages! {
         // `capability` 1 notifications, 2 files, 3 camera, 4 microphone, 5 location), citing a
         // user input; answered by CapabilityResult naming `serial`.
         162 => RequestCapability { serial: u32, input: u64, capability: u8 },
+        // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
+        // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
+        // checked and imported before it is used (BufferFailed when a well-formed one cannot be).
+        170 => AttachDmabufPlane { buffer: u64, plane: u8, offset: u32, stride: u32 },
+        171 => AttachDmabuf { buffer: u64, format: Format, modifier: u64, extent: Size, planes: u8 },
+        // A DRM syncobj timeline of the connection's, with its descriptor, and its end.
+        172 => ImportTimeline { timeline: u32 },
+        173 => DestroyTimeline { timeline: u32 },
+        // For the surface's next Submit, as Damage is: its buffer may be read once the acquire
+        // point signals, and the compositor signals the release point once it no longer reads it.
+        // Timeline 0 is none: a buffer submitted without an acquire point is ready when submitted.
+        174 => SetSync { surface: u32, acquire_timeline: u32, acquire_point: u64, release_timeline: u32, release_point: u64 },
     }
 }
 
@@ -504,6 +516,19 @@ messages! {
         162 => SheetDismissed { sheet: u32 },
         // To the application whose RequestCapability `serial` it answers.
         163 => CapabilityResult { serial: u32, granted: bool },
+        // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
+        // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
+        // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.
+        170 => GpuDevice { device: u64, formats: u32 },
+        171 => GpuFormat { index: u32, format: Format, modifier: u64 },
+        // A well-formed AttachDmabuf the compositor could not import: allocate again, or use
+        // shared memory. A Submit naming it is discarded.
+        172 => BufferFailed { buffer: u64 },
+        // The formats and modifiers a surface's buffer would be scanned out in, its output's
+        // primary plane's on the composing device, when the surface is all its output shows; no
+        // formats when it is no longer.
+        173 => GpuScanout { surface: u32, formats: u32 },
+        174 => GpuScanoutFormat { surface: u32, index: u32, format: Format, modifier: u64 },
     }
 }
 
@@ -521,7 +546,10 @@ impl Request {
     pub fn carries_fd(&self) -> bool {
         matches!(
             self,
-            Request::AttachBuffer { .. } | Request::ClipboardReceive { .. }
+            Request::AttachBuffer { .. }
+                | Request::ClipboardReceive { .. }
+                | Request::AttachDmabufPlane { .. }
+                | Request::ImportTimeline { .. }
         )
     }
 
