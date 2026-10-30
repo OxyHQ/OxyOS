@@ -16,7 +16,7 @@ export type SheetText =
   | { kind: "consent"; update: AvailableUpdate }
   | { kind: "permission"; id: string; capability: string; name?: string };
 
-type Plan = {
+export type Plan = {
   id: string;
   name: string;
   names: Record<string, string>;
@@ -28,7 +28,7 @@ type Plan = {
   update: boolean;
 };
 
-type AvailableUpdate = {
+export type AvailableUpdate = {
   id: string;
   name: string;
   names: Record<string, string>;

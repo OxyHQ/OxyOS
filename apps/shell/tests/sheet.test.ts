@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readSheet, sheetArrived, sheetGone, sheetView, size } from "../src/sheet.ts";
+import { readSheet, sheetArrived, sheetGone, sheetView, size, type AvailableUpdate, type Plan } from "../src/sheet.ts";
 
-const plan = {
+const plan: Plan = {
   id: "so.oxy.notes",
   name: "Notes",
   names: { es: "Notas" },
@@ -38,7 +38,7 @@ test("removing says the data goes, and its button is destructive", () => {
 });
 
 test("a consent lists what the update adds, and a rotated key", () => {
-  const update = {
+  const update: AvailableUpdate = {
     id: "so.oxy.notes",
     name: "Notes",
     names: {},
