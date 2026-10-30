@@ -168,6 +168,12 @@ messages! {
         // its registry by id (ADR 0013), in chunks as SetAppId's; `serial`, the shell's own,
         // names the request in LaunchResult. The session starts only what its registry lists.
         58 => LaunchApplication { serial: u32, index: u8, last: bool, text: PreeditText },
+        // A toplevel's own window (ADR 0016): the logical sizes it can take (a zero is no bound;
+        // the compositor never configures it outside them), zoomed to fill the work area or
+        // restored, and minimized as the shell minimizes it.
+        59 => SetSizeLimits { surface: u32, min_width: u32, min_height: u32, max_width: u32, max_height: u32 },
+        60 => SetMaximized { surface: u32, enabled: bool },
+        61 => Minimize { surface: u32 },
     }
 }
 
@@ -176,7 +182,7 @@ messages! {
     /// never learn global coordinates or other clients' geometry.
     Event {
         1 => Welcome { version: u16 },
-        2 => Configure { surface: u32, serial: u64, rect: Rect, scale_120: u32, fullscreen: bool },
+        2 => Configure { surface: u32, serial: u64, rect: Rect, scale_120: u32, fullscreen: bool, maximized: bool },
         3 => PopupDone { surface: u32, reason: DismissReason },
         4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32 },
         5 => Key { surface: u32, serial: u64, key: u32, pressed: bool },
@@ -264,6 +270,10 @@ messages! {
         // To the screen reader (its `screen_reader` grant, ADR 0014): a command of its keys, which
         // the compositor took from the keyboard (Ctrl+Alt with an arrow or Space).
         50 => ScreenReaderCommand { command: ReaderCommand },
+        // To a toplevel (ADR 0016): it became, or stopped being, the active window, the one that
+        // has the keyboard focus itself or through its popups or dialogs. The shell's panels
+        // taking focus leave it active; its overlays and the lock do not.
+        51 => Activated { surface: u32, active: bool },
     }
 }
 

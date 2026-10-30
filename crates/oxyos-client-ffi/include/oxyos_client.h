@@ -8,6 +8,7 @@
 #ifndef OXYOS_CLIENT_H
 #define OXYOS_CLIENT_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -45,6 +46,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_AUTHENTICATION_RESULT 45
 #define OXYOS_EVENT_CAPS_LOCK 46
 #define OXYOS_EVENT_LAUNCH_RESULT 49
+#define OXYOS_EVENT_ACTIVATED 51
+/* A CONFIGURE's flag bits (docs/adr/0016-windows.mdx). */
+#define OXYOS_CONFIGURE_FULLSCREEN 1
+#define OXYOS_CONFIGURE_MAXIMIZED 2
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -87,7 +92,10 @@ typedef struct OxyOSClient OxyOSClient;
 
 /* One compositor event. Fields by kind:
  *   CONFIGURE   serial; x, y, width, height: the rect (logical; a popup's is relative to its
- *               parent); scale_120: scale * 120; flag: fullscreen.
+ *               parent); scale_120: scale * 120; flag: OXYOS_CONFIGURE_* bits (full screen,
+ *               zoomed to the work area).
+ *   ACTIVATED   flag: whether the toplevel is now the active window (it, or one of its popups or
+ *               dialogs, has the keyboard focus; the shell's panels taking it leave it active).
  *   POPUP_DONE  detail: dismiss reason.
  *   POINTER     serial; x, y: surface-local position in 1/256 logical pixels; detail: pointer
  *               kind; code: button (Linux input code, 272 = left).
@@ -327,6 +335,16 @@ int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, ui
 #define OXYOS_POINTER_ZOOM_OUT 16
 /* The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0, or OXYOS_ERROR. */
 int oxyos_client_set_pointer_shape(OxyOSClient* client, uint32_t surface, uint8_t shape);
+/* A toplevel's own window (docs/adr/0016-windows.mdx). begin_move: the compositor moves it with
+ * the pointer from the press `serial` names (the one being handled) until its buttons are up.
+ * set_maximized zooms it to its output's work area or restores it; minimize puts it in the dock;
+ * set_size_limits: the logical sizes it can take, a zero maximum unbounded. 0, or OXYOS_ERROR. */
+int oxyos_client_begin_move(OxyOSClient* client, uint32_t surface, uint64_t serial);
+int oxyos_client_set_fullscreen(OxyOSClient* client, uint32_t surface, bool enabled);
+int oxyos_client_set_maximized(OxyOSClient* client, uint32_t surface, bool enabled);
+int oxyos_client_minimize(OxyOSClient* client, uint32_t surface);
+int oxyos_client_set_size_limits(OxyOSClient* client, uint32_t surface, uint32_t min_width, uint32_t min_height,
+                                 uint32_t max_width, uint32_t max_height);
 int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,
                                   uint32_t height);
 int oxyos_client_create_popup(OxyOSClient* client, uint32_t surface, uint32_t parent,

@@ -5699,3 +5699,355 @@ fn one_screen_reader_and_a_release_is_taken_with_its_press() {
     );
     assert_eq!(h.scene.connect(9, screen_reader()), Ok(()));
 }
+
+// ---- a window's own operations (ADR 0016) ------------------------------------------------
+
+fn activations(h: &Harness) -> Vec<(ClientId, u32, bool)> {
+    h.log
+        .iter()
+        .filter_map(|(client, event)| match event {
+            Event::Activated { surface, active } => Some((*client, *surface, *active)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn last_configure_maximized(h: &Harness, surface: SurfaceKey) -> Option<bool> {
+    h.log.iter().rev().find_map(|(client, event)| match event {
+        Event::Configure {
+            surface: id,
+            maximized,
+            ..
+        } if *client == surface.client && *id == surface.id => Some(*maximized),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_compositor_resizes_a_window_from_the_band_outside_its_edges() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    // Outside the right edge: the resize pointer, and the window is not entered.
+    h.clear_log();
+    h.scene.pointer_motion(w.x + 400 + 3, w.y + 150);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::ResizeHorizontal);
+    h.scene.pointer_motion(w.x - 3, w.y - 3);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::ResizeTopLeft);
+    h.scene.pointer_motion(w.x + 400 + 2, w.y + 300 - 5);
+    assert_eq!(
+        h.scene.pointer_shape(),
+        PointerShape::ResizeTopLeft,
+        "the corner"
+    );
+    h.scene.pointer_motion(w.x + 200, w.y + 300 + 4);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::ResizeVertical);
+    h.scene.pointer_motion(w.x + 200, w.y + 300 + 7);
+    assert_eq!(
+        h.scene.pointer_shape(),
+        PointerShape::Arrow,
+        "beyond the band"
+    );
+
+    // A drag from the right edge: the client is configured, and sees no press.
+    h.scene.pointer_motion(w.x + 400 + 3, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x + 400 + 53, w.y + 170);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(pointer_presses(&h.events_for(APP)), 0);
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 450, 300));
+
+    // From the left edge: the right edge stays where it is.
+    h.scene.pointer_motion(w.x - 3, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x - 43, w.y + 150);
+    h.scene.pointer_button(BUTTON, false);
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x - 40, w.y, 490, 300));
+
+    // Never outside the window's limits.
+    h.request(
+        APP,
+        Request::SetSizeLimits {
+            surface: 1,
+            min_width: 380,
+            min_height: 280,
+            max_width: 500,
+            max_height: 0,
+        },
+    )
+    .unwrap();
+    let w = h.rect(window);
+    h.scene
+        .pointer_motion(w.right() as i32 + 3, w.bottom() as i32 + 3);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene
+        .pointer_motion(w.right() as i32 + 203, w.bottom() as i32 + 203);
+    h.scene.pointer_button(BUTTON, false);
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 500, 500));
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x - 3, w.y - 3);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x + 400, w.y + 400);
+    h.scene.pointer_button(BUTTON, false);
+    h.present(window);
+    assert_eq!(
+        h.rect(window),
+        Rect::new(w.x + 120, w.y + 220, 380, 280),
+        "the far corner stays"
+    );
+    // Limits a window is outside of configure it at once.
+    h.request(
+        APP,
+        Request::SetSizeLimits {
+            surface: 1,
+            min_width: 600,
+            min_height: 0,
+            max_width: 0,
+            max_height: 0,
+        },
+    )
+    .unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window).width, 600);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::SetSizeLimits {
+                surface: 1,
+                min_width: 600,
+                min_height: 0,
+                max_width: 500,
+                max_height: 0,
+            },
+        ),
+        Err(ErrorCode::InvalidGeometry)
+    );
+}
+
+#[test]
+fn the_resize_band_yields_to_what_is_above_it_and_is_absent_when_full_screen_or_locked() {
+    let mut h = Harness::new();
+    let below = h.toplevel(APP, 1, 400, 300);
+    let above = h.toplevel(OTHER, 1, 800, 600);
+    let w = h.rect(below);
+    // The band of the window below is under the window above: the press is the window's.
+    h.clear_log();
+    h.click(w.x + 400 + 3, w.y + 150);
+    assert_eq!(pointer_presses(&h.events_for(OTHER)), 2);
+    assert_eq!(pointer_presses(&h.events_for(APP)), 0);
+    h.request(OTHER, Request::Destroy { surface: 1 }).unwrap();
+    let _ = above;
+
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.present(below);
+    h.scene.pointer_motion(10, 10);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+    h.request(
+        APP,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    h.present(below);
+    h.scene.lock();
+    h.pump();
+    h.scene.pointer_motion(w.x + 400 + 3, w.y + 150);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
+}
+
+#[test]
+fn a_window_zooms_to_the_work_area_and_restores_its_frame() {
+    let mut h = Harness::new();
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1, 32),
+            exclusive: 32,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    let window = h.toplevel(APP, 1, 400, 300);
+    let frame = h.rect(window);
+    let zoom = |h: &mut Harness, enabled| {
+        h.request(
+            APP,
+            Request::SetMaximized {
+                surface: 1,
+                enabled,
+            },
+        )
+        .unwrap();
+        h.present(window);
+    };
+    zoom(&mut h, true);
+    assert_eq!(h.rect(window), Rect::new(0, 32, 1920, 1048));
+    assert_eq!(last_configure_maximized(&h, window), Some(true));
+    assert!(h.scene.is_maximized(window));
+    zoom(&mut h, false);
+    assert_eq!(h.rect(window), frame);
+    assert_eq!(last_configure_maximized(&h, window), Some(false));
+
+    // A window that cannot be as wide is centred in the work area at its widest.
+    h.request(
+        APP,
+        Request::SetSizeLimits {
+            surface: 1,
+            min_width: 0,
+            min_height: 0,
+            max_width: 1000,
+            max_height: 0,
+        },
+    )
+    .unwrap();
+    zoom(&mut h, true);
+    assert_eq!(h.rect(window), Rect::new(460, 32, 1000, 1048));
+
+    // Resizing it by hand ends the zoom: zooming again fills the work area, not restores.
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x - 3, w.y + 500);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x + 97, w.y + 500);
+    h.scene.pointer_button(BUTTON, false);
+    h.present(window);
+    assert_eq!(last_configure_maximized(&h, window), Some(false));
+    assert!(!h.scene.is_maximized(window));
+    zoom(&mut h, true);
+    assert_eq!(h.rect(window), Rect::new(460, 32, 1000, 1048));
+
+    // Popups and other roles cannot zoom or minimize.
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 10, 10), 100, 100));
+    h.present(popup);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::SetMaximized {
+                surface: 2,
+                enabled: true,
+            },
+        ),
+        Err(ErrorCode::InvalidRole)
+    );
+    assert_eq!(
+        h.request(APP, Request::Minimize { surface: 2 }),
+        Err(ErrorCode::InvalidRole)
+    );
+}
+
+#[test]
+fn a_window_minimizes_itself_as_the_shell_minimizes_it() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(APP, Request::Minimize { surface: 1 }).unwrap();
+    h.frame();
+    assert!(!h.rendered(window));
+    assert!(h
+        .scene
+        .take_appearances()
+        .iter()
+        .any(|a| a.key == window && a.change == AppearanceChange::Minimized));
+    // Restored by the shell, then locked: a window cannot minimize itself under the lock.
+    h.scene.restore(window);
+    h.frame();
+    h.scene.lock();
+    h.request(APP, Request::Minimize { surface: 1 }).unwrap();
+    h.scene.unlock();
+    h.frame();
+    assert!(h.rendered(window));
+}
+
+#[test]
+fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or_the_lock() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    assert_eq!(activations(&h), vec![(APP, 1, true)]);
+    let second = h.toplevel(OTHER, 1, 300, 200);
+    assert_eq!(h.scene.active_window(), Some(second));
+    assert_eq!(
+        activations(&h)[1..],
+        [(APP, 1, false), (OTHER, 1, true)],
+        "the old one first"
+    );
+    // A menu of the active window keeps it active.
+    h.clear_log();
+    let s = h.rect(second);
+    h.open_menu(
+        second,
+        2,
+        (s.x + 10, s.y + 10),
+        menu(Rect::new(0, 0, 10, 10), 100, 100),
+    );
+    assert_eq!(activations(&h), vec![]);
+    h.request(OTHER, Request::Destroy { surface: 2 }).unwrap();
+
+    // The shell's panel taking focus leaves it active; its overlay does not.
+    for (id, kind) in [(1, ShellKind::Panel), (2, ShellKind::Overlay)] {
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface: id,
+                kind,
+                edge: PanelEdge::Top,
+                output: 1,
+                size: Size::new(1, 32),
+                exclusive: 0,
+            },
+        )
+        .unwrap();
+    }
+    h.present(key(SHELL, 1));
+    h.clear_log();
+    h.click(10, 10);
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 1)));
+    assert_eq!(h.scene.active_window(), Some(second));
+    assert_eq!(activations(&h), vec![]);
+    h.present(key(SHELL, 2));
+    h.click(10, 10);
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 2)));
+    assert_eq!(activations(&h), vec![(OTHER, 1, false)]);
+    h.request(SHELL, Request::Destroy { surface: 2 }).unwrap();
+
+    // Pressing a window makes it active; the lock leaves none, and unlocking gives it back.
+    h.clear_log();
+    let f = h.rect(first);
+    h.click(f.x + 5, f.y + 5);
+    assert_eq!(h.scene.active_window(), Some(first));
+    h.scene.lock();
+    h.pump();
+    assert_eq!(h.scene.active_window(), None);
+    h.scene.unlock();
+    h.pump();
+    assert_eq!(h.scene.active_window(), Some(first));
+    assert_eq!(
+        activations(&h),
+        vec![
+            (OTHER, 1, false),
+            (APP, 1, true),
+            (APP, 1, false),
+            (APP, 1, true)
+        ]
+    );
+
+    // The active window going makes the next one active, and the one gone is not told.
+    h.clear_log();
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert_eq!(h.scene.active_window(), Some(second));
+    assert_eq!(activations(&h), vec![(OTHER, 1, true)]);
+}

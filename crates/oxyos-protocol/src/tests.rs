@@ -209,6 +209,18 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new("so.oxy.allo").unwrap(),
         },
+        Request::SetSizeLimits {
+            surface: 1,
+            min_width: 480,
+            min_height: 320,
+            max_width: 0,
+            max_height: 0,
+        },
+        Request::SetMaximized {
+            surface: 1,
+            enabled: true,
+        },
+        Request::Minimize { surface: 1 },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -240,6 +252,7 @@ fn events() -> Vec<Event> {
             rect: Rect::new(-10, 5, 640, 480),
             scale_120: 180,
             fullscreen: false,
+            maximized: true,
         },
         Event::PopupDone {
             surface: 2,
@@ -286,6 +299,10 @@ fn events() -> Vec<Event> {
         },
         Event::ScreenReaderCommand {
             command: ReaderCommand::Activate,
+        },
+        Event::Activated {
+            surface: 1,
+            active: true,
         },
         Event::LockState { locked: true },
         Event::CapsLock {
