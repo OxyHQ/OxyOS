@@ -25,7 +25,9 @@ class WindowDamage {
   // - an Image view showing another picture;
   // - the text input whose caret, selection or composition moved;
   // - the whole window while a modal animates in or out (its window moves or fades over it).
-  // Nothing (`std::nullopt`) means everything: the first frame, or a new size or scale.
+  // - a plain fill (renderer.h's drawsFlat) resized in place, only where it gained or lost area;
+  // - a window resized, all it gained (and, while a modal shows, all of it).
+  // Nothing (`std::nullopt`) means everything: the first frame, or a new scale.
   std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, const Display& display,
                                                            const TextInputEdit& edit);
   // The same for a region drawn in a surface of its own (renderer.h's drawRegion): the children of

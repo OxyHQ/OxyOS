@@ -139,7 +139,7 @@
       "allow_unchanged": true
     },
     {
-      "name": "Dragged at a hand's pace from its left edge, 40 motions at 60 Hz, it follows the pointer frame by frame: one configure in flight, each answered by a frame shown, the right edge never moving, the last size the pointer's",
+      "name": "Dragged at a hand's pace from its left edge, 50 motions at a mouse's 125 Hz, it follows the pointer frame by frame: one configure in flight, each answered by a frame shown, the right edge never moving, the last size the pointer's",
       "do": [
         "drag_paced",
         [
@@ -147,8 +147,8 @@
           300,
           287,
           300,
-          40,
-          60
+          50,
+          125
         ]
       ],
       "expect": {

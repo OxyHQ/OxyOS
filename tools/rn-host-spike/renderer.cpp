@@ -1274,11 +1274,39 @@ bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
          a->transformOrigin == b->transformOrigin;
 }
 
+bool drawsFlat(const ShadowView& view) {
+  std::string name = view.componentName ? view.componentName : "";
+  if (name != "View" && name != "RootView") return false;
+  auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
+  if (!props) return true;
+  if (!(props->transform == Transform::Identity())) return false;
+  auto border = props->resolveBorderMetrics(view.layoutMetrics);
+  const auto& r = border.borderRadii;
+  const auto& w = border.borderWidths;
+  for (const auto& corner : {r.topLeft, r.topRight, r.bottomLeft, r.bottomRight}) {
+    if (corner.horizontal > 0 || corner.vertical > 0) return false;
+  }
+  return w.left <= 0 && w.top <= 0 && w.right <= 0 && w.bottom <= 0;
+}
+
 RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
                         const std::vector<Rect>& damage) {
   int width = static_cast<int>(std::lround(display.width * display.scale));
   int height = static_cast<int>(std::lround(display.height * display.scale));
-  if (canvas.width != width || canvas.height != height) return draw(tree, display, canvas, edit);
+  if (canvas.width != width || canvas.height != height) {
+    if (canvas.width <= 0 || canvas.height <= 0) return draw(tree, display, canvas, edit);
+    // The window resized: its previous frame stays where the new one overlaps it, anchored at the
+    // top left as the window's content is laid out; the rest is new, and in the damage.
+    std::vector<uint32_t> pixels(static_cast<size_t>(width) * height, 0xffffffffu);
+    int rows = std::min(height, canvas.height), columns = std::min(width, canvas.width);
+    for (int y = 0; y < rows; ++y) {
+      std::copy_n(canvas.pixels.begin() + static_cast<long>(y) * canvas.width, columns,
+                  pixels.begin() + static_cast<long>(y) * width);
+    }
+    canvas.pixels = std::move(pixels);
+    canvas.width = width;
+    canvas.height = height;
+  }
   RenderStats stats;
   bool counted = false;
   Clip window{0, 0, display.width, display.height};
