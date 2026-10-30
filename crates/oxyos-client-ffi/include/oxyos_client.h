@@ -78,6 +78,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_DISPLAY 133
 #define OXYOS_EVENT_DISPLAY_REMOVED 134
 #define OXYOS_EVENT_DISPLAY_CONFIRMATION 135
+/* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
+#define OXYOS_EVENT_GPU_DEVICE 160
+#define OXYOS_EVENT_BUFFER_FAILED 162
+#define OXYOS_EVENT_GPU_SCANOUT 163
 /* A DISPLAY's flag bits. */
 #define OXYOS_DISPLAY_PRIMARY 1
 #define OXYOS_DISPLAY_BUILTIN 2
@@ -178,6 +182,8 @@ typedef struct OxyOSClient OxyOSClient;
 /* Pixel formats (DRM fourcc codes). ARGB8888 is premultiplied. */
 #define OXYOS_FORMAT_XRGB8888 0x34325258
 #define OXYOS_FORMAT_ARGB8888 0x34325241
+/* The linear DRM format modifier, which any device reads. */
+#define OXYOS_MODIFIER_LINEAR 0x0
 
 /* oxyos_client_poll results. */
 #define OXYOS_POLL_EVENT 1
@@ -203,7 +209,14 @@ typedef struct OxyOSClient OxyOSClient;
  *   REFRESH     detail: the refresh of the output the surface is on, in mHz (119998 is 120 Hz),
  *               before its first CONFIGURE and whenever it changes; its frames are paced by it
  *               (docs/adr/0018-several-displays.mdx).
- *   RELEASED    serial: buffer id (the client reuses it; informational).
+ *   RELEASED    serial: buffer id (the client reuses it; informational). A GPU buffer submitted
+ *               with a release point may be drawn into again once that point signals.
+ *   GPU_DEVICE  the compositor's GPU table is complete (detail: how many formats, from
+ *               oxyos_client_gpu_formats) or withdrawn (detail 0: shared memory only).
+ *   BUFFER_FAILED  serial: a GPU buffer the compositor could not import (allocate again, or use
+ *               shared memory); a submit naming it is discarded.
+ *   GPU_SCANOUT surface; detail: how many formats its buffers would be scanned out in, now that it
+ *               is all its output shows (oxyos_client_gpu_scanout_formats); 0 when it no longer is.
  *   SCROLL      serial; x, y: horizontal and vertical scroll distance in 1/256 logical pixels
  *               (positive moves the content's view right and down).
  *   TEXT        serial; text: committed UTF-8 (whole characters), NUL-terminated.
@@ -728,6 +741,80 @@ int64_t oxyos_client_attach_buffer(OxyOSClient* client, int fd, uint32_t format,
 int64_t oxyos_client_submit_buffer(OxyOSClient* client, uint32_t surface, uint64_t buffer, uint64_t configure,
                                    const OxyOSRect* damage, size_t count);
 int oxyos_client_detach_buffer(OxyOSClient* client, uint64_t buffer);
+
+/* GPU buffers (docs/adr/0031-gpu-buffers.mdx): DMA-BUFs the caller's GPU draws into, attached
+ * plane by plane, presented with explicit synchronization on DRM syncobj timelines. Nothing here
+ * allocates or draws. */
+
+/* A DRM format (OXYOS_FORMAT_*) and modifier the compositor imports or scans out. */
+typedef struct OxyOSGpuFormat {
+  uint32_t format;
+  uint64_t modifier;
+} OxyOSGpuFormat;
+
+/* One plane of a DMA-BUF: its descriptor (the caller keeps it), offset and stride in bytes. */
+typedef struct OxyOSDmabufPlane {
+  int32_t fd;
+  uint32_t offset;
+  uint32_t stride;
+} OxyOSDmabufPlane;
+
+/* A frame's synchronization: the compositor reads the buffer once the acquire point signals and
+ * signals the release point once it no longer reads it. Timeline 0 is none: a buffer submitted
+ * without an acquire point is ready when submitted. */
+typedef struct OxyOSSync {
+  uint32_t acquire_timeline;
+  uint64_t acquire_point;
+  uint32_t release_timeline;
+  uint64_t release_point;
+} OxyOSSync;
+
+/* gpu_device: 1 when the compositor takes GPU buffers now, with `*device` (NULL: not written)
+ * its render node as a dev_t (0 when its device has none: share only linear buffers, allocated on
+ * any device); 0 for shared memory only. A client allocates on the device whose render node is
+ * `device` (VK_EXT_physical_device_drm), else only linear buffers.
+ * gpu_formats: the formats and modifiers it imports, up to `capacity` at `out`; returns how many
+ * there are, or -1. gpu_scanout_formats: those `surface`'s buffers would be scanned out in while
+ * it is all its output shows (none otherwise). Both change with GPU_DEVICE and GPU_SCANOUT. */
+int oxyos_client_gpu_device(OxyOSClient* client, uint64_t* device);
+int64_t oxyos_client_gpu_formats(OxyOSClient* client, OxyOSGpuFormat* out, size_t capacity);
+int64_t oxyos_client_gpu_scanout_formats(OxyOSClient* client, uint32_t surface, OxyOSGpuFormat* out,
+                                         size_t capacity);
+
+/* attach_dmabuf: `count` planes (1 to 4) at `planes`, in `format` with `modifier`, become a
+ * buffer of `width` x `height` pixels, checked first as the compositor checks it (each descriptor
+ * a DMA-BUF, the format and modifier in its table, a linear plane within its buffer). Returns its
+ * id (above 0), or -1. The caller keeps the descriptors; it submits and detaches the buffer as one
+ * of attach_buffer's. BUFFER_FAILED names it if the compositor could not import it. */
+int64_t oxyos_client_attach_dmabuf(OxyOSClient* client, uint32_t format, uint64_t modifier, uint32_t width,
+                                   uint32_t height, const OxyOSDmabufPlane* planes, size_t count);
+
+/* Timelines, the connection's DRM syncobj timelines. create_timeline: a new one on the
+ * compositor's render node; import_timeline: the caller's own syncobj (`fd`, from
+ * DRM_IOCTL_SYNCOBJ_HANDLE_TO_FD or a Vulkan timeline semaphore's OPAQUE_FD export; the caller
+ * keeps it). Both return its id (above 0), or -1; destroy_timeline ends it (0, or OXYOS_ERROR).
+ * The bridge to sync files: timeline_import_sync_file makes `point` signal when `fence` does (an
+ * EGL native fence, a Vulkan SYNC_FD; the caller keeps it); timeline_export_sync_file gives the
+ * point's fence as a new sync file, or -1 when it has none yet (a release point has one once
+ * RELEASED names its buffer). timeline_signal signals a point from the CPU. timeline_export gives
+ * a new descriptor of the syncobj (a Vulkan OPAQUE_FD import), timeline_eventfd a new eventfd
+ * readable once `point` signals (or, `available`, once it has a fence); both -1 on failure and
+ * owned by the caller. */
+int64_t oxyos_client_create_timeline(OxyOSClient* client);
+int64_t oxyos_client_import_timeline(OxyOSClient* client, int fd);
+int oxyos_client_destroy_timeline(OxyOSClient* client, uint32_t timeline);
+int oxyos_client_timeline_import_sync_file(OxyOSClient* client, uint32_t timeline, uint64_t point, int fence);
+int oxyos_client_timeline_export_sync_file(OxyOSClient* client, uint32_t timeline, uint64_t point);
+int oxyos_client_timeline_signal(OxyOSClient* client, uint32_t timeline, uint64_t point);
+int oxyos_client_timeline_export(OxyOSClient* client, uint32_t timeline);
+int oxyos_client_timeline_eventfd(OxyOSClient* client, uint32_t timeline, uint64_t point, bool available);
+
+/* submit_buffer with the frame's synchronization (`sync`, NULL for none). Refused for a timeline
+ * the connection does not have, or a release point not after the acquire point on one timeline.
+ * Returns the frame's sequence number, or -1. */
+int64_t oxyos_client_submit_buffer_synced(OxyOSClient* client, uint32_t surface, uint64_t buffer,
+                                          uint64_t configure, const OxyOSRect* damage, size_t count,
+                                          const OxyOSSync* sync);
 
 /* Takes one queued event without blocking. */
 int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
