@@ -205,9 +205,15 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
 - **A wallpaper reduced to the screen held every source row reduced across at once** (another
   56 MiB in floats) and an ICC conversion copied the whole image: rows are now reduced as they
   are needed and colours converted a slice at a time; the shell's peak fell by 55 MiB.
-
-## What remains
-
+- **The CPU composition composed the whole output every frame**, damage or not. It now composes
+  only the damage, made disjoint, onto the screen's frame before (`compose_cpu_damaged`, pixel
+  for pixel the same): a Settings scroll's frame 3.0 → 0.4 ms, a live resize's 3.1 → 2.8, a
+  window drag at 1.25 7.0 → 5.3, the overview opening 12.9 / 17.6 → 9.9 / 16.4 ms (p50 / p95).
+  Every interaction is within the 60 Hz budget on the CPU now (`perf.py --check`).
+- **A JPEG wallpaper was decoded whole** before it was reduced (56 MiB for 5120 × 2880). A JPEG
+  drawn at half its size or less is decoded at a half, a quarter or an eighth of it from its DCT
+  coefficients (jpeg-decoder's `scale`, as libjpeg's scale-on-decode), within 0.13 levels of
+  the whole decode on average: the shell's peak memory 127 → 80 MiB (182 before #153).
 - **The GPU path waited for each frame on the compositor's thread** (`VulkanCompositor::run`
   submitted, then waited for the fence before the page flip): on the ThinkPad the session logged
   turns of 28–35 ms, 20–31 ms of them waiting for Iris Xe. A frame for a display now goes to it
@@ -231,9 +237,10 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   `--gpu`, which compare every frame). Lavapipe, a CPU, runs it about twice as slowly: its cost
   is arithmetic, not memory; a session never composes on it. The session now logs every ten
   seconds how long the GPU took to compose its frames (`[compositor] the GPU composed …`).
-- **The CPU composition composes the whole output every frame**, damage or not: the overview
-  opening is 13–18 ms a frame on the CPU (window views box-filtered, an overlay over everything).
-  The session composes on the GPU where it can.
+
+## What remains
+
+- **The GPU path's two changes are not yet seen on a display**: the session's log on the
+  ThinkPad will say whether frames went with their completion and how long the GPU composed.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
-- **A JPEG wallpaper is decoded whole** before it is reduced (56 MiB for 5120 × 2880).
 - **The controls' status poll** (every 5 s) wakes four threads 17 times a second in all.
