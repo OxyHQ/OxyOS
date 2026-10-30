@@ -1,0 +1,661 @@
+{
+  "about": "perf-stash.json at the ThinkPad's scale: Stash as a person uses it (docs/performance.mdx): a home like the owner's (21 items, 27 in Downloads, pictures among them) in a 1280x800 window on a 1920x1200 output at 1.25, the ThinkPad's scale, driven as a hand drives it: Downloads selected and opened, an item pressed, the arrows, the mouse moved across the icons, the list view, a row pressed, a context menu at a secondary press and Escape, back and a sidebar place. Every step checks the events React received, the selection and the focus the assistive technology holds and the popups, and its latency (input to the first frame that changed) is held to a budget on the reference machine (docs/performance.mdx; about four times what it takes there unloaded, so a regression fails it and a loaded machine does not); perf.py reports each step's latency and the host's work.",
+  "module": "Stash",
+  "window": [
+    1280,
+    800
+  ],
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
+  },
+  "home": {
+    "items": {
+      "Clarity/": "",
+      "Desktop/": "",
+      "Documents/": "",
+      "Downloads/": "",
+      "installd-try/": "",
+      "Music/": "",
+      "node_modules/": "",
+      "Oxy/": "",
+      "oxyos-validation/": "",
+      "Pictures/": "",
+      "Public/": "",
+      "servers/": "",
+      "Templates/": "",
+      "Videos/": "",
+      "website/": "",
+      "claude-setup-prompt.md": {
+        "bytes": 7000
+      },
+      "minecraft-bot.js": {
+        "bytes": 2000
+      },
+      "package.json": "{}",
+      "package-lock.json": "{}",
+      "probar-oxyos.sh": "#!/bin/sh",
+      "valdoria-house-map.png": {
+        "png": [
+          1024,
+          768,
+          "#4a7a3a"
+        ]
+      },
+      ".bashrc": "x",
+      ".profile": "x",
+      ".face": {
+        "png": [
+          96,
+          96,
+          "#aa5500"
+        ]
+      },
+      "Downloads/127.0.0.1_8080_(Nest Hub Max).png": {
+        "png": [
+          1280,
+          800,
+          "#3060c0"
+        ]
+      },
+      "Downloads/astro-browser_0.1.0_amd64.deb": {
+        "bytes": 300000
+      },
+      "Downloads/bedrock-server-1.26.44.3/": "",
+      "Downloads/bedrock-server-1.26.44.3.zip": {
+        "bytes": 200000
+      },
+      "Downloads/blur-my-shellaunetx.v70.shell-extension/": "",
+      "Downloads/blur-my-shellaunetx.v70.shell-extension.zip": {
+        "bytes": 3000
+      },
+      "Downloads/cgqzbklp_400x400.jpg": {
+        "png": [
+          400,
+          400,
+          "#c03060"
+        ]
+      },
+      "Downloads/code_1.115.0-1775600353_amd64.deb": {
+        "bytes": 100000
+      },
+      "Downloads/faircoin-v3.0.3-linux-x86_64/": "",
+      "Downloads/faircoin-v3.0.3-linux-x86_64.tar.gz": {
+        "bytes": 5000
+      },
+      "Downloads/Gmail - 493145959.pdf": "%PDF",
+      "Downloads/I'm The Problem.mp3": {
+        "bytes": 7000
+      },
+      "Downloads/macOS-Tahoe-v0.6.1.zip": {
+        "bytes": 600
+      },
+      "Downloads/MacTahoe-icon-theme/": "",
+      "Downloads/NPCEnch2.0.mcaddon": "x",
+      "Downloads/OTG Backpack v1.0.8 - Native Display_Bedrock Reimagine.mcaddon": "x",
+      "Downloads/photo_2026-08-16_20-57-49.jpg": {
+        "png": [
+          1600,
+          1200,
+          "#70a0d0"
+        ]
+      },
+      "Downloads/src/": "",
+      "Downloads/src.zip": {
+        "bytes": 900
+      },
+      "Downloads/Telegram Desktop/": "",
+      "Downloads/Tierras de Valdoria (1).png": {
+        "png": [
+          900,
+          900,
+          "#558833"
+        ]
+      },
+      "Downloads/Tierras_de_Valdoria__1_-removebg-preview.png": {
+        "png": [
+          600,
+          600,
+          "#aa8844"
+        ]
+      },
+      "Downloads/Tierras de Valdoria.png": {
+        "png": [
+          900,
+          900,
+          "#336655"
+        ]
+      },
+      "Downloads/track 3.mp3": {
+        "bytes": 7000
+      },
+      "Downloads/tsetup.6.7.2.tar.xz": {
+        "bytes": 6000
+      },
+      "Downloads/ulauncher_5.15.15_all.deb": {
+        "bytes": 1800
+      },
+      "Downloads/ulauncher-liquid-glass-v1.0.2/": "",
+      "Documents/note 1.txt": "n",
+      "Documents/note 2.txt": "n",
+      "Documents/note 3.txt": "n",
+      "Documents/note 4.txt": "n",
+      "Documents/note 5.txt": "n",
+      "Documents/note 6.txt": "n",
+      "Documents/note 7.txt": "n",
+      "Documents/note 8.txt": "n",
+      "Documents/note 9.txt": "n",
+      "Documents/note 10.txt": "n",
+      "Documents/note 11.txt": "n",
+      "Documents/note 12.txt": "n"
+    }
+  },
+  "outputs": "1920x1200@1.25",
+  "steps": [
+    {
+      "name": "Stash opens on the home: its 21 items, nothing selected",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "texts": [
+          "21 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            },
+            {
+              "role": "Button",
+              "name": "home",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Downloads",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press selects Downloads",
+      "do": [
+        "press",
+        [
+          741,
+          130
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@item-Downloads": 1,
+          "touchEnd@item-Downloads": 1
+        },
+        "react_presses": {
+          "pointerDown@item-Downloads": 1,
+          "pointerUp@item-Downloads": 1
+        },
+        "texts": [
+          "1 of 21 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Downloads",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A double press opens Downloads: its 27 items",
+      "do": [
+        "double_press",
+        [
+          741,
+          130
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@item-Downloads": 2,
+          "touchEnd@item-Downloads": 2
+        },
+        "react_presses": {
+          "pointerDown@item-Downloads": 2,
+          "pointerUp@item-Downloads": 2
+        },
+        "texts": [
+          "27 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Downloads"
+            },
+            {
+              "role": "Button",
+              "name": "Downloads",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 600
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A press selects the third item",
+      "do": [
+        "press",
+        [
+          516,
+          130
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@item-bedrock-server-1.26.44.3": 1,
+          "pointerUp@item-bedrock-server-1.26.44.3": 1
+        },
+        "texts": [
+          "1 of 27 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Right selects the next item",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3.zip",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3",
+              "state": []
+            }
+          ]
+        },
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "Down selects the item below it",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "macOS-Tahoe-v0.6.1.zip",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3.zip",
+              "state": []
+            }
+          ]
+        },
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "The mouse moves across the icons at 125 Hz: no view listens for its hover, nothing changes",
+      "do": [
+        "move_paced",
+        [
+          300,
+          100,
+          1200,
+          560,
+          90,
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "macOS-Tahoe-v0.6.1.zip",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "react_hover": {}
+      }
+    },
+    {
+      "name": "The list view",
+      "do": [
+        "press",
+        [
+          1031,
+          33
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@view-list": 1,
+          "pointerUp@view-list": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Radio",
+              "name": "as List",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Name, ascending"
+            },
+            {
+              "role": "ListItem",
+              "name": "macOS-Tahoe-v0.6.1.zip",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 600
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A press on a row selects it",
+      "do": [
+        "press",
+        [
+          580,
+          130
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@item-astro-browser_0.1.0_amd64.deb": 1,
+          "pointerUp@item-astro-browser_0.1.0_amd64.deb": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "astro-browser_0.1.0_amd64.deb",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "macOS-Tahoe-v0.6.1.zip",
+              "state": []
+            }
+          ]
+        },
+        "latency_ms": 200
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A secondary press on another row selects it and opens its menu at the press",
+      "do": [
+        "press_secondary",
+        [
+          580,
+          186
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react_presses": {
+          "pointerDown@item-bedrock-server-1.26.44.3.zip": 1,
+          "pointerUp@item-bedrock-server-1.26.44.3.zip": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3.zip",
+              "state": [
+                "selected"
+              ]
+            }
+          ],
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Open",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 250
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        800
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Escape closes the menu, the row keeps the selection",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "bedrock-server-1.26.44.3.zip",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Back to the home, the folder it came from selected",
+      "do": [
+        "press",
+        [
+          246,
+          33
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@back": 1,
+          "pointerUp@back": 1
+        },
+        "texts": [
+          "1 of 21 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            },
+            {
+              "role": "ListItem",
+              "name": "Downloads",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 450
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Documents from the sidebar: its 12 items",
+      "do": [
+        "press",
+        [
+          86,
+          192
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "12 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Documents"
+            },
+            {
+              "role": "Button",
+              "name": "Documents",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 450
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    }
+  ]
+}

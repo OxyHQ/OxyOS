@@ -14,8 +14,8 @@ session. The numbers below are from 30 October 2026.
 
 ```sh
 python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen \
-  --host BUILD/oxyos-bloom-host --bundle BUNDLE [--out DIR] [--runs 3] [--gpu-only] [--check] \
-  [interactions] [cold-start] [idle]
+  --runtimes WORK/runtimes --packages WORK/packages [--out DIR] [--runs 3] [--gpu-only] [--check] \
+  [interactions] [responses] [cold-start] [idle] [applications]
 ```
 
 It runs regression scenarios through `regress.py` (every step's expected result is still checked)
@@ -27,21 +27,25 @@ of the CPU. `--check` fails when a budget is exceeded:
   refresh, `regress.py`'s `display_hz`; 60 Hz for one given none);
 - an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
   of a core;
-- an application's first frame comes within half a second of its start.
+- an application's first frame comes within half a second of its start;
+- each of Stash's responses (`responses`, below) within its scenario's budget at the median.
+
+`responses` needs packages built with `STASH_DIR` ([Expo applications from their own
+checkout](./react-native-android-adaptation#expo-applications-from-their-own-checkout)).
 
 **JavaScript's profile.** With `OXYOS_HOST_JS_PROFILE=FILE` in a Bloom host's environment
 (regress.py and perf.py pass theirs on), Hermes' own sampling profiler records the application's
 JavaScript, 1000 samples a second (`OXYOS_HOST_JS_PROFILE_HZ` changes it), and the host writes
 the profile to FILE as it ends: a Chrome trace (`traceEvents`, `samples`, `stackFrames`) that
 Chrome's DevTools (Performance, *Load profile*), Perfetto and speedscope open. Each frame is named
-by its function and its line and column in the bundle's source; `bundle.mjs` deletes that source
-once Hermes compiled it, and building the same bundle without `HERMESC` writes it again,
-identical. A sample is taken by interrupting the JavaScript thread, so a profiled host turns more
+by its function and its line and column in the bundle's source: an application's package keeps
+it (`bundle/index.js`); the probes' bundle (`bundle.mjs` with `HERMESC`) deletes it once Hermes
+compiled it, and building the same bundle without `HERMESC` writes it again, identical. A sample is taken by interrupting the JavaScript thread, so a profiled host turns more
 often than it would: its timings are its own.
 
 ```sh
 OXYOS_HOST_JS_PROFILE=$PWD/stash-profile.json python3 tools/rn-host-spike/regress.py \
-  tools/rn-host-spike/scenarios/perf-stash.json --offscreen ... --host ... --bundle ...
+  tools/rn-host-spike/scenarios/perf-stash.json --offscreen ... --runtimes ... --packages ...
 ```
 
 ## Method
@@ -76,6 +80,17 @@ answers. An output given one (`--outputs 1280x720:120`, [ADR 0018](./adr/0018-se
 decision 11) is paced as a display at it, each frame shown at its next vblank, and the host paces
 its own frames by it: `refresh-120-windows.json` drags a window at 125 Hz with a frame composed
 each 8.3 ms, `refresh-120-animations.json` runs requestAnimationFrame at 120 a second.
+
+**Responses.** Stash used as a person uses it on the ThinkPad, in `perf-stash.json` (a 1280 × 800
+window on a 1920 × 1200 output at 1) and `perf-stash-scaled.json` (at 1.25): a home like the
+owner's (21 items, 27 in Downloads, pictures among them), Downloads selected and opened by a
+double press, an item pressed, the arrow keys, the mouse moved across the icons at 125 Hz
+(`move_paced`), the list view, a row pressed, a context menu at a secondary press and Escape,
+back, and a place in the sidebar. Every step checks what React received, the selection and the
+focus the assistive technology holds and the popups, not only pixels. For each input, the latency
+from it to the first frame that changed (held to the scenario's budget, about four times what it
+takes on this machine unloaded) and the application's host's work until the step settled (each
+frame's `busy_ms`, summed) and the JavaScript in it.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
 output, and the host's stages in between (its report's `stage` lines): the process reaching
@@ -138,6 +153,38 @@ border ring visiting every pixel of the box it encloses: 19 ms of a 25 ms frame)
 60 times a second for nothing). What JavaScript does cost: a re-render of the whole layout, as the
 Inbox's at its breakpoint from two panels to one (30–35 ms once, in a resize), and an
 application's first render.
+
+### Stash
+
+`perf-stash.json` and `perf-stash-scaled.json`, three runs each, alternating "before" (the host
+before the fixes below, Stash built without its React Compiler, as deployed) and "after", both
+with Stash at 9acb694 (its `feat/frontend`);
+medians, in ms; "work" is the application's host's loop's work until the step settled, "JS" the
+JavaScript in it. The machine was loaded by other builds (load average 10 to 40), so a few steps
+moved by noise alone (a context menu, a sidebar place): compare the runs, not the absolute
+times. Before, every run failed `react_hover` (the hover sent React an event for every view the
+pointer crossed); one also failed its budgets in the steps after the hover.
+
+| input | latency at 1, before → after | work → | JS → | latency at 1.25, before → after |
+|---|---|---|---|---|
+| a press selects Downloads | 70 → 40 | 62 → 30 | 58 → 25 | 33 → 19 |
+| a double press opens it (27 items) | 425 → 151 | 553 → 183 | 492 → 156 | 421 → 174 |
+| a press selects an item | 96 → 24 | 82 → 18 | 77 → 15 | 35 → 24 |
+| Right | 84 → 20 | 75 → 15 | 70 → 12 | 34 → 22 |
+| Down | 67 → 21 | 64 → 15 | 56 → 13 | 43 → 25 |
+| the list view | 384 → 170 | 503 → 259 | 359 → 167 | 184 → 178 |
+| a press on a row | 130 → 37 | 123 → 31 | 113 → 28 | 54 → 77 |
+| a context menu at a secondary press | 59 → 102 | 62 → 101 | 50 → 89 | 70 → 103 |
+| Escape | 12 → 15 | 11 → 15 | 6 → 9 | 11 → 11 |
+| back to the home | 304 → 126 | 561 → 217 | 458 → 175 | 151 → 127 |
+| a sidebar place | 99 → 120 | 154 → 184 | 123 → 156 | 117 → 143 |
+
+Measured one at a time on the same host and bundle (unloaded), each change's own effect: the
+host's native work (work less JS) for a double press 52 → 25 ms, the list view 56 → 46, a
+selection 7 → 2 (the frame lookups); and the React Compiler, a selection 27 → 18 ms, an arrow
+key 32 → 19, a row's press 47 → 33, a context menu 56 → 43, the list view 150 → 136. Three
+quarters of what remains in the list view is Stash's and Bloom's JavaScript (below, *What
+remains*); on the ThinkPad every number is three to four times this machine's.
 
 ### Cold start
 
@@ -269,8 +316,50 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   is arithmetic, not memory; a session never composes on it. The session now logs every ten
   seconds how long the GPU took to compose its frames (`[compositor] the GPU composed …`).
 
+- **Stash (October 31).** Measured with `perf-stash*.json` and profiled natively (an outside
+  sampler) and in JavaScript (`OXYOS_HOST_JS_PROFILE`):
+  - **A view's frame was found by searching the tree from its root** (`windowFrame`,
+    `ancestry`), computing every visited view's transform: every turn of the loop asked for the
+    focused input's (with none focused, the whole tree), the accessibility tree once per node it
+    published (quadratic), each pointer motion for its path. 12 % of the host's time in the steps a
+    person waits on in Stash's Downloads, more than drawing. The tree keeps each view's parent
+    and both walk up from the view; the host's native work for a double press opening a folder
+    went from 52 to 25 ms, for a selection from 7 to 2 ms.
+  - **Hover was sent twice, to every view.** On every motion the host sent an enter or a leave to
+    each view the pointer crossed, listening or not, and never a move; React Native's own pointer
+    events processor, which makes those events from a C++ platform's, took each as the pointer
+    being there: listeners heard each crossing twice, and moving the mouse across Stash's icons
+    sent React 117 events no one listened for, which the next press then waited behind (the list
+    view 907 ms, a context menu 568 ms, on the loaded machine). The host now tells it what iOS's
+    Fabric does: a `pointermove` where the pointer is and a `pointerleave` as it leaves the
+    window (`pointer-hover.json`).
+  - **Lines broke only at spaces**, so a file name without one was a line wider than its icon's
+    label, drawn cut on both sides, and a name cut at two lines had no ellipsis. Lines now break
+    and are ellipsized as Android's StaticLayout does (`text-layout.json`), and a paragraph is laid
+    out once for Yoga and every frame that draws it.
+  - **Stash was built without its React Compiler on OxyOS alone**: its app config asks Expo for
+    it, and Expo asks babel-preset-expo through a Babel caller the OxyOS build does not have. Its
+    own sources are now compiled with it as its Expo build compiles them.
+
 ## What remains
 
+- **Stash's own JavaScript is most of what a person waits for** (`perf-stash.json`: three
+  quarters of the host's work in the list view, nine tenths in a selection). From its profile:
+  - Its items view (`components/ItemsView.tsx`) is not compiled by the React Compiler: its two
+    `PanResponder.create` calls in `useState` initializers read refs (`pointerType`, `dragging`,
+    `bandStart`), which the compiler takes for reading them while rendering, so it leaves the
+    whole component as it is; `BrowserProvider.tsx` neither (a computed key, `[familyOf(place)]`,
+    in an object literal).
+  - Every element styled with `className` renders twice when it mounts: react-native-css
+    3.1.0-rc.0's `useNativeCss` (`src/native/react/useNativeCss.ts`, lines 112–120) drops its
+    subscriptions in its state's initializer and, on mount, runs both its effects again, each a
+    `setState`: about a third of the JavaScript in switching to the list view.
+- **A W3C event's `timeStamp` is when the host handed it to React**, not when the hand moved:
+  the protocol carries no time for input. Behind a slow frame, two presses keep their order but
+  arrive closer together than they were made. Input events need the device's time (libinput's)
+  from the compositor to the application.
+- **The file service reads the mount table for every call** (`Scope::reach` reads
+  `/proc/self/mountinfo` to know the volumes): about 2 % of the host's work in Stash's steps.
 - **The GPU path's two changes are not yet seen on a display**: the session's log on the
   ThinkPad will say whether frames went with their completion and how long the GPU composed.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
