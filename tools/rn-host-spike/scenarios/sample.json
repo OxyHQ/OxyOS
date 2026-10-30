@@ -5,7 +5,7 @@
   "steps": [
     {
       "name": "press the Bloom Button",
-      "do": ["press", [686, 359]],
+      "do": ["press", [686, 283]],
       "expect": {
         "pointer_shape": "Arrow",
         "texts": ["Pressed 1 time"],
@@ -19,7 +19,7 @@
     },
     {
       "name": "press it again",
-      "do": ["press", [686, 359]],
+      "do": ["press", [686, 283]],
       "expect": {
         "texts": ["Pressed 2 times"],
         "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1},
@@ -36,16 +36,16 @@
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}},
         "latency_ms": 250,
-        "scroll_offset": {"inbox": [0, 346]}
+        "scroll_offset": {"inbox": [0, 326]}
       },
       "expect_devices": {
-        "react": {"scroll@inbox": 24},
+        "react": {"scroll@inbox": 22},
         "delivered": {"1": {"scroll": 27}}
       }
     },
     {
       "name": "focus the reply field",
-      "do": ["press", [686, 407]],
+      "do": ["press", [686, 331]],
       "expect": {
         "pointer_shape": "Text",
         "focus_input": "reply",
@@ -90,7 +90,7 @@
     },
     {
       "name": "open the menu",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "pointer_shape": "Arrow",
         "popups": 1,
@@ -123,7 +123,7 @@
     },
     {
       "name": "focus the reply field again",
-      "do": ["press", [686, 407]],
+      "do": ["press", [686, 331]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "focus@reply": 1, "selectionChange@reply": 1}
@@ -131,7 +131,7 @@
     },
     {
       "name": "reopen the menu, the field keeping its focus",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 3,
@@ -167,7 +167,7 @@
     },
     {
       "name": "open the menu from the keyboard's side",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 4,
@@ -216,7 +216,7 @@
     },
     {
       "name": "reopen",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 5
@@ -236,7 +236,7 @@
     },
     {
       "name": "reopen again",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 6
@@ -261,7 +261,7 @@
     },
     {
       "name": "a press at the start of the focused reply moves the caret there",
-      "do": ["press", [533, 407]],
+      "do": ["press", [394, 331]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchEnd@reply": 1, "selectionChange@reply": 1}
@@ -335,7 +335,7 @@
     },
     {
       "name": "a drag from the start across the text selects it",
-      "do": ["drag", [533, 407, 840, 407]],
+      "do": ["drag", [394, 331, 840, 331]],
       "expect": {
         "focus_input": "reply",
         "react": {"touchStart@reply": 1, "touchMove@reply": 2, "touchEnd@reply": 1, "selectionChange@reply": 2}
@@ -387,7 +387,7 @@
     },
     {
       "name": "open the menu again",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 7,
@@ -423,7 +423,7 @@
     },
     {
       "name": "open the menu once more",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 8,
@@ -470,7 +470,7 @@
       "name": "the wheel scrolls the inbox back by 100",
       "do": ["scroll", [170, 300, -100]],
       "expect": {
-        "scroll_offset": {"inbox": [0, 246]},
+        "scroll_offset": {"inbox": [0, 226]},
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}}
       },
@@ -488,7 +488,7 @@
         "react": {"scroll@inbox": 1}
       },
       "expect_devices": {
-        "react": {"scroll@inbox": 17}
+        "react": {"scroll@inbox": 16}
       }
     },
     {
@@ -506,7 +506,7 @@
     },
     {
       "name": "open the menu to test the wheel behind it",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 9,
@@ -536,13 +536,13 @@
     },
     {
       "name": "open the menu before the shell moves the window",
-      "do": ["press", [797, 487]],
+      "do": ["press", [939, 411]],
       "expect": {
         "popups": 1,
         "focus_surface": 10,
         "window_rect": [128, 40, 1024, 640],
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
-        "popup_rect": [981, 382, 266, 338]
+        "popup_rect": [745, 382, 266, 338]
       }
     },
     {
@@ -554,7 +554,7 @@
         "window_rect": [28, 20, 1024, 640],
         "popup_events": {},
         "react": {},
-        "popup_rect": [881, 382, 266, 338]
+        "popup_rect": [645, 382, 266, 338]
       }
     },
     {
@@ -566,7 +566,7 @@
         "frame_px": {"window": [900, 600]},
         "popup_events": {"reposition@message-actions": 1},
         "react": {},
-        "popup_rect": [819, 382, 266, 338]
+        "popup_rect": [899, 382, 266, 338]
       }
     },
     {
