@@ -679,6 +679,42 @@ impl Scene {
         )
     }
 
+    /// Where a new window opens: centred in its output's work area or, when a window shown on
+    /// the active workspace already sits exactly there, a step down and to the right of it, as a
+    /// Mac cascades new windows, so one never opens exactly over another and hides it. A step
+    /// that would leave the work area starts again from its top-left corner.
+    fn placed(&self, size: Size, output: OutputId) -> (i32, i32) {
+        const STEP: i32 = 24;
+        let mut origin = self.centered(size, output);
+        let Some(area) = self.work_area(output) else {
+            return origin;
+        };
+        let taken = |at: (i32, i32)| {
+            self.roots.iter().any(|root| {
+                let node = &self.nodes[root];
+                node.role == Role::Toplevel
+                    && !node.dismissed
+                    && !node.hidden
+                    && node.output == output
+                    && node.workspace == self.workspaces.active
+                    && node.pending.map_or(node.origin, |(_, origin, _)| origin) == at
+            })
+        };
+        let fits = |at: (i32, i32)| {
+            i64::from(at.0) + i64::from(size.width) <= area.right()
+                && i64::from(at.1) + i64::from(size.height) <= area.bottom()
+        };
+        // Bounded: a work area holds only so many steps.
+        for _ in 0..64 {
+            if !taken(origin) {
+                break;
+            }
+            let next = (origin.0 + STEP, origin.1 + STEP);
+            origin = if fits(next) { next } else { (area.x, area.y) };
+        }
+        origin
+    }
+
     // ---- clients -------------------------------------------------------------------------
 
     pub fn connect(&mut self, client: ClientId, grants: Grants) -> Result<(), ErrorCode> {
@@ -894,7 +930,7 @@ impl Scene {
                 let output = self
                     .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
                     .map_or(0, |o| o.id);
-                let origin = self.centered(size, output);
+                let origin = self.placed(size, output);
                 self.insert(key(surface), Role::Toplevel, None, origin, size, output);
                 self.number_window(key(surface));
                 Ok(())

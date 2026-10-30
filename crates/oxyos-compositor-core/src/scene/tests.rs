@@ -6466,5 +6466,26 @@ fn windows_are_drawn_as_windows_and_the_active_one_so() {
     );
 }
 
+#[test]
+fn new_windows_cascade_instead_of_opening_exactly_over_another() {
+    let mut h = Harness::new();
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(OTHER, 1, 400, 300);
+    let third = h.toplevel(APP, 2, 400, 300);
+    let (a, b, c) = (h.rect(first), h.rect(second), h.rect(third));
+    assert_eq!((b.x - a.x, b.y - a.y), (24, 24));
+    assert_eq!((c.x - a.x, c.y - a.y), (48, 48));
+    // A window of another size is centred as before: nothing sits there.
+    let other = h.toplevel(OTHER, 2, 200, 100);
+    let o = h.rect(other);
+    assert_eq!((o.x, o.y), ((1920 - 200) / 2, (1080 - 100) / 2));
+    // One that would leave the work area starts again from its top-left corner.
+    let mut h = Harness::new();
+    let big = h.toplevel(APP, 1, 1900, 1070);
+    let next = h.toplevel(OTHER, 1, 1900, 1070);
+    assert_ne!(h.rect(big), h.rect(next));
+    assert_eq!((h.rect(next).x, h.rect(next).y), (0, 0));
+}
+
 /// The menu bar (ADR 0021).
 mod menus;
