@@ -128,10 +128,15 @@ function createModuleIdFactory(options, modules) {
       const described = keyOf(file, options);
       const id = idOf(described.key);
       const other = byId.get(id);
-      if (other && other !== described.key) {
-        throw new Error(`module ids collide: ${other} and ${described.key}`);
+      if (other && other.key !== described.key) {
+        throw new Error(`module ids collide: ${other.key} and ${described.key}`);
       }
-      byId.set(id, described.key);
+      // One key is one file: two copies of a package's module (two versions installed, resolved
+      // by different requesters) would share an id, and the second would never run.
+      if (other && other.file !== file) {
+        throw new Error(`two copies of ${described.key}: ${other.file} and ${file}`);
+      }
+      byId.set(id, { key: described.key, file });
       modules.set(file, { ...described, id });
       return id;
     };

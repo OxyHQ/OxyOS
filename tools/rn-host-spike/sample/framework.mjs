@@ -40,7 +40,7 @@ const core = ['react', 'react/jsx-runtime', 'react/compiler-runtime', 'react-nat
 // The packages whose native side the host implements: their JavaScript is the runtime's too.
 const native = [
   'react-native-reanimated', 'react-native-worklets', 'react-native-gesture-handler', 'react-native-svg',
-  'react-native-safe-area-context', 'react-native-screens',
+  'react-native-svg/css', 'react-native-safe-area-context', 'react-native-screens',
   'expo', 'expo-modules-core', 'expo-asset', 'expo-font', 'expo-blur', 'expo-haptics', 'expo-image',
   'expo-constants', 'expo-linking', 'expo-keep-awake', 'expo-glass-effect',
   'expo-file-system', 'expo-file-system/legacy',
@@ -49,6 +49,10 @@ const native = [
   // application's facts.
   '@react-native-async-storage/async-storage', '@react-native-community/netinfo', 'expo-crypto',
   'expo-secure-store', 'expo-web-browser', 'expo-clipboard', 'expo-notifications', 'expo-application',
+  // What an Expo Router application's entry runs on (expo-router's qualified entry, but its context
+  // of the application's routes, `_ctx`, which each application builds for itself; decision 17).
+  'expo-router', 'expo-router/build/ExpoRoot', 'expo-router/build/head', 'expo-router/build/fast-refresh',
+  '@expo/metro-runtime',
 ];
 // Bloom (and what its stylesheet compiles to at run time), every export an application may import
 // but those that are not code (its Tailwind preset, its CSS and token files).
@@ -105,9 +109,11 @@ fs.rmSync(out, { recursive: true, force: true });
 process.on('exit', (code) => {
   if (code !== 0) fs.rmSync(out, { recursive: true, force: true });
 });
+// No application (STASH_DIR): the framework is the runtime's, built from no application's checkout.
+const { STASH_DIR: _application, ...environment } = process.env;
 const built = execFileSync('node', ['bundle.mjs', path.relative(here, entry), out], {
   cwd: here,
-  env: { ...process.env, OXYOS_FRAMEWORK_BUILD: '1', HERMESC: '' },
+  env: { ...environment, OXYOS_FRAMEWORK_BUILD: '1', HERMESC: '' },
   stdio: ['ignore', 'pipe', 'inherit'],
 }).toString().trim().split('\n').pop();
 const source = path.join(out, 'index.js');

@@ -66,15 +66,18 @@ const APP = require('./oxyos/application-build');
 const APP_ENTRY = path.join(__dirname, 'oxyos', 'stash-application.js');
 if (APP) {
   // babel-preset-expo's router plugin replaces `process.env.EXPO_ROUTER_APP_ROOT` (expo-router's
-  // `_ctx`) with the path from the file to the project's `app/`. React Native's transformer gives
-  // Babel no project root, so the preset takes it from here, in the workers Metro forks.
+  // `_ctx`) with the path from the file to the project's `app/`, the project root
+  // oxyos/babel-transformer.js gives it from here, in the workers Metro forks.
   process.env.EXPO_PROJECT_ROOT = APP.dir;
 }
 const isBare = (name) => !name.startsWith('.') && !path.isAbsolute(name);
 const packageOf = (name) => name.split('/').slice(0, name.startsWith('@') ? 2 : 1).join('/');
 const BLOOM_ORIGIN = path.join(BLOOM, 'package.json');
 
-// One copy of each package, shared by the platform and the application. A package the Bloom
+// One copy of each package, shared by the platform and the application. Built against a runtime's
+// framework (docs/adr/0030-installing-applications.mdx, decision 17), a package the framework has
+// is exactly the framework's version (applicationRequest's `ruled`): an application that does not
+// accept it stops the build. Otherwise a package the Bloom
 // checkout's tree has resolves from there (the platform's runtime, matching the host's native
 // code: one React, one React Native, one Reanimated...) when that copy is a version its requester
 // accepts (the range its package declares); Bloom itself always from BLOOM_DIR (above); everything
@@ -107,6 +110,29 @@ function accepted(requester, name, file) {
   const version = manifestOf(file)?.json.version;
   return !version || semver.satisfies(version, range, { includePrerelease: true });
 }
+const SAMPLE_MODULES = path.join(__dirname, 'node_modules') + path.sep;
+const SAMPLE_ORIGIN = path.join(__dirname, 'package.json');
+/**
+ * The runtime's one copy of a package (docs/adr/0030-installing-applications.mdx, decision 17):
+ * Bloom's tree and this folder's node_modules (the Expo modules the host implements) may each have
+ * one; a request takes the newest of them its requester accepts, so every requester that can share
+ * a copy shares the same one (Bloom's packages accept expo-constants ~58.0.12, the runtime's Expo
+ * modules ask ~58.0.14: both take 58.0.14). None accepted, it resolves as it would.
+ */
+function sharedRequest(context, moduleName, platform) {
+  if (!isBare(moduleName)) return context.resolveRequest(context, moduleName, platform);
+  const name = packageOf(moduleName);
+  const candidates = [];
+  for (const origin of [BLOOM_ORIGIN, SAMPLE_ORIGIN]) {
+    try {
+      const found = context.resolveRequest({ ...context, originModulePath: origin }, moduleName, platform);
+      if (found.type === 'sourceFile' && accepted(context.originModulePath, name, found.filePath)) candidates.push(found);
+    } catch {}
+  }
+  const version = (found) => manifestOf(found.filePath)?.json.version ?? '0.0.0';
+  candidates.sort((a, b) => semver.rcompare(version(a), version(b)));
+  return candidates[0] ?? context.resolveRequest(context, moduleName, platform);
+}
 const inBloom = (file) => [BLOOM, NODE_MODULES].some((root) => file.startsWith(root + path.sep));
 const APP_ORIGIN = APP && path.join(APP.dir, 'package.json');
 
@@ -128,14 +154,23 @@ function applicationRequest(context, moduleName, platform, resolve) {
   }
   const ruled = (c, name, p) => {
     if (isBare(name) && fs.existsSync(path.join(NODE_MODULES, packageOf(name)))) {
-      const shared = resolve({ ...c, originModulePath: BLOOM_ORIGIN }, name, p);
+      let shared = FRAMEWORK?.packages[packageOf(name)]
+        ? sharedRequest({ ...c, resolveRequest: resolve }, name, p)
+        : resolve({ ...c, originModulePath: BLOOM_ORIGIN }, name, p);
+      // A package with an `import` and a `require` build of a module (react-native-css's
+      // components) has one in the framework, the one the framework reached: an application
+      // reaching it the other way gets that one rather than a second copy.
+      if (FRAMEWORK?.packages[packageOf(name)] && shared.type === 'sourceFile' && !FRAMEWORK.modules[ids.keyOf(shared.filePath, ID_OPTIONS).key]) {
+        const other = sharedRequest({ ...c, isESMImport: !c.isESMImport, resolveRequest: resolve }, name, p);
+        if (other.type === 'sourceFile' && FRAMEWORK.modules[ids.keyOf(other.filePath, ID_OPTIONS).key]) shared = other;
+      }
       // Built against a runtime's framework (docs/adr/0030-installing-applications.mdx, decision
       // 17), a package the framework has is the framework's, exactly its version: an application
       // that does not accept that version stops the build rather than bringing another copy.
       const provided = FRAMEWORK?.packages[packageOf(name)];
       if (provided && shared.type === 'sourceFile') {
         if (!accepted(c.originModulePath, packageOf(name), shared.filePath)) {
-          throw new Error(`${c.originModulePath} does not accept ${packageOf(name)} ${provided}, the framework's (runtime ${FRAMEWORK.runtime.abi}, api ${FRAMEWORK.runtime.api})`);
+          throw new Error(`${c.originModulePath} does not accept ${packageOf(name)} ${provided.join(', ')}, the framework's (runtime ${FRAMEWORK.runtime.abi}, api ${FRAMEWORK.runtime.api})`);
         }
         return shared;
       }
@@ -148,21 +183,6 @@ function applicationRequest(context, moduleName, platform, resolve) {
   return APP.nativeWind && !entry ? classNameResolver(ruled, origin, moduleName, platform) : ruled(origin, moduleName, platform);
 }
 
-// A request from the Bloom tree, with an application in the bundle: what its tree resolves,
-// unless that is a version the requester does not accept and the application has one it does.
-function platformRequest(context, moduleName, platform) {
-  const result = context.resolveRequest(context, moduleName, platform);
-  if (!isBare(moduleName) || result.type !== 'sourceFile') return result;
-  const name = packageOf(moduleName);
-  if (accepted(context.originModulePath, name, result.filePath)) return result;
-  let theirs;
-  try {
-    theirs = context.resolveRequest({ ...context, originModulePath: APP_ORIGIN }, moduleName, platform);
-  } catch {
-    return result;
-  }
-  return theirs.type === 'sourceFile' && accepted(context.originModulePath, name, theirs.filePath) ? theirs : result;
-}
 
 // The runtime's framework and the applications built against it (docs/adr/0030-installing-
 // applications.mdx, decision 17). Every build names modules by stable ids (framework-ids.js).
@@ -180,6 +200,12 @@ const FRAMEWORK = process.env.OXYOS_FRAMEWORK
   : null;
 if (FRAMEWORK_BUILD && FRAMEWORK) throw new Error('a build is the framework or an application against one');
 
+// The modules of a framework package an application builds for itself (docs/adr/0030-installing-
+// applications.mdx, decision 17), because they hold the application: expo-router's context of its
+// routes (`_ctx*`, a require.context of the application's app/) and the entry over it.
+const PER_APPLICATION = [/[\\/]node_modules[\\/]expo-router[\\/]_ctx[^\\/]*$/,
+  /[\\/]node_modules[\\/]expo-router[\\/]build[\\/]qualified-entry\.js$/];
+
 function applicationModule(module) {
   // The statement running the application's entry (a script Metro appends, `require-<path>`) is the
   // application's; the prelude and the polyfills (scripts, not modules) are the framework's.
@@ -189,20 +215,21 @@ function applicationModule(module) {
   // The framework's modules, its internals among them (an application reaches them through the
   // public ones it names), are the framework's.
   const framework = `the framework (runtime ${FRAMEWORK.runtime.abi}, api ${FRAMEWORK.runtime.api})`;
+  if (PER_APPLICATION.some((pattern) => pattern.test(module.path))) return true;
   if (FRAMEWORK.modules[described.key]) {
     // The framework's, if it is the framework's version: an application resolving another copy
     // of a framework package (its own tree's) stops the build.
     const has = described.name && FRAMEWORK.packages[described.name];
-    if (has && has !== described.version) {
-      throw new Error(`${described.name} ${described.version} is not ${framework}'s, which has ${has} (${module.path})`);
+    if (has && !has.includes(described.version)) {
+      throw new Error(`${described.name} ${described.version} is not ${framework}'s, which has ${has.join(', ')} (${module.path})`);
     }
     return false;
   }
   if (described.name && FRAMEWORK.packages[described.name]) {
     const has = FRAMEWORK.packages[described.name];
-    throw new Error(has === described.version
+    throw new Error(has.includes(described.version)
       ? `${framework} does not provide ${described.key} (${module.path})`
-      : `${described.name} ${described.version} is not ${framework}'s, which has ${has} (${module.path})`);
+      : `${described.name} ${described.version} is not ${framework}'s, which has ${has.join(', ')} (${module.path})`);
   }
   // What the application names of the framework is public.
   for (const dependency of module.dependencies.values()) {
@@ -254,8 +281,11 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
       try {
         if (APP && (context.originModulePath === APP_ENTRY || APP.owns(context.originModulePath))) {
           result = applicationRequest(context, moduleName, platform, context.resolveRequest);
-        } else if (APP && inBloom(context.originModulePath)) {
-          result = platformRequest(context, moduleName, platform);
+        } else if (inBloom(context.originModulePath) || context.originModulePath.startsWith(SAMPLE_MODULES)) {
+          // The runtime's own packages (this folder's node_modules: the Expo modules the host
+          // implements) share the Bloom tree's copy of a package they accept, so the runtime and
+          // its framework have one copy of each (one expo-constants, one expo-modules-core).
+          result = sharedRequest(context, moduleName, platform);
         } else {
           result = context.resolveRequest(context, moduleName, platform);
         }
@@ -288,7 +318,13 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
   transformer: {
     // The registry `react-native`'s AssetRegistry export reads in 0.88 (expo-asset uses it too).
     assetRegistryPath: path.join(__dirname, 'oxyos/asset-registry.js'),
-    babelTransformerPath: bloomRequire.resolve('@react-native/metro-babel-transformer'),
+    // Expo's Babel transformer, as an Expo application's own build uses it: it tells
+    // babel-preset-expo whether the build is a development one (the caller's `isDev`), so a
+    // production build inlines `__DEV__` and `process.env.NODE_ENV` and the transform worker
+    // (Expo's, through react-native-css) folds what is development-only away, React Native's
+    // developer tools (react-devtools-core, LogBox) among it. React Native's own transformer gives
+    // the preset no such caller, and every bundle kept them.
+    babelTransformerPath: path.join(__dirname, 'oxyos', 'babel-transformer.js'),
     // expo-router's `_ctx`: a require.context of the application's router root.
     unstable_allowRequireContext: Boolean(APP),
     ...(FRAMEWORK_BUILD && { assetPlugins: [path.join(OVERRIDES, 'framework-asset-plugin.js')] }),

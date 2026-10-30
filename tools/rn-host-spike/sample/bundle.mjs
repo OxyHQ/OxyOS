@@ -71,7 +71,9 @@ if (process.env.OXYOS_FRAMEWORK_BUILD === '1') {
   for (const described of recorded.values()) {
     if (described.app) continue;
     modules[described.key] = { id: described.id, public: described.public };
-    if (described.name) packages[described.name] = described.version;
+    // A package may be in it in more than one version (two 0.x minors, two majors), each its own
+    // modules.
+    if (described.name) packages[described.name] = [...new Set([...(packages[described.name] ?? []), described.version])].sort();
   }
   fs.writeFileSync(path.resolve(outDir, 'framework.json'), JSON.stringify({ packages, modules }));
 }

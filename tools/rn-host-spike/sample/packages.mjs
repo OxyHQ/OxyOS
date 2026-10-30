@@ -50,9 +50,11 @@ const entries = {
   // Stash, from its own checkout (STASH_DIR, oxyos/application-build.js), when one is given.
   ...(process.env.STASH_DIR ? { 'so.oxy.stash': 'oxyos/stash-application.js' } : {}),
 };
+// STASH_DIR is Stash's build's alone: every other package, and the probes, are this sample's.
+const { STASH_DIR: stash, ...environment } = process.env;
 
 const run = (program, args, env = {}) =>
-  execFileSync(program, args, { cwd: here, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, ...env } })
+  execFileSync(program, args, { cwd: here, stdio: ['ignore', 'pipe', 'inherit'], env: { ...environment, ...env } })
     .toString()
     .trim();
 
@@ -61,7 +63,11 @@ for (const [id, entry] of Object.entries(entries)) {
   fs.rmSync(dir, { recursive: true, force: true });
   // The source bundle, never bytecode: HERMESC is not given to bundle.mjs.
   const bundled = JSON.parse(
-    run('node', ['bundle.mjs', entry, path.join(dir, 'bundle')], { HERMESC: '', OXYOS_FRAMEWORK: framework })
+    run('node', ['bundle.mjs', entry, path.join(dir, 'bundle')], {
+      HERMESC: '',
+      OXYOS_FRAMEWORK: framework,
+      ...(id === 'so.oxy.stash' ? { STASH_DIR: stash } : {}),
+    })
       .split('\n').pop());
   if (bundled.bytecode) throw new Error(`${id}: bundle.mjs wrote bytecode`);
   fs.copyFileSync(path.join(repository, icons[id]), path.join(dir, 'icon.png'));
