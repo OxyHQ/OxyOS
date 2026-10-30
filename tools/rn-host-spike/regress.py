@@ -30,6 +30,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   exactly and in order: each a text, or keys matching an utterance (text, interrupting);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- animated: what Animated's native driver set on views in the step (native-animated.h), frame by
+  frame, as "testID" -> {prop: [from, to]} ("transform.translateX" for a transform's entry; a
+  colour as "#rrggbb"): the values went from `from` to exactly `to`, monotonically in each colour
+  channel, over at least `animated_frames` frames (8 by default); with `animated_linear_ms`, every
+  frame's value is where a linear animation of that duration is at that frame's time, within one
+  frame. A view it does not list must not move: the driver may set it (a node's first frame sets
+  its start), but always to the same values;
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
   by a distinct one having every key given ("kind": window, popup, overlay, panel,
@@ -308,6 +315,77 @@ def gesture_events(report, start, end):
     return events
 
 
+def animated_values(report, start, end):
+    """What Animated's native driver set in a step, by view and prop: [(t, [channels])], a colour
+    (an ARGB integer) as its red, green and blue, a transform's entry as `transform.KEY`."""
+    values = {}
+    for line in report:
+        if line["kind"] != "animated" or not start <= line["t"] <= end:
+            continue
+        for prop, value in line["props"].items():
+            entries = [(f"transform.{key}", v) for entry in value for key, v in entry.items()] \
+                if prop == "transform" else [(prop, value)]
+            for key, v in entries:
+                channels = [(v & 0xffffffff) >> shift & 0xff for shift in (16, 8, 0)] if "Color" in key or key == "color" \
+                    else [v]
+                values.setdefault(line["target"], {}).setdefault(key, []).append((line["t"], channels))
+    return values
+
+
+def check_animated(expect, report, start, end, fail):
+    """The step's `animated` (see the module's documentation)."""
+    got = animated_values(report, start, end)
+    for view in sorted(set(got) - set(expect["animated"])):
+        for prop, frames in got[view].items():
+            if any(value != frames[0][1] for _, value in frames):
+                fail(f"the native driver moved {view} {prop} ({[value for _, value in frames]}), which the step does not list")
+    least, linear_ms = expect.get("animated_frames", 8), expect.get("animated_linear_ms")
+
+    def channels(value):
+        return [int(value[i:i + 2], 16) for i in (1, 3, 5)] if isinstance(value, str) else [value]
+
+    for view, props in expect["animated"].items():
+        for prop, (first, last) in props.items():
+            frames = got.get(view, {}).get(prop, [])
+            name = f"{view} {prop}"
+            if len(frames) < least:
+                fail(f"{name} was set on {len(frames)} frames, expected at least {least}")
+                continue
+            low, high = channels(first), channels(last)
+            shown = [[round(c, 3) for c in value] for _, value in frames]
+            if [round(c, 3) for c in frames[-1][1]] != [round(c, 3) for c in high]:
+                fail(f"{name} ended at {shown[-1]}, expected {high}")
+            for c, (a, b) in enumerate(zip(low, high)):
+                path = [value[c] for _, value in frames]
+                if any((y < x) if b > a else (y > x) for x, y in zip(path, path[1:])):
+                    fail(f"{name} went {shown}, not monotonically from {low} to {high}")
+                    break
+            if linear_ms:
+                # Every frame's value is where one linear animation of `animated_linear_ms` is at that
+                # frame's time. Its start is when the frames in between say it started (a frame that
+                # changes nothing sets nothing, so the first frame is not always reported): those
+                # starts agree within a frame, and every frame is then where it should be, within one.
+                frame_ns = 1e9 / 60
+                c = max(range(len(low)), key=lambda i: abs(high[i] - low[i]))
+                starts = [t - (value[c] - low[c]) / (high[c] - low[c]) * linear_ms * 1e6 for t, value in frames
+                          if 0 < (value[c] - low[c]) / (high[c] - low[c]) < 1]
+                if len(starts) < 2 or max(starts) - min(starts) > frame_ns:
+                    spread = (max(starts) - min(starts)) / 1e6 if starts else 0
+                    fail(f"{name} went {shown}: not one linear {linear_ms} ms animation (its frames start "
+                         f"{spread:.1f} ms apart)")
+                    continue
+                t0 = statistics.median(starts)
+                for t, value in frames:
+                    progress = min(1.0, max(0.0, (t - t0) / (linear_ms * 1e6)))
+                    wrong = [i for i, (a, b) in enumerate(zip(low, high))
+                             if abs(value[i] - (a + (b - a) * progress)) >
+                             abs(b - a) * frame_ns / (linear_ms * 1e6) + (1 if isinstance(first, str) else 1e-6)]
+                    if wrong:
+                        fail(f"{name} was {[round(v, 3) for v in value]} {(t - t0) / 1e6:.1f} ms after it started, "
+                             f"expected {[round(a + (b - a) * progress, 3) for a, b in zip(low, high)]} within a frame")
+                        break
+
+
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
                shell_report=None, spoken=None, preferences=None):
     expect = step.get("expect", {})
@@ -375,6 +453,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if (len(values) < 3 or abs(values[0] - first) > abs(last - first) * 0.25 or values[-1] != last
                     or any((d < 0) if rising else (d > 0) for d in steps)):
                 fail(f"{entry}: {key} went {[round(v, 2) for v in values]}, expected from {first} to {last} monotonically")
+    if "animated" in expect:
+        check_animated(expect, report, start, end, fail)
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]

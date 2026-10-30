@@ -52,6 +52,11 @@ void Report::accessibility(uint32_t surface, const folly::dynamic& nodes) {
   write(folly::dynamic::object("kind", "a11y")("surface", surface)("nodes", nodes));
 }
 
+void Report::animated(const facebook::react::ShadowView& view, const folly::dynamic& props) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "animated")("target", name(view))("props", props));
+}
+
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
   line["t"] = monotonicNs();
