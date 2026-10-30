@@ -93,6 +93,15 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
     placed.kind = kLock;
     placed.edge = OXYOS_EDGE_NONE;
     placed.strip = Rect{{0, 0}, {width, height}};
+  } else if (props->kind == "notification" && props->edge == "right") {
+    // A banner (docs/adr/0026-notifications.mdx), a notification at the right edge: the corner of
+    // the output from its top-right to the far corner of the region, in whole pixels, which the
+    // compositor places at the output's top-right corner and slides in from beside itself. It
+    // takes presses over its region, as a panel does.
+    placed.kind = OXYOS_SHELL_NOTIFICATION;
+    placed.edge = OXYOS_EDGE_NONE;
+    Float left = std::floor(region->origin.x);
+    placed.strip = Rect{{left, 0}, {width - left, std::ceil(region->origin.y + region->size.height)}};
   } else if (props->kind == "overlay" || props->kind == "notification") {
     // A notification (the bezel of a hardware key, docs/adr/0025-hardware-keys-and-control-center.mdx)
     // is above the overlays and takes no input: presses go through it to what is under it.
@@ -131,7 +140,8 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   placed.input = OxyOSRect{static_cast<int32_t>(left), static_cast<int32_t>(top),
                            static_cast<uint32_t>(std::max<Float>(0, right - left)),
                            static_cast<uint32_t>(std::max<Float>(0, bottom - top))};
-  if (placed.kind == OXYOS_SHELL_NOTIFICATION) placed.input = OxyOSRect{0, 0, 0, 0};
+  // A bezel takes none; a banner (at the right edge) takes presses.
+  if (placed.kind == OXYOS_SHELL_NOTIFICATION && props->edge != "right") placed.input = OxyOSRect{0, 0, 0, 0};
   return placed;
 }
 

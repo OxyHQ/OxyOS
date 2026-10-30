@@ -153,6 +153,16 @@ class Window {
   // Announces text to assistive technologies from a surface (OXYOS_POLITE, OXYOS_ASSERTIVE).
   // Throws on failure.
   void announce(uint32_t id, uint8_t politeness, const std::string& text);
+  // Notifications (docs/adr/0026-notifications.mdx). An application posts one as `serial` (false if
+  // it could not be sent); a NOTIFICATION_RESULT answers. It withdraws its own (0: all of them); the
+  // shell removes any (0: all), and activates one (`action` 0) or its action, citing `serial`, an
+  // input it received, with the reply typed.
+  bool postNotification(uint32_t serial, const OxyOSNotification& notification);
+  void withdrawNotification(uint32_t notification);
+  void activateNotification(uint32_t notification, uint8_t action, uint64_t serial, const std::string& reply);
+  // The shell's Control Center turns Do Not Disturb on or off, as `serial` (a PREFERENCE_RESULT
+  // answers, as setAppearance's); false if it could not be sent.
+  bool setDoNotDisturb(uint32_t serial, bool enabled);
 
   uint64_t presented() const { return presented_; }
 

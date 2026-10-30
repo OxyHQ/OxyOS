@@ -10,6 +10,7 @@ import { RiVolumeUpLine } from "@oxy.so/bloom/icons/RiVolumeUpLine";
 import { RiVolumeMuteLine } from "@oxy.so/bloom/icons/RiVolumeMuteLine";
 import { RiKeyboardLine } from "@oxy.so/bloom/icons/RiKeyboardLine";
 import { RiBatteryLine } from "@oxy.so/bloom/icons/RiBatteryLine";
+import { RiNotificationOffFill } from "@oxy.so/bloom/icons/RiNotificationOffFill";
 import { Box, PressArea } from "../primitives";
 import {
   batteryLabel,
@@ -165,18 +166,23 @@ function LevelCard({
  * The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx), from the top bar's
  * button, as a Mac's: Wi-Fi (on and off), Bluetooth (what it is), the appearance, the display's
  * and the keyboard's brightness, the sound, and the battery. What the session has not said, or
- * the machine has not, is left out. A press outside it closes it.
+ * the machine has not, is left out. A press outside it closes it. Do Not Disturb
+ * (docs/adr/0026-notifications.mdx) is a module of its own below them, where the session has
+ * notifications.
  */
 export function ControlCenter({
   controls,
   dark,
   close,
   openSettings,
+  doNotDisturb,
 }: {
   controls: ShellControls;
   dark: boolean;
   close: () => void;
   openSettings: () => void;
+  /** Do Not Disturb as the session says it is, and its switch (a change of the preference). */
+  doNotDisturb?: { on: boolean; set: (enabled: boolean) => void };
 }) {
   // Opened, it looks at the machine again: what another program changed shows.
   useEffect(() => {
@@ -253,6 +259,18 @@ export function ControlCenter({
             <Text testID="control-battery" style={{ color: QUIET, fontSize: 12, marginLeft: "auto" }}>
               {battery}
             </Text>
+          </Box>
+        )}
+        {doNotDisturb && (
+          <Box style={card}>
+            <Module
+              testID="control-do-not-disturb"
+              icon={RiNotificationOffFill}
+              title="No molestar"
+              status={doNotDisturb.on ? "Activado" : "Desactivado"}
+              on={doNotDisturb.on}
+              onPress={() => doNotDisturb.set(!doNotDisturb.on)}
+            />
           </Box>
         )}
         <Button

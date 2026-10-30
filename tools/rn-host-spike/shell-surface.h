@@ -33,8 +33,11 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   OxyOSShellSurfaceProps(const PropsParserContext& context, const OxyOSShellSurfaceProps& sourceProps,
                          const RawProps& rawProps);
 
-  std::string kind{"panel"};  // "panel", "overlay" or "lock" (docs/adr/0010-lock-screen.mdx)
-  std::string edge{"top"};    // a panel's: "top", "bottom", "left" or "right"
+  // "panel", "overlay", "notification" or "lock" (docs/adr/0010-lock-screen.mdx)
+  std::string kind{"panel"};
+  // A panel's: "top", "bottom", "left" or "right"; a notification at the right is a banner
+  // (docs/adr/0026-notifications.mdx), any other a bezel.
+  std::string edge{"top"};
   bool exclusive{false};
 };
 

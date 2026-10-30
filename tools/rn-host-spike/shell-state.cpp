@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <cstdlib>
+#include <chrono>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -212,6 +213,48 @@ bool ShellState::observe(const OxyOSEvent& event) {
     case OXYOS_EVENT_BLUETOOTH:
       bluetooth_ = event;
       return true;
+    // Notifications (docs/adr/0026-notifications.mdx): texts first, then the notification whole.
+    case OXYOS_EVENT_NOTIFICATION_TEXT:
+      notificationTexts_.observe(event);
+      return false;
+    case OXYOS_EVENT_NOTIFICATION: {
+      auto texts = notificationTexts_.take(event.code);
+      auto text = [&](uint32_t field, uint32_t action = 0) { return notificationText(texts, field, action); };
+      Notification notification;
+      notification.appId = text(OXYOS_NOTIFICATION_FIELD_APPLICATION);
+      notification.title = text(OXYOS_NOTIFICATION_FIELD_TITLE);
+      notification.subtitle = text(OXYOS_NOTIFICATION_FIELD_SUBTITLE);
+      notification.body = text(OXYOS_NOTIFICATION_FIELD_BODY);
+      for (uint32_t action = 1; action <= event.width; ++action) {
+        std::optional<std::string> reply;
+        if (texts.count({OXYOS_NOTIFICATION_FIELD_ACTION_REPLY, action})) {
+          reply = text(OXYOS_NOTIFICATION_FIELD_ACTION_REPLY, action);
+        }
+        notification.actions.emplace_back(text(OXYOS_NOTIFICATION_FIELD_ACTION_LABEL, action), reply);
+      }
+      auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                     std::chrono::system_clock::now().time_since_epoch())
+                     .count();
+      notification.postedAt = now - int64_t{event.detail} * 1000;
+      notification.banner = (event.flag & OXYOS_NOTIFICATION_BANNER) != 0;
+      notification.withheld = (event.flag & OXYOS_NOTIFICATION_WITHHELD) != 0;
+      // Told again (unlocked, its texts no longer withheld): it keeps when it was posted.
+      auto known = notifications_.find(event.code);
+      if (known != notifications_.end()) notification.postedAt = known->second.postedAt;
+      notifications_[event.code] = std::move(notification);
+      return true;
+    }
+    case OXYOS_EVENT_NOTIFICATION_REMOVED:
+      notificationTexts_.forget(event.code);
+      return notifications_.erase(event.code) > 0;
+    case OXYOS_EVENT_NOTIFICATION_POLICY: {
+      bool doNotDisturb = (event.flag & OXYOS_NOTIFICATIONS_DO_NOT_DISTURB) != 0;
+      bool previews = (event.flag & OXYOS_NOTIFICATIONS_PREVIEWS) != 0;
+      if (doNotDisturb == doNotDisturb_ && previews == previews_) return false;
+      doNotDisturb_ = doNotDisturb;
+      previews_ = previews;
+      return true;
+    }
     case OXYOS_EVENT_WINDOW_SIZE: {
       // The window's proportions, for the overview's cards (docs/adr/0022-window-views.mdx).
       auto& window = windows_[event.code];
@@ -288,11 +331,23 @@ folly::dynamic ShellState::state() const {
         "enabled", (item.flags & OXYOS_MENU_DISABLED) == 0)("checkable", (item.flags & OXYOS_MENU_CHECKABLE) != 0)(
         "checked", (item.flags & OXYOS_MENU_CHECKED) != 0)("label", item.label)("shortcut", item.shortcut));
   }
+  folly::dynamic notifications = folly::dynamic::array();
+  for (const auto& [id, notification] : notifications_) {
+    folly::dynamic actions = folly::dynamic::array();
+    for (const auto& [label, reply] : notification.actions) {
+      actions.push_back(folly::dynamic::object("label", label)("reply", reply ? folly::dynamic(*reply) : nullptr));
+    }
+    notifications.push_back(folly::dynamic::object("id", id)("appId", notification.appId)("title", notification.title)(
+        "subtitle", notification.subtitle)("body", notification.body)("actions", std::move(actions))(
+        "postedAt", notification.postedAt)("banner", notification.banner)("withheld", notification.withheld));
+  }
   folly::dynamic menuBar =
       folly::dynamic::object("window", menuBar_.window)("serial", menuBar_.serial)("items", std::move(items));
   return folly::dynamic::object("windows", std::move(windows))("menuBar", std::move(menuBar))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
-      "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls());
+      "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls())(
+      "notifications", std::move(notifications))(
+      "notificationPolicy", folly::dynamic::object("doNotDisturb", doNotDisturb_)("previews", previews_));
 }
 
 }  // namespace oxyos

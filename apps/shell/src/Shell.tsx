@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { StyleSheet, useColorScheme, type ImageSourcePropType } from "react-native";
+import { AccessibilityInfo, StyleSheet, useColorScheme, type ImageSourcePropType } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
 import type {
@@ -7,6 +7,8 @@ import type {
   ShellCommand,
   ShellControls,
   ShellLock,
+  ShellNotification,
+  ShellNotifications,
   ShellSnapshot,
 } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
@@ -18,6 +20,9 @@ import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
 import { Bezel } from "./components/Bezel";
 import { ControlCenter } from "./components/ControlCenter";
+import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner";
+import { NotificationCenter } from "./components/NotificationCenter";
+import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
   followSwitcher,
@@ -33,6 +38,9 @@ export type {
   WindowViewProps,
 } from "./platform";
 
+/** The top bar's height (TopBar's `h-7`): what banners and the Notification Center begin below. */
+const TOP_BAR_HEIGHT = 28;
+
 /** OxyOS shell presentation. Native application surfaces belong to the compositor beneath it. */
 export function Shell({
   snapshot,
@@ -45,6 +53,8 @@ export function Shell({
   platform = inPlace,
   dock = true,
   controls,
+  notifications,
+  banners = true,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -70,6 +80,11 @@ export function Shell({
    * Control Center's appearance.
    */
   controls?: ShellControls;
+  /** The session's notifications, where the platform has them (docs/adr/0026-notifications.mdx):
+      banners, the Notification Center from the clock, and the lock screen's summary. */
+  notifications?: ShellNotifications;
+  /** Whether this display shows banners: the primary does, as a Mac shows them on its main one. */
+  banners?: boolean;
 }) {
   const { Surface } = platform;
   const dark = useColorScheme() === "dark";
@@ -79,6 +94,39 @@ export function Shell({
   useEffect(() => {
     if (lock?.locked) setControlCenter(false);
   }, [lock?.locked]);
+  // The Notification Center, from the clock (docs/adr/0026-notifications.mdx).
+  const [center, setCenter] = useState(false);
+  // The banner shown, a notification that arrived to be one; each is shown once.
+  const [banner, setBanner] = useState<ShellNotification | null>(null);
+  const [replying, setReplying] = useState(false);
+  const seen = useRef<Set<string> | null>(null);
+  const list = notifications?.list;
+  useEffect(() => {
+    if (!list) return;
+    // What the shell knew when it started is no banner.
+    const first = seen.current === null;
+    const known = seen.current ?? new Set<string>();
+    const next = first ? undefined : nextBanner(list, known);
+    for (const notification of list) known.add(notification.id);
+    seen.current = known;
+    if (next && banners && !lock?.locked && !notifications?.doNotDisturb) {
+      setBanner(next);
+      setReplying(false);
+      // Said politely, after what the screen reader is saying, as VoiceOver says a banner.
+      const said = spoken(next, applicationOf(next, snapshot.applications).name);
+      if (platform.announce) platform.announce(said, true);
+      else AccessibilityInfo.announceForAccessibility(said);
+    } else {
+      // One no longer kept (opened, removed) goes with its banner.
+      setBanner((shown) => (shown && list.some((notification) => notification.id === shown.id) ? shown : null));
+    }
+  }, [list]);
+  // A banner stays five seconds, or while the person is replying in it.
+  useEffect(() => {
+    if (!banner || replying) return undefined;
+    const timer = setTimeout(() => setBanner(null), BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [banner, replying]);
   const [view, setView] = useState<"desktop" | "launcher" | "overview">(
     "desktop",
   );
@@ -181,7 +229,19 @@ export function Shell({
             canLock={!!lock}
             onCommand={menuCommand}
             controls={controls}
-            controlCenter={() => setControlCenter((open) => !open)}
+            // One of the two at a time, as a Mac's Control Center and Notification Center.
+            controlCenter={() => {
+              setCenter(false);
+              setControlCenter((open) => !open);
+            }}
+            clock={
+              notifications
+                ? () => {
+                    setControlCenter(false);
+                    setCenter((open) => !open);
+                  }
+                : undefined
+            }
           />
         </Surface>
         <Box
@@ -258,6 +318,47 @@ export function Shell({
               dark={dark}
               close={() => setControlCenter(false)}
               openSettings={() => menuCommand("system.settings")}
+              doNotDisturb={
+                notifications?.setDoNotDisturb
+                  ? { on: notifications.doNotDisturb, set: notifications.setDoNotDisturb }
+                  : undefined
+              }
+            />
+          </Surface>
+        )}
+        {/* A banner: a notification surface of its own at the top right, which the compositor slides
+            in; each its own surface. Not while the Notification Center is open. */}
+        {notifications && banner && !center && !lock?.locked && (
+          <Surface
+            key={banner.id}
+            // At the right edge: a banner, which takes presses (a bezel has no edge and takes none).
+            kind="notification"
+            edge="right"
+            style={{ position: "absolute", top: TOP_BAR_HEIGHT + 8, right: 12, width: BANNER_WIDTH }}
+          >
+            <NotificationCard
+              testID="notification-banner"
+              notification={banner}
+              applications={snapshot.applications}
+              now={now}
+              closeLabel="Ocultar"
+              close={() => setBanner(null)}
+              onReplying={setReplying}
+              activate={(action, reply) => {
+                notifications.activate(banner.id, action, reply);
+                setBanner(null);
+              }}
+            />
+          </Surface>
+        )}
+        {notifications && center && !lock?.locked && (
+          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+            <NotificationCenter
+              notifications={notifications}
+              applications={snapshot.applications}
+              now={now}
+              top={TOP_BAR_HEIGHT}
+              close={() => setCenter(false)}
             />
           </Surface>
         )}
@@ -281,6 +382,8 @@ export function Shell({
               wallpaper={wallpaper}
               now={now}
               Masked={platform.Masked}
+              notifications={notifications}
+              applications={snapshot.applications}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />

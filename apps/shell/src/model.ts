@@ -102,6 +102,43 @@ export type ShellLock = {
     wait: number;
   };
 };
+/**
+ * A notification an application posted (docs/adr/0026-notifications.mdx), as the session keeps it.
+ * `appId` is the session's (the posting process's launch record), never the application's claim.
+ * `withheld`: the session is locked and the lock screen may not show what it says, so only whose
+ * it is was told. `banner`: it arrived to be shown now (the session's preferences allow it).
+ */
+export type ShellNotification = {
+  id: string;
+  appId: string;
+  title: string;
+  subtitle?: string;
+  body: string;
+  /** Its actions, in order (action n is index n-1); a reply action has a placeholder. */
+  actions: readonly { label: string; reply?: string }[];
+  /** When it was posted, ms since the epoch. */
+  postedAt: number;
+  banner?: boolean;
+  withheld?: boolean;
+};
+/**
+ * The session's notifications, owned by the platform: the Notification Center's list, the policy
+ * the user's preferences set, and what the shell asks. Only the platform reaches the application.
+ */
+export type ShellNotifications = {
+  list: readonly ShellNotification[];
+  /** Do Not Disturb: no banner is shown and nothing is said; every one is still kept. */
+  doNotDisturb: boolean;
+  /** The lock screen may show what notifications say; without it, only how many each has. */
+  previews: boolean;
+  /** The person pressed it (`action` 0) or its action n, with the reply typed for a reply. */
+  activate: (id: string, action: number, reply?: string) => void;
+  /** Removes it from the Notification Center. */
+  remove: (id: string) => void;
+  /** The Control Center's Do Not Disturb: asks the session to change the user's preference; the
+      next `doNotDisturb` says what came of it. Without it the Control Center has no switch. */
+  setDoNotDisturb?: (enabled: boolean) => void;
+};
 /** What the platform asks of the shell, a new `id` for each: dismissing what is open, showing the
     launcher or the overview, and the system shortcuts it shows (docs/adr/0024-system-shortcuts.mdx):
     the application switcher's moves, quit, hide, end with the choice (Super released) or cancel,

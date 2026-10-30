@@ -1,0 +1,508 @@
+{
+  "about": "Notifications (docs/adr/0026-notifications.mdx) through expo-notifications' API, which the Bloom host implements on OxyOS (sample/NotificationProbe.tsx, sample/oxyos/expo-adapter.js): Allo posts one now (scheduleNotificationAsync, in a category whose action is a reply); the session keeps it as Allo's by its launch record and the shell shows a banner at the top right, the registry's Allo icon and name, the title and body and the reply action, sliding in on a notification surface of its own, said politely to the screen reader. Allo minimized (Super+M), a press on the banner restores and focuses it, and Allo's response listener hears the press once, with the data it posted. The reply action opens a field in the banner: what is typed and Enter go to Allo with the action, once, and Allo comes forward. Two more, and the top bar's clock opens the Notification Center: one group, Allo's, with both, cleared at once. Every step checks what Allo's React tree and client receive.",
+  "module": "NotificationProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "Avisar posts one now: Allo's banner at the top right, its icon, name, title, body and reply action, slid in, said politely",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted",
+          "Responses: 0",
+          "Last: none"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Allo. Ana. ¿Comemos juntos?"
+          }
+        ],
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "Ana",
+            "¿Comemos juntos?",
+            "Responder",
+            "ahora"
+          ]
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              908,
+              0,
+              372,
+              154
+            ]
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "notification",
+              "change": "arrived",
+              "first": 0,
+              "last": 255,
+              "ended": true
+            }
+          ],
+          "count": 1
+        },
+        "output_pixels": {
+          "930,66": "#470945",
+          "1100,100": "#ecf0fb"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            },
+            {
+              "role": "Button",
+              "name": "Ocultar"
+            },
+            {
+              "role": "Button",
+              "name": "Responder"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+M: Allo goes into the dock; the banner stays",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "window_shown": false,
+        "output_pixels": {
+          "930,66": "#470945",
+          "640,300": "#497cfe"
+        }
+      }
+    },
+    {
+      "name": "a press on the banner: Allo restored and focused, its listener told once, with the data posted; the banner goes",
+      "do": [
+        "press_output",
+        [
+          1100,
+          70
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1",
+          "Last: default - chat 7"
+        ],
+        "react": {},
+        "delivered": {
+          "0": {
+            "notification.response": 1
+          },
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1,
+        "window_shown": true,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored"
+            },
+            {
+              "kind": "notification",
+              "change": "gone",
+              "ended": true
+            }
+          ],
+          "count": 2
+        },
+        "output_pixels": {
+          "1100,100": "#487bff"
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Avisar again: another banner",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted",
+          "Responses: 1"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Allo. Ana. ¿Comemos juntos?"
+          }
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "notification",
+              "change": "arrived"
+            }
+          ],
+          "count": 1
+        }
+      }
+    },
+    {
+      "name": "its Responder opens a field in the banner, which takes the keyboard",
+      "do": [
+        "press_output",
+        [
+          966,
+          124
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 1"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Enviar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "what is typed and Enter go to Allo with the reply action, once, and Allo comes forward",
+      "do": [
+        "keyboard",
+        "voy\n"
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 2",
+          "Last: reply voy chat 7"
+        ],
+        "react": {},
+        "delivered": {
+          "0": {
+            "notification.response": 1
+          },
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "two more: the second banner takes the first's place",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        }
+      }
+    },
+    {
+      "name": "and the fourth in ten seconds: its banner, the same text, takes the third's place",
+      "do": [
+        "press",
+        [
+          53,
+          41
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Posted: posted"
+        ],
+        "react": {
+          "touchStart@notify": 1,
+          "touchEnd@notify": 1
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the clock opens the Notification Center: Allo's group, both, no banner",
+      "do": [
+        "press_output",
+        [
+          1215,
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 2"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Notificaciones",
+            "Allo",
+            "Borrar"
+          ],
+          "absent": [
+            "No hay notificaciones",
+            "No molestar"
+          ]
+        },
+        "transitions": {
+          "seen": [
+            {
+              "kind": "overlay",
+              "change": "arrived"
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Centro de notificaciones"
+            },
+            {
+              "role": "List",
+              "name": "Centro de notificaciones"
+            },
+            {
+              "role": "Button",
+              "name": "Borrar las notificaciones de Allo"
+            },
+            {
+              "role": "Button",
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            },
+            {
+              "role": "Button",
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Borrar clears Allo's: the center says there are none, and Allo's response listener hears nothing",
+      "do": [
+        "press_output",
+        [
+          1230,
+          84
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 2"
+        ],
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "No hay notificaciones"
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Allo. Ana. ¿Comemos juntos?"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press beside it closes it",
+      "do": [
+        "press_output",
+        [
+          300,
+          400
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Responses: 2"
+        ],
+        "react": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "Centro de notificaciones"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import type {
   ShellLock,
   ShellMenu,
   ShellMenuItem,
+  ShellNotifications,
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
 
@@ -172,6 +173,7 @@ function ProbeShell({
   dock,
   commands,
   controls = probeControls,
+  notifications,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
   /** The machine as the session says it is (ADR 0025). */
@@ -186,6 +188,8 @@ function ProbeShell({
   wallpaper?: string;
   /** The system shortcuts the shell shows (ADR 0024), as the compositor sent them. */
   commands?: React.ComponentProps<typeof Shell>['commands'];
+  /** The session's notifications (ADR 0026); banners only on the display with the dock. */
+  notifications?: ShellNotifications;
 }) {
   return (
       <SafeAreaProvider>
@@ -198,8 +202,10 @@ function ProbeShell({
             lock={lock}
             platform={platform}
             dock={dock}
+            banners={dock !== false}
             commands={commands}
             controls={controls}
+            notifications={notifications}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -218,6 +224,11 @@ export default function ShellProbe() {
  */
 export function ShellSession() {
   const shell = useOxyOSShell();
+  // OxyOS's platform, with the session's polite announcements (a banner's, ADR 0026).
+  const announcing = React.useMemo(
+    () => ({ ...oxyosShell, announce: (text: string, polite: boolean) => shell.announce(text, polite) }),
+    [],
+  );
   // The session's clock is the real one.
   const now = useMinuteClock();
   const state = shell.state;
@@ -365,9 +376,40 @@ export function ShellSession() {
     setDark: shell.setAppearance,
     refresh: shell.refreshControls,
   };
+  // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
+  // says what the person did.
+  type ToldNotification = {
+    id: number;
+    appId: string;
+    title: string;
+    subtitle: string;
+    body: string;
+    actions: { label: string; reply: string | null }[];
+    postedAt: number;
+    banner: boolean;
+    withheld: boolean;
+  };
+  const notifications: ShellNotifications = {
+    list: ((state.notifications ?? []) as ToldNotification[]).map((told) => ({
+      id: String(told.id),
+      appId: told.appId,
+      title: told.title,
+      subtitle: told.subtitle || undefined,
+      body: told.body,
+      actions: told.actions.map((action) => ({ label: action.label, reply: action.reply ?? undefined })),
+      postedAt: told.postedAt,
+      banner: told.banner,
+      withheld: told.withheld,
+    })),
+    doNotDisturb: !!state.notificationPolicy?.doNotDisturb,
+    previews: !!state.notificationPolicy?.previews,
+    activate: (id, action, reply) => shell.activateNotification(Number(id), action, reply),
+    remove: (id) => shell.removeNotification(Number(id)),
+    setDoNotDisturb: shell.setDoNotDisturb,
+  };
   return (
     <ProbeShell
-      platform={oxyosShell}
+      platform={announcing}
       shown={shown}
       act={act}
       now={now}
@@ -376,6 +418,7 @@ export function ShellSession() {
       dock={dock}
       commands={shell.shortcuts}
       controls={controls}
+      notifications={notifications}
     />
   );
 }

@@ -7,6 +7,7 @@ const en = {
   pages: {
     appearance: "Appearance",
     wallpaper: "Wallpaper",
+    notifications: "Notifications",
     lockScreen: "Lock Screen",
     keyboard: "Keyboard",
     dateTime: "Date & Time",
@@ -22,6 +23,14 @@ const en = {
     accent: "Accent colour",
   },
   wallpaper: { current: "Wallpaper", system: "OxyOS", dynamic: "Follows the sun through the day." },
+  notifications: {
+    doNotDisturb: "Do Not Disturb",
+    doNotDisturbDescription: "Notifications are kept in the Notification Center, without banners or sounds.",
+    previews: "Show previews",
+    always: "Always",
+    unlocked: "When unlocked",
+    previewsDescription: "What notifications say, on the lock screen. When unlocked, it shows only how many each app has.",
+  },
   lockScreen: {
     lockAfter: "Lock after",
     never: "Never",
@@ -59,6 +68,7 @@ const es: Strings = {
   pages: {
     appearance: "Apariencia",
     wallpaper: "Fondo de pantalla",
+    notifications: "Notificaciones",
     lockScreen: "Pantalla de bloqueo",
     keyboard: "Teclado",
     dateTime: "Fecha y hora",
@@ -74,6 +84,15 @@ const es: Strings = {
     accent: "Color de acento",
   },
   wallpaper: { current: "Fondo", system: "OxyOS", dynamic: "Sigue al sol a lo largo del día." },
+  notifications: {
+    doNotDisturb: "No molestar",
+    doNotDisturbDescription: "Las notificaciones se guardan en el centro de notificaciones, sin avisos ni sonidos.",
+    previews: "Mostrar previsualizaciones",
+    always: "Siempre",
+    unlocked: "Al desbloquear",
+    previewsDescription:
+      "Lo que dicen las notificaciones, en la pantalla de bloqueo. Al desbloquear, solo cuántas tiene cada aplicación.",
+  },
   lockScreen: {
     lockAfter: "Bloquear tras",
     never: "Nunca",

@@ -117,6 +117,28 @@ struct ShellService {
   std::function<void(bool enabled)> setWifiEnabled;
   std::function<void(bool dark)> setAppearance;
   std::function<void()> refreshControls;
+  // Notifications (docs/adr/0026-notifications.mdx): the person pressed one (`action` 0) or one of
+  // its actions, with the reply typed, citing the latest input; or removed one (0: all).
+  std::function<void(uint32_t notification, uint8_t action, const std::string& reply)> activateNotification;
+  std::function<void(uint32_t notification)> removeNotification;
+  // Do Not Disturb on or off, from the Control Center: a change of the user's preference, as the
+  // appearance is; the next NotificationPolicy says what came of it.
+  std::function<void(bool enabled)> setDoNotDisturb;
+  // What the shell says to assistive technologies: politely, after what they are saying (a
+  // notification's banner), or at once.
+  std::function<void(const std::string& text, bool polite)> announce;
+};
+
+// An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API
+// (sample/oxyos/expo-adapter.js): a post as `serial` (its content as the adapter gives it:
+// { identifier, title, subtitle, body, data, actions: [{ id, label, reply, background }], banner };
+// false if it could not be sent; `OxyOSNotificationResult` answers), withdrawing one of its own
+// (0: all), and the responses the session gave that JavaScript has not taken yet (each once;
+// `OxyOSNotificationResponse` says one came). Unset without a connection to the compositor.
+struct NotificationsService {
+  std::function<bool(uint32_t serial, const folly::dynamic& content)> post;
+  std::function<void(uint32_t notification)> withdraw;
+  std::vector<folly::dynamic> responses;
 };
 
 // The application window's menus (docs/adr/0021-menu-bar.mdx), for Bloom's `menu-bar` capability:
@@ -175,6 +197,7 @@ struct HostServices {
   bool applicationWindow = false;
   WindowService window{};
   SettingsService settings{};
+  NotificationsService notifications{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the

@@ -273,6 +273,24 @@ void Window::announce(uint32_t id, uint8_t politeness, const std::string& text) 
   if (oxyos_client_announce(client_, id, politeness, text.data(), text.size()) != 0) failed("cannot announce");
 }
 
+bool Window::setDoNotDisturb(uint32_t serial, bool enabled) {
+  return oxyos_client_set_do_not_disturb(client_, serial, enabled) == 0;
+}
+
+bool Window::postNotification(uint32_t serial, const OxyOSNotification& notification) {
+  return oxyos_client_post_notification(client_, serial, &notification) == 0;
+}
+
+void Window::withdrawNotification(uint32_t notification) {
+  if (oxyos_client_withdraw_notification(client_, notification) != 0) failed("cannot withdraw a notification");
+}
+
+void Window::activateNotification(uint32_t notification, uint8_t action, uint64_t serial, const std::string& reply) {
+  if (oxyos_client_activate_notification(client_, notification, action, serial, reply.data(), reply.size()) != 0) {
+    failed("cannot activate a notification");
+  }
+}
+
 uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool newField) {
   int64_t serial = oxyos_client_text_input(client_, surface, field, newField ? 1 : 0);
   if (serial < 0) failed("cannot tell the text field");

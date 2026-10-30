@@ -7,7 +7,9 @@ import { Wallpaper } from "./Wallpaper";
 import { LockClock } from "./LockClock";
 import { UserPicture } from "./UserPicture";
 import { PasswordField, textShadow } from "./PasswordField";
-import type { ShellLock } from "../model";
+import type { ShellApplication, ShellLock, ShellNotifications } from "../model";
+import { lockSummary } from "../notifications";
+import { AppIcon } from "../apps";
 import type { MaskedProps } from "../platform";
 
 /**
@@ -59,16 +61,56 @@ export function LockScreen({
   wallpaper,
   now,
   Masked,
+  notifications,
+  applications = [],
 }: {
   lock: ShellLock;
   wallpaper: ImageSourcePropType;
   now: Date;
   /** The platform's masked view, for the clock's material (LockClock). */
   Masked?: ComponentType<MaskedProps>;
+  /** The session's notifications (docs/adr/0026-notifications.mdx): under the clock, how many each
+      application has, and what its newest says only where the preferences allow previews. */
+  notifications?: ShellNotifications;
+  applications?: readonly ShellApplication[];
 }) {
   const name = lock.user.fullName || lock.user.name;
+  const summary = notifications
+    ? lockSummary(notifications.list, applications, notifications.previews)
+    : [];
   return (
     <LockBackdrop testID="shell-lock" wallpaper={wallpaper} now={now} Masked={Masked}>
+      {summary.length > 0 ? (
+        <Box
+          testID="shell-lock-notifications"
+          accessibilityRole="list"
+          accessibilityLabel="Notificaciones"
+          className="items-center gap-2"
+          style={{ marginBottom: 28 }}
+        >
+          {summary.slice(0, 4).map((entry) => (
+            <Box
+              key={entry.appId}
+              accessible
+              accessibilityLabel={[entry.name, entry.count, entry.preview?.title, entry.preview?.body]
+                .filter(Boolean)
+                .join(". ")}
+              className="flex-row items-center gap-3 rounded-[16px] px-3 py-2"
+              style={{ width: 340, backgroundColor: "rgba(255,255,255,0.24)" }}
+            >
+              {entry.app ? <AppIcon app={entry.app} size={28} /> : null}
+              <Box className="min-w-0 flex-1">
+                <Text numberOfLines={1} style={{ ...textShadow, color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  {entry.name}
+                </Text>
+                <Text numberOfLines={1} style={{ ...textShadow, color: "rgba(255,255,255,0.9)", fontSize: 12 }}>
+                  {entry.preview ? `${entry.preview.title}: ${entry.preview.body}` : entry.count}
+                </Text>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
       <UserPicture name={name} />
       <Text
         style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}

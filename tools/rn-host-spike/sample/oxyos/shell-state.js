@@ -41,6 +41,13 @@
  * password for an enrolled account's Unix user, and `accounts()` reads the enrolled accounts from the
  * accounts' service, [{ user, name, picture }] (null when they cannot be read); `oxyApi` in the state
  * is Oxy's API, which adding an account needs to reach.
+ *
+ * Notifications (docs/adr/0026-notifications.mdx): `notifications` in the state, [{ id, appId,
+ * title, subtitle, body, actions: [{ label, reply }], postedAt, banner, withheld }] (reply: a reply
+ * action's placeholder, null for a button), and `notificationPolicy`, { doNotDisturb, previews }.
+ * `activateNotification(id, action, reply)` opens one (action 0) or runs its action, citing the
+ * latest input; `removeNotification(id)` removes one (0: all); `setDoNotDisturb(enabled)` is the
+ * Control Center's (a preference change, as `setAppearance`); `announce(text, polite)` speaks.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -105,5 +112,9 @@ export function useOxyOSShell() {
     setWifiEnabled: (enabled) => native?.setWifiEnabled(enabled),
     setAppearance: (dark) => native?.setAppearance(dark),
     refreshControls: () => native?.refreshControls(),
+    activateNotification: (id, action, reply) => native?.activateNotification(id, action, reply ?? ''),
+    removeNotification: (id) => native?.removeNotification(id),
+    setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
+    announce: (text, polite) => native?.announce(text, polite),
   };
 }

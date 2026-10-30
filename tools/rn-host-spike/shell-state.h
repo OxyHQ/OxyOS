@@ -9,6 +9,8 @@
 // only on the primary.
 #pragma once
 
+#include "notifications.h"
+
 #include <oxyos_client.h>
 
 #include <folly/dynamic.h>
@@ -40,7 +42,11 @@ class ShellState {
   //   onAC, minutes } or null, network: { wifi: "unavailable" | "off" | "disconnected" |
   //   "connecting" | "connected", signal, ssid, wired } or null, bluetooth: { state: "unavailable" |
   //   "off" | "on", connected } or null } (docs/adr/0025-hardware-keys-and-control-center.mdx: null
-  //   until the session has told it) }
+  //   until the session has told it),
+  //   notifications: [{ id, appId, title, subtitle, body, actions: [{ label, reply: placeholder or
+  //   null }], postedAt: ms since the epoch, banner, withheld }] (docs/adr/0026-notifications.mdx:
+  //   oldest first; `banner` as the compositor last told it, `withheld` its texts kept from the
+  //   locked shell), notificationPolicy: { doNotDisturb, previews } }
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
   // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
@@ -94,6 +100,17 @@ class ShellState {
   // Whether Caps Lock is on, as told to the shell's focused surface (off when it gains focus,
   // unless told).
   bool capsLock_ = false;
+  // The notifications the compositor keeps (docs/adr/0026-notifications.mdx), by number, and
+  // their texts being received.
+  struct Notification {
+    std::string appId, title, subtitle, body;
+    std::vector<std::pair<std::string, std::optional<std::string>>> actions;
+    int64_t postedAt = 0;
+    bool banner = false, withheld = false;
+  };
+  std::map<uint32_t, Notification> notifications_;
+  NotificationTexts notificationTexts_;
+  bool doNotDisturb_ = false, previews_ = false;
   // The solar wallpaper: its folder, frames (by index), anchors, the frame shown when there is
   // no sun (the time zone has no place), the frame chosen and when it next changes.
   std::string wallpaperDir_;
