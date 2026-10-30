@@ -35,6 +35,8 @@ fn connector(
             _ => (531, 299),
         },
         modes,
+        vrr_capable: false,
+        refresh_range_hz: None,
     }
 }
 
@@ -319,11 +321,11 @@ fn what_is_kept_for_the_displays_is_how_they_are_shown_at_the_next_start() {
     preferences.keep_display(
         MONITOR,
         DisplaySettings {
-            mode: DisplayMode {
+            mode: Some(DisplayMode {
                 width: 2560,
                 height: 1440,
                 refresh_mhz: 59_951,
-            },
+            }),
             scale_120: 120,
         },
     );
@@ -352,23 +354,229 @@ fn what_is_kept_for_the_displays_is_how_they_are_shown_at_the_next_start() {
         (compositor.screens[0].width, compositor.screens[0].height),
         (2560, 1440)
     );
-    // A kept mode the display no longer has is its preferred one.
+    // A kept mode the display no longer has: its own, at the scale its density recommends (the
+    // one kept went with the mode).
     let mut gone = preferences.clone();
     gone.keep_display(
         MONITOR,
         DisplaySettings {
-            mode: DisplayMode {
+            mode: Some(DisplayMode {
                 width: 5120,
                 height: 2880,
                 refresh_mhz: 60_000,
-            },
+            }),
             scale_120: 240,
         },
     );
     assert_eq!(
-        chosen(&monitor(), &gone),
-        (mode(3840, 2160, 60_000, true), 180)
+        choices(&monitor(), &gone),
+        [(mode(3840, 2160, 60_000, true), 180)]
     );
+}
+
+/// A 27-inch 1440p monitor of 60, 120 and 144 Hz (its preferred mode the 60 Hz one, as many
+/// say), and 1080p at 60 and 144.
+fn fast_monitor() -> Connector {
+    connector(
+        236,
+        "DP-1",
+        MONITOR,
+        false,
+        vec![
+            mode(2560, 1440, 59_951, true),
+            mode(2560, 1440, 119_998, false),
+            mode(2560, 1440, 143_998, false),
+            mode(1920, 1080, 60_000, false),
+            mode(1920, 1080, 144_001, false),
+        ],
+    )
+}
+
+/// The refresh each output is driven at, in the scene's order: what its frames are paced by and
+/// what its surfaces are told.
+fn refreshes(compositor: &Compositor) -> Vec<(OutputId, u32)> {
+    compositor
+        .scene
+        .outputs()
+        .iter()
+        .map(|output| (output.id, output.refresh_mhz))
+        .collect()
+}
+
+#[test]
+fn a_display_is_driven_at_its_native_resolution_and_fastest_refresh() {
+    let mut compositor = compositor();
+    let mut heads = Fake {
+        connectors: thinkpad(Some(fast_monitor()), None),
+        ..Fake::default()
+    };
+    let mut displays = Displays::new(1);
+    displays
+        .follow(&mut heads, &mut compositor, &Preferences::default())
+        .unwrap();
+    // The panel at its only 60 Hz; the monitor at 2560x1440, its preferred pixels, at 144 Hz, not
+    // its preferred 60 nor 1080p's faster 144.001.
+    assert_eq!(refreshes(&compositor), [(1, 60_000), (2, 143_998)]);
+    assert_eq!(displays.shown()[1].mode, mode(2560, 1440, 143_998, false));
+    assert_eq!(displays.shown()[1].chosen, None);
+    let screen = compositor.screen(2).unwrap();
+    assert_eq!(
+        (screen.width, screen.height, screen.refresh_mhz),
+        (2560, 1440, 143_998)
+    );
+    // Its frames are 6.94 ms apart; the fastest display's is what a frame's work must fit in.
+    assert_eq!(screen.refresh_period(), Duration::from_nanos(6_944_540));
+    assert_eq!(
+        compositor.fastest_refresh(),
+        Some(Duration::from_nanos(6_944_540))
+    );
+}
+
+#[test]
+fn a_rate_the_card_refuses_falls_back_to_the_next_fastest() {
+    // A dock's link without the bandwidth for 1440p at 144 Hz: the card's atomic test refuses it.
+    let mut compositor = compositor();
+    let mut heads = Fake {
+        connectors: thinkpad(Some(fast_monitor()), None),
+        refused: vec![(236, mode(2560, 1440, 143_998, false))],
+        ..Fake::default()
+    };
+    let mut displays = Displays::new(1);
+    displays
+        .follow(&mut heads, &mut compositor, &Preferences::default())
+        .unwrap();
+    assert_eq!(refreshes(&compositor), [(1, 60_000), (2, 119_998)]);
+    // Tried at 144 first, then shown at 120, at the same pixels and scale.
+    let tried: Vec<_> = heads
+        .prepared
+        .iter()
+        .filter(|(id, ..)| *id == 236)
+        .collect();
+    assert_eq!(
+        tried,
+        [&(236, (2560, 1440), 120), &(236, (2560, 1440), 120)]
+    );
+    // Refusing every rate of its native resolution: not shown.
+    let mut compositor = self::compositor();
+    let mut heads = Fake {
+        connectors: thinkpad(Some(fast_monitor()), None),
+        refused: [59_951, 119_998, 143_998]
+            .iter()
+            .map(|&mhz| (236, mode(2560, 1440, mhz, false)))
+            .collect(),
+        ..Fake::default()
+    };
+    let mut displays = Displays::new(1);
+    displays
+        .follow(&mut heads, &mut compositor, &Preferences::default())
+        .unwrap();
+    assert_eq!(refreshes(&compositor), [(1, 60_000)]);
+}
+
+#[test]
+fn a_rate_chosen_is_kept_and_wins_and_a_scale_alone_leaves_the_rate_the_displays_own() {
+    let directory = scratch("rate");
+    let file = directory.join("preferences");
+    let mut settings = Settings::load(Some(file.clone()), None);
+    let mut compositor = compositor();
+    let mut heads = Fake {
+        connectors: thinkpad(Some(fast_monitor()), None),
+        ..Fake::default()
+    };
+    let mut displays = Displays::new(1);
+    displays
+        .follow(&mut heads, &mut compositor, settings.preferences())
+        .unwrap();
+    // A scale chosen on the monitor driven at its fastest: kept with no mode.
+    ask(
+        &mut compositor,
+        Request::SetDisplayScale {
+            serial: 1,
+            output: 2,
+            scale_120: 150,
+        },
+    );
+    displays.serve(&mut heads, &mut compositor, &mut settings, Instant::now());
+    assert_eq!(answers(&mut compositor).0, [(1, true)]);
+    let kept = oxyos_preferences::Preferences::load(&file);
+    assert_eq!(kept.display(MONITOR).unwrap().text(), "default 1.25");
+    // 60 Hz chosen in Settings (the same pixels: nothing moves) and kept.
+    let start = Instant::now();
+    ask(
+        &mut compositor,
+        Request::SetDisplayMode {
+            serial: 2,
+            output: 2,
+            width: 2560,
+            height: 1440,
+            refresh_mhz: 59_951,
+        },
+    );
+    displays.serve(&mut heads, &mut compositor, &mut settings, start);
+    let rect = outputs(&compositor)[1].1;
+    // Shown at once, paced at 60 Hz: the scene's output, its screen and what its surfaces are told.
+    assert_eq!(refreshes(&compositor), [(1, 60_000), (2, 59_951)]);
+    assert_eq!(compositor.screen(2).unwrap().refresh_mhz, 59_951);
+    ask(
+        &mut compositor,
+        Request::ConfirmDisplays {
+            serial: 3,
+            keep: true,
+        },
+    );
+    displays.serve(&mut heads, &mut compositor, &mut settings, start);
+    assert_eq!(
+        answers(&mut compositor),
+        (vec![(2, true), (3, true)], vec![(2, 15), (2, 0)])
+    );
+    let kept = oxyos_preferences::Preferences::load(&file);
+    assert_eq!(kept.display(MONITOR).unwrap().text(), "2560x1440@59951 1");
+    // At the next start the 60 Hz chosen wins over its fastest; then a scale keeps it chosen.
+    let mut compositor = self::compositor();
+    let mut displays = Displays::new(1);
+    let mut settings = Settings::load(Some(file.clone()), None);
+    displays
+        .follow(&mut heads, &mut compositor, settings.preferences())
+        .unwrap();
+    assert_eq!(refreshes(&compositor), [(1, 60_000), (2, 59_951)]);
+    assert_eq!(outputs(&compositor)[1].1, rect);
+    ask(
+        &mut compositor,
+        Request::SetDisplayScale {
+            serial: 4,
+            output: 2,
+            scale_120: 150,
+        },
+    );
+    displays.serve(&mut heads, &mut compositor, &mut settings, Instant::now());
+    let kept = oxyos_preferences::Preferences::load(&file);
+    assert_eq!(
+        kept.display(MONITOR).unwrap().text(),
+        "2560x1440@59951 1.25"
+    );
+    // On a link that cannot take the rate chosen, its own fastest the link takes, at the scale its
+    // density recommends; the choice stays kept for a link that can.
+    let mut heads = Fake {
+        connectors: thinkpad(Some(fast_monitor()), None),
+        refused: vec![(236, mode(2560, 1440, 59_951, true))],
+        ..Fake::default()
+    };
+    let mut compositor = self::compositor();
+    let mut displays = Displays::new(1);
+    displays
+        .follow(&mut heads, &mut compositor, settings.preferences())
+        .unwrap();
+    assert_eq!(refreshes(&compositor), [(1, 60_000), (2, 143_998)]);
+    assert_eq!(outputs(&compositor)[1].2, 120);
+    assert_eq!(
+        displays.shown()[1].chosen,
+        Some(DisplayMode {
+            width: 2560,
+            height: 1440,
+            refresh_mhz: 59_951
+        })
+    );
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]
@@ -414,7 +622,8 @@ fn a_scale_is_applied_kept_and_the_others_stay_against_it() {
         ]
     );
     let kept = oxyos_preferences::Preferences::load(&file);
-    assert_eq!(kept.display(PANEL).unwrap().scale_120, 120);
+    // Its scale alone: its mode is still its own, not one chosen.
+    assert_eq!(kept.display(PANEL).unwrap().text(), "default 1");
     assert_eq!(
         kept.arrangement([PANEL, MONITOR]).unwrap().displays,
         [

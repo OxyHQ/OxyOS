@@ -1,5 +1,5 @@
 {
-  "about": "OxyOS's Settings' Displays page (apps/settings, docs/adr/0018-several-displays.mdx) on the session's displays, played on two virtual connectors as a card reports them: a 14-inch 1920x1200 panel (the primary, at the 1.25 its density recommends) and a 24-inch 1080p monitor right of it, the shell on each. Granted `settings`, Settings is told each display (its name, modes, scale choices, place, scale and mode) and changes them through the session, which applies each live and keeps it in the preferences file by the display's identity: More space on the panel makes it 1920x1200 logical at once, the monitor moving with its edge and each shell's bars taking the new edges; the monitor made the main display takes the dock, nothing moving; a resolution is shown on trial (the monitor's frame 1280x720 at once) while Settings asks to keep it, Revert takes it back at once, leaving it alone takes it back once its 15 seconds pass, and Keep Changes keeps it; the monitor moved above the panel (its accessible action, as a drag would) goes there, touching it. The file holds every display's mode and scale and the arrangement at the end. Without the grant Settings is told no display: its page shows none, and the run fails at the first step that looks for one.",
+  "about": "OxyOS's Settings' Displays page (apps/settings, docs/adr/0018-several-displays.mdx) on the session's displays, played on two virtual connectors as a card reports them: a 14-inch 1920x1200 panel (the primary, at the 1.25 its density recommends) and a 24-inch 1080p monitor right of it, the shell on each. Granted `settings`, Settings is told each display (its name, modes, scale choices, place, scale and mode) and changes them through the session, which applies each live and keeps it in the preferences file by the display's identity: More space on the panel makes it 1920x1200 logical at once, the monitor moving with its edge and each shell's bars taking the new edges; the monitor made the main display takes the dock, nothing moving; a resolution is shown on trial (the monitor's frame 1280x720 at once) while Settings asks to keep it, Revert takes it back at once, leaving it alone takes it back once its 15 seconds pass, and Keep Changes keeps it; the monitor moved above the panel (its accessible action, as a drag would) goes there, touching it. The file holds every display's scale, the mode chosen for the monitor (the panel's is its own: `default`), and the arrangement at the end. Without the grant Settings is told no display: its page shows none, and the run fails at the first step that looks for one.",
   "module": "OxyOSSettings",
   "window": [
     980,
@@ -499,7 +499,7 @@
   ],
   "final": {
     "preferences_file": {
-      "display.BOE-0A4B-00000001": "1920x1200@60000 1",
+      "display.BOE-0A4B-00000001": "default 1",
       "display.OXY-0001-00000042": "1280x720@60000 1",
       "arrangement.BOE-0A4B-00000001+OXY-0001-00000042": "OXY-0001-00000042 0,0 BOE-0A4B-00000001 0,720"
     }

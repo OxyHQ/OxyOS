@@ -344,9 +344,12 @@ int main(int argc, char** argv) {
       });
   stage("instance created");
   timerManager->setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
+  // The display's refresh, as the compositor tells it for the window (display-refresh.h): every
+  // frame below is paced by it.
+  oxyos::DisplayRefresh refresh;
   // requestAnimationFrame, once a frame (animation-frames.h); made after the instance, so its
   // callbacks go before the runtime does.
-  oxyos::AnimationFrames animationFrames(instance->getBufferedRuntimeExecutor());
+  oxyos::AnimationFrames animationFrames(instance->getBufferedRuntimeExecutor(), refresh);
   loop->drain();
 
   oxyos::Display display{width, height, 1.0f};
@@ -358,11 +361,11 @@ int main(int argc, char** argv) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
   });
   oxyos::HostServices services{blobs, networking};
-  oxyos::WorkletsHost worklets;
+  oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
-  oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
+  oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); }, refresh);
   // Animated's native driver (native-animated.h).
-  oxyos::NativeAnimatedHost animated;
+  oxyos::NativeAnimatedHost animated(refresh);
   // react-native-gesture-handler (gesture-handler.h), made once the view tree exists.
   std::unique_ptr<oxyos::GestureHandlerHost> gestures;
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
@@ -923,13 +926,14 @@ int main(int argc, char** argv) {
       }
     };
     int idleTurns = 0;  // turns in a row that found nothing to do
+    uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
     // A window that changes size answers its configure with a frame JavaScript laid out at that
     // size, as AppKit lays a window out during a live resize before the frame is shown: the new
     // size's layout reaches JavaScript (onLayout, the dimensions), whose commits can size the
     // tree again (an app shell measuring its room, then a panel group measuring its own). Until
-    // JavaScript is quiet, or kResizeSettle has passed so that a slow app never stalls the resize,
-    // the window presents nothing and popups are not placed again.
-    constexpr auto kResizeSettle = std::chrono::milliseconds(16);
+    // JavaScript is quiet, or a frame of the display has passed (display-refresh.h: 16.7 ms at
+    // 60 Hz, 8.3 at 120) so that a slow app never stalls the resize past its next refresh, the
+    // window presents nothing and popups are not placed again.
     std::optional<Clock::time_point> settleBy;
     Clock::time_point settleFrom;
     int quietTurns = 0;  // turns in a row in which JavaScript ran nothing and nothing mounted
@@ -1080,6 +1084,12 @@ int main(int argc, char** argv) {
               editing.handle(event);
             })) {
           break;
+        }
+        // The window's display's refresh, told before its first configure and when it changes.
+        if (window->refreshMhz() != toldRefresh) {
+          toldRefresh = window->refreshMhz();
+          refresh.set(toldRefresh);
+          oxyos::Report::get().refresh(toldRefresh);
         }
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
@@ -1267,7 +1277,7 @@ int main(int argc, char** argv) {
         // Two quiet turns: what one turn's layout queues (onLayout) reaches JavaScript on the next.
         if (resized) {
           settleFrom = Clock::now();
-          settleBy = settleFrom + kResizeSettle;
+          settleBy = settleFrom + refresh.period();
           quietTurns = settleTurns = 0;
         } else if (settleBy) {
           ++settleTurns;
@@ -1415,7 +1425,7 @@ int main(int argc, char** argv) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();
                      wait > 0) {
-            // To the nanosecond: a frame due in 16.7 ms is not taken at 17.
+            // To the nanosecond: a frame due in 8.33 ms is not taken at 9.
             timespec timeout{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
             ppoll(fds.data(), fds.size(), &timeout, nullptr);
           }

@@ -145,6 +145,9 @@ pub struct Output {
     pub edid: Option<Edid>,
     /// The modes it can be driven at, each once (progressive only), as the card lists them.
     pub modes: Vec<Mode>,
+    /// Whether the display and the card can refresh it at a variable rate (its connector's
+    /// `vrr_capable`: Adaptive-Sync, FreeSync), within its EDID's `refresh_range_hz`.
+    pub vrr_capable: bool,
 }
 
 impl Output {
@@ -272,6 +275,7 @@ impl Card {
                 size_mm: info.size().unwrap_or((0, 0)),
                 edid: if connected { self.edid(handle) } else { None },
                 modes,
+                vrr_capable: connected && self.property(handle, b"vrr_capable") == Some(1),
             });
         }
         Ok(outputs)
@@ -279,16 +283,21 @@ impl Card {
 
     /// A connector's EDID, from its `EDID` property's blob; none if it has none or it is not one.
     fn edid(&self, connector: connector::Handle) -> Option<Edid> {
+        let blob = self
+            .property(connector, b"EDID")
+            .filter(|&blob| blob != 0)?;
+        Edid::parse(&self.get_property_blob(blob).ok()?)
+    }
+
+    /// The value of a connector's property `name`, if it has it.
+    fn property(&self, connector: connector::Handle, name: &[u8]) -> Option<u64> {
         let properties = self.get_properties(connector).ok()?;
-        for (&property, &value) in properties.iter() {
-            let named = self
-                .get_property(property)
-                .is_ok_and(|info| info.name().to_bytes() == b"EDID");
-            if named && value != 0 {
-                return Edid::parse(&self.get_property_blob(value).ok()?);
-            }
-        }
-        None
+        let value = properties.iter().find_map(|(&property, &value)| {
+            self.get_property(property)
+                .is_ok_and(|info| info.name().to_bytes() == name)
+                .then_some(value)
+        });
+        value
     }
 
     /// The page flips the kernel reported since the last call, and those read earlier for no

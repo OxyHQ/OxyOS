@@ -58,8 +58,9 @@ class UnsupportedNetworking : public worklets::NetworkingBackend {
 
 }  // namespace
 
-WorkletsHost::WorkletsHost()
-    : ui_(std::make_shared<LoopUIScheduler>()),
+WorkletsHost::WorkletsHost(const DisplayRefresh& refresh)
+    : refresh_(refresh),
+      ui_(std::make_shared<LoopUIScheduler>()),
       frames_(std::make_shared<std::vector<std::function<void(double)>>>()),
       wanted_(std::make_shared<bool>(true)) {}
 
@@ -143,7 +144,7 @@ bool WorkletsHost::tick() {
   ui_->triggerUI();
   if (ran) *wanted_ = true;
   double now = nowMs();
-  if (!frames_->empty() && (*wanted_ || !watched_) && now - lastFrame_ >= 1000.0 / 60) {
+  if (!frames_->empty() && (*wanted_ || !watched_) && now - lastFrame_ >= refresh_.periodMs()) {
     lastFrame_ = now;
     // What the frame asks for wants the one after it.
     *wanted_ = false;
@@ -157,7 +158,7 @@ bool WorkletsHost::tick() {
 
 std::optional<std::chrono::steady_clock::time_point> WorkletsHost::nextFrame() const {
   if (frames_->empty() || (watched_ && !*wanted_)) return std::nullopt;
-  double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
+  double wait = std::max(0.0, lastFrame_ + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }

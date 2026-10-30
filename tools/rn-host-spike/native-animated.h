@@ -9,6 +9,7 @@
 // React commits again (React Native's `AnimatedMountingOverrideDelegate`).
 #pragma once
 
+#include "display-refresh.h"
 #include "renderer.h"
 
 #include <ReactCommon/CallInvoker.h>
@@ -29,13 +30,13 @@ namespace oxyos {
 
 class NativeAnimatedHost {
  public:
-  NativeAnimatedHost();
+  explicit NativeAnimatedHost(const DisplayRefresh& refresh);
 
   // The `NativeAnimatedModule` TurboModule. JavaScript asks for it once Fabric's UIManager is
   // installed in the runtime, which the manager it creates attaches to.
   std::shared_ptr<facebook::react::TurboModule> module(const std::shared_ptr<facebook::react::CallInvoker>& invoker);
 
-  // Once per frame (at most 60 a second, as worklets' frames), while the manager asks for frames:
+  // Once per frame of the display (display-refresh.h), while the manager asks for frames:
   // runs the operations JavaScript queued, steps the animations and commits their props. True if
   // it ran.
   bool tick();
@@ -48,6 +49,7 @@ class NativeAnimatedHost {
     std::function<void()> render;
     double last = 0;
   };
+  const DisplayRefresh& refresh_;
   std::shared_ptr<Frames> frames_;
   std::shared_ptr<facebook::react::NativeAnimatedNodesManagerProvider> provider_;
 };

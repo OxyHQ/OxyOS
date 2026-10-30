@@ -445,6 +445,10 @@ fn events() -> Vec<Event> {
             primary: false,
         },
         Event::OutputRemoved { output: 2 },
+        Event::Refresh {
+            surface: 1,
+            refresh_mhz: 119_998,
+        },
         Event::WindowSize {
             window: 7,
             size: Size::new(1280, 800),

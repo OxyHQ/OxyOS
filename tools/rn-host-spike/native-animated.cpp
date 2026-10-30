@@ -17,8 +17,6 @@ namespace oxyos {
 
 namespace {
 
-constexpr double kFrameMs = 1000.0 / 60;
-
 double nowMs() {
   using namespace std::chrono;
   return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
@@ -49,7 +47,8 @@ class Module : public AnimatedModule {
 
 }  // namespace
 
-NativeAnimatedHost::NativeAnimatedHost() : frames_(std::make_shared<Frames>()) {
+NativeAnimatedHost::NativeAnimatedHost(const DisplayRefresh& refresh)
+    : refresh_(refresh), frames_(std::make_shared<Frames>()) {
   // The manager asks for frames when JavaScript sends it operations or an animation starts, and
   // stops when a frame finds nothing to animate, as iOS's animated module provider drives it.
   // State the callbacks share with the host outlives either: the manager stops its frames as it
@@ -70,7 +69,7 @@ std::shared_ptr<TurboModule> NativeAnimatedHost::module(const std::shared_ptr<Ca
 
 bool NativeAnimatedHost::tick() {
   double now = nowMs();
-  if (!frames_->render || now - frames_->last < kFrameMs) return false;
+  if (!frames_->render || now - frames_->last < refresh_.periodMs()) return false;
   frames_->last = now;
   // The frame may stop the frames (the last animation ended), which drops `render`.
   auto render = frames_->render;
@@ -80,7 +79,7 @@ bool NativeAnimatedHost::tick() {
 
 std::optional<std::chrono::steady_clock::time_point> NativeAnimatedHost::nextFrame() const {
   if (!frames_->render) return std::nullopt;
-  double wait = std::max(0.0, frames_->last + kFrameMs - nowMs());
+  double wait = std::max(0.0, frames_->last + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }

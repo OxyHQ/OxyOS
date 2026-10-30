@@ -44,6 +44,7 @@ class Window {
     uint64_t configure = 0;  // serial of the latest configure; 0 until the first
     float x = 0, y = 0;      // a popup's position relative to its parent
     float width = 0, height = 0, scale = 1;
+    uint32_t refreshMhz = 0;  // its output's refresh, as the compositor told it (0: not yet)
     bool resized = false;    // set by a configure that changed size or scale
     uint64_t inFlight = 0;   // sequence of the frame awaiting feedback
     uint64_t presentedFor = 0;  // the configure the latest frame presented answers
@@ -209,6 +210,9 @@ class Window {
   bool setDoNotDisturb(uint32_t serial, bool enabled);
 
   uint64_t presented() const { return presented_; }
+  // The refresh of the display the window is on (the compositor's REFRESH, in mHz; 0 until told),
+  // which the host paces its frames by (display-refresh.h).
+  uint32_t refreshMhz() const { return surfaces_.at(kToplevel).refreshMhz; }
 
   // The clipboard (clipboard.h): what it holds comes with the compositor's events.
   bool copyText(uint64_t serial, const std::string& text) { return clipboard_.copy(client_, serial, text); }

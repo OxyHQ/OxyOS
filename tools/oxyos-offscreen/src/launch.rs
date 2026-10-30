@@ -412,11 +412,13 @@ pub struct Launch {
     /// result says it (`controls`). Without it the keys act on nothing and the shell is told
     /// nothing of the machine.
     pub controls: Option<PathBuf>,
-    /// `--outputs WxH[@SCALE],...`: the session's outputs, of these pixels at these scales,
+    /// `--outputs WxH[@SCALE][:HZ],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
-    /// without it.
-    pub outputs: Vec<((u32, u32), u32)>,
+    /// without it. With a refresh, an output is paced as a display at that rate: each frame is
+    /// shown at its next vblank, and its surfaces are told the rate; without one, a frame is
+    /// shown as soon as it is composed, and its surfaces are told 60 Hz.
+    pub outputs: Vec<OutputSpec>,
     /// `--displays FILE`: the session's displays instead, on the virtual connectors FILE describes
     /// (displays.rs), shown, arranged and changed from Settings as a session's are
     /// (docs/adr/0018-several-displays.mdx), as the preferences keep them; a shell runs on each.
@@ -428,23 +430,58 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
-/// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
-fn outputs(value: &str) -> Result<Vec<((u32, u32), u32)>> {
+/// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
+/// given (in mHz).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputSpec {
+    pub pixels: (u32, u32),
+    pub scale_120: u32,
+    pub refresh_mhz: Option<u32>,
+}
+
+impl OutputSpec {
+    /// Of these pixels at scale 1, unpaced.
+    pub const fn of(width: u32, height: u32) -> Self {
+        Self {
+            pixels: (width, height),
+            scale_120: 120,
+            refresh_mhz: None,
+        }
+    }
+}
+
+/// `WxH[@SCALE][:HZ],...`: each output's pixels, scale (1 without one) and refresh in hertz (59.94,
+/// 120, 143.998; unpaced without one).
+fn outputs(value: &str) -> Result<Vec<OutputSpec>> {
     value
         .split(',')
         .map(|output| {
-            let (size, scale) = output.split_once('@').unwrap_or((output, "1"));
+            let (rest, refresh) = match output.split_once(':') {
+                Some((rest, hz)) => {
+                    let hz: f64 = hz.parse()?;
+                    if !(1.0..=1000.0).contains(&hz) {
+                        return Err(format!("{output:?}: a refresh from 1 to 1000 Hz").into());
+                    }
+                    (rest, Some((hz * 1000.0).round() as u32))
+                }
+                None => (output, None),
+            };
+            let (size, scale) = rest.split_once('@').unwrap_or((rest, "1"));
             let (width, height) = size.split_once('x').ok_or(USAGE)?;
             let scale: f64 = scale.parse()?;
             let scale_120 = (scale * 120.0).round();
             if !(120.0..=480.0).contains(&scale_120) {
                 return Err(format!("{output:?}: a scale from 1 to 4").into());
             }
-            Ok(((width.parse()?, height.parse()?), scale_120 as u32))
+            Ok(OutputSpec {
+                pixels: (width.parse()?, height.parse()?),
+                scale_120: scale_120 as u32,
+                refresh_mhz: refresh,
+            })
         })
         .collect()
 }
@@ -1797,8 +1834,10 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
 ///   configure sent at or after it;
 /// - `edges`, the least and most each edge of the window was at across the frames shown (an edge
 ///   not dragged stays put), and `final`, the window's rectangle at the end;
-/// - `composed`, the frames composed meanwhile, and `scaled`, how many drew the window at another
-///   size than its buffer's (none should: a window resizing shows its last frame at its size);
+/// - `composed`, the frames composed meanwhile, `composed_gap_ms` (median and max) the time between
+///   them while the motions lasted (a paced output's refresh, if the hand is faster), and `scaled`,
+///   how many drew the window at another size than its buffer's (none should: a window resizing
+///   shows its last frame at its size);
 /// - `bytes_read`, the application's pixels the compositor read meanwhile (none for a window
 ///   moved: nothing it shows changes);
 /// - `shown`, each frame shown: [ms since the press, configure serial, x, y, width, height].
@@ -1840,6 +1879,7 @@ fn drag_paced(
     let mut last_sequence = displayed(&session.compositor).map(|(sequence, ..)| sequence);
     // Frames composed meanwhile, and those drawing the window at another size than its buffer's.
     let (mut composed, mut scaled) = (0usize, 0usize);
+    let mut composed_at: Vec<Duration> = Vec::new();
     let mut last_frame = session.compositor.frames;
     let mut observe = |compositor: &Compositor,
                        sent: &mut Vec<(u64, Duration)>,
@@ -1848,6 +1888,7 @@ fn drag_paced(
         if compositor.frames != last_frame {
             last_frame = compositor.frames;
             composed += 1;
+            composed_at.push(now);
             // Each screen's frame draws the window from its buffer, made at the scale of the
             // output its centre is on: the protocol's size for its rectangle there (ADR 0001).
             let at_its_size = |rect: Rect, extent: oxyos_protocol::Size| {
@@ -1924,6 +1965,22 @@ fn drag_paced(
         }
     }
     let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    // While the hand moved: from its first motion to its last.
+    let mut composed_gaps: Vec<f64> = match (moved.first(), moved.last()) {
+        (Some(&first), Some(&last)) => {
+            let during: Vec<Duration> = composed_at
+                .iter()
+                .copied()
+                .filter(|&at| at >= first && at <= last)
+                .collect();
+            during
+                .windows(2)
+                .map(|pair| ms(pair[1] - pair[0]))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    composed_gaps.sort_by(f64::total_cmp);
     let mut latencies: Vec<f64> = moved
         .iter()
         .filter_map(|&t| {
@@ -1958,7 +2015,7 @@ fn drag_paced(
     };
     let last = displayed(&session.compositor).map(|(_, _, rect)| rect);
     Ok(format!(
-        "{{\"motions\":{motions},\"bytes_read\":{},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"scaled\":{scaled},\"shown\":[{}]}}",
+        "{{\"motions\":{motions},\"bytes_read\":{},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"composed_gap_ms\":{{\"median\":{},\"max\":{}}},\"scaled\":{scaled},\"shown\":[{}]}}",
         read(&session.compositor) - bytes_before,
         sent.len(),
         frames.len(),
@@ -1970,6 +2027,10 @@ fn drag_paced(
         span(|r| r.right()),
         span(|r| r.bottom()),
         last.map_or("null".to_string(), |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)),
+        median(&composed_gaps).map_or("null".to_string(), |ms| format!("{ms:.2}")),
+        composed_gaps
+            .last()
+            .map_or("null".to_string(), |ms| format!("{ms:.2}")),
         frames
             .iter()
             .map(|(t, _, configure, r)| format!(
@@ -2392,6 +2453,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             card.display(),
             display.mode_name()
         );
+        // Its frames are paced by the display's refresh, which its surfaces are told.
+        let (id, refresh_mhz) = (session.compositor.screens[0].id, display.mode().refresh_mhz);
+        session.compositor.set_output_refresh(id, refresh_mhz)?;
         session.compositor.screens[0].display = Some(display);
     }
     // Real input: the display's pixels (or the outputs', without a display), the output
@@ -3062,14 +3126,32 @@ mod tests {
     fn outputs_are_their_pixels_at_their_scales() {
         let (_, launch) = Launch::parse(&args(&[
             "--outputs",
-            "1920x1200,2560x1440@1.5,800x600@1.25",
+            "1920x1200,2560x1440@1.5:144,800x600@1.25,1280x720:59.94",
             "--",
             "app",
         ]))
         .unwrap();
+        let paced = |spec: OutputSpec, mhz| OutputSpec {
+            refresh_mhz: Some(mhz),
+            ..spec
+        };
         assert_eq!(
             launch.outputs,
-            [((1920, 1200), 120), ((2560, 1440), 180), ((800, 600), 150)]
+            [
+                OutputSpec::of(1920, 1200),
+                paced(
+                    OutputSpec {
+                        scale_120: 180,
+                        ..OutputSpec::of(2560, 1440)
+                    },
+                    144_000
+                ),
+                OutputSpec {
+                    scale_120: 150,
+                    ..OutputSpec::of(800, 600)
+                },
+                paced(OutputSpec::of(1280, 720), 59_940),
+            ]
         );
         for bad in [
             "1920",
@@ -3078,6 +3160,9 @@ mod tests {
             "1920x1080@0.5",
             "1920x1080@5",
             "1920x1080@x",
+            "1920x1080:0",
+            "1920x1080:fast",
+            "1920x1080:120@1.5",
         ] {
             assert!(
                 Launch::parse(&args(&["--outputs", bad, "--", "app"])).is_err(),

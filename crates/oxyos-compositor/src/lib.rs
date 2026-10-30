@@ -49,9 +49,6 @@ const MAX_OUTBOX: usize = 1024;
 const MAX_PEERS: usize = oxyos_compositor_core::scene::MAX_CLIENTS;
 /// Time a connection may take to send Hello.
 const HELLO_DEADLINE: Duration = Duration::from_secs(2);
-/// A turn whose work takes longer than a 60 Hz refresh delays the frame and the input after it
-/// (`slow_turns`).
-const SLOW_TURN: Duration = Duration::from_micros(16_667);
 
 pub struct Peer {
     connection: Connection,
@@ -90,6 +87,15 @@ pub struct Screen {
     /// Its rectangle in the global space, in logical pixels, and its scale (in 120ths).
     pub rect: Rect,
     pub scale_120: u32,
+    /// Its display's refresh, in mHz (its output's, `Output::refresh_mhz`): what its frames are
+    /// paced by, a display's flips or, `paced`, its own vblanks.
+    pub refresh_mhz: u32,
+    /// Without a display, whether it is paced as one at `refresh_mhz` (the development
+    /// compositor's outputs given a refresh): a frame composed completes at its next vblank, in a
+    /// later turn, as one on a display completes at its flip; otherwise at once.
+    pub paced: bool,
+    /// When its first vblank was (CLOCK_MONOTONIC), with `paced`: the phase of the others.
+    vblank_origin: std::time::Duration,
     /// What it composes, in its own pixels: its display's mode, or its rectangle at its scale.
     pub width: u32,
     pub height: u32,
@@ -147,6 +153,9 @@ impl Screen {
             id: output.id,
             rect: output.rect,
             scale_120: output.scale_120,
+            refresh_mhz: output.refresh_mhz,
+            paced: false,
+            vblank_origin: monotonic(),
             width,
             height,
             framebuffer: vec![DESKTOP; width as usize * height as usize],
@@ -167,6 +176,21 @@ impl Screen {
             shown_locked: false,
             shown_kept: false,
         }
+    }
+
+    /// The time between its display's frames: 8.33 ms at 120 Hz.
+    pub fn refresh_period(&self) -> std::time::Duration {
+        refresh_period(self.refresh_mhz)
+    }
+
+    /// With `paced`: its first vblank after `at` (CLOCK_MONOTONIC), when a frame composed then is
+    /// shown.
+    pub fn next_vblank(&self, at: std::time::Duration) -> std::time::Duration {
+        let period = self.refresh_period().as_nanos().max(1);
+        let since = at.saturating_sub(self.vblank_origin).as_nanos();
+        let count = since / period + 1;
+        self.vblank_origin
+            + std::time::Duration::from_nanos(u64::try_from(count * period).unwrap_or(u64::MAX))
     }
 
     /// A rectangle of the global space (logical) in this screen's pixels, its edges rounded to
@@ -362,6 +386,11 @@ impl Screen {
     }
 }
 
+/// The time between a display's frames at `refresh_mhz` (16.67 ms at 60 Hz, 6.94 at 144).
+pub fn refresh_period(refresh_mhz: u32) -> std::time::Duration {
+    std::time::Duration::from_nanos(1_000_000_000_000 / u64::from(refresh_mhz.max(1)))
+}
+
 /// A logical length at a scale (in 120ths), in pixels, rounded to the nearest.
 pub fn scaled(length: u32, scale_120: u32) -> u32 {
     ((u64::from(length) * u64::from(scale_120) * 2 + 120) / 240) as u32
@@ -425,8 +454,9 @@ pub struct Compositor {
     /// given by the program running the compositor. Without them the keys do nothing and the
     /// shell is told nothing of the system.
     pub controls: Option<controls::Controls>,
-    /// Whether a turn whose work (not its wait) took longer than SLOW_TURN is logged, with where
-    /// the time went, at most once a second: a session's, whose frames are otherwise not measured.
+    /// Whether a turn whose work (not its wait) took longer than the fastest display's refresh
+    /// (it delays that display's frame and the input after it) is logged, with where the time
+    /// went, at most once a second: a session's, whose frames are otherwise not measured.
     pub slow_turns: bool,
     slow_turn_logged: Option<Instant>,
     /// With `slow_turns`: when the GPU's composing times were last summed up (`serve`).
@@ -1214,6 +1244,25 @@ impl Compositor {
         Ok(())
     }
 
+    /// Gives an output another refresh, in mHz: its display driven at another mode of the same
+    /// size (docs/adr/0018-several-displays.mdx). Its frames are paced by it, and every surface on
+    /// it is told (`Refresh`), as the shells are the output.
+    pub fn set_output_refresh(&mut self, id: OutputId, refresh_mhz: u32) -> Result<()> {
+        self.scene
+            .set_output_refresh(id, refresh_mhz)
+            .map_err(|code| format!("output {id}: {code:?}"))?;
+        if let Some(screen) = self.screen_mut(id) {
+            screen.refresh_mhz = refresh_mhz;
+        }
+        Ok(())
+    }
+
+    /// The time between frames of the fastest display: what a frame's work must fit in for none
+    /// to miss its refresh. None without a screen.
+    pub fn fastest_refresh(&self) -> Option<Duration> {
+        self.screens.iter().map(Screen::refresh_period).min()
+    }
+
     /// Makes an output the primary, the first of the arrangement (it has the dock and takes the
     /// windows of an output removed), its screen first as the scene's output is.
     pub fn set_primary_output(&mut self, id: OutputId) -> Result<()> {
@@ -1990,8 +2039,14 @@ impl Compositor {
         // a later turn (`complete_flip`).
         let presented = self.present(index, &layers, damage.as_deref());
         if !presented {
-            self.scene.end_frame_on(id, 0, Clock::Synthetic);
-            self.retire();
+            // Paced as a display (no display, not away): shown at its next vblank, in a later turn.
+            let paced = self.screens[index].paced && self.screens[index].display.is_none();
+            if paced && !self.away {
+                self.screens[index].pending_flip = Some(monotonic());
+            } else {
+                self.scene.end_frame_on(id, 0, Clock::Synthetic);
+                self.retire();
+            }
             if self.gpu_only && self.reads_back {
                 self.flush();
                 self.framebuffer_from_gpu(index, &layers);
@@ -2070,7 +2125,18 @@ impl Compositor {
         let Some(submitted) = screen.pending_flip else {
             return;
         };
+        // Paced without a display: its frame is shown at its next vblank (waited for with `wait`),
+        // and read back, if it is, when composed.
+        let vblank = (screen.paced && screen.display.is_none()).then(|| {
+            let due = screen.next_vblank(submitted);
+            let now = monotonic();
+            if now < due && wait {
+                std::thread::sleep(due - now);
+            }
+            (wait || monotonic() >= due).then_some(due)
+        });
         let flip = match &screen.display {
+            _ if vblank.is_some() => Ok(vblank.flatten()),
             Some(display) if wait => {
                 // Bounded: a seat manager may have taken the display meanwhile.
                 let deadline = Instant::now() + Duration::from_secs(1);
@@ -2140,7 +2206,7 @@ impl Compositor {
             screen.flipped = shown;
             screen.shown_locked = screen.composing_locked;
         }
-        if self.gpu_only && self.reads_back && clock == Clock::Monotonic {
+        if self.gpu_only && self.reads_back && clock == Clock::Monotonic && vblank.is_none() {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
@@ -2554,8 +2620,8 @@ impl Compositor {
     }
 
     /// How long a turn may wait: until the animated pointer's next step, the first connection
-    /// still without its Hello reaches its deadline, the idle lock's deadline, or `idle_wait`,
-    /// whichever is soonest.
+    /// still without its Hello reaches its deadline, the idle lock's deadline, a transition's next
+    /// frame, a paced screen's next vblank, or `idle_wait`, whichever is soonest.
     fn next_wake(&self) -> Duration {
         let mut wait = self.idle_wait;
         if let Some(deadline) = self.idle.deadline() {
@@ -2564,10 +2630,19 @@ impl Compositor {
         if let Some(controls) = &self.controls {
             wait = wait.min(controls.next_wake(Instant::now()));
         }
-        // A transition running composes a frame for every refresh (a display's flip wakes the
-        // turn sooner).
-        if !self.transitions.is_empty() {
-            wait = wait.min(Duration::from_millis(16));
+        // A transition running composes a frame for every refresh of the fastest display (a
+        // display's flip wakes the turn sooner).
+        if let (false, Some(period)) = (self.transitions.is_empty(), self.fastest_refresh()) {
+            wait = wait.min(period);
+        }
+        // A frame paced without a display is shown at its screen's next vblank.
+        let clock = monotonic();
+        for screen in &self.screens {
+            if let (Some(submitted), None, true) =
+                (screen.pending_flip, &screen.display, screen.paced)
+            {
+                wait = wait.min(screen.next_vblank(submitted).saturating_sub(clock));
+            }
         }
         let shape = self.scene.pointer_shape();
         for screen in &self.screens {
@@ -2742,7 +2817,7 @@ impl Compositor {
             // The turn's work, not its wait.
             let work = waiting.duration_since(started) + woke.elapsed();
             let ms = |d: Duration| d.as_secs_f64() * 1e3;
-            if work > SLOW_TURN
+            if self.fastest_refresh().is_some_and(|refresh| work > refresh)
                 && self
                     .slow_turn_logged
                     .is_none_or(|logged| logged.elapsed() >= Duration::from_secs(1))
@@ -3156,6 +3231,40 @@ mod tests {
             },
             None,
         )
+    }
+
+    #[test]
+    fn a_paced_screen_shows_a_frame_at_its_next_vblank_and_the_fastest_screen_sets_the_pace() {
+        let mut screen = screen(Rect::new(0, 0, 64, 64), 120);
+        screen.refresh_mhz = 120_000;
+        screen.vblank_origin = Duration::from_secs(5);
+        let ms = |ms: f64| Duration::from_secs_f64(5.0 + ms / 1e3);
+        assert_eq!(screen.refresh_period(), Duration::from_nanos(8_333_333));
+        // A frame composed just after a vblank waits for the next; one composed on it, too.
+        assert_eq!(
+            screen.next_vblank(ms(0.1)),
+            Duration::from_nanos(5_008_333_333)
+        );
+        assert_eq!(
+            screen.next_vblank(ms(0.0)),
+            Duration::from_nanos(5_008_333_333)
+        );
+        assert_eq!(
+            screen.next_vblank(ms(9.0)),
+            Duration::from_nanos(5_016_666_666)
+        );
+        // The fastest of the screens is what transitions and a slow turn are measured by.
+        let mut compositor = Compositor::new(Scene::new(), 0);
+        assert_eq!(compositor.fastest_refresh(), None);
+        compositor
+            .screens
+            .push(self::screen(Rect::new(0, 0, 64, 64), 120));
+        compositor.screens.push(screen);
+        assert_eq!(
+            compositor.fastest_refresh(),
+            Some(Duration::from_nanos(8_333_333))
+        );
+        assert_eq!(refresh_period(143_998), Duration::from_nanos(6_944_540));
     }
 
     #[test]

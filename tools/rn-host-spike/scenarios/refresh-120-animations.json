@@ -1,0 +1,118 @@
+{
+  "about": "Animations at 120 Hz (docs/adr/0018-several-displays.mdx): AnimatedProbe on an output paced as a 120 Hz display (`outputs` 1280x720:120), whose refresh the compositor tells the window before its first configure. The host paces everything by it, never by an assumed 60 Hz: Animated's native driver steps its three 600 ms linear animations once a refresh, each frame's value where a linear animation is at that frame's time within a 120 Hz frame, about 72 frames in the 600 ms where 60 Hz takes 36 (native-animated.json); a 600 ms Animated.timing in JavaScript commits once a frame of requestAnimationFrame, which runs once a refresh, 8.3 ms apart. With the host's frames paced at 60 Hz, each runs about 36 frames 16.7 ms apart and it fails.",
+  "module": "AnimatedProbe",
+  "window": [
+    400,
+    300
+  ],
+  "outputs": "1280x720:120",
+  "steps": [
+    {
+      "name": "a press on Start runs the three animations on the native driver at 120 Hz: twice the frames of 60 Hz in the same 600 ms, each where a linear animation is at its time, ending exactly at their values",
+      "do": [
+        "press",
+        [
+          60,
+          188
+        ]
+      ],
+      "expect": {
+        "animated": {
+          "fade": {
+            "opacity": [
+              0,
+              1
+            ]
+          },
+          "slide": {
+            "transform.translateX": [
+              0,
+              200
+            ]
+          },
+          "tint": {
+            "backgroundColor": [
+              "#d03030",
+              "#3050d0"
+            ]
+          }
+        },
+        "animated_linear_ms": 600,
+        "texts": [
+          "Ended: fade, slide, tint"
+        ],
+        "react": {
+          "touchStart@start": 1,
+          "touchEnd@start": 1
+        },
+        "pixels": {
+          "60,50": "#d03030",
+          "50,120": "#ffffff",
+          "250,120": "#3050d0",
+          "340,50": "#3050d0",
+          "310,188": "#f7ebf0",
+          "334,188": "#968396"
+        },
+        "animated_frames": [
+          60,
+          80
+        ],
+        "window_frames": [
+          60,
+          80
+        ]
+      }
+    },
+    {
+      "name": "a press on JS runs a 600 ms linear Animated.timing in JavaScript: requestAnimationFrame runs once a 120 Hz refresh, 8.3 ms apart, and each commit's value is where a linear animation is at its frame's time",
+      "do": [
+        "press",
+        [
+          240,
+          188
+        ]
+      ],
+      "expect": {
+        "committed": {
+          "jsbox": {
+            "transform.translateX": [
+              0,
+              150
+            ]
+          }
+        },
+        "committed_linear_ms": 600,
+        "texts": [
+          "Ended: js"
+        ],
+        "react": {
+          "touchStart@js-start": 1,
+          "touchEnd@js-start": 1
+        },
+        "pixels": {
+          "275,35": "#8030c0",
+          "125,35": "#ffffff"
+        },
+        "committed_frames": [
+          60,
+          80
+        ],
+        "animation_frames": {
+          "count": [
+            60,
+            80
+          ],
+          "interval_ms": 8,
+          "median_interval_ms": [
+            8.0,
+            9.0
+          ]
+        },
+        "window_frames": [
+          60,
+          80
+        ]
+      }
+    }
+  ]
+}

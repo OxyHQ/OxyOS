@@ -3,6 +3,8 @@
 // props through Fabric.
 #pragma once
 
+#include "display-refresh.h"
+
 #include <ReactCommon/CallInvoker.h>
 #include <ReactCommon/TurboModule.h>
 #include <jsi/jsi.h>
@@ -30,7 +32,9 @@ class WorkletsHost;
 class ReanimatedHost {
  public:
   // `scheduler` returns the Fabric scheduler, which exists before JavaScript installs the module.
-  ReanimatedHost(WorkletsHost& worklets, std::function<facebook::react::Scheduler*()> scheduler);
+  // Its frames are the display's (`refresh`).
+  ReanimatedHost(WorkletsHost& worklets, std::function<facebook::react::Scheduler*()> scheduler,
+                 const DisplayRefresh& refresh);
   ~ReanimatedHost();
 
   std::shared_ptr<facebook::react::TurboModule> module(
@@ -52,6 +56,7 @@ class ReanimatedHost {
  private:
   WorkletsHost& worklets_;
   std::function<facebook::react::Scheduler*()> scheduler_;
+  const DisplayRefresh& refresh_;
   std::shared_ptr<reanimated::ReanimatedModuleProxy> proxy_;
   std::shared_ptr<std::vector<std::function<void(double)>>> renders_;
   double lastFrame_ = 0;

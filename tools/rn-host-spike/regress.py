@@ -48,14 +48,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   colour as "#rrggbb"): the values went from `from` to exactly `to`, monotonically in each colour
   channel, over at least `animated_frames` frames (8 by default); with `animated_linear_ms`, every
   frame's value is where a linear animation of that duration is at that frame's time, within one
-  frame. A view it does not list must not move: the driver may set it (a node's first frame sets
+  frame of the display (the scenario's refresh: see `outputs`). A view it does not list must not move: the driver may set it (a node's first frame sets
   its start), but always to the same values. `animated_frames` may be [least, most];
 - committed: the same for what React's commits changed in the step (opacity and translation of
   views with a testID, as mounted: a JavaScript-driven Animated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
-  [least, most]; "interval_ms", the least time between two; their timestamps rise and are
-  performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
+  [least, most]; "interval_ms", the least time between two; "median_interval_ms", [least, most]
+  for the median time between them (a frame of the display: 8.3 at 120 Hz); their timestamps rise
+  and are performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
   by a distinct one having every key given ("kind": window, popup, overlay, backdrop, panel,
@@ -65,7 +66,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   drew: "eased", its opacity and its size and place each only ever going toward their end and,
   in the first half of its time, half again ahead of a linear motion of the same length (eased
   out, as a spring from rest is; a linear one fails); "lasts_ms", [least, most] for its last frame's time;
-  "frame_gap_ms", [median, most] for the time between its frames (at display rate, 16.7); "still",
+  "frame_gap_ms", [median, most] for the time between its frames (at display rate: 16.7 at 60 Hz,
+  8.3 at 120); "still",
   its size and place never changing (reduce motion's crossfade);
   "count", how many it ran, exactly ("change" is also "zoomed": a window's frame zooming, ADR 0016);
 - drag: for a `drag_paced` step (a press moved on the output in N motions at a rate, the compositor
@@ -73,7 +75,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   most configures sent that no frame shown answered; "presented_min", the fewest frames the window
   showed; "bounded", no more configures than frames shown; "steady", the window's edges ("left",
   "top", "right", "bottom") that must not move in any frame shown; "composed_min", the fewest frames
-  composed in the drag (a window moved is a frame for each motion); "bytes_read_max", the most
+  composed in the drag (a window moved is a frame for each motion, or for each refresh of a paced
+  output slower than the hand); "composed_gap_ms", [least, most] for the median time between the
+  frames composed while the hand moved (a paced output's refresh); "bytes_read_max", the most
   of the application's pixels the compositor may read in the drag (0 for a window moved: it shows
   nothing new);
   and always, no frame composed in the drag drawing the window at another size than its
@@ -120,14 +124,19 @@ reduceTransparency, accent) by the time the step settled, each key given; the `f
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
 
-A scenario with `outputs` ("WxH[@SCALE],..."; ADR 0018) runs on those outputs, arranged as a
+A scenario with `outputs` ("WxH[@SCALE][:HZ],..."; ADR 0018) runs on those outputs, arranged as a
 session arranges its displays (left to right, top-aligned, the first the primary), with a shell
-on each; steps' points are in the global space.
+on each; steps' points are in the global space. An output given a refresh (":120") is paced as a
+display at it (each frame shown at its next vblank, its surfaces told the rate, which the host
+paces its frames by); one without is unpaced and said to be 60 Hz. The primary's refresh is the
+scenario's: what "within a frame" means in its expectations.
 
 A scenario with `displays` (ADR 0018) runs on the session's displays instead, on virtual connectors
 in the card's order, each {identity, kind ("internal" or "external"), size_mm [w, h], modes
-["WxH@MHZ", ... with "*" after the preferred one], connector, name (its EDID's, optional)}: shown,
-arranged and changed from Settings as a session's are, as the preferences keep them. A step's
+["WxH@MHZ", ... with "*" after the preferred one and "!" after one the card refuses], connector,
+name (its EDID's, optional)}: shown, arranged and changed from Settings as a session's are, as the
+preferences keep them (each at its native resolution and fastest refresh the card takes, unless
+one was chosen), each paced at its mode's refresh. A step's
 `displays` expectation checks what the session last told Settings of them by the time the step
 settled: by output id, each key given of that display (x, y, width, height, scale, mode, primary,
 name...), and `trial` (the mode on trial, {output, seconds}, or null).
@@ -493,8 +502,27 @@ def animated_values(report, start, end, kind="animated"):
     return values
 
 
-def check_animated(expect, report, start, end, fail, kind="animated"):
-    """The step's `animated` or `committed` (see the module's documentation)."""
+def display_hz(scenario):
+    """The refresh, in hertz, of the display the application's window is on: the primary output's
+    (`outputs`' first; 60 for one without a refresh, said to be 60 Hz), or the primary display's own
+    fastest at its native resolution that the card takes (`displays`: the first internal one, else
+    the first); 60 for the development compositor's one output."""
+    if scenario.get("outputs"):
+        primary = scenario["outputs"].split(",")[0]
+        return float(primary.split(":")[1]) if ":" in primary else 60.0
+    if scenario.get("displays"):
+        displays = scenario["displays"]
+        primary = next((d for d in displays if d["kind"] == "internal"), displays[0])
+        modes = [(m.rstrip("*!"), m) for m in primary["modes"]]
+        native = next((m.split("@")[0] for m, raw in modes if raw.rstrip("!").endswith("*")), modes[0][0].split("@")[0])
+        rates = [int(m.split("@")[1]) for m, raw in modes if m.split("@")[0] == native and not raw.endswith("!")]
+        return max(rates) / 1000 if rates else 60.0
+    return 60.0
+
+
+def check_animated(expect, report, start, end, fail, kind="animated", refresh_hz=60.0):
+    """The step's `animated` or `committed` (see the module's documentation), each frame within a
+    frame of the display at `refresh_hz`."""
     got = animated_values(report, start, end, kind)
     if kind == "animated":
         for view in sorted(set(got) - set(expect[kind])):
@@ -529,7 +557,7 @@ def check_animated(expect, report, start, end, fail, kind="animated"):
                 # frame's time. Its start is when the frames in between say it started (a frame that
                 # changes nothing sets nothing, so the first frame is not always reported): those
                 # starts agree within a frame, and every frame is then where it should be, within one.
-                frame_ns = 1e9 / 60
+                frame_ns = 1e9 / refresh_hz
                 c = max(range(len(low)), key=lambda i: abs(high[i] - low[i]))
                 starts = [t - (value[c] - low[c]) / (high[c] - low[c]) * linear_ms * 1e6 for t, value in frames
                           if 0 < (value[c] - low[c]) / (high[c] - low[c]) < 1]
@@ -553,9 +581,9 @@ def check_animated(expect, report, start, end, fail, kind="animated"):
 CURVE_KEYS = ("eased", "still", "lasts_ms", "frame_gap_ms")
 
 
-def check_curve(wanted, seen, fail):
+def check_curve(wanted, seen, fail, refresh_hz=60.0):
     """A transition's frames (`path`: [ms, opacity, moved in thousandths]) against its `eased`,
-    `lasts_ms` and `frame_gap_ms` (see the module's documentation)."""
+    `lasts_ms` and `frame_gap_ms` (see the module's documentation), on a display at `refresh_hz`."""
     if not any(key in wanted for key in CURVE_KEYS):
         return
     path = seen.get("path") or []
@@ -577,7 +605,7 @@ def check_curve(wanted, seen, fail):
                  f"{wanted['frame_gap_ms']}: {times}")
     if wanted.get("eased"):
         arriving = seen["arriving"]
-        span = times[-1] + 1000 / 60
+        span = times[-1] + 1000 / refresh_hz
         opacities = [o if arriving else 255 - o for _, o, _ in path]
         moved = [m for _, _, m in path]
         for label, values, end in (("opacity", opacities, 255), ("size and place", moved, 1000)):
@@ -586,8 +614,9 @@ def check_curve(wanted, seen, fail):
                 continue
             if any(b < a for a, b in zip(values, values[1:])):
                 fail(f"{name}'s {label} went back: {values}")
-            # Eased out: in the first half of its time, from its third display frame on, half
-            # again ahead of a linear motion of the same length (a spring released from rest is
+            # Eased out: in the first half of its time, from 34 ms on (a spring released from rest
+            # starts slower than a line, whatever the refresh), half again ahead of a linear motion
+            # of the same length (a spring released from rest is
             # quick at first and slow to arrive: a critically damped one is 0.81 of the way a third
             # of the way through, a linear one 0.33).
             behind = [(ms, v) for (ms, _, _), v in zip(path, values)
@@ -599,7 +628,7 @@ def check_curve(wanted, seen, fail):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None, preferences=None):
+               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -666,9 +695,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                     or any((d < 0) if rising else (d > 0) for d in steps)):
                 fail(f"{entry}: {key} went {[round(v, 2) for v in values]}, expected from {first} to {last} monotonically")
     if "animated" in expect:
-        check_animated(expect, report, start, end, fail)
+        check_animated(expect, report, start, end, fail, refresh_hz=refresh_hz)
     if "committed" in expect:
-        check_animated(expect, report, start, end, fail, "committed")
+        check_animated(expect, report, start, end, fail, "committed", refresh_hz)
     if "animation_frames" in expect:
         wanted = expect["animation_frames"]
         frames = [line for line in report if line["kind"] == "animation_frame" and start <= line["t"] <= end]
@@ -679,6 +708,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         gaps = [b - a for a, b in zip(stamps, stamps[1:])]
         if gaps and min(gaps) < wanted.get("interval_ms", 0):
             fail(f"requestAnimationFrame's frames came {min(gaps):.2f} ms apart, expected at least {wanted['interval_ms']}")
+        if "median_interval_ms" in wanted:
+            low, high = wanted["median_interval_ms"]
+            median = statistics.median(gaps) if gaps else None
+            if median is None or not low <= median <= high:
+                fail(f"requestAnimationFrame's frames came {median} ms apart (median), expected {low} to {high}")
         if any(gap <= 0 for gap in gaps):
             fail("requestAnimationFrame's timestamps did not rise")
         if any(abs(line["t"] / 1e6 - line["timestamp"]) > 1 for line in frames):
@@ -713,7 +747,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # The session's shell's own texts, React deliveries and gestures, from its report.
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
                       "expect": expect["in_shell"]}
-        check_step(index, shell_step, result, shell_report or [], start, failures)
+        check_step(index, shell_step, result, shell_report or [], start, failures, refresh_hz=refresh_hz)
     if "a11y_events" in expect:
         # Accessibility events JavaScript sent (focus moves), as `event@testID` counts.
         got = {}
@@ -861,7 +895,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"no transition {transition} among {shown}")
             else:
                 left.remove(match)
-                check_curve(transition, match, fail)
+                check_curve(transition, match, fail, refresh_hz)
     if "drag" in expect:
         # A drag at a hand's pace (`drag_paced`): what the window showed meanwhile.
         drag, wanted = result.get("drag") or {}, expect["drag"]
@@ -874,6 +908,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  f"{wanted['presented_min']}")
         if drag.get("composed", 0) < wanted.get("composed_min", 0):
             fail(f"{drag.get('composed', 0)} frames were composed in the drag, expected at least {wanted['composed_min']}")
+        if "composed_gap_ms" in wanted:
+            low, high = wanted["composed_gap_ms"]
+            median = (drag.get("composed_gap_ms") or {}).get("median")
+            if median is None or not low <= median <= high:
+                fail(f"the frames composed in the drag came {median} ms apart (median), expected {low} to {high}")
         if drag.get("bytes_read", 0) > wanted.get("bytes_read_max", float("inf")):
             fail(f"the compositor read {drag['bytes_read']} bytes of the application's pixels in the drag, expected at most "
                  f"{wanted['bytes_read_max']}")
@@ -1161,10 +1200,11 @@ def main():
 
     failures = []
     start = summary["t_launch"]
+    refresh_hz = display_hz(scenario)
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences")
+                           out / "preferences", refresh_hz)
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":
@@ -1184,7 +1224,7 @@ def main():
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last, "window": window}, report, start, failures,
                    screenshot=out / f"launch-{len(scenario['steps']) + 1}.png", shell_report=shell_report,
-                   preferences=out / "preferences")
+                   preferences=out / "preferences", refresh_hz=refresh_hz)
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
     renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]

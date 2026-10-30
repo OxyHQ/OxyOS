@@ -20,7 +20,9 @@ The development compositor turns every 5 ms when nothing wakes it, so its own id
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
 
 Writes perf.json into --out and prints the tables docs/performance.mdx shows. With --check, exits 1
-when a budget (BUDGETS) is exceeded.
+when a budget (BUDGETS) is exceeded. A frame's budget is a refresh of the display the interaction
+runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz without one), so a
+scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --host BIN --bundle DIR [--out DIR] [--runs N] [--gpu-only] [--check]
                [interactions] [cold-start] [idle]
@@ -39,10 +41,15 @@ import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
+sys.path.insert(0, str(HERE))
+from regress import display_hz  # noqa: E402  (beside this file)
 
-# A display's refresh at 60 Hz: what a frame's work must fit in, and a frame that comes later than
-# one and a half of them after the one before is a refresh that showed nothing new.
-REFRESH_MS = 1000 / 60
+
+def refresh_ms(scenario):
+    """A refresh of the display `scenario` (a file) runs on, in ms: what a frame's work must fit
+    in; a frame that comes later than one and a half of them after the one before is a refresh that
+    showed nothing new."""
+    return 1000 / display_hz(json.loads(pathlib.Path(scenario).read_text()))
 
 # Interactions: (name, scenario, the steps measured (1-based), what happens).
 INTERACTIONS = [
@@ -83,9 +90,10 @@ IDLE_WINDOW_S = 5.0
 
 # What --check holds the numbers to.
 BUDGETS = {
-    # Every frame's work fits a 60 Hz refresh, at the 95th percentile.
-    "compose_ms_p95": REFRESH_MS,
-    "host_busy_ms_p95": REFRESH_MS,
+    # Every frame's work fits a refresh of the display it runs on (1.0: one; `refresh_ms`), at the
+    # 95th percentile.
+    "compose_refreshes_p95": 1.0,
+    "host_busy_refreshes_p95": 1.0,
     # An application or the shell doing nothing wakes at most once a second and uses no CPU to
     # speak of.
     "idle_host_wakeups_per_s": 1.0,
@@ -244,6 +252,7 @@ def interaction(options, name, scenario, steps, what, out):
     """Every run's measured steps, pooled: the compositor's frames and the hosts'."""
     intervals, compose, reads, latency = [], [], [], []
     late = composed = 0
+    refresh = refresh_ms(SCENARIOS / scenario)
     hosts = {"window": {"busy": [], "js": [], "render": []}, "shell": {"busy": [], "js": [], "render": []}}
     peaks = {}
     for run in range(options.runs):
@@ -257,14 +266,14 @@ def interaction(options, name, scenario, steps, what, out):
             # the interaction's (what follows is the answer to the last of them settling).
             paced = step.get("drag_paced") or step.get("scroll_paced")
             if paced:
-                span = paced[-2] / paced[-1] * 1000 + REFRESH_MS
+                span = paced[-2] / paced[-1] * 1000 + refresh
                 frames = [frame for frame in frames if frame[0] <= span]
             composed += len(frames)
             compose += [frame[1] for frame in frames]
             reads += [frame[2] for frame in frames]
             gaps = [b[0] - a[0] for a, b in zip(frames, frames[1:])]
             intervals += gaps
-            late += sum(1 for gap in gaps if gap > 1.5 * REFRESH_MS)
+            late += sum(1 for gap in gaps if gap > 1.5 * refresh)
             for source, lines in (("window", [line for line in frames_between(report, step["t_inject"], step["t_settled"])
                                               if line["surface"] == 1]),
                                   ("shell", frames_between(shell, step["t_inject"], step["t_settled"]))):
@@ -282,6 +291,7 @@ def interaction(options, name, scenario, steps, what, out):
     return {
         "what": what,
         "runs": options.runs,
+        "refresh_ms": round(refresh, 3),
         "frames_composed": composed,
         "frame_interval_ms": percentiles(intervals),
         "late_frames": late,
@@ -407,12 +417,14 @@ def check(results):
     """The budgets results exceed, as messages."""
     over = []
     for name, r in results.get("interactions", {}).items():
-        if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_ms_p95"]:
-            over.append(f"{name}: composing took {r['compose_ms']['p95']} ms at p95")
+        refresh = r["refresh_ms"]
+        if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
+            over.append(f"{name}: composing took {r['compose_ms']['p95']} ms at p95 (a refresh is {refresh} ms)")
         for source in ("window", "shell"):
             busy = r[source]["busy"]
-            if busy and busy["p95"] > BUDGETS["host_busy_ms_p95"]:
-                over.append(f"{name}: the {source}'s host worked {busy['p95']} ms per frame at p95")
+            if busy and busy["p95"] > BUDGETS["host_busy_refreshes_p95"] * refresh:
+                over.append(f"{name}: the {source}'s host worked {busy['p95']} ms per frame at p95 "
+                            f"(a refresh is {refresh} ms)")
     for name, processes in results.get("idle", {}).items():
         for who, m in processes.items():
             if who == "compositor":

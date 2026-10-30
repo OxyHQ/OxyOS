@@ -137,15 +137,17 @@ struct Session {
 }
 
 impl Session {
-    /// A session with one output of 1280x720 at scale 1.
+    /// A session with one output of 1280x720 at scale 1, unpaced.
     fn start() -> Result<Self> {
-        Self::with_outputs(&[((OUTPUT.width, OUTPUT.height), 120)])
+        Self::with_outputs(&[launch::OutputSpec::of(OUTPUT.width, OUTPUT.height)])
     }
 
     /// A session with outputs of these pixels at these scales (in 120ths), arranged as a session
     /// arranges its displays (docs/adr/0018-several-displays.mdx): left to right in this order,
-    /// top-aligned, numbered from `OUTPUT_ID`; the first is the primary.
-    fn with_outputs(outputs: &[((u32, u32), u32)]) -> Result<Self> {
+    /// top-aligned, numbered from `OUTPUT_ID`; the first is the primary. One given a refresh is
+    /// paced as a display at it (`Screen::paced`); the others are said to be 60 Hz, and show each
+    /// frame as soon as it is composed.
+    fn with_outputs(outputs: &[launch::OutputSpec]) -> Result<Self> {
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
         let directory =
             std::env::temp_dir().join(format!("oxyos-offscreen-{}-{nonce}", std::process::id()));
@@ -160,21 +162,23 @@ impl Session {
         let mut compositor = Compositor::new(Scene::new(), own_uid);
         let sizes: Vec<(u32, u32)> = outputs
             .iter()
-            .map(|&(pixels, scale_120)| oxyos_compositor::arrangement::logical(pixels, scale_120))
+            .map(|spec| oxyos_compositor::arrangement::logical(spec.pixels, spec.scale_120))
             .collect();
         let places = oxyos_compositor::arrangement::arrange(&sizes);
-        for (index, ((&(pixels, scale_120), size), at)) in
-            outputs.iter().zip(&sizes).zip(places).enumerate()
-        {
+        for (index, ((spec, size), at)) in outputs.iter().zip(&sizes).zip(places).enumerate() {
+            let id = OUTPUT_ID + index as OutputId;
             compositor.add_output(
                 Output {
-                    id: OUTPUT_ID + index as OutputId,
+                    id,
                     rect: Rect::new(at.0, at.1, size.0, size.1),
-                    scale_120,
-                    refresh_mhz: 60_000,
+                    scale_120: spec.scale_120,
+                    refresh_mhz: spec.refresh_mhz.unwrap_or(60_000),
                 },
-                Some(pixels),
+                Some(spec.pixels),
             )?;
+            if let Some(screen) = compositor.screen_mut(id) {
+                screen.paced = spec.refresh_mhz.is_some();
+            }
         }
         Ok(Self {
             compositor,

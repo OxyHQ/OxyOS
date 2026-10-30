@@ -139,6 +139,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_CONFIGURE_MAXIMIZED 2
 #define OXYOS_EVENT_OUTPUT 55
 #define OXYOS_EVENT_OUTPUT_REMOVED 56
+#define OXYOS_EVENT_REFRESH 57
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -197,6 +198,9 @@ typedef struct OxyOSClient OxyOSClient;
  *   FOCUS       flag: focused.
  *   TOUCH       serial; x, y as POINTER; detail: touch kind; code: touch id.
  *   FEEDBACK    serial: frame sequence; detail: outcome.
+ *   REFRESH     detail: the refresh of the output the surface is on, in mHz (119998 is 120 Hz),
+ *               before its first CONFIGURE and whenever it changes; its frames are paced by it
+ *               (docs/adr/0018-several-displays.mdx).
  *   RELEASED    serial: buffer id (the client reuses it; informational).
  *   SCROLL      serial; x, y: horizontal and vertical scroll distance in 1/256 logical pixels
  *               (positive moves the content's view right and down).

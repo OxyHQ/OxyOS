@@ -22,8 +22,9 @@ It runs regression scenarios through `regress.py` (every step's expected result 
 and writes `perf.json` and the tables below. `--gpu-only` composes on the Vulkan device instead
 of the CPU. `--check` fails when a budget is exceeded:
 
-- every frame's work fits a 60 Hz refresh (16.7 ms) at the 95th percentile, for the compositor
-  and for each host;
+- every frame's work fits a refresh of the display it runs on at the 95th percentile, for the
+  compositor and for each host: 16.7 ms at 60 Hz, 8.3 at 120 (the scenario's primary output's
+  refresh, `regress.py`'s `display_hz`; 60 Hz for one given none);
 - an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
   of a core;
 - an application's first frame comes within half a second of its start.
@@ -53,9 +54,13 @@ native (mounting, drawing, presenting, the compositor's events). Paced steps (`d
 device's event wakes a session's turn.
 
 "interval" is the time between consecutive frames composed while the input lasted, and "late"
-counts intervals over one and a half refreshes. The development compositor has no display, so
-nothing paces it to a refresh: a frame is composed as soon as something changes, and the
-interval is how fast the whole pipeline (input, host, compositor) answers.
+counts intervals over one and a half refreshes. The development compositor has no display: on an
+output given no refresh (these scenarios) nothing paces it, a frame is composed as soon as
+something changes, and the interval is how fast the whole pipeline (input, host, compositor)
+answers. An output given one (`--outputs 1280x720:120`, [ADR 0018](./adr/0018-several-displays),
+decision 11) is paced as a display at it, each frame shown at its next vblank, and the host paces
+its own frames by it: `refresh-120-windows.json` drags a window at 125 Hz with a frame composed
+each 8.3 ms, `refresh-120-animations.json` runs requestAnimationFrame at 120 a second.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
 output, and the host's stages in between (its report's `stage` lines): the process reaching
@@ -184,7 +189,8 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   its window is dragged (`drag.bytes_read_max`).
 - **Input that woke a turn was read after the turn's frame.** The compositor's turn now reads the
   devices after it waits, so the frame it composes shows the input that woke it.
-- **A session's turns were not measured.** A turn whose work takes longer than a refresh is now
+- **A session's turns were not measured.** A turn whose work takes longer than a refresh (of the
+  fastest display) is now
   logged, at most once a second, with where the time went (`[compositor] a turn worked …`): the
   next run on the ThinkPad says what remains.
 - **The CPU composition copied an opaque layer drawn 1:1 pixel by pixel through the general
