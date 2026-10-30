@@ -27,6 +27,7 @@ import SettingsApp from './SettingsApp';
 import AnimatedProbe from './AnimatedProbe';
 import MenuBarProbe from './MenuBarProbe';
 import LoginSession from './LoginSession';
+import ExpoProbe from './ExpoProbe';
 
 AppRegistry.registerComponent('OxyBloom', () => App);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
@@ -53,3 +54,4 @@ AppRegistry.registerComponent('IntlProbe', () => IntlProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
 AppRegistry.registerComponent('OxyOSShell', () => ShellSession);
 AppRegistry.registerComponent('OxyOSLogin', () => LoginSession);
+AppRegistry.registerComponent('ExpoProbe', () => ExpoProbe);

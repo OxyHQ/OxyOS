@@ -2,8 +2,12 @@
   "name": "oxyos-bloom-sample",
   "private": true,
   "devDependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
     "@tailwindcss/postcss": "4.3.2",
     "expo-clipboard": "~58.0.4",
-    "expo-notifications": "~58.1.6"
+    "expo-crypto": "~58.0.7",
+    "expo-linking": "~58.0.13",
+    "expo-notifications": "~58.1.6",
+    "expo-secure-store": "~58.0.2"
   }
 }
