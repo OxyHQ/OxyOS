@@ -423,6 +423,20 @@ impl RenderNode {
 
     /// The render node of device `dev` if it has timelines, else the first that has them.
     pub fn with_timelines(dev: Option<u64>) -> Option<Self> {
+        // The device's node, found by its number without opening the others (opening a
+        // discrete GPU's node can wake it from its sleep).
+        if let Some(dev) = dev {
+            let own = Self::paths().into_iter().find(|path| {
+                std::fs::metadata(path)
+                    .is_ok_and(|metadata| std::os::unix::fs::MetadataExt::rdev(&metadata) == dev)
+            });
+            if let Some(node) = own
+                .and_then(|path| Self::open(&path).ok())
+                .filter(Self::has_timelines)
+            {
+                return Some(node);
+            }
+        }
         let nodes: Vec<Self> = Self::paths()
             .iter()
             .filter_map(|path| Self::open(path).ok())
