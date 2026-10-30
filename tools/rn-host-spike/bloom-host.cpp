@@ -3,6 +3,7 @@
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
 #include "accessibility.h"
 #include "android-components.h"
+#include "application.h"
 #include "damage.h"
 #include "expo-blur.h"
 #include "files.h"
@@ -363,10 +364,10 @@ int main(int argc, char** argv) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
   });
   // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window: the
-  // application's own folders are its id's, the one its launch gave it (OXYOS_APP_ID, ADR 0013),
-  // and its bundle's folder is read-only. Events reach JavaScript as RCTDeviceEventEmitter events
-  // from the loop below.
-  const char* launchedAs = std::getenv("OXYOS_APP_ID");
+  // application's own folders are its data and cache directories (application.h, ADR 0030), only
+  // if the session started it, and its bundle's folder is read-only. Events reach JavaScript as
+  // RCTDeviceEventEmitter events from the loop below.
+  const auto application = oxyos::Application::launched();
   std::error_code bundleError;
   auto bundleFile = std::filesystem::canonical(bundlePath, bundleError);
   oxyos::Files files(
@@ -374,7 +375,7 @@ int main(int argc, char** argv) {
         instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                        folly::dynamic::array(event, std::move(payload)));
       },
-      launchedAs ? launchedAs : "", bundleError ? std::string() : bundleFile.parent_path().string());
+      application, bundleError ? std::string() : bundleFile.parent_path().string());
   oxyos::HostServices services{blobs, networking};
   oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;

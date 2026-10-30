@@ -1181,11 +1181,12 @@ int64_t oxyos_application_directory(const char* id, uint8_t which, char* out, si
  * order on the service's own thread, taken from its queue (oxyos_files_take). */
 typedef struct OxyOSFiles OxyOSFiles;
 typedef struct OxyOSFilesReply OxyOSFilesReply;
-/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME,
- * $XDG_CACHE_HOME, $USER's volumes under /media and /run/media), for the application `app_id` (its
- * reverse domain name; NULL for none: no folders of its own), whose documents and cache folders
- * ($XDG_DATA_HOME/ID, $XDG_CACHE_HOME/ID) are made if they are not there, run from the bundle in the
- * folder `bundle` (read-only; NULL for none), or NULL. */
+/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME, $USER's
+ * volumes under /media and /run/media), for the application `app_id`, the id the session gave an
+ * application it started (NULL for none or a claimed id: no folders of its own), whose documents and
+ * cache folders (oxyos_application_directory's, docs/adr/0030-installing-applications.mdx) are made
+ * if they are not there, run from the bundle in the folder `bundle` (read-only; NULL for none), or
+ * NULL. */
 OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
 void oxyos_files_free(OxyOSFiles* files);

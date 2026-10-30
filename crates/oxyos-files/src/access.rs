@@ -531,7 +531,7 @@ pub fn disk_space(scope: &Scope) -> Result<Value, Error> {
 }
 
 /// The application's folders as `expo-file-system`'s constants name them: URIs ending in `/`, or
-/// null without an application (or a bundle).
+/// null without an application the session started (or a bundle).
 pub fn paths(scope: &Scope) -> Value {
     let application = scope.application();
     let folder =
@@ -539,7 +539,7 @@ pub fn paths(scope: &Scope) -> Value {
     json!({
         "documentDirectory": folder(application.map(|app| &app.documents)),
         "cacheDirectory": folder(application.map(|app| &app.cache)),
-        "bundleDirectory": folder(application.and_then(|app| app.bundle.as_ref())),
+        "bundleDirectory": scope.bundle().map_or(Value::Null, |path| uri::of(path, true).into()),
     })
 }
 

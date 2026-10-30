@@ -76,8 +76,10 @@ unsafe fn slice<'a>(bytes: *const u8, length: usize) -> &'a [u8] {
 }
 
 /// The service for the user running the process (`Scope::for_user`), for the application
-/// `app_id` (`app_id_length` bytes; NULL for none: no folders of its own) run from the bundle in
-/// the folder `bundle` (NULL for none), or NULL (see `oxyos_last_error`).
+/// `app_id` (`app_id_length` bytes), the id the session gave an application it started (NULL for
+/// none or a claimed id: no folders of its own; its folders are `oxyos_apps::data_directory` and
+/// `cache_directory`), run from the bundle in the folder `bundle` (NULL for none), or NULL (see
+/// `oxyos_last_error`).
 ///
 /// # Safety
 /// `app_id` and `bundle` are NULL or point to their lengths' readable bytes.
@@ -99,7 +101,20 @@ pub unsafe extern "C" fn oxyos_files_new(
         }
     };
     let scope = Scope::for_user().and_then(|scope| match app_id {
-        Some(id) => scope.for_application(id, bundle.map(Path::new)),
+        // Its folders are where ADR 0030 keeps an application's data.
+        Some(id) => match (
+            oxyos_apps::data_directory(id),
+            oxyos_apps::cache_directory(id),
+        ) {
+            (Some(documents), Some(cache)) => scope.for_application(id, &documents, &cache),
+            _ => Err(std::io::Error::other(format!(
+                "{id:?} has no folders: not an application id, or no home"
+            ))),
+        },
+        None => Ok(scope),
+    });
+    let scope = scope.and_then(|scope| match bundle {
+        Some(bundle) => scope.with_bundle(Path::new(bundle)),
         None => Ok(scope),
     });
     match scope.and_then(Service::new) {

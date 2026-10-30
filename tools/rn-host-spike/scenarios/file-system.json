@@ -1,5 +1,5 @@
 {
-  "about": "expo-file-system and the Bloom adapter's places and Trash on OxyOS (sample/FileSystemProbe.tsx, sample/oxyos/expo-file-system.js, docs/adr/0028-file-access.mdx), on a home of the run's own, for an application whose launch gave it the id so.oxy.fsprobe: the real package's File, Directory and Paths and its legacy upload task, and Bloom's usePlatformFiles, as Stash uses them. Each step checks what the application got and what is on the disk. On start: its own folders ($XDG_DATA_HOME/ID, $XDG_CACHE_HOME/ID) and its bundle's, reading and writing (text, base64, bytes, appending), files and folders made, listed, copied (never over a file unless asked), moved, renamed and deleted for good, an open file at its own offset, digests, and what the scope refuses (outside the home, the bundle written, the application's folder itself deleted) and what OxyOS cannot do yet (the pickers, previews, the legacy API's reads), each with Expo's error code. Trash: the places, three items put in the Trash (the home itself and a file outside refused), one put back, one erased (one outside the Trash refused), the Trash's watch heard. Watch: Inbox watched while another program drops a file there, which the application renames: created, modified and renamed with both names. Network: a download into a folder named by the response, its progress, again refused, a failed status making no file; uploads with the file as the body (the new API's and the legacy task the Oxy SDK uses) and a multipart form with the file, a file outside refused.",
+  "about": "expo-file-system and the Bloom adapter's places and Trash on OxyOS (sample/FileSystemProbe.tsx, sample/oxyos/expo-file-system.js, docs/adr/0028-file-access.mdx), on a home of the run's own, for an application whose launch gave it the id so.oxy.fsprobe: the real package's File, Directory and Paths and its legacy upload task, and Bloom's usePlatformFiles, as Stash uses them. Each step checks what the application got and what is on the disk. On start: its own folders ($XDG_DATA_HOME/oxyos/apps/ID, $XDG_CACHE_HOME/oxyos/apps/ID, ADR 0030) and its bundle's, reading and writing (text, base64, bytes, appending), files and folders made, listed, copied (never over a file unless asked), moved, renamed and deleted for good, an open file at its own offset, digests, and what the scope refuses (outside the home, the bundle written, the application's folder itself deleted) and what OxyOS cannot do yet (the pickers, previews, the legacy API's reads), each with Expo's error code. Trash: the places, three items put in the Trash (the home itself and a file outside refused), one put back, one erased (one outside the Trash refused), the Trash's watch heard. Watch: Inbox watched while another program drops a file there, which the application renames: created, modified and renamed with both names. Network: a download into a folder named by the response, its progress, again refused, a failed status making no file; uploads with the file as the body (the new API's and the legacy task the Oxy SDK uses) and a multipart form with the file, a file outside refused.",
   "module": "FileSystemProbe",
   "window": [
     1000,
@@ -40,10 +40,10 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "document: /.local/share/so.oxy.fsprobe/",
-          "cache: /.cache/so.oxy.fsprobe/",
+          "document: /.local/share/oxyos/apps/so.oxy.fsprobe/",
+          "cache: /.cache/oxyos/apps/so.oxy.fsprobe/",
           "bundle: true",
-          "legacy document: true",
+          "legacy document: /.local/share/oxyos/apps/so.oxy.fsprobe/",
           "create: Hola, món",
           "create again: threw ERR_UNABLE_TO_CREATE",
           "text: Hola, món",
@@ -76,13 +76,13 @@
           "files: done"
         ],
         "home": {
-          ".local/share/so.oxy.fsprobe/notes.txt": "Hola, món",
-          ".local/share/so.oxy.fsprobe/Projects/notes.txt": "Hola, món",
-          ".local/share/so.oxy.fsprobe/Projects/plan.md": "# Plan",
-          ".local/share/so.oxy.fsprobe/Projects/Sub": false,
-          ".local/share/so.oxy.fsprobe/copy.txt": false,
-          ".local/share/so.oxy.fsprobe/data.bin": "\u0001\u0002\u0003\u0004\u0005",
-          ".cache/so.oxy.fsprobe": true,
+          ".local/share/oxyos/apps/so.oxy.fsprobe/notes.txt": "Hola, món",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/notes.txt": "Hola, món",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/plan.md": "# Plan",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/Sub": false,
+          ".local/share/oxyos/apps/so.oxy.fsprobe/copy.txt": false,
+          ".local/share/oxyos/apps/so.oxy.fsprobe/data.bin": "\u0001\u0002\u0003\u0004\u0005",
+          ".cache/oxyos/apps/so.oxy.fsprobe": true,
           "Documents/report.txt": "quarterly report"
         }
       }
@@ -202,8 +202,8 @@
           "network: done"
         ],
         "home": {
-          ".local/share/so.oxy.fsprobe/Q3 report.txt": "quarterly numbers",
-          ".local/share/so.oxy.fsprobe/missing.txt": false
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Q3 report.txt": "quarterly numbers",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/missing.txt": false
         }
       }
     }

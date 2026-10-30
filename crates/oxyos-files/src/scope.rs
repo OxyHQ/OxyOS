@@ -4,8 +4,9 @@
 //! (an application never needs them, and refusing them leaves nothing to normalize) and, once
 //! its links are resolved, it is in the user's home, in a volume mounted for them under
 //! `/media/USER` or `/run/media/USER`, in the application's own folders (its documents,
-//! `$XDG_DATA_HOME/ID`, and its cache, `$XDG_CACHE_HOME/ID`) or in its bundle's folder, which
-//! it reads and never changes. A Trash is reached only through the Trash's operations, so what it
+//! `$XDG_DATA_HOME/oxyos/apps/ID`, and its cache, `$XDG_CACHE_HOME/oxyos/apps/ID`, where ADR 0030
+//! keeps an application's data; only for an application the session started) or in its bundle's
+//! folder, which it reads and never changes. A Trash is reached only through the Trash's operations, so what it
 //! holds always matches its `.trashinfo` files. The home, a volume's root and the application's
 //! folders themselves can be listed, never renamed, moved, deleted or put in the Trash, and neither
 //! can a folder holding one of them or a Trash.
@@ -24,12 +25,10 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Application {
     pub id: String,
-    /// `$XDG_DATA_HOME/ID`: what `expo-file-system` calls its document directory.
+    /// `$XDG_DATA_HOME/oxyos/apps/ID`: what `expo-file-system` calls its document directory.
     pub documents: PathBuf,
-    /// `$XDG_CACHE_HOME/ID`: its cache directory.
+    /// `$XDG_CACHE_HOME/oxyos/apps/ID`: its cache directory.
     pub cache: PathBuf,
-    /// The folder its bundle is in (read, never changed), if it runs from one.
-    pub bundle: Option<PathBuf>,
 }
 
 /// The user's part of the file system, and the application's.
@@ -38,11 +37,12 @@ pub struct Scope {
     home: PathBuf,
     data_home: PathBuf,
     config_home: PathBuf,
-    cache_home: PathBuf,
     media: Vec<PathBuf>,
     mountinfo: PathBuf,
     uid: u32,
     application: Option<Application>,
+    /// The folder the bundle the host runs is in (read, never changed), if it runs from one.
+    bundle: Option<PathBuf>,
 }
 
 /// Which root a path is in.
@@ -68,7 +68,7 @@ pub enum Access {
 
 impl Scope {
     /// The scope of the user running this process: `$HOME`, `$XDG_DATA_HOME` (the Trash's),
-    /// `$XDG_CONFIG_HOME` (the user directories') and `$XDG_CACHE_HOME` or their defaults, the
+    /// `$XDG_CONFIG_HOME` (the user directories') or their defaults, the
     /// volumes mounted under `/media/USER` and `/run/media/USER` (udisks' places) as the mount
     /// table lists them.
     pub fn for_user() -> io::Result<Scope> {
@@ -80,7 +80,6 @@ impl Scope {
         let home = var("HOME").ok_or_else(|| io::Error::other("HOME is not set"))?;
         let data_home = var("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
         let config_home = var("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config"));
-        let cache_home = var("XDG_CACHE_HOME").unwrap_or_else(|| home.join(".cache"));
         let user = std::env::var("USER")
             .ok()
             .filter(|user| crate::valid_name(user).is_ok())
@@ -98,20 +97,17 @@ impl Scope {
                 PathBuf::from("/run/media").join(&user),
             ]
         };
-        let mut scope = Scope::new(
+        Scope::new(
             &home,
             &data_home,
             &config_home,
             media,
             PathBuf::from("/proc/self/mountinfo"),
             rustix::process::getuid().as_raw(),
-        )?;
-        scope.cache_home = std::fs::canonicalize(&cache_home).unwrap_or(cache_home);
-        Ok(scope)
+        )
     }
 
-    /// A scope from its parts (tests give their own directories and mount table); the cache home
-    /// is `HOME/.cache`.
+    /// A scope from its parts (tests give their own directories and mount table).
     pub fn new(
         home: &Path,
         data_home: &Path,
@@ -123,7 +119,6 @@ impl Scope {
         let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
         let home = std::fs::canonicalize(home)?;
         Ok(Scope {
-            cache_home: canonical(&home.join(".cache")),
             home,
             data_home: canonical(data_home),
             config_home: canonical(config_home),
@@ -131,40 +126,50 @@ impl Scope {
             mountinfo,
             uid,
             application: None,
+            bundle: None,
         })
     }
 
-    /// This scope for the application `id` (a reverse domain name, as its Desktop Entry's), run
-    /// from the bundle in `bundle` if any: its documents and cache folders are made, private to
-    /// the user, if they are not there.
-    pub fn for_application(mut self, id: &str, bundle: Option<&Path>) -> io::Result<Scope> {
+    /// This scope with the folder of the bundle the host runs: read, never changed.
+    pub fn with_bundle(mut self, bundle: &Path) -> io::Result<Scope> {
+        self.bundle = Some(std::fs::canonicalize(bundle)?);
+        Ok(self)
+    }
+
+    /// This scope for the application `id` (a reverse domain name, as its Desktop Entry's), whose
+    /// documents and cache folders are `documents` and `cache` (`oxyos_apps::data_directory` and
+    /// `cache_directory`, docs/adr/0030-installing-applications.mdx), made private to the user if
+    /// they are not there. Only for an application the session started.
+    pub fn for_application(
+        mut self,
+        id: &str,
+        documents: &Path,
+        cache: &Path,
+    ) -> io::Result<Scope> {
         if !oxyos_apps::valid_id(id) {
             return Err(io::Error::other(format!(
                 "{id:?} is not an application id (a reverse domain name)"
             )));
         }
-        let made = |parent: &Path| -> io::Result<PathBuf> {
-            let folder = parent.join(id);
+        let made = |folder: &Path| -> io::Result<PathBuf> {
             std::fs::DirBuilder::new()
                 .recursive(true)
                 .mode(0o700)
-                .create(&folder)
+                .create(folder)
                 .map_err(|error| {
                     io::Error::new(
                         error.kind(),
                         format!("the folder {} cannot be made: {error}", folder.display()),
                     )
                 })?;
-            std::fs::canonicalize(&folder)
+            std::fs::canonicalize(folder)
         };
-        let documents = made(&self.data_home)?;
-        let cache = made(&self.cache_home)?;
-        let bundle = bundle.map(std::fs::canonicalize).transpose()?;
+        let documents = made(documents)?;
+        let cache = made(cache)?;
         self.application = Some(Application {
             id: id.to_string(),
             documents,
             cache,
-            bundle,
         });
         Ok(self)
     }
@@ -194,6 +199,11 @@ impl Scope {
         &self.mountinfo
     }
 
+    /// The folder of the bundle the host runs, if any.
+    pub fn bundle(&self) -> Option<&Path> {
+        self.bundle.as_deref()
+    }
+
     /// The application this scope is for, if any.
     pub fn application(&self) -> Option<&Application> {
         self.application.as_ref()
@@ -216,9 +226,9 @@ impl Scope {
         if let Some(application) = &self.application {
             roots.push((Root::Documents, application.documents.clone()));
             roots.push((Root::Cache, application.cache.clone()));
-            if let Some(bundle) = &application.bundle {
-                roots.push((Root::Bundle, bundle.clone()));
-            }
+        }
+        if let Some(bundle) = &self.bundle {
+            roots.push((Root::Bundle, bundle.clone()));
         }
         roots
     }

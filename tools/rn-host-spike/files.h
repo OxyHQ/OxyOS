@@ -13,6 +13,7 @@
 // never silence.
 #pragma once
 
+#include "application.h"
 #include "oxyos_client.h"
 
 #include <folly/dynamic.h>
@@ -38,10 +39,13 @@ class Files {
   };
   using Done = std::function<void(Reply)>;
 
-  // For the application `appId` (its launch's OXYOS_APP_ID; empty: none, no folders of its own),
-  // run from the bundle in the folder `bundleDirectory`.
-  Files(Emit emit, std::string appId, std::string bundleDirectory)
-      : emit_(std::move(emit)), appId_(std::move(appId)), bundleDirectory_(std::move(bundleDirectory)) {}
+  // For `application`, run from the bundle in the folder `bundleDirectory`: its own folders are its
+  // data and cache directories, only if the session started it (application.h).
+  Files(Emit emit, const Application& application, std::string bundleDirectory)
+      : emit_(std::move(emit)),
+        // An application with no directories (none given, a claimed id) has no folders here either.
+        appId_(application.dataDirectory.empty() ? "" : application.id),
+        bundleDirectory_(std::move(bundleDirectory)) {}
   ~Files();
   Files(const Files&) = delete;
   Files& operator=(const Files&) = delete;
@@ -65,6 +69,7 @@ class Files {
   std::string failed(const std::string& message) const;
 
   Emit emit_;
+  // The id the session gave the application; "" for none or a claim (no folders of its own).
   std::string appId_, bundleDirectory_;
   OxyOSFiles* files_ = nullptr;
   bool tried_ = false;

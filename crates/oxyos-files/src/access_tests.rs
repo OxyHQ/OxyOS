@@ -18,9 +18,16 @@ const ID: &str = "so.oxy.probe";
 fn application(place: &Place) -> Scope {
     let bundle = place.dir("bundle");
     std::fs::write(bundle.join("index.js"), "bundle").expect("bundle");
+    let home = place.path("home/ada");
     scope_in(place)
-        .for_application(ID, Some(&bundle))
+        .for_application(
+            ID,
+            &home.join(".local/share/oxyos/apps").join(ID),
+            &home.join(".cache/oxyos/apps").join(ID),
+        )
         .expect("application")
+        .with_bundle(&bundle)
+        .expect("bundle")
 }
 
 fn u(path: &Path) -> String {
@@ -97,8 +104,8 @@ fn an_application_has_folders_of_its_own_and_reads_its_bundle() {
     let scope = application(&place);
     let home = scope.home().to_path_buf();
     let app = scope.application().expect("application").clone();
-    assert_eq!(app.documents, home.join(".local/share").join(ID));
-    assert_eq!(app.cache, home.join(".cache").join(ID));
+    assert_eq!(app.documents, home.join(".local/share/oxyos/apps").join(ID));
+    assert_eq!(app.cache, home.join(".cache/oxyos/apps").join(ID));
     for folder in [&app.documents, &app.cache] {
         let mode = std::fs::metadata(folder)
             .expect("made")
@@ -118,8 +125,26 @@ fn an_application_has_folders_of_its_own_and_reads_its_bundle() {
         access::paths(&scope_in(&place)),
         json!({ "documentDirectory": null, "cacheDirectory": null, "bundleDirectory": null })
     );
-    assert!(scope_in(&place).for_application("../escape", None).is_err());
-    assert!(scope_in(&place).for_application("", None).is_err());
+    let (documents, cache) = (home.join("d"), home.join("c"));
+    assert!(scope_in(&place)
+        .for_application("../escape", &documents, &cache)
+        .is_err());
+    assert!(scope_in(&place)
+        .for_application("", &documents, &cache)
+        .is_err());
+    // Without an application, its bundle is still read, and still never written.
+    let bundled = scope_in(&place)
+        .with_bundle(&place.path("bundle"))
+        .expect("bundle");
+    assert_eq!(
+        access::paths(&bundled),
+        json!({ "documentDirectory": null, "cacheDirectory": null,
+                "bundleDirectory": d(&place.path("bundle")) })
+    );
+    assert!(matches!(
+        access::delete(&bundled, &u(&place.path("bundle/index.js"))),
+        Err(Error::Refused(_))
+    ));
 
     let volumes = scope.volumes();
     assert_eq!(

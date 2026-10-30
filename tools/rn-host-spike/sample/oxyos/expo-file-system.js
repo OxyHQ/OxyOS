@@ -5,8 +5,10 @@
  * same application code runs on Android, iOS and OxyOS.
  *
  * - What a URI may name is the platform's rule: the home, the volumes mounted for the user, the
- *   application's own folders (`Paths.document` is `$XDG_DATA_HOME/ID`, `Paths.cache`
- *   `$XDG_CACHE_HOME/ID`, ID the application's id its launch gave it) and its bundle's folder
+ *   application's own folders (`Paths.document` is `$XDG_DATA_HOME/oxyos/apps/ID` and
+ *   `Paths.cache` `$XDG_CACHE_HOME/oxyos/apps/ID`, where docs/adr/0030-installing-applications.mdx
+ *   keeps an application's data, ID the id the session's launch gave it; an application the session
+ *   did not start has none, application.h) and its bundle's folder
  *   (`Paths.bundle`, read-only); never a Trash's insides, never the home, a volume's root or the
  *   application's folders themselves changed. Anything else fails as Android's missing permission
  *   does, with the reason.
@@ -640,7 +642,7 @@ function requiredFolder(name) {
   if (uri == null) {
     throw codedError(
       'ERR_FILE_SYSTEM_UNAVAILABLE',
-      `expo-file-system: this window has no ${name}: it was not started as an application with an id (OXYOS_APP_ID)`,
+      `expo-file-system: this window has no ${name}: the session did not start it as an application, so it has no folders of its own`,
     );
   }
   return uri;

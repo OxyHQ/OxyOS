@@ -1,0 +1,45 @@
+{
+  "about": "expo-file-system for an application the session did not start (sample/FileSystemProbe.tsx; application.h; docs/adr/0028-file-access.mdx, decision 3; docs/adr/0030-installing-applications.mdx): its id (so.oxy.fsprobe, the one file-system.json's recorded launch has) is only a claim, so it has no folders of its own. Paths.document and Paths.cache say why, the legacy module's are null, nothing is made under oxyos/apps, and its bundle is still read.",
+  "module": "FileSystemProbe",
+  "window": [
+    1000,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.fsprobe",
+    "title": "File System Probe",
+    "recorded": false
+  },
+  "home": {
+    "items": {
+      "Documents/report.txt": "quarterly report"
+    }
+  },
+  "steps": [
+    {
+      "name": "no folders of its own, each saying so; none made",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "document: threw ERR_FILE_SYSTEM_UNAVAILABLE",
+          "cache: threw ERR_FILE_SYSTEM_UNAVAILABLE",
+          "bundle: true",
+          "legacy document: null",
+          "files: no folders of its own"
+        ],
+        "absent": [
+          "create: Hola, món"
+        ],
+        "home": {
+          ".local/share/oxyos": false,
+          ".cache/oxyos": false,
+          "Documents/report.txt": "quarterly report"
+        }
+      }
+    }
+  ]
+}

@@ -46,7 +46,17 @@ async function files(say: Say) {
   await attempt(say, 'document', () => after(Paths.document.uri, '/.local/share/'));
   await attempt(say, 'cache', () => after(Paths.cache.uri, '/.cache/'));
   await attempt(say, 'bundle', () => new File(Paths.bundle, 'index.js').exists);
-  await attempt(say, 'legacy document', () => FileSystemLegacy.documentDirectory === Paths.document.uri);
+  await attempt(say, 'legacy document', () => {
+    const legacy = FileSystemLegacy.documentDirectory;
+    return legacy === null ? 'null' : after(legacy, '/.local/share/');
+  });
+  try {
+    void Paths.document;
+  } catch {
+    // An application the session did not start has no folders of its own: nothing more to do.
+    say('files', 'no folders of its own');
+    return;
+  }
 
   const notes = new File(Paths.document, 'notes.txt');
   await attempt(say, 'create', async () => {

@@ -3995,8 +3995,8 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
         assert!(oxyos_files_new("../x".as_ptr().cast(), 4, std::ptr::null(), 0).is_null());
         let files = oxyos_files_new(id.as_ptr().cast(), id.len(), std::ptr::null(), 0);
         assert!(!files.is_null());
-        assert!(home.join(".local/share/so.oxy.ffi").is_dir());
-        assert!(home.join(".cache/so.oxy.ffi").is_dir());
+        assert!(home.join(".local/share/oxyos/apps/so.oxy.ffi").is_dir());
+        assert!(home.join(".cache/oxyos/apps/so.oxy.ffi").is_dir());
         let fd = oxyos_files_fd(files);
         assert!(fd >= 0);
         let call = |json: String, bytes: &[u8]| {
@@ -4041,7 +4041,10 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
                 let _ = rustix::event::poll(&mut ready, Some(&wait));
             }
         };
-        let documents = format!("file://{}/", home.join(".local/share/so.oxy.ffi").display());
+        let documents = format!(
+            "file://{}/",
+            home.join(".local/share/oxyos/apps/so.oxy.ffi").display()
+        );
         let (_, paths, _) = call(r#"{"op":"paths"}"#.into(), &[]);
         assert!(
             paths.contains(&format!(r#""documentDirectory":"{documents}""#)),

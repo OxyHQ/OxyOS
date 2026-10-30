@@ -6,7 +6,7 @@ order: 37
 
 # ADR 0028: File access for applications
 
-Status: **accepted; implemented**, except opening a file in another application (decision 6), which is specified and waits for its protocol. Builds on [ADR 0015](./0015-application-model) (one application, the platform's capabilities through standard APIs), [ADR 0013](./0013-launching-applications) (launch records, the application id), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and [ADR 0007](./0007-clipboard) (a request that cites the user's input). Supersedes the Files application of draft PR #162: its service, scope and Trash are kept here, and its application is not.
+Status: **accepted; implemented**, except opening a file in another application (decision 6), which is specified and waits for its protocol. Builds on [ADR 0015](./0015-application-model) (one application, the platform's capabilities through standard APIs), [ADR 0013](./0013-launching-applications) (launch records, the application id), [ADR 0030](./0030-installing-applications) (where an application's data lives), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and [ADR 0007](./0007-clipboard) (a request that cites the user's input). Supersedes the Files application of draft PR #162: its service, scope and Trash are kept here, and its application is not.
 
 ## Problem
 
@@ -41,10 +41,11 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
    - **Never changed** (deleted, moved, renamed or trashed): the home, a volume's root, the application's folders, and any folder that holds one of them or a Trash.
    - **Not a sandbox.** Without one (#35, #36), any program running as the person reaches what the person does. This is the platform's rule for what the API names, checked on canonical paths.
 
-3. **The application's own folders** are named by its id, the registry entry's (`so.oxy.stash`, [ADR 0013](./0013-launching-applications)). The session's launch gives that id to the host as `OXYOS_APP_ID`, and the host validates it as the registry does.
-   - `Paths.document` is `$XDG_DATA_HOME/ID` and `Paths.cache` is `$XDG_CACHE_HOME/ID`. Both are created when the service starts, private to the person (mode 0700).
+3. **The application's own folders are where [ADR 0030](./0030-installing-applications) keeps an application's data**, by its id, the registry entry's (`so.oxy.stash`, [ADR 0013](./0013-launching-applications)).
+   - `Paths.document` is `$XDG_DATA_HOME/oxyos/apps/ID` (`~/.local/share/oxyos/apps/ID`) and `Paths.cache` is `$XDG_CACHE_HOME/oxyos/apps/ID` (`~/.cache/oxyos/apps/ID`), the account's, as ADR 0030 decides. Both are created when the service starts, private to the person (mode 0700).
+   - **One mechanism for every Expo module.** The host learns the application once (`application.h`): its id from `OXYOS_APP_ID`, which the session's launch gives it, and its directories from `crates/oxyos-apps` (`data_directory`, `cache_directory`; `oxyos_application_directory` in the C ABI), which name none for an id the registry would not take. The file service and the host's other modules that keep an application's data use those directories, and only those.
+   - **Only an application the session started has them**, as ADR 0030's verified launch (its decision 7) requires. A host the session did not start (`OXYOS_APP_UNRECORDED`) has its id only as a claim, and a host started with no id (a development run) has none. Neither has folders of its own: `Paths.document` and `Paths.cache` say why, rather than reach another application's data under a claimed id or a folder shared by every unnamed run. The rest of the scope (the home, the volumes) is unchanged.
    - `Paths.bundle` is the folder of the bundle the host runs.
-   - A host started with no id (a development run) has no folders of the application's. `Paths.document` and `Paths.cache` then say why, instead of pointing somewhere shared.
 
 4. **Expo's semantics, Android's behaviour.**
    - **Never replacing.** An item is never replaced unless `overwrite` is asked (`RENAME_NOREPLACE`). With `overwrite`, the old item is exchanged in one step (`RENAME_EXCHANGE`), so a copy that fails leaves it whole.
@@ -86,7 +87,7 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
 ## Steps
 
 1. **The service and its C ABI** (`crates/oxyos-files`, `crates/oxyos-client-ffi/src/files.rs`). *Done.* Tests on homes, volumes and mount tables the tests make cover:
-   - the scope's refusals, the application's folders and the read-only bundle;
+   - the scope's refusals, the application's folders and the read-only bundle; an application's directories by its id (`oxyos-apps`, and through the C ABI), none for an id the registry would not take;
    - reading, writing and appending; making files and folders (`intermediates`, `overwrite`, `idempotent`); deleting; copying, moving and renaming with and without `overwrite`; a move across two real file systems;
    - file handles; digests against the standard vectors;
    - typed watches (merging, rename pairing, a watched item's deletion ending its watch, the debounce);
@@ -101,6 +102,7 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
    *Done.*
    - `scenarios/file-system.json` runs `sample/FileSystemProbe.tsx` on a home the scenario makes. It drives expo-file-system's public API and the adapter's `files`, and checks each result, each error code, each watch event and the disk (the Trash's `.trashinfo` included) after every step.
    - `scenarios/pointer-presses.json` checks the W3C presses, a secondary press opening a popup where it pressed, a double press and a selection set from JavaScript.
+   - `scenarios/file-system-unrecorded.json` runs the same probe with an id the session did not record: no folders of its own, each saying why, and none made on the disk.
    - `scenarios/network.json` sends a file of the home in a form.
 3. **Stash on OxyOS:** its registry entry, its bundle and its scenarios. These are in the pull request that runs Expo Router applications from their checkout on the Bloom host.
 4. **Opening files in other applications** (decision 6).
