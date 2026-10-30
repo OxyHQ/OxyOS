@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <future>
 #include <map>
 #include <optional>
 #include <string>
@@ -233,6 +234,7 @@ class Window {
   std::vector<int> fds() const {
     std::vector<int> out = clipboard_.fds();
     out.push_back(oxyos_client_fd(client_));
+    if (painterReady_ >= 0) out.push_back(painterReady_);
     return out;
   }
   bool clipboardHasText() const { return clipboard_.hasText(); }
@@ -246,8 +248,33 @@ class Window {
   // Inside `dispatch`'s callback, for a TEXT_INPUT event: the transaction it completed.
   bool transaction(OxyOSTextTransaction& out) { return oxyos_client_text_transaction(client_, &out) == 1; }
 
+  // Called once the window is configured, before the application starts (docs/adr/0031-gpu-buffers.mdx,
+  // decision 12): chooses the painter, the GPU's where the compositor names a GPU this process
+  // shares buffers with (its table comes after Welcome, before the first configure), the CPU's
+  // otherwise. The GPU's is started on a thread of its own while the application loads; frames
+  // until it is ready are drawn on the CPU (OXYOS_HOST_RENDERER=gpu waits for it instead).
+  void choosePainter();
+  // Whether the GPU's painter has just been put to use (once, when its start is done; its
+  // descriptor in `fds` wakes the loop for it): every surface is then drawn whole on it.
+  bool painterStarted();
+
  private:
   OxyOSClient* client_ = nullptr;
+  // Whether the painter was chosen (docs/adr/0031-gpu-buffers.mdx, decision 12): the GPU's once
+  // the compositor names a GPU this process can share buffers with, the CPU's otherwise.
+  bool painterChosen_ = false;
+  // The GPU's painter being started on a thread of its own (choosePainter), and whether it must be.
+  struct StartedPaint {
+    OxyOSPaint* paint;
+    std::string why;
+  };
+  std::future<StartedPaint> starting_;
+  // Readable once the painter's start is done.
+  int painterReady_ = -1;
+  bool painterForced_ = false;
+  void usePainter(StartedPaint started);
+  // Whether the compositor closed the connection.
+  bool disconnected() const;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   Drawing drawing_;

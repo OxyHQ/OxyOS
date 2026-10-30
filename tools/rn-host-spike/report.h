@@ -68,6 +68,13 @@ class Report {
   // A frame drawn from its damage that differs from the frame drawn whole (OXYOS_HOST_DAMAGE_CHECK):
   // `pixels` of them. Any is a defect in the damage.
   void damageMismatch(uint32_t surface, size_t pixels);
+  // A frame drawn on the GPU against the same frame drawn whole on the CPU
+  // (OXYOS_HOST_RENDER_CHECK, docs/adr/0031-gpu-buffers.mdx, decision 13): the largest difference
+  // of any channel, and how many of its pixels differ by more than 3 levels.
+  void renderCheck(uint32_t surface, int largest, size_t beyondThree, size_t pixels);
+  // A frame presented: its size, whether on the GPU, and where its time went in milliseconds (on the
+  // GPU, oxyos_paint_last_present's parts; in shared memory, the copy and send alone).
+  void present(uint32_t surface, int width, int height, bool gpu, const folly::dynamic& parts);
   // A compositor event as received.
   void input(const char* event, uint32_t surface, const folly::dynamic& extra = folly::dynamic::object());
   // An event delivered to React (touch, text, scroll, …) on `view`.
