@@ -2558,6 +2558,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             phases_ms: Vec::new(),
         });
     }
+    // Clients' GPU buffers where a render node has timelines (docs/adr/0031-gpu-buffers.mdx).
+    session.compositor.offer_gpu_buffers();
     // The session's shell first, as a session starts it: the application's window is then placed
     // in the work area its panels leave.
     let shell = match &launch.shell {

@@ -27,6 +27,8 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod controls;
+mod gpu_buffers;
+pub use gpu_buffers::GpuFrame;
 pub mod displays;
 pub mod idle;
 pub mod login;
@@ -491,6 +493,8 @@ pub struct Compositor {
     /// frame composed again (a window moved, a transition, the pointer over it) is not read
     /// again: only a new one is (`read_frame`).
     frames_read: HashMap<SurfaceKey, FrameRead>,
+    /// Clients' GPU buffers and timelines (docs/adr/0031-gpu-buffers.mdx).
+    gpu_buffers: gpu_buffers::GpuBuffers,
     /// The bytes of pixels read so far from each client's buffers (`read_frame`): none while it
     /// shows nothing new.
     pub bytes_read: HashMap<ClientId, u64>,
@@ -601,7 +605,7 @@ struct Content {
     placed: Rect,
     extent: Size,
     format: Option<oxyos_protocol::Format>,
-    pixels: Rc<Vec<u8>>,
+    pixels: Rc<Pixels>,
     source: Option<oxyos_gpu::Source>,
     changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
     opacity: u8,
@@ -680,12 +684,47 @@ struct ShownView {
     opacity: u8,
 }
 
-/// The pixels of a surface's frame in `buffer`, read from its client's shared memory.
+/// A frame's pixels as the compositor read them, and the client's GPU buffer they are in when it
+/// is one (docs/adr/0031-gpu-buffers.mdx): a composition on the GPU samples that in place, one on
+/// the CPU draws `bytes` (empty when only the GPU composes).
+#[derive(Debug, Default)]
+pub struct Pixels {
+    pub bytes: Vec<u8>,
+    pub gpu: Option<GpuFrame>,
+}
+
+impl std::ops::Deref for Pixels {
+    type Target = Vec<u8>;
+    fn deref(&self) -> &Vec<u8> {
+        &self.bytes
+    }
+}
+
+impl From<Vec<u8>> for Pixels {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self { bytes, gpu: None }
+    }
+}
+
+/// Where a frame's pixels are read from: clients' shared memory, their GPU buffers, and whether
+/// the CPU needs their pixels (it composes, or checks the GPU's composition).
+type Readers<'a> = (
+    &'a HashMap<ClientId, Peer>,
+    &'a gpu_buffers::GpuBuffers,
+    bool,
+);
+
+/// The pixels of a surface's frame in `buffer`, read from its client's shared memory or GPU
+/// buffer.
 fn read_pixels(
-    peers: &HashMap<ClientId, Peer>,
+    (peers, gpu, needed): Readers<'_>,
     key: SurfaceKey,
     buffer: u64,
-) -> Option<(Size, oxyos_protocol::Format, Vec<u8>)> {
+) -> Option<(Size, oxyos_protocol::Format, Pixels)> {
+    if gpu.has(key.client, buffer) {
+        let (extent, format, bytes, gpu) = gpu.read(key.client, buffer, needed)?;
+        return Some((extent, format, Pixels { bytes, gpu }));
+    }
     let shared = peers.get(&key.client)?.buffers.get(&buffer)?;
     let layout = shared.layout();
     let row = layout.extent.width as usize * 4;
@@ -693,12 +732,12 @@ fn read_pixels(
     for (y, out) in pixels.chunks_exact_mut(row).enumerate() {
         shared.read_row(y as u32, out).ok()?;
     }
-    Some((layout.extent, layout.format, pixels))
+    Some((layout.extent, layout.format, pixels.into()))
 }
 
 /// What a surface read last showed: its frame (sequence and buffer), its size and format, and its
 /// pixels (`Compositor::frames_read`).
-type FrameRead = ((u64, u64), Size, oxyos_protocol::Format, Rc<Vec<u8>>);
+type FrameRead = ((u64, u64), Size, oxyos_protocol::Format, Rc<Pixels>);
 
 /// A surface's frame (`sequence`, in `buffer`) as `read_pixels` reads it, read only if it is not
 /// the one read last for the surface: a frame shown is never written by its client until it is
@@ -709,17 +748,17 @@ fn read_frame(
         &mut HashMap<SurfaceKey, FrameRead>,
         &mut HashMap<ClientId, u64>,
     ),
-    peers: &HashMap<ClientId, Peer>,
+    readers: Readers<'_>,
     key: SurfaceKey,
     sequence: u64,
     buffer: u64,
-) -> Option<(Size, oxyos_protocol::Format, Rc<Vec<u8>>)> {
+) -> Option<(Size, oxyos_protocol::Format, Rc<Pixels>)> {
     if let Some((frame, extent, format, pixels)) = frames_read.get(&key) {
         if *frame == (sequence, buffer) {
             return Some((*extent, *format, pixels.clone()));
         }
     }
-    let (extent, format, pixels) = read_pixels(peers, key, buffer)?;
+    let (extent, format, pixels) = read_pixels(readers, key, buffer)?;
     *bytes_read.entry(key.client).or_default() += pixels.len() as u64;
     let pixels = Rc::new(pixels);
     frames_read.insert(key, ((sequence, buffer), extent, format, pixels.clone()));
@@ -836,6 +875,7 @@ impl Compositor {
             reads: Vec::new(),
             damaged: Vec::new(),
             frames_read: HashMap::new(),
+            gpu_buffers: Default::default(),
             bytes_read: HashMap::new(),
             frame_times: Vec::new(),
             versions: HashMap::new(),
@@ -975,6 +1015,7 @@ impl Compositor {
 
     pub fn disconnect(&mut self, client: ClientId) {
         self.versions.retain(|(key, _), _| key.client != client);
+        self.disconnect_gpu(client);
         self.scene.disconnect(client);
         self.peers.remove(&client);
         self.retire();
@@ -986,6 +1027,7 @@ impl Compositor {
             if let Some(peer) = self.peers.get_mut(&client) {
                 peer.buffers.remove(&buffer);
             }
+            self.retire_gpu_buffer(client, buffer);
         }
     }
 
@@ -1006,6 +1048,10 @@ impl Compositor {
         match peer.protocol.receive(&request) {
             Ok(Some(welcome)) => {
                 peer.outbox.push_back((welcome, None));
+                // What the compositor takes of clients' GPU buffers (ADR 0031, decision 2).
+                for event in self.gpu_buffers.announcement() {
+                    peer.outbox.push_back((event, None));
+                }
                 let grants = peer.grants;
                 if self.scene.connect(client, grants).is_err() {
                     self.fail(client, ErrorCode::Unauthorized);
@@ -1030,6 +1076,26 @@ impl Compositor {
                 return;
             }
             (_, fd) => fd,
+        };
+        // Clients' GPU buffers, their timelines and points, and frames held for an acquire
+        // point (ADR 0031); a frame ready now goes on to the scene.
+        let fd = if matches!(
+            request,
+            Request::AttachDmabufPlane { .. }
+                | Request::AttachDmabuf { .. }
+                | Request::ImportTimeline { .. }
+                | Request::DestroyTimeline { .. }
+                | Request::SetSync { .. }
+                | Request::Submit { .. }
+                | Request::DestroyBuffer { .. }
+        ) {
+            match self.receive_gpu(client, request, fd) {
+                Some(Ok(())) => return self.retire(),
+                Some(Err(code)) => return self.fail(client, code),
+                None => None,
+            }
+        } else {
+            fd
         };
         if let (Some(layout), Some(fd), Request::AttachBuffer { buffer, .. }) =
             (request.buffer_layout(), fd, request)
@@ -1081,9 +1147,38 @@ impl Compositor {
         self.retire();
     }
 
+    /// A frame held for its acquire point (docs/adr/0031-gpu-buffers.mdx), now ready: the scene's,
+    /// as a `Submit` received now would be.
+    pub(crate) fn submit_to_scene(&mut self, client: ClientId, request: Request) {
+        if let Err(code) = self.scene.handle(client, request) {
+            return self.fail(client, code);
+        }
+        if let Request::Submit {
+            surface, sequence, ..
+        } = request
+        {
+            self.next_version += 1;
+            self.versions.insert(
+                (
+                    SurfaceKey {
+                        client,
+                        id: surface,
+                    },
+                    sequence,
+                ),
+                self.next_version,
+            );
+        }
+        self.retire();
+    }
+
     /// Routes scene events into bounded outboxes and sends what each socket accepts now.
     pub fn flush(&mut self) {
         for (client, event) in self.scene.drain_events() {
+            // A GPU buffer's release waits for the GPU and any transition drawing it (ADR 0031).
+            if self.hold_gpu_event(client, &event) {
+                continue;
+            }
             if self.log_input {
                 if let Some((surface, kind)) = input_kind(&event) {
                     self.input_log.push((client, surface, kind));
@@ -1421,7 +1516,11 @@ impl Compositor {
                         .filter_map(|view| {
                             let (extent, format, pixels) = read_frame(
                                 (&mut self.frames_read, &mut self.bytes_read),
-                                &self.peers,
+                                (
+                                    &self.peers,
+                                    &self.gpu_buffers,
+                                    self.gpu.is_none() || !self.gpu_only,
+                                ),
                                 view.window,
                                 view.sequence,
                                 view.buffer,
@@ -1531,7 +1630,11 @@ impl Compositor {
             match item {
                 RenderItem::Surface { key, rect, frame } => match read_frame(
                     (&mut self.frames_read, &mut self.bytes_read),
-                    &self.peers,
+                    (
+                        &self.peers,
+                        &self.gpu_buffers,
+                        self.gpu.is_none() || !self.gpu_only,
+                    ),
                     key,
                     frame.sequence,
                     frame.buffer,
@@ -1654,7 +1757,11 @@ impl Compositor {
                         }
                         _ => read_frame(
                             (&mut self.frames_read, &mut self.bytes_read),
-                            &self.peers,
+                            (
+                                &self.peers,
+                                &self.gpu_buffers,
+                                self.gpu.is_none() || !self.gpu_only,
+                            ),
                             window,
                             frame.sequence,
                             frame.buffer,
@@ -1809,7 +1916,16 @@ impl Compositor {
                     }),
                 )
             })
-            .map(|(content, pixels)| oxyos_gpu::Layer {
+            .map(|(content, pixels)| {
+                // A client's GPU buffer, sampled in place where the Vulkan compositor holds it.
+                let gpu = content
+                    .shares
+                    .map_or(&content.pixels, |index| &contents[index].pixels)
+                    .gpu
+                    .as_ref();
+                (content, pixels, gpu)
+            })
+            .map(|(content, pixels, gpu)| oxyos_gpu::Layer {
                 x: content.placed.x,
                 y: content.placed.y,
                 width: content.placed.width,
@@ -1818,6 +1934,14 @@ impl Compositor {
                 paint: match (&content.shadow, content.format) {
                     (Some((profile, shadow)), _) => {
                         oxyos_gpu::Paint::Shadow(profile.pixels(), *shadow)
+                    }
+                    (None, Some(_)) if gpu.is_some() => {
+                        let gpu = gpu.expect("checked");
+                        oxyos_gpu::Paint::Imported {
+                            image: gpu.image,
+                            opaque: gpu.opaque,
+                            pixels,
+                        }
                     }
                     (None, Some(oxyos_protocol::Format::Xrgb8888)) => {
                         oxyos_gpu::Paint::Opaque(pixels)
@@ -2585,7 +2709,8 @@ impl Compositor {
         key: SurfaceKey,
         buffer: u64,
     ) -> Option<(Size, oxyos_protocol::Format, Vec<u8>)> {
-        read_pixels(&self.peers, key, buffer)
+        read_pixels((&self.peers, &self.gpu_buffers, true), key, buffer)
+            .map(|(extent, format, pixels)| (extent, format, pixels.bytes))
     }
 
     /// The session locks after `minutes` with no input (0: never); a change arms the idle
@@ -2624,6 +2749,16 @@ impl Compositor {
     /// frame, a paced screen's next vblank, or `idle_wait`, whichever is soonest.
     fn next_wake(&self) -> Duration {
         let mut wait = self.idle_wait;
+        // A client's GPU buffer released once a frame the GPU composes is done, with no sync file
+        // to wake the turn: looked at again soon.
+        if self.gpu_sync_pending()
+            && self
+                .gpu
+                .as_ref()
+                .is_some_and(|gpu| gpu.compositor.completion_fd().is_none())
+        {
+            wait = wait.min(Duration::from_millis(1));
+        }
         if let Some(deadline) = self.idle.deadline() {
             wait = wait.min(deadline.saturating_sub(self.now()));
         }
@@ -2726,6 +2861,20 @@ impl Compositor {
             for waker in &self.wakers {
                 fds.push(PollFd::from_borrowed_fd(waker.as_fd(), PollFlags::IN));
             }
+            // Acquire points a frame waits for, and the GPU finishing a frame that read a
+            // client's buffer whose release waits for it (docs/adr/0031-gpu-buffers.mdx).
+            for fd in self.gpu_buffers.wake_fds() {
+                fds.push(PollFd::from_borrowed_fd(fd, PollFlags::IN));
+            }
+            if self.gpu_sync_pending() {
+                if let Some(fd) = self
+                    .gpu
+                    .as_ref()
+                    .and_then(|gpu| gpu.compositor.completion_fd())
+                {
+                    fds.push(PollFd::from_borrowed_fd(fd, PollFlags::IN));
+                }
+            }
             if let (Some(authentication), Some(_)) = (&self.authentication, self.checking) {
                 fds.push(PollFd::from_borrowed_fd(
                     authentication.as_fd(),
@@ -2800,6 +2949,7 @@ impl Compositor {
                 self.receive(*client);
             }
         }
+        self.follow_gpu_sync();
         self.expire_pending();
         // A turn that waited until the deadline locks now, and composes the lock.
         self.follow_idle();

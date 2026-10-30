@@ -207,7 +207,7 @@ pub struct Snapshot {
     pub extent: Size,
     pub format: Format,
     /// Shared with the frame they were composed from: drawing them again copies nothing.
-    pub pixels: Rc<Vec<u8>>,
+    pub pixels: Rc<crate::Pixels>,
     pub look: Option<oxyos_compositor_core::WindowLook>,
     /// The windows a shell surface showed live over its pixels (docs/adr/0022-window-views.mdx),
     /// which go with it.
@@ -224,7 +224,7 @@ pub struct ViewSnapshot {
     pub opacity: u8,
     pub extent: Size,
     pub format: Format,
-    pub pixels: Rc<Vec<u8>>,
+    pub pixels: Rc<crate::Pixels>,
 }
 
 struct Running {
@@ -835,7 +835,7 @@ mod tests {
             rect: Rect::new(100, 100, 200, 100),
             extent: Size::new(200, 100),
             format: Format::Xrgb8888,
-            pixels: Rc::new(vec![0; 200 * 100 * 4]),
+            pixels: Rc::new(vec![0; 200 * 100 * 4].into()),
             look: None,
             views: Vec::new(),
         }

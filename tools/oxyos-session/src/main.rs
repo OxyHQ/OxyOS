@@ -285,6 +285,9 @@ fn main() -> Result<()> {
         ),
         Err(error) => eprintln!("[session] no Vulkan device ({error}): composing on the CPU"),
     }
+    // Applications' GPU buffers, on the device composing or linear ones the CPU reads
+    // (docs/adr/0031-gpu-buffers.mdx).
+    compositor.offer_gpu_buffers();
     // Every connected output, shown and arranged as the user's preferences keep them (ADR 0018).
     let mut card = Card {
         card,

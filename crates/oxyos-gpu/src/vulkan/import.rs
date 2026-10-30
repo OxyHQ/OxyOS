@@ -637,6 +637,12 @@ impl VulkanCompositor {
             .and_then(|fd| fd.try_clone().ok())
     }
 
+    /// The frame in flight's completion as a sync file, to wake a turn when it is done.
+    pub fn completion_fd(&self) -> Option<BorrowedFd<'_>> {
+        use std::os::fd::AsFd;
+        self.pending_sync_file.as_ref().map(|fd| fd.as_fd())
+    }
+
     /// Whether the last submission is done, without waiting: completed (its timestamps read, what
     /// it read released) when it is.
     pub fn poll_completion(&mut self) -> Result<bool, Error> {
