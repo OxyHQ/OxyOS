@@ -148,7 +148,7 @@
             "top",
             "bottom"
           ],
-          "presented_min": 10
+          "presented_min": 3
         },
         "pixels": {
           "1050,450": "#7048e8"
