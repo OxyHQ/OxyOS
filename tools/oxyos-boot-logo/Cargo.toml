@@ -1,0 +1,15 @@
+[package]
+name = "oxyos-boot-logo"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-protocol = { path = "../../crates/oxyos-protocol" }
+oxyos-vector = { path = "../../crates/oxyos-vector" }
+png = "0.18"
+
+[lints]
+workspace = true

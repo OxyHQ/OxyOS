@@ -1,0 +1,86 @@
+---
+title: "ADR 0017: The boot logo"
+description: How OxyOS shows the Oxy mark from the moment Linux takes the display until the session's first frame, as a Mac shows its own while it starts, and how the session takes the display over without a pixel changing.
+order: 26
+---
+
+# ADR 0017: The boot logo
+
+Status: **accepted**; steps 1 and 2 implemented, verified off hardware; steps 3 and 4 to come. Builds on [ADR 0011](./0011-transitions) (the session's splash), [ADR 0006](./0006-seat) (the seat: the session is never root, logind gives it the card) and the [base image configuration](../iso-build).
+
+## Problem
+
+A Mac shows the Apple logo from power-on until the login window: no text, no cursor, no flicker. A PC booting the base image shows the firmware's logo (Lenovo's on the ThinkPad); then the kernel's framebuffer console takes the screen, clears it and blinks a cursor in its corner; then the kernel's, the initramfs's and systemd's messages, as many as `quiet` lets through; then a login prompt. The session's splash, the Oxy mark ([ADR 0011](./0011-transitions)), comes last, after a terminal login, as a cut from text.
+
+Nothing may stand between the kernel and the session that the image rules forbid: no display server, compositor, greeter or toolkit runtime ([base image configuration](../iso-build)). The session runs as its user, never as root ([ADR 0006](./0006-seat)), and takes the card through logind, which makes it DRM master: whatever shows the logo must have let go of the display by then, and must not have taken the picture down.
+
+## Decision
+
+1. **Plymouth shows the boot logo, with its script plugin, on DRM/KMS.** Plymouth is Debian's boot splash. It starts in the initramfs (initramfs-tools' `init-premount`, after udev has settled, so the GPU's driver, `i915` on the ThinkPad, is loaded), draws with its DRM renderer as DRM master, keeps the console's terminal in graphics mode so the framebuffer console draws nothing, asks for disk passphrases (`cryptsetup`) and the systemd password agent's questions, and hands the display to what comes next by an established protocol (`deactivate`, `quit --retain-splash`, as display managers use it). It is not a display server, greeter or toolkit. Writing our own initramfs splash would repeat all of this; the kernel's boot logo (`CONFIG_LOGO`) is a kernel build option drawn in a corner.
+
+   The image installs `plymouth` (24.004.60-5: the daemon, the DRM and frame-buffer renderers, the script, text and details plugins) and `fontconfig`, nothing else of Plymouth's:
+   - **not `plymouth-themes`**: it depends on `plymouth-label` (Pango, Cairo, GLib, fonts) and ships themes the image does not use. The `oxyos` theme draws no text, so it needs no label plugin.
+   - **`fontconfig`**: Debian's initramfs hook (`/usr/share/initramfs-tools/hooks/plymouth`) copies fontconfig's configuration and runs `fc-cache` for every theme but `text`, `details` and `tribar`, under `set -e`; without fontconfig it fails, and with it `update-initramfs`. `plymouth-themes` normally brings it.
+
+   Resolved with apt against Trixie's indices from an empty system, recommends on as the build installs them, the manifest gains 13 packages, about 8.7 MB installed: `plymouth`, `libplymouth5`, `libdrm2`, `libdrm-common`, `libevdev2`, `libpng16-16t64`, `libxkbcommon0`, `fontconfig`, `fontconfig-config`, `libfontconfig1`, `libfreetype6`, `fonts-dejavu-core`, `fonts-dejavu-mono`. None is X11, Wayland, a toolkit or Mesa.
+
+   The theme and `/etc/plymouth/plymouthd.conf` are `includes.chroot_after_packages`, so no hook is needed. While the packages install, the configured theme does not exist and `plymouth-set-default-theme` falls back to `text`, so the initramfs built then is a text one. live-build's `chroot_hacks` builds it again after the includes, with the `oxyos` theme. Shipping `plymouthd.conf` before the packages would not work: it is a conffile of `plymouth`, and dpkg stops at its prompt with no terminal.
+
+2. **The theme shows the session's own pixels.** `oxyos` (`/usr/share/plymouth/themes/oxyos`) is a script theme on black. Its images are drawn by the session's code: `oxyos-boot-logo` calls the compositor's `splash::splash`, the function the session draws its splash with, and keeps the part of the frame about its centre that holds the mark.
+   - **`splash-WxH.png`** for 17 panel sizes (16:9, 16:10 and 3:2, from 1280×720 to 3840×2400, among them each of the ThinkPad P14s's panels: 1920×1200, 2240×1400, 2880×1800, 3840×2400). Its margins are whole and equal, so centred on an output of that size each pixel lands where the session's splash has it.
+   - **`mark-H.png`** for H of 1200, 2400 and 4800: for any other size, the theme scales the smallest drawing at least as high as the output (the highest, above 4800), down by at most half, with Plymouth's bilinear scaling. Then the session's first frame differs at the mark's antialiased edge, by a fraction of a pixel.
+   - **`field-H.png`, `bullet-H.png`**: asked for a passphrase, a grey pill (white at a fifth) the mark's side below it, twice its side wide, with a white bullet for each character typed. There is no prompt text: drawing text needs the label plugin.
+
+   `DeviceScale=1` in `plymouthd.conf`: one theme pixel for each of the display's, as the session's, never doubled on a dense panel. The script lays out for Plymouth's first display, the first connected connector, which is the session's output; others show the same mark centred. It lays out again when a display is plugged in. `cargo test` fails when the committed images are no longer what `splash` draws, and `scripts/check-image-config.py` when the theme draws text or the label plugin is installed.
+
+   The splash itself is corrected: it centred Bloom's view box of the mark, (80.58, 263.58, 1009.84, 1002.84), which leaves 20 units left of the outline and 119 right of it. The mark sat 7 pixels left of centre at 1920×1200, 5 % of its width, and was 144 pixels tall, not an eighth of the height. It now scales and centres the outline's own bounds, (100.625, 282.875, 871.125, 965.25), measured by a test that draws it at two pixels a unit: centred to the pixel and 150 tall there.
+
+3. **A quiet console.** The live command line (`LB_BOOTAPPEND_LIVE`) and an installed system's (`GRUB_CMDLINE_LINUX_DEFAULT`, in the GRUB drop-in) are `quiet splash loglevel=3 vt.global_cursor_default=0`:
+   - **`splash`** starts Plymouth (the initramfs script and `plymouth-start.service` start it unless `nosplash`). The failsafe entry keeps `nosplash`.
+   - **`quiet`**: the kernel's console log level is 4, and systemd 257 shows status only on failure (`SHOW_STATUS_ERROR`).
+   - **`loglevel=3`**: only errors and worse reach the console, among them the initramfs's udevd, which initramfs-tools runs at `notice` with `quiet` and which logs to the kernel's buffer. `rd.udev.log_level` is dracut's and is not used. `systemd.show_status=auto` would add the line about a job that takes long, so it is not used either.
+   - **`vt.global_cursor_default=0`**: Trixie's kernel (6.12, `linux-headers-6.12.111+deb13-amd64`'s configuration) builds the EFI framebuffer and its console in, and not the console's deferred takeover. So the framebuffer console takes the firmware's framebuffer as the kernel starts, clears it and blinks a cursor until Plymouth's first frame; this hides the cursor. The console's login prompt shows it again: `/etc/issue` begins with `\e[?25h`, which agetty writes as the escape that shows it, at every prompt, an automatic login's too.
+
+4. **The firmware's logo until the kernel, the Oxy mark from Plymouth's first frame.** Plymouth's `bgrt` theme keeps the firmware's logo (the ACPI BGRT image) on screen through the boot. It is not used: the mark that follows, the session's, is the Oxy mark, so the vendor's logo would cut to it at the session's first frame, the moment the handover is meant to be invisible. Otherwise the session would have to show the vendor's logo. The firmware's own picture cannot be changed from the OS. So there is one cut, and it comes first: the firmware's logo, black from the kernel's start (the framebuffer console cleared it), then the Oxy mark from Plymouth's first frame, unchanged until the session's desktop fades in over it.
+
+5. **The session takes the display from Plymouth without a pixel changing.** Plymouth must drop DRM master before logind makes the session master: the kernel refuses a second master, so logind's `TakeDevice` fails while Plymouth holds it. plymouthd answers only root: `ply-boot-server.c` NAKs every request from a peer whose uid is not 0. The session is never root, so the unit that starts the session at boot tells Plymouth, and the session tells the unit when its first frame is on screen:
+   1. `ExecStartPre=+-/usr/bin/plymouth deactivate`: plymouthd drops DRM master (`drmDropMaster`) and keeps its device open. Its last frame stays scanned out, and it closes the console's terminal without changing its mode, so the terminal stays in graphics mode.
+   2. The session takes the card and the terminal through logind (`TakeControl` keeps the terminal in graphics mode), and its first frame is the splash. It is the same mode, since both take the connector's preferred mode. It is on the same CRTC: both take the one already lighting the connector (`oxyos-kms` now prefers it, as Plymouth and mutter do), so `i915` commits it without turning the panel off. And it is the same pixels.
+   3. When that frame has flipped, the session sends `READY=1` to `NOTIFY_SOCKET` (sd_notify's protocol; the unit is `Type=notify`). It takes the variable out of its environment at start, so its shell and applications do not inherit it. Failing to send is reported, never fatal.
+   4. `ExecStartPost=+-/usr/bin/plymouth quit --retain-splash`: plymouthd exits without restoring the text console. Closing its device removes its framebuffer, which is no longer scanned out.
+
+   In that order: quitting while Plymouth's framebuffer is still scanned out takes the CRTC down with it, and without `--retain-splash` puts the terminal back in text mode. The unit conflicts with `plymouth-quit.service` (which would quit it without `--retain-splash`) and `getty@tty1.service`, runs after `plymouth-start.service` and `systemd-user-sessions.service`, and has `OnFailure=plymouth-quit.service`: if the session fails, Plymouth goes and the console is shown. It opens a logind session on the first terminal (`PAMName=`, `TTYPath=/dev/tty1`) without `TTYReset`, `TTYVHangup` or `TTYVTDisallocate`: systemd's terminal reset sets text mode and clears the console, a flash. `-` makes each Plymouth command's failure harmless when Plymouth is not running (`nosplash`, the failsafe entry).
+
+   Started from a terminal login, as it is today, there is nothing to hand over. `getty@.service` runs after `plymouth-quit-wait.service`, so Plymouth is gone, the console base's login prompt is shown, and there is no `NOTIFY_SOCKET`.
+
+## Steps
+
+1. **The theme and the image.** The packages, the theme, `plymouthd.conf`, the command lines, `/etc/issue`, and the image check.
+
+   *Done.* `oxyos-boot-logo` writes the theme's 26 images (140 KB); its tests check the crop (centred on a 1920×1200 output, every pixel is the frame's) and that the committed images decode to what `splash` draws now. `scripts/check-image-config.py` checks the boot logo:
+   - `plymouth-themes` and `plymouth-label` are kept out, and `fontconfig` is installed with `plymouth`;
+   - the theme is `oxyos`, at `DeviceScale=1`, a script theme that draws no text;
+   - the live command line has `quiet splash loglevel=3 vt.global_cursor_default=0`, and the failsafe entry `nosplash`.
+
+   Each was seen to fail on a broken copy. The retired stack's checks are unchanged.
+
+   *Verified off hardware.* The theme's script was run in Plymouth's own interpreter: 24.004.60's parser, objects, execution, math and string libraries, and the `.script` preludes of its image, sprite and plymouth libraries. Only the natives under them were stubbed: an image is its PNG's size, a sprite is recorded. On one display at 1920×1080, 1920×1200, 1366×768, 2880×1800 and 3840×2400, the frame its sprites make is byte for byte the session's splash frame. Below and above the drawn sizes (800×600, 1024×768, 2160×1440, 5120×2880) it scales the mark from the ladder, at the session's size. With two displays (1920×1200 and 3840×2160) it lays out for the first in Plymouth's shared coordinates. A passphrase shows the field and a bullet for each character typed, as many as it holds; returning to normal hides them; a hotplug lays out again and frees what it replaced. The build itself was not run: no image is built here (`lb build` needs a privileged Trixie chroot).
+2. **The session's side.** `READY=1` on the first flip, `NOTIFY_SOCKET` kept from what the session starts, the CRTC already lit, and the splash's geometry.
+
+   *Done.* The compositor calls `on_first_flip` once, when its first composed frame has flipped. The session's is `notify.rs`, tested on a socket by path and in the abstract namespace, with no socket and with the socket gone, so the error is reported and the session goes on. `choose_crtc` in `oxyos-kms` is tested to keep the lit CRTC, and to take the first one the connector may use when nothing usable is lit. The splash is tested centred and an eighth of the height at four sizes. The call on a real flip needs a display: step 3.
+3. **On the ThinkPad** (Intel Iris Xe, 1920×1200). Booting a built image, or Trixie with `plymouth`, `fontconfig` and the theme installed and the initramfs rebuilt, must show:
+   - the mark from Plymouth's first frame, and no text or cursor before it;
+   - the passphrase field at an encrypted disk;
+   - the console's login prompt with its cursor.
+
+   It must also measure how long the screen is black between the firmware's logo and the mark. The handover's commands are tried by hand from a root shell on another terminal: `plymouth deactivate`, the session started on the first, then `plymouth quit --retain-splash`. Nothing on screen may change, which a camera at the panel's refresh rate checks.
+4. **The session at boot.** When the session enters the image, with its acceptance tests and package audit (the image rules), the unit decision 5 describes starts it. Booting into it on the ThinkPad must show no change from Plymouth's frame to the session's, and the desktop fading in over the mark ([ADR 0011](./0011-transitions)).
+
+## Not in this decision
+
+- **Keeping the firmware's picture until Plymouth's first frame.** That needs the console's deferred takeover, a kernel built with `CONFIG_FRAMEBUFFER_CONSOLE_DEFERRED_TAKEOVER`, which Debian's is not.
+- **The firmware's own logo**, the vendor's.
+- **Exact pixels on an output size the theme has no frame for**, or on a display other than the first. The session drives one output.
+- **What Plymouth shows at shutdown and reboot**: the same theme, with no decision about the session's going.
+- **Progress**, as a Mac's bar during an update, and **text** of any kind: messages, a passphrase's prompt, Plymouth's details (`Esc`).
+- **The debian-installer's** look.

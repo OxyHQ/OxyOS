@@ -1518,6 +1518,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-boot-logo"
+version = "0.1.0"
+dependencies = [
+ "oxyos-compositor",
+ "oxyos-protocol",
+ "oxyos-vector",
+ "png",
+]
+
+[[package]]
 name = "oxyos-client"
 version = "0.1.0"
 dependencies = [

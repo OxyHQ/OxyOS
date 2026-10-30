@@ -1,0 +1,103 @@
+# OxyOS's boot logo (docs/adr/0017-boot-logo.mdx): the session's splash, the Oxy mark white and
+# centred on black an eighth of the output's height, from Plymouth's first frame until the
+# session's own frame replaces it with the same pixels. The images are drawn by the session's
+# code (tools/oxyos-boot-logo); this only places them. They are laid out for Plymouth's first
+# display, the output the session shows on; any other shows the same, centred.
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+# The output heights the mark, the field and its bullet are drawn for (LADDER in the tool).
+global.ladder = [1200, 2400, 4800];
+
+# The smallest drawing at least as high as the output, else the highest: scaled down by at most
+# half.
+fun level_for(height) {
+  local.i = 0;
+  while (global.ladder[i + 1] && global.ladder[i] < height) {
+    i = i + 1;
+  }
+  return global.ladder[i];
+}
+
+fun scaled(image, ratio) {
+  if (ratio == 1)
+    return image;
+  return image.Scale(Math.Int(image.GetWidth() * ratio + 0.5), Math.Int(image.GetHeight() * ratio + 0.5));
+}
+
+# Where an image goes centred on the first display. A splash-WxH image's margins are whole and
+# equal, so its pixels land where the session's splash has them.
+fun centred_x(image) {
+  return global.left + Math.Int((global.width - image.GetWidth()) / 2);
+}
+
+fun centred_y(image) {
+  return global.top + Math.Int((global.height - image.GetHeight()) / 2);
+}
+
+fun layout() {
+  global.width = Window.GetWidth(0);
+  global.height = Window.GetHeight(0);
+  global.left = Window.GetX(0);
+  global.top = Window.GetY(0);
+  # The mark's side as the session's splash has it: an eighth of the height, in whole pixels.
+  global.side = Math.Int(global.height / 8);
+  global.level = level_for(global.height);
+  global.ratio = global.side / (global.level / 8);
+
+  local.mark = Image("splash-" + width + "x" + height + ".png");
+  if (!mark)
+    mark = scaled(Image("mark-" + level + ".png"), global.ratio);
+  global.logo = Sprite(mark);
+  global.logo.SetPosition(centred_x(mark), centred_y(mark), 0);
+
+  # The password field, a pill under the mark (its centre the mark's side below the mark's),
+  # hidden until a passphrase is asked for; a bullet for each character typed.
+  global.field_image = scaled(Image("field-" + level + ".png"), global.ratio);
+  global.bullet_image = scaled(Image("bullet-" + level + ".png"), global.ratio);
+  global.field_x = centred_x(global.field_image);
+  global.field_y = global.top + Math.Int(global.height / 2 + global.side - global.field_image.GetHeight() / 2);
+  global.field = Sprite(global.field_image);
+  global.field.SetPosition(global.field_x, global.field_y, 1);
+  global.inset = Math.Int(global.field_image.GetHeight() / 2);
+  global.pitch = Math.Int(global.bullet_image.GetWidth() * 1.8 + 0.5);
+  global.room = Math.Int((global.field_image.GetWidth() - 2 * global.inset - global.bullet_image.GetWidth()) / global.pitch) + 1;
+  local.bullet_y = global.field_y + Math.Int((global.field_image.GetHeight() - global.bullet_image.GetHeight()) / 2);
+  global.bullets = [];
+  for (local.i = 0; i < global.room; i++) {
+    global.bullets[i] = Sprite(global.bullet_image);
+    global.bullets[i].SetPosition(global.field_x + global.inset + i * global.pitch, bullet_y, 2);
+  }
+  show_field();
+}
+
+fun show_field() {
+  global.field.SetOpacity(global.asking);
+  for (local.i = 0; i < global.room; i++) {
+    if (global.asking && i < global.typed)
+      global.bullets[i].SetOpacity(1);
+    else
+      global.bullets[i].SetOpacity(0);
+  }
+}
+
+fun display_password(prompt, bullets) {
+  global.asking = 1;
+  global.typed = bullets;
+  show_field();
+}
+
+fun display_normal() {
+  global.asking = 0;
+  global.typed = 0;
+  show_field();
+}
+
+global.asking = 0;
+global.typed = 0;
+layout();
+
+Plymouth.SetDisplayHotplugFunction(layout);
+Plymouth.SetDisplayPasswordFunction(display_password);
+Plymouth.SetDisplayNormalFunction(display_normal);

@@ -123,8 +123,63 @@ def check_image_settings():
     return violations
 
 
+BOOT_LOGO = CONFIG / "includes.chroot_after_packages" / "usr" / "share" / "plymouth" / "themes" / "oxyos"
+
+
+def manifest_packages():
+    names = set()
+    for path in sorted((CONFIG / "package-lists").glob("*.list*")):
+        for line in path.read_text().splitlines():
+            names.update(line.split("#", 1)[0].split())
+    return names
+
+
+def sourced(path, name):
+    return subprocess.run(
+        ["sh", "-c", f'. "$1" && printf %s "${name}"', "sh", str(path)],
+        capture_output=True, text=True, env={},
+    ).stdout
+
+
+def check_boot_logo():
+    """The boot logo (docs/adr/0017-boot-logo.mdx): Plymouth's script plugin on DRM/KMS, with
+    nothing that draws text (the label plugin brings Pango, Cairo and GLib)."""
+    violations = []
+    packages = manifest_packages()
+    for name in ("plymouth-themes", "plymouth-label"):
+        if name in packages:
+            violations.append(f"config/package-lists: {name} (Pango, Cairo, GLib); the oxyos theme needs neither")
+    if "plymouth" in packages and "fontconfig" not in packages:
+        violations.append("config/package-lists: plymouth without fontconfig: Debian's initramfs hook fails for a graphical theme")
+    conf = CONFIG / "includes.chroot_after_packages" / "etc" / "plymouth" / "plymouthd.conf"
+    settings = dict(
+        line.split("=", 1) for line in conf.read_text().splitlines() if "=" in line and not line.startswith("#")
+    ) if conf.exists() else {}
+    if settings.get("Theme") != "oxyos" or settings.get("DeviceScale") != "1":
+        violations.append(f"{conf.relative_to(ROOT)}: needs Theme=oxyos and DeviceScale=1")
+    theme = BOOT_LOGO / "oxyos.plymouth"
+    text = theme.read_text() if theme.exists() else ""
+    for line in ("ModuleName=script", "ImageDir=/usr/share/plymouth/themes/oxyos",
+                 "ScriptFile=/usr/share/plymouth/themes/oxyos/oxyos.script"):
+        if line not in text.splitlines():
+            violations.append(f"{theme.relative_to(ROOT)}: missing {line}")
+    script = BOOT_LOGO / "oxyos.script"
+    if not script.exists() or "Image.Text" in script.read_text():
+        violations.append(f"{script.relative_to(ROOT)}: missing, or draws text (the label plugin)")
+    live = sourced(CONFIG / "binary", "LB_BOOTAPPEND_LIVE").split()
+    for argument in ("quiet", "splash", "loglevel=3", "vt.global_cursor_default=0"):
+        if argument not in live:
+            violations.append(f"config/binary: LB_BOOTAPPEND_LIVE lacks {argument}")
+    if "nosplash" not in sourced(CONFIG / "binary", "LB_BOOTAPPEND_LIVE_FAILSAFE").split():
+        violations.append("config/binary: the failsafe entry must keep nosplash")
+    return violations
+
+
 def main():
-    violations = check_packages() + check_references() + check_publication() + check_hooks() + check_image_settings()
+    violations = (
+        check_packages() + check_references() + check_publication() + check_hooks() + check_image_settings()
+        + check_boot_logo()
+    )
     if violations:
         print("\n".join(violations), file=sys.stderr)
         return 1
