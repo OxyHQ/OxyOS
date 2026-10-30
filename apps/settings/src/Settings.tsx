@@ -29,23 +29,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@oxy.so/bloom/select";
-import {
-  SettingsCard,
-  SettingsLayout,
-  SettingsRow,
-  SettingsSection,
-  SettingsValueField,
-} from "@oxy.so/bloom/settings-modal";
+import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
+import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
 import { Switch } from "@oxy.so/bloom/switch";
 import { APP_COLOR_PRESETS } from "@oxy.so/bloom/theme";
-import { Text } from "@oxy.so/bloom/typography";
 import {
   ACCENTS,
   formatMemory,
   LOCK_AFTER_CHOICES,
   type Appearance,
-  type Preferences,
   type SettingsActions,
   type SettingsSnapshot,
 } from "./model";
@@ -53,23 +46,27 @@ import type { Strings } from "./strings";
 
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Strings };
 
-function Toggle({
-  label,
+/** A row whose control is a switch, as a Mac's settings lists show one. */
+function ToggleItem({
+  title,
   description,
   value,
   onChange,
   testID,
 }: {
-  label: string;
+  title: string;
   description?: string;
   value: boolean;
   onChange: (on: boolean) => void;
   testID: string;
 }) {
   return (
-    <SettingsRow label={label} description={description} testID={testID}>
-      <Switch checked={value} onCheckedChange={onChange} accessibilityLabel={label} testID={`${testID}-switch`} />
-    </SettingsRow>
+    <GroupedSectionItem
+      title={title}
+      description={description}
+      testID={testID}
+      rightElement={<Switch checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />}
+    />
   );
 }
 
@@ -89,7 +86,16 @@ function Choice<T extends string>({
   return (
     <Select value={value} onValueChange={(next) => onChange(next as T)}>
       <SelectTrigger label={label} testID={testID}>
-        <SelectValue>{(v) => items.find((item) => item.value === v)?.label ?? String(v)}</SelectValue>
+        <SelectValue>
+          {(chosen) => {
+            // The Select gives back the chosen item, or its value before one is chosen.
+            const key =
+              typeof chosen === "object" && chosen !== null && "value" in chosen
+                ? (chosen as { value: string }).value
+                : chosen;
+            return items.find((item) => item.value === key)?.label ?? String(key);
+          }}
+        </SelectValue>
         <SelectIcon />
       </SelectTrigger>
       <SelectContent
@@ -107,23 +113,18 @@ function Choice<T extends string>({
   );
 }
 
-/** A value only the system changes: shown, with why it cannot be changed here yet. */
-function SystemValue({ label, value, testID }: { label: string; value: string; testID: string }) {
-  return (
-    <SettingsRow label={label} testID={testID}>
-      <SettingsValueField muted>{value}</SettingsValueField>
-    </SettingsRow>
-  );
-}
+const PAGE = { gap: 24 } as const;
 
 function AppearancePage({ snapshot, actions, strings }: PageProps) {
   const { appearance, accent } = snapshot.preferences;
   const words = strings.appearance;
   return (
-    <View style={{ gap: 24 }}>
-      <SettingsSection label={words.mode} description={appearance === "auto" ? words.autoDescription : undefined}>
-        <SettingsCard>
-          <SettingsRow label={words.mode}>
+    <View style={PAGE}>
+      <GroupedSection footer={appearance === "auto" ? words.autoDescription : undefined}>
+        <GroupedSectionItem
+          title={words.mode}
+          testID="appearance-row"
+          rightElement={
             <SegmentedControl<Appearance>
               label={words.mode}
               type="radio"
@@ -137,8 +138,12 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
                 </SegmentedControlItem>
               ))}
             </SegmentedControl>
-          </SettingsRow>
-          <SettingsRow label={words.accent}>
+          }
+        />
+        <GroupedSectionItem
+          title={words.accent}
+          testID="accent-row"
+          rightElement={
             <View style={{ flexDirection: "row", gap: 10 }} accessibilityRole="radiogroup" accessibilityLabel={words.accent}>
               {ACCENTS.filter((name) => name in APP_COLOR_PRESETS).map((name) => {
                 const chosen = name === accent;
@@ -163,9 +168,9 @@ function AppearancePage({ snapshot, actions, strings }: PageProps) {
                 );
               })}
             </View>
-          </SettingsRow>
-        </SettingsCard>
-      </SettingsSection>
+          }
+        />
+      </GroupedSection>
     </View>
   );
 }
@@ -176,9 +181,10 @@ function WallpaperPage({ snapshot, actions, strings }: PageProps) {
     ...snapshot.wallpapers.map((wallpaper) => ({ value: wallpaper.id, label: wallpaper.name })),
   ];
   return (
-    <SettingsSection description={strings.wallpaper.dynamic}>
-      <SettingsCard>
-        <SettingsRow label={strings.wallpaper.current}>
+    <GroupedSection footer={strings.wallpaper.dynamic}>
+      <GroupedSectionItem
+        title={strings.wallpaper.current}
+        rightElement={
           <Choice
             label={strings.wallpaper.current}
             value={snapshot.preferences.wallpaper ?? ""}
@@ -186,9 +192,9 @@ function WallpaperPage({ snapshot, actions, strings }: PageProps) {
             onChange={(value) => actions.setPreference("wallpaper", value === "" ? null : value)}
             testID="wallpaper"
           />
-        </SettingsRow>
-      </SettingsCard>
-    </SettingsSection>
+        }
+      />
+    </GroupedSection>
   );
 }
 
@@ -199,52 +205,51 @@ function LockScreenPage({ snapshot, actions, strings }: PageProps) {
     label: minutes === 0 ? words.never : words.minutes(minutes),
   }));
   return (
-    <SettingsCard>
-      <SettingsRow label={words.lockAfter}>
-        <Choice
-          label={words.lockAfter}
-          value={String(snapshot.preferences.lockAfter)}
-          items={items}
-          onChange={(value) => actions.setPreference("lockAfter", Number(value))}
-          testID="lock-after"
-        />
-      </SettingsRow>
-    </SettingsCard>
+    <GroupedSection>
+      <GroupedSectionItem
+        title={words.lockAfter}
+        rightElement={
+          <Choice
+            label={words.lockAfter}
+            value={String(snapshot.preferences.lockAfter)}
+            items={items}
+            onChange={(value) => actions.setPreference("lockAfter", Number(value))}
+            testID="lock-after"
+          />
+        }
+      />
+    </GroupedSection>
   );
 }
 
 function KeyboardPage({ snapshot, strings }: PageProps) {
   return (
-    <SettingsSection description={strings.systemNote}>
-      <SettingsCard>
-        <SystemValue label={strings.keyboard.layout} value={snapshot.system.keyboardLayout} testID="keyboard-layout" />
-      </SettingsCard>
-    </SettingsSection>
+    <GroupedSection footer={strings.systemNote}>
+      <GroupedSectionItem title={strings.keyboard.layout} value={snapshot.system.keyboardLayout} testID="keyboard-layout" />
+    </GroupedSection>
   );
 }
 
 function DateTimePage({ snapshot, actions, strings }: PageProps) {
   const words = strings.dateTime;
   return (
-    <View style={{ gap: 24 }}>
-      <SettingsSection description={strings.systemNote}>
-        <SettingsCard>
-          <SystemValue label={words.timeZone} value={snapshot.system.timeZone} testID="time-zone" />
-          <SystemValue
-            label={words.automatic}
-            value={snapshot.system.automaticTime ? words.on : words.off}
-            testID="automatic-time"
-          />
-        </SettingsCard>
-      </SettingsSection>
-      <SettingsCard>
-        <Toggle
-          label={words.clock24h}
+    <View style={PAGE}>
+      <GroupedSection footer={strings.systemNote}>
+        <GroupedSectionItem title={words.timeZone} value={snapshot.system.timeZone} testID="time-zone" />
+        <GroupedSectionItem
+          title={words.automatic}
+          value={snapshot.system.automaticTime ? words.on : words.off}
+          testID="automatic-time"
+        />
+      </GroupedSection>
+      <GroupedSection>
+        <ToggleItem
+          title={words.clock24h}
           value={snapshot.preferences.clock24h}
           onChange={(on) => actions.setPreference("clock24h", on)}
           testID="clock-24h"
         />
-      </SettingsCard>
+      </GroupedSection>
     </View>
   );
 }
@@ -252,32 +257,32 @@ function DateTimePage({ snapshot, actions, strings }: PageProps) {
 function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.accessibility;
   const { preferences } = snapshot;
-  const toggle = (key: keyof Preferences & ("screenReader" | "reduceMotion" | "reduceTransparency")) => (on: boolean) =>
+  const toggle = (key: "screenReader" | "reduceMotion" | "reduceTransparency") => (on: boolean) =>
     actions.setPreference(key, on);
   return (
-    <SettingsCard>
-      <Toggle
-        label={words.screenReader}
+    <GroupedSection>
+      <ToggleItem
+        title={words.screenReader}
         description={words.screenReaderDescription}
         value={preferences.screenReader}
         onChange={toggle("screenReader")}
         testID="screen-reader"
       />
-      <Toggle
-        label={words.reduceMotion}
+      <ToggleItem
+        title={words.reduceMotion}
         description={words.reduceMotionDescription}
         value={preferences.reduceMotion}
         onChange={toggle("reduceMotion")}
         testID="reduce-motion"
       />
-      <Toggle
-        label={words.reduceTransparency}
+      <ToggleItem
+        title={words.reduceTransparency}
         description={words.reduceTransparencyDescription}
         value={preferences.reduceTransparency}
         onChange={toggle("reduceTransparency")}
         testID="reduce-transparency"
       />
-    </SettingsCard>
+    </GroupedSection>
   );
 }
 
@@ -292,13 +297,13 @@ function AboutPage({ snapshot, strings }: PageProps) {
     [words.display, system.display, "about-display"],
   ];
   return (
-    <SettingsCard>
-      {rows.map(([label, value, testID]) => (
-        <SettingsRow key={testID} label={label} testID={testID}>
-          <Text variant="body-regular">{value}</Text>
-        </SettingsRow>
-      ))}
-    </SettingsCard>
+    <GroupedSection>
+      {rows
+        .filter(([, value]) => value !== "")
+        .map(([title, value, testID]) => (
+          <GroupedSectionItem key={testID} title={title} value={value} testID={testID} />
+        ))}
+    </GroupedSection>
   );
 }
 
