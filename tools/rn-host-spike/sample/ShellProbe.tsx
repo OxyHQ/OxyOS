@@ -175,7 +175,11 @@ export function ShellSession() {
     activateWorkspace: (id) => shell.activateWorkspace(Number(id)),
     moveWindowToWorkspace: (window, workspace) => shell.moveWindowToWorkspace(Number(window), Number(workspace)),
     addWorkspace: () => shell.addWorkspace(),
-    menuCommand: () => {},
+    // The Oxy menu's System Settings opens OxyOS's Settings (docs/adr/0019-settings.mdx), as any
+    // application is opened: its window if it has one, else the session starts it.
+    menuCommand: (id) => {
+      if (id === 'system.settings') act.activateApp('so.oxy.settings');
+    },
   };
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const lock: ShellLock = {
