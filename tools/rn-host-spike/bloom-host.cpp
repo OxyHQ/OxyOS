@@ -460,6 +460,7 @@ int main(int argc, char** argv) {
       const char* title = std::getenv("OXYOS_APP_TITLE");
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
+      services.applicationWindow = !shellMode;
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";
       return 1;
@@ -614,6 +615,31 @@ int main(int argc, char** argv) {
       window->announce(oxyos::Window::kToplevel, OXYOS_ASSERTIVE, text);
       oxyos::Report::get().input("announce", oxyos::Window::kToplevel, folly::dynamic::object("text", text));
     };
+    // The application's own window (docs/adr/0016-windows.mdx): its controls and drag regions act
+    // through it. A close asked by the application ends it as the shell's close request does.
+    bool closeAsked = false;
+    folly::dynamic toldWindowState = nullptr;
+    if (!shellMode) {
+      services.window = {
+          .state = [&window] {
+            return folly::dynamic::object("active", window->active())("maximized", window->maximized())(
+                "fullscreen", window->fullscreen());
+          },
+          .close = [&closeAsked] { closeAsked = true; },
+          .minimize = [&window] { window->minimize(); },
+          .zoom = [&window] { window->setMaximized(!window->maximized()); },
+          // From the press being handled: JavaScript asks while it handles that press, so the
+          // latest press is it, and the compositor checks it is still held.
+          .startMove = [&window, &lastPress] {
+            if (lastPress == 0) return false;
+            window->beginMove(lastPress);
+            return true;
+          },
+          .setSizeLimits = [&window](uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight) {
+            window->setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
+          },
+      };
+    }
     if (shellMode) {
       services.shell = {
           .state = [&shellState] { return shellState.state(); },
@@ -695,6 +721,9 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
+              if (event.kind == OXYOS_EVENT_ACTIVATED) {
+                oxyos::Report::get().input(event.flag ? "window.active" : "window.inactive", event.surface);
+              }
               if (event.kind == OXYOS_EVENT_CLOSE_REQUESTED && event.surface == oxyos::Window::kToplevel) {
                 closeRequested = true;
                 oxyos::Report::get().input("close.requested", event.surface);
@@ -739,7 +768,20 @@ int main(int argc, char** argv) {
             })) {
           break;
         }
-        if (closeRequested) break;
+        if (closeRequested || closeAsked) {
+          if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
+          break;
+        }
+        // The window's state, for its controls (docs/adr/0016-windows.mdx): whether it is active
+        // (ACTIVATED), zoomed or full screen (its configures), told to JavaScript when it changes.
+        if (services.window.state) {
+          auto state = services.window.state();
+          if (state != toldWindowState) {
+            toldWindowState = state;
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSWindowChanged", state));
+          }
+        }
         if (shellChanged) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellChanged", shellState.state()));

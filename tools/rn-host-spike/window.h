@@ -46,6 +46,7 @@ class Window {
     float width = 0, height = 0, scale = 1;
     bool resized = false;    // set by a configure that changed size or scale
     uint64_t inFlight = 0;   // sequence of the frame awaiting feedback
+    uint8_t states = 0;      // a toplevel's OXYOS_CONFIGURE_* bits, from its latest configure
   };
   // The surface, or null if it does not exist (or no longer does).
   Surface* surface(uint32_t id);
@@ -71,6 +72,17 @@ class Window {
   void nameWindow(const std::string& title, const std::string& appId);
   // The session's shell acting on a window or a workspace (OXYOS_MANAGE_*).
   void manage(uint8_t action, uint32_t window, uint32_t workspace);
+  // The application's own window (docs/adr/0016-windows.mdx): moved with the pointer from the
+  // press `serial` names, zoomed to the work area or restored, minimized, kept within sizes.
+  void beginMove(uint64_t serial);
+  void setMaximized(bool enabled);
+  void minimize();
+  void setSizeLimits(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight);
+  // Whether the window is zoomed or fills its output, from its latest configure, and whether it
+  // is the active window, from the compositor's ACTIVATED.
+  bool maximized() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_MAXIMIZED; }
+  bool fullscreen() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_FULLSCREEN; }
+  bool active() const { return active_; }
   // A surface id for a popup or a shell region, never used before on this connection.
   uint32_t allocate() { return nextSurface_++; }
   bool shell() const { return shell_.has_value(); }
@@ -132,6 +144,7 @@ class Window {
   OxyOSClient* client_ = nullptr;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
+  bool active_ = false;
   uint64_t presented_ = 0;
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;

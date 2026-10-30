@@ -272,6 +272,40 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt)));
     });
     module->listeners();
+  } else if (name == "OxyOSWindow") {
+    // The application's own window (sample/oxyos/platform-surface.js, docs/adr/0016-windows.mdx).
+    // `metrics` are the platform's: where the controls are and the room they take, the same for
+    // every application, and the window's corner radius, which the compositor draws.
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.window.state) throw jsi::JSError(rt, "OxyOSWindow: only an application's window has it");
+    };
+    module->constants(folly::dynamic::object("available", services.applicationWindow)(
+        "metrics", folly::dynamic::object("controls", folly::dynamic::object("start", 14)("top", 16)("width", 68)(
+                                                          "height", 20))("room", folly::dynamic::object("top", 52)(
+                                                          "leading", 88))("radius", 16)));
+    module->method("getState", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return jsi::valueFromDynamic(rt, services.window.state());
+    });
+    for (auto [method, action] : std::initializer_list<std::pair<const char*, std::function<void()> WindowService::*>>{
+             {"close", &WindowService::close}, {"minimize", &WindowService::minimize}, {"zoom", &WindowService::zoom}}) {
+      module->method(method, [&services, ready, action](jsi::Runtime& rt, const jsi::Value*, size_t) {
+        ready(rt);
+        (services.window.*action)();
+        return jsi::Value::undefined();
+      });
+    }
+    module->method("startMove", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return jsi::Value(services.window.startMove());
+    });
+    module->method("setSizeLimits", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      auto at = [&](size_t i) { return count > i && args[i].isNumber() ? static_cast<uint32_t>(args[i].asNumber()) : 0u; };
+      services.window.setSizeLimits(at(0), at(1), at(2), at(3));
+      return jsi::Value::undefined();
+    });
+    module->listeners();
   } else if (name == "OxyOSClipboard") {
     // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
     // latest key or press the app received: the compositor refuses it unless the app has keyboard

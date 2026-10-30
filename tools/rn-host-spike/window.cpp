@@ -78,12 +78,16 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       target->height = static_cast<float>(event.height);
       target->scale = scale;
       target->configure = event.serial;
+      target->states = event.flag;
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
       if (target && event.serial == target->inFlight) target->inFlight = 0;
       if (event.detail == OXYOS_OUTCOME_PRESENTED && event.surface == kToplevel) ++presented_;
     } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES || event.kind == OXYOS_EVENT_CLIPBOARD_TYPE ||
                event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY) {
       clipboard_.observe(event);
+    } else if (event.kind == OXYOS_EVENT_ACTIVATED && event.surface == kToplevel) {
+      active_ = event.flag != 0;
+      input(event);
     } else if (event.kind != OXYOS_EVENT_RELEASED) {
       input(event);
     }
@@ -161,6 +165,24 @@ void Window::nameWindow(const std::string& title, const std::string& appId) {
 
 void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
   if (oxyos_client_manage(client_, action, window, workspace) != 0) failed("cannot manage a window");
+}
+
+void Window::beginMove(uint64_t serial) {
+  if (oxyos_client_begin_move(client_, kToplevel, serial) != 0) failed("cannot move the window");
+}
+
+void Window::setMaximized(bool enabled) {
+  if (oxyos_client_set_maximized(client_, kToplevel, enabled) != 0) failed("cannot zoom the window");
+}
+
+void Window::minimize() {
+  if (oxyos_client_minimize(client_, kToplevel) != 0) failed("cannot minimize the window");
+}
+
+void Window::setSizeLimits(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight) {
+  if (oxyos_client_set_size_limits(client_, kToplevel, minWidth, minHeight, maxWidth, maxHeight) != 0) {
+    failed("cannot set the window's sizes");
+  }
 }
 
 void Window::setPointerShape(uint32_t id, uint8_t shape) {
