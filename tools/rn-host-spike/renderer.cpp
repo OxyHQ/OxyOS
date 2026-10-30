@@ -1215,8 +1215,8 @@ void drawModals(const ViewTree& tree, const Display& display, Painter& painter, 
       continue;
     }
     Canvas layer;
-    layer.width = static_cast<int>(std::lround(display.width * display.scale));
-    layer.height = static_cast<int>(std::lround(display.height * display.scale));
+    layer.width = display.pixelWidth();
+    layer.height = display.pixelHeight();
     layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
     Painter inside(layer, display.scale);
     inside.placesWindows = false;
@@ -1240,8 +1240,8 @@ std::vector<Tag> modals(const ViewTree& tree) {
 
 RenderStats drawModal(const ViewTree& tree, Tag modal, const Display& display, Canvas& canvas,
                       const TextInputEdit& edit) {
-  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
-  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.width = display.pixelWidth();
+  canvas.height = display.pixelHeight();
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
   RenderStats stats;
   if (!tree.views().count(modal)) return stats;
@@ -1286,8 +1286,8 @@ Point transformOffset(const ShadowView& view) {
 }
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
-  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
-  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.width = display.pixelWidth();
+  canvas.height = display.pixelHeight();
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, display.background);
   Painter painter(canvas, display.scale);
   RenderStats stats;
@@ -1330,8 +1330,8 @@ bool drawsFlat(const ShadowView& view) {
 
 RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
                         const std::vector<Rect>& damage) {
-  int width = static_cast<int>(std::lround(display.width * display.scale));
-  int height = static_cast<int>(std::lround(display.height * display.scale));
+  int width = display.pixelWidth();
+  int height = display.pixelHeight();
   if (canvas.width != width || canvas.height != height) {
     if (canvas.width <= 0 || canvas.height <= 0) return draw(tree, display, canvas, edit);
     // The window resized: its previous frame stays where the new one overlaps it, anchored at the
@@ -1386,8 +1386,8 @@ RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, C
 
 RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
                        const TextInputEdit& edit) {
-  canvas.width = static_cast<int>(std::lround(display.width * display.scale));
-  canvas.height = static_cast<int>(std::lround(display.height * display.scale));
+  canvas.width = display.pixelWidth();
+  canvas.height = display.pixelHeight();
   canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
   Painter painter(canvas, display.scale);
   RenderStats stats;
@@ -1401,8 +1401,8 @@ RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display
 
 RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
                               const TextInputEdit& edit, const std::vector<Rect>& damage) {
-  int width = static_cast<int>(std::lround(display.width * display.scale));
-  int height = static_cast<int>(std::lround(display.height * display.scale));
+  int width = display.pixelWidth();
+  int height = display.pixelHeight();
   if (canvas.width != width || canvas.height != height) return drawRegion(tree, region, at, display, canvas, edit);
   auto it = tree.views().find(region);
   if (it == tree.views().end()) return {};

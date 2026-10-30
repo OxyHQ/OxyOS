@@ -1,0 +1,106 @@
+{
+  "about": "window-resize.json on an output at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): every size the drags pass through is asked for at 1.25, and the application's buffer is exactly the size the compositor configured, ceil(logical x 1.25) per ADR 0001 (961 wide is 1202 pixels, not a float's rounding to 1201, which the compositor refused and disconnected the application for). Same drags and expectations as at scale 1. The 1280x800 logical output centres the window 40 px lower than the scale-1 scenario's 1280x720, so its bottom corner is dragged from 40 px lower.",
+  "module": "OxyBloom",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The right edge dragged 300 px in, in 125 motions: the left, top and bottom edges stay",
+      "do": [
+        "drag_paced",
+        [
+          1093,
+          300,
+          793,
+          300,
+          125,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          190,
+          100,
+          600,
+          600
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 3,
+          "steady": [
+            "left",
+            "top",
+            "bottom"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The left edge dragged 150 px out, in 62 motions: the right edge stays",
+      "do": [
+        "drag_paced",
+        [
+          187,
+          300,
+          37,
+          300,
+          62,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          40,
+          100,
+          750,
+          600
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 3,
+          "steady": [
+            "top",
+            "right",
+            "bottom"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The bottom-left corner dragged 200 px in and 100 px up, in 125 motions, its first a pixel: the top and right edges stay",
+      "do": [
+        "drag_paced",
+        [
+          35,
+          703,
+          235,
+          603,
+          125,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          240,
+          100,
+          550,
+          500
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 3,
+          "steady": [
+            "top",
+            "right"
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

@@ -5,6 +5,7 @@
 
 #include <oxyos_client.h>
 
+#include <cmath>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -29,6 +30,18 @@ struct Display {
   uint32_t background = kLightWindowBackground;
   static constexpr uint32_t kLightWindowBackground = 0xffffffffu;
   static constexpr uint32_t kDarkWindowBackground = 0xff121212u;
+
+  // The buffer's size in pixels, as the protocol defines it (docs/adr/0001): ceil(logical ×
+  // scale_120 / 120) in whole numbers, so it is exactly the size the compositor configured; a
+  // float's rounding is a pixel short at some sizes (961 × 1.25), which the compositor refuses.
+  int pixelWidth() const { return pixels(width); }
+  int pixelHeight() const { return pixels(height); }
+
+ private:
+  int pixels(float logical) const {
+    const long scale120 = std::lround(scale * 120);
+    return static_cast<int>((std::lround(logical) * scale120 + 119) / 120);
+  }
 };
 
 // A decoded image an Image view shows (images.h): `width` × `height` premultiplied RGBA pixels,

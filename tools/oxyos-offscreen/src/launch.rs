@@ -10,7 +10,7 @@
 //! application answered it with new pixels.
 
 use super::*;
-use oxyos_compositor_core::{AppearanceChange, TextTransaction};
+use oxyos_compositor_core::{physical, AppearanceChange, TextTransaction};
 use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle};
 
 /// Time the application's frames must stay unchanged to count as settled.
@@ -1784,7 +1784,7 @@ fn drag_paced(
             last_frame = compositor.frames;
             composed += 1;
             // Each screen's frame draws the window from its buffer, made at the scale of the
-            // output its centre is on.
+            // output its centre is on: the protocol's size for its rectangle there (ADR 0001).
             let at_its_size = |rect: Rect, extent: oxyos_protocol::Size| {
                 let scale = compositor
                     .scene
@@ -1792,9 +1792,8 @@ fn drag_paced(
                         rect.x + rect.width as i32 / 2,
                         rect.y + rect.height as i32 / 2,
                     )
-                    .map_or(120, |output| u64::from(output.scale_120));
-                u64::from(rect.width) * scale == u64::from(extent.width) * 120
-                    && u64::from(rect.height) * scale == u64::from(extent.height) * 120
+                    .map_or(120, |output| output.scale_120);
+                physical(oxyos_protocol::Size::new(rect.width, rect.height), scale) == extent
             };
             scaled += compositor
                 .screens

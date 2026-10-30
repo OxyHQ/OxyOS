@@ -11,7 +11,7 @@
 //! damage, display, flips and pointer.
 
 use oxyos_compositor_core::{
-    ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey, WindowLook,
+    physical, ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey, WindowLook,
 };
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
@@ -177,11 +177,35 @@ impl Screen {
         (clamp(x0), clamp(y0), clamp(x1), clamp(y1))
     }
 
+    /// Where pixels of `extent` showing at a rectangle of the global space are on this screen
+    /// (`place`). Pixels drawn for this screen's scale (`extent` the protocol's size for the
+    /// rectangle here, docs/adr/0001) are drawn 1:1 from the placed corner: rounding both edges
+    /// may make the rectangle a pixel wider or narrower than they are (961 at 1.25 is 1202
+    /// pixels, its edges rounded 1201 apart), which would draw them stretched.
+    fn place_pixels(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        extent: (u32, u32),
+    ) -> (i32, i32, i32, i32) {
+        let (x0, y0, x1, y1) = self.place(x, y, width, height);
+        let own = physical(Size::new(width.max(1), height.max(1)), self.scale_120);
+        if (own.width, own.height) == extent {
+            let end = |start: i32, length: u32| start.saturating_add(length as i32);
+            (x0, y0, end(x0, extent.0), end(y0, extent.1))
+        } else {
+            (x0, y0, x1, y1)
+        }
+    }
+
     /// A layer of the global space (logical) on this screen, in its pixels: its rectangle placed
-    /// (`place`), its corners' radius and a shadow's geometry at the screen's scale; none if it is
-    /// off the screen.
+    /// (`place_pixels`), its corners' radius and a shadow's geometry at the screen's scale; none
+    /// if it is off the screen.
     fn layer<'a>(&self, layer: &oxyos_gpu::Layer<'a>) -> Option<oxyos_gpu::Layer<'a>> {
-        let (x0, y0, x1, y1) = self.place(layer.x, layer.y, layer.width, layer.height);
+        let (x0, y0, x1, y1) =
+            self.place_pixels(layer.x, layer.y, layer.width, layer.height, layer.extent);
         let on = x1 > x0
             && y1 > y0
             && x1 > 0
@@ -244,7 +268,13 @@ impl Screen {
     /// size the surface is drawn here, ADR 0011), as a rectangle of the global space rounded
     /// outward, so that `covering` holds them.
     fn damage_on(&self, damage: &Rect, rect: Rect, extent: Size) -> oxyos_gpu::Rect {
-        let (x0, y0, x1, y1) = self.place(rect.x, rect.y, rect.width, rect.height);
+        let (x0, y0, x1, y1) = self.place_pixels(
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+            (extent.width, extent.height),
+        );
         let placed = Rect::new(x0, y0, (x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32);
         let on = on_output(damage, placed, extent);
         let scale = i64::from(self.scale_120);
@@ -2862,6 +2892,28 @@ mod tests {
             },
             None,
         )
+    }
+
+    #[test]
+    fn pixels_drawn_for_the_screen_s_scale_are_drawn_one_to_one() {
+        // 961 logical at 1.25 is 1202 pixels (ADR 0001's ceil); its edges, rounded, are 1201
+        // apart. Drawn from them it would be squeezed a pixel; it is drawn 1202 wide.
+        let panel = screen(Rect::new(0, 0, 1280, 800), 150);
+        assert_eq!(panel.place(1, 0, 961, 601), (1, 0, 1203, 751));
+        assert_eq!(
+            panel.place_pixels(1, 0, 961, 601, (1202, 752)),
+            (1, 0, 1203, 752)
+        );
+        assert_eq!(panel.place(2, 0, 961, 600), (3, 0, 1204, 750));
+        assert_eq!(
+            panel.place_pixels(2, 0, 961, 600, (1202, 750)),
+            (3, 0, 1205, 750)
+        );
+        // Pixels of another size (a transition drawing the window smaller) fill the rectangle.
+        assert_eq!(
+            panel.place_pixels(2, 0, 961, 600, (900, 600)),
+            (3, 0, 1204, 750)
+        );
     }
 
     #[test]
