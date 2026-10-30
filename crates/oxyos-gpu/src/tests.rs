@@ -34,6 +34,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
         },
         Layer {
             x: 70,
@@ -45,6 +46,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
         },
         Layer {
             x: 100,
@@ -56,6 +58,7 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
         },
     ]
 }
@@ -101,6 +104,7 @@ fn invalid_layers_are_skipped() {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
         },
         Layer {
             x: 0,
@@ -112,6 +116,7 @@ fn invalid_layers_are_skipped() {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -422,6 +427,7 @@ fn changed_rows_alone_are_uploaded() {
             source: Some(Source { key: 7, version }),
             changed,
             opacity: 255,
+            radius: 0,
         }
     }
     let first = pixels(&words(1));
@@ -502,6 +508,7 @@ fn dot(paint: Paint<'_>, opacity: u8) -> Layer<'_> {
         source: None,
         changed: None,
         opacity,
+        radius: 0,
     }
 }
 
@@ -586,4 +593,345 @@ fn a_frame_file_keeps_each_layers_opacity_and_reads_the_first_format() {
     let frame = frame_file::read(&mut first.as_slice()).unwrap();
     assert_eq!(frame.layers()[0].opacity, 255);
     assert_eq!(compose_cpu(1, 1, 0, &frame.layers()), vec![0x00ab_cdef]);
+}
+
+/// FNV-1a over a composed frame's pixels.
+fn digest(out: &[u32]) -> u64 {
+    out.iter()
+        .flat_map(|word| word.to_le_bytes())
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        })
+}
+
+/// Square layers are composed as before corners: the frames of `layers` at three opacities and
+/// two sizes, as the reference composed them at 8dc1af5 (before corners and shadows).
+#[test]
+fn square_layers_are_composed_as_before_corners() {
+    let (window, popup) = frame();
+    let before = [
+        (255, (120, 90), 0x046c_1995_ba91_3957),
+        (255, (1280, 720), 0xb8ad_d202_7dad_bce7),
+        (128, (120, 90), 0xcd9c_1816_f23d_2ca4),
+        (128, (1280, 720), 0x7e96_56d3_d140_6de4),
+        (64, (120, 90), 0x0139_769c_82c5_e30f),
+        (64, (1280, 720), 0x6113_2a51_1dc7_7847),
+    ];
+    for (opacity, (width, height), composed) in before {
+        let layers: Vec<Layer<'_>> = layers(&window, &popup)
+            .into_iter()
+            .map(|layer| Layer { opacity, ..layer })
+            .collect();
+        assert_eq!(
+            digest(&compose_cpu(width, height, 0x0011_2233, &layers)),
+            composed,
+            "opacity {opacity} at {width}x{height}"
+        );
+    }
+}
+
+#[test]
+fn the_integer_square_root_is_exact() {
+    for n in (0..70_000u32).chain([u32::MAX, 1 << 31, (1 << 31) - 1, 65_535 * 65_535]) {
+        let root = shape::isqrt(n);
+        assert!(
+            u64::from(root) * u64::from(root) <= u64::from(n)
+                && (u64::from(root) + 1) * (u64::from(root) + 1) > u64::from(n),
+            "isqrt({n}) = {root}"
+        );
+    }
+}
+
+/// White, 8 × 8 with corners of radius 4, over black: each output pixel is its coverage.
+fn rounded_square(radius: u32, opacity: u8) -> Vec<u32> {
+    compose_cpu(
+        8,
+        8,
+        0,
+        &[Layer {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 8,
+            extent: (1, 1),
+            paint: Paint::Fill(0x00ff_ffff),
+            source: None,
+            changed: None,
+            opacity,
+            radius,
+        }],
+    )
+}
+
+#[test]
+fn a_corner_covers_its_pixels_by_their_distance_from_its_circle() {
+    let out = rounded_square(4, 255);
+    let blue = |x: usize, y: usize| out[y * 8 + x] & 0xff;
+    // The top-left corner, its circle's centre at (4, 4). Pixel (1, 0)'s centre (1.5, 0.5) is
+    // √(2.5² + 3.5²) = 4.30 from it: 64 × that is isqrt(74 · 1024) = 275, 19/64 beyond the
+    // edge, so (32 − 19)·255/64 = 51. (0, 0) is 60/64 beyond: nothing. (1, 1): 226, 30/64 inside,
+    // (32 + 30)·255/64 = 247. (2, 0): 243, 13/64 inside, 45·255/64 = 179. (3, 0) is (1, 1)'s
+    // distance. (2, 1) is 70/64 inside: all of it.
+    let corner = [
+        [0, 51, 179, 247],
+        [51, 247, 255, 255],
+        [179, 255, 255, 255],
+        [247, 255, 255, 255],
+    ];
+    for (y, row) in corner.iter().enumerate() {
+        for (x, &coverage) in row.iter().enumerate() {
+            assert_eq!(blue(x, y), coverage, "({x}, {y})");
+            // The other corners are its mirror images.
+            assert_eq!(blue(7 - x, y), coverage, "({}, {y})", 7 - x);
+            assert_eq!(blue(x, 7 - y), coverage, "({x}, {})", 7 - y);
+            assert_eq!(blue(7 - x, 7 - y), coverage, "({}, {})", 7 - x, 7 - y);
+        }
+    }
+    // Grey, as a coverage is the same in every channel.
+    assert_eq!(out[1], 0x0033_3333);
+    // With an opacity, the two multiply: 128 · 51/255 = 25.
+    assert_eq!(rounded_square(4, 128)[1] & 0xff, 25);
+    assert_eq!(rounded_square(4, 128)[3 * 8 + 3] & 0xff, 128);
+    // A radius larger than half the side is half the side; 0 is square.
+    assert_eq!(rounded_square(40, 255), out);
+    assert_eq!(rounded_square(0, 255), vec![0x00ff_ffff; 64]);
+}
+
+#[test]
+fn a_shadows_profile_is_the_shape_blurred() {
+    // Blur 8 (σ 4): it reaches 12 pixels, 8 entries a pixel each way.
+    let profile = ShadowProfile::new(8, 255);
+    assert_eq!((profile.entries(), profile.reach()), (192, 12));
+    let alpha = |entry: usize| profile.pixels()[entry * 4 + 3];
+    assert!(profile.pixels().chunks(4).all(|p| p[..3] == [0, 0, 0]));
+    // Whole inside, nothing outside, half at the edge (the entries either side of it are 1/16 px
+    // in and out, 255 · Φ(±0.0156) = 129.1 and 125.9), falling throughout.
+    assert_eq!((alpha(0), alpha(191)), (255, 0));
+    assert_eq!((alpha(95), alpha(96)), (129, 126));
+    assert!((1..192).all(|entry| alpha(entry) <= alpha(entry - 1)));
+    // 4.5625 px out (the entry's middle), 1.14σ: 255 · Φ(−1.1406) = 32.4.
+    assert_eq!(alpha(96 + 36), 32);
+    // At an alpha: scaled.
+    let light = ShadowProfile::new(8, 51);
+    assert_eq!(light.pixels()[96 * 4 + 3], 25);
+}
+
+/// A shadow of `profile` cast by a 20 × 20 square at (10, 10) of a 40 × 40 output (its layer
+/// the whole output), of `radius`, beneath the square moved by `beneath`, over grey.
+fn shadow_frame(profile: &ShadowProfile, radius: u32, beneath: (i32, i32), scale: u32) -> Vec<u32> {
+    let square = Rect {
+        x: 10,
+        y: 10,
+        width: 20,
+        height: 20,
+    };
+    compose_cpu(
+        40,
+        40,
+        0x0080_8080,
+        &[Layer {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+            extent: (profile.entries(), 1),
+            paint: Paint::Shadow(
+                profile.pixels(),
+                Shadow {
+                    shape: square,
+                    radius,
+                    clip: Rect {
+                        x: square.x + beneath.0,
+                        y: square.y + beneath.1,
+                        ..square
+                    },
+                    clip_radius: radius,
+                    scale,
+                },
+            ),
+            source: None,
+            changed: None,
+            opacity: 255,
+            radius: 0,
+        }],
+    )
+}
+
+#[test]
+fn a_shadow_darkens_by_its_profile_outside_what_it_is_beneath() {
+    let profile = ShadowProfile::new(8, 255);
+    let alpha = |entry: usize| u32::from(profile.pixels()[entry * 4 + 3]);
+    let grey = |a: u32| {
+        let channel = 0x80 * (255 - a) / 255;
+        (channel << 16) | (channel << 8) | channel
+    };
+    let out = shadow_frame(&profile, 0, (0, -6), 256);
+    // Pixel (5, 20) is 4.5 px left of the square's side: entry 96 + 36.
+    assert_eq!(out[20 * 40 + 5], grey(alpha(96 + 36)));
+    // Within what it is beneath (the square 6 px higher), nothing; below it, the shadow under it,
+    // all but whole 2 px inside the shape's bottom (entry 96 − 20).
+    assert_eq!(out[15 * 40 + 20], 0x0080_8080);
+    assert_eq!(out[27 * 40 + 20], grey(alpha(96 - 20)));
+    // Darker below than above, where the shape is further.
+    assert!(out[31 * 40 + 20] < out[3 * 40 + 20]);
+    // Far beyond its reach: nothing.
+    assert_eq!(out[0], 0x0080_8080);
+    // Past a corner it is taken from the distance to the corner's circle: (4, 4) is √2·6.5 px
+    // from the square's corner, and with a radius of 4 its distance is to the circle centred at
+    // (14, 14): √2·9.5 − 4 = 9.43 px, entry 96 + 75 (isqrt((19² + 19²)·16) = 107, less 32).
+    assert_eq!(
+        shadow_frame(&profile, 4, (0, -6), 256)[4 * 40 + 4],
+        grey(alpha(96 + 75))
+    );
+    // Drawn at half its size, the same distance is twice as far along the profile.
+    assert_eq!(
+        shadow_frame(&profile, 0, (0, -6), 128)[20 * 40 + 5],
+        grey(alpha(96 + 72))
+    );
+}
+
+/// The frame of `layers` with its window rounded to `radius`, and a shadow beneath it of
+/// `profile` at `scale`, offset 6 px down, every layer at `opacity`.
+fn shadowed<'a>(
+    window: &'a [u8],
+    popup: &'a [u8],
+    profile: &'a ShadowProfile,
+    radius: u32,
+    opacity: u8,
+    scale: u32,
+) -> Vec<Layer<'a>> {
+    let mut layers = layers(window, popup);
+    let caster = layers[0];
+    let reach = (profile.reach() * scale).div_ceil(256) as i32;
+    let shadow = Layer {
+        x: caster.x - reach,
+        y: caster.y + 6 - reach,
+        width: caster.width + 2 * reach as u32,
+        height: caster.height + 2 * reach as u32,
+        extent: (profile.entries(), 1),
+        paint: Paint::Shadow(
+            profile.pixels(),
+            Shadow {
+                shape: Rect {
+                    x: reach,
+                    y: reach,
+                    width: caster.width,
+                    height: caster.height,
+                },
+                radius,
+                clip: Rect {
+                    x: reach,
+                    y: reach - 6,
+                    width: caster.width,
+                    height: caster.height,
+                },
+                clip_radius: radius,
+                scale,
+            },
+        ),
+        source: Some(Source {
+            key: 99,
+            version: 1,
+        }),
+        changed: None,
+        opacity,
+        radius: 0,
+    };
+    layers[0].radius = radius;
+    layers[1].radius = radius / 2;
+    layers.insert(0, shadow);
+    layers
+        .into_iter()
+        .map(|layer| Layer { opacity, ..layer })
+        .collect()
+}
+
+#[test]
+fn vulkan_matches_the_reference_with_corners_and_shadows() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let active = ShadowProfile::new(24, 90);
+    let hard = ShadowProfile::new(0, 255);
+    for profile in [&active, &hard] {
+        for radius in [0, 1, 4, 16, 33, 1000] {
+            for opacity in [0, 77, 128, 255] {
+                for scale in [256, 246, 26, 1024] {
+                    let layers = shadowed(&window, &popup, profile, radius, opacity, scale);
+                    let cpu = compose_cpu(120, 90, 0x00e0_e0e0, &layers);
+                    if opacity > 0 {
+                        assert_ne!(
+                            cpu,
+                            compose_cpu(120, 90, 0x00e0_e0e0, &layers[1..]),
+                            "the shadow is drawn"
+                        );
+                    }
+                    let vulkan = gpu.compose(120, 90, 0x00e0_e0e0, &layers).unwrap();
+                    assert_eq!(
+                        vulkan, cpu,
+                        "radius {radius}, opacity {opacity}, scale {scale}"
+                    );
+                }
+            }
+        }
+    }
+    // Composing from damage, as the compositor does: the frame is still the reference's.
+    let layers = shadowed(&window, &popup, &active, 16, 255, 256);
+    let damage = [Rect {
+        x: 0,
+        y: 60,
+        width: 50,
+        height: 30,
+    }];
+    gpu.compose(120, 90, 0x00e0_e0e0, &layers).unwrap();
+    assert_eq!(
+        gpu.compose_damaged(120, 90, 0x00e0_e0e0, &layers, &damage)
+            .unwrap(),
+        compose_cpu(120, 90, 0x00e0_e0e0, &layers)
+    );
+}
+
+#[test]
+fn a_frame_file_keeps_corners_and_shadows_and_reads_the_second_format() {
+    let (window, popup) = frame();
+    let profile = ShadowProfile::new(24, 90);
+    let layers = shadowed(&window, &popup, &profile, 16, 200, 246);
+    let mut bytes = Vec::new();
+    frame_file::write(&mut bytes, 120, 90, 0x00e0_e0e0, &layers).unwrap();
+    assert_eq!(&bytes[..9], b"OXYFRAME3");
+    let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
+    assert_eq!(
+        frame.layers().iter().map(|l| l.radius).collect::<Vec<_>>(),
+        [0, 16, 8, 0]
+    );
+    assert!(matches!(frame.layers()[0].paint, Paint::Shadow(_, shadow) if shadow.scale == 246));
+    assert_eq!(
+        compose_cpu(120, 90, 0x00e0_e0e0, &frame.layers()),
+        compose_cpu(120, 90, 0x00e0_e0e0, &layers)
+    );
+    // A file from before corners: square layers.
+    let mut second = b"OXYFRAME2".to_vec();
+    for value in [2u32, 2, 0, 1] {
+        second.extend(value.to_le_bytes());
+    }
+    second.extend(0i32.to_le_bytes());
+    second.extend(0i32.to_le_bytes());
+    for value in [2u32, 2, 0, 0] {
+        second.extend(value.to_le_bytes());
+    }
+    second.extend([2, 255]);
+    second.extend(0x00ab_cdefu32.to_le_bytes());
+    second.extend(0u64.to_le_bytes());
+    let frame = frame_file::read(&mut second.as_slice()).unwrap();
+    assert_eq!(frame.layers()[0].radius, 0);
+    assert_eq!(compose_cpu(2, 2, 0, &frame.layers()), vec![0x00ab_cdef; 4]);
+    // Shadows came with the third format.
+    let index = second.len() - 8 - 4 - 2;
+    second[index] = 3;
+    assert!(frame_file::read(&mut second.as_slice()).is_err());
 }

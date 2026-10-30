@@ -239,8 +239,16 @@ fn run(out: &Path) -> Result<()> {
                 }
             }
             Step::WaitApp => {
-                if let Some(window) = compositor.surface_rect(app, 1) {
+                // Shown whole, once it has arrived (docs/adr/0011-transitions.mdx).
+                if let Some(window) = compositor
+                    .surface_rect(app, 1)
+                    .filter(|_| compositor.transitions.is_empty())
+                {
                     snapshots.push(snapshot(compositor, out, "1-windows.png")?);
+                    // Below the window, over the other application (in the window's shadow,
+                    // docs/adr/0016-windows.mdx): where the menu opens, shown again once it goes.
+                    let below = (window.x + 10, window.bottom() as i32 + 10);
+                    checks.below_window = Some((below, compositor.pixel(below.0, below.1)));
                     // Synthetic input: a right-button press at the window's center.
                     let center = (
                         window.x + window.width as i32 / 2,
@@ -309,9 +317,13 @@ fn run(out: &Path) -> Result<()> {
                 {
                     checks.outside_presses_delivered =
                         compositor.peers[&other].presses - checks.other_presses_before;
-                    let window = compositor.surface_rect(app, 1).expect("parent shown");
-                    let below = (window.x + 10, window.bottom() as i32 + 10);
-                    if compositor.pixel(below.0, below.1) != OTHER_WINDOW {
+                    let (below, before) = checks.below_window.expect("sampled with the window");
+                    if compositor
+                        .surface_rect(app, 1)
+                        .map(|w| (w.x + 10, w.bottom() as i32 + 10))
+                        != Some(below)
+                        || compositor.pixel(below.0, below.1) != before
+                    {
                         return Err("menu pixels remain after dismissal".into());
                     }
                     snapshots.push(snapshot(compositor, out, "4-menu-dismissed.png")?);
@@ -349,6 +361,8 @@ mod checks {
         pub other_presses_before: usize,
         pub menu_sequence: u64,
         pub outside_presses_delivered: usize,
+        /// A point below the app's window, and what it showed before the menu opened.
+        pub below_window: Option<((i32, i32), u32)>,
     }
 
     impl Checks {
