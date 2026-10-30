@@ -18,7 +18,7 @@ description: Develop the OxyOS-owned shell components with NativeWind and real B
 - `ShellSnapshot`: application names and artwork, folders, workspaces, surfaces and their thumbnails, active application and application menus. A real host must obtain these from the application registry, compositor and services.
 - `ShellActions`: requests to activate applications, focus/close surfaces, select/create workspaces and execute menu commands. The UI never launches a pretend app or changes native window policy itself.
 - The component owns only transient presentation state: which overlay is open, the search query and the expanded folder.
-- Native application surfaces are owned and composed by the OS compositor. They are not rebuilt as React children inside the shell. Overview uses supplied thumbnails, not hand-drawn application replicas.
+- Native application surfaces are owned and composed by the OS compositor. They are not rebuilt as React children inside the shell. Overview uses supplied thumbnails, not hand-drawn application replicas; on OxyOS the platform's `WindowView` has the compositor draw each window live in its card instead ([ADR 0022](./adr/0022-window-views)).
 
 This is a small presentation contract, not a replacement Oxy account SDK or a new public SDK. No Oxy authentication code is duplicated.
 

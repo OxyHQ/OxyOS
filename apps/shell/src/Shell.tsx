@@ -11,7 +11,11 @@ import { Launchpad } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { inPlace, type ShellPlatform } from "./platform";
 export type { ShellCommand } from "./model";
-export type { ShellPlatform, ShellSurfaceProps } from "./platform";
+export type {
+  ShellPlatform,
+  ShellSurfaceProps,
+  WindowViewProps,
+} from "./platform";
 
 /** OxyOS shell presentation. Native application surfaces belong to the compositor beneath it. */
 export function Shell({
@@ -89,6 +93,7 @@ export function Shell({
                 actions={actions}
                 dismiss={dismiss}
                 escapeRequest={escapeRequest}
+                WindowView={platform.WindowView}
               />
             </Surface>
           )}

@@ -26,7 +26,8 @@ class ShellState {
   bool observe(const OxyOSEvent& event);
   // The shell of the output `output`.
   explicit ShellState(uint32_t output);
-  // { windows: [{ id, appId, title, workspace, minimized, focused, launched }], workspaces, active, locked,
+  // { windows: [{ id, appId, title, workspace, minimized, focused, launched, width, height }],
+  //   workspaces, active, locked,
   //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
@@ -44,6 +45,8 @@ class ShellState {
     std::string appId, title;
     uint32_t workspace = 0;
     bool minimized = false, focused = false, launched = false;
+    // Its size, logical pixels (0 until told): the proportions the overview shows it in.
+    uint32_t width = 0, height = 0;
   };
   std::map<uint32_t, Window> windows_;
   // A title or application id being received, by window.

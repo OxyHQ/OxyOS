@@ -15,6 +15,12 @@ using namespace facebook::react;
 namespace facebook::react {
 
 const char OxyOSShellSurfaceComponentName[] = "OxyOSShellSurface";
+const char OxyOSWindowViewComponentName[] = "OxyOSWindowView";
+
+OxyOSWindowViewProps::OxyOSWindowViewProps(const PropsParserContext& context, const OxyOSWindowViewProps& sourceProps,
+                                           const RawProps& rawProps)
+    : ViewProps(context, sourceProps, rawProps),
+      window(convertRawProp(context, rawProps, "window", sourceProps.window, 0)) {}
 
 OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context,
                                                const OxyOSShellSurfaceProps& sourceProps, const RawProps& rawProps)
@@ -26,6 +32,45 @@ OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context
 }  // namespace facebook::react
 
 namespace oxyos {
+
+std::optional<uint32_t> windowViewNumber(const ShadowView& view) {
+  auto props = std::dynamic_pointer_cast<const OxyOSWindowViewProps>(view.props);
+  if (!props || props->window <= 0) return std::nullopt;
+  return static_cast<uint32_t>(props->window);
+}
+
+bool ShellSurfaceHost::showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows) {
+  // Only a shell surface shows windows; the lock screen never does.
+  if (windows == region.windows || region.placed.kind == kLock) return false;
+  // Surface-local logical pixels, edges rounded to the nearest.
+  auto pixels = [](const Rect& rect) {
+    auto x0 = static_cast<int32_t>(std::lround(rect.origin.x));
+    auto y0 = static_cast<int32_t>(std::lround(rect.origin.y));
+    auto x1 = static_cast<int32_t>(std::lround(rect.origin.x + rect.size.width));
+    auto y1 = static_cast<int32_t>(std::lround(rect.origin.y + rect.size.height));
+    return OxyOSRect{x0, y0, static_cast<uint32_t>(std::max(0, x1 - x0)), static_cast<uint32_t>(std::max(0, y1 - y0))};
+  };
+  std::vector<OxyOSWindowView> views;
+  for (const auto& window : windows) {
+    if (views.size() == 64) break;  // the protocol's most
+    views.push_back(OxyOSWindowView{
+        .window = window.window,
+        .rect = pixels(window.rect),
+        .clip = pixels(window.clip),
+        .radius = static_cast<uint32_t>(std::lround(std::max(0.0f, window.radius))),
+        .opacity = static_cast<uint8_t>(std::lround(std::clamp(window.opacity, 0.0f, 1.0f) * 255)),
+    });
+  }
+  window_.showWindows(region.surface, views);
+  region.windows = windows;
+  folly::dynamic shown = folly::dynamic::array();
+  for (const auto& view : views) {
+    shown.push_back(folly::dynamic::object("window", view.window)("x", view.rect.x)("y", view.rect.y)(
+        "width", view.rect.width)("height", view.rect.height));
+  }
+  Report::get().popup("shell.windows", region.surface, nullptr, folly::dynamic::object("windows", shown));
+  return true;
+}
 
 bool ShellSurfaceHost::Placement::operator==(const Placement& other) const {
   return kind == other.kind && edge == other.edge && exclusive == other.exclusive && strip == other.strip &&
@@ -162,6 +207,18 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     bool configured = surface->configure != region.drawnFor;
     if (configured) damage.reset();
     if (damage && damage->empty()) {
+      // Nothing it draws changed; the windows it shows live may have (a card moved with nothing
+      // of its own drawn there): walked without painting, and if they did, sent with the frame
+      // again, damaged where they were and are.
+      auto walked = drawRegionDamaged(tree_, tag, at, display, region.canvas, edit, {});
+      auto before = region.windows;
+      if (showWindows(region, walked.windowViews)) {
+        for (const auto* list : {&before, &walked.windowViews}) {
+          for (const auto& window : *list) damage->push_back(window.clip);
+        }
+      }
+    }
+    if (damage && damage->empty()) {
       // Nothing visible changed (another region did): nothing is drawn or presented. The check
       // draws it whole anyway: a change the damage missed would be left on screen.
       if (checkDamage) {
@@ -182,6 +239,8 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     }
     auto stats = damage ? drawRegionDamaged(tree_, tag, at, display, region.canvas, edit, *damage)
                         : drawRegion(tree_, tag, at, display, region.canvas, edit);
+    // Its windows shown live, sent with this frame when they changed (ADR 0022).
+    showWindows(region, stats.windowViews);
     double renderMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (checkDamage && damage) {

@@ -41,6 +41,24 @@ class OxyOSShellSurfaceProps final : public ViewProps {
 using OxyOSShellSurfaceShadowNode = ConcreteViewShadowNode<OxyOSShellSurfaceComponentName, OxyOSShellSurfaceProps>;
 using OxyOSShellSurfaceComponentDescriptor = ConcreteComponentDescriptor<OxyOSShellSurfaceShadowNode>;
 
+// A window shown live (docs/adr/0022-window-views.mdx): the compositor draws the window numbered
+// `window` over the shell surface the view is drawn in, fitted to the view's frame, cut to what
+// clips it, with its top-left corner's radius and its opacity. The host draws nothing of it but
+// the view's own background; the shell never receives the window's pixels.
+extern const char OxyOSWindowViewComponentName[];
+
+class OxyOSWindowViewProps final : public ViewProps {
+ public:
+  OxyOSWindowViewProps() = default;
+  OxyOSWindowViewProps(const PropsParserContext& context, const OxyOSWindowViewProps& sourceProps,
+                       const RawProps& rawProps);
+
+  int window{0};  // 0 names none
+};
+
+using OxyOSWindowViewShadowNode = ConcreteViewShadowNode<OxyOSWindowViewComponentName, OxyOSWindowViewProps>;
+using OxyOSWindowViewComponentDescriptor = ConcreteComponentDescriptor<OxyOSWindowViewShadowNode>;
+
 }  // namespace facebook::react
 
 namespace oxyos {
@@ -85,7 +103,11 @@ class ShellSurfaceHost {
     // The frame as last drawn and what changed since: the next draws only that (damage.h).
     Canvas canvas;
     WindowDamage damage;
+    // The windows it shows live, as last sent to the compositor (ADR 0022).
+    std::vector<RenderStats::WindowView> windows;
   };
+  // Sends a region's windows shown live if they changed since last sent; true if they did.
+  bool showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows);
   const ViewTree& tree_;
   Window& window_;
   AccessibilityBridge& accessibility_;

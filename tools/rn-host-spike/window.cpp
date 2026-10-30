@@ -221,6 +221,12 @@ void Window::setInputRegion(uint32_t id, const OxyOSRect& region) {
   }
 }
 
+void Window::showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views) {
+  if (oxyos_client_show_windows(client_, id, views.data(), views.size()) != 0) {
+    failed("cannot show windows live");
+  }
+}
+
 void Window::reposition(uint32_t id, const OxyOSPositioner& positioner) {
   if (oxyos_client_reposition(client_, id, &positioner) != 0) failed("cannot reposition a popup");
 }

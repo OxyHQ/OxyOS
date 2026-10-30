@@ -19,7 +19,8 @@ export type ShellWindow = {
   title: string;
   workspaceId: string;
   thumbnail?: ImageSourcePropType;
-  /** Pixel dimensions of the supplied thumbnail; preserves the surface aspect ratio. */
+  /** Pixel dimensions of the supplied thumbnail, or of the window itself where the platform shows
+      it live (ADR 0022); preserves the surface aspect ratio. */
   thumbnailSize?: { width: number; height: number };
   minimized?: boolean;
   /** False when the session did not start the window's process: its `appId` is then only its
