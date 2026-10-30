@@ -1,0 +1,33 @@
+---
+title: "ADR 0013: Launching applications"
+description: Which applications an OxyOS session has, how the shell asks for one, how the session starts it, and how a window comes to be known as an application's.
+order: 22
+---
+
+# ADR 0013: Launching applications
+
+Status: **accepted**; step 1 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
+
+## Problem
+
+The dock and the launcher show a fixture's list, and pressing one launches nothing: `activateApp` can only focus a window an application already has. An application's id is its own claim (`SetAppId`), so the dock's running indicator believes whatever a client says. There is no list of the applications a session has, no way for the shell to ask for one, and nothing that starts one.
+
+## Decision
+
+1. **The applications are Desktop Entries in OxyOS's own directory.** An application is a Desktop Entry file (freedesktop.org's Desktop Entry Specification, the established format: `Name`, localized `Name[es]`, `Icon`, `Exec`, `NoDisplay`), named by its id (`so.oxy.allo.desktop`), in `applications/` under `oxyos/` in the XDG data directories (`$XDG_DATA_HOME`, then `$XDG_DATA_DIRS`; the first found for an id wins). Only that directory is read: the system's `/usr/share/applications` lists GTK and Qt programs, which have no OxyOS display protocol and would not show (no X11 or Wayland, [ADR 0001](./0001-native-platform-boundaries)). An entry runs either a native OxyOS client (`Exec`, its field codes refused) or a Bloom application (`X-OxyOS-Bloom-Module`, the module, with `X-OxyOS-Bloom-Bundle`, its bundle relative to the entry, or the session's Bloom bundle when it has none), which the session's Bloom host runs. `crates/oxyos-apps` reads them; the session and the shell read the same list.
+2. **The shell asks; the session launches.** The shell (its `shell` grant) sends `LaunchApplication` with an application's id (in chunks, as `SetAppId`). The compositor hands it to the program running it (`Compositor::take_launch`), which starts it if the id is in its registry: `oxyos-session` as the user, with `OXYOS_COMPOSITOR_SOCKET`, and nothing of the shell's environment; the development compositor likewise, for scenarios. An id not in the registry is refused (`LaunchResult` says so); a launch never runs a command the shell gives. There is no general command bridge.
+3. **Launch records name an application's windows.** The session records each process it launched, its id and its application; a client whose peer process (its credentials' pid, which the kernel gives) is one it launched is that application: its windows carry the registry's id, not their own claim, and the shell's running indicator follows them. A client the session did not launch keeps its own claim, marked as such for the shell. Grants are not given by launch records yet: launched applications have an application's grants.
+
+## Steps
+
+1. **The registry.** `crates/oxyos-apps`: Desktop Entries from the XDG data directories' `oxyos/applications`, localized names, icons; the C ABI for the Bloom host, whose shell lists them in the launcher and the dock (pinned ones first, as the fixture did). Tests on entries written by the tests.
+
+   *Done.* `crates/oxyos-apps` reads entries (the `[Desktop Entry]` group, escapes, localized `Name[ll_CC]`/`Name[ll]` from the session's locale, `Exec` split as the specification quotes it with field codes refused, `NoDisplay`/`Hidden`, `X-OxyOS-Pinned` as the application's place in the dock from 1), the first directory's entry for an id winning; `oxyos_applications` gives them to the Bloom host as JSON, and its shell state carries them (`applications`, icons as a file or an SVG's drawing); the shell's dock and launcher show them, kept ones by their place first. An application with no icon is not shown: the shell draws only an application's own artwork. The development registry (`tools/rn-host-spike/applications`) lists what runs: Inbox (the sample's inbox) and Allo (text editing). Scenarios with a shell use it alone (`XDG_DATA_DIRS`), and their dock and launcher are the registry's.
+2. **Launching.** `LaunchApplication`/`LaunchResult` in the protocol and the C ABI; `take_launch`; `oxyos-session` and the development compositor starting entries; the shell's `activateApp` launching an application with no window. A scenario launches one from the dock and checks its window appears and the dock marks it running.
+3. **Launch records.** Peer pids matched to launches; windows of a launched process carry the registry's id; tests with a process claiming another id.
+
+## Not in this decision
+
+- Installing applications, an application store, sandboxing and per-application grants from their entries (#35, #36).
+- Opening files or URLs with an application, a default for a kind of file.
+- Applications started at login.

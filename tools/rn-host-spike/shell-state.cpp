@@ -26,6 +26,7 @@ ShellState::ShellState() {
       fullName_ = fullName_.substr(0, fullName_.find(','));
     }
   }
+  readApplications();
   // The solar wallpaper's manifest: its frames and the sun each shows.
   if (const char* dir = std::getenv("OXYOS_WALLPAPER")) {
     try {
@@ -55,6 +56,36 @@ ShellState::ShellState() {
 static int64_t solarNow() {
   static const char* fixed = std::getenv("OXYOS_SOLAR_NOW");
   return fixed ? std::atoll(fixed) : static_cast<int64_t>(std::time(nullptr));
+}
+
+void ShellState::readApplications() {
+  int64_t length = oxyos_applications(nullptr, 0);
+  if (length < 0) {
+    std::cerr << "[host] the applications: " << oxyos_last_error() << "\n";
+    return;
+  }
+  std::string json(static_cast<size_t>(length) + 1, '\0');
+  oxyos_applications(json.data(), json.size());
+  json.resize(static_cast<size_t>(length));
+  folly::dynamic applications = folly::dynamic::array();
+  for (auto app : folly::parseJson(json)) {
+    // A picture's file, or an SVG's drawing (react-native-svg draws it from its text).
+    folly::dynamic icon = nullptr;
+    if (app["icon"].isString()) {
+      const auto& path = app["icon"].getString();
+      if (path.size() > 4 && path.compare(path.size() - 4, 4, ".svg") == 0) {
+        std::ifstream file(path);
+        std::stringstream text;
+        text << file.rdbuf();
+        if (file) icon = folly::dynamic::object("svg", text.str());
+      } else {
+        icon = folly::dynamic::object("uri", "file://" + path);
+      }
+    }
+    applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"])("icon", icon)(
+        "pinned", app["pinned"]));
+  }
+  applications_ = std::move(applications);
 }
 
 void ShellState::chooseFrame() {
@@ -146,7 +177,8 @@ folly::dynamic ShellState::state() const {
         "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused));
   }
   return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
-      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri());
+      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
+      "applications", applications_);
 }
 
 }  // namespace oxyos

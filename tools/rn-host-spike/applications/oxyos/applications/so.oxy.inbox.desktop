@@ -1,0 +1,7 @@
+# The Bloom host's sample: an inbox (sample/App.tsx), run from the session's Bloom bundle.
+[Desktop Entry]
+Type=Application
+Name=Inbox
+Icon=../../../../shell-preview/assets/apps/inbox.png
+X-OxyOS-Bloom-Module=OxyBloom
+X-OxyOS-Pinned=1

@@ -24,7 +24,9 @@ class ShellState {
   bool observe(const OxyOSEvent& event);
   ShellState();
   // { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active, locked,
-  //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null }
+  //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
+//   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }] }
+// The applications are the session's registry (docs/adr/0013-launching-applications.mdx).
   folly::dynamic state() const;
   // Each turn: true if the wallpaper's frame changed (the sun moved on to another).
   bool tick();
@@ -52,6 +54,8 @@ class ShellState {
   std::optional<uint32_t> frame_;
   int64_t nextChange_ = 0;
   void chooseFrame();
+  folly::dynamic applications_ = folly::dynamic::array();
+  void readApplications();
   folly::dynamic wallpaperUri() const;
   // The session's user, from the account database: the login name, and the full name of its
   // GECOS field (empty if it has none).

@@ -2762,3 +2762,23 @@ fn actions_selections_and_announcements_through_the_c_abi() {
 const OXYOS_ACTION_CUSTOM_VALUE: u32 = AccessibleAction::Custom as u32;
 const OXYOS_POLITE_VALUE: u8 = oxyos_protocol::Politeness::Polite as u8;
 const OXYOS_ASSERTIVE_VALUE: u8 = oxyos_protocol::Politeness::Assertive as u8;
+
+#[test]
+fn the_applications_are_listed_as_json_through_the_c_abi() {
+    use crate::apps::*;
+    let default: unsafe extern "C" fn(*mut c_char, usize) -> i64 = oxyos_applications;
+    assert_eq!(declaration("oxyos_applications"), type_of(default));
+    // Whatever the machine has: valid JSON-shaped, and asked again with room, the same.
+    // SAFETY: a null buffer with no room; then a buffer of the length it said.
+    unsafe {
+        let length = oxyos_applications(std::ptr::null_mut(), 0);
+        assert!(length >= 2);
+        let mut buffer = vec![0 as c_char; length as usize + 1];
+        assert_eq!(
+            oxyos_applications(buffer.as_mut_ptr(), buffer.len()),
+            length
+        );
+        let text = CStr::from_ptr(buffer.as_ptr()).to_str().unwrap();
+        assert!(text.starts_with('[') && text.ends_with(']'), "{text}");
+    }
+}

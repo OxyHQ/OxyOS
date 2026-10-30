@@ -1502,6 +1502,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-apps"
+version = "0.1.0"
+
+[[package]]
 name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
@@ -1523,6 +1527,7 @@ dependencies = [
 name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
+ "oxyos-apps",
  "oxyos-client",
  "oxyos-gestures",
  "oxyos-image",

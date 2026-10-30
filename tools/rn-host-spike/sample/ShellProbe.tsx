@@ -136,8 +136,20 @@ export function ShellSession() {
     workspaceId: String(window.workspace),
     minimized: window.minimized,
   }));
+  // The session's applications (ADR 0013): those kept in the dock by their place, then the others
+  // by name, as the registry gives them. One without artwork is left out: the shell draws only an
+  // application's own.
+  type Registered = { id: string; name: string; icon: { uri: string } | { svg: string } | null; pinned: number | null };
+  const registry: Registered[] = state.applications ?? [];
+  const applications = registry
+    .filter((app) => app.icon !== null)
+    .map((app, order) => ({ app, order }))
+    .sort((a, b) => (a.app.pinned ?? Infinity) - (b.app.pinned ?? Infinity) || a.order - b.order)
+    .map(({ app }) => ({ id: app.id, name: app.name, icon: app.icon!, pinned: app.pinned !== null }));
   const shown: ShellSnapshot = {
     ...snapshot,
+    applications,
+    folders: [],
     windows,
     workspaces: Array.from({ length: state.workspaces }, (_, index) => ({
       id: String(index),

@@ -20,6 +20,7 @@ use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::Path;
 
+pub mod apps;
 pub mod gestures;
 pub mod images;
 pub mod intl;
