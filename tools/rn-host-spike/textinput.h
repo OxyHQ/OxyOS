@@ -183,6 +183,9 @@ class TextEditing {
   facebook::react::Tag focused_ = -1;
   // Inputs inserted with `autoFocus`, focused once attached.
   std::vector<facebook::react::Tag> autoFocus_;
+  // A selection JavaScript set on an input while it had no focus (setTextAndSelection), in UTF-16
+  // offsets: Android's EditText keeps it, and focus from JavaScript (autoFocus, focus()) shows it.
+  std::map<facebook::react::Tag, std::pair<int64_t, int64_t>> unfocusedSelections_;
   std::string text_;
   size_t anchor_ = 0, caret_ = 0;  // byte offsets; the selection lies between them
   size_t composeStart_ = 0, composeEnd_ = 0;  // the composition, none if equal

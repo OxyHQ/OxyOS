@@ -1,5 +1,7 @@
 #include "textinput.h"
 
+#include <folly/json.h>
+
 #include "report.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -170,10 +172,18 @@ void TextEditing::attached() {
 
 void TextEditing::command(const ShadowView& view, const std::string& name, const folly::dynamic& args) {
   if (std::string(view.componentName ? view.componentName : "") != "AndroidTextInput") return;
+  if (tracing()) std::cerr << "[text] command " << name << " " << view.tag << " " << folly::toJson(args) << " focused " << focused_ << "\n";
   if (name == "focus") {
     focus(view.tag);
   } else if (name == "blur") {
     if (view.tag == focused_) blur();
+  } else if (name == "setTextAndSelection" && view.tag != focused_ && args.isArray() && args.size() >= 4) {
+    // An input without focus keeps the selection, as Android's EditText does: the text is its
+    // props', and focus from JavaScript shows the selection (a field opening with a name's stem
+    // selected). A press puts the caret where it is instead.
+    if (args[2].isNumber() && args[3].isNumber() && args[2].asDouble() >= 0 && args[3].asDouble() >= 0) {
+      unfocusedSelections_[view.tag] = {static_cast<int64_t>(args[2].asDouble()), static_cast<int64_t>(args[3].asDouble())};
+    }
   } else if (name == "setTextAndSelection" && view.tag == focused_ && args.isArray() && args.size() >= 2) {
     // JavaScript sets a controlled value and selection (-1 for none). As on Android, a value
     // older than the latest edit is ignored; a current one replaces the text without an echoing
@@ -253,12 +263,26 @@ void TextEditing::focus(Tag tag) {
   }
   // The caret goes where the input was pressed; focus from JavaScript alone puts it at the end,
   // or selects everything with `selectTextOnFocus`.
+  // A selection JavaScript set while it had no focus is kept (Android's EditText keeps it), unless
+  // a press places the caret.
   anchor_ = caret_ = text_.size();
+  auto kept = unfocusedSelections_.find(tag);
+  std::optional<size_t> pressed;
+  if (press_) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
   if (props->selectTextOnFocus) {
     anchor_ = 0;
-  } else if (press_) {
-    if (auto at = offsetAt(press_->first, press_->second.x, press_->second.y, true)) anchor_ = caret_ = *at;
+  } else if (pressed) {
+    anchor_ = caret_ = *pressed;
+  } else if (kept != unfocusedSelections_.end()) {
+    auto clamp = [&](size_t at) {
+      at = std::min(at, text_.size());
+      while (continuation(text_, at)) --at;
+      return at;
+    };
+    anchor_ = clamp(byteOffset(text_, static_cast<int>(kept->second.first)));
+    caret_ = clamp(byteOffset(text_, static_cast<int>(kept->second.second)));
   }
+  if (kept != unfocusedSelections_.end()) unfocusedSelections_.erase(kept);
   it->second.view.eventEmitter->dispatchEvent("focus", folly::dynamic::object("target", tag));
   Report::get().deliver("focus", 0, it->second.view);
   selectionChanged();
