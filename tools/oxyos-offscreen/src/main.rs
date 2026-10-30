@@ -312,6 +312,8 @@ impl Session {
         if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
             return Err(format!("scene resources left: {stats:?}").into());
         }
+        // The render node the offer of GPU buffers holds goes with the session.
+        self.compositor.withdraw_gpu_buffers();
         let fds = open_descriptors()?;
         if fds != self.baseline_fds {
             return Err(format!(

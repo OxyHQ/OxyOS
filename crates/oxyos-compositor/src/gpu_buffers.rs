@@ -101,6 +101,9 @@ pub struct GpuBuffers {
     released: Vec<(ClientId, Event)>,
     /// Imports of buffers gone that a transition still draws, by their uses.
     orphans: Vec<(Option<u64>, Rc<()>)>,
+    /// Each connection's frames of GPU buffers given to the scene, and how many of them waited
+    /// for their acquire point (the development compositor reports them).
+    frames: HashMap<ClientId, (u64, u64)>,
 }
 
 impl GpuBuffers {
@@ -285,6 +288,34 @@ impl Compositor {
         });
     }
 
+    /// Stops offering GPU buffers, closing the render node (the session ends; with clients still
+    /// connected, each is told the offer is withdrawn).
+    pub fn withdraw_gpu_buffers(&mut self) {
+        if self.gpu_buffers.offer.take().is_none() {
+            return;
+        }
+        let clients: Vec<ClientId> = self.peers.keys().copied().collect();
+        for client in clients {
+            self.send_to(
+                client,
+                Event::GpuDevice {
+                    device: 0,
+                    formats: 0,
+                },
+            );
+        }
+    }
+
+    /// A connection's frames of GPU buffers given to the scene so far, and how many of them
+    /// waited for their acquire point.
+    pub fn gpu_frames(&self, client: ClientId) -> (u64, u64) {
+        self.gpu_buffers
+            .frames
+            .get(&client)
+            .copied()
+            .unwrap_or_default()
+    }
+
     /// Whether clients are offered GPU buffers.
     pub fn offers_gpu_buffers(&self) -> bool {
         self.gpu_buffers.offered()
@@ -426,6 +457,7 @@ impl Compositor {
                     }
                 }
                 // Ready: the scene's, as any frame.
+                self.gpu_buffers.frames.entry(client).or_default().0 += 1;
                 None
             }
             Request::DestroyBuffer { buffer }
@@ -787,6 +819,9 @@ impl Compositor {
             .collect();
         for key in ready {
             let waiting = self.gpu_buffers.waiting.remove(&key).expect("listed");
+            let frames = self.gpu_buffers.frames.entry(key.client).or_default();
+            frames.0 += 1;
+            frames.1 += 1;
             self.submit_to_scene(key.client, waiting.request);
         }
         let signalled: Vec<AfterAcquire> = {

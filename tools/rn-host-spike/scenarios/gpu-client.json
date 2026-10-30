@@ -1,0 +1,100 @@
+{
+  "about": "A native client drawing on the GPU (ADR 0031): tools/oxyos-gpu-client renders with Vulkan into DMA-BUFs it exports, attaches them plane by plane, and submits each frame with an acquire point (its submission's completion) and a release point it waits for before drawing into a buffer again. Run it with the client as `--client` (regress.py --client target/release/oxyos-gpu-client) where a render node has timeline syncobjs and DMA-BUFs can be made (tools/gpu-vm/gpu-vm; the ThinkPad); with neither, it draws into shared memory and the frames' expectations fail. Its window is blue with a white square and a dark bar until a press makes it orange, green after another; a configure answered by a frame of another size, or a frame that never took the GPU path, fails it.",
+  "window": [
+    640,
+    400
+  ],
+  "client": [
+    "--size",
+    "{width}x{height}",
+    "--wait-ms",
+    "2000"
+  ],
+  "steps": [
+    {
+      "name": "a press: the frame answering it drawn on the GPU in another of its buffers, latched once its acquire point signalled",
+      "do": [
+        "press",
+        [
+          320,
+          200
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "320,200": "#e8590c",
+          "60,60": "#ffffff",
+          "320,385": "#212529"
+        },
+        "gpu_frames": {
+          "latched_min": 2
+        },
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "another press: a buffer released and drawn into again",
+      "do": [
+        "press",
+        [
+          320,
+          200
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "320,200": "#2f9e44"
+        },
+        "gpu_frames": {
+          "latched_min": 3
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the right edge resized 100 px out at a hand's pace: every configure answered by a frame of its size drawn into new buffers, the other edges still",
+      "do": [
+        "drag_paced",
+        [
+          963,
+          360,
+          1063,
+          360,
+          50,
+          125
+        ]
+      ],
+      "expect": {
+        "drag": {
+          "unanswered_max": 1,
+          "bounded": true,
+          "steady": [
+            "left",
+            "top",
+            "bottom"
+          ],
+          "presented_min": 10
+        },
+        "pixels": {
+          "720,200": "#2f9e44",
+          "60,60": "#ffffff"
+        },
+        "gpu_frames": {
+          "latched_min": 13
+        }
+      }
+    }
+  ]
+}
