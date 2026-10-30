@@ -4,6 +4,7 @@
  * changes show at once and go nowhere.
  */
 import * as React from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { Settings } from '../../../apps/settings/src/Settings';
@@ -45,8 +46,10 @@ export default function SettingsApp() {
     [],
   );
   return (
-    <BloomProvider platform={oxyosSurfaces}>
-      <Settings snapshot={snapshot} actions={actions} strings={strings} />
-    </BloomProvider>
+    <SafeAreaProvider>
+      <BloomProvider platform={oxyosSurfaces}>
+        <Settings snapshot={snapshot} actions={actions} strings={strings} />
+      </BloomProvider>
+    </SafeAreaProvider>
   );
 }
