@@ -264,6 +264,11 @@ messages! {
         142 => SetDisplayOrigin { serial: u32, output: u32, x: i32, y: i32 },
         143 => SetPrimaryDisplay { serial: u32, output: u32 },
         144 => ConfirmDisplays { serial: u32, keep: bool },
+        // Key text (ADR 0029): the connection takes the text each key types with the key itself,
+        // in KeyText events, for a client whose key events must carry their meaning (a browser's
+        // keydown has its `key`). That text is then never sent again as Text or in a text input
+        // transaction; text no key typed (an input method's) still comes as before.
+        150 => SetKeyText { enabled: bool },
     }
 }
 
@@ -463,6 +468,10 @@ messages! {
         // To clients with the `settings` grant: the display's mode was changed and is shown, and
         // goes back unless ConfirmDisplays keeps it within `seconds`; 0, it was kept or went back.
         135 => DisplayConfirmation { output: u32, seconds: u32 },
+        // To a connection that asked for key text (SetKeyText): a key, as Key, with what the
+        // session's layout typed with it (its compose sequences included; empty for a modifier, an
+        // editing key, a control character or a dead key).
+        150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText },
     }
 }
 

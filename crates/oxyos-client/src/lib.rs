@@ -68,6 +68,8 @@ pub enum Poll {
 pub struct Client {
     connection: Connection,
     buffers: Vec<Buffer>,
+    /// Buffers the caller owns (`attach_buffer`), with their size.
+    attached: Vec<(u64, Size)>,
     next_buffer: u64,
     sequence: u64,
     /// The latest frames: surface, sequence, and what changed in them (`None`: everything).
@@ -103,6 +105,7 @@ impl Client {
         Ok(Self {
             connection,
             buffers: Vec::new(),
+            attached: Vec::new(),
             next_buffer: 0,
             sequence: 0,
             history: std::collections::VecDeque::new(),
@@ -296,6 +299,96 @@ impl Client {
             extent,
         })?;
         Ok(self.sequence)
+    }
+
+    /// Makes shared memory the caller owns a buffer of this connection: `fd` (a regular file
+    /// sealed against shrinking, readable, holding `layout`) is checked as the compositor checks
+    /// it and sent with AttachBuffer. Returns the buffer's id. The caller keeps `fd` and draws
+    /// into it; the compositor reads it from each [`Client::submit_buffer`] naming it until a
+    /// `Released` event names it. A renderer in another process (a browser's GPU process) draws
+    /// into memory it made and this connection presents it, with no copy.
+    pub fn attach_buffer(&mut self, fd: BorrowedFd<'_>, layout: BufferLayout) -> io::Result<u64> {
+        oxyos_ipc::SharedBuffer::import(fd.try_clone_to_owned()?, layout)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, format!("{error:?}")))?;
+        self.next_buffer += 1;
+        self.connection.send_request(
+            &Request::AttachBuffer {
+                buffer: self.next_buffer,
+                format: layout.format,
+                extent: layout.extent,
+                stride: layout.stride,
+                offset: layout.offset,
+            },
+            Some(fd),
+        )?;
+        self.attached.push((self.next_buffer, layout.extent));
+        Ok(self.next_buffer)
+    }
+
+    /// Submits a buffer from [`Client::attach_buffer`] for `surface` in answer to the configure
+    /// `configure`, of which only `damage` changed since the surface's previous frame (in buffer
+    /// pixels; `None` or none at all: everything). Returns the frame's sequence number, which
+    /// its `Feedback` names.
+    pub fn submit_buffer(
+        &mut self,
+        surface: u32,
+        buffer: u64,
+        configure: u64,
+        damage: Option<&[Rect]>,
+    ) -> io::Result<u64> {
+        let extent = self
+            .attached
+            .iter()
+            .find(|(id, _)| *id == buffer)
+            .map(|(_, extent)| *extent)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no such buffer"))?;
+        let bounds = Rect::new(0, 0, extent.width, extent.height);
+        let damage: Option<Vec<Rect>> = damage
+            .map(|rects| {
+                rects
+                    .iter()
+                    .filter_map(|rect| clipped(rect, &bounds))
+                    .collect()
+            })
+            .filter(|rects: &Vec<Rect>| !rects.is_empty());
+        for rect in damage.iter().flatten() {
+            self.send(&Request::Damage {
+                surface,
+                rect: *rect,
+            })?;
+        }
+        self.sequence += 1;
+        self.history.push_back(Presented {
+            surface,
+            sequence: self.sequence,
+            extent,
+            damage,
+        });
+        if self.history.len() > HISTORY {
+            self.history.pop_front();
+        }
+        self.send(&Request::Submit {
+            surface,
+            sequence: self.sequence,
+            buffer,
+            configure,
+            extent,
+        })?;
+        Ok(self.sequence)
+    }
+
+    /// Ends a buffer from [`Client::attach_buffer`]: the compositor forgets it once nothing of
+    /// it is shown.
+    pub fn detach_buffer(&mut self, buffer: u64) -> io::Result<()> {
+        let before = self.attached.len();
+        self.attached.retain(|(id, _)| *id != buffer);
+        if self.attached.len() == before {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no such buffer",
+            ));
+        }
+        self.send(&Request::DestroyBuffer { buffer })
     }
 
     /// Destroys a surface and the buffers it drew with.

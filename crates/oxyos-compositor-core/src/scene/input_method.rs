@@ -268,10 +268,7 @@ impl Scene {
             .as_ref()
             .and_then(|im| im.active.map(|_| im.client));
         let Some(client) = served else {
-            self.surface_key(key, pressed);
-            if let Some(text) = text {
-                self.text(text);
-            }
+            self.surface_key_typed(key, pressed, text);
             return;
         };
         let serial = self.next_serial();
@@ -327,21 +324,14 @@ impl Scene {
 
     /// A key given back reaches the focused surface as if it had come straight.
     fn deliver_key(&mut self, pending: PendingKey) {
-        if let Some(target) = self.focus.filter(|f| self.visible(*f)) {
-            if pending.pressed {
-                self.record_press(pending.serial, target, false);
+        let typed = pending.text.as_deref();
+        let left = match self.focus.filter(|f| self.visible(*f)) {
+            Some(target) => {
+                self.emit_key(target, pending.serial, pending.key, pending.pressed, typed)
             }
-            self.emit(
-                target.client,
-                Event::Key {
-                    surface: target.id,
-                    serial: pending.serial,
-                    key: pending.key,
-                    pressed: pending.pressed,
-                },
-            );
-        }
-        if let Some(text) = pending.text {
+            None => typed,
+        };
+        if let Some(text) = left.map(str::to_string) {
             self.text(&text);
         }
     }

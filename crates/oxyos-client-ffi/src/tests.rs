@@ -2241,6 +2241,11 @@ fn declaration(name: &str) -> String {
             "int64_t*" => "*mut i64".into(),
             "uint32_t*" => "*mut u32".into(),
             "int" => "i32".into(),
+            "uint32_t" => "u32".into(),
+            "uint64_t" => "u64".into(),
+            "bool" => "bool".into(),
+            "OxyOSClient*" => format!("*mut {}", std::any::type_name::<OxyOSClient>()),
+            "const OxyOSRect*" => format!("*const {}", std::any::type_name::<OxyOSRect>()),
             "const OxyOSSolarAnchor*" => format!(
                 "*const {}",
                 std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
@@ -3554,5 +3559,255 @@ fn the_control_center_sends_its_requests() {
         );
         oxyos_client_close(client);
     }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_buffer_abi() {
+    let attach: unsafe extern "C" fn(*mut OxyOSClient, c_int, u32, u32, u32, u32, u32) -> i64 =
+        oxyos_client_attach_buffer;
+    let submit: unsafe extern "C" fn(
+        *mut OxyOSClient,
+        u32,
+        u64,
+        u64,
+        *const OxyOSRect,
+        usize,
+    ) -> i64 = oxyos_client_submit_buffer;
+    let detach: unsafe extern "C" fn(*mut OxyOSClient, u64) -> c_int = oxyos_client_detach_buffer;
+    for (name, rust) in [
+        ("oxyos_client_attach_buffer", type_of(attach)),
+        ("oxyos_client_submit_buffer", type_of(submit)),
+        ("oxyos_client_detach_buffer", type_of(detach)),
+    ] {
+        assert_eq!(declaration(name), rust, "{name}");
+    }
+}
+
+/// Sealed shared memory of `bytes`, as a renderer in another process makes it.
+fn sealed(bytes: u64) -> rustix::fd::OwnedFd {
+    use rustix::fs::{MemfdFlags, SealFlags};
+    let fd = rustix::fs::memfd_create("caller", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)
+        .unwrap();
+    rustix::fs::ftruncate(&fd, bytes).unwrap();
+    rustix::fs::fcntl_add_seals(&fd, SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL)
+        .unwrap();
+    fd
+}
+
+#[test]
+fn a_buffer_the_caller_owns_is_presented_without_a_copy() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-buffers-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let (attach, fd) = server.recv_request().unwrap();
+        let layout = attach.buffer_layout().unwrap();
+        let shared = SharedBuffer::import(fd.unwrap(), layout).unwrap();
+        let damage = server.recv_request().unwrap().0;
+        let submit = server.recv_request().unwrap().0;
+        let mut row = vec![0; 8];
+        shared.read_row(1, &mut row).unwrap();
+        server
+            .send_event(
+                &Event::Released {
+                    surface: 3,
+                    buffer: 1,
+                },
+                None,
+            )
+            .unwrap();
+        let destroy = server.recv_request().unwrap().0;
+        (attach, damage, submit, row, destroy)
+    });
+
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let memory = sealed(64);
+    rustix::io::pwrite(&memory, &[7, 8, 9, 255, 1, 2, 3, 255], 32).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect, is used by this thread only and
+    // is closed once at the end; every other pointer is to a live local of the right type, and the
+    // descriptors stay open across each call.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        let unsealed =
+            rustix::fs::memfd_create("unsealed", rustix::fs::MemfdFlags::CLOEXEC).unwrap();
+        rustix::fs::ftruncate(&unsealed, 64).unwrap();
+        assert_eq!(
+            oxyos_client_attach_buffer(
+                client,
+                unsealed.as_raw_fd(),
+                OXYOS_FORMAT_ARGB8888,
+                2,
+                2,
+                16,
+                16
+            ),
+            -1,
+            "memory that could shrink under the compositor is refused before it is sent"
+        );
+        assert_eq!(
+            oxyos_client_attach_buffer(
+                client,
+                memory.as_raw_fd(),
+                OXYOS_FORMAT_ARGB8888,
+                2,
+                2,
+                16,
+                48
+            ),
+            -1,
+            "a layout past the memory's end is refused"
+        );
+        let buffer = oxyos_client_attach_buffer(
+            client,
+            memory.as_raw_fd(),
+            OXYOS_FORMAT_ARGB8888,
+            2,
+            2,
+            16,
+            16,
+        );
+        assert_eq!(buffer, 1);
+        let damage = [OxyOSRect {
+            x: 0,
+            y: 1,
+            width: 9,
+            height: 1,
+        }];
+        assert_eq!(
+            oxyos_client_submit_buffer(client, 3, 2, 4, damage.as_ptr(), 1),
+            -1,
+            "no such buffer"
+        );
+        assert_eq!(
+            oxyos_client_submit_buffer(client, 3, 1, 4, damage.as_ptr(), 1),
+            1
+        );
+        let mut event = OxyOSEvent::default();
+        let released = loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll returned {other}"),
+            }
+        };
+        assert_eq!(
+            (released.kind, released.surface, released.serial),
+            (OXYOS_EVENT_RELEASED, 3, 1)
+        );
+        assert_eq!(oxyos_client_detach_buffer(client, 1), 0);
+        assert_eq!(oxyos_client_detach_buffer(client, 1), OXYOS_ERROR);
+        let (attach, damage, submit, row, destroy) = compositor.join().unwrap();
+        assert_eq!(
+            attach,
+            Request::AttachBuffer {
+                buffer: 1,
+                format: Format::Argb8888,
+                extent: Size::new(2, 2),
+                stride: 16,
+                offset: 16
+            }
+        );
+        assert_eq!(
+            damage,
+            Request::Damage {
+                surface: 3,
+                rect: Rect::new(0, 1, 2, 1)
+            },
+            "clipped to the buffer"
+        );
+        assert_eq!(
+            submit,
+            Request::Submit {
+                surface: 3,
+                sequence: 1,
+                buffer: 1,
+                configure: 4,
+                extent: Size::new(2, 2)
+            }
+        );
+        assert_eq!(
+            row,
+            [7, 8, 9, 255, 1, 2, 3, 255],
+            "the caller's pixels, read where it drew them"
+        );
+        assert_eq!(destroy, Request::DestroyBuffer { buffer: 1 });
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
+    let set: unsafe extern "C" fn(*mut OxyOSClient, bool) -> c_int = oxyos_client_set_key_text;
+    assert_eq!(declaration("oxyos_client_set_key_text"), type_of(set));
+    let event = convert(&Event::KeyText {
+        surface: 2,
+        serial: 9,
+        key: 30,
+        pressed: true,
+        text: PreeditText::new("é").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            event.kind,
+            event.surface,
+            event.serial,
+            event.code,
+            event.flag
+        ),
+        (OXYOS_EVENT_KEY, 2, 9, 30, 1)
+    );
+    let text = CStr::from_bytes_until_nul(&event.text).unwrap();
+    assert_eq!(text.to_str().unwrap(), "é");
+    let plain = convert(&Event::Key {
+        surface: 2,
+        serial: 10,
+        key: 30,
+        pressed: false,
+    })
+    .unwrap();
+    assert_eq!(plain.text[0], 0, "a key without key text has none");
+}
+
+#[test]
+fn asking_for_key_text_sends_the_request() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-key-text-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.recv_request().unwrap().0
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect, is used by this thread only and
+    // is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_set_key_text(client, true), 0);
+        oxyos_client_close(client);
+    }
+    assert_eq!(
+        compositor.join().unwrap(),
+        Request::SetKeyText { enabled: true }
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
