@@ -23,6 +23,7 @@
 #include "text.h"
 #include "textinput.h"
 #include "window.h"
+#include "native-animated.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
@@ -86,6 +87,9 @@ class Flags : public ReactNativeFeatureFlagsDefaults {
   // A desktop pointer hovers: Pressability's hover (onHoverIn/Out) is built on W3C pointer
   // events when this is on, and absent otherwise on React Native's Android path.
   bool shouldPressibilityUseW3CPointerEventsForHover() override { return true; }
+  // Animated's native driver is React Native's C++ implementation (native-animated.h), as Android
+  // runs it with this flag: JavaScript then talks to `NativeAnimatedModule` with batches.
+  bool cxxNativeAnimatedEnabled() override { return true; }
 };
 
 // The JS thread is this process's only thread: tasks run when the loop drains the queue.
@@ -245,7 +249,11 @@ class Mounter : public SchedulerDelegate {
     if (onAccessibilityEvent) onAccessibilityEvent(view, type);
   }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
-  void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag, const folly::dynamic&) override {}
+  // Animated's native driver setting a view's props between commits (native-animated.h), as
+  // Android's mounting layer updates a native view: the tree changed, as with a mount.
+  void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props) override {
+    if (scheduler_ && oxyos::updateViewProps(tree_, *scheduler_, tag, props)) changed_ = true;
+  }
   void schedulerDidUpdateShadowTree(const std::unordered_map<Tag, folly::dynamic>&) override {}
   void schedulerDidCaptureViewSnapshot(Tag, SurfaceId) override {}
   void schedulerDidSetViewSnapshot(Tag, Tag, SurfaceId) override {}
@@ -344,6 +352,8 @@ int main(int argc, char** argv) {
   oxyos::WorkletsHost worklets;
   std::unique_ptr<Scheduler> scheduler;
   oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); });
+  // Animated's native driver (native-animated.h).
+  oxyos::NativeAnimatedHost animated;
   // react-native-gesture-handler (gesture-handler.h), made once the view tree exists.
   std::unique_ptr<oxyos::GestureHandlerHost> gestures;
   instance->initializeRuntime({}, [&](jsi::Runtime& rt) {
@@ -363,6 +373,7 @@ int main(int argc, char** argv) {
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
           if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
+          if (name == "NativeAnimatedModule") return animated.module(invoker);
           if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
           if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
           if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
@@ -377,6 +388,10 @@ int main(int argc, char** argv) {
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
+  // Fabric's bindings (`nativeFabricUIManager`) are installed before the bundle runs, as iOS
+  // installs them: code that runs as the bundle loads can then reach them, as Animated's native
+  // module does when an app makes an animated component at the top of a module.
+  toolbox.bridgelessBindingsExecutor = instance->getUnbufferedRuntimeExecutor();
   // The descriptor registry keeps a reference to its provider registry (to resolve components
   // on demand), so the provider registry must outlive every Scheduler that uses it.
   auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
@@ -708,6 +723,7 @@ int main(int argc, char** argv) {
         busy |= gestures->tick();
         busy |= worklets.tick();
         busy |= reanimated.tick();
+        busy |= animated.tick();
         busy |= networking.deliver();
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
@@ -936,14 +952,14 @@ int main(int argc, char** argv) {
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
         // image decoder, a paste's pipe, the next timer of JavaScript's or a gesture handler's, or
-        // the next frame for worklets' frame callbacks.
+        // the next frame for worklets' frame callbacks or for Animated's native driver.
         // It waits only after a second idle turn, since what one turn dispatches (an event for
         // Fabric's beat) is delivered on the next; and at most a second, should anything else
         // need a turn.
         idleTurns = busy ? 0 : idleTurns + 1;
         if (idleTurns >= 2) {
           auto deadline = Clock::now() + std::chrono::seconds(1);
-          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame()}) {
+          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame(), animated.nextFrame()}) {
             if (due && *due < deadline) deadline = *due;
           }
           std::vector<pollfd> fds;
@@ -981,6 +997,7 @@ int main(int argc, char** argv) {
     busy |= timers->fire(*timerManager);
     worklets.tick();
     busy |= reanimated.tick();
+    busy |= animated.tick();
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
     busy |= networking.deliver();

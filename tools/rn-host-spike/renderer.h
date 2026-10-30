@@ -59,6 +59,10 @@ class ViewTree {
   void setPicture(facebook::react::Tag tag, std::shared_ptr<const Picture> picture) {
     if (auto it = views_.find(tag); it != views_.end()) it->second.picture = std::move(picture);
   }
+  // Gives an existing view new props between commits (native-animated.h's updateViewProps).
+  void setProps(facebook::react::Tag tag, facebook::react::Props::Shared props) {
+    if (auto it = views_.find(tag); it != views_.end()) it->second.view.props = std::move(props);
+  }
   facebook::react::Tag root() const { return root_; }
 
   // A modal animating in (modal.h): how it is presented; none when it is not animating.
