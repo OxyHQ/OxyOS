@@ -2305,6 +2305,7 @@ fn declaration(name: &str) -> String {
                 "*const {}",
                 std::any::type_name::<crate::files::OxyOSFilesReply>()
             ),
+            "uint8_t" => "u8".into(),
             "const OxyOSSolarAnchor*" => format!(
                 "*const {}",
                 std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
@@ -3869,6 +3870,36 @@ fn asking_for_key_text_sends_the_request() {
         Request::SetKeyText { enabled: true }
     );
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn an_applications_directories_are_named_by_its_id_through_the_c_abi() {
+    use crate::apps::oxyos_application_directory;
+    type Directory = unsafe extern "C" fn(*const c_char, u8, *mut c_char, usize) -> i64;
+    assert_eq!(
+        declaration("oxyos_application_directory"),
+        type_of(oxyos_application_directory as Directory)
+    );
+    let directory = |id: &str, which: u8| -> Option<String> {
+        let id = CString::new(id).unwrap();
+        let mut out = [0 as c_char; 512];
+        // SAFETY: a NUL-terminated id and a buffer of its length.
+        let length =
+            unsafe { oxyos_application_directory(id.as_ptr(), which, out.as_mut_ptr(), out.len()) };
+        let length = usize::try_from(length).ok()?;
+        // SAFETY: the function wrote `length` bytes and a NUL.
+        Some(unsafe { CStr::from_ptr(out.as_ptr()) }.to_str().unwrap()[..length].to_string())
+    };
+    let data = directory("so.oxy.stash", 0).expect("data");
+    let cache = directory("so.oxy.stash", 1).expect("cache");
+    assert!(data.ends_with("/oxyos/apps/so.oxy.stash"), "{data}");
+    assert!(cache.ends_with("/oxyos/apps/so.oxy.stash"), "{cache}");
+    assert_ne!(data, cache);
+    // An id that is not one never names a directory.
+    for id in ["../escape", "", "a/b"] {
+        assert_eq!(directory(id, 0), None, "{id}");
+    }
+    assert_eq!(directory("so.oxy.stash", 2), None);
 }
 
 #[test]

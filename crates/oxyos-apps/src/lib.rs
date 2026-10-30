@@ -535,6 +535,52 @@ pub fn directories() -> Vec<PathBuf> {
         .collect()
 }
 
+/// An application's own data directory (`so.oxy.stash`'s, for its storage and its documents):
+/// `oxyos/apps/<id>` under `$XDG_DATA_HOME` (`~/.local/share`), as Android gives each
+/// application `/data/data/<package>` (docs/adr/0030-installing-applications.mdx: an
+/// application's data is the account's; the host gives it as Expo's document directory). None for an id that is not one ([`valid_id`]), or without
+/// a home. A relative `XDG_DATA_HOME` is ignored, as the base directory specification says.
+pub fn data_directory(id: &str) -> Option<PathBuf> {
+    base_directory(
+        &|name| std::env::var_os(name),
+        "XDG_DATA_HOME",
+        ".local/share",
+        id,
+    )
+}
+
+/// An application's own cache directory: `oxyos/apps/<id>` under `$XDG_CACHE_HOME`
+/// (`~/.cache`), what the system may delete, as Android's `cache/`.
+pub fn cache_directory(id: &str) -> Option<PathBuf> {
+    base_directory(
+        &|name| std::env::var_os(name),
+        "XDG_CACHE_HOME",
+        ".cache",
+        id,
+    )
+}
+
+/// `id`'s directory under the base directory `variable` names (`$HOME/<fallback>` without it),
+/// with the environment as `env` gives it.
+fn base_directory(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    variable: &str,
+    fallback: &str,
+    id: &str,
+) -> Option<PathBuf> {
+    if !valid_id(id) {
+        return None;
+    }
+    let absolute =
+        |value: std::ffi::OsString| Some(PathBuf::from(value)).filter(|path| path.is_absolute());
+    let base = env(variable).and_then(absolute).or_else(|| {
+        env("HOME")
+            .and_then(absolute)
+            .map(|home| home.join(fallback))
+    })?;
+    Some(base.join("oxyos/apps").join(id))
+}
+
 /// The session's languages, the most wanted first, from `LC_ALL`, `LC_MESSAGES` or `LANG`
 /// (`es_ES.UTF-8` gives `es_ES`, `es`).
 pub fn languages() -> Vec<String> {

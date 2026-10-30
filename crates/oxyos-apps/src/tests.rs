@@ -773,3 +773,43 @@ fn as_if_root(system: &Path) -> impl Fn(&Path) -> bool {
         })
     }
 }
+
+#[test]
+fn an_applications_directories_are_its_own_under_the_base_directories() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| std::ffi::OsString::from(value))
+        }
+    };
+    let data = |pairs, id| base_directory(&env(pairs), "XDG_DATA_HOME", ".local/share", id);
+    assert_eq!(
+        data(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")], "so.oxy.stash"),
+        Some(PathBuf::from("/d/oxyos/apps/so.oxy.stash"))
+    );
+    // Without it, or with a relative one (ignored, as the base directory specification says): home's.
+    assert_eq!(
+        data(&[("HOME", "/h")], "so.oxy.stash"),
+        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.stash"))
+    );
+    assert_eq!(
+        data(&[("XDG_DATA_HOME", "rel"), ("HOME", "/h")], "so.oxy.stash"),
+        Some(PathBuf::from("/h/.local/share/oxyos/apps/so.oxy.stash"))
+    );
+    assert_eq!(data(&[], "so.oxy.stash"), None);
+    // An id that is not one never names a directory, least of all one outside.
+    for id in ["", "..", "../x", "a/b", ".hidden"] {
+        assert_eq!(data(&[("HOME", "/h")], id), None, "{id}");
+    }
+    assert_eq!(
+        base_directory(
+            &env(&[("HOME", "/h")]),
+            "XDG_CACHE_HOME",
+            ".cache",
+            "so.oxy.stash"
+        ),
+        Some(PathBuf::from("/h/.cache/oxyos/apps/so.oxy.stash"))
+    );
+}

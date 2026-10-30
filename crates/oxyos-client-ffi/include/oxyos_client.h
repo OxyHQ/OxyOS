@@ -1166,6 +1166,12 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
 
+/* An application's own directories (crates/oxyos-apps), by its id (the registry entry's, as the
+ * session gives it in OXYOS_APP_ID): its data directory (`which` 0, $XDG_DATA_HOME/oxyos/apps/ID)
+ * or its cache directory (1, $XDG_CACHE_HOME/oxyos/apps/ID). Written as oxyos_applications writes;
+ * -1 for an id that is not one or without a home (oxyos_last_error). */
+int64_t oxyos_application_directory(const char* id, uint8_t which, char* out, size_t capacity);
+
 /* Files (crates/oxyos-files, docs/adr/0028-file-access.mdx): the user's home, the volumes mounted
  * for them and the application's own folders, for an application's OxyOSFiles (expo-file-system's
  * operations, the places and the Trash). Requests are JSON ({"op", ...}, the operations in
