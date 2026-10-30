@@ -2,8 +2,8 @@
 """Check the live-build image configuration and CI against the retired desktop stack.
 
 Scope: the files in this repository. It does not resolve Debian dependencies or
-inspect the packages of a built image; that needs a real build once a native
-session and its boot acceptance tests exist.
+inspect the packages of a built image: scripts/check-image-contents.py audits a
+built image (tools/image/build.sh), with this script's list of what is forbidden.
 """
 
 import pathlib
@@ -37,6 +37,7 @@ STALE_REFERENCE = re.compile(
 STALE_REFERENCE_ALLOWED = {
     CONFIG / "archives" / "no-display-stack.pref.chroot",
     ROOT / "scripts" / "check-native-boundary.py",
+    ROOT / "scripts" / "check-image-contents.py",
 }
 
 # Image publication is retired until a native session exists. A workflow that
@@ -116,6 +117,15 @@ def check_image_settings():
     ).stdout
     if gui != "false":
         violations.append(f'config/binary: LB_DEBIAN_INSTALLER_GUI is "{gui}", must be "false"')
+    # live-build's firmware detection installs whatever has a file under /lib/firmware, drivers
+    # and their dependencies included (Cairo and the X11 client libraries, through astronomy
+    # camera drivers): the manifest names the firmware instead.
+    firmware = subprocess.run(
+        ["sh", "-c", '. "$1" && printf %s "$LB_FIRMWARE_CHROOT"', "sh", str(CONFIG / "binary")],
+        capture_output=True, text=True, env={},
+    ).stdout
+    if firmware != "false":
+        violations.append(f'config/binary: LB_FIRMWARE_CHROOT is "{firmware}", must be "false" (the manifest names the firmware)')
     source = CONFIG / "oxyos.conf"
     installed = CONFIG / "includes.chroot_after_packages" / "etc" / "oxyos" / "oxyos.conf"
     if source.read_bytes() != installed.read_bytes():
@@ -184,7 +194,7 @@ def main():
         print("\n".join(violations), file=sys.stderr)
         return 1
     print("Image configuration check passed.")
-    print("Scope: repository files only; not a dependency closure or built-image audit.")
+    print("Scope: repository files only; scripts/check-image-contents.py audits a built image.")
     return 0
 
 

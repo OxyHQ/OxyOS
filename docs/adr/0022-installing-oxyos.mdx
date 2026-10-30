@@ -1,0 +1,99 @@
+---
+title: "ADR 0022: Installing OxyOS"
+description: How OxyOS gets from the live image onto a machine's disk as a mature OS installs itself — the tested image written whole, the disk's layout, encryption bound to the Oxy password, the bootloader under Secure Boot, the first boot, updates — and the gate an image passes before any of it.
+order: 31
+---
+
+# ADR 0022: Installing OxyOS
+
+Status: **proposed** (decisions 1 to 8, for the platform's author to accept); steps 1 to 3 implemented and run. Builds on the [base image configuration](../iso-build), [ADR 0017](./0017-boot-logo) (the boot logo, its passphrase field), [ADR 0020](./0020-oxy-account-login) (`oxyos-login`, `oxyos-accountd`, first boot) and [ADR 0006](./0006-seat).
+
+## Problem
+
+There is no way to put OxyOS on a machine. The base image (`config/`) boots live to a text console, and the only installer on it is Debian's text debian-installer, which partitions with its own tool, installs a Debian system and creates a local Unix user with a password of the machine. That user is what [ADR 0020](./0020-oxy-account-login) rules out: on OxyOS every person is an Oxy account, enrolled by `oxyos-accountd` at the first boot, and nobody else signs in.
+
+Nor was there a way to know that an image works. The image rules (AGENTS.md) let an image be published only with a real compositor and runtime, **boot acceptance tests** and **a final package-contents audit**. Until now neither the tests nor the audit existed, and no image had been built in this repository: the boot logo was verified in Plymouth's interpreter, not on a booted system (ADR 0017, step 1).
+
+A Mac installs from its recovery system onto an erased disk, with no partition editor in the way, and from then on updates as a whole sealed system. A Chromebook has verified A/B system images and only Google accounts; ChromeOS Flex installs to a PC's whole disk from a live USB that can also be tried first. Those are the models.
+
+## Decision
+
+1. **The installer writes the image, never assembles a system.** What goes onto the disk is the live medium's own root filesystem, the squashfs that passed the acceptance tests and the contents audit (decision 8), copied whole; no package is downloaded or installed on the target and the network is not needed. The mechanism is **systemd-repart** (Debian's `systemd-repart`, systemd 257 in Trixie): partition definitions in the image (`/usr/lib/oxyos/install.repart.d/`), applied to the chosen disk with `--empty=force`, each partition formatted and filled in one declarative step (`Format=`, `CopyFiles=` from the squashfs live-boot mounts read-only at `/run/live/rootfs/filesystem.squashfs/`, never the live session's overlay, so nothing of the live user is copied). Then, in the copied root: the live system's packages purged (live-build writes the list, `live/filesystem.packages-remove`, which Debian's own live installer uses), the bootloader and its entry (decision 4), the initramfs rebuilt with the boot logo and, when encrypted, the unlock (decision 3).
+
+   Rejected:
+   - **debian-installer**, what the image ships today: its partitioner, its text UI (which can never be the Bloom app of decision 7), and its first user, which ADR 0020 forbids. It also installs the system again from its own logic rather than writing the image the tests saw.
+   - **Calamares**: Qt, which the image rules forbid.
+   - **Ubuntu's subiquity and curtin**: Ubuntu's, Python and snaps.
+   - **A script of our own** (`sfdisk`, `mkfs`, `rsync`): repart already does this declaratively and idempotently, encrypts, and is what systemd's image-based updates (decision 6) are built on.
+
+2. **The disk: the whole disk, GPT, two partitions.** The installer takes a whole internal disk, erased, as ChromeOS Flex and a Mac's erase-and-install do; it never resizes another system's partitions, and dual boot is not offered. Partitions carry the [Discoverable Partitions Specification](https://uapi-group.org/specifications/specs/discoverable_partitions_specification/)'s types, so systemd and the tools find them by type:
+   - **EFI system partition**, 1 GiB, FAT32, mounted at `/efi`: the bootloader and the boot entries' kernels and initramfs images (several kernel versions fit, a Debian initramfs with firmware is about 70 MB).
+   - **Root**, the rest, ext4 with its `encrypt` feature, so a home can later be encrypted with a key of its own (fscrypt, ADR 0020's "Not in this decision") without reformatting. Inside LUKS2 when encrypted (decision 3).
+   - **No swap partition.** Hibernation is not in this decision; memory pressure is zram's, when it is added.
+
+   This is the development layout. The published layout adds the system's A/B slots (decision 6); a development install is reinstalled then, not migrated.
+
+3. **Encryption: LUKS2 on the root, unlocked by an enrolled account's Oxy password.** Offered by the installer and on by default, as a Mac's setup turns on FileVault; it can be declined. It is FileVault's model, and the decision ADR 0020 left out:
+   - **At install** the root is formatted LUKS2 (`Encrypt=key-file` in its repart definition) with a random key of this install. The first boot unlocks with it (a key file on the ESP, read by the initramfs) because no account exists yet; the disk holds nothing personal until setup.
+   - **At setup**, once `oxyos-accountd` has enrolled the first account (ADR 0020, decision 2), it adds a LUKS2 keyslot with that account's password and one with a **recovery key** shown once to be written down (`systemd-cryptenroll --recovery-key`), then kills the install key's keyslot and erases its file. The disk is then re-encrypted to a new volume key in the background (LUKS2 online re-encryption, `cryptsetup reencrypt`), so whoever copied the install key before setup holds nothing.
+   - **Each enrolled account's password is a keyslot**, as each FileVault user can unlock a Mac: at boot, Plymouth's passphrase field (ADR 0017: the grey pill, a bullet a character, no text) takes any of them. `oxyos-accountd` keeps the keyslots as it keeps the verifiers: a password changed elsewhere replaces the account's keyslot from the open volume's key (`cryptsetup luksAddKey` with the volume key, no old password needed); removing an account kills its keyslot.
+   - **Not the TPM**, by default: unlocking with no secret would leave the disk's protection to the login screen. TPM2 with a PIN, measured boot and biometrics are not in this decision.
+   - **Throttling** is LUKS2's: each keyslot is Argon2id, about a second a try on the machine.
+
+   Typing the password at boot and again at the login screen is redundant; signing in with the password that unlocked (as FileVault does) is not in this decision.
+
+4. **The bootloader: systemd-boot, started by Debian's signed shim.** On an installed system (the live medium keeps live-build's GRUB for UEFI and syslinux for BIOS):
+   - **Secure Boot.** The chain is Debian's: `shim-signed` (signed by Microsoft's third-party UEFI CA, which PCs trust) starts `systemd-boot-efi-amd64-signed` (systemd-boot signed by Debian, which shim trusts), which starts Debian's signed kernel. The boot acceptance tests boot the live medium through Debian's signed shim and GRUB with Secure Boot on (step 2); the installed chain is tested the same way when the installer exists (step 4).
+   - **Entries** are Boot Loader Specification Type 1 entries written by `kernel-install` for each kernel, with the command line in `/etc/kernel/cmdline`: the root, and the boot logo's `quiet splash loglevel=3 vt.global_cursor_default=0` (ADR 0017).
+   - **Boot counting.** A new kernel's entry is tried a few times and kept only once the boot reaches `boot-complete.target` (systemd's automatic boot assessment), so a bad update falls back by itself. This is why not GRUB: Debian's GRUB has no Boot Loader Specification entries and no boot counting, and its `update-grub` and `os-prober` belong to the multi-system disks decision 2 rules out.
+   - **UEFI only.** systemd-boot is UEFI's; every machine OxyOS targets has UEFI.
+   - **Later, OxyOS's own signatures.** Debian's chain leaves the initramfs and the command line unsigned. Unified kernel images (`systemd-ukify`), which sign kernel, initramfs and command line together and measure them, need a key the firmware or shim trusts: OxyOS's own shim, built with OxyOS's certificate and signed by Microsoft after the [shim review](https://github.com/rhboot/shim-review), as distributions do. Enrolling a key by MOK is for development machines only. That is part of the publication gate (decision 6).
+
+5. **The first boot is `oxyos-login`'s setup.** The installer creates no user, sets no password and asks nothing about the person. The copied image has no machine id (systemd makes one at the first boot and runs the first boot's units), no host keys and no account.
+   - **What setup does.** It asks what a Mac's Setup Assistant asks first, in a Bloom client of the login screen: language and region, keyboard (through localed), time zone (timedated), the network (NetworkManager), then the Oxy account (ADR 0020, decision 4), then the encryption's password keyslot and recovery key (decision 3). Then the person's session starts.
+   - **Until `oxyos-login` exists,** a development install has no way to sign in but a development user the console installer creates when asked (decision 7). It is a local Unix user with a password of the machine, exactly what ADR 0020 forbids on a real install, so it exists only on development installs.
+
+6. **Updates: apt for development, images for publication.**
+   - **Development installs** update with apt from Debian's archive (security and updates, the `debian.sources` the image writes at first boot), and from an OxyOS repository for the platform's own packages once there is one.
+   - **Published installs update as whole images, A/B, with systemd-sysupdate** (Debian ships it in `systemd-container`). The system (`/usr`) is a read-only image with dm-verity in one of two slots; an update writes the other slot and a new boot entry, boot counting (decision 4) promotes it or falls back. `/etc`, `/var` and the homes stay on the root.
+   - **Why.** The image rules gate an image: acceptance tests and a contents audit. A machine updated by apt runs package combinations that no test saw and no audit read, from the first upgrade on. A machine updated by images runs, at every moment, an image that passed the gate, changes atomically and can go back, as a Chromebook's A/B images and a Mac's sealed system volume do. Debian's security fixes reach those machines as new OxyOS images, built from the archive, tested and audited.
+   - **Its own ADR.** The split `/usr` image (Debian's initramfs-tools does not boot a `/usr`-only image; mkosi, systemd's image builder, builds Debian ones), the published layout (ESP, `usr-A`/`usr-B` with verity, the root), signing and the update server are decided there, with OxyOS's shim (decision 4).
+
+7. **The installer is a Bloom application in the live session.** The published live medium starts the session (ADR 0017, step 4) with **Install OxyOS** foremost and the system usable to try first, as ChromeOS Flex's medium is.
+   - **The application** is unprivileged: it lists the internal disks (model, size; never the medium it booted from), says what will be erased, offers encryption, shows progress, and restarts. There is no partition editor.
+   - **The work** is done by `oxyos-installd`, a system service on the live medium alone, root and confined by systemd, which runs decision 1's steps and reports progress. It serves the live session's user, the medium's only user.
+   - **Until the session is in the image,** `oxyos-install` is a console program for development. It runs the same steps from a root shell on the live console and refuses to run without `--developer`. It can create the development user of decision 5. It is never on a published medium, and its existence is no reason to publish one.
+
+8. **The gate: built here, booted, audited.** Every image an install writes, development or published, is one that:
+   - was **built** by `tools/image/build.sh`, in a privileged Trixie container pinned by digest, with live-build pinned by version and `SOURCE_DATE_EPOCH` from the commit, the resolved package versions recorded beside it. No workflow builds or publishes an image (the image rules; `scripts/check-image-config.py` enforces it).
+   - **passed the boot acceptance tests** (`tools/image/acceptance`) in QEMU with UEFI, with Secure Boot through Debian's shim, and with BIOS ([checks](../iso-build#boot-acceptance-tests)).
+   - **passed the contents audit** (`scripts/check-image-contents.py`) on the built artifact: no display server, Wayland compositor, greeter, toolkit or desktop application by package or by file, every package in the manifest's dependency closure or put there by live-build itself, the configuration's files in the image unchanged, the boot logo in the initramfs. Publication runs it with `--gate`, which also refuses the known residue (the X11 client libraries `libpulse0` links, [base image configuration](../iso-build#package-manifest)).
+
+## Steps
+
+1. **Building the image here.** `tools/image/build.sh` (POSIX `sh`): the container, the read-only repository, the work directory (`~/oxyos-build`; not `/tmp`), the pinned live-build, the image named `oxyos-base-<version>-<commit>-amd64.iso` (*base*: the console base, never the desktop), its `.packages`, `.build-info` and checksum, then the audit.
+
+   *Done and run* (results below).
+2. **Boot acceptance tests.** `tools/image/acceptance` (Python 3, standard library): QEMU with OVMF (UEFI, or Secure Boot with Microsoft's keys) or SeaBIOS, a display whose preferred mode is the size under test (1920×1200, the ThinkPad's), the screen read over QMP, the serial port as a console.
+
+   *Done and run* (results below).
+3. **The contents audit** of the built image, `scripts/check-image-contents.py`, beside `check-image-config.py`'s audit of the configuration, sharing its list of what is forbidden.
+
+   *Done and run* (results below).
+4. **The development installer.** The repart definitions, `oxyos-install --developer`, systemd-boot with Debian's shim, `kernel-install` entries, `cryptsetup-initramfs` and the install key, the live packages purged. The manifest gains `systemd-repart`, `systemd-boot`, `systemd-boot-efi-amd64-signed`, `shim-signed`, `systemd-cryptsetup` and `cryptsetup-initramfs`, each audited. The acceptance tests gain an install: onto a virtual disk in QEMU, then a boot from that disk with Secure Boot on, Plymouth's passphrase field and its bullets on screen as the password is typed over QMP, the system running with no failed unit. The debian-installer then leaves the image (`LB_DEBIAN_INSTALLER`), with the GRUB drop-in and the preseed that serve it.
+5. **The session into the image** (ADR 0017, step 4; ADR 0020, steps 1 and 2): `oxyos-session`, `oxyos-login`, `oxyos-accountd` and the Bloom runtime as packages, the handover from Plymouth, and graphical acceptance tests: the session's first frame identical to Plymouth's last.
+6. **The installer application** and `oxyos-installd` (decision 7), and setup's steps (decision 5) with the encryption's keyslots (decision 3).
+7. **Image-based updates and publication** (decision 6): their ADR, the published layout, OxyOS's shim and signing, the gate run with `--gate`.
+
+### Results of steps 1 to 3
+
+RESULTS_PLACEHOLDER
+
+## Not in this decision
+
+- Dual boot, resizing another system, and installing beside one.
+- The TPM, measured boot, biometrics and unlock by PIN; signing in with the password that unlocked the disk.
+- Hibernation and swap.
+- Machines other than x86-64 with UEFI.
+- An encrypted home of each account's own (fscrypt or `systemd-homed`), for which the root's filesystem is made ready.
+- How a published medium is distributed and verified by the person (checksums, signatures, a download page).

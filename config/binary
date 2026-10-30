@@ -106,8 +106,11 @@ LB_ONIE_KERNEL_CMDLINE=""
 # Set inclusion of firmware packages in debian-installer
 LB_FIRMWARE_BINARY="true"
 
-# Set inclusion of firmware packages in the live image
-LB_FIRMWARE_CHROOT="true"
+# Set inclusion of firmware packages in the live image. "false": the manifest names the firmware.
+# live-build's detection installs every package with a file under /lib/firmware, which brought
+# astronomy camera drivers and through them Cairo and the X11 client libraries
+# (scripts/check-image-contents.py found it in a built image).
+LB_FIRMWARE_CHROOT="false"
 
 # Set swap file path
 LB_SWAP_FILE_PATH=""

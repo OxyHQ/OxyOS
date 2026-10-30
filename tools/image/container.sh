@@ -79,7 +79,7 @@ build() {
         printf 'commit=%s\n' "${OXYOS_COMMIT:-unknown}"
         printf 'source_date_epoch=%s\n' "${SOURCE_DATE_EPOCH:-}"
         printf 'build_seconds=%s\n' "$((finished - started))"
-        dpkg-query -W -f='container_%{Package}=%{Version}\n' live-build debootstrap
+        dpkg-query -W --showformat='container_%{Package}=%{Version}\n' live-build debootstrap
         printf 'container_image=%s\n' "${OXYOS_CONTAINER_IMAGE:-}"
     } >"/work/out/${name}.build-info"
     (cd /work/out && sha256sum "${name}.iso" >"${name}.iso.sha256")
@@ -90,7 +90,7 @@ build() {
 extract() {
     image=$1
     [ -f "$image" ] || die "no image at $image"
-    install_tools squashfs-tools xorriso
+    install_tools squashfs-tools xorriso initramfs-tools-core cpio zstd
     name=$(basename "$image" .iso)
     dir=/work/audit/$name
     rm -rf "$dir"
@@ -102,9 +102,22 @@ extract() {
     # Every path of the live root with its size, and the dpkg database the packages were
     # installed into: what the image is, rather than what the manifest asks for.
     unsquashfs -lls "$dir/filesystem.squashfs" >"$dir/files.txt"
-    unsquashfs -no-progress -d "$dir/root" "$dir/filesystem.squashfs" \
-        var/lib/dpkg/status etc/os-release usr/share/plymouth/themes etc/plymouth >/dev/null
+    # The dpkg database, os-release, and every file config/ includes, to compare with the source.
+    {
+        printf '%s\n' var/lib/dpkg/status var/lib/dpkg/info var/lib/dpkg/diversions etc/os-release
+        (cd /src/config/includes.chroot_after_packages && find . -type f | sed 's|^\./||')
+    } >"$dir/extract-list"
+    unsquashfs -no-progress -d "$dir/root" -ef "$dir/extract-list" "$dir/filesystem.squashfs" >/dev/null
+    # The initramfs: the boot logo must be in it, as Plymouth starts there.
+    xorriso -osirrox on -indev "$image" -extract /live/initrd.img "$dir/initrd.img" >/dev/null 2>&1
+    unmkinitramfs "$dir/initrd.img" "$dir/initrd-tree"
+    (cd "$dir/initrd-tree" && find . | sed 's|^\./||' | sort) >"$dir/initrd-files.txt"
+    mkdir -p "$dir/initrd/etc"
+    main=$(find "$dir/initrd-tree" -path '*/etc/plymouth' -type d | head -n 1)
+    [ -z "$main" ] || cp -a "$main" "$dir/initrd/etc/plymouth"
+    rm -rf "$dir/initrd-tree" "$dir/initrd.img"
     stat -c %s "$dir/filesystem.squashfs" >"$dir/squashfs-size"
+    stat -c %s "$image" >"$dir/iso-size"
     rm -f "$dir/filesystem.squashfs"
     hand_back "$dir"
     say "extracted $name into audit/$name"
