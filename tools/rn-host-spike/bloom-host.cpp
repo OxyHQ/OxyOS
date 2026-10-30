@@ -1354,6 +1354,7 @@ int main(int argc, char** argv) {
             accessibility.publish(oxyos::Window::kToplevel, tree.root());
             dirty = false;
           } else {
+            window->choosePainter();
             auto stats = damage ? oxyos::drawDamaged(tree, display, windowCanvas, drawn, *damage)
                                 : oxyos::draw(tree, display, windowCanvas, drawn);
             shownTexts = stats.textContent;

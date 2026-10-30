@@ -267,6 +267,7 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
       region.dirty = false;
       continue;
     }
+    window_.choosePainter();
     auto stats = damage ? drawRegionDamaged(tree_, tag, at, display, region.canvas, edit, *damage)
                         : drawRegion(tree_, tag, at, display, region.canvas, edit);
     // Its windows shown live, sent with this frame when they changed (ADR 0022).

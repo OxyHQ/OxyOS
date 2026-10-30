@@ -170,6 +170,7 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
     if (popup.dismissed || !window_.ready(popup.surface)) continue;
     const auto* surface = window_.surface(popup.surface);
     if (!popup.dirty && surface->configure == popup.drawnFor) continue;
+    window_.choosePainter();
     Canvas canvas;
     auto started = std::chrono::steady_clock::now();
     auto stats = drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, canvas, edit);

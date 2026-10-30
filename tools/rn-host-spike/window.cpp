@@ -1,6 +1,7 @@
 #include "window.h"
 
 #include <algorithm>
+#include <poll.h>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -210,6 +211,11 @@ void Window::choosePainter() {
   std::cerr << "[window] drawing on the CPU: " << why << "\n";
 }
 
+bool Window::disconnected() const {
+  pollfd fd{oxyos_client_fd(client_), 0, 0};
+  return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
+}
+
 void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
   Surface& target = surfaces_.at(id);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
@@ -220,6 +226,8 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
     // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
     sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
                                    gpuCanvasId(canvas), format, damage.data(), damage.size());
+    // The compositor gone (the session ends): nothing more is presented; the next poll says so.
+    if (sequence < 0 && disconnected()) return;
     if (sequence < 0) {
       std::cerr << "[window] the GPU path stops (" << oxyos_last_error() << "): drawing on the CPU\n";
       setGpuPaint(nullptr);
@@ -233,10 +241,8 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
                                           reinterpret_cast<const uint8_t*>(pixels.data()),
                                           pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
   }
+  if (sequence < 0 && disconnected()) return;
   if (sequence < 0) failed("cannot present");
-  // The next frames are drawn on the GPU where the compositor offers one (its table came after
-  // Welcome, before this first configure was answered).
-  choosePainter();
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
               << " for configure " << target.configure << "\n";

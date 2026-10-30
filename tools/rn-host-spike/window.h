@@ -241,12 +241,18 @@ class Window {
   // Inside `dispatch`'s callback, for a TEXT_INPUT event: the transaction it completed.
   bool transaction(OxyOSTextTransaction& out) { return oxyos_client_text_transaction(client_, &out) == 1; }
 
+  // Chooses the painter once, before the first frame is drawn (docs/adr/0031-gpu-buffers.mdx,
+  // decision 12): the GPU's where the compositor names a GPU this process shares buffers with (its
+  // table comes after Welcome, before the first configure), the CPU's otherwise.
+  void choosePainter();
+
  private:
   OxyOSClient* client_ = nullptr;
   // Whether the painter was chosen (docs/adr/0031-gpu-buffers.mdx, decision 12): the GPU's once
   // the compositor names a GPU this process can share buffers with, the CPU's otherwise.
   bool painterChosen_ = false;
-  void choosePainter();
+  // Whether the compositor closed the connection.
+  bool disconnected() const;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   Drawing drawing_;
