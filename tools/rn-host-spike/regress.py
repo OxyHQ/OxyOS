@@ -85,6 +85,14 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
   rate, the compositor serving the application between them, as a touchpad scrolls a list):
   "presented_min", the fewest frames the window showed;
+- react_hover: the hover events the host itself sent React in the step, exactly, as "event@name" ->
+  count: a pointerleave as the pointer leaves the window; never a pointerenter, pointerover or
+  pointerout, which React Native's pointer events processor makes from the host's pointermoves
+  for the views that listen (`react` leaves them all out);
+- moved: for a `move_paced` step (the mouse moved over the window from one point to another in N
+  motions at a rate, no button held, the compositor serving the application between them, as a
+  hand moves across a list): "presented_min", the fewest frames the window showed;
+  "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -225,7 +233,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "move_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
 
@@ -259,6 +267,9 @@ def director_args(step):
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
+    if kind == "move_paced":
+        # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
+        return args + ["--move-paced", ",".join(map(str, value))]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
@@ -863,7 +874,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "react" in expect:
         got = {}
         for line in report:
-            # Hover follows every pointer motion; a step checks it only under `hover`.
+            # Hover follows every pointer motion: the W3C events it makes are checked by what the
+            # application shows of them.
             if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
                 label = line.get("within") or line["target"]
                 key = f"{line['event']}@{label}"
@@ -872,6 +884,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"React received {got}, expected exactly {expect['react']}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else {}, expect["home"], fail)
+    if "react_hover" in expect:
+        got = {}
+        for line in report:
+            if (line["kind"] == "deliver" and start <= line["t"] <= end
+                    and line["event"] in ("pointerEnter", "pointerLeave", "pointerOver", "pointerOut")):
+                key = f"{line['event']}@{line.get('within') or line['target']}"
+                got[key] = got.get(key, 0) + 1
+        if got != expect["react_hover"]:
+            fail(f"the host sent React the hover events {got}, expected exactly {expect['react_hover']}")
     if "react_presses" in expect:
         # The W3C pointer presses (pointerdown, pointerup) React received in the step, which `react`
         # leaves out with the hover: exactly, as "event@name" -> count.
@@ -1156,6 +1177,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
                  f"{wanted['presented_min']}")
+    if "moved" in expect:
+        # A paced pointer motion (`move_paced`): the frames the window showed while the mouse
+        # moved over it, and how soon each followed its motion.
+        moved, wanted = result.get("moved") or {}, expect["moved"]
+        if moved.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {moved.get('presented', 0)} frames as the pointer moved, expected at least "
+                 f"{wanted['presented_min']}")
+        worst = (moved.get("latency_ms") or {}).get("max")
+        if "latency_max_ms" in wanted and (worst is None or worst > wanted["latency_max_ms"]):
+            fail(f"a frame came {worst} ms after the motion it followed, expected at most {wanted['latency_max_ms']}")
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).

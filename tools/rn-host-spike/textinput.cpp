@@ -440,9 +440,11 @@ void TextEditing::transaction(const OxyOSTextTransaction& change, bool current) 
 }
 
 std::optional<TextEditing::Field> TextEditing::field() const {
+  // Asked every turn: with no input focused, nothing is located.
   auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return std::nullopt;
   auto placement = locate_(focused_);
-  if (it == tree_.views().end() || !placement) return std::nullopt;
+  if (!placement) return std::nullopt;
   auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
   Field field{.tag = focused_, .surface = placement->surface};
   // What the field is for, from what Android's ReactTextInputManager makes of the same props.

@@ -358,10 +358,17 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
       tellShape_(surface, shape);
     }
   }
-  size_t common = 0;
-  while (common < now.size() && common < hovered_.size() && now[common] == hovered_[common]) ++common;
   Point page = content ? Point{content->origin.x + x, content->origin.y + y} : Point{x, y};
-  auto send = [&](Tag tag, bool enter) {
+  // React Native's own pointer events processor (UIManagerBinding, PointerEventsProcessor) turns
+  // a C++ platform's pointer events into W3C's: from the target of each one, as the pointer
+  // moves, it sends pointerover and pointerout, pointerleave (innermost first) and pointerenter
+  // (outermost first), each only where a view listens for it or under one that captures it, and
+  // drops a pointermove no view on its path listens for. What the platform tells it is what iOS's
+  // Fabric tells it of a mouse: a pointermove to the view under the pointer as it moves, and a
+  // pointerleave when it leaves the window. Telling it more (an enter or a leave for each view the
+  // pointer crossed) made it track the pointer as on each of those views in turn, so a listener
+  // heard every crossing twice, and every view on the path cost JavaScript an event.
+  auto send = [&](Tag tag, bool leaving) {
     auto it = tree_.views().find(tag);
     if (it == tree_.views().end()) return;
     auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
@@ -376,16 +383,30 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
     event.offsetPoint = {page.x - origin.x, page.y - origin.y};
     event.width = 1;
     event.height = 1;
-    event.buttons = down_ ? 1 : 0;
-    if (enter) {
-      emitter->onPointerEnter(event);
-    } else {
+    event.button = -1;  // no button changed (W3C)
+    event.buttons = buttons_;
+    event.ctrlKey = ctrl_;
+    event.shiftKey = shift_;
+    event.altKey = alt_;
+    event.metaKey = meta_;
+    if (leaving) {
       emitter->onPointerLeave(event);
+      Report::get().deliver("pointerLeave", surface, it->second.view);
+    } else {
+      emitter->onPointerMove(event);
     }
-    Report::get().deliver(enter ? "pointerEnter" : "pointerLeave", surface, it->second.view);
   };
-  for (size_t i = hovered_.size(); i > common; --i) send(hovered_[i - 1], false);
-  for (size_t i = common; i < now.size(); ++i) send(now[i], true);
+  if (!now.empty()) {
+    // A motion of less than a tenth of a pixel over the same view is none (Android's
+    // ONMOVE_EPSILON).
+    bool moved = !hoveredAt_ || hovered_.empty() || hovered_.back() != now.back() ||
+                 std::abs(hoveredAt_->x - page.x) > 0.1f || std::abs(hoveredAt_->y - page.y) > 0.1f;
+    if (moved) send(now.back(), false);
+  } else if (!hovered_.empty()) {
+    // Out of the window (or over none of its views): the pointer left the root.
+    send(hovered_.back(), true);
+  }
+  hoveredAt_ = now.empty() ? std::nullopt : std::optional<Point>(page);
   hovered_ = std::move(now);
   hoveredSurface_ = surface;
 }

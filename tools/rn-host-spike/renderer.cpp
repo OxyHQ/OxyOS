@@ -24,6 +24,7 @@
 #include <optional>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <set>
 
@@ -44,12 +45,18 @@ void ViewTree::apply(const ShadowViewMutationList& mutations) {
         auto& parent = views_[m.parentTag];
         auto index = std::min<size_t>(static_cast<size_t>(m.index), parent.children.size());
         parent.children.insert(parent.children.begin() + static_cast<long>(index), m.newChildShadowView.tag);
-        views_[m.newChildShadowView.tag].view = m.newChildShadowView;
+        auto& child = views_[m.newChildShadowView.tag];
+        child.view = m.newChildShadowView;
+        child.parent = m.parentTag;
         break;
       }
       case ShadowViewMutation::Remove: {
         auto& children = views_[m.parentTag].children;
         children.erase(std::remove(children.begin(), children.end(), m.oldChildShadowView.tag), children.end());
+        if (auto child = views_.find(m.oldChildShadowView.tag);
+            child != views_.end() && child->second.parent == m.parentTag) {
+          child->second.parent = -1;
+        }
         break;
       }
       case ShadowViewMutation::Update:
@@ -60,6 +67,24 @@ void ViewTree::apply(const ShadowViewMutationList& mutations) {
         break;
     }
   }
+}
+
+std::vector<Tag> ViewTree::path(Tag tag) const {
+  std::vector<Tag> path;
+  if (root_ < 0) return path;
+  // A tree has no cycles; the bound keeps a malformed transaction from looping.
+  for (Tag at = tag; path.size() <= views_.size(); ) {
+    auto it = views_.find(at);
+    if (it == views_.end()) return {};
+    path.push_back(at);
+    if (at == root_) {
+      std::reverse(path.begin(), path.end());
+      return path;
+    }
+    at = it->second.parent;
+    if (at < 0) return {};
+  }
+  return {};
 }
 
 namespace {
@@ -585,10 +610,13 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
                                             kWindowViewComponent};
 
-// The input's text laid out as it is drawn: single-line inputs do not wrap.
+// The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
+// number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
   float maxWidth = props.multiline ? width : std::numeric_limits<float>::infinity();
-  return TextEngine::shared().layout(text, props.paragraphAttributes, maxWidth);
+  auto paragraph = props.paragraphAttributes;
+  paragraph.maximumNumberOfLines = 0;
+  return TextEngine::shared().layout(text, paragraph, maxWidth);
 }
 
 // A secure field (`secureTextEntry`) shows one bullet per character, as Android's password
@@ -1462,8 +1490,9 @@ Rect Affine::bounds(const Rect& rect) const {
 
 Affine viewTransform(const ShadowView& view) {
   const auto& origin = view.layoutMetrics.frame.origin;
-  auto props = std::dynamic_pointer_cast<const ViewProps>(view.props);
-  if (!props || props->transform == Transform::Identity()) return Affine::translation(origin.x, origin.y);
+  static const Transform identity = Transform::Identity();
+  const auto* props = dynamic_cast<const ViewProps*>(view.props.get());
+  if (!props || props->transform == identity) return Affine::translation(origin.x, origin.y);
   const auto& m = props->resolveTransform(view.layoutMetrics).matrix;
   // Column-major, as CSS: x' = m0 x + m4 y + m12, y' = m1 x + m5 y + m13, about the view's centre,
   // as Android's pivot is by default (resolveTransform puts a transform origin in the matrix, as an
@@ -1645,56 +1674,28 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
   return stats;
 }
 
-namespace {
-
-std::optional<Rect> frameUnder(const ViewTree& tree, Tag tag, Tag at, Point offset) {
-  auto it = tree.views().find(at);
-  if (it == tree.views().end()) return std::nullopt;
-  const auto& view = it->second.view;
-  Point moved = transformOffset(view);
-  Point position{offset.x + view.layoutMetrics.frame.origin.x + moved.x,
-                 offset.y + view.layoutMetrics.frame.origin.y + moved.y};
-  // A modal is at the window's origin, wherever it is in the tree.
-  if (isModal(view.componentName ? view.componentName : "")) position = Point{0, 0};
-  if (at == tag) return Rect{position, view.layoutMetrics.frame.size};
-  Point children = position;
-  if (std::string(view.componentName ? view.componentName : "") == "ScrollView" && view.state) {
-    const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
-    children.x -= state.contentOffset.x;
-    children.y -= state.contentOffset.y;
-  }
-  for (Tag child : it->second.children) {
-    if (auto found = frameUnder(tree, tag, child, children)) return found;
-  }
-  return std::nullopt;
-}
-
-}  // namespace
-
-namespace {
-
-std::vector<Tag> pathTo(const ViewTree& tree, Tag at, Tag tag) {
-  if (at == tag) return {tag};
-  auto it = tree.views().find(at);
-  if (it == tree.views().end()) return {};
-  for (Tag child : it->second.children) {
-    auto path = pathTo(tree, child, tag);
-    if (!path.empty()) {
-      path.insert(path.begin(), at);
-      return path;
-    }
-  }
-  return {};
-}
-
-}  // namespace
-
-std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) {
-  return tree.root() < 0 ? std::vector<Tag>{} : pathTo(tree, tree.root(), tag);
-}
+std::vector<Tag> ancestry(const ViewTree& tree, Tag tag) { return tree.path(tag); }
 
 std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
-  return tree.root() < 0 ? std::nullopt : frameUnder(tree, tag, tree.root(), {0, 0});
+  auto path = tree.path(tag);
+  if (path.empty()) return std::nullopt;
+  // From the root down, as the views are drawn: each one where its parent puts its children.
+  Point offset{0, 0};
+  for (size_t i = 0;; ++i) {
+    const auto& view = tree.views().at(path[i]).view;
+    Point moved = transformOffset(view);
+    Point position{offset.x + view.layoutMetrics.frame.origin.x + moved.x,
+                   offset.y + view.layoutMetrics.frame.origin.y + moved.y};
+    // A modal is at the window's origin, wherever it is in the tree.
+    if (isModal(view.componentName ? view.componentName : "")) position = Point{0, 0};
+    if (i + 1 == path.size()) return Rect{position, view.layoutMetrics.frame.size};
+    offset = position;
+    if (std::strcmp(view.componentName ? view.componentName : "", "ScrollView") == 0 && view.state) {
+      const auto& state = static_cast<const ConcreteState<ScrollViewState>&>(*view.state).getData();
+      offset.x -= state.contentOffset.x;
+      offset.y -= state.contentOffset.y;
+    }
+  }
 }
 
 bool writePng(const Canvas& canvas, const std::string& path) {

@@ -65,6 +65,10 @@ struct ModalPresentation {
 struct View {
   facebook::react::ShadowView view;
   std::vector<facebook::react::Tag> children;
+  // The view it is a child of, as the last Insert placed it; -1 for the root and for a view
+  // removed and not inserted again. What finds a view's place (windowFrame, ancestry) walks up
+  // these rather than searching the tree from its root.
+  facebook::react::Tag parent = -1;
   // What an Image view shows, as Android's ReactImageView holds its bitmap; none until loaded.
   std::shared_ptr<const Picture> picture;
 };
@@ -73,6 +77,9 @@ class ViewTree {
  public:
   void apply(const facebook::react::ShadowViewMutationList& mutations);
   const std::unordered_map<facebook::react::Tag, View>& views() const { return views_; }
+  // The views from the root to `tag`, inclusive, by their parents; empty if `tag` is not in the
+  // root's tree.
+  std::vector<facebook::react::Tag> path(facebook::react::Tag tag) const;
   // Gives an existing view the picture it shows (none for nullptr).
   void setPicture(facebook::react::Tag tag, std::shared_ptr<const Picture> picture) {
     if (auto it = views_.find(tag); it != views_.end()) it->second.picture = std::move(picture);

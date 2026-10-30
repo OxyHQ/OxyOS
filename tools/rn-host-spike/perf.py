@@ -10,6 +10,10 @@ step's expected result) and measures, from what the processes report and from /p
   how long composing each took) and the frames the hosts drew (their loop's work per frame,
   `busy_ms`, and the part of it running JavaScript, `js_ms`, from the host's report), and the
   latency from input to the frame answering it;
+- responses: Stash used as a person uses it (perf-stash.json at 1, perf-stash-scaled.json at 1.25):
+  for each input, the latency from it to the first frame that changed, against the scenario's
+  budget, and the work the application's host did for it (`busy_ms` summed over the frames until
+  the step settled, and its JavaScript);
 - cold start: an application's process started to its first frame on the output, and the stages
   of the host's start in between (the host's report's `stage` lines);
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
@@ -30,7 +34,9 @@ runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz witho
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only] [--check]
-               [interactions] [cold-start] [idle] [applications]
+               [interactions] [responses] [cold-start] [idle] [applications]
+
+`responses` needs packages built with STASH_DIR (docs/react-native-android-adaptation.mdx).
 """
 
 import argparse
@@ -70,6 +76,13 @@ INTERACTIONS = [
      "the overview opening, Allo's window drawn live in its card (ADR 0022)"),
     ("Settings scroll", "perf-settings-scroll.json", [1, 2],
      "Settings' sidebar scrolled 240 px down and back at a touchpad's 60 Hz"),
+]
+
+# Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
+# `latency_ms`, which regress.py holds every run to and --check the median.
+RESPONSES = [
+    ("Stash", "perf-stash.json"),
+    ("Stash at 1.25", "perf-stash-scaled.json"),
 ]
 
 # Cold starts: (name, scenario without steps). The shell's own start is measured in the last.
@@ -275,7 +288,7 @@ def interaction(options, name, scenario, steps, what, out):
             frames = step.get("composed", [])
             # A paced step's input lasts its events over their rate: the frames composed then are
             # the interaction's (what follows is the answer to the last of them settling).
-            paced = step.get("drag_paced") or step.get("scroll_paced")
+            paced = step.get("drag_paced") or step.get("scroll_paced") or step.get("move_paced")
             if paced:
                 span = paced[-2] / paced[-1] * 1000 + refresh
                 frames = [frame for frame in frames if frame[0] <= span]
@@ -294,7 +307,7 @@ def interaction(options, name, scenario, steps, what, out):
             # A paced step's latency is its own (from each event to the frame answering it; none for
             # a window moved, which composes in the turn the motion wakes); another's, from its
             # input to the first frame that changed.
-            measured = (step.get("drag") or step.get("scrolled") or {}).get("latency_ms", {}).get("median")
+            measured = (step.get("drag") or step.get("scrolled") or step.get("moved") or {}).get("latency_ms", {}).get("median")
             if measured is None and not paced:
                 measured = step.get("latency_ms")
             if measured is not None:
@@ -313,6 +326,32 @@ def interaction(options, name, scenario, steps, what, out):
         "latency_ms": percentiles(latency),
         "peak_rss_mib": peaks,
     }
+
+
+def responses(options, name, scenario, out):
+    """Each input step of `scenario` over every run: its latency, the host's work for it (every
+    frame's `busy_ms` from the input until the step settled, summed, and the JavaScript in it), the
+    frames that took, and for a paced motion what it showed."""
+    path = SCENARIOS / scenario
+    steps = json.loads(path.read_text())["steps"]
+    measured = {}
+    for run in range(options.runs):
+        summary, report, _, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
+        for index, (step, result) in enumerate(zip(steps, summary["steps"])):
+            if step["do"][0] == "wait":
+                continue
+            frames = [line for line in frames_between(report, result["t_inject"], result["t_settled"])
+                      if line["surface"] == 1]
+            entry = measured.setdefault(index, {"name": step["name"], "budget_ms": step["expect"].get("latency_ms"),
+                                                "latency": [], "work": [], "js": [], "frames": []})
+            if result.get("latency_ms") is not None:
+                entry["latency"].append(result["latency_ms"])
+            entry["work"].append(sum(line.get("busy_ms", 0) for line in frames))
+            entry["js"].append(sum(line.get("js_ms", 0) for line in frames))
+            entry["frames"].append(len(frames))
+    return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "latency_ms": percentiles(entry["latency"]),
+             "work_ms": percentiles(entry["work"]), "js_ms": percentiles(entry["js"]),
+             "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
 
 
 def slug(name):
@@ -503,6 +542,16 @@ def show(results):
                            "of it reading clients ms", "app frame work ms", "app JS ms", "shell frame work ms",
                            "latency ms"]))
         print()
+    if "responses" in results:
+        def middle(stats):
+            return "—" if not stats else f"{stats['p50']} / {stats['max']}"
+
+        for name, steps in results["responses"].items():
+            rows = [[step["step"], middle(step["latency_ms"]), step["budget_ms"] or "—", middle(step["work_ms"]),
+                     middle(step["js_ms"])] for step in steps]
+            print(f"{name}:")
+            print(table(rows, ["input", "latency ms p50 / max", "budget", "app work ms p50 / max", "app JS ms p50 / max"]))
+            print()
     if "cold_start" in results:
         rows = [[name, spread(r["first_frame_ms"]), ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
                 for name, r in results["cold_start"].items()]
@@ -532,6 +581,11 @@ def check(results):
             if busy and busy["p95"] > BUDGETS["host_busy_refreshes_p95"] * refresh:
                 over.append(f"{name}: the {source}'s host worked {busy['p95']} ms per frame at p95 "
                             f"(a refresh is {refresh} ms)")
+    for name, steps in results.get("responses", {}).items():
+        for step in steps:
+            if step["budget_ms"] and step["latency_ms"] and step["latency_ms"]["p50"] > step["budget_ms"]:
+                over.append(f"{name}: {step['step']}: {step['latency_ms']['p50']} ms at the median "
+                            f"(its budget is {step['budget_ms']} ms)")
     for name, processes in results.get("idle", {}).items():
         for who, m in processes.items():
             if who == "compositor":
@@ -548,7 +602,7 @@ def check(results):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("parts", nargs="*", help="interactions, cold-start, idle, applications (all by default)")
+    parser.add_argument("parts", nargs="*", help="interactions, responses, cold-start, idle, applications (all by default)")
     parser.add_argument("--offscreen", required=True)
     parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
     parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
@@ -557,8 +611,8 @@ def main():
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    parts = options.parts or ["interactions", "cold-start", "idle", "applications"]
-    if not set(parts) <= {"interactions", "cold-start", "idle", "applications"}:
+    parts = options.parts or ["interactions", "responses", "cold-start", "idle", "applications"]
+    if not set(parts) <= {"interactions", "responses", "cold-start", "idle", "applications"}:
         parser.error(f"unknown parts {parts}")
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-perf-"))
     out.mkdir(parents=True, exist_ok=True)
@@ -567,6 +621,8 @@ def main():
     if "interactions" in parts:
         results["interactions"] = {name: interaction(options, name, scenario, steps, what, out)
                                    for name, scenario, steps, what in INTERACTIONS}
+    if "responses" in parts:
+        results["responses"] = {name: responses(options, name, scenario, out) for name, scenario in RESPONSES}
     if "cold-start" in parts:
         results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS}
     if "idle" in parts:

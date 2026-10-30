@@ -108,6 +108,16 @@ pub enum Step {
         events: u32,
         hz: u32,
     },
+    /// The pointer moved over the window, no button held, from one window-local point to another
+    /// in `motions` even steps, `hz` of them a second, the compositor serving the application
+    /// between them: a hand moving the mouse across a list. What the window showed meanwhile is
+    /// measured (`move_paced`).
+    MovePaced {
+        from: (i32, i32),
+        to: (i32, i32),
+        motions: u32,
+        hz: u32,
+    },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -214,6 +224,12 @@ impl Step {
             Step::ScrollPaced { at, dy, events, hz } => {
                 format!("scroll by {dy} at {at:?} in {events} events at {hz} Hz")
             }
+            Step::MovePaced {
+                from,
+                to,
+                motions,
+                hz,
+            } => format!("pointer moved from {from:?} to {to:?} in {motions} motions at {hz} Hz"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::KeyDown(codes) => format!("key {} held", chord(codes)),
             Step::KeyUp(codes) => format!("key {} released", chord(codes)),
@@ -309,6 +325,15 @@ impl Step {
             Step::ScrollPaced { at, dy, events, hz } => {
                 format!("\"scroll_paced\":[{},{},{dy},{events},{hz}]", at.0, at.1)
             }
+            Step::MovePaced {
+                from,
+                to,
+                motions,
+                hz,
+            } => format!(
+                "\"move_paced\":[{},{},{},{},{motions},{hz}]",
+                from.0, from.1, to.0, to.1
+            ),
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
             Step::KeyUp(codes) => format!("\"key_up\":{codes:?}"),
@@ -456,7 +481,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -758,6 +783,18 @@ impl Launch {
                         dy: n[2],
                         events: n[3] as u32,
                         hz: n[4] as u32,
+                    }
+                }
+                Some("--move-paced") => {
+                    let n = numbers(args.next(), 6)?;
+                    if n[4] < 1 || n[5] < 1 {
+                        return Err("--move-paced needs at least one motion at 1 Hz or more".into());
+                    }
+                    Step::MovePaced {
+                        from: (n[0], n[1]),
+                        to: (n[2], n[3]),
+                        motions: n[4] as u32,
+                        hz: n[5] as u32,
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
@@ -2215,6 +2252,98 @@ fn scroll_paced(
     ))
 }
 
+/// A paced pointer motion (`Step::MovePaced`) over the window, no button held: each motion when
+/// its time comes with the compositor serving the application until then and the turn the motion
+/// wakes composing at once, as a mouse's wakes a session's; then the compositor serving it until
+/// its window shows no new frame for SETTLE (or five seconds pass). Returns what the window did,
+/// as JSON: `motions`; `presented`, the frames it showed meanwhile; and `latency_ms` (median and
+/// max), from each motion to the first frame shown after it, for the motions a frame followed
+/// before the next motion (a hover that changes nothing shown is followed by none).
+fn move_paced(
+    session: &mut Session,
+    window: Rect,
+    from: (i32, i32),
+    to: (i32, i32),
+    motions: u32,
+    hz: u32,
+) -> Result<String> {
+    let inside = Rect::new(0, 0, window.width, window.height);
+    for (x, y) in [from, to] {
+        if !inside.contains_point(x, y) {
+            return Err(format!("({x}, {y}) is outside the window {window:?}").into());
+        }
+    }
+    let sequence = |compositor: &Compositor| compositor.surface_sequence(CLIENT, WINDOW);
+    session
+        .compositor
+        .scene
+        .pointer_motion(window.x + from.0, window.y + from.1);
+    let start = Instant::now();
+    let interval = Duration::from_secs(1) / hz;
+    let mut last = sequence(&session.compositor);
+    let mut shown: Vec<Duration> = Vec::new();
+    let mut observe = |compositor: &Compositor, shown: &mut Vec<Duration>| {
+        let now = sequence(compositor);
+        if now != last {
+            last = now;
+            shown.push(start.elapsed());
+        }
+    };
+    let idle_wait = session.compositor.idle_wait;
+    let mut moved: Vec<Duration> = Vec::new();
+    let (dx, dy) = (i64::from(to.0 - from.0), i64::from(to.1 - from.1));
+    for i in 1..=i64::from(motions) {
+        let due = interval * i as u32;
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+            observe(&session.compositor, &mut shown);
+        }
+        let x = i64::from(from.0) + dx * i / i64::from(motions);
+        let y = i64::from(from.1) + dy * i / i64::from(motions);
+        moved.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .pointer_motion(window.x + x as i32, window.y + y as i32);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+    }
+    session.compositor.idle_wait = idle_wait;
+    let deadline = start.elapsed() + Duration::from_secs(5);
+    let mut quiet_since = start.elapsed();
+    while start.elapsed() < deadline && start.elapsed() - quiet_since < SETTLE {
+        let before = shown.len();
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+        if shown.len() != before {
+            quiet_since = start.elapsed();
+        }
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    let mut latencies: Vec<f64> = moved
+        .iter()
+        .enumerate()
+        .filter_map(|(k, &t)| {
+            let next = moved.get(k + 1).copied().unwrap_or(Duration::MAX);
+            shown
+                .iter()
+                .find(|&&s| s >= t && s < next)
+                .map(|&s| ms(s - t))
+        })
+        .collect();
+    latencies.sort_by(f64::total_cmp);
+    Ok(format!(
+        "{{\"motions\":{motions},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}}}}",
+        shown.len(),
+        median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
+        latencies
+            .last()
+            .map_or("null".to_string(), |ms| format!("{ms:.1}")),
+    ))
+}
+
 fn inside_output((x, y): (i32, i32)) -> Result<()> {
     if OUTPUT.contains_point(x, y) {
         Ok(())
@@ -2406,7 +2535,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Accessibility { .. }
         | Step::Grab { .. }
         | Step::DragPaced { .. }
-        | Step::ScrollPaced { .. } => {}
+        | Step::ScrollPaced { .. }
+        | Step::MovePaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -2811,6 +2941,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let injected_ns = monotonic_ns();
         let mut dragged = None;
         let mut scrolled = None;
+        let mut moved = None;
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
         }
@@ -2853,6 +2984,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             _ if matches!(step, Step::ScrollPaced { .. }) => {
                 if let Step::ScrollPaced { at, dy, events, hz } = step {
                     scrolled = Some(scroll_paced(&mut session, window, *at, *dy, *events, *hz)?);
+                }
+                0
+            }
+            _ if matches!(step, Step::MovePaced { .. }) => {
+                if let Step::MovePaced {
+                    from,
+                    to,
+                    motions,
+                    hz,
+                } = step
+                {
+                    moved = Some(move_paced(&mut session, window, *from, *to, *motions, *hz)?);
                 }
                 0
             }
@@ -2909,7 +3052,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -2930,6 +3073,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             composed_since(&session.compositor, injected_ns),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
+            moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),
         ));
         snapshots.push(snapshot(
             &session.compositor,

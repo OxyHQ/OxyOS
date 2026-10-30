@@ -1,0 +1,125 @@
+{
+  "about": "A mouse moving over views without a button held (sample/HoverProbe.tsx; input.h): React receives each W3C hover event once, and only where a view listens for it or under one that captures it. The host tells React Native's pointer events processor what iOS's Fabric tells it (a pointermove to the view under the pointer as it moves, a pointerleave as it leaves the window), and the processor makes pointerover, pointerout, pointerenter and pointerleave. Before, the host also sent an enter or a leave to every view the pointer crossed: listeners heard each crossing twice (the card 'entered' twice), the capture zone three times, pointermove never came, and every view on the path cost JavaScript an event.",
+  "module": "HoverProbe",
+  "window": [
+    640,
+    220
+  ],
+  "steps": [
+    {
+      "name": "nothing hovered yet",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Card: entered 0, left 0, over 0, out 0, moved no",
+          "Capture: entered 0, left 0"
+        ]
+      }
+    },
+    {
+      "name": "over a zone that listens for nothing: nothing reaches React",
+      "do": [
+        "move_paced",
+        [
+          8,
+          180,
+          96,
+          76,
+          20,
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Card: entered 0, left 0, over 0, out 0, moved no",
+          "Capture: entered 0, left 0"
+        ],
+        "react": {},
+        "moved": {
+          "presented_min": 0
+        },
+        "react_hover": {}
+      }
+    },
+    {
+      "name": "into the card, then the view inside it: entered once, over each, out of the card, moves to the child",
+      "do": [
+        "move_paced",
+        [
+          96,
+          76,
+          280,
+          76,
+          20,
+          125
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Card: entered 1, left 0, over 2, out 1, moved yes"
+        ],
+        "react": {},
+        "moved": {
+          "presented_min": 1,
+          "latency_max_ms": 100
+        },
+        "react_hover": {}
+      }
+    },
+    {
+      "name": "out of the card into the capture zone: the card left once, the capture zone entered",
+      "do": [
+        "move_paced",
+        [
+          280,
+          76,
+          464,
+          76,
+          20,
+          125
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Card: entered 1, left 1, over 3, out 3, moved yes",
+          "Capture: entered 1, left 0"
+        ],
+        "react": {},
+        "moved": {
+          "presented_min": 1
+        },
+        "react_hover": {}
+      }
+    },
+    {
+      "name": "away from the zones: the capture zone left once",
+      "do": [
+        "move_paced",
+        [
+          464,
+          76,
+          300,
+          200,
+          20,
+          125
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Card: entered 1, left 1, over 3, out 3, moved yes",
+          "Capture: entered 1, left 1"
+        ],
+        "react": {},
+        "moved": {
+          "presented_min": 1
+        },
+        "react_hover": {}
+      }
+    }
+  ]
+}
