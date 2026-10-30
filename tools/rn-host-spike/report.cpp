@@ -101,9 +101,38 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
   if (!file_) return;
   folly::dynamic list = folly::dynamic::array;
   for (const auto& text : texts) list.push_back(text);
+  // The work so far in this turn is the frame's.
+  if (turning_) {
+    auto now = std::chrono::steady_clock::now();
+    busyMs_ += std::chrono::duration<double, std::milli>(now - turn_).count();
+    turn_ = now;
+  }
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
-      "render_ms", renderMs)("damaged", damaged)("texts", std::move(list))(
+      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", jsMs_)("damaged", damaged)("texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
+  busyMs_ = 0;
+  jsMs_ = 0;
+}
+
+void Report::stage(const char* name) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "stage")("name", name));
+}
+
+void Report::beginTurn() {
+  if (!file_) return;
+  turn_ = std::chrono::steady_clock::now();
+  turning_ = true;
+}
+
+void Report::endTurn() {
+  if (!file_ || !turning_) return;
+  busyMs_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - turn_).count();
+  turning_ = false;
+}
+
+void Report::javascript(double ms) {
+  if (file_) jsMs_ += ms;
 }
 
 void Report::layout(float width, float height, double ms) {

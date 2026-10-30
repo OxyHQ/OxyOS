@@ -12,6 +12,7 @@ use oxyos_compositor_core::{
 };
 use oxyos_protocol::{Format, Rect, Size};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::time::Duration;
 
 /// Where a motion moves a surface at its farthest from where it is: nowhere, a share of its own
@@ -126,7 +127,8 @@ pub struct Snapshot {
     pub rect: Rect,
     pub extent: Size,
     pub format: Format,
-    pub pixels: Vec<u8>,
+    /// Shared with the frame they were composed from: drawing them again copies nothing.
+    pub pixels: Rc<Vec<u8>>,
     pub look: Option<oxyos_compositor_core::WindowLook>,
     /// The windows a shell surface showed live over its pixels (docs/adr/0022-window-views.mdx),
     /// which go with it.
@@ -143,7 +145,7 @@ pub struct ViewSnapshot {
     pub opacity: u8,
     pub extent: Size,
     pub format: Format,
-    pub pixels: Vec<u8>,
+    pub pixels: Rc<Vec<u8>>,
 }
 
 struct Running {
@@ -686,7 +688,7 @@ mod tests {
             rect: Rect::new(100, 100, 200, 100),
             extent: Size::new(200, 100),
             format: Format::Xrgb8888,
-            pixels: vec![0; 200 * 100 * 4],
+            pixels: Rc::new(vec![0; 200 * 100 * 4]),
             look: None,
             views: Vec::new(),
         }

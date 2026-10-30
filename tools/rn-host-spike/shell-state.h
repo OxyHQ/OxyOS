@@ -15,6 +15,7 @@
 
 #include <folly/dynamic.h>
 
+#include <chrono>
 #include <map>
 #include <optional>
 #include <string>
@@ -52,6 +53,9 @@ class ShellState {
   folly::dynamic state() const;
   // Each turn: true if the wallpaper's frame changed (the sun moved on to another).
   bool tick();
+  // When tick should look again: the wallpaper's next frame, at most a minute away (the system's
+  // clock may jump, or the machine sleep, meanwhile); none for no wallpaper or a fixed moment.
+  std::optional<std::chrono::steady_clock::time_point> nextChange() const;
 
  private:
   struct Window {

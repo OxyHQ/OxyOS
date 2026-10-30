@@ -244,13 +244,78 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
                 axis(y0, y1, layer.y, layer.height, layer.extent.1),
             )
         });
+        // A layer at its pixels' own size takes each pixel as it is, with no scaling to work out;
+        // an opaque one at full opacity is copied where it covers a pixel whole: away from its
+        // rounded corners, each pixel is its source's (what the blending below gives there).
+        let one_to_one = (layer.width, layer.height) == layer.extent;
+        let copied = one_to_one && matches!(layer.paint, Paint::Opaque(_)) && layer.opacity == 255;
         for y in i64::from(y0)..y1 {
             let ly = (y - i64::from(layer.y)) as u64;
-            let sy = ly * u64::from(layer.extent.1) / u64::from(layer.height);
+            let sy = if one_to_one {
+                ly
+            } else {
+                ly * u64::from(layer.extent.1) / u64::from(layer.height)
+            };
             let rows = filtered
                 .as_ref()
                 .map(|(columns, rows)| (columns, rows.get((y - i64::from(y0)) as usize)));
+            // The columns of this row (the layer's) that no rounded corner touches.
+            let whole =
+                if u64::from(radius) <= ly && ly + u64::from(radius) < u64::from(layer.height) {
+                    0..u64::from(layer.width)
+                } else {
+                    u64::from(radius)..u64::from(layer.width.saturating_sub(radius))
+                };
+            // The output's columns copied whole, at once.
+            let copy = match layer.paint {
+                Paint::Opaque(pixels) if copied => {
+                    let from = (i64::from(x0)).max(i64::from(layer.x) + whole.start as i64);
+                    let to = x1.min(i64::from(layer.x) + whole.end as i64);
+                    if from < to {
+                        let row = y as usize * width as usize;
+                        let source = (sy * u64::from(layer.extent.0)) as usize
+                            + (from - i64::from(layer.x)) as usize;
+                        let pixels = &pixels[source * 4..(source + (to - from) as usize) * 4];
+                        for (out, pixel) in out[row + from as usize..row + to as usize]
+                            .iter_mut()
+                            .zip(pixels.chunks_exact(4))
+                        {
+                            *out = u32::from_le_bytes([pixel[0], pixel[1], pixel[2], 0]);
+                        }
+                    }
+                    from..to
+                }
+                _ => 0..0,
+            };
+            // A shadow's columns wholly beneath what casts it (`beneath` all of the pixel): none of
+            // it is drawn there.
+            let hidden = match layer.paint {
+                Paint::Shadow(_, shadow) => {
+                    let clip = &shadow.clip;
+                    let cy = ly as i64 - i64::from(clip.y);
+                    if cy < 0 || cy >= i64::from(clip.height) {
+                        0..0
+                    } else {
+                        let r = i64::from(shape::radius_on(
+                            shadow.clip_radius,
+                            clip.width,
+                            clip.height,
+                        ));
+                        let inset = if r <= cy && cy + r < i64::from(clip.height) {
+                            0
+                        } else {
+                            r
+                        };
+                        let at = i64::from(layer.x) + i64::from(clip.x);
+                        at + inset..at + i64::from(clip.width) - inset
+                    }
+                }
+                _ => 0..0,
+            };
             for x in i64::from(x0)..x1 {
+                if copy.contains(&x) || hidden.contains(&x) {
+                    continue;
+                }
                 let lx = (x - i64::from(layer.x)) as u64;
                 let index = y as usize * width as usize + x as usize;
                 // How much of the pixel the layer covers: all of it, but at its rounded corners
@@ -264,7 +329,11 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
                     continue;
                 }
                 let source_index = || {
-                    let sx = lx * u64::from(layer.extent.0) / u64::from(layer.width);
+                    let sx = if one_to_one {
+                        lx
+                    } else {
+                        lx * u64::from(layer.extent.0) / u64::from(layer.width)
+                    };
                     (sy * u64::from(layer.extent.0) + sx) as usize
                 };
                 // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).

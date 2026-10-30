@@ -31,12 +31,20 @@ class WorkletsHost {
       const std::shared_ptr<facebook::react::CallInvoker>& invoker);
 
   // Runs pending UI-runtime jobs and, once per frame interval, requested animation frames.
-  // The host has one thread: the UI runtime runs on it between React Native's tasks. Worklets
-  // requests a frame every frame, so a frame is not work by itself: what an animation changes
-  // reaches the host as a mount.
+  // The host has one thread: the UI runtime runs on it between React Native's tasks.
+  //
+  // Worklets' frame loop asks for its next frame in every frame, and Reanimated runs its mappers
+  // at the end of every frame, whether or not anything changed: run as asked, an application
+  // doing nothing would wake 60 times a second. A frame runs only when it is wanted: a frame
+  // callback was asked for since the last frame (the UI runtime's requestAnimationFrame, which
+  // worklets' timers use too, is watched), or something happened that may give the frame's
+  // finalizers work (a UI job, or the host's own work: JavaScript, an event, a mount; the host
+  // loop says so with wantFrame). Otherwise worklets' request waits, and the loop sleeps.
   // Runs queued UI jobs and the frame callbacks due (at most 60 times a second); true if it ran any.
   bool tick();
-  // When frame callbacks waiting for a frame are next due, if any wait: the loop sleeps until then.
+  // The next frame is wanted: what the host did this turn may change what it acts on.
+  void wantFrame() { *wanted_ = true; }
+  // When frame callbacks waiting for a wanted frame are next due, if any: the loop sleeps until then.
   std::optional<std::chrono::steady_clock::time_point> nextFrame() const;
 
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy() const { return proxy_; }
@@ -45,6 +53,12 @@ class WorkletsHost {
  private:
   std::shared_ptr<worklets::UIScheduler> ui_;
   std::shared_ptr<std::vector<std::function<void(double)>>> frames_;
+  // Whether the next frame is wanted (tick); shared with the UI runtime's requestAnimationFrame.
+  std::shared_ptr<bool> wanted_;
+  // Whether the UI runtime's requests are watched (watchRequests): until they are, or if they
+  // cannot be, every frame is wanted.
+  bool watching_ = false, watched_ = false;
+  void watchRequests();
   std::shared_ptr<worklets::WorkletsModuleProxyInitializer> initializer_;
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy_;
   double lastFrame_ = 0;

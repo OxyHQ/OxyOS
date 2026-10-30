@@ -109,8 +109,9 @@ void ReanimatedHost::event(const std::string& name, int tag, const folly::dynami
 
 bool ReanimatedHost::tick() {
   double now = nowMs();
-  if (!proxy_ || now - lastFrame_ < 1000.0 / 60) return false;
+  if (!proxy_ || (!wanted_ && renders_->empty()) || now - lastFrame_ < 1000.0 / 60) return false;
   lastFrame_ = now;
+  wanted_ = false;
   // As Android's frame callback does: run requested render callbacks, then always let Reanimated
   // perform its operations, which also resumes React commits it paused.
   bool rendered = !renders_->empty();
@@ -119,6 +120,13 @@ bool ReanimatedHost::tick() {
   for (auto& callback : callbacks) callback(now);
   proxy_->performOperations();
   return rendered;
+}
+
+std::optional<std::chrono::steady_clock::time_point> ReanimatedHost::nextFrame() const {
+  if (!proxy_ || (!wanted_ && renders_->empty())) return std::nullopt;
+  double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
+  return std::chrono::steady_clock::now() +
+         std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }
 
 }  // namespace oxyos

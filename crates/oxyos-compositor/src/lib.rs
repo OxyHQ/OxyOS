@@ -22,6 +22,7 @@ use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 pub mod arrangement;
@@ -47,6 +48,9 @@ const MAX_OUTBOX: usize = 1024;
 const MAX_PEERS: usize = oxyos_compositor_core::scene::MAX_CLIENTS;
 /// Time a connection may take to send Hello.
 const HELLO_DEADLINE: Duration = Duration::from_secs(2);
+/// A turn whose work takes longer than a 60 Hz refresh delays the frame and the input after it
+/// (`slow_turns`).
+const SLOW_TURN: Duration = Duration::from_micros(16_667);
 
 pub struct Peer {
     connection: Connection,
@@ -412,14 +416,21 @@ pub struct Compositor {
     pub ending: bool,
     /// How long a turn may wait for something to happen when nothing has a deadline sooner: the
     /// development compositor's 5 ms by default, so its director's steps keep their pace; a
-    /// session longer, waking for its devices, clients and display, the pointer's next step and a
-    /// connection's deadline (`serve`).
+    /// session as long as nothing of its own is due, waking for its devices, clients, display and
+    /// `wakers`, the pointer's next step and a connection's deadline (`serve`).
     pub idle_wait: Duration,
     /// The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx):
     /// what acts on the system's volumes, backlights and Wi-Fi and finds its battery and network,
     /// given by the program running the compositor. Without them the keys do nothing and the
     /// shell is told nothing of the system.
     pub controls: Option<controls::Controls>,
+    /// Whether a turn whose work (not its wait) took longer than SLOW_TURN is logged, with where
+    /// the time went, at most once a second: a session's, whose frames are otherwise not measured.
+    pub slow_turns: bool,
+    slow_turn_logged: Option<Instant>,
+    /// Descriptors that only wake a turn, readable when the program running the compositor has
+    /// something of its own to do (a child of its exited); it reads them itself.
+    pub wakers: Vec<std::os::fd::OwnedFd>,
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -442,6 +453,18 @@ pub struct Compositor {
     pub reads: Vec<f64>,
     /// For every frame composed: the fraction of the output its damage covers (1 when whole).
     pub damaged: Vec<f64>,
+    /// The frames read from the clients' buffers, by surface: the frame (sequence and buffer)
+    /// and its pixels. A frame shown is never written by its client until it is released, so a
+    /// frame composed again (a window moved, a transition, the pointer over it) is not read
+    /// again: only a new one is (`read_frame`).
+    frames_read: HashMap<SurfaceKey, FrameRead>,
+    /// The bytes of pixels read so far from each client's buffers (`read_frame`): none while it
+    /// shows nothing new.
+    pub bytes_read: HashMap<ClientId, u64>,
+    /// For every turn that composed a frame: when it started (CLOCK_MONOTONIC), how long
+    /// composing every screen's frame took, from gathering the scene to handing it over, and the
+    /// part of that reading the clients' buffers, in ms.
+    pub frame_times: Vec<(std::time::Duration, f64, f64)>,
     /// A number for every frame a client submitted, never reused, by surface and sequence:
     /// what identifies a surface's pixels to the GPU (`oxyos_gpu::Source`), since surface ids
     /// and sequences are the client's and come again when it creates a surface anew.
@@ -545,7 +568,7 @@ struct Content {
     placed: Rect,
     extent: Size,
     format: Option<oxyos_protocol::Format>,
-    pixels: Vec<u8>,
+    pixels: Rc<Vec<u8>>,
     source: Option<oxyos_gpu::Source>,
     changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
     opacity: u8,
@@ -567,7 +590,7 @@ impl Content {
             placed: rect,
             extent: Size::new(1, 1),
             format: None,
-            pixels: Vec::new(),
+            pixels: Rc::default(),
             source: None,
             changed: None,
             opacity: 255,
@@ -596,7 +619,7 @@ impl Content {
             placed: drawn.shadow_rect,
             extent: Size::new(profile.entries(), 1),
             format: None,
-            pixels: Vec::new(),
+            pixels: Rc::default(),
             source: Some(*source),
             changed: None,
             opacity,
@@ -615,11 +638,58 @@ impl Content {
 #[derive(Clone, Copy, Debug)]
 struct ShownView {
     window: SurfaceKey,
+    sequence: u64,
     buffer: u64,
     rect: Rect,
     clip: Rect,
     radius: u32,
     opacity: u8,
+}
+
+/// The pixels of a surface's frame in `buffer`, read from its client's shared memory.
+fn read_pixels(
+    peers: &HashMap<ClientId, Peer>,
+    key: SurfaceKey,
+    buffer: u64,
+) -> Option<(Size, oxyos_protocol::Format, Vec<u8>)> {
+    let shared = peers.get(&key.client)?.buffers.get(&buffer)?;
+    let layout = shared.layout();
+    let row = layout.extent.width as usize * 4;
+    let mut pixels = vec![0; row * layout.extent.height as usize];
+    for (y, out) in pixels.chunks_exact_mut(row).enumerate() {
+        shared.read_row(y as u32, out).ok()?;
+    }
+    Some((layout.extent, layout.format, pixels))
+}
+
+/// What a surface read last showed: its frame (sequence and buffer), its size and format, and its
+/// pixels (`Compositor::frames_read`).
+type FrameRead = ((u64, u64), Size, oxyos_protocol::Format, Rc<Vec<u8>>);
+
+/// A surface's frame (`sequence`, in `buffer`) as `read_pixels` reads it, read only if it is not
+/// the one read last for the surface: a frame shown is never written by its client until it is
+/// released, so the same frame composed again (a window moved, a transition, the pointer over
+/// it) has the same pixels.
+fn read_frame(
+    (frames_read, bytes_read): (
+        &mut HashMap<SurfaceKey, FrameRead>,
+        &mut HashMap<ClientId, u64>,
+    ),
+    peers: &HashMap<ClientId, Peer>,
+    key: SurfaceKey,
+    sequence: u64,
+    buffer: u64,
+) -> Option<(Size, oxyos_protocol::Format, Rc<Vec<u8>>)> {
+    if let Some((frame, extent, format, pixels)) = frames_read.get(&key) {
+        if *frame == (sequence, buffer) {
+            return Some((*extent, *format, pixels.clone()));
+        }
+    }
+    let (extent, format, pixels) = read_pixels(peers, key, buffer)?;
+    *bytes_read.entry(key.client).or_default() += pixels.len() as u64;
+    let pixels = Rc::new(pixels);
+    frames_read.insert(key, ((sequence, buffer), extent, format, pixels.clone()));
+    Some((extent, format, pixels))
 }
 
 /// `inner`, a part of a surface at `rect`, where it is drawn when the surface is drawn at
@@ -723,10 +793,16 @@ impl Compositor {
             pointer: None,
             idle_wait: Duration::from_millis(5),
             controls: None,
+            wakers: Vec::new(),
+            slow_turns: false,
+            slow_turn_logged: None,
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
             damaged: Vec::new(),
+            frames_read: HashMap::new(),
+            bytes_read: HashMap::new(),
+            frame_times: Vec::new(),
             versions: HashMap::new(),
             next_version: 2,
             shown_versions: HashMap::new(),
@@ -1276,7 +1352,13 @@ impl Compositor {
                     snapshot.views = views
                         .into_iter()
                         .filter_map(|view| {
-                            let (extent, format, pixels) = self.pixels(view.window, view.buffer)?;
+                            let (extent, format, pixels) = read_frame(
+                                (&mut self.frames_read, &mut self.bytes_read),
+                                &self.peers,
+                                view.window,
+                                view.sequence,
+                                view.buffer,
+                            )?;
                             Some(transitions::ViewSnapshot {
                                 rect: view.rect,
                                 clip: view.clip,
@@ -1380,7 +1462,13 @@ impl Compositor {
         let mut views_shown: HashMap<SurfaceKey, Vec<ShownView>> = HashMap::new();
         for item in list.iter().copied() {
             match item {
-                RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
+                RenderItem::Surface { key, rect, frame } => match read_frame(
+                    (&mut self.frames_read, &mut self.bytes_read),
+                    &self.peers,
+                    key,
+                    frame.sequence,
+                    frame.buffer,
+                ) {
                     Some((extent, format, pixels)) => {
                         let source = self.versions.get(&(key, frame.sequence)).map(|&version| {
                             oxyos_gpu::Source {
@@ -1486,11 +1574,16 @@ impl Compositor {
                             let shared = &contents[index];
                             shared
                                 .format
-                                .map(|format| (shared.extent, format, Vec::new(), Some(index)))
+                                .map(|format| (shared.extent, format, Rc::default(), Some(index)))
                         }
-                        _ => self
-                            .pixels(window, frame.buffer)
-                            .map(|(extent, format, pixels)| (extent, format, pixels, None)),
+                        _ => read_frame(
+                            (&mut self.frames_read, &mut self.bytes_read),
+                            &self.peers,
+                            window,
+                            frame.sequence,
+                            frame.buffer,
+                        )
+                        .map(|(extent, format, pixels)| (extent, format, pixels, None)),
                     };
                     // A frame that cannot be read is not drawn: its window's own layer says so.
                     let Some((extent, format, pixels, shares)) = read else {
@@ -1505,6 +1598,7 @@ impl Compositor {
                         });
                     views_shown.entry(surface).or_default().push(ShownView {
                         window,
+                        sequence: frame.sequence,
                         buffer: frame.buffer,
                         rect,
                         clip,
@@ -1537,6 +1631,15 @@ impl Compositor {
                 }
             }
         }
+        // Frames read of surfaces no longer drawn are let go: a surface drawn again is read again.
+        self.frames_read.retain(|key, _| {
+            list.iter().any(|item| match *item {
+                RenderItem::Surface { key: drawn, .. } | RenderItem::View { window: drawn, .. } => {
+                    drawn == *key
+                }
+                RenderItem::Cover { .. } => false,
+            })
+        });
         // The splash over everything while the session starts, on every screen.
         for splash in &self.splash {
             contents.push(Content {
@@ -1619,9 +1722,9 @@ impl Compositor {
                 // A window shown live reads its own layer's pixels.
                 (
                     content,
-                    content
-                        .shares
-                        .map_or(&content.pixels, |index| &contents[index].pixels),
+                    content.shares.map_or(content.pixels.as_slice(), |index| {
+                        contents[index].pixels.as_slice()
+                    }),
                 )
             })
             .map(|(content, pixels)| oxyos_gpu::Layer {
@@ -1690,6 +1793,13 @@ impl Compositor {
                     pointer_moved: moved,
                 },
             );
+        }
+        if self.records {
+            self.frame_times.push((
+                self.composing_since,
+                (monotonic() - self.composing_since).as_secs_f64() * 1e3,
+                self.reads.last().copied().unwrap_or(0.0),
+            ));
         }
         // What each surface shown showed: what it is drawn from if it goes (ADR 0011).
         drop(layers);
@@ -2358,14 +2468,7 @@ impl Compositor {
         key: SurfaceKey,
         buffer: u64,
     ) -> Option<(Size, oxyos_protocol::Format, Vec<u8>)> {
-        let shared = self.peers.get(&key.client)?.buffers.get(&buffer)?;
-        let layout = shared.layout();
-        let row = layout.extent.width as usize * 4;
-        let mut pixels = vec![0; row * layout.extent.height as usize];
-        for (y, out) in pixels.chunks_exact_mut(row).enumerate() {
-            shared.read_row(y as u32, out).ok()?;
-        }
-        Some((layout.extent, layout.format, pixels))
+        read_pixels(&self.peers, key, buffer)
     }
 
     /// The session locks after `minutes` with no input (0: never); a change arms the idle
@@ -2430,21 +2533,21 @@ impl Compositor {
         wait
     }
 
-    /// One turn of the compositor: accepts connections, handles every readable client, composes
-    /// a frame and sends events. Waits for a client, the listener, the display's flip, the devices
-    /// or the seat, at most until the pointer's next step, a connection's deadline, the idle
-    /// lock's or `idle_wait`.
+    /// One turn of the compositor: accepts connections, handles every readable client, reads the
+    /// devices, composes a frame and sends events. Waits for a client, the listener, the display's
+    /// flip, the devices or the seat, at most until the pointer's next step, a connection's
+    /// deadline, the idle lock's or `idle_wait`.
     pub fn serve(&mut self, listener: &Listener) -> Result<()> {
+        let started = Instant::now();
         self.follow_terminal()?;
         self.follow_seat()?;
-        self.read_input();
-        // The input just read arms the idle lock again before the turn waits for its deadline.
         self.follow_idle();
         let clients: Vec<ClientId> = self.peers.keys().copied().collect();
         // Poll the listener, every client and, with a frame on its way, the display (its flip);
         // never block on any one of them.
         let shell = usize::from(self.shell_listener.is_some());
         let reader = usize::from(self.reader_listener.is_some());
+        let waiting: Instant;
         let readable: Vec<bool> = {
             let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 4);
             fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
@@ -2486,13 +2589,16 @@ impl Compositor {
             if let Some(seat) = &self.seat {
                 fds.push(PollFd::from_borrowed_fd(seat.as_fd(), PollFlags::IN));
             }
-            // The controls' worker answering: only to wake the turn.
+            // The controls' worker answering, and the program's own: only to wake the turn.
             if let Some(wake) = self
                 .controls
                 .as_ref()
                 .and_then(|controls| controls.wake_fd())
             {
                 fds.push(PollFd::from_borrowed_fd(wake, PollFlags::IN));
+            }
+            for waker in &self.wakers {
+                fds.push(PollFd::from_borrowed_fd(waker.as_fd(), PollFlags::IN));
             }
             if let (Some(authentication), Some(_)) = (&self.authentication, self.checking) {
                 fds.push(PollFd::from_borrowed_fd(
@@ -2505,6 +2611,7 @@ impl Compositor {
                 tv_sec: wait.as_secs() as i64,
                 tv_nsec: i64::from(wait.subsec_nanos()),
             };
+            waiting = Instant::now();
             match poll(&mut fds, Some(&timeout)) {
                 Ok(_) => fds.iter().map(|fd| !fd.revents().is_empty()).collect(),
                 // A signal (the terminal's switch requests) interrupts poll, which is never
@@ -2513,7 +2620,14 @@ impl Compositor {
                 Err(error) => return Err(error.into()),
             }
         };
+        let woke = Instant::now();
         self.complete_flip(false);
+        // The input that woke the turn, or came while it waited, read now: the frame this turn
+        // composes shows it. Read before the wait, it would be composed a turn later, behind this
+        // turn's frame, and the devices' events would queue meanwhile (libinput: "event
+        // processing lagging behind").
+        self.read_input();
+        let read = woke.elapsed();
         if let Some(hotplug) = &self.hotplug {
             match hotplug.changed() {
                 Ok(changed) => self.hotplugged |= changed,
@@ -2567,9 +2681,41 @@ impl Compositor {
         if let Some(controls) = &mut self.controls {
             controls.serve(&mut self.scene, Instant::now());
         }
+        let framing = Instant::now();
+        let frames = self.frames;
         self.frame();
+        let framed = framing.elapsed();
         self.follow_lock();
         self.flush();
+        if self.slow_turns {
+            // The turn's work, not its wait.
+            let work = waiting.duration_since(started) + woke.elapsed();
+            let ms = |d: Duration| d.as_secs_f64() * 1e3;
+            if work > SLOW_TURN
+                && self
+                    .slow_turn_logged
+                    .is_none_or(|logged| logged.elapsed() >= Duration::from_secs(1))
+            {
+                self.slow_turn_logged = Some(Instant::now());
+                let gpu = match &self.gpu {
+                    Some(gpu) if self.frames != frames => {
+                        let (copy, fence) = gpu.compositor.last_host_ms();
+                        format!(" (uploading {copy:.1}, submission to fence {fence:.1})")
+                    }
+                    _ => String::new(),
+                };
+                eprintln!(
+                    "[compositor] a turn worked {:.1} ms: before its wait {:.1}, the devices {:.1}, \
+                     the clients {:.1}, the frame {:.1}{gpu}, events {:.1}",
+                    ms(work),
+                    ms(waiting.duration_since(started)),
+                    ms(read),
+                    ms(framing.duration_since(woke) - read),
+                    ms(framed),
+                    ms(woke.elapsed() - framing.duration_since(woke) - framed),
+                );
+            }
+        }
         Ok(())
     }
 
@@ -3129,6 +3275,45 @@ mod tests {
         assert_eq!(compositor.next_wake(), minute);
         compositor.idle.set_held(true, 11 * minute + 45 * second);
         assert_eq!(compositor.next_wake(), hour);
+    }
+
+    #[test]
+    fn a_waker_wakes_a_turn_that_would_wait_an_hour() {
+        use std::io::Write;
+        let mut scene = Scene::new();
+        scene
+            .add_output(oxyos_compositor_core::Output {
+                id: 1,
+                rect: Rect::new(0, 0, 64, 64),
+                scale_120: 120,
+                refresh_mhz: 60_000,
+            })
+            .unwrap();
+        let mut compositor = Compositor::new(scene, 0);
+        let path = std::env::temp_dir().join(format!("oxyos-waker-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = Listener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let (read, mut write) = std::os::unix::net::UnixStream::pair().unwrap();
+        compositor.wakers.push(read.into());
+        // With nothing to wake it, a turn waits as long as it may.
+        compositor.serve(&listener).unwrap();
+        compositor.idle_wait = Duration::from_millis(200);
+        let started = Instant::now();
+        compositor.serve(&listener).unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(150));
+        // A waker readable (a child of the session's exited) ends the wait at once.
+        compositor.idle_wait = Duration::from_secs(3600);
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            write.write_all(&[1]).unwrap();
+            write
+        });
+        let started = Instant::now();
+        compositor.serve(&listener).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(10));
+        drop(writer.join().unwrap());
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

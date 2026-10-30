@@ -48,7 +48,7 @@ pub fn splash(size: Size) -> Option<Snapshot> {
         rect: Rect::new(0, 0, size.width, size.height),
         extent: size,
         format: Format::Xrgb8888,
-        pixels,
+        pixels: std::rc::Rc::new(pixels),
         look: None,
         views: Vec::new(),
     })

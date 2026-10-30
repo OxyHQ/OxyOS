@@ -39,6 +39,8 @@ class Clipboard {
   bool deliver();
   // The pipes of the pastes on their way, readable when more has arrived.
   std::vector<int> fds() const;
+  // When the first paste on its way runs out of time (kTimeout), if any is.
+  std::optional<std::chrono::steady_clock::time_point> nextDeadline() const;
 
   // A paste's limits: content beyond them is dropped and the paste fails.
   static constexpr size_t kMaxBytes = 16 * 1024 * 1024;

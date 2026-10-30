@@ -217,6 +217,8 @@ class Window {
   }
   // Each turn: finishes pastes whose content arrived. True if any did.
   bool deliverPastes() { return clipboard_.deliver(); }
+  // When a paste on its way runs out of time, if one is.
+  std::optional<std::chrono::steady_clock::time_point> pasteDeadline() const { return clipboard_.nextDeadline(); }
   // What the host's loop waits on for this window: the compositor's connection, readable when an
   // event has come, and the pipes of pastes on their way.
   std::vector<int> fds() const {

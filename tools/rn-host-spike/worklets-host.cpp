@@ -60,7 +60,8 @@ class UnsupportedNetworking : public worklets::NetworkingBackend {
 
 WorkletsHost::WorkletsHost()
     : ui_(std::make_shared<LoopUIScheduler>()),
-      frames_(std::make_shared<std::vector<std::function<void(double)>>>()) {}
+      frames_(std::make_shared<std::vector<std::function<void(double)>>>()),
+      wanted_(std::make_shared<bool>(true)) {}
 
 WorkletsHost::~WorkletsHost() {
   if (initializer_) initializer_->invalidate();
@@ -72,8 +73,11 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
   if (!initializer_) {
     auto frames = frames_;
     auto bindings = std::make_shared<worklets::RuntimeBindings>(worklets::RuntimeBindings{
-        .requestAnimationFrame = [frames](std::function<void(const double)>&& callback) {
+        .requestAnimationFrame = [this, frames](std::function<void(const double)>&& callback) {
           frames->push_back(std::move(callback));
+          // Worklets' frame loop starts as the UI runtime sets its frame queue up, which is when
+          // its requestAnimationFrame is there to watch.
+          if (!watching_) watchRequests();
         },
         .nativeLoggingHook =
             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
@@ -104,13 +108,45 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
   return module;
 }
 
+void WorkletsHost::watchRequests() {
+  watching_ = true;
+  if (!proxy_) {
+    std::cerr << "[host] worklets' frame loop started before its runtime: every frame runs\n";
+    return;
+  }
+  // requestAnimationFrame as worklets set it up, kept under a name of the host's, and in its
+  // place one that wants the next frame first. Whatever asks for a frame later (worklets' timers,
+  // Reanimated's animations and mappers) finds this one.
+  auto& rt = proxy_->getUIWorkletRuntime()->getJSIRuntime();
+  auto global = rt.global();
+  auto request = global.getProperty(rt, "requestAnimationFrame");
+  if (!request.isObject() || !request.getObject(rt).isFunction(rt)) {
+    std::cerr << "[host] worklets' UI runtime has no requestAnimationFrame to watch: every frame runs\n";
+    return;
+  }
+  global.setProperty(rt, "__oxyosRequestAnimationFrame", request);
+  auto wanted = wanted_;
+  global.setProperty(
+      rt, "requestAnimationFrame",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "requestAnimationFrame"), 1,
+          [wanted](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+            *wanted = true;
+            return rt.global().getPropertyAsFunction(rt, "__oxyosRequestAnimationFrame").call(rt, args, count);
+          }));
+  watched_ = true;
+}
+
 bool WorkletsHost::tick() {
-  // UIScheduler::triggerUI drains every queued UI job.
+  // UIScheduler::triggerUI drains every queued UI job; one may set what the next frame acts on.
   bool ran = std::static_pointer_cast<LoopUIScheduler>(ui_)->pending();
   ui_->triggerUI();
+  if (ran) *wanted_ = true;
   double now = nowMs();
-  if (!frames_->empty() && now - lastFrame_ >= 1000.0 / 60) {
+  if (!frames_->empty() && (*wanted_ || !watched_) && now - lastFrame_ >= 1000.0 / 60) {
     lastFrame_ = now;
+    // What the frame asks for wants the one after it.
+    *wanted_ = false;
     auto callbacks = std::move(*frames_);
     frames_->clear();
     for (auto& callback : callbacks) callback(now);
@@ -120,7 +156,7 @@ bool WorkletsHost::tick() {
 }
 
 std::optional<std::chrono::steady_clock::time_point> WorkletsHost::nextFrame() const {
-  if (frames_->empty()) return std::nullopt;
+  if (frames_->empty() || (watched_ && !*wanted_)) return std::nullopt;
   double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));

@@ -455,6 +455,11 @@ impl Displays {
             .ok_or_else(|| format!("output {output} shows no display"))
     }
 
+    /// When the mode on trial goes back unless it is kept, if one is: `serve` should run by then.
+    pub fn trial_deadline(&self) -> Option<Instant> {
+        self.trial.as_ref().map(|trial| trial.deadline)
+    }
+
     /// One turn: the changes Settings asked for, each judged, applied, kept and answered
     /// (`PreferenceResult`), and a mode on trial gone back once its time is up.
     pub fn serve<H: Heads>(

@@ -1,8 +1,9 @@
 // What the host showed and delivered, for regression checks (tools/rn-host-spike/regress.py):
 // with OXYOS_HOST_REPORT=<path>, one JSON object per line.
 //
-//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"texts":[…],"focus":"reply"}
+//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
+//   {"t":…,"kind":"stage","name":"load script"}                    (a stage of the start begins)
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
@@ -24,6 +25,7 @@
 
 #include <folly/dynamic.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <map>
@@ -44,6 +46,16 @@ class Report {
   // `presented` is what the surface still shows with a change that drew nothing (a new focus).
   void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
              const std::string& focus, double damaged = 1.0, bool presented = true);
+  // The host loop's work (bloom-host.cpp): what it did between beginTurn and endTurn, never its
+  // waiting, is written with the next frame as `busy_ms`, the work since the frame before, and
+  // `js_ms`, the part of it running JavaScript (React's runtime and the worklets' UI runtime:
+  // rendering, Fabric's commit and Yoga's layout among it); the rest is native (mounting,
+  // drawing, presenting, the compositor's events).
+  void beginTurn();
+  void endTurn();
+  void javascript(double ms);
+  // A stage of the host's start beginning (the Hermes instance, Fabric's scheduler, the bundle).
+  void stage(const char* name);
   // The window laid out at a new size (logical pixels), in `ms` (Fabric's commit with the new
   // constraints, Yoga's layout and the mount).
   void layout(float width, float height, double ms);
@@ -98,6 +110,9 @@ class Report {
   void write(folly::dynamic&& line);
   std::FILE* file_ = nullptr;
   std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
+  std::chrono::steady_clock::time_point turn_{};  // when the work not yet counted began
+  bool turning_ = false;
+  double busyMs_ = 0, jsMs_ = 0;  // work since the last frame written
 };
 
 }  // namespace oxyos

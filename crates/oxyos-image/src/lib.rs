@@ -184,11 +184,20 @@ fn to_srgb(rgba: &mut [u8], profile: &[u8]) -> Result<(), Error> {
             TransformOptions::default(),
         )
         .map_err(|error| invalid(format!("ICC profile: {error:?}")))?;
-    let source = rgba.to_vec();
-    transform
-        .transform(&source, rgba)
-        .map_err(|error| invalid(format!("ICC transform: {error:?}")))
+    // A slice at a time through a copy of its own, never a copy of the whole image.
+    let mut source = Vec::with_capacity(TRANSFORM_CHUNK);
+    for chunk in rgba.chunks_mut(TRANSFORM_CHUNK) {
+        source.clear();
+        source.extend_from_slice(chunk);
+        transform
+            .transform(&source, chunk)
+            .map_err(|error| invalid(format!("ICC transform: {error:?}")))?;
+    }
+    Ok(())
 }
+
+/// The bytes of RGBA (whole pixels) converted at a time by `to_srgb`.
+const TRANSFORM_CHUNK: usize = 64 * 1024;
 
 fn premultiply(rgba: &mut [u8]) {
     for pixel in rgba.chunks_exact_mut(4) {
@@ -225,25 +234,45 @@ fn reduce(rgba: &[u8], from: (u32, u32), to: (u32, u32)) -> Vec<u8> {
     }
     let (columns, rows) = (weights(from.0, to.0), weights(from.1, to.1));
     let (source_width, target_width) = (from.0 as usize, to.0 as usize);
-    // Across first, row by row, then down.
-    let mut across = vec![0f32; target_width * from.1 as usize * 4];
-    for y in 0..from.1 as usize {
-        let row = &rgba[y * source_width * 4..(y + 1) * source_width * 4];
+    // Across first, row by row, then down. Each output row takes source rows that follow the
+    // previous output row's, the first of them at most its last: a source row is reduced across
+    // once, as it is first needed, and kept only while the next output row may need it too. A
+    // wallpaper of 2880 × 5120 reduced to 1280 wide would otherwise hold every source row reduced
+    // across at once, in floats: 100 MiB.
+    let across = |s: usize, into: &mut Vec<f32>| {
+        into.clear();
+        into.resize(target_width * 4, 0.0);
+        let row = &rgba[s * source_width * 4..(s + 1) * source_width * 4];
         for (x, taps) in columns.iter().enumerate() {
-            let out = &mut across[(y * target_width + x) * 4..][..4];
+            let out = &mut into[x * 4..][..4];
             for &(s, weight) in taps {
                 for c in 0..4 {
                     out[c] += f32::from(row[s * 4 + c]) * weight;
                 }
             }
         }
-    }
+    };
     let mut out = vec![0u8; target_width * to.1 as usize * 4];
+    // The source rows reduced across that the current output row takes, by source row.
+    let mut kept: Vec<(usize, Vec<f32>)> = Vec::new();
     for (y, taps) in rows.iter().enumerate() {
+        kept.retain(|(s, _)| taps.iter().any(|&(t, _)| t == *s));
+        for &(s, _) in taps {
+            if !kept.iter().any(|(k, _)| *k == s) {
+                let mut row = Vec::new();
+                across(s, &mut row);
+                kept.push((s, row));
+            }
+        }
         for x in 0..target_width {
             let mut sum = [0f32; 4];
             for &(s, weight) in taps {
-                let pixel = &across[(s * target_width + x) * 4..][..4];
+                let row = &kept
+                    .iter()
+                    .find(|(k, _)| *k == s)
+                    .expect("reduced across")
+                    .1;
+                let pixel = &row[x * 4..][..4];
                 for c in 0..4 {
                     sum[c] += pixel[c] * weight;
                 }
