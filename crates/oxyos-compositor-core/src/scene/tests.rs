@@ -6276,6 +6276,70 @@ fn a_resize_from_the_left_edge_keeps_the_right_edge_frame_by_frame() {
     );
 }
 
+/// Every surface listed, displayed or being composed, is drawn at its buffer's size (scale 1).
+fn assert_one_to_one(h: &Harness) {
+    for (name, list) in [
+        ("displayed", h.scene.render_list()),
+        ("composed", h.scene.frame_list()),
+    ] {
+        for item in list {
+            if let RenderItem::Surface { key, rect, frame } = item {
+                assert_eq!(
+                    (rect.width, rect.height),
+                    (frame.extent.width, frame.extent.height),
+                    "{key:?} drawn scaled ({name})"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_window_resizing_is_never_drawn_scaled() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x - 3, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    // A hand's drag from the left edge, the client answering every other motion: every frame
+    // listed, displayed or being composed, draws the buffer at its own size.
+    for step in 1..=20 {
+        h.scene.pointer_motion(w.x - 3 - 6 * step, w.y + 150);
+        assert_one_to_one(&h);
+        if step % 2 == 0 {
+            h.submit(window);
+            h.scene.begin_frame();
+            // A motion while its frame is on its way to the display (a flip pending).
+            h.scene.pointer_motion(w.x - 6 - 6 * step, w.y + 150);
+            assert_one_to_one(&h);
+            h.scene.end_frame(1, Clock::Synthetic);
+            h.pump();
+            assert_one_to_one(&h);
+        }
+    }
+    h.scene.pointer_button(BUTTON, false);
+    // A configure that is not the drag's, while a frame answering the drag's is presenting: that
+    // frame is shown at the size it was drawn for, where it was configured to be.
+    h.submit(window);
+    let answering = h.configures[&window].1;
+    h.scene.begin_frame();
+    h.scene.resize_window(window, Size::new(700, 500));
+    h.pump();
+    assert_one_to_one(&h);
+    h.scene.end_frame(1, Clock::Synthetic);
+    h.pump();
+    assert_one_to_one(&h);
+    let shown = h.rect(window);
+    assert_eq!(
+        (shown.width, shown.height),
+        (answering.width, answering.height)
+    );
+    assert_eq!(shown.right(), w.right(), "where it was configured to be");
+    h.present(window);
+    assert_eq!(h.rect(window).width, 700);
+    assert_one_to_one(&h);
+}
+
 #[test]
 fn a_configure_of_the_size_shown_holds_no_resize() {
     let mut h = Harness::new();

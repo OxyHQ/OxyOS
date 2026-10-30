@@ -123,6 +123,10 @@ struct Node {
     /// configure is in flight, and this one, the latest the pointer asked for, is sent once a
     /// frame for that one is displayed. Any other configure replaces it.
     wanted: Option<((i32, i32), Size)>,
+    /// The geometry (and full-screen state) of the configure a frame being presented answers,
+    /// kept when a newer configure replaces `pending` before that frame is on screen: the frame
+    /// is drawn, and then shown, at the size it was drawn for, never scaled to another.
+    answering: Option<(u64, (i32, i32), Size, bool)>,
     presentation: Presentation,
     scale_120: u32,
     output: OutputId,
@@ -228,8 +232,13 @@ impl Node {
     fn view(&self, in_flight: bool) -> Option<(Frame, (i32, i32), Size)> {
         if in_flight {
             if let Some(frame) = self.presentation.presenting() {
-                let (origin, size) = match self.pending {
-                    Some((serial, origin, size)) if serial == frame.configure => (origin, size),
+                let (origin, size) = match (self.pending, self.answering) {
+                    (Some((serial, origin, size)), _) if serial == frame.configure => {
+                        (origin, size)
+                    }
+                    (_, Some((serial, origin, size, _))) if serial == frame.configure => {
+                        (origin, size)
+                    }
                     _ => (self.origin, self.size),
                 };
                 return Some((frame, origin, size));
@@ -596,6 +605,9 @@ impl Scene {
             node.origin = origin;
             node.restore = restore;
             node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
+            node.answering = node
+                .answering
+                .map(|(serial, _, s, fullscreen)| (serial, origin, s, fullscreen));
         }
         self.nodes.get_mut(&key).expect("present").output = target.id;
         self.reconfigure(key, None, size);
@@ -1512,6 +1524,7 @@ impl Scene {
                 size,
                 pending: Some((serial, origin, size)),
                 wanted: None,
+                answering: None,
                 presentation,
                 scale_120,
                 output,
@@ -1587,6 +1600,15 @@ impl Scene {
         };
         let size = fit(size, scale_120);
         let node = self.nodes.get_mut(&key).expect("present");
+        // A frame answering the configure replaced is on its way to the screen: its geometry stays
+        // with it.
+        if let (Some(frame), Some((serial, origin, size))) =
+            (node.presentation.presenting(), node.pending)
+        {
+            if frame.configure == serial {
+                node.answering = Some((serial, origin, size, node.pending_fullscreen));
+            }
+        }
         node.scale_120 = scale_120;
         let discarded = node
             .presentation
@@ -2320,9 +2342,12 @@ impl Scene {
     /// displayed: a window going full-screen is drawn so from its first full-screen frame.
     pub fn window_look(&self, key: SurfaceKey) -> Option<WindowLook> {
         let node = self.live(key)?;
-        let fullscreen = match (node.presentation.presenting(), node.pending) {
-            (Some(frame), Some((serial, ..))) if serial == frame.configure => {
+        let fullscreen = match (node.presentation.presenting(), node.pending, node.answering) {
+            (Some(frame), Some((serial, ..)), _) if serial == frame.configure => {
                 node.pending_fullscreen
+            }
+            (Some(frame), _, Some((serial, _, _, fullscreen))) if serial == frame.configure => {
+                fullscreen
             }
             _ => node.shown_fullscreen,
         };
@@ -2818,6 +2843,9 @@ impl Scene {
         if let Some((wanted, size)) = node.wanted {
             node.wanted = Some((moved(wanted), size));
         }
+        if let Some((serial, answering, size, fullscreen)) = node.answering {
+            node.answering = Some((serial, moved(answering), size, fullscreen));
+        }
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
         }
@@ -3308,6 +3336,17 @@ impl Scene {
             let node = self.nodes.get_mut(&key).expect("present");
             let previous = node.presentation.complete_present().expect("presenting");
             let shown = node.presentation.displayed().expect("just displayed");
+            // Answering a configure replaced while it was presented: shown where that one put it.
+            if let Some((serial, origin, size, fullscreen)) = node.answering.take() {
+                if shown.configure == serial {
+                    if (node.size != size || node.origin != origin) && !node.children.is_empty() {
+                        resized.push(key);
+                    }
+                    node.origin = origin;
+                    node.size = size;
+                    node.shown_fullscreen = fullscreen;
+                }
+            }
             if let Some((serial, origin, size)) = node.pending {
                 if shown.configure == serial {
                     if (node.size != size || node.origin != origin) && !node.children.is_empty() {

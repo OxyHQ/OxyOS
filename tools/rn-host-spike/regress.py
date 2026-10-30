@@ -57,7 +57,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   serving the application between them, as a hand drags a window's edge): "unanswered_max", the
   most configures sent that no frame shown answered; "presented_min", the fewest frames the window
   showed; "bounded", no more configures than frames shown; "steady", the window's edges ("left",
-  "top", "right", "bottom") that must not move in any frame shown;
+  "top", "right", "bottom") that must not move in any frame shown; and always, no frame composed
+  in the drag drawing the window at another size than its buffer's ("scaled");
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -673,6 +674,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  f"{wanted['presented_min']}")
         if drag.get("configures", 0) > drag.get("presented", 0) and wanted.get("bounded"):
             fail(f"{drag.get('configures')} configures for {drag.get('presented', 0)} frames shown")
+        # A window resizing is never drawn scaled: every frame composed draws its buffer 1:1.
+        if drag.get("scaled", 0) > 0:
+            fail(f"{drag['scaled']} of the {drag.get('composed')} frames composed in the drag drew the window "
+                 f"scaled, not at its buffer's size")
         for edge in wanted.get("steady", []):
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:

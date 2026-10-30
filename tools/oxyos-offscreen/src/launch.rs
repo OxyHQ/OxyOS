@@ -1623,6 +1623,8 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
 ///   configure sent at or after it;
 /// - `edges`, the least and most each edge of the window was at across the frames shown (an edge
 ///   not dragged stays put), and `final`, the window's rectangle at the end;
+/// - `composed`, the frames composed meanwhile, and `scaled`, how many drew the window at another
+///   size than its buffer's (none should: a window resizing shows its last frame at its size);
 /// - `shown`, each frame shown: [ms since the press, configure serial, x, y, width, height].
 fn drag_paced(
     session: &mut Session,
@@ -1658,10 +1660,34 @@ fn drag_paced(
     let mut sent: Vec<(u64, Duration)> = Vec::new();
     let mut frames: Vec<(Duration, u64, u64, Rect)> = Vec::new();
     let mut last_sequence = displayed(&session.compositor).map(|(sequence, ..)| sequence);
+    // Frames composed meanwhile, and those drawing the window at another size than its buffer's.
+    let (mut composed, mut scaled) = (0usize, 0usize);
+    let mut last_frame = session.compositor.frames;
     let mut observe = |compositor: &Compositor,
                        sent: &mut Vec<(u64, Duration)>,
                        frames: &mut Vec<(Duration, u64, u64, Rect)>| {
         let now = start.elapsed();
+        if compositor.frames != last_frame {
+            last_frame = compositor.frames;
+            composed += 1;
+            let scale = compositor
+                .scene
+                .outputs()
+                .first()
+                .map_or(120, |output| u64::from(output.scale_120));
+            let at_its_size = |rect: Rect, extent: oxyos_protocol::Size| {
+                u64::from(rect.width) * scale == u64::from(extent.width) * 120
+                    && u64::from(rect.height) * scale == u64::from(extent.height) * 120
+            };
+            scaled += compositor
+                .composed
+                .iter()
+                .filter(|item| {
+                    matches!(item, RenderItem::Surface { key: k, rect, frame }
+                        if *k == key && !at_its_size(*rect, frame.extent))
+                })
+                .count();
+        }
         let latest = serial(compositor);
         if latest > sent.last().map_or(first_serial, |(serial, _)| *serial) {
             sent.push((latest, now));
@@ -1743,7 +1769,7 @@ fn drag_paced(
     };
     let last = displayed(&session.compositor).map(|(_, _, rect)| rect);
     Ok(format!(
-        "{{\"motions\":{motions},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"shown\":[{}]}}",
+        "{{\"motions\":{motions},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"scaled\":{scaled},\"shown\":[{}]}}",
         sent.len(),
         frames.len(),
         sizes.len(),
