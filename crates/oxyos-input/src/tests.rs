@@ -348,3 +348,36 @@ fn the_pointer_crosses_where_outputs_meet_and_slides_along_an_edge() {
     assert_eq!(crate::confine(&area, 3500.0, 800.0), (3500.0, 719.0));
     assert_eq!(crate::confine(&area, 3250.0, 900.0), (3242.0, 900.0));
 }
+
+#[test]
+fn the_hardware_keys_codes_are_their_xf86_keys_on_every_layout_and_type_nothing() {
+    // The compositor takes them by these codes (docs/adr/0025-hardware-keys-and-control-center.mdx):
+    // XKB's evdev keymaps name them so on every layout, with or without a modifier.
+    let named = [
+        (113, "XF86AudioMute"),
+        (114, "XF86AudioLowerVolume"),
+        (115, "XF86AudioRaiseVolume"),
+        (224, "XF86MonBrightnessDown"),
+        (225, "XF86MonBrightnessUp"),
+        (228, "XF86KbdLightOnOff"),
+        (229, "XF86KbdBrightnessDown"),
+        (230, "XF86KbdBrightnessUp"),
+        (248, "XF86AudioMicMute"),
+    ];
+    for layout in ["us", "es", "fr", "de"] {
+        let mut keyboard = Keyboard::new(&Layout::named(layout)).unwrap();
+        for (code, name) in named {
+            let keysym = keyboard.state.key_get_one_sym(xkb::Keycode::new(code + 8));
+            assert_eq!(xkb::keysym_get_name(keysym), name, "{layout}: {code}");
+            assert_eq!(
+                tap(&mut keyboard, code),
+                None,
+                "{layout}: {name} types nothing"
+            );
+        }
+        keyboard.key(SHIFT, true);
+        let keysym = keyboard.state.key_get_one_sym(xkb::Keycode::new(115 + 8));
+        assert_eq!(xkb::keysym_get_name(keysym), "XF86AudioRaiseVolume");
+        keyboard.key(SHIFT, false);
+    }
+}

@@ -410,6 +410,9 @@ pub struct Scene {
     preferences: preferences::Preferences,
     /// The screen reader's keys held and taken (ADR 0014).
     reader_keys: reader::ReaderKeys,
+    /// The hardware keys pressed and the Control Center's requests for the program, and the
+    /// levels, battery, network and Bluetooth it said (ADR 0025).
+    controls: controls::Controls,
     /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
     appearances: Vec<appearances::Appearance>,
     /// Windows' menus and what the shell was told of the active one's (ADR 0021).
@@ -826,6 +829,9 @@ impl Scene {
         if new.settings {
             self.tell_preferences(client);
         }
+        if new.shell {
+            self.tell_controls(client);
+        }
         Ok(())
     }
 
@@ -1217,6 +1223,11 @@ impl Scene {
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
+            Request::SetControlLevel { .. }
+            | Request::SetControlMuted { .. }
+            | Request::SetWifiEnabled { .. }
+            | Request::SetAppearance { .. }
+            | Request::RefreshControls {} => self.control_request(client, request),
             Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
                 self.window_view_request(client, request)
             }
@@ -3119,11 +3130,14 @@ impl Scene {
         });
     }
 
-    /// A key from the keyboard: the screen reader's first (ADR 0014), then the system shortcuts
-    /// (ADR 0024), then the focused surface.
+    /// A key from the keyboard: the screen reader's first (ADR 0014), then the hardware keys
+    /// (ADR 0025), then the system shortcuts (ADR 0024), then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.user_input();
-        if !self.reader_key(key, pressed) && !self.system_key(key, pressed) {
+        if !self.reader_key(key, pressed)
+            && !self.hardware_key(key, pressed)
+            && !self.system_key(key, pressed)
+        {
             self.surface_key(key, pressed);
         }
     }
@@ -3500,10 +3514,14 @@ mod appearances;
 mod menus;
 mod window_views;
 pub use window_views::fitted;
+mod controls;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
 /// The system shortcuts and applications' windows (ADR 0024).
 mod shortcuts;
+pub use controls::{
+    BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
+};
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

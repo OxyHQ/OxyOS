@@ -6792,6 +6792,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
     assert_eq!((h.rect(next).x, h.rect(next).y), (0, 0));
 }
 
+/// Hardware keys and the Control Center (ADR 0025).
+mod controls;
 /// The menu bar (ADR 0021).
 mod menus;
 mod shortcuts;

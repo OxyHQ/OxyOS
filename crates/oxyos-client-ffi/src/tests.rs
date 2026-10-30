@@ -3320,3 +3320,225 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn the_header_matches_the_controls_abi() {
+    for (name, value) in [
+        ("OXYOS_EVENT_CONTROL_LEVEL", OXYOS_EVENT_CONTROL_LEVEL),
+        ("OXYOS_EVENT_POWER", OXYOS_EVENT_POWER),
+        ("OXYOS_EVENT_NETWORK", OXYOS_EVENT_NETWORK),
+        ("OXYOS_EVENT_BLUETOOTH", OXYOS_EVENT_BLUETOOTH),
+        (
+            "OXYOS_CONTROL_OUTPUT_VOLUME",
+            OXYOS_CONTROL_OUTPUT_VOLUME.into(),
+        ),
+        (
+            "OXYOS_CONTROL_INPUT_VOLUME",
+            OXYOS_CONTROL_INPUT_VOLUME.into(),
+        ),
+        (
+            "OXYOS_CONTROL_DISPLAY_BRIGHTNESS",
+            OXYOS_CONTROL_DISPLAY_BRIGHTNESS.into(),
+        ),
+        (
+            "OXYOS_CONTROL_KEYBOARD_BRIGHTNESS",
+            OXYOS_CONTROL_KEYBOARD_BRIGHTNESS.into(),
+        ),
+        ("OXYOS_CONTROL_MUTED", OXYOS_CONTROL_MUTED.into()),
+        ("OXYOS_CONTROL_AVAILABLE", OXYOS_CONTROL_AVAILABLE.into()),
+        ("OXYOS_CONTROL_BEZEL", OXYOS_CONTROL_BEZEL.into()),
+        ("OXYOS_BATTERY_ABSENT", OXYOS_BATTERY_ABSENT),
+        ("OXYOS_BATTERY_DISCHARGING", OXYOS_BATTERY_DISCHARGING),
+        ("OXYOS_BATTERY_CHARGING", OXYOS_BATTERY_CHARGING),
+        ("OXYOS_BATTERY_FULL", OXYOS_BATTERY_FULL),
+        ("OXYOS_BATTERY_NOT_CHARGING", OXYOS_BATTERY_NOT_CHARGING),
+        ("OXYOS_WIFI_UNAVAILABLE", OXYOS_WIFI_UNAVAILABLE),
+        ("OXYOS_WIFI_OFF", OXYOS_WIFI_OFF),
+        ("OXYOS_WIFI_DISCONNECTED", OXYOS_WIFI_DISCONNECTED),
+        ("OXYOS_WIFI_CONNECTING", OXYOS_WIFI_CONNECTING),
+        ("OXYOS_WIFI_CONNECTED", OXYOS_WIFI_CONNECTED),
+        ("OXYOS_BLUETOOTH_UNAVAILABLE", OXYOS_BLUETOOTH_UNAVAILABLE),
+        ("OXYOS_BLUETOOTH_OFF", OXYOS_BLUETOOTH_OFF),
+        ("OXYOS_BLUETOOTH_ON", OXYOS_BLUETOOTH_ON),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    use oxyos_protocol::{BatteryState, BluetoothState, Control, WifiState};
+    for (control, constant) in [
+        (Control::OutputVolume, OXYOS_CONTROL_OUTPUT_VOLUME),
+        (Control::InputVolume, OXYOS_CONTROL_INPUT_VOLUME),
+        (Control::DisplayBrightness, OXYOS_CONTROL_DISPLAY_BRIGHTNESS),
+        (
+            Control::KeyboardBrightness,
+            OXYOS_CONTROL_KEYBOARD_BRIGHTNESS,
+        ),
+    ] {
+        assert_eq!(control as u8, constant);
+    }
+    for (state, constant) in [
+        (BatteryState::Absent, OXYOS_BATTERY_ABSENT),
+        (BatteryState::Discharging, OXYOS_BATTERY_DISCHARGING),
+        (BatteryState::Charging, OXYOS_BATTERY_CHARGING),
+        (BatteryState::Full, OXYOS_BATTERY_FULL),
+        (BatteryState::NotCharging, OXYOS_BATTERY_NOT_CHARGING),
+    ] {
+        assert_eq!(state as u32, constant);
+    }
+    for (state, constant) in [
+        (WifiState::Unavailable, OXYOS_WIFI_UNAVAILABLE),
+        (WifiState::Off, OXYOS_WIFI_OFF),
+        (WifiState::Disconnected, OXYOS_WIFI_DISCONNECTED),
+        (WifiState::Connecting, OXYOS_WIFI_CONNECTING),
+        (WifiState::Connected, OXYOS_WIFI_CONNECTED),
+    ] {
+        assert_eq!(state as u32, constant);
+    }
+    for (state, constant) in [
+        (BluetoothState::Unavailable, OXYOS_BLUETOOTH_UNAVAILABLE),
+        (BluetoothState::Off, OXYOS_BLUETOOTH_OFF),
+        (BluetoothState::On, OXYOS_BLUETOOTH_ON),
+    ] {
+        assert_eq!(state as u32, constant);
+    }
+    // Each event, field by field.
+    let level = convert(&Event::ControlLevel {
+        control: Control::DisplayBrightness,
+        level_65536: 40_960,
+        muted: false,
+        available: true,
+        bezel: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (level.kind, level.detail, level.code, level.flag),
+        (
+            OXYOS_EVENT_CONTROL_LEVEL,
+            u32::from(OXYOS_CONTROL_DISPLAY_BRIGHTNESS),
+            40_960,
+            OXYOS_CONTROL_AVAILABLE | OXYOS_CONTROL_BEZEL
+        )
+    );
+    let muted = convert(&Event::ControlLevel {
+        control: Control::OutputVolume,
+        level_65536: 0,
+        muted: true,
+        available: true,
+        bezel: false,
+    })
+    .unwrap();
+    assert_eq!(muted.flag, OXYOS_CONTROL_MUTED | OXYOS_CONTROL_AVAILABLE);
+    let power = convert(&Event::Power {
+        battery: BatteryState::Charging,
+        percent: 78,
+        on_ac: true,
+        minutes: 181,
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            power.kind,
+            power.detail,
+            power.code,
+            power.width,
+            power.flag
+        ),
+        (OXYOS_EVENT_POWER, OXYOS_BATTERY_CHARGING, 78, 181, 1)
+    );
+    let network = convert(&Event::Network {
+        wifi: WifiState::Connected,
+        signal: 73,
+        wired: true,
+        ssid: PreeditText::new("LukeSkyRouter").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (network.kind, network.detail, network.code, network.flag),
+        (OXYOS_EVENT_NETWORK, OXYOS_WIFI_CONNECTED, 73, 1)
+    );
+    let ssid = CStr::from_bytes_until_nul(&network.text).unwrap();
+    assert_eq!(ssid.to_str().unwrap(), "LukeSkyRouter");
+    let bluetooth = convert(&Event::Bluetooth {
+        state: BluetoothState::On,
+        connected: 2,
+    })
+    .unwrap();
+    assert_eq!(
+        (bluetooth.kind, bluetooth.detail, bluetooth.code),
+        (OXYOS_EVENT_BLUETOOTH, OXYOS_BLUETOOTH_ON, 2)
+    );
+    for declaration in [
+        "int oxyos_client_set_control_level(OxyOSClient* client, uint8_t control, uint32_t level);",
+        "int oxyos_client_set_control_muted(OxyOSClient* client, uint8_t control, bool muted);",
+        "int oxyos_client_set_wifi_enabled(OxyOSClient* client, bool enabled);",
+        "int oxyos_client_set_appearance(OxyOSClient* client, uint32_t serial, bool dark);",
+        "int oxyos_client_refresh_controls(OxyOSClient* client);",
+    ] {
+        assert!(HEADER.contains(declaration), "{declaration}");
+    }
+}
+
+#[test]
+fn the_control_center_sends_its_requests() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-controls-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..5)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // No such control, and past all of it: refused here, nothing sent.
+        assert_eq!(oxyos_client_set_control_level(client, 9, 0), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_set_control_level(client, OXYOS_CONTROL_OUTPUT_VOLUME, 65_537),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_set_control_muted(client, 0, true), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_set_control_level(client, OXYOS_CONTROL_DISPLAY_BRIGHTNESS, 32_768),
+            0
+        );
+        assert_eq!(
+            oxyos_client_set_control_muted(client, OXYOS_CONTROL_INPUT_VOLUME, true),
+            0
+        );
+        assert_eq!(oxyos_client_set_wifi_enabled(client, false), 0);
+        assert_eq!(oxyos_client_set_appearance(client, 4, true), 0);
+        assert_eq!(oxyos_client_refresh_controls(client), 0);
+        use oxyos_protocol::Control;
+        assert_eq!(
+            compositor.join().unwrap(),
+            [
+                Request::SetControlLevel {
+                    control: Control::DisplayBrightness,
+                    level_65536: 32_768
+                },
+                Request::SetControlMuted {
+                    control: Control::InputVolume,
+                    muted: true
+                },
+                Request::SetWifiEnabled { enabled: false },
+                Request::SetAppearance {
+                    serial: 4,
+                    dark: true
+                },
+                Request::RefreshControls {},
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

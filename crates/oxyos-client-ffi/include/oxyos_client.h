@@ -51,6 +51,36 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_SWITCHER_DONE 5
 #define OXYOS_SHORTCUT_SWITCHER_CANCEL 6
 #define OXYOS_SHORTCUT_SEARCH 7
+/* Hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx). */
+#define OXYOS_EVENT_CONTROL_LEVEL 110
+#define OXYOS_EVENT_POWER 111
+#define OXYOS_EVENT_NETWORK 112
+#define OXYOS_EVENT_BLUETOOTH 113
+/* A control (CONTROL_LEVEL's detail; oxyos_client_set_control_level's `control`). */
+#define OXYOS_CONTROL_OUTPUT_VOLUME 1
+#define OXYOS_CONTROL_INPUT_VOLUME 2
+#define OXYOS_CONTROL_DISPLAY_BRIGHTNESS 3
+#define OXYOS_CONTROL_KEYBOARD_BRIGHTNESS 4
+/* A CONTROL_LEVEL's flag bits. */
+#define OXYOS_CONTROL_MUTED 1
+#define OXYOS_CONTROL_AVAILABLE 2
+#define OXYOS_CONTROL_BEZEL 4
+/* A POWER's detail. */
+#define OXYOS_BATTERY_ABSENT 0
+#define OXYOS_BATTERY_DISCHARGING 1
+#define OXYOS_BATTERY_CHARGING 2
+#define OXYOS_BATTERY_FULL 3
+#define OXYOS_BATTERY_NOT_CHARGING 4
+/* A NETWORK's detail. */
+#define OXYOS_WIFI_UNAVAILABLE 0
+#define OXYOS_WIFI_OFF 1
+#define OXYOS_WIFI_DISCONNECTED 2
+#define OXYOS_WIFI_CONNECTING 3
+#define OXYOS_WIFI_CONNECTED 4
+/* A BLUETOOTH's detail. */
+#define OXYOS_BLUETOOTH_UNAVAILABLE 0
+#define OXYOS_BLUETOOTH_OFF 1
+#define OXYOS_BLUETOOTH_ON 2
 #define OXYOS_EVENT_CLOSE_REQUESTED 42
 #define OXYOS_EVENT_PINCH 43
 #define OXYOS_EVENT_LOCK_STATE 44
@@ -171,6 +201,17 @@ typedef struct OxyOSClient OxyOSClient;
  *               application it chose, its end on Super's release or its cancel; the launcher's
  *               search); code: the output to show it on; serial: a user input of the shell's,
  *               which oxyos_client_focus_shell_surface may cite.
+ *   The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx),
+ *   to the session's shell when it connects and whenever they change:
+ *   CONTROL_LEVEL  detail: OXYOS_CONTROL_*; code: its level, 0 to 65536 (all of it); flag:
+ *               OXYOS_CONTROL_MUTED (a volume's mute), _AVAILABLE (the machine has it), _BEZEL (a
+ *               hardware key acted on it with this shell's output in front: show it).
+ *   POWER       detail: OXYOS_BATTERY_*; code: the charge in percent; width: the minutes until
+ *               empty (discharging) or full (charging), 0 unknown; flag: on AC power.
+ *   NETWORK     detail: OXYOS_WIFI_*; code: the access point's signal in percent; flag: a wired
+ *               connection is up; text: the access point's name (empty unless connected or
+ *               connecting), NUL-terminated.
+ *   BLUETOOTH   detail: OXYOS_BLUETOOTH_*; code: how many devices are connected.
  *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`.
  *   PINCH       serial; x, y as POINTER: the pointer, which a pinch does not move; detail:
  *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the
@@ -416,6 +457,16 @@ int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, si
  * `key=value`. A PREFERENCE_RESULT answers: code, `serial`; flag, whether the session took it.
  * Without the grant the compositor closes the connection. */
 int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char* key, const char* value);
+/* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
+ * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
+ * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
+ * and the system looked at again now (the Control Center opened). The session validates and
+ * applies each and tells what came of it; while locked none is taken. */
+int oxyos_client_set_control_level(OxyOSClient* client, uint8_t control, uint32_t level);
+int oxyos_client_set_control_muted(OxyOSClient* client, uint8_t control, bool muted);
+int oxyos_client_set_wifi_enabled(OxyOSClient* client, bool enabled);
+int oxyos_client_set_appearance(OxyOSClient* client, uint32_t serial, bool dark);
+int oxyos_client_refresh_controls(OxyOSClient* client);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
 /* The same at a login screen (docs/adr/0020-oxy-account-login.mdx): the password is for `account`,
  * its Unix user's name (NUL-terminated, 1 to 31 bytes; null for the session's own user). */

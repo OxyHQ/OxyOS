@@ -3,10 +3,10 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
-    AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, MenuField, MenuFlags,
-    MenuKind, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
-    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
-    TextHints, TextPurpose, TouchKind, Wire,
+    AuthOutcome, BatteryState, BluetoothState, Clock, Control, DismissReason, ErrorCode, Format,
+    GesturePhase, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind,
+    Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -218,6 +218,17 @@ messages! {
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
         112 => FocusShellSurface { surface: u32, serial: u64 },
+        // The session's shell (its `shell` grant, ADR 0025), from its Control Center: a level (0
+        // to FULL_LEVEL, all of it) or a volume's mute, Wi-Fi on or off, the appearance light or
+        // dark (a change of the user's `appearance` preference, answered as SetPreference's with a
+        // PreferenceResult naming `serial`), and the system's state looked at again now (the
+        // Control Center opened). The session validates and applies each and tells what came of
+        // it (ControlLevel and the rest); while the session is locked none is taken.
+        120 => SetControlLevel { control: Control, level_65536: u32 },
+        121 => SetControlMuted { control: Control, muted: bool },
+        122 => SetWifiEnabled { enabled: bool },
+        123 => SetAppearance { serial: u32, dark: bool },
+        124 => RefreshControls {},
     }
 }
 
@@ -359,6 +370,21 @@ messages! {
         // how recently it was the active window (a rising count of activations; 0: never), and
         // whether it is hidden with its application (minimized, but not into the dock).
         101 => WindowUse { window: u32, used: u32, hidden: bool },
+        // To the session's shell (its `shell` grant, ADR 0025), when it connects and whenever they
+        // change: a level the session controls as it applied or found it (0 to FULL_LEVEL),
+        // whether it is muted (a volume) and whether this machine has it at all. `bezel`: a
+        // hardware key acted on it (even at its end) with this shell's output in front, and the
+        // shell shows the level there for a moment, as a Mac's bezel.
+        110 => ControlLevel { control: Control, level_65536: u32, muted: bool, available: bool, bezel: bool },
+        // The battery: its state, its charge in percent, whether the machine is on AC power, and
+        // the minutes until it is empty (discharging) or full (charging), 0 when unknown.
+        111 => Power { battery: BatteryState, percent: u8, on_ac: bool, minutes: u32 },
+        // The network: Wi-Fi's state, its access point's signal in percent and name (its SSID as
+        // UTF-8, cut to whole characters within one chunk; empty unless connected or connecting),
+        // and whether a wired connection is up.
+        112 => Network { wifi: WifiState, signal: u8, wired: bool, ssid: PreeditText },
+        // Bluetooth: its adapter's state and how many devices are connected to it.
+        113 => Bluetooth { state: BluetoothState, connected: u8 },
     }
 }
 

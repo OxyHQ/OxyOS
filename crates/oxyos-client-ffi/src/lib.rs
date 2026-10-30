@@ -11,9 +11,9 @@
 
 use oxyos_client::{Accessible, Client, Field, Menu, Poll};
 use oxyos_protocol::{
-    AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity,
-    MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
-    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
+    AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Control, Event, Format,
+    Gravity, MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
+    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -172,6 +172,41 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 /// latest activation, rising, 0 never; flag: whether it is hidden with its application).
 pub const OXYOS_EVENT_SYSTEM_SHORTCUT: u32 = 100;
 pub const OXYOS_EVENT_WINDOW_USE: u32 = 101;
+/// To the session's shell (ADR 0025): a level the session controls (detail: OXYOS_CONTROL_*;
+/// code: 0 to 65536; flag: OXYOS_CONTROL_MUTED, _AVAILABLE, _BEZEL bits), the battery (detail:
+/// OXYOS_BATTERY_*; code: percent; width: minutes until empty or full, 0 unknown; flag: on AC
+/// power), the network (detail: OXYOS_WIFI_*; code: the access point's signal in percent; flag:
+/// a wired connection is up; text: the access point's name) and Bluetooth (detail:
+/// OXYOS_BLUETOOTH_*; code: devices connected).
+pub const OXYOS_EVENT_CONTROL_LEVEL: u32 = 110;
+pub const OXYOS_EVENT_POWER: u32 = 111;
+pub const OXYOS_EVENT_NETWORK: u32 = 112;
+pub const OXYOS_EVENT_BLUETOOTH: u32 = 113;
+/// A control, the protocol's `Control`.
+pub const OXYOS_CONTROL_OUTPUT_VOLUME: u8 = 1;
+pub const OXYOS_CONTROL_INPUT_VOLUME: u8 = 2;
+pub const OXYOS_CONTROL_DISPLAY_BRIGHTNESS: u8 = 3;
+pub const OXYOS_CONTROL_KEYBOARD_BRIGHTNESS: u8 = 4;
+/// A CONTROL_LEVEL's flag bits.
+pub const OXYOS_CONTROL_MUTED: u8 = 1;
+pub const OXYOS_CONTROL_AVAILABLE: u8 = 2;
+pub const OXYOS_CONTROL_BEZEL: u8 = 4;
+/// A POWER's detail, the protocol's `BatteryState`.
+pub const OXYOS_BATTERY_ABSENT: u32 = 0;
+pub const OXYOS_BATTERY_DISCHARGING: u32 = 1;
+pub const OXYOS_BATTERY_CHARGING: u32 = 2;
+pub const OXYOS_BATTERY_FULL: u32 = 3;
+pub const OXYOS_BATTERY_NOT_CHARGING: u32 = 4;
+/// A NETWORK's detail, the protocol's `WifiState`.
+pub const OXYOS_WIFI_UNAVAILABLE: u32 = 0;
+pub const OXYOS_WIFI_OFF: u32 = 1;
+pub const OXYOS_WIFI_DISCONNECTED: u32 = 2;
+pub const OXYOS_WIFI_CONNECTING: u32 = 3;
+pub const OXYOS_WIFI_CONNECTED: u32 = 4;
+/// A BLUETOOTH's detail, the protocol's `BluetoothState`.
+pub const OXYOS_BLUETOOTH_UNAVAILABLE: u32 = 0;
+pub const OXYOS_BLUETOOTH_OFF: u32 = 1;
+pub const OXYOS_BLUETOOTH_ON: u32 = 2;
 /// A SYSTEM_SHORTCUT's `detail`, the protocol's `SystemShortcut`.
 pub const OXYOS_SHORTCUT_SWITCHER_NEXT: u32 = 1;
 pub const OXYOS_SHORTCUT_SWITCHER_PREVIOUS: u32 = 2;
@@ -690,6 +725,66 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: window,
                 detail: used,
                 flag: u8::from(hidden),
+                ..out
+            }
+        }
+        Event::ControlLevel {
+            control,
+            level_65536,
+            muted,
+            available,
+            bezel,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CONTROL_LEVEL,
+                detail: control as u32,
+                code: level_65536,
+                flag: (if muted { OXYOS_CONTROL_MUTED } else { 0 })
+                    | (if available {
+                        OXYOS_CONTROL_AVAILABLE
+                    } else {
+                        0
+                    })
+                    | (if bezel { OXYOS_CONTROL_BEZEL } else { 0 }),
+                ..out
+            }
+        }
+        Event::Power {
+            battery,
+            percent,
+            on_ac,
+            minutes,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_POWER,
+                detail: battery as u32,
+                code: u32::from(percent),
+                width: minutes,
+                flag: u8::from(on_ac),
+                ..out
+            }
+        }
+        Event::Network {
+            wifi,
+            signal,
+            wired,
+            ssid,
+        } => {
+            let bytes = ssid.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_NETWORK,
+                detail: wifi as u32,
+                code: u32::from(signal),
+                flag: u8::from(wired),
+                ..out
+            }
+        }
+        Event::Bluetooth { state, connected } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_BLUETOOTH,
+                detail: state as u32,
+                code: u32::from(connected),
                 ..out
             }
         }
@@ -1696,6 +1791,98 @@ pub unsafe extern "C" fn oxyos_client_focus_shell_surface(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::FocusShellSurface { surface, serial }) }
+}
+
+/// The session's shell's Control Center (ADR 0025): sets a level (`control`: OXYOS_CONTROL_*;
+/// `level`: 0 to 65536). The session applies it and tells the level then (CONTROL_LEVEL). 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_control_level(
+    client: *mut OxyOSClient,
+    control: u8,
+    level: u32,
+) -> c_int {
+    let Some(control) = Control::from_raw(control) else {
+        return fail("no such control");
+    };
+    if level > FULL_LEVEL {
+        return fail("a level is at most 65536");
+    }
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SetControlLevel {
+                control,
+                level_65536: level,
+            },
+        )
+    }
+}
+
+/// Mutes a volume (`control`: OXYOS_CONTROL_OUTPUT_VOLUME or _INPUT_VOLUME) or unmutes it. 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_control_muted(
+    client: *mut OxyOSClient,
+    control: u8,
+    muted: bool,
+) -> c_int {
+    let Some(control) = Control::from_raw(control) else {
+        return fail("no such control");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetControlMuted { control, muted }) }
+}
+
+/// Turns Wi-Fi on or off (the session's shell, ADR 0025). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_wifi_enabled(
+    client: *mut OxyOSClient,
+    enabled: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetWifiEnabled { enabled }) }
+}
+
+/// Sets the appearance light or dark (the session's shell, ADR 0025): a change of the user's
+/// `appearance` preference, answered by a PREFERENCE_RESULT with `serial`. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_appearance(
+    client: *mut OxyOSClient,
+    serial: u32,
+    dark: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetAppearance { serial, dark }) }
+}
+
+/// The Control Center opened: the session looks at the system again now (ADR 0025). 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_refresh_controls(client: *mut OxyOSClient) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::RefreshControls {}) }
 }
 
 /// Announces `length` bytes of UTF-8 to assistive technologies (ADR 0003): `politeness` is

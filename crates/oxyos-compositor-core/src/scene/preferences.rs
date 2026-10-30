@@ -84,6 +84,16 @@ impl Scene {
         Ok(())
     }
 
+    /// A change of one preference asked for another way (the shell's appearance, ADR 0025),
+    /// judged by the program as Settings' are.
+    pub(super) fn ask_preference(&mut self, change: PreferenceChange) -> Result<(), ErrorCode> {
+        if self.preferences.asked.len() >= MAX_PENDING_CHANGES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        self.preferences.asked.push(change);
+        Ok(())
+    }
+
     /// The changes Settings asked for since the last call, in order: the program running the
     /// compositor validates, keeps and applies each, answers it with [`Scene::preference_set`] and
     /// tells the scene the preferences then ([`Scene::set_preferences`]).

@@ -8,8 +8,9 @@ pub mod scene;
 
 pub use presentation::{Error, Extent, Frame, Presentation};
 pub use scene::{
-    AccessibleNode, Appearance, AppearanceChange, AppearanceKind, ClientId, DrawingPreferences,
-    Grants, LaunchRequest, Output, OutputId, PreferenceChange, RenderItem, Role, Scene, Stats,
+    AccessibleNode, Appearance, AppearanceChange, AppearanceKind, BluetoothStatus, ClientId,
+    ControlLevel, ControlRequest, DrawingPreferences, Grants, HardwareKey, LaunchRequest,
+    NetworkStatus, Output, OutputId, PowerStatus, PreferenceChange, RenderItem, Role, Scene, Stats,
     SurfaceDamage, SurfaceKey, TextInputState, TextTransaction, WindowLook, MAX_PENDING_KEYS,
     MAX_PREEDIT_BYTES, MAX_PREEDIT_SEGMENTS, MAX_WORKSPACES,
 };
