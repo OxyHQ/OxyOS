@@ -1119,8 +1119,8 @@ fn a_box_filter_averages_the_pixels_each_output_pixel_covers() {
     // Alpha (255 + 1) / 2 = 128 and red 128; the blue background kept at 255 - 128 = 127/255.
     assert_eq!(out, vec![0x0080_007f]);
 
-    // Past MAX_TAPS a footprint is read at MAX_TAPS evenly spread pixels, each the middle of its
-    // share: of 32 in a row, the 2nd, 6th, ... 30th, whose greys average 128 here.
+    // However many pixels an output pixel covers (up to `filter::MAX_RATIO`), every one counts:
+    // 32 greys in a row, 0 to 248, into one, their mean, 124.
     let ramp = pixels(
         &(0..32u32)
             .map(|x| 0xff00_0000 | (x * 8))
@@ -1132,8 +1132,7 @@ fn a_box_filter_averages_the_pixels_each_output_pixel_covers() {
         0,
         &[reduced(Paint::Opaque(&ramp), (32, 1), (1, 1), Filter::Box)],
     );
-    let taps: Vec<u32> = (0..8).map(|i| (2 * i + 1) * 2 * 8).collect();
-    assert_eq!(out, vec![(taps.iter().sum::<u32>() + 4) / 8]);
+    assert_eq!(out, vec![(0..32).map(|x| x * 8).sum::<u32>() / 32]);
 
     // At its own size the filter reads the one pixel nearest neighbour does.
     let (window, _) = frame();
@@ -1329,4 +1328,499 @@ fn a_frame_file_keeps_filters_and_clips_and_reads_the_third_format() {
         (Filter::Nearest, None)
     );
     assert_eq!(compose_cpu(2, 2, 0, &frame.layers()), vec![0x00ab_cdef; 4]);
+}
+
+/// A layer of `extent` source pixels drawn at `size`, filtered, at the origin.
+fn drawn(paint: Paint<'_>, extent: (u32, u32), size: (u32, u32)) -> Layer<'_> {
+    reduced(paint, extent, size, Filter::Box)
+}
+
+/// Grey levels as opaque pixels, and the red channel of each output pixel composed from them.
+fn greys(levels: &[u32]) -> Vec<u8> {
+    pixels(
+        &levels
+            .iter()
+            .map(|&l| 0xff00_0000 | (l << 16))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn reds(out: &[u32]) -> Vec<u32> {
+    out.iter().map(|pixel| pixel >> 16).collect()
+}
+
+#[test]
+fn filtered_sampling_is_bilinear_drawn_larger_and_an_average_drawn_smaller() {
+    let compose = |levels: &[u32], extent, size: (u32, u32)| {
+        let source = greys(levels);
+        reds(&compose_cpu(
+            size.0,
+            size.1,
+            0,
+            &[drawn(Paint::Opaque(&source), extent, size)],
+        ))
+    };
+    // Twice as wide: each output pixel's centre falls at (x + ½)/2 − ½ between the source
+    // pixels' centres, the edges continued: at −¼ (all of the first), ¼, ¾ (a quarter and three
+    // quarters of 255: 63.75 and 191.25), 1¼ (all of the last).
+    assert_eq!(compose(&[0, 255], (2, 1), (4, 1)), [0, 64, 191, 255]);
+    // Half as wide: each output pixel the average of the two it covers.
+    assert_eq!(compose(&[10, 20, 30, 50], (4, 1), (2, 1)), [15, 40]);
+    // A third: each pixel a third (1365, 1366 and 1365 of 4096): 255·1365/4096 = 84.98.
+    assert_eq!(compose(&[0, 0, 255], (3, 1), (1, 1)), [85]);
+    // Both ways, a one-pixel checkerboard at half its size: each output pixel two of its four
+    // source pixels white, 127.5, rounded up.
+    let checkers: Vec<u32> = (0..16).map(|i| 255 * ((i % 4 + i / 4) % 2)).collect();
+    assert_eq!(compose(&checkers, (4, 4), (2, 2)), [128; 4]);
+    // 1.5 times as wide: centres at −⅙, ½, 1⅙, 1⅚, 2½ and 3⅙ source pixels from the first's
+    // centre: all of the first, halfway from 90 to 30, a sixth of the way from 30 to 0 (25), five
+    // sixths (5), halfway from 0 to 60, all of the last.
+    assert_eq!(
+        compose(&[90, 30, 0, 60], (4, 1), (6, 1)),
+        [90, 60, 25, 5, 30, 60]
+    );
+    // Two thirds as wide: each output pixel covers one and a half source pixels (2731 and 1365 of
+    // 4096): (90 + 30/2)/1.5 = 70, (30/2 + 0)/1.5 = 10, (60 + 120/2)/1.5 = 80 and
+    // (120/2 + 240)/1.5 = 200.
+    assert_eq!(
+        compose(&[90, 30, 0, 60, 120, 240], (6, 1), (4, 1)),
+        [70, 10, 80, 200]
+    );
+    // Within a pixel of its size, an axis is its pixels, by nearest neighbour: a 602-pixel row at
+    // 601 drops one of them, where filtering would blend half of them with their neighbours.
+    let row: Vec<u32> = (0..602).map(|i| (i * 7) % 256).collect();
+    let nearest: Vec<u32> = (0..601).map(|x| row[x * 602 / 601]).collect();
+    assert_eq!(compose(&row, (602, 1), (601, 1)), nearest);
+    let tall: Vec<u32> = (0..2 * 602).map(|i| row[i % 602]).collect();
+    assert_eq!(
+        compose(&tall, (602, 2), (601, 9))[601 * 4..601 * 5],
+        nearest[..]
+    );
+    // Premultiplied: colour and alpha averaged alike. Transparent and opaque red, half as wide:
+    // half-transparent red, 128 of each, over black and over white.
+    let premultiplied = pixels(&[0x0000_0000, 0xffff_0000, 0x0000_0000, 0xffff_0000]);
+    let layer = drawn(Paint::Premultiplied(&premultiplied), (4, 1), (2, 1));
+    assert_eq!(compose_cpu(2, 1, 0, &[layer]), [0x0080_0000; 2]);
+    assert_eq!(compose_cpu(2, 1, 0x00ff_ffff, &[layer]), [0x00ff_7f7f; 2]);
+    // An opaque layer is opaque, whatever its fourth byte.
+    let unset = pixels(&[0x0040_0000; 4]);
+    let layer = drawn(Paint::Opaque(&unset), (4, 1), (2, 1));
+    assert_eq!(compose_cpu(2, 1, 0x00ff_ffff, &[layer]), [0x0040_0000; 2]);
+}
+
+#[test]
+fn filtered_sampling_keeps_a_flat_colour_and_draws_one_to_one_as_it_is() {
+    let (window, _) = frame();
+    for (size, extent) in [
+        ((96, 72), (64, 48)),
+        ((7, 5), (64, 48)),
+        ((640, 3), (64, 48)),
+    ] {
+        let flat = pixels(&vec![0xff_9a_31_c4; (extent.0 * extent.1) as usize]);
+        let out = compose_cpu(
+            size.0,
+            size.1,
+            0,
+            &[drawn(Paint::Opaque(&flat), extent, size)],
+        );
+        assert!(out.iter().all(|&p| p == 0x009a_31c4), "{size:?}");
+    }
+    // At 1:1, filtered is the pixels as they are: as nearest neighbour.
+    let one = drawn(Paint::Opaque(&window), (64, 48), (64, 48));
+    let nearest = Layer {
+        filter: Filter::Nearest,
+        ..one
+    };
+    assert_eq!(
+        compose_cpu(80, 60, 7, &[one]),
+        compose_cpu(80, 60, 7, &[nearest])
+    );
+    // An axis 1:1 and the other twice as long: the first row is the pixels' own first row
+    // (the edge continued above it), the second a quarter of the way to their second.
+    let tall = compose_cpu(
+        64,
+        96,
+        0,
+        &[drawn(Paint::Opaque(&window), (64, 48), (64, 96))],
+    );
+    let source: Vec<u32> = (0..48 * 64)
+        .map(|i| u32::from_le_bytes(window[i * 4..i * 4 + 4].try_into().unwrap()) & 0x00ff_ffff)
+        .collect();
+    assert_eq!(tall[..64], source[..64]);
+    let red = |pixel: u32| pixel >> 16;
+    let quarter = (red(source[0]) * 3072 + red(source[64]) * 1024) * 4096;
+    assert_eq!(red(tall[64]), (quarter + (1 << 23)) >> 24);
+    // Beyond the largest ratio, nearest neighbour, as before filtering.
+    let far = noise(130, 2);
+    let wide = drawn(Paint::Opaque(&far), (130, 2), (2, 2));
+    let nearest = Layer {
+        filter: Filter::Nearest,
+        ..wide
+    };
+    assert_eq!(
+        compose_cpu(2, 2, 0, &[wide]),
+        compose_cpu(2, 2, 0, &[nearest])
+    );
+    let within = drawn(Paint::Opaque(&far), (128, 2), (2, 2));
+    assert_ne!(
+        compose_cpu(2, 2, 0, &[within]),
+        compose_cpu(
+            2,
+            2,
+            0,
+            &[Layer {
+                filter: Filter::Nearest,
+                ..within
+            }]
+        )
+    );
+}
+
+/// The output pixels a source span is read by are exactly those whose taps reach it.
+#[test]
+fn the_span_a_layers_pixels_are_read_by_is_exact() {
+    for extent in 1..24u32 {
+        for length in 1..24u32 {
+            if !filter::filters(extent, length) {
+                continue;
+            }
+            for from in 0..extent {
+                for to in from + 1..=extent {
+                    let reads: Vec<u32> = (0..length)
+                        .filter(|&at| {
+                            let taps = filter::taps(at, length, extent);
+                            taps.first < to && taps.last >= from
+                        })
+                        .collect();
+                    let (start, end) = filter::span(from, to, extent, length);
+                    assert_eq!(
+                        (start..end).collect::<Vec<_>>(),
+                        reads,
+                        "{from}..{to} of {extent} at {length}"
+                    );
+                }
+            }
+        }
+    }
+    // Long axes a pixel apart, sampled by nearest neighbour.
+    for (extent, length) in [(64, 63), (63, 64), (602, 601), (601, 602), (70, 70)] {
+        for from in [0, 1, 30, extent - 2] {
+            for to in [from + 1, from + 2, extent] {
+                let reads: Vec<u32> = (0..length)
+                    .filter(|&at| (from..to).contains(&(at * extent / length)))
+                    .collect();
+                let (start, end) = filter::span(from, to, extent, length);
+                assert_eq!(
+                    (start..end).collect::<Vec<_>>(),
+                    reads,
+                    "{from}..{to} of {extent} at {length}"
+                );
+            }
+        }
+    }
+    assert_eq!(filter::span(3, 6, 10, 15), (4, 10));
+    assert_eq!(filter::span(3, 6, 10, 10), (3, 6));
+}
+
+/// A window of `extent` with corners, drawn at `scale` about its centre, a premultiplied popup
+/// drawn at the same scale over it, both at `opacity`, as a transition draws them.
+fn scaled<'a>(
+    window: &'a [u8],
+    popup: &'a [u8],
+    extent: (u32, u32),
+    scale: f64,
+    opacity: u8,
+    radius: u32,
+) -> Vec<Layer<'a>> {
+    let size = |length: u32| ((f64::from(length) * scale).round() as u32).max(1);
+    let (width, height) = (size(extent.0), size(extent.1));
+    vec![
+        Layer {
+            x: 160 - width as i32 / 2,
+            y: 120 - height as i32 / 2,
+            radius,
+            opacity,
+            ..drawn(Paint::Opaque(window), extent, (width, height))
+        },
+        Layer {
+            x: 150,
+            y: 100,
+            radius: radius / 2,
+            opacity,
+            ..drawn(Paint::Premultiplied(popup), (20, 30), (size(20), size(30)))
+        },
+    ]
+}
+
+/// A window's pixels: noise, so every tap counts.
+fn noise(width: u32, height: u32) -> Vec<u8> {
+    pixels(
+        &(0..width * height)
+            .map(|i: u32| 0xff00_0000 | (i.wrapping_mul(2_654_435_761) >> 8))
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn vulkan_matches_the_reference_filtered_at_every_scale() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (_, popup) = frame();
+    let window = noise(400, 300);
+    for scale in [0.1, 0.5, 0.96, 1.0, 1.04, 1.5, 2.0] {
+        for opacity in [0u8, 77, 128, 255] {
+            for radius in [0, 16] {
+                let layers = scaled(&window, &popup, (400, 300), scale, opacity, radius);
+                let cpu = compose_cpu(320, 240, 0x00e0_e0e0, &layers);
+                let vulkan = gpu.compose(320, 240, 0x00e0_e0e0, &layers).unwrap();
+                assert_eq!(
+                    vulkan, cpu,
+                    "scale {scale}, opacity {opacity}, radius {radius}"
+                );
+            }
+        }
+    }
+    // Each axis by its own factor (a zoom), past the output's edges; one within a pixel of its
+    // size, by nearest neighbour, the other filtered; and drawn far smaller than the ratio
+    // filtered, by nearest neighbour.
+    for (x, y, width, height) in [
+        (-37, 11, 611, 97),
+        (5, -20, 33, 290),
+        (3, 4, 399, 150),
+        (-2, 1, 171, 301),
+        (0, 0, 6, 4),
+    ] {
+        let layers = [Layer {
+            x,
+            y,
+            radius: 8,
+            ..drawn(Paint::Opaque(&window), (400, 300), (width, height))
+        }];
+        let cpu = compose_cpu(320, 240, 0x00e0_e0e0, &layers);
+        let vulkan = gpu.compose(320, 240, 0x00e0_e0e0, &layers).unwrap();
+        assert_eq!(vulkan, cpu, "{width}x{height} at {x},{y}");
+    }
+    // Composing from damage: the frame is still the reference's.
+    let layers = scaled(&window, &popup, (400, 300), 0.73, 200, 16);
+    gpu.compose(320, 240, 0x00e0_e0e0, &layers).unwrap();
+    let damage = [Rect {
+        x: 100,
+        y: 90,
+        width: 70,
+        height: 50,
+    }];
+    assert_eq!(
+        gpu.compose_damaged(320, 240, 0x00e0_e0e0, &layers, &damage)
+            .unwrap(),
+        compose_cpu(320, 240, 0x00e0_e0e0, &layers)
+    );
+}
+
+/// Layers drawn 1:1 are composed as before filtering, filtered or not: the frames of `layers`
+/// with its window at its own size, and of `shadowed` (corners, a shadow) likewise, at three
+/// opacities, as the reference composed them at fba8630 (before filtering).
+#[test]
+fn one_to_one_layers_are_composed_as_before_filtering() {
+    let (window, popup) = frame();
+    let profile = ShadowProfile::new(24, 90);
+    let before = [
+        (
+            255,
+            0x3717_8a26_896b_2cdf,
+            0xb2b6_7b14_0d74_ed3f,
+            0x3e09_675d_3f62_ff62,
+            0xa892_4a9b_1509_ca29,
+        ),
+        (
+            128,
+            0xe3ed_ce86_0b92_5479,
+            0x8e05_2db2_47f7_8779,
+            0x5dd7_130c_bd71_5d01,
+            0xfa58_4dc9_6a15_2eb2,
+        ),
+        (
+            64,
+            0x5c05_2082_64d5_0e41,
+            0x72f2_08bf_9de8_1829,
+            0xc5f5_3b94_7b61_926c,
+            0x9013_7832_36fc_89b2,
+        ),
+    ];
+    for (opacity, small, large, square, rounded) in before {
+        for sampling in [Filter::Nearest, Filter::Box] {
+            let layers: Vec<Layer<'_>> = layers(&window, &popup)
+                .into_iter()
+                .map(|layer| Layer {
+                    width: if layer.extent == (64, 48) {
+                        64
+                    } else {
+                        layer.width
+                    },
+                    height: if layer.extent == (64, 48) {
+                        48
+                    } else {
+                        layer.height
+                    },
+                    opacity,
+                    filter: sampling,
+                    ..layer
+                })
+                .collect();
+            for ((width, height), composed) in [((120, 90), small), ((1280, 720), large)] {
+                assert_eq!(
+                    digest(&compose_cpu(width, height, 0x0011_2233, &layers)),
+                    composed,
+                    "opacity {opacity} at {width}x{height}, {sampling:?}"
+                );
+            }
+            for (radius, composed) in [(0, square), (16, rounded)] {
+                let mut layers = shadowed(&window, &popup, &profile, radius, opacity, 256);
+                for layer in &mut layers {
+                    layer.filter = sampling;
+                }
+                layers[1].width = 64;
+                layers[1].height = 48;
+                assert_eq!(
+                    digest(&compose_cpu(120, 90, 0x00e0_e0e0, &layers)),
+                    composed,
+                    "opacity {opacity}, radius {radius}, {sampling:?}"
+                );
+            }
+        }
+    }
+}
+
+/// A pattern of `width` × `height` grey levels finer than a tenth of it can show: a zone plate
+/// (rings ever closer toward the edges) and one-pixel lines.
+fn fine_pattern(width: u32, height: u32) -> Vec<u32> {
+    (0..width * height)
+        .map(|i| {
+            let (x, y) = (f64::from(i % width), f64::from(i / width));
+            if y < f64::from(height) / 2.0 {
+                let (dx, dy) = (x - f64::from(width) / 2.0, y - f64::from(height) / 2.0);
+                ((1.0 + (std::f64::consts::PI * (dx * dx + dy * dy) / 400.0).cos()) * 127.5).round()
+                    as u32
+            } else {
+                255 * (((i % width) % 2) ^ ((i / width) % 3 / 2))
+            }
+        })
+        .collect()
+}
+
+/// The pattern drawn at `size`, as an ideal display pixel shows it: the exact average of the
+/// source it covers (in 64-bit floating point).
+fn area_average(levels: &[u32], extent: (u32, u32), size: (u32, u32)) -> Vec<f64> {
+    // Per output pixel of an axis, the source pixels it covers and by how much.
+    let covers = |length: u32, extent: u32| -> Vec<Vec<(usize, f64)>> {
+        let ratio = f64::from(extent) / f64::from(length);
+        (0..length)
+            .map(|at| {
+                let (start, end) = (f64::from(at) * ratio, f64::from(at + 1) * ratio);
+                (start.floor() as u32..(end.ceil() as u32).min(extent))
+                    .map(|source| {
+                        let s = f64::from(source);
+                        (source as usize, (end.min(s + 1.0) - start.max(s)) / ratio)
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let (columns, rows) = (covers(size.0, extent.0), covers(size.1, extent.1));
+    let mut out = Vec::with_capacity((size.0 * size.1) as usize);
+    for row in &rows {
+        for column in &columns {
+            let mut sum = 0.0;
+            for &(sy, wy) in row {
+                for &(sx, wx) in column {
+                    sum += wx * wy * f64::from(levels[sy * extent.0 as usize + sx]);
+                }
+            }
+            out.push(sum);
+        }
+    }
+    out
+}
+
+/// A window minimized shows what it holds, not what its sampling happens to hit: at a tenth, a
+/// pattern finer than that drawn by nearest neighbour is far from the area it covers (the
+/// rings alias into new rings, the lines into solid colour), filtered it is that within
+/// rounding, as at the scales a minimize passes through.
+#[test]
+fn a_window_minimized_into_the_dock_is_not_aliased() {
+    let extent = (640, 400);
+    let levels = fine_pattern(extent.0, extent.1);
+    let source = greys(&levels);
+    for (width, height) in [(64, 40), (128, 80), (467, 292)] {
+        let ideal = area_average(&levels, extent, (width, height));
+        let error = |sampling| {
+            let layer = Layer {
+                filter: sampling,
+                ..drawn(Paint::Opaque(&source), extent, (width, height))
+            };
+            let out = reds(&compose_cpu(width, height, 0, &[layer]));
+            let squares: f64 = out
+                .iter()
+                .zip(&ideal)
+                .map(|(&shown, &ideal)| (f64::from(shown) - ideal).powi(2))
+                .sum();
+            (squares / out.len() as f64).sqrt()
+        };
+        let (nearest, filtered) = (error(Filter::Nearest), error(Filter::Box));
+        eprintln!(
+            "{width}x{height}: RMS error from the area covered, of 255: \
+             nearest {nearest:.2}, filtered {filtered:.2}"
+        );
+        assert!(filtered < 0.6, "filtered {filtered}");
+        assert!(nearest > 40.0 * filtered.max(0.5), "nearest {nearest}");
+    }
+}
+
+/// A layer's changed pixels change the output only within their span (`filter::span`), the
+/// damage the compositor gives them: drawn larger, smaller and each axis its own way.
+#[test]
+fn changed_pixels_change_the_output_only_within_their_span() {
+    let before = noise(40, 30);
+    for (width, height) in [(60, 45), (40, 30), (17, 29), (4, 3), (97, 13)] {
+        for (x, y, w, h) in [(0, 0, 1, 1), (13, 7, 5, 9), (39, 29, 1, 1), (20, 0, 20, 30)] {
+            let mut after = before.clone();
+            for row in y..y + h {
+                for column in x..x + w {
+                    let at = (row * 40 + column) as usize * 4;
+                    after[at..at + 4].copy_from_slice(&0xff12_3456u32.to_le_bytes());
+                }
+            }
+            let compose = |pixels: &[u8]| {
+                compose_cpu(
+                    120,
+                    80,
+                    0,
+                    &[Layer {
+                        x: 3,
+                        y: 2,
+                        radius: 6,
+                        opacity: 200,
+                        ..drawn(Paint::Opaque(pixels), (40, 30), (width, height))
+                    }],
+                )
+            };
+            let (old, new) = (compose(&before), compose(&after));
+            let columns = filter::span(x, x + w, 40, width);
+            let rows = filter::span(y, y + h, 30, height);
+            for (index, (old, new)) in old.iter().zip(&new).enumerate() {
+                let (ox, oy) = (index as u32 % 120, index as u32 / 120);
+                if old != new {
+                    assert!(
+                        (columns.0 + 3..columns.1 + 3).contains(&ox)
+                            && (rows.0 + 2..rows.1 + 2).contains(&oy),
+                        "({ox}, {oy}) changed outside {columns:?} × {rows:?} at {width}x{height}"
+                    );
+                }
+            }
+        }
+    }
 }

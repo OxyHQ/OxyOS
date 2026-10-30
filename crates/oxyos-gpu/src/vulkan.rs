@@ -843,10 +843,8 @@ impl VulkanCompositor {
                 out_height: height,
                 opacity: u32::from(layer.opacity),
                 radius: layer.corner_radius(),
-                filter: match layer.filter {
-                    crate::Filter::Nearest => 0,
-                    crate::Filter::Box => 1,
-                },
+                // 1: filtered (`Layer::filtered`); else nearest neighbour.
+                filter: u32::from(layer.filtered()),
                 ..Push::default()
             };
             match layer.paint {

@@ -26,7 +26,7 @@ The development machine available today (WSL2) has no DRM device (`/dev/dri`), a
 
    Wrappers do not expose these. GL is not used.
 2. **One composition semantics.**
-   - `oxyos-gpu::compose_cpu` is the reference: nearest-neighbour scaling into each surface's logical rectangle, clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
+   - `oxyos-gpu::compose_cpu` is the reference: scaling into each surface's logical rectangle (nearest neighbour then; filtered since [ADR 0011](./0011-transitions), step 5), clipped to the output; opaque XRGB copied; premultiplied ARGB blended source-over with integer arithmetic; covers filled.
    - `oxyos-offscreen` composes with it.
    - The Vulkan compositor implements the same arithmetic in a compute shader (WGSL, compiled to SPIR-V by `naga` at build time). It must match the reference byte for byte. `oxyos-offscreen --gpu` checks every composed frame against it.
 3. **Order of work toward real output:**
