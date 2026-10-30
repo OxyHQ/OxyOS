@@ -302,6 +302,13 @@ fn without_a_gpu_table_the_client_draws_into_shared_memory() {
             "no GPU buffer without a table"
         );
     };
+    // Its pixels are the frame's once the Submit naming it comes (written after the attach).
+    loop {
+        let (request, _) = server.recv_request().unwrap();
+        if let Request::Submit { .. } = request {
+            break;
+        }
+    }
     let mut row = vec![0; 64 * 4];
     shared.read_row(2, &mut row).unwrap();
     assert_eq!(
