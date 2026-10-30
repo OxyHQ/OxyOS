@@ -5,8 +5,14 @@
 //!
 //! Two programs drive it: the development compositor (`oxyos-offscreen`), which scripts input and
 //! checks every frame, and the session (`oxyos-session`).
+//!
+//! Each of the scene's outputs is a [`Screen`] (docs/adr/0018-several-displays.mdx): composed on
+//! its own from the scene's frame list, clipped to it and scaled to its pixels, with its own
+//! damage, display, flips and pointer.
 
-use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey, WindowLook};
+use oxyos_compositor_core::{
+    ClientId, Grants, Output, OutputId, RenderItem, Scene, SurfaceKey, WindowLook,
+};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
     AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request,
@@ -18,6 +24,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+pub mod arrangement;
 pub mod settings;
 pub mod splash;
 pub mod transitions;
@@ -65,9 +72,224 @@ pub struct LaunchRecord {
     pub grants: Grants,
 }
 
+/// One of the scene's outputs as the compositor composes and shows it
+/// (docs/adr/0018-several-displays.mdx): its frame, its damage, its display and its flips, and
+/// the pointer on its cursor plane.
+pub struct Screen {
+    /// The scene's output it shows.
+    pub id: OutputId,
+    /// Its rectangle in the global space, in logical pixels, and its scale (in 120ths).
+    pub rect: Rect,
+    pub scale_120: u32,
+    /// What it composes, in its own pixels: its display's mode, or its rectangle at its scale.
+    pub width: u32,
+    pub height: u32,
+    /// The frame composed last, in its pixels (with `gpu_only`, the one read back, if any).
+    pub framebuffer: Vec<u32>,
+    /// The scene's frame list it composed last, and how its windows were drawn: what its next
+    /// frame's damage is relative to.
+    pub composed: Vec<RenderItem>,
+    looks: Looks,
+    /// Its next frame is composed, and whole: the first, or after its display came back or the
+    /// splash was shown.
+    recompose: bool,
+    /// Where its last frame drew surfaces in transition (global, logical): what its next frame
+    /// composes again.
+    transition_drawn: Vec<oxyos_gpu::Rect>,
+    /// The damage of its last frame composed, in its pixels (`None`: whole), for tests and
+    /// records.
+    pub last_damage: Option<Vec<oxyos_gpu::Rect>>,
+    /// With `--kms`, or in a session: the display it is shown on, and completes its frames at
+    /// its flips.
+    pub display: Option<oxyos_kms::Display>,
+    /// With `--gpu` too: the display's framebuffers, each imported from a Vulkan scanout target
+    /// (its index in the Vulkan compositor), and the one composed next.
+    pub scanout: Vec<(usize, oxyos_kms::Framebuffer)>,
+    scanout_back: usize,
+    /// For every frame shown: when it was handed to the display and when it flipped
+    /// (CLOCK_MONOTONIC).
+    pub flips: Vec<(std::time::Duration, std::time::Duration)>,
+    /// The frame on its way to the display: when it was handed over. It completes at its flip,
+    /// in a later turn; this output composes nothing meanwhile (one on its display at a time).
+    pub pending_flip: Option<std::time::Duration>,
+    /// The pending flip only moves the pointer: the frame shown, committed again.
+    pointer_flip: bool,
+    /// The display's pointer images for each shape the session has any for (the arrow for any
+    /// other), with how long each shows: one image, or an animated cursor's steps.
+    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, Vec<(usize, std::time::Duration)>>,
+    /// What its last flip showed (the scene's displayed content once it completed).
+    pub flipped: Vec<RenderItem>,
+    /// Whether the frame being composed, and the one last shown, were of the locked session.
+    composing_locked: bool,
+    shown_locked: bool,
+    /// The frame just shown was kept on the device for `framebuffer_from_gpu`.
+    pub shown_kept: bool,
+}
+
+impl Screen {
+    /// A screen for `output`, composing `pixels` (its display's mode); none: its rectangle at
+    /// its scale.
+    pub fn new(output: &Output, pixels: Option<(u32, u32)>) -> Self {
+        let (width, height) = pixels.unwrap_or((
+            scaled(output.rect.width, output.scale_120),
+            scaled(output.rect.height, output.scale_120),
+        ));
+        Self {
+            id: output.id,
+            rect: output.rect,
+            scale_120: output.scale_120,
+            width,
+            height,
+            framebuffer: vec![DESKTOP; width as usize * height as usize],
+            composed: Vec::new(),
+            looks: Looks::new(),
+            recompose: true,
+            transition_drawn: Vec::new(),
+            last_damage: None,
+            display: None,
+            scanout: Vec::new(),
+            scanout_back: 0,
+            flips: Vec::new(),
+            pending_flip: None,
+            pointer_flip: false,
+            pointer_images: BTreeMap::new(),
+            flipped: Vec::new(),
+            composing_locked: false,
+            shown_locked: false,
+            shown_kept: false,
+        }
+    }
+
+    /// A rectangle of the global space (logical) in this screen's pixels, its edges rounded to
+    /// the nearest pixel, so that what meets in the global space meets on the screen.
+    fn place(&self, x: i32, y: i32, width: u32, height: u32) -> (i32, i32, i32, i32) {
+        let at = |v: i64, origin: i32| {
+            let offset = v - i64::from(origin);
+            (offset * i64::from(self.scale_120) * 2 + 120).div_euclid(240)
+        };
+        let (x0, y0) = (at(i64::from(x), self.rect.x), at(i64::from(y), self.rect.y));
+        let x1 = at(i64::from(x) + i64::from(width), self.rect.x);
+        let y1 = at(i64::from(y) + i64::from(height), self.rect.y);
+        let clamp = |v: i64| v.clamp(-i64::from(i32::MAX), i64::from(i32::MAX)) as i32;
+        (clamp(x0), clamp(y0), clamp(x1), clamp(y1))
+    }
+
+    /// A layer of the global space (logical) on this screen, in its pixels: its rectangle placed
+    /// (`place`), its corners' radius and a shadow's geometry at the screen's scale; none if it is
+    /// off the screen.
+    fn layer<'a>(&self, layer: &oxyos_gpu::Layer<'a>) -> Option<oxyos_gpu::Layer<'a>> {
+        let (x0, y0, x1, y1) = self.place(layer.x, layer.y, layer.width, layer.height);
+        let on = x1 > x0
+            && y1 > y0
+            && x1 > 0
+            && y1 > 0
+            && x0 < self.width as i32
+            && y0 < self.height as i32;
+        if !on {
+            return None;
+        }
+        let length = |length: u32| scaled(length, self.scale_120);
+        // A shadow's rectangles are relative to its layer: placed as the global space's, then
+        // made relative to the layer as placed, so a window's edge and its shadow's clip meet.
+        let within = |rect: oxyos_gpu::Rect| {
+            let (rx0, ry0, rx1, ry1) =
+                self.place(layer.x + rect.x, layer.y + rect.y, rect.width, rect.height);
+            oxyos_gpu::Rect {
+                x: rx0 - x0,
+                y: ry0 - y0,
+                width: (rx1 - rx0).max(0) as u32,
+                height: (ry1 - ry0).max(0) as u32,
+            }
+        };
+        let paint = match layer.paint {
+            oxyos_gpu::Paint::Shadow(profile, shadow) => oxyos_gpu::Paint::Shadow(
+                profile,
+                oxyos_gpu::Shadow {
+                    shape: within(shadow.shape),
+                    radius: length(shadow.radius),
+                    clip: within(shadow.clip),
+                    clip_radius: length(shadow.clip_radius),
+                    scale: scaled(shadow.scale, self.scale_120)
+                        .clamp(1, oxyos_gpu::MAX_SHADOW_SCALE),
+                },
+            ),
+            paint => paint,
+        };
+        Some(oxyos_gpu::Layer {
+            x: x0,
+            y: y0,
+            width: (x1 - x0) as u32,
+            height: (y1 - y0) as u32,
+            paint,
+            radius: length(layer.radius),
+            ..*layer
+        })
+    }
+
+    /// A rectangle of the global space (logical) in this screen's pixels, rounded outward, so
+    /// that it covers every pixel showing any of it; none if it is off the screen.
+    fn covering(&self, rect: &oxyos_gpu::Rect) -> Option<oxyos_gpu::Rect> {
+        let on = rect.intersect(&oxyos_gpu::Rect {
+            x: self.rect.x,
+            y: self.rect.y,
+            width: self.rect.width,
+            height: self.rect.height,
+        })?;
+        let scale = i64::from(self.scale_120);
+        let down = |v: i64| (v * scale).div_euclid(120);
+        let up = |v: i64| (v * scale + 119).div_euclid(120);
+        let (left, top) = (
+            i64::from(on.x) - i64::from(self.rect.x),
+            i64::from(on.y) - i64::from(self.rect.y),
+        );
+        let x0 = down(left).min(i64::from(self.width));
+        let y0 = down(top).min(i64::from(self.height));
+        let x1 = up(left + i64::from(on.width)).min(i64::from(self.width));
+        let y1 = up(top + i64::from(on.height)).min(i64::from(self.height));
+        (x1 > x0 && y1 > y0).then(|| oxyos_gpu::Rect {
+            x: x0 as i32,
+            y: y0 as i32,
+            width: (x1 - x0) as u32,
+            height: (y1 - y0) as u32,
+        })
+    }
+
+    /// Where a point of the global space is on its display (pixels), if it is on this screen;
+    /// the screen is centred on a larger display.
+    pub fn on_display(&self, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+        if !self.rect.contains_point(x, y) {
+            return None;
+        }
+        let (px, py, _, _) = self.place(x, y, 0, 0);
+        let (dx, dy) = self.display_centring();
+        Some((px + dx, py + dy))
+    }
+
+    /// Where the screen's pixels start on its display: centred when the display is larger.
+    fn display_centring(&self) -> (i32, i32) {
+        self.display.as_ref().map_or((0, 0), |display| {
+            let (width, height) = display.size();
+            (
+                (width.saturating_sub(self.width) / 2) as i32,
+                (height.saturating_sub(self.height) / 2) as i32,
+            )
+        })
+    }
+
+    /// The pixel at a point of the screen's own pixels.
+    pub fn pixel(&self, x: u32, y: u32) -> u32 {
+        self.framebuffer[(y * self.width + x) as usize]
+    }
+}
+
+/// A logical length at a scale (in 120ths), in pixels, rounded to the nearest.
+pub fn scaled(length: u32, scale_120: u32) -> u32 {
+    ((u64::from(length) * u64::from(scale_120) * 2 + 120) / 240) as u32
+}
+
 pub struct Compositor {
-    /// The output's rectangle in the global space, in its pixels: what is composed.
-    pub output: Rect,
+    /// Each of the scene's outputs, in the scene's order (the first is the primary).
+    pub screens: Vec<Screen>,
     pub scene: Scene,
     pub peers: HashMap<ClientId, Peer>,
     /// The development compositor's shell socket: a same-user peer connecting there is granted
@@ -87,10 +309,6 @@ pub struct Compositor {
     /// the scene-only clients it plays: an assistive technology and an input method).
     next_shell_client: ClientId,
     pub own_uid: u32,
-    pub framebuffer: Vec<u32>,
-    pub composed: Vec<RenderItem>,
-    /// How the windows of the frame composed last were drawn: a change is damage (ADR 0016).
-    looks: Looks,
     /// The windows' shadows (window.rs).
     shadows: window::Shadows,
     pub frames: usize,
@@ -108,8 +326,6 @@ pub struct Compositor {
     /// With `--gpu-only`: frames are composed on the Vulkan device alone, with no CPU reference;
     /// the frame the director checks is the one composed, read back after it is shown.
     pub gpu_only: bool,
-    /// The frame just shown was kept on the device for `framebuffer_from_gpu`.
-    pub shown_kept: bool,
     /// With `gpu_only`: whether every frame shown is read back into `framebuffer`, as the
     /// development compositor's checks need. A session never reads its frames back.
     pub reads_back: bool,
@@ -127,31 +343,17 @@ pub struct Compositor {
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
-    /// With `--kms`: every composed frame is shown on this display, and completes at its flip.
-    pub display: Option<oxyos_kms::Display>,
-    /// With `--input`: the seat's devices through libinput, and where the output sits on the
-    /// display (its top-left corner, in the display's pixels).
+    /// With `--input`: the seat's devices through libinput, and where the global space's origin
+    /// is in their coordinates (the development compositor's output, centred on a larger
+    /// display, starts there).
     pub input: Option<oxyos_input::Input>,
     pub display_offset: (i32, i32),
-    /// With `--kms` and `--gpu`: the display's framebuffers, imported from the Vulkan
-    /// compositor's DMA-BUF scanout targets, and the one composed next.
-    pub scanout: Vec<oxyos_kms::Framebuffer>,
-    pub scanout_back: usize,
-    /// For every frame shown: when it was handed to the display and when it flipped
-    /// (CLOCK_MONOTONIC).
-    pub flips: Vec<(std::time::Duration, std::time::Duration)>,
-    /// The frame on its way to the display: when it was handed over. It completes at its flip,
-    /// in a later turn; no frame is composed meanwhile (one on the display at a time).
-    pub pending_flip: Option<std::time::Duration>,
-    /// The pending flip only moves the pointer: the frame shown, committed again.
-    pointer_flip: bool,
-    /// Where the pointer is on the display (its pixels), once it has moved.
+    /// With a display: the card's connectors changed (`hotplug`, ADR 0018) since the program
+    /// running the compositor last took it (`take_hotplug`), which then reads them again.
+    pub hotplug: Option<oxyos_kms::Hotplug>,
+    hotplugged: bool,
+    /// Where the pointer is in the global space (logical pixels), once it has moved.
     pointer: Option<(i32, i32)>,
-    /// The display's pointer images for each shape the session has any for (the arrow for any
-    /// other), with how long each shows: one image, or an animated cursor's steps.
-    pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, Vec<(usize, std::time::Duration)>>,
-    /// What the last flip showed (the scene's displayed content once it completed).
-    pub flipped: Vec<RenderItem>,
     /// When the frame being composed started (CLOCK_MONOTONIC), and for every frame shown, how
     /// long from then to handing it to the display, in milliseconds.
     pub composing_since: std::time::Duration,
@@ -181,9 +383,6 @@ pub struct Compositor {
     pub authentication: Option<Box<dyn Authentication>>,
     /// The lock surface whose password is being checked.
     checking: Option<SurfaceKey>,
-    /// Whether the frame being composed, and the one last shown, were of the locked session.
-    composing_locked: bool,
-    shown_locked: bool,
     /// The machine is about to sleep: it may once the lock is on screen.
     sleeping: bool,
     /// What logind was last told of the lock.
@@ -192,21 +391,17 @@ pub struct Compositor {
     /// composed of each surface shown, which one going is drawn from.
     pub transitions: transitions::Transitions,
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
-    /// Where the last frame drew surfaces in transition (their rectangle and where they were
-    /// placed): what the next frame must compose again, with where they are drawn then.
-    transition_drawn: Vec<oxyos_gpu::Rect>,
-    /// The damage of the last frame composed (`None`: whole), for tests and records.
-    pub last_damage: Option<Vec<oxyos_gpu::Rect>>,
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
-    /// The next frame is composed, and whole: the first, or after the display came back or the
-    /// splash was shown.
-    recompose: bool,
     /// The time transitions run on: `CLOCK_MONOTONIC`, or a test's.
     pub clock: Option<Duration>,
-    /// The session's splash (splash.rs), over everything from `show_splash` to `end_splash`.
-    splash: Option<transitions::Snapshot>,
-    /// Called once, when the first frame composed has flipped on the display: the session tells
+    /// The session's splash (splash.rs), over everything on every screen from `show_splash` to
+    /// `end_splash`: one for each.
+    splash: Vec<transitions::Snapshot>,
+    /// With `--gpu`: the screen whose frame the Vulkan compositor's own output holds, which the
+    /// next frame composed there for the same screen is relative to.
+    gpu_holds: Option<OutputId>,
+    /// Called once, when the first frame composed has flipped on a display: the session tells
     /// its service manager it is on screen, and the boot logo is let go
     /// (docs/adr/0017-boot-logo.mdx).
     pub on_first_flip: Option<Box<dyn FnOnce()>>,
@@ -226,6 +421,21 @@ pub trait Authentication {
     fn as_fd(&self) -> BorrowedFd<'_>;
     /// The answer for the password being checked, once there is one.
     fn answer(&mut self) -> Option<(AuthOutcome, u32)>;
+}
+
+/// What a turn gathered for the screens it composes (`Compositor::frame`): the frame list and
+/// how its windows are drawn, what each surface shows completed, the layers in the global space,
+/// where surfaces in transition are drawn, and for the screen, how many frames it presents,
+/// whether the session is locked and whether the pointer moved on it.
+struct ScreenFrame<'a> {
+    list: &'a [RenderItem],
+    looks: &'a Looks,
+    displayed: &'a HashMap<SurfaceKey, oxyos_compositor_core::Frame>,
+    layers: &'a [oxyos_gpu::Layer<'a>],
+    transition_drawn: &'a [oxyos_gpu::Rect],
+    started: usize,
+    locked: bool,
+    pointer_moved: bool,
 }
 
 /// One layer's content as a frame composes it: a surface's pixels (`key`), a cover, a surface
@@ -312,10 +522,15 @@ pub struct Gpu {
 }
 
 impl Compositor {
-    /// A compositor for `scene`'s output `output`, serving connections of the user `own_uid`.
-    pub fn new(scene: Scene, own_uid: u32, output: Rect) -> Self {
+    /// A compositor for `scene`, a screen for each of its outputs (at its rectangle and scale,
+    /// with no display), serving connections of the user `own_uid`.
+    pub fn new(scene: Scene, own_uid: u32) -> Self {
         Self {
-            output,
+            screens: scene
+                .outputs()
+                .iter()
+                .map(|output| Screen::new(output, None))
+                .collect(),
             scene,
             peers: HashMap::new(),
             shell_listener: None,
@@ -324,9 +539,6 @@ impl Compositor {
             next_client: 0,
             next_shell_client: ClientId::MAX - 2,
             own_uid,
-            framebuffer: vec![DESKTOP; (output.width * output.height) as usize],
-            composed: Vec::new(),
-            looks: Looks::new(),
             // The shadows' profiles are the first two versions numbered.
             shadows: window::Shadows::new(0),
             frames: 0,
@@ -336,24 +548,17 @@ impl Compositor {
             local_events: Vec::new(),
             gpu: None,
             gpu_only: false,
-            shown_kept: false,
             reads_back: true,
             records: true,
             ending: false,
             keep_frame: false,
             last_frame: Vec::new(),
-            display: None,
             input: None,
             display_offset: (0, 0),
-            scanout: Vec::new(),
-            scanout_back: 0,
-            flips: Vec::new(),
-            pending_flip: None,
-            pointer_flip: false,
+            hotplug: None,
+            hotplugged: false,
             pointer: None,
-            pointer_images: BTreeMap::new(),
             idle_wait: Duration::from_millis(5),
-            flipped: Vec::new(),
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
@@ -367,18 +572,14 @@ impl Compositor {
             away: false,
             authentication: None,
             checking: None,
-            composing_locked: false,
-            shown_locked: false,
             sleeping: false,
             hinted_locked: false,
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
-            transition_drawn: Vec::new(),
-            last_damage: None,
             transition_frames: 0,
-            recompose: true,
             clock: None,
-            splash: None,
+            splash: Vec::new(),
+            gpu_holds: None,
             on_first_flip: None,
         }
     }
@@ -656,23 +857,150 @@ impl Compositor {
         }
     }
 
-    /// Composes the in-flight frame on the CPU, then completes it. Without new client frames
-    /// the output is recomposed only if the scene changed (a surface went away, moved, ...).
+    /// Adds `output` to the scene and a screen for it, composing `pixels` (its display's mode;
+    /// none: its rectangle at its scale). Its display, scanout buffers and pointer images are
+    /// the caller's to give it (`screen_mut`).
+    pub fn add_output(&mut self, output: Output, pixels: Option<(u32, u32)>) -> Result<()> {
+        self.scene
+            .add_output(output)
+            .map_err(|code| format!("output {}: {code:?}", output.id))?;
+        let mut screen = Screen::new(&output, pixels);
+        screen.recompose = true;
+        self.screens.push(screen);
+        self.confine_pointer();
+        Ok(())
+    }
+
+    /// Removes an output and its screen (its monitor was unplugged): its windows go to the
+    /// primary, its shell's surfaces are dismissed (the scene's `remove_output`), its frame on
+    /// its way completes unshown, its display is turned off and its scanout buffers freed.
+    pub fn remove_output(&mut self, id: OutputId) {
+        let Some(index) = self.screens.iter().position(|screen| screen.id == id) else {
+            return;
+        };
+        self.detach_display(id);
+        self.screens.remove(index);
+        if self.gpu_holds == Some(id) {
+            self.gpu_holds = None;
+        }
+        self.scene.remove_output(id);
+        self.retire();
+        // What moved to the screens left shows there.
+        for screen in &mut self.screens {
+            screen.recompose = true;
+        }
+        self.confine_pointer();
+    }
+
+    /// Turns a screen's display off and lets go of it and its scanout buffers (its monitor was
+    /// unplugged): its frame on its way completes unshown, and it composes on, undisplayed.
+    pub fn detach_display(&mut self, id: OutputId) {
+        let Some(screen) = self.screens.iter_mut().find(|screen| screen.id == id) else {
+            return;
+        };
+        if screen.pending_flip.take().is_some() && !std::mem::take(&mut screen.pointer_flip) {
+            self.scene.end_frame_on(id, 0, Clock::Synthetic);
+        }
+        if let Some(mut display) = screen.display.take() {
+            if let Err(error) = display.turn_off() {
+                eprintln!("[kms] turning output {id} off: {error}");
+            }
+        }
+        let targets: Vec<usize> = screen.scanout.drain(..).map(|(index, _)| index).collect();
+        screen.scanout_back = 0;
+        if let Some(gpu) = &mut self.gpu {
+            gpu.compositor.remove_scanout_targets(&targets);
+        }
+        self.retire();
+    }
+
+    /// Moves an output, and what is on it, to `origin` in the global space (the arrangement
+    /// closing the gap one removed left).
+    pub fn move_output(&mut self, id: OutputId, origin: (i32, i32)) -> Result<()> {
+        self.scene
+            .set_output_origin(id, origin)
+            .map_err(|code| format!("output {id}: {code:?}"))?;
+        if let Some(screen) = self.screen_mut(id) {
+            screen.rect.x = origin.0;
+            screen.rect.y = origin.1;
+            screen.recompose = true;
+        }
+        self.confine_pointer();
+        Ok(())
+    }
+
+    pub fn screen(&self, id: OutputId) -> Option<&Screen> {
+        self.screens.iter().find(|screen| screen.id == id)
+    }
+
+    pub fn screen_mut(&mut self, id: OutputId) -> Option<&mut Screen> {
+        self.screens.iter_mut().find(|screen| screen.id == id)
+    }
+
+    /// Whether the card's connectors may have changed since the last call (`hotplug`, or the
+    /// display coming back from another session, which may have changed them meanwhile): the
+    /// program running the compositor reads them again and adds or removes outputs.
+    pub fn take_hotplug(&mut self) -> bool {
+        std::mem::take(&mut self.hotplugged)
+    }
+
+    /// The pointer moves within the outputs, crossing where they meet (ADR 0018): told to the
+    /// devices whenever the outputs change, and by the program running the compositor once it
+    /// gives it its devices (`input`).
+    pub fn confine_pointer(&mut self) {
+        let Some(input) = self.input.as_mut() else {
+            return;
+        };
+        let (dx, dy) = self.display_offset;
+        input.set_area(
+            self.screens
+                .iter()
+                .map(|screen| {
+                    (
+                        f64::from(screen.rect.x + dx),
+                        f64::from(screen.rect.y + dy),
+                        f64::from(screen.rect.width),
+                        f64::from(screen.rect.height),
+                    )
+                })
+                .collect(),
+        );
+    }
+
+    /// Composes the frame of every screen that has none on its way to its display and shows
+    /// something new (ADR 0018), on the CPU or the GPU, and hands it to its display; a screen
+    /// without one completes its frame at once. Each screen's frame presents the surfaces on it
+    /// (`Scene::begin_frame_on`) and completes at its own flip.
     pub fn frame(&mut self) {
-        if self.pending_flip.is_some() {
+        // The pointer is on the cursor plane of the display it is over, placed by every commit,
+        // in the shape the surface under it wants; the other displays hide it.
+        let shape = self.scene.pointer_shape();
+        let clock = monotonic();
+        let mut pointer_moved = vec![false; self.screens.len()];
+        for (moved, screen) in pointer_moved.iter_mut().zip(&mut self.screens) {
+            if screen.pending_flip.is_some() || self.away {
+                continue;
+            }
+            let image = screen
+                .pointer_images
+                .get(&shape)
+                .map_or(0, |steps| pointer_step(steps, clock));
+            let at = self.pointer.and_then(|at| screen.on_display(at));
+            if let Some(display) = &mut screen.display {
+                *moved = display.set_pointer(at, image);
+            }
+        }
+        // The screens that compose now: those with no frame on its way to their display.
+        let ready: Vec<usize> = (0..self.screens.len())
+            .filter(|&index| self.screens[index].pending_flip.is_none())
+            .collect();
+        if ready.is_empty() {
             return;
         }
-        // The pointer is on the display's cursor plane, placed by every commit, in the shape the
-        // surface under it wants.
-        let image = self
-            .pointer_images
-            .get(&self.scene.pointer_shape())
-            .map_or(0, |steps| pointer_step(steps, monotonic()));
-        let pointer_moved = match (&mut self.display, self.away) {
-            (Some(display), false) => display.set_pointer(self.pointer, image),
-            _ => false,
-        };
-        let started = self.scene.begin_frame();
+        let started: Vec<usize> = ready
+            .iter()
+            .map(|&index| self.scene.begin_frame_on(self.screens[index].id))
+            .collect();
         let list = self.scene.frame_list();
         // Toplevels and dialogs are drawn with corners and a shadow (ADR 0016).
         let looks: Looks = list
@@ -686,79 +1014,72 @@ impl Compositor {
         // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
         let now = self.now();
         // A window minimized goes into the dock, the shell's bottom panel, and comes back out
-        // of it; a workspace's windows slide by the output's width.
-        let place = transitions::Place {
-            output: self.output,
-            dock: self.scene.dock().map(|dock| {
-                (
-                    dock.x + dock.width as i32 / 2,
-                    dock.y + dock.height as i32 / 2,
-                )
-            }),
-        };
+        // of it; a workspace's windows slide by the width of the output they are on.
+        let dock = self.scene.dock().map(|dock| {
+            (
+                dock.x + dock.width as i32 / 2,
+                dock.y + dock.height as i32 / 2,
+            )
+        });
         for appearance in self.scene.take_appearances() {
             let snapshot = if appearance.arrived() {
                 None
             } else {
                 self.shown.remove(&appearance.key)
             };
+            let rect = snapshot.as_ref().map(|snapshot| snapshot.rect).or_else(|| {
+                list.iter().find_map(|item| match *item {
+                    RenderItem::Surface { key, rect, .. } if key == appearance.key => Some(rect),
+                    _ => None,
+                })
+            });
+            let output = rect
+                .and_then(|rect| {
+                    self.scene.output_at_point(
+                        rect.x + rect.width as i32 / 2,
+                        rect.y + rect.height as i32 / 2,
+                    )
+                })
+                .or_else(|| self.scene.outputs().first().copied())
+                .map_or(Rect::new(0, 0, 1, 1), |output| output.rect);
+            let place = transitions::Place { output, dock };
             self.transitions.appear(appearance, now, snapshot, &place);
         }
         if self.scene.is_locked() {
             self.transitions.lock();
         }
         let animating = self.transitions.advance(now);
-        if started == 0
-            && list == self.composed
-            && looks == self.looks
-            && !animating
-            && !self.recompose
-        {
-            self.scene.end_frame(0, Clock::Synthetic);
-            if pointer_moved {
-                self.present_pointer();
+        let changed = ready.iter().zip(&started).any(|(&index, &started)| {
+            let screen = &self.screens[index];
+            started > 0 || screen.recompose || list != screen.composed || looks != screen.looks
+        });
+        if !changed && !animating {
+            for (&index, moved) in ready.iter().zip(&pointer_moved) {
+                let id = self.screens[index].id;
+                self.scene.end_frame_on(id, 0, Clock::Synthetic);
+                if *moved {
+                    self.present_pointer(index);
+                }
             }
             return;
         }
         self.composing_since = monotonic();
-        self.composing_locked = self.scene.is_locked();
+        let locked = self.scene.is_locked();
         if animating {
             self.transition_frames += 1;
         }
         self.transitions.record(now);
-        // What changed on the output since the frame composed last (ADR 0005); everything when
-        // there was none, or after the display came back.
-        let scene = &self.scene;
-        let drawn = |key: SurfaceKey, rect: Rect, extent: Size| match scene.presenting_damage(key) {
-            Some(oxyos_compositor_core::SurfaceDamage::Rects(rects)) => Some(
-                rects
-                    .iter()
-                    .map(|damage| on_output(damage, rect, extent))
-                    .collect(),
-            ),
-            _ => None,
-        };
-        let changed_damage = (!self.recompose).then(|| {
-            output_damage(
-                (&self.composed, &self.looks),
-                (&list, &looks),
-                &self.shadows,
-                &drawn,
-            )
-        });
-        let output_rect = oxyos_gpu::Rect {
-            x: self.output.x,
-            y: self.output.y,
-            width: self.output.width,
-            height: self.output.height,
-        };
-        let area = |rects: &[oxyos_gpu::Rect]| {
-            let within: Vec<oxyos_gpu::Rect> = rects
-                .iter()
-                .filter_map(|rect| rect.intersect(&output_rect))
-                .collect();
-            union_area(&within)
-        };
+        // What each surface shows now, completed: what a frame presenting a new one changed is
+        // relative to (`presenting_damage`).
+        let displayed: HashMap<SurfaceKey, oxyos_compositor_core::Frame> = self
+            .scene
+            .render_list()
+            .into_iter()
+            .filter_map(|item| match item {
+                RenderItem::Surface { key, frame, .. } => Some((key, frame)),
+                RenderItem::Cover { .. } => None,
+            })
+            .collect();
         // Each surface's pixels, read from its shared buffer, and the covers.
         // Where this frame draws surfaces in transition: their rectangle and where they are placed,
         // a window's with its shadow.
@@ -789,12 +1110,16 @@ impl Compositor {
                                 version,
                             }
                         });
-                        // What changed since the version composed last, when the frame says.
+                        // What changed since the version composed last, when the frame says:
+                        // only for a frame presenting now over the one composed last.
+                        let shown = displayed
+                            .get(&key)
+                            .and_then(|shown| self.versions.get(&(key, shown.sequence)));
                         let changed = source.and_then(|source| {
                             let &from = self.shown_versions.get(&source.key)?;
                             match self.scene.presenting_damage(key)? {
                                 oxyos_compositor_core::SurfaceDamage::Rects(rects)
-                                    if from != source.version =>
+                                    if from != source.version && shown == Some(&from) =>
                                 {
                                     Some((
                                         from,
@@ -852,8 +1177,8 @@ impl Compositor {
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
             }
         }
-        // The splash over everything while the session starts.
-        if let Some(splash) = &self.splash {
+        // The splash over everything while the session starts, on every screen.
+        for splash in &self.splash {
             contents.push(Content {
                 key: None,
                 rect: splash.rect,
@@ -898,22 +1223,7 @@ impl Compositor {
             self.reads
                 .push((monotonic() - self.composing_since).as_secs_f64() * 1e3);
         }
-        // What changed since the frame composed last (ADR 0005), and, while surfaces arrive or
-        // go, where they were drawn then and are drawn now (ADR 0011): an opacity or a scale
-        // changes no surface's frame.
-        let damage = changed_damage.map(|mut rects| {
-            rects.extend(self.transition_drawn.iter().copied());
-            rects.extend(transition_drawn.iter().copied());
-            rects
-        });
-        self.transition_drawn = transition_drawn;
-        if self.records {
-            self.damaged.push(match &damage {
-                Some(rects) => (area(rects) as f64 / area(&[output_rect]) as f64).min(1.0),
-                None => 1.0,
-            });
-        }
-        self.last_damage = damage.clone();
+        // The layers in the global space (logical pixels); each screen places them in its own.
         let layers: Vec<oxyos_gpu::Layer<'_>> = contents
             .iter()
             .map(|content| oxyos_gpu::Layer {
@@ -952,65 +1262,27 @@ impl Compositor {
                 _ => true,
             })
         });
-        // The output is at the origin of the global space.
-        if !self.gpu_only {
-            self.framebuffer =
-                oxyos_gpu::compose_cpu(self.output.width, self.output.height, DESKTOP, &layers);
-        }
-        if self.keep_frame {
-            self.last_frame.clear();
-            oxyos_gpu::frame_file::write(
-                &mut self.last_frame,
-                self.output.width,
-                self.output.height,
-                DESKTOP,
-                &layers,
-            )
-            .expect("writing to memory");
-        }
-        if let (Some(gpu), false) = (&mut self.gpu, self.gpu_only) {
-            gpu.frames += 1;
-            let composed = match &damage {
-                Some(damage) => gpu.compositor.compose_damaged(
-                    self.output.width,
-                    self.output.height,
-                    DESKTOP,
-                    &layers,
-                    damage,
-                ),
-                None => {
-                    gpu.compositor
-                        .compose(self.output.width, self.output.height, DESKTOP, &layers)
-                }
-            };
-            match composed {
-                Ok(pixels) if pixels == self.framebuffer => {}
-                Ok(_) => gpu.mismatches += 1,
-                Err(error) => {
-                    eprintln!("[gpu] {error}");
-                    gpu.mismatches += 1;
-                }
-            }
-        }
         // A buffer that could not be read is never reported as presented: its client is
-        // disconnected before the frame completes.
+        // disconnected before the frame completes, and its surfaces are not of what is composed.
         for client in unreadable {
             self.fail(client, ErrorCode::InvalidBuffer);
         }
-        self.composed = self.scene.frame_list();
-        self.looks = looks;
-        self.recompose = false;
+        let composed_list = self.scene.frame_list();
         self.frames += 1;
-        // On a display, the frame completes when it is on screen, at the kernel's flip time, in
-        // a later turn (`complete_flip`).
-        let presented = self.present(&layers, damage.as_deref());
-        if !presented {
-            self.scene.end_frame(0, Clock::Synthetic);
-            self.retire();
-            if self.gpu_only && self.reads_back {
-                self.flush();
-                self.framebuffer_from_gpu(&layers);
-            }
+        for (&index, (&started, &moved)) in ready.iter().zip(started.iter().zip(&pointer_moved)) {
+            self.compose_screen(
+                index,
+                ScreenFrame {
+                    list: &composed_list,
+                    looks: &looks,
+                    displayed: &displayed,
+                    layers: &layers,
+                    transition_drawn: &transition_drawn,
+                    started,
+                    locked,
+                    pointer_moved: moved,
+                },
+            );
         }
         // What each surface shown showed: what it is drawn from if it goes (ADR 0011).
         drop(layers);
@@ -1032,23 +1304,163 @@ impl Compositor {
             .collect();
     }
 
-    /// Shows the session's splash, the Oxy mark on black, over everything from the next frame.
+    /// Composes one screen's frame from what the turn gathered (`frame`), if anything on it
+    /// changed or its frame presents something, and hands it to its display; else its frame
+    /// completes at once.
+    fn compose_screen(&mut self, index: usize, frame: ScreenFrame<'_>) {
+        let screen = &self.screens[index];
+        let id = screen.id;
+        // What changed on the screen since it composed last (ADR 0005); everything when it never
+        // has, or after its display came back. A surface's own damage is its frame presenting
+        // over the one it showed, which is the one this screen composed last only if it did.
+        let scene = &self.scene;
+        let composed = &screen.composed;
+        let drawn = |key: SurfaceKey, rect: Rect, extent: Size| {
+            let shown = frame.displayed.get(&key)?;
+            let composed_here = composed.iter().any(|item| {
+                matches!(item, RenderItem::Surface { key: k, frame: f, .. } if *k == key && f == shown)
+            });
+            match scene.presenting_damage(key) {
+                Some(oxyos_compositor_core::SurfaceDamage::Rects(rects)) if composed_here => Some(
+                    rects
+                        .iter()
+                        .map(|damage| on_output(damage, rect, extent))
+                        .collect(),
+                ),
+                _ => None,
+            }
+        };
+        // Global, logical; then in the screen's pixels.
+        let damage = (!screen.recompose).then(|| {
+            let mut rects = output_damage(
+                (&screen.composed, &screen.looks),
+                (frame.list, frame.looks),
+                &self.shadows,
+                &drawn,
+            );
+            rects.extend(screen.transition_drawn.iter().copied());
+            rects.extend(frame.transition_drawn.iter().copied());
+            rects
+                .iter()
+                .filter_map(|rect| screen.covering(rect))
+                .collect::<Vec<_>>()
+        });
+        let screen_rect = oxyos_gpu::Rect {
+            x: 0,
+            y: 0,
+            width: screen.width,
+            height: screen.height,
+        };
+        if frame.started == 0 && damage.as_ref().is_some_and(|damage| damage.is_empty()) {
+            // Nothing on it changed: nothing composed, its frame completes now.
+            self.scene.end_frame_on(id, 0, Clock::Synthetic);
+            let screen = &mut self.screens[index];
+            screen.composed = frame.list.to_vec();
+            screen.looks = frame.looks.clone();
+            screen.transition_drawn = frame.transition_drawn.to_vec();
+            if frame.pointer_moved {
+                self.present_pointer(index);
+            }
+            return;
+        }
+        // The layers on the screen, in its pixels.
+        let layers: Vec<oxyos_gpu::Layer<'_>> = frame
+            .layers
+            .iter()
+            .filter_map(|layer| screen.layer(layer))
+            .collect();
+        if self.records {
+            let area = |rects: &[oxyos_gpu::Rect]| {
+                let within: Vec<oxyos_gpu::Rect> = rects
+                    .iter()
+                    .filter_map(|rect| rect.intersect(&screen_rect))
+                    .collect();
+                union_area(&within)
+            };
+            self.damaged.push(match &damage {
+                Some(rects) => (area(rects) as f64 / area(&[screen_rect]) as f64).min(1.0),
+                None => 1.0,
+            });
+        }
+        let (width, height) = (screen.width, screen.height);
+        if !self.gpu_only {
+            self.screens[index].framebuffer =
+                oxyos_gpu::compose_cpu(width, height, DESKTOP, &layers);
+        }
+        if self.keep_frame && index == 0 {
+            self.last_frame.clear();
+            oxyos_gpu::frame_file::write(&mut self.last_frame, width, height, DESKTOP, &layers)
+                .expect("writing to memory");
+        }
+        if let (Some(gpu), false) = (&mut self.gpu, self.gpu_only) {
+            gpu.frames += 1;
+            // The device's own output holds another screen's frame: this one is composed whole.
+            let composed = match &damage {
+                Some(damage) if self.gpu_holds == Some(id) => gpu
+                    .compositor
+                    .compose_damaged(width, height, DESKTOP, &layers, damage),
+                _ => gpu.compositor.compose(width, height, DESKTOP, &layers),
+            };
+            self.gpu_holds = Some(id);
+            match composed {
+                Ok(pixels) if pixels == self.screens[index].framebuffer => {}
+                Ok(_) => gpu.mismatches += 1,
+                Err(error) => {
+                    eprintln!("[gpu] {error}");
+                    gpu.mismatches += 1;
+                }
+            }
+        }
+        {
+            let screen = &mut self.screens[index];
+            screen.composed = frame.list.to_vec();
+            screen.looks = frame.looks.clone();
+            screen.transition_drawn = frame.transition_drawn.to_vec();
+            screen.recompose = false;
+            screen.composing_locked = frame.locked;
+            screen.last_damage = damage.clone();
+        }
+        // On a display, the frame completes when it is on screen, at the kernel's flip time, in
+        // a later turn (`complete_flip`).
+        let presented = self.present(index, &layers, damage.as_deref());
+        if !presented {
+            self.scene.end_frame_on(id, 0, Clock::Synthetic);
+            self.retire();
+            if self.gpu_only && self.reads_back {
+                self.flush();
+                self.framebuffer_from_gpu(index, &layers);
+            }
+        }
+    }
+
+    /// Shows the session's splash, the Oxy mark on black, over everything on every screen from
+    /// the next frame.
     pub fn show_splash(&mut self) {
-        self.splash = splash::splash(Size::new(self.output.width, self.output.height));
-        // The next frame is composed whole, with it.
-        self.composed.clear();
-        self.recompose = true;
+        self.splash = self
+            .screens
+            .iter()
+            .filter_map(|screen| {
+                let mut splash = splash::splash(Size::new(screen.width, screen.height))?;
+                splash.rect = screen.rect;
+                Some(splash)
+            })
+            .collect();
+        // The next frames are composed whole, with it.
+        for screen in &mut self.screens {
+            screen.composed.clear();
+            screen.recompose = true;
+        }
     }
 
     pub fn showing_splash(&self) -> bool {
-        self.splash.is_some()
+        !self.splash.is_empty()
     }
 
     /// The session is on screen: the splash fades out over it (400 ms).
     pub fn end_splash(&mut self) {
-        if let Some(splash) = self.splash.take() {
-            let now = self.now();
-            self.transitions.fade(splash, now);
+        let now = self.now();
+        for (index, splash) in std::mem::take(&mut self.splash).into_iter().enumerate() {
+            self.transitions.fade(index as u32, splash, now);
         }
     }
 
@@ -1057,33 +1469,42 @@ impl Compositor {
         self.clock.unwrap_or_else(monotonic)
     }
 
-    /// Only the pointer moved (or its animated image went on): the frame shown is committed again
-    /// with it where it is now, no
-    /// frame composed. Its flip completes no client's frame.
-    fn present_pointer(&mut self) {
-        let Some(display) = self.display.as_mut() else {
+    /// Only the pointer moved (or its animated image went on): the frame a screen shows is
+    /// committed again with it where it is now, no frame composed. Its flip completes no
+    /// client's frame.
+    fn present_pointer(&mut self, index: usize) {
+        let screen = &mut self.screens[index];
+        let Some(display) = screen.display.as_mut() else {
             return;
         };
         match display.present_again() {
             Ok(true) => {
-                self.pending_flip = Some(monotonic());
-                self.pointer_flip = true;
+                screen.pending_flip = Some(monotonic());
+                screen.pointer_flip = true;
             }
             Ok(false) => {}
             Err(error) => {
-                eprintln!("[kms] {error}; display output stops");
-                self.display = None;
+                eprintln!("[kms] {error}; output {} stops", screen.id);
+                screen.display = None;
             }
         }
     }
 
-    /// Completes the frame on its way to the display once it has flipped, at the kernel's flip
-    /// time; with `wait`, waits for the flip (before giving the display away, or at the end).
+    /// Completes the frames on their way to the displays once they have flipped, each at its
+    /// kernel's flip time; with `wait`, waits for their flips (before giving the displays away,
+    /// or at the end).
     pub fn complete_flip(&mut self, wait: bool) {
-        let Some(submitted) = self.pending_flip else {
+        for index in 0..self.screens.len() {
+            self.complete_screen_flip(index, wait);
+        }
+    }
+
+    fn complete_screen_flip(&mut self, index: usize, wait: bool) {
+        let screen = &mut self.screens[index];
+        let Some(submitted) = screen.pending_flip else {
             return;
         };
-        let flip = match &self.display {
+        let flip = match &screen.display {
             Some(display) if wait => {
                 // Bounded: a seat manager may have taken the display meanwhile.
                 let deadline = Instant::now() + Duration::from_secs(1);
@@ -1099,18 +1520,18 @@ impl Compositor {
             Some(display) => display.flip_done(),
             None => Err(std::io::Error::other("the display went away")),
         };
-        if self.pointer_flip {
+        if screen.pointer_flip {
             // The pointer moved on the frame shown: nothing of the scene completes.
             match flip {
                 Ok(None) if !wait => return,
                 Err(error) => {
-                    eprintln!("[kms] {error}; display output stops");
-                    self.display = None;
+                    eprintln!("[kms] {error}; output {} stops", screen.id);
+                    screen.display = None;
                 }
                 _ => {}
             }
-            self.pointer_flip = false;
-            self.pending_flip = None;
+            screen.pointer_flip = false;
+            screen.pending_flip = None;
             return;
         }
         let (timestamp_ns, clock) = match flip {
@@ -1118,13 +1539,13 @@ impl Compositor {
             // Never flipped: the frame completes unshown, and is composed again.
             Ok(None) => {
                 eprintln!("[kms] a frame never flipped");
-                self.composed.clear();
-                self.recompose = true;
+                screen.composed.clear();
+                screen.recompose = true;
                 (0, Clock::Synthetic)
             }
             Ok(Some(flip)) => {
                 if self.records {
-                    self.flips.push((submitted, flip));
+                    screen.flips.push((submitted, flip));
                 }
                 if let Some(first_flip) = self.on_first_flip.take() {
                     first_flip();
@@ -1135,26 +1556,29 @@ impl Compositor {
                 )
             }
             Err(error) => {
-                eprintln!("[kms] {error}; display output stops");
-                self.display = None;
+                eprintln!("[kms] {error}; output {} stops", screen.id);
+                screen.display = None;
                 // Composed again for the director's checks, without the display.
-                self.composed.clear();
-                self.recompose = true;
+                screen.composed.clear();
+                screen.recompose = true;
                 (0, Clock::Synthetic)
             }
         };
-        self.pending_flip = None;
-        self.scene.end_frame(timestamp_ns, clock);
+        screen.pending_flip = None;
+        let id = screen.id;
+        self.scene.end_frame_on(id, timestamp_ns, clock);
         self.retire();
         if clock == Clock::Monotonic {
-            self.flipped = self.scene.render_list();
-            self.shown_locked = self.composing_locked;
+            let shown = self.scene.render_list();
+            let screen = &mut self.screens[index];
+            screen.flipped = shown;
+            screen.shown_locked = screen.composing_locked;
         }
         if self.gpu_only && self.reads_back && clock == Clock::Monotonic {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
-            self.framebuffer_from_gpu(&[]);
+            self.framebuffer_from_gpu(index, &[]);
         }
     }
 
@@ -1167,9 +1591,11 @@ impl Compositor {
         for switch in terminal.switches()? {
             match switch {
                 oxyos_vt::Switch::Release if !self.away => {
-                    // The frame on its way is shown before the display is given away.
+                    // The frame on its way is shown before the display is given away. The terminal's
+                    // path drives one display (the development compositor's): master is the card's.
                     self.complete_flip(true);
-                    if let Some(display) = &mut self.display {
+                    if let Some(display) = self.screens.iter_mut().find_map(|s| s.display.as_mut())
+                    {
                         display.suspend()?;
                     }
                     if let Some(input) = &mut self.input {
@@ -1186,16 +1612,15 @@ impl Compositor {
                     if let Some(terminal) = &self.terminal {
                         terminal.acquired()?;
                     }
-                    if let Some(display) = &mut self.display {
+                    if let Some(display) = self.screens.iter_mut().find_map(|s| s.display.as_mut())
+                    {
                         display.resume()?;
                     }
                     if let Some(input) = &mut self.input {
                         input.resume()?;
                     }
                     self.away = false;
-                    // Composed again, and shown with a modeset.
-                    self.composed.clear();
-                    self.recompose = true;
+                    self.shown_again();
                 }
                 // A release while away, or an acquire while here: nothing to give or take.
                 oxyos_vt::Switch::Release | oxyos_vt::Switch::Acquire => {}
@@ -1216,7 +1641,7 @@ impl Compositor {
                 oxyos_seat::Event::Paused(device, pause) => {
                     if Some(device) == self.card_device && !self.away {
                         self.complete_flip(true);
-                        if let Some(display) = &mut self.display {
+                        for display in self.screens.iter_mut().filter_map(|s| s.display.as_mut()) {
                             display.taken_back();
                         }
                         if let Some(input) = &mut self.input {
@@ -1251,9 +1676,7 @@ impl Compositor {
                             input.resume()?;
                         }
                         self.away = false;
-                        // Composed again, and shown with a modeset.
-                        self.composed.clear();
-                        self.recompose = true;
+                        self.shown_again();
                     }
                 }
             }
@@ -1261,8 +1684,20 @@ impl Compositor {
         Ok(())
     }
 
+    /// The displays are back from another session: every screen is composed again and shown
+    /// with a modeset, and the connectors are read again, as monitors may have come or gone
+    /// meanwhile.
+    fn shown_again(&mut self) {
+        for screen in &mut self.screens {
+            screen.composed.clear();
+            screen.recompose = true;
+        }
+        self.hotplugged = self.hotplug.is_some();
+    }
+
     /// With `--input`: what the seat's devices did since the last turn, applied to the scene.
-    /// Positions arrive in the display's pixels; the output is centred on the display.
+    /// Positions arrive in the global space, offset by `display_offset` (the development
+    /// compositor's output is centred on its display).
     pub fn read_input(&mut self) {
         let Some(input) = self.input.as_mut() else {
             return;
@@ -1283,9 +1718,9 @@ impl Compositor {
             }
             match action {
                 oxyos_input::Action::Motion { x, y } => {
-                    let (x, y) = (x.round() as i32, y.round() as i32);
+                    let (x, y) = (x.round() as i32 - dx, y.round() as i32 - dy);
                     self.pointer = Some((x, y));
-                    self.scene.pointer_motion(x - dx, y - dy)
+                    self.scene.pointer_motion(x, y)
                 }
                 oxyos_input::Action::Button { code, pressed } => {
                     self.scene.pointer_button(code, pressed)
@@ -1345,38 +1780,41 @@ impl Compositor {
         }
     }
 
-    /// With `--gpu-only`: the director's frame is the GPU's, the output's part of the frame shown
-    /// (read back after the flip) or, with nothing shown, composed for it. An error counts as a
-    /// mismatch, and the run fails.
-    pub fn framebuffer_from_gpu(&mut self, layers: &[oxyos_gpu::Layer<'_>]) {
-        let display = self.display.as_ref().map(|display| display.size());
+    /// With `--gpu-only`: the director's frame of a screen is the GPU's, the screen's part of
+    /// the frame shown (read back after the flip) or, with nothing shown, composed for it. An
+    /// error counts as a mismatch, and the run fails.
+    pub fn framebuffer_from_gpu(&mut self, index: usize, layers: &[oxyos_gpu::Layer<'_>]) {
         let Some(gpu) = &mut self.gpu else {
             return;
         };
+        let screen = &mut self.screens[index];
+        let display = screen.display.as_ref().map(|display| display.size());
         gpu.frames += 1;
         let started = monotonic();
+        let (width, height) = (screen.width, screen.height);
         let frame = match display {
-            Some((width, height)) if self.shown_kept => {
-                self.shown_kept = false;
-                let dx = (width.saturating_sub(self.output.width) / 2) as usize;
-                let dy = (height.saturating_sub(self.output.height) / 2) as usize;
+            Some((display_width, display_height)) if screen.shown_kept => {
+                screen.shown_kept = false;
+                let dx = (display_width.saturating_sub(width) / 2) as usize;
+                let dy = (display_height.saturating_sub(height) / 2) as usize;
                 gpu.compositor.read_kept().map(|shown| {
                     shown
-                        .chunks_exact(width as usize)
+                        .chunks_exact(display_width as usize)
                         .skip(dy)
-                        .take(self.output.height as usize)
-                        .flat_map(|row| row[dx..dx + self.output.width as usize].iter().copied())
+                        .take(height as usize)
+                        .flat_map(|row| row[dx..dx + width as usize].iter().copied())
                         .collect()
                 })
             }
-            _ => gpu
-                .compositor
-                .compose(self.output.width, self.output.height, DESKTOP, layers),
+            _ => {
+                self.gpu_holds = Some(screen.id);
+                gpu.compositor.compose(width, height, DESKTOP, layers)
+            }
         };
         gpu.readback_ms
             .push((monotonic() - started).as_secs_f64() * 1e3);
         match frame {
-            Ok(frame) => self.framebuffer = frame,
+            Ok(frame) => screen.framebuffer = frame,
             Err(error) => {
                 eprintln!("[gpu] {error}");
                 gpu.mismatches += 1;
@@ -1384,25 +1822,27 @@ impl Compositor {
         }
     }
 
-    /// With `--kms`: hands the composed output, centred, to the display, which flips to it at
-    /// its next refresh (`complete_flip`); true once handed over. With `--gpu` too, the frame
-    /// is composed on the Vulkan device straight into a scanout buffer, with no copy through
-    /// the CPU. A display error ends display output.
+    /// Hands a screen's composed frame, centred, to its display, which flips to it at its next
+    /// refresh (`complete_flip`); true once handed over. With `--gpu` too, the frame is composed
+    /// on the Vulkan device straight into one of the screen's scanout buffers, with no copy
+    /// through the CPU. A display error ends that screen's display output.
     pub fn present(
         &mut self,
+        index: usize,
         layers: &[oxyos_gpu::Layer<'_>],
         damage: Option<&[oxyos_gpu::Rect]>,
     ) -> bool {
         if self.away {
             return false;
         }
-        let Some(display) = self.display.as_mut() else {
+        let screen = &mut self.screens[index];
+        let Some(display) = screen.display.as_mut() else {
             return false;
         };
         let (width, height) = display.size();
-        if let (Some(gpu), false) = (&mut self.gpu, self.scanout.is_empty()) {
-            let dx = (width.saturating_sub(self.output.width) / 2) as i32;
-            let dy = (height.saturating_sub(self.output.height) / 2) as i32;
+        if let (Some(gpu), false) = (&mut self.gpu, screen.scanout.is_empty()) {
+            let dx = (width.saturating_sub(screen.width) / 2) as i32;
+            let dy = (height.saturating_sub(screen.height) / 2) as i32;
             let shifted: Vec<oxyos_gpu::Layer<'_>> = layers
                 .iter()
                 .map(|layer| oxyos_gpu::Layer {
@@ -1421,14 +1861,14 @@ impl Compositor {
                     })
                     .collect()
             });
-            let back = self.scanout_back;
+            let (target, framebuffer) = screen.scanout[screen.scanout_back];
             let composed = if self.gpu_only && self.reads_back {
-                self.shown_kept = true;
+                screen.shown_kept = true;
                 gpu.compositor
-                    .compose_to_scanout_kept(back, DESKTOP, &shifted, damage.as_deref())
+                    .compose_to_scanout_kept(target, DESKTOP, &shifted, damage.as_deref())
             } else {
                 gpu.compositor
-                    .compose_to_scanout(back, DESKTOP, &shifted, damage.as_deref())
+                    .compose_to_scanout(target, DESKTOP, &shifted, damage.as_deref())
             }
             .map_err(|error| std::io::Error::other(error.to_string()));
             let submitted = monotonic();
@@ -1440,17 +1880,17 @@ impl Compositor {
                 self.compositions
                     .push((submitted - self.composing_since).as_secs_f64() * 1e3);
             }
-            let presented = composed.and_then(|()| display.present_framebuffer(self.scanout[back]));
-            self.scanout_back = 1 - back;
-            return self.handed_over(presented, submitted);
+            let presented = composed.and_then(|()| display.present_framebuffer(framebuffer));
+            screen.scanout_back = (screen.scanout_back + 1) % screen.scanout.len();
+            return self.handed_over(index, presented, submitted);
         }
         let mut pixels = vec![DESKTOP; width as usize * height as usize];
-        let dx = (width.saturating_sub(self.output.width) / 2) as usize;
-        let dy = (height.saturating_sub(self.output.height) / 2) as usize;
-        let columns = (self.output.width as usize).min(width as usize);
-        for (y, row) in self
+        let dx = (width.saturating_sub(screen.width) / 2) as usize;
+        let dy = (height.saturating_sub(screen.height) / 2) as usize;
+        let columns = (screen.width as usize).min(width as usize);
+        for (y, row) in screen
             .framebuffer
-            .chunks_exact(self.output.width as usize)
+            .chunks_exact(screen.width as usize)
             .enumerate()
         {
             if y + dy >= height as usize {
@@ -1466,22 +1906,24 @@ impl Compositor {
                 .push((submitted - self.composing_since).as_secs_f64() * 1e3);
         }
         let presented = drawn.and_then(|()| display.present());
-        self.handed_over(presented, submitted)
+        self.handed_over(index, presented, submitted)
     }
 
     pub fn handed_over(
         &mut self,
+        index: usize,
         presented: std::io::Result<()>,
         submitted: std::time::Duration,
     ) -> bool {
+        let screen = &mut self.screens[index];
         match presented {
             Ok(()) => {
-                self.pending_flip = Some(submitted);
+                screen.pending_flip = Some(submitted);
                 true
             }
             Err(error) => {
-                eprintln!("[kms] {error}; display output stops");
-                self.display = None;
+                eprintln!("[kms] {error}; output {} stops", screen.id);
+                screen.display = None;
                 false
             }
         }
@@ -1513,9 +1955,12 @@ impl Compositor {
         if !self.transitions.is_empty() {
             wait = wait.min(Duration::from_millis(16));
         }
-        let steps = self.pointer_images.get(&self.scene.pointer_shape());
-        if let Some(step) = steps.and_then(|steps| pointer_step_wait(steps, monotonic())) {
-            wait = wait.min(step);
+        let shape = self.scene.pointer_shape();
+        for screen in &self.screens {
+            let steps = screen.pointer_images.get(&shape);
+            if let Some(step) = steps.and_then(|steps| pointer_step_wait(steps, monotonic())) {
+                wait = wait.min(step);
+            }
         }
         for peer in self.peers.values() {
             if peer.protocol.version().is_none() {
@@ -1557,13 +2002,21 @@ impl Compositor {
                 };
                 fds.push(PollFd::from_borrowed_fd(peer.connection.as_fd(), flags));
             }
-            if let (Some(display), Some(_)) = (&self.display, self.pending_flip) {
-                fds.push(PollFd::from_borrowed_fd(
-                    display.card().as_fd(),
-                    PollFlags::IN,
-                ));
+            // The card of each display with a frame on its way (one card: its flips are read
+            // once, for every display, `Display::flip_done`).
+            for screen in &self.screens {
+                if let (Some(display), Some(_)) = (&screen.display, screen.pending_flip) {
+                    fds.push(PollFd::from_borrowed_fd(
+                        display.card().as_fd(),
+                        PollFlags::IN,
+                    ));
+                }
             }
-            // libinput and the seat are read every turn; they only need to wake it.
+            // libinput, the seat and the card's hotplugs are read every turn; they only need to
+            // wake it.
+            if let Some(hotplug) = &self.hotplug {
+                fds.push(PollFd::from_borrowed_fd(hotplug.as_fd(), PollFlags::IN));
+            }
             if let Some(input) = &self.input {
                 fds.push(PollFd::from_borrowed_fd(input.as_fd(), PollFlags::IN));
             }
@@ -1590,6 +2043,15 @@ impl Compositor {
             }
         };
         self.complete_flip(false);
+        if let Some(hotplug) = &self.hotplug {
+            match hotplug.changed() {
+                Ok(changed) => self.hotplugged |= changed,
+                Err(error) => {
+                    eprintln!("[kms] hotplug events: {error}; monitors plugged in are not seen");
+                    self.hotplug = None;
+                }
+            }
+        }
         if readable[0] {
             self.accept(listener)?;
         }
@@ -1633,13 +2095,15 @@ impl Compositor {
         Ok(())
     }
 
-    /// Whether the lock is on screen: the session is locked and the frame shown is of it (or
-    /// nothing is shown: there is no display, or another terminal has it).
+    /// Whether the lock is on screen: the session is locked and the frame every display shows
+    /// is of it (or nothing is shown: there is no display, or another terminal has them).
     pub fn lock_shown(&self) -> bool {
         self.scene.is_locked()
-            && (self.display.is_none()
-                || self.away
-                || (self.shown_locked && self.pending_flip.is_none()))
+            && (self.away
+                || self.screens.iter().all(|screen| {
+                    screen.display.is_none()
+                        || (screen.shown_locked && screen.pending_flip.is_none())
+                }))
     }
 
     /// Tells logind of the lock as it changes, and lets the machine sleep once it is on screen.
@@ -1689,8 +2153,19 @@ impl Compositor {
         }
     }
 
+    /// The pixel composed last at a point of the global space: on the screen it is on, in the
+    /// screen's pixels (`DESKTOP` off every screen).
     pub fn pixel(&self, x: i32, y: i32) -> u32 {
-        self.framebuffer[(y as u32 * self.output.width + x as u32) as usize]
+        self.screens
+            .iter()
+            .find(|screen| screen.rect.contains_point(x, y))
+            .map_or(DESKTOP, |screen| {
+                let (px, py, _, _) = screen.place(x, y, 0, 0);
+                screen.pixel(
+                    (px.max(0) as u32).min(screen.width - 1),
+                    (py.max(0) as u32).min(screen.height - 1),
+                )
+            })
     }
 
     pub fn surface_rect(&self, client: ClientId, id: u32) -> Option<Rect> {
@@ -1942,6 +2417,121 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn screen(rect: Rect, scale_120: u32) -> Screen {
+        Screen::new(
+            &Output {
+                id: 2,
+                rect,
+                scale_120,
+                refresh_mhz: 60_000,
+            },
+            None,
+        )
+    }
+
+    #[test]
+    fn a_screen_places_the_global_space_at_its_scale() {
+        // 400x300 logical at 1.5, right of a 640-wide output: 600x450 pixels.
+        let right = screen(Rect::new(640, 0, 400, 300), 180);
+        assert_eq!((right.width, right.height), (600, 450));
+        // Edges round to the nearest pixel, so rectangles that meet still meet.
+        assert_eq!(right.place(650, 10, 20, 20), (15, 15, 45, 45));
+        assert_eq!(right.place(651, 1, 1, 1), (17, 2, 18, 3));
+        assert_eq!(right.place(652, 1, 1, 1), (18, 2, 20, 3));
+        // Damage covers every pixel showing any of it, and nothing off the screen.
+        let rect = |x, y, width, height| oxyos_gpu::Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(right.covering(&rect(641, 1, 1, 1)), Some(rect(1, 1, 2, 2)));
+        assert_eq!(
+            right.covering(&rect(600, -10, 60, 20)),
+            Some(rect(0, 0, 30, 15))
+        );
+        assert_eq!(right.covering(&rect(0, 0, 640, 480)), None);
+        assert_eq!(
+            right.covering(&rect(1000, 290, 100, 100)),
+            Some(rect(540, 435, 60, 15))
+        );
+        // A point is on the screen it is in, in its pixels.
+        assert_eq!(right.on_display((640, 0)), Some((0, 0)));
+        assert_eq!(right.on_display((1039, 299)), Some((599, 449)));
+        assert_eq!(right.on_display((639, 0)), None);
+        // At scale 1 the global space is the screen's pixels.
+        let left = screen(Rect::new(0, 0, 640, 480), 120);
+        assert_eq!(left.place(-3, 7, 10, 10), (-3, 7, 7, 17));
+        assert_eq!(
+            left.covering(&rect(630, 470, 50, 50)),
+            Some(rect(630, 470, 10, 10))
+        );
+    }
+
+    #[test]
+    fn a_layer_is_placed_with_its_corners_and_shadow_at_the_screens_scale() {
+        let right = screen(Rect::new(640, 0, 400, 300), 180);
+        let rect = |x, y, width, height| oxyos_gpu::Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let profile = [0u8; 4];
+        let shadow = oxyos_gpu::Shadow {
+            shape: rect(2, 4, 10, 10),
+            radius: 4,
+            clip: rect(5, 5, 10, 10),
+            clip_radius: 3,
+            scale: 256,
+        };
+        let layer = oxyos_gpu::Layer {
+            x: 650,
+            y: 10,
+            width: 20,
+            height: 20,
+            extent: (1, 1),
+            paint: oxyos_gpu::Paint::Shadow(&profile, shadow),
+            source: None,
+            changed: None,
+            opacity: 200,
+            radius: 6,
+        };
+        let placed = right.layer(&layer).expect("on the screen");
+        assert_eq!(
+            (
+                placed.x,
+                placed.y,
+                placed.width,
+                placed.height,
+                placed.radius
+            ),
+            (15, 15, 30, 30, 9)
+        );
+        let oxyos_gpu::Paint::Shadow(_, at) = placed.paint else {
+            panic!("a shadow");
+        };
+        // Its rectangles as the global space's are placed, relative to the layer as placed; its
+        // radii and its size at the scale.
+        assert_eq!(
+            at,
+            oxyos_gpu::Shadow {
+                shape: rect(3, 6, 15, 15),
+                radius: 6,
+                clip: rect(8, 8, 15, 15),
+                clip_radius: 5,
+                scale: 384,
+            }
+        );
+        assert_eq!(placed.opacity, 200);
+        // At scale 1 a layer is as it was; one off the screen is none.
+        let left = screen(Rect::new(0, 0, 640, 480), 120);
+        let same = left.layer(&oxyos_gpu::Layer { x: 600, ..layer }).unwrap();
+        assert_eq!((same.x, same.y, same.radius), (600, 10, 6));
+        assert!(matches!(same.paint, oxyos_gpu::Paint::Shadow(_, at) if at == shadow));
+        assert!(left.layer(&oxyos_gpu::Layer { x: 640, ..layer }).is_none());
+    }
 
     #[test]
     fn a_turn_waits_until_an_animated_pointers_next_step() {

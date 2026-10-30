@@ -347,11 +347,33 @@ pub struct Launch {
     /// session gives it to an entry only an administrator could have written. A fixture: a
     /// scenario's entries are the developer's.
     pub grant_settings: Option<String>,
+    /// `--outputs WxH[@SCALE],...`: the session's outputs, of these pixels at these scales,
+    /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
+    /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
+    /// without it.
+    pub outputs: Vec<((u32, u32), u32)>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
+
+/// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
+fn outputs(value: &str) -> Result<Vec<((u32, u32), u32)>> {
+    value
+        .split(',')
+        .map(|output| {
+            let (size, scale) = output.split_once('@').unwrap_or((output, "1"));
+            let (width, height) = size.split_once('x').ok_or(USAGE)?;
+            let scale: f64 = scale.parse()?;
+            let scale_120 = (scale * 120.0).round();
+            if !(120.0..=480.0).contains(&scale_120) {
+                return Err(format!("{output:?}: a scale from 1 to 4").into());
+            }
+            Ok(((width.parse()?, height.parse()?), scale_120 as u32))
+        })
+        .collect()
+}
 
 fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>> {
     let value = value.and_then(|v| v.to_str()).ok_or(USAGE)?;
@@ -380,6 +402,7 @@ impl Launch {
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings) = (None, None);
+        let mut screens = Vec::new();
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -439,6 +462,11 @@ impl Launch {
                 Some("--grant-settings") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     grant_settings = Some(value.to_string());
+                    continue;
+                }
+                Some("--outputs") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    screens = outputs(value)?;
                     continue;
                 }
                 Some("--lock-password") => {
@@ -648,6 +676,7 @@ impl Launch {
                             reader_locale: reader_locale.clone(),
                             preferences: preferences.clone(),
                             grant_settings: grant_settings.clone(),
+                            outputs: screens.clone(),
                         },
                     ));
                 }
@@ -692,39 +721,52 @@ fn shell_surfaces(compositor: &Compositor) -> Vec<(SurfaceKey, u64, Rect)> {
         .collect()
 }
 
-/// Starts the shell on a socket of its own, granting `shell`, and serves the session until its
-/// surfaces are shown and unchanged for SETTLE.
+/// Starts the shell on a socket of its own, granting `shell`, one on each output as a session
+/// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their surfaces
+/// are shown and unchanged for SETTLE.
 fn start_shell(
     session: &mut Session,
     command: &[std::ffi::OsString],
-) -> Result<std::process::Child> {
+) -> Result<Vec<std::process::Child>> {
     let socket = session.socket.with_file_name("shell");
     let listener = oxyos_ipc::Listener::bind(&socket)?;
     listener.set_nonblocking(true)?;
     session.compositor.shell_listener = Some(listener);
-    let mut shell = Command::new(command.first().ok_or(USAGE)?);
-    shell
-        .args(&command[1..])
-        .arg("--shell")
-        .arg(OUTPUT_ID.to_string())
-        .env("OXYOS_COMPOSITOR_SOCKET", &socket)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY");
-    // A Bloom host's report is its own: the shell's goes beside the application's.
-    if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
-        report.push(".shell");
-        shell.env("OXYOS_HOST_REPORT", report);
+    let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
+    let mut children = Vec::new();
+    for output in outputs {
+        let mut shell = Command::new(command.first().ok_or(USAGE)?);
+        shell
+            .args(&command[1..])
+            .arg("--shell")
+            .arg(output.to_string())
+            .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // A Bloom host's report is its own: the primary's shell's goes beside the application's,
+        // another output's beside that.
+        if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
+            report.push(".shell");
+            if output != OUTPUT_ID {
+                report.push(format!(".{output}"));
+            }
+            shell.env("OXYOS_HOST_REPORT", report);
+        }
+        children.push(shell.spawn()?);
     }
-    let mut child = shell.spawn()?;
     let deadline = Instant::now() + LAUNCH_DEADLINE;
     let mut last = (Vec::new(), Instant::now());
     loop {
         if Instant::now() > deadline {
-            let _ = child.kill();
+            for child in &mut children {
+                let _ = child.kill();
+            }
             return Err("deadline exceeded waiting for the shell".into());
         }
-        if let Some(status) = child.try_wait()? {
-            return Err(format!("the shell exited ({status}) before it was shown").into());
+        for child in &mut children {
+            if let Some(status) = child.try_wait()? {
+                return Err(format!("the shell exited ({status}) before it was shown").into());
+            }
         }
         session.compositor.serve(&session.listener)?;
         let now = shell_surfaces(&session.compositor);
@@ -732,7 +774,7 @@ fn start_shell(
             last = (now, Instant::now());
         } else if !last.0.is_empty() && last.1.elapsed() >= SETTLE {
             eprintln!("[shell] {} surfaces shown", last.0.len());
-            return Ok(child);
+            return Ok(children);
         }
     }
 }
@@ -777,21 +819,28 @@ fn start_reader(
     Ok(child)
 }
 
-/// The shell's surfaces and the work area they leave, as a step records them.
+/// The shell's surfaces and the work area they leave (the primary's, and each output's), as a
+/// step records them.
 fn shell_json(compositor: &Compositor) -> String {
+    let rect = |r: &Rect| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height);
     let surfaces: Vec<String> = shell_surfaces(compositor)
         .iter()
-        .map(|(_, _, r)| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height))
+        .map(|(_, _, r)| rect(r))
         .collect();
     let area = compositor
         .scene
         .work_area(OUTPUT_ID)
-        .map_or("null".to_string(), |r| {
-            format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
-        });
+        .map_or("null".to_string(), |r| rect(&r));
+    let areas: Vec<String> = compositor
+        .scene
+        .work_areas()
+        .iter()
+        .map(|(id, r)| format!("\"{id}\":{}", rect(r)))
+        .collect();
     format!(
-        "{{\"surfaces\":[{}],\"work_area\":{area},\"locked\":{}}}",
+        "{{\"surfaces\":[{}],\"work_area\":{area},\"work_areas\":{{{}}},\"locked\":{}}}",
         surfaces.join(","),
+        areas.join(","),
         compositor.scene.is_locked()
     )
 }
@@ -843,7 +892,7 @@ fn settle(
     let mut shell_last = shell_surfaces(&session.compositor);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
-    let shown_before = session.compositor.flips.len();
+    let shown_before = session.compositor.screens[0].flips.len();
     // The flip that will show the answer, when it was not yet shown as it appeared.
     let mut answer_flip = None;
     loop {
@@ -876,27 +925,29 @@ fn settle(
         if changed {
             if first_frame_ns.is_none() {
                 first_frame_ns = Some(monotonic_ns());
+                // The display's (the primary's: the fixture shows one output).
                 let compositor = &session.compositor;
-                if compositor.flipped == compositor.scene.render_list() {
+                let screen = &compositor.screens[0];
+                if screen.flipped == compositor.scene.render_list() {
                     // The last flip shows the answer: its completion made it.
-                    first_flip_ns = compositor.flips[shown_before..]
+                    first_flip_ns = screen.flips[shown_before..]
                         .last()
                         .map(|(_, flip)| flip.as_nanos() as i64);
                 } else {
                     // Not on screen yet (a surface went away, say): the frame on its way shows it
                     // if it was composed with it, or else the next one.
-                    let composed_with_it = compositor.pending_flip.is_some()
-                        && compositor.composed == compositor.scene.frame_list();
+                    let composed_with_it = screen.pending_flip.is_some()
+                        && screen.composed == compositor.scene.frame_list();
                     answer_flip = Some(
-                        compositor.flips.len()
-                            + usize::from(compositor.pending_flip.is_some() && !composed_with_it),
+                        screen.flips.len()
+                            + usize::from(screen.pending_flip.is_some() && !composed_with_it),
                     );
                 }
             }
             last = (now, Instant::now());
         }
         if let Some(index) = answer_flip {
-            if let Some((_, flip)) = session.compositor.flips.get(index) {
+            if let Some((_, flip)) = session.compositor.screens[0].flips.get(index) {
                 first_flip_ns = Some(flip.as_nanos() as i64);
                 answer_flip = None;
             }
@@ -1223,6 +1274,12 @@ fn inject_through(
     step: &Step,
 ) -> Result<Option<usize>> {
     let (ox, oy) = compositor.display_offset;
+    let outputs: Vec<Rect> = compositor
+        .screens
+        .iter()
+        .map(|screen| screen.rect)
+        .collect();
+    let on_outputs = |x: i32, y: i32| on_outputs(&outputs, x, y);
     let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
         if rect.contains_point(rect.x + x, rect.y + y) {
             Ok(())
@@ -1254,7 +1311,7 @@ fn inject_through(
             press(devices, compositor, at(popup.x + x, popup.y + y))?;
         }
         Step::PressOutput { x, y } => {
-            inside(OUTPUT, *x, *y)?;
+            on_outputs(*x, *y)?;
             press(devices, compositor, at(*x, *y))?;
         }
         Step::Scroll { x, y, dy } => {
@@ -1292,8 +1349,8 @@ fn inject_through(
             devices.button(false)?;
         }
         Step::DragOutput { from, to } => {
-            inside(OUTPUT, from.0, from.1)?;
-            inside(OUTPUT, to.0, to.1)?;
+            on_outputs(from.0, from.1)?;
+            on_outputs(to.0, to.1)?;
             let (fx, fy) = at(from.0, from.1);
             let (tx, ty) = at(to.0, to.1);
             devices.move_to(fx, fy)?;
@@ -1448,16 +1505,34 @@ fn switch_terminal(
     chord(devices, &mut session.compositor, function_key(number)?)?;
     wait(session, children, &|c| c.away, "the switch away")?;
     let left = Instant::now();
-    let shown = session.compositor.flips.len();
+    let shown = session.compositor.screens[0].flips.len();
     // The compositor has let go of the devices: this chord is the other terminal's.
     chord(devices, &mut session.compositor, function_key(own)?)?;
     wait(
         session,
         children,
-        &|c| !c.away && c.flips.len() > shown,
+        &|c| !c.away && c.screens[0].flips.len() > shown,
         "the switch back and the frame shown again",
     )?;
     Ok(left.elapsed().as_secs_f64() * 1e3)
+}
+
+/// A point of the global space on one of the outputs, or an error naming them.
+fn on_outputs(outputs: &[Rect], x: i32, y: i32) -> Result<()> {
+    if outputs.iter().any(|output| output.contains_point(x, y)) {
+        Ok(())
+    } else {
+        Err(format!("({x}, {y}) is on none of the outputs {outputs:?}").into())
+    }
+}
+
+/// What every output composed last, the primary's first: a step changed it if it changed any.
+fn composed(compositor: &Compositor) -> Vec<u32> {
+    compositor
+        .screens
+        .iter()
+        .flat_map(|screen| screen.framebuffer.iter().copied())
+        .collect()
 }
 
 /// Injects one step's input into the scene.
@@ -1484,6 +1559,12 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
 }
 
 fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> {
+    let outputs: Vec<Rect> = compositor
+        .screens
+        .iter()
+        .map(|screen| screen.rect)
+        .collect();
+    let on_outputs = |x: i32, y: i32| on_outputs(&outputs, x, y);
     let inside = |rect: Rect, x: i32, y: i32| -> Result<()> {
         if rect.contains_point(rect.x + x, rect.y + y) {
             Ok(())
@@ -1507,7 +1588,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             press(&mut compositor.scene, popup.x + x, popup.y + y);
         }
         Step::PressOutput { x, y } => {
-            inside(OUTPUT, *x, *y)?;
+            on_outputs(*x, *y)?;
             press(&mut compositor.scene, *x, *y);
         }
         Step::Scroll { x, y, dy } => {
@@ -1586,8 +1667,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             scene.pointer_button(BUTTON, false);
         }
         Step::DragOutput { from, to } => {
-            inside(OUTPUT, from.0, from.1)?;
-            inside(OUTPUT, to.0, to.1)?;
+            on_outputs(from.0, from.1)?;
+            on_outputs(to.0, to.1)?;
             let scene = &mut compositor.scene;
             scene.pointer_motion(from.0, from.1);
             scene.pointer_button(BUTTON, true);
@@ -1658,7 +1739,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         (None, true) => return Err("--seat needs --kms".into()),
         _ => None,
     };
-    let mut session = Session::start()?;
+    let mut session = match launch.outputs.as_slice() {
+        [] => Session::start()?,
+        [_, _, ..] if launch.kms.is_some() => {
+            return Err("--kms shows one output: --outputs names one at most".into())
+        }
+        outputs => Session::with_outputs(outputs)?,
+    };
     // The preferences before any client connects, so each is told them with its Welcome.
     session.settings = oxyos_compositor::settings::Settings::from_file(launch.preferences.clone());
     session
@@ -1753,19 +1840,30 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             card.display(),
             display.mode_name()
         );
-        session.compositor.display = Some(display);
+        session.compositor.screens[0].display = Some(display);
     }
-    // Real input: the display's pixels (or the output's, without a display), the output centred.
+    // Real input: the display's pixels (or the outputs', without a display), the output
+    // centred.
     let mut devices = None;
     if launch.input {
-        let bounds = match &session.compositor.display {
+        let screens = &session.compositor.screens;
+        let bounds = match &screens[0].display {
             Some(display) => display.size(),
-            None => (OUTPUT.width, OUTPUT.height),
+            None => screens.iter().fold((0, 0), |(width, height), screen| {
+                (
+                    width.max(screen.rect.right() as u32),
+                    height.max(screen.rect.bottom() as u32),
+                )
+            }),
         };
-        session.compositor.display_offset = (
-            (bounds.0.saturating_sub(OUTPUT.width) / 2) as i32,
-            (bounds.1.saturating_sub(OUTPUT.height) / 2) as i32,
-        );
+        let primary = screens[0].rect;
+        session.compositor.display_offset = match &screens[0].display {
+            Some(_) => (
+                (bounds.0.saturating_sub(primary.width) / 2) as i32,
+                (bounds.1.saturating_sub(primary.height) / 2) as i32,
+            ),
+            None => (0, 0),
+        };
         if launch.uinput {
             devices = Some(crate::uinput::Devices::new(bounds, &launch.layout)?);
             // udev announces the new devices before libinput can open them.
@@ -1795,6 +1893,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
         );
         session.compositor.input = Some(input);
+        session.compositor.confine_pointer();
     }
     if let Some(dir) = &launch.dump_frames {
         fs::create_dir_all(dir)?;
@@ -1809,9 +1908,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         );
         let mut compositor = compositor;
         // On a display, compose straight into DMA-BUF scanout buffers it imports.
-        if let Some(display) = &session.compositor.display {
+        let screen = &mut session.compositor.screens[0];
+        if let Some(display) = &screen.display {
             let (width, height) = display.size();
-            for target in compositor.scanout_targets(2, width, height)? {
+            for (index, target) in compositor
+                .scanout_targets(2, width, height)?
+                .into_iter()
+                .enumerate()
+            {
                 use std::os::fd::AsFd;
                 let framebuffer = display.card().import_dmabuf(
                     target.fd.as_fd(),
@@ -1819,7 +1923,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     target.height,
                     target.pitch,
                 )?;
-                session.compositor.scanout.push(framebuffer);
+                screen.scanout.push((index, framebuffer));
             }
             eprintln!("[kms] zero-copy: composing into the display's DMA-BUF framebuffers");
         }
@@ -1869,7 +1973,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     ) {
         session.app = Some((children.0[0].id(), id));
     }
-    children.0.extend(shell);
+    children.0.extend(shell.into_iter().flatten());
     children.0.extend(screen_reader);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
@@ -1889,7 +1993,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }) {
         return Err("the window shows nothing".into());
     }
-    let mut output = session.compositor.framebuffer.clone();
+    let mut output = composed(&session.compositor);
     let mut snapshots = vec![snapshot(&session.compositor, out, "launch-1.png")?];
     let dump = |compositor: &Compositor, index: usize| -> Result<()> {
         if let Some(dir) = &launch.dump_frames {
@@ -2000,7 +2104,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             Some(window),
         )?;
         window = answer.window;
-        let now = session.compositor.framebuffer.clone();
+        let now = composed(&session.compositor);
         let changed = now.iter().zip(&output).filter(|(a, b)| a != b).count();
         if changed == 0 && !may_stay {
             return Err(
@@ -2120,13 +2224,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let console_input = console_input.map_or("null".to_string(), |bytes| bytes.to_string());
     // The last frame on its way to the display completes before the display is closed.
     session.compositor.complete_flip(true);
-    let display = match session.compositor.display.take() {
+    let display = match session.compositor.screens[0].display.take() {
         Some(display) => {
             // A frame is handed over at any point of a refresh and should flip at the next
             // vblank: later than one refresh is a missed deadline.
             let refresh_ms = 1e3 / f64::from(display.refresh_hz().max(1));
-            let mut waits: Vec<f64> = session
-                .compositor
+            let mut waits: Vec<f64> = session.compositor.screens[0]
                 .flips
                 .iter()
                 .map(|(submitted, flip)| flip.saturating_sub(*submitted).as_secs_f64() * 1e3)
@@ -2139,7 +2242,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             format!(
                 "{{\"mode\":{},\"composition\":\"{}\",\"shown\":{},\"compose_ms_median\":{:.2},\"compose_ms_max\":{:.2},\"read_ms_median\":{:.2},\"damaged_fraction_median\":{:.3},\"submit_to_flip_ms_median\":{:.2},\"submit_to_flip_ms_max\":{:.2},\"missed_deadlines\":{missed}}}",
                 json_string(&display.mode_name()),
-                if session.compositor.scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
+                if session.compositor.screens[0].scanout.is_empty() { "cpu" } else { "vulkan-dma-buf" },
                 waits.len(),
                 median(compositions).unwrap_or(0.0),
                 compositions.iter().copied().fold(0.0, f64::max),
@@ -2156,10 +2259,24 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.terminal = None;
     session.compositor.seat = None;
     drop(console);
+    // Each output: its id, its rectangle in the global space and its scale in 120ths.
+    let session_outputs = session
+        .compositor
+        .screens
+        .iter()
+        .map(|s| {
+            format!(
+                "[{},{},{},{},{},{}]",
+                s.id, s.rect.x, s.rect.y, s.rect.width, s.rect.height, s.scale_120
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     session.finish(&mut children)?;
     drop(seat);
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        session_outputs,
         launch.command[0],
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
@@ -2334,6 +2451,34 @@ mod tests {
             &["--press", "1,2", "--"],
         ] {
             assert!(Launch::parse(&args(bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn outputs_are_their_pixels_at_their_scales() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--outputs",
+            "1920x1200,2560x1440@1.5,800x600@1.25",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        assert_eq!(
+            launch.outputs,
+            [((1920, 1200), 120), ((2560, 1440), 180), ((800, 600), 150)]
+        );
+        for bad in [
+            "1920",
+            "1920x",
+            "x1080",
+            "1920x1080@0.5",
+            "1920x1080@5",
+            "1920x1080@x",
+        ] {
+            assert!(
+                Launch::parse(&args(&["--outputs", bad, "--", "app"])).is_err(),
+                "{bad:?}"
+            );
         }
     }
 

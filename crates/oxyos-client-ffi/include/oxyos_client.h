@@ -53,6 +53,8 @@ typedef struct OxyOSClient OxyOSClient;
 /* A CONFIGURE's flag bits (docs/adr/0016-windows.mdx). */
 #define OXYOS_CONFIGURE_FULLSCREEN 1
 #define OXYOS_CONFIGURE_MAXIMIZED 2
+#define OXYOS_EVENT_OUTPUT 55
+#define OXYOS_EVENT_OUTPUT_REMOVED 56
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -136,6 +138,11 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag: whether it is the last; text: the chunk.
  *   WINDOW_CLOSED  code: the window.
  *   WORKSPACES  detail: how many; code: the active one (from 0).
+ *   OUTPUT      code: the output's id; x, y, width, height: its rectangle in the global space
+ *               (logical); scale_120; detail: its refresh in mHz; flag: whether it is the
+ *               primary, which has the dock (docs/adr/0018-several-displays.mdx). Told for every
+ *               output when the shell connects, then as one is added or changes.
+ *   OUTPUT_REMOVED  code: the output that went away.
  *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`.
  *   PINCH       serial; x, y as POINTER: the pointer, which a pinch does not move; detail:
  *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the

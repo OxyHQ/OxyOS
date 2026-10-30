@@ -48,7 +48,7 @@ fn session(name: &str) -> Session {
         })
         .unwrap();
     let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&directory).unwrap());
-    let mut compositor = Compositor::new(scene, uid, OUTPUT);
+    let mut compositor = Compositor::new(scene, uid);
     compositor.clock = Some(Duration::from_secs(100));
     compositor.keep_frame = true;
     let (fullscreen, asked) = mpsc::channel::<bool>();
@@ -128,17 +128,20 @@ impl Session {
     /// Composes the frame 20 ms later and checks that everything it changed on the output is
     /// within its damage, and that it was composed from its damage, not whole.
     fn composed_from_damage(&mut self) {
-        let before = self.compositor.framebuffer.clone();
+        let before = self.compositor.screens[0].framebuffer.clone();
         let frames = self.compositor.frames;
         self.ms += 20;
         self.turn();
         assert!(self.compositor.frames > frames, "a frame was composed");
-        let damage = self
-            .compositor
+        let damage = self.compositor.screens[0]
             .last_damage
             .clone()
             .expect("composed from its damage");
-        for (index, (old, new)) in before.iter().zip(&self.compositor.framebuffer).enumerate() {
+        for (index, (old, new)) in before
+            .iter()
+            .zip(&self.compositor.screens[0].framebuffer)
+            .enumerate()
+        {
             if old != new {
                 let (x, y) = ((index % 800) as i32, (index / 800) as i32);
                 assert!(

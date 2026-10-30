@@ -197,7 +197,7 @@ mod tests {
                 },
             )
             .unwrap();
-        Compositor::new(scene, 0, output)
+        Compositor::new(scene, 0)
     }
 
     fn scratch(name: &str) -> PathBuf {

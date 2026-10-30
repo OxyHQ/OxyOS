@@ -462,7 +462,7 @@ int main(int argc, char** argv) {
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
-  oxyos::ShellState shellState;
+  oxyos::ShellState shellState(output);
   if (windowed) {
     try {
       window = shellMode ? std::make_unique<oxyos::Window>(socket, oxyos::Window::Shell{.output = output})

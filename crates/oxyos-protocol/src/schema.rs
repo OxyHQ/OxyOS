@@ -290,6 +290,12 @@ messages! {
         // kept, `key=value` in chunks as WindowTitle's, all of them when the grant is given and
         // each one that changes.
         54 => Preference { index: u8, last: bool, text: PreeditText },
+        // To the session's shell (ADR 0018): each output, as it is added and whenever it changes,
+        // and when one connects; its rectangle in the global space (logical pixels), its scale in
+        // 120ths and refresh in mHz, and whether it is the primary (the first of the arrangement,
+        // which has the dock); and its removal.
+        55 => Output { output: u32, rect: Rect, scale_120: u32, refresh_mhz: u32, primary: bool },
+        56 => OutputRemoved { output: u32 },
     }
 }
 

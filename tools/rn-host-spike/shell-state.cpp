@@ -14,7 +14,7 @@
 
 namespace oxyos {
 
-ShellState::ShellState() {
+ShellState::ShellState(uint32_t output) : output_(output) {
   std::vector<char> buffer(16 * 1024);
   passwd entry{};
   passwd* found = nullptr;
@@ -159,6 +159,11 @@ bool ShellState::observe(const OxyOSEvent& event) {
       workspaces_ = event.detail;
       active_ = event.code;
       return true;
+    case OXYOS_EVENT_OUTPUT:
+      outputs_[event.code] = Output{event.x, event.y, event.width, event.height, event.scale_120, event.flag != 0};
+      return true;
+    case OXYOS_EVENT_OUTPUT_REMOVED:
+      return outputs_.erase(event.code) > 0;
     default:
       return false;
   }
@@ -177,9 +182,14 @@ folly::dynamic ShellState::state() const {
     windows.push_back(folly::dynamic::object("id", id)("appId", window.appId)("title", window.title)(
         "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched));
   }
+  folly::dynamic outputs = folly::dynamic::array();
+  for (const auto& [id, output] : outputs_) {
+    outputs.push_back(folly::dynamic::object("id", id)("x", output.x)("y", output.y)("width", output.width)(
+        "height", output.height)("scale", output.scale120 / 120.0)("primary", output.primary));
+  }
   return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
-      "applications", applications_);
+      "applications", applications_)("output", output_)("outputs", std::move(outputs));
 }
 
 }  // namespace oxyos

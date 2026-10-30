@@ -6,6 +6,8 @@
  * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
  * solar wallpaper's frame that shows the sun now (null without one); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null }]., windows numbered by the compositor and workspaces from 0.
+ * And the outputs (ADR 0018): `output` the one this shell runs on, `outputs` every one, [{ id, x, y,
+ * width, height, scale, primary }], in the global space's logical pixels; the primary has the dock.
  * Actions are intents: the next state says what happened.
  *
  * The lock (docs/adr/0010-lock-screen.mdx): `lockSession()` locks; `authenticate(password)` sends

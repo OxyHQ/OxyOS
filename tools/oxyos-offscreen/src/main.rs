@@ -30,18 +30,26 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use oxyos_compositor::{Compositor, Result};
 
+/// The output, when `--outputs` names none: the primary's rectangle, at scale 1.
 const OUTPUT: Rect = Rect::new(0, 0, 1280, 720);
 const OUTPUT_ID: OutputId = 1;
 const DEADLINE: Duration = Duration::from_secs(10);
 const BUTTON: u32 = 272;
 
-/// The output's composed frame as a PNG in `directory`.
+/// The primary's composed frame as a PNG in `directory` (`NAME.png`), and every other output's
+/// beside it (`NAME.output-ID.png`, in its own pixels).
 fn snapshot(compositor: &Compositor, directory: &Path, name: &str) -> Result<PathBuf> {
     let path = directory.join(name);
-    fs::write(
-        &path,
-        png::encode(OUTPUT.width, OUTPUT.height, &compositor.framebuffer),
-    )?;
+    for (index, screen) in compositor.screens.iter().enumerate() {
+        let file = match index {
+            0 => path.clone(),
+            _ => path.with_extension(format!("output-{}.png", screen.id)),
+        };
+        fs::write(
+            &file,
+            png::encode(screen.width, screen.height, &screen.framebuffer),
+        )?;
+    }
     Ok(path)
 }
 
@@ -116,7 +124,15 @@ struct Session {
 }
 
 impl Session {
+    /// A session with one output of 1280x720 at scale 1.
     fn start() -> Result<Self> {
+        Self::with_outputs(&[((OUTPUT.width, OUTPUT.height), 120)])
+    }
+
+    /// A session with outputs of these pixels at these scales (in 120ths), arranged as a session
+    /// arranges its displays (docs/adr/0018-several-displays.mdx): left to right in this order,
+    /// top-aligned, numbered from `OUTPUT_ID`; the first is the primary.
+    fn with_outputs(outputs: &[((u32, u32), u32)]) -> Result<Self> {
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.subsec_nanos();
         let directory =
             std::env::temp_dir().join(format!("oxyos-offscreen-{}-{nonce}", std::process::id()));
@@ -127,17 +143,26 @@ impl Session {
         listener.set_nonblocking(true)?;
         let baseline_fds = open_descriptors()?;
 
-        let mut scene = Scene::new();
-        scene
-            .add_output(Output {
-                id: OUTPUT_ID,
-                rect: OUTPUT,
-                scale_120: 120,
-                refresh_mhz: 60_000,
-            })
-            .map_err(|code| format!("output: {code:?}"))?;
         let own_uid = fs::metadata(&directory).map(|m| std::os::unix::fs::MetadataExt::uid(&m))?;
-        let compositor = Compositor::new(scene, own_uid, OUTPUT);
+        let mut compositor = Compositor::new(Scene::new(), own_uid);
+        let sizes: Vec<(u32, u32)> = outputs
+            .iter()
+            .map(|&(pixels, scale_120)| oxyos_compositor::arrangement::logical(pixels, scale_120))
+            .collect();
+        let places = oxyos_compositor::arrangement::arrange(&sizes);
+        for (index, ((&(pixels, scale_120), size), at)) in
+            outputs.iter().zip(&sizes).zip(places).enumerate()
+        {
+            compositor.add_output(
+                Output {
+                    id: OUTPUT_ID + index as OutputId,
+                    rect: Rect::new(at.0, at.1, size.0, size.1),
+                    scale_120,
+                    refresh_mhz: 60_000,
+                },
+                Some(pixels),
+            )?;
+        }
         Ok(Self {
             compositor,
             listener,

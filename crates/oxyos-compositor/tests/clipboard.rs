@@ -108,7 +108,7 @@ fn paste_between_two_applications(copy: fn(&mut Client, u64)) -> String {
         .unwrap();
     // The test's own user, whom the compositor accepts: the owner of the directory it made.
     let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&directory).unwrap());
-    let mut compositor = Compositor::new(scene, uid, output);
+    let mut compositor = Compositor::new(scene, uid);
 
     // The owner copies plain text with the first key it is given, and writes it when asked.
     let (owner_ready, owner_shown) = mpsc::channel();

@@ -334,6 +334,92 @@ fn damaged_scanout_frames_are_the_reference() {
     }
 }
 
+/// Two displays of different sizes, each with its own pair of targets (docs/adr/0018): their
+/// frames interleave, each composing only its own damage, and every frame shown is the
+/// reference's. A display removed leaves the other's targets where they were, and its indices
+/// go to the next display's.
+#[cfg(target_os = "linux")]
+#[test]
+fn each_displays_targets_keep_their_own_damage() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) if gpu.exports_dma_buf() => gpu,
+        Ok(gpu) => {
+            eprintln!("{} exports no DMA-BUF, skipped", gpu.device_name());
+            return;
+        }
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let (window, popup) = frame();
+    let first: Vec<usize> = gpu
+        .add_scanout_targets(2, 120, 90)
+        .unwrap()
+        .into_iter()
+        .map(|(index, _)| index)
+        .collect();
+    let second: Vec<usize> = gpu
+        .add_scanout_targets(2, 96, 64)
+        .unwrap()
+        .into_iter()
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!((first.clone(), second.clone()), (vec![0, 1], vec![2, 3]));
+    let size = |display: usize| if display == 0 { (120, 90) } else { (96, 64) };
+    let mut frames = [layers(&window, &popup), layers(&window, &popup)];
+    let mut shown = [0usize; 2];
+    for (step, (display, moved)) in [
+        (0, None),
+        (1, None),
+        (0, Some((12, 9))),
+        (1, Some((-25, 14))),
+        (1, Some((8, -3))),
+        (0, Some((-6, 20))),
+        (1, Some((3, 3))),
+        (0, Some((5, -11))),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let damage = moved.map(|(dx, dy)| {
+            let (layers, changed) = popup_moved(&frames[display], dx, dy);
+            frames[display] = layers;
+            changed
+        });
+        let targets = if display == 0 { &first } else { &second };
+        let index = targets[shown[display] % 2];
+        shown[display] += 1;
+        gpu.compose_to_scanout_kept(index, 0x0011_2233, &frames[display], damage.as_deref())
+            .unwrap();
+        let (width, height) = size(display);
+        assert_eq!(
+            gpu.read_kept().unwrap(),
+            compose_cpu(width, height, 0x0011_2233, &frames[display]),
+            "step {step}, display {display}"
+        );
+    }
+    gpu.remove_scanout_targets(&first);
+    assert!(gpu
+        .compose_to_scanout(first[0], 0x0011_2233, &frames[0], None)
+        .is_err());
+    let (dx, dy) = (4, 4);
+    let (moved, changed) = popup_moved(&frames[1], dx, dy);
+    gpu.compose_to_scanout_kept(second[0], 0x0011_2233, &moved, Some(&changed))
+        .unwrap();
+    assert_eq!(
+        gpu.read_kept().unwrap(),
+        compose_cpu(96, 64, 0x0011_2233, &moved)
+    );
+    let third: Vec<usize> = gpu
+        .add_scanout_targets(1, 64, 48)
+        .unwrap()
+        .into_iter()
+        .map(|(index, _)| index)
+        .collect();
+    assert_eq!(third, [0]);
+}
+
 /// Layers whose source the device keeps are not uploaded again, and every frame is still the
 /// reference's: with the same pixels, with a new version of them, and after the source buffer
 /// filled with others and was reclaimed.

@@ -328,3 +328,23 @@ fn the_systems_keyboard_is_read_as_debian_writes_it() {
     intl.key(ALT, true);
     assert_eq!(intl.key(BACKSPACE, true), Typed::Terminate);
 }
+
+#[test]
+fn the_pointer_crosses_where_outputs_meet_and_slides_along_an_edge() {
+    // A 1536x960 panel, a 1707x960 monitor right of it, and a shorter one beyond.
+    let area = [
+        (0.0, 0.0, 1536.0, 960.0),
+        (1536.0, 0.0, 1707.0, 960.0),
+        (3243.0, 0.0, 1280.0, 720.0),
+    ];
+    // Inside one, it is where it is; across the edge, on the next.
+    assert_eq!(crate::confine(&area, 100.5, 200.0), (100.5, 200.0));
+    assert_eq!(crate::confine(&area, 1536.0, 400.0), (1536.0, 400.0));
+    // Past the outer edges, at them.
+    assert_eq!(crate::confine(&area, -50.0, 400.0), (0.0, 400.0));
+    assert_eq!(crate::confine(&area, 5000.0, 100.0), (4522.0, 100.0));
+    assert_eq!(crate::confine(&area, 2000.0, -3.0), (2000.0, 0.0));
+    // Below the shorter one, where nothing is: at its bottom edge, or the taller one's side.
+    assert_eq!(crate::confine(&area, 3500.0, 800.0), (3500.0, 719.0));
+    assert_eq!(crate::confine(&area, 3250.0, 900.0), (3242.0, 900.0));
+}

@@ -276,6 +276,7 @@ Known gaps:
   - `Intl`: the host's (`intl.h`, `crates/oxyos-intl` on ICU4X): the shell's `toLocaleDateString("es", …)` and `toLocaleTimeString` follow their locale and options. `Intl.Collator`, `PluralRules`, `RelativeTimeFormat`, `DisplayNames`, `Locale`, `ListFormat` and `Segmenter` are not provided yet (undefined).
   - The active application's menus, window thumbnails and launching applications ([ADR 0009](./adr/0009-session-shell), decision 3); the shell's applications are still a fixture.
 - **As the session's shell** ([ADR 0009](./adr/0009-session-shell), step 1): run with `--shell OUTPUT`, the host's root is the output's background surface and the regions the shell wraps in `Surface` (the top bar, the dock, the open launcher or overview) are panels and an overlay of their own, each where the shell's layout puts it and taking input only over its region; their accessibility is published per surface. `scenarios/session-shell.json` runs the shell with an application window between its panels.
+- **On several outputs** ([ADR 0018](./adr/0018-several-displays)): the session runs a host on each output, each told the outputs (its shell state's `output` and `outputs`); `Shell` takes `dock`, and the shell draws the dock only on the primary, once told it is, and the top bar on every output. `scenarios/session-two-outputs.json` runs it on a primary at 1 and an output at 1.5, with the window moved onto the second output, drawn there at its scale.
 
 ## Platform capability matrix
 

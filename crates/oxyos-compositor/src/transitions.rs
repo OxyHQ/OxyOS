@@ -399,12 +399,12 @@ impl Transitions {
         ));
     }
 
-    /// A frame of the compositor's own (the session's splash) fades out over what is shown, 400
-    /// ms; it goes as a panel does, so a lock would drop it.
-    pub fn fade(&mut self, snapshot: Snapshot, now: Duration) {
+    /// A frame of the compositor's own (the session's splash on one screen, `index`) fades out
+    /// over what is shown, 400 ms; it goes as a panel does, so a lock would drop it.
+    pub fn fade(&mut self, index: u32, snapshot: Snapshot, now: Duration) {
         let key = SurfaceKey {
             client: u32::MAX,
-            id: u32::MAX,
+            id: u32::MAX - index,
         };
         self.going.retain(|(going, _, _)| *going != key);
         if self.reduced {
@@ -616,7 +616,7 @@ mod tests {
         t.arrive(KEY, Kind::Window, now);
         assert_eq!(t.arriving(KEY, now), Frame::WHOLE);
         t.go(KEY, Kind::Window, now, Some(snapshot()));
-        t.fade(snapshot(), now);
+        t.fade(0, snapshot(), now);
         assert!(t.is_empty(), "nothing runs");
         assert!(t.take_seen().is_empty());
         // Turned off again, windows grow and fade in as before.

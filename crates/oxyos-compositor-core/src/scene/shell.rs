@@ -1,9 +1,10 @@
 //! What the session's shell is told of windows and workspaces, and what it may do to them
 //! (ADR 0009). A window, a mapped toplevel, is known to the shell by a number the compositor gives
 //! it, with its workspace, state, title and application id; each shell client is told what
-//! changed since it was last told, so one that connects late is told everything.
+//! changed since it was last told, so one that connects late is told everything. So are the
+//! outputs, each with its place, scale and whether it is the primary (ADR 0018).
 
-use super::{ClientId, Request, Role, Scene, SurfaceKey};
+use super::{ClientId, Output, OutputId, Request, Role, Scene, SurfaceKey};
 use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk};
 use std::collections::BTreeMap;
 
@@ -33,6 +34,8 @@ struct Window {
 struct Told {
     windows: BTreeMap<u32, Window>,
     workspaces: Option<(u32, u32)>,
+    /// Each output, and whether it was the primary.
+    outputs: BTreeMap<OutputId, (Output, bool)>,
 }
 
 #[derive(Debug, Default)]
@@ -249,8 +252,33 @@ impl Scene {
         }
         let now = self.shell_view();
         let workspaces = (self.workspaces.count, self.workspaces.active);
+        // The first output of the arrangement is the primary.
+        let outputs: BTreeMap<OutputId, (Output, bool)> = self
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(index, output)| (output.id, (*output, index == 0)))
+            .collect();
         for client in shells {
             let told = self.shell_windows.told.remove(&client).unwrap_or_default();
+            // Outputs first: a shell places what it shows on them.
+            for id in told.outputs.keys().filter(|id| !outputs.contains_key(id)) {
+                self.emit(client, Event::OutputRemoved { output: *id });
+            }
+            for (id, &(output, primary)) in &outputs {
+                if told.outputs.get(id) != Some(&(output, primary)) {
+                    self.emit(
+                        client,
+                        Event::Output {
+                            output: *id,
+                            rect: output.rect,
+                            scale_120: output.scale_120,
+                            refresh_mhz: output.refresh_mhz,
+                            primary,
+                        },
+                    );
+                }
+            }
             for number in told.windows.keys().filter(|n| !now.contains_key(n)) {
                 self.emit(client, Event::WindowClosed { window: *number });
             }
@@ -292,6 +320,7 @@ impl Scene {
                 Told {
                     windows: now.clone(),
                     workspaces: Some(workspaces),
+                    outputs: outputs.clone(),
                 },
             );
         }
