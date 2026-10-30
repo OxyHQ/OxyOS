@@ -1,0 +1,220 @@
+---
+title: "ADR 0030: Installing applications (Atlas)"
+description: How OxyOS installs, updates and removes applications from Atlas, Oxy's app store, as a Mac does from the App Store. Covers the package, who signs it and who verifies it, the root-owned install service, the system's confirmation and capabilities, runtimes, updates, what the store's backend must add, and which applications come with the OS.
+order: 39
+---
+
+# ADR 0030: Installing applications (Atlas)
+
+Status: **proposed** (a draft for the platform's author: [the decisions to make](#decisions-for-the-platforms-author) are listed at the end with a recommendation each). Nothing is implemented. Builds on:
+- [ADR 0001](./0001-native-platform-boundaries): grants from the session authority.
+- [ADR 0013](./0013-launching-applications): the registry, launching and launch records.
+- [ADR 0015](./0015-application-model): one source, platform adapters.
+- [ADR 0019](./0019-settings): the `settings` grant and the rule for an administrator's entries.
+- [ADR 0020](./0020-oxy-account-login): `oxyos-accountd`, and applications' tokens.
+- [ADR 0023](./0023-installing-oxyos): the read-only `/usr`, images and A/B updates.
+- [ADR 0026](./0026-notifications).
+
+It resolves the "Installing applications, an application store" left out by ADR 0013 and ADR 0015 (#35, #36).
+
+## Problem
+
+An OxyOS machine cannot install, update or remove an application.
+
+- **What OxyOS has.** An application is a Desktop Entry in `oxyos/applications` under the XDG data directories (ADR 0013). A Bloom application names a module (`X-OxyOS-Bloom-Module`) and optionally a bundle (`X-OxyOS-Bloom-Bundle`); otherwise it runs from the session's bundle. Today every Bloom application runs from that one bundle: a 9.5 MB Hermes bytecode file with the shell, Settings, the samples and the probes in it ([performance](../performance)). On the development machine the Bloom host and its bundle were copied by hand into `/opt/oxyos`, and Settings' entry into `/usr/local/share/oxyos/applications`, because the `settings` grant goes only to an entry, host and bundle that only root could have written (ADR 0019, decision 3). There is no package, no signature, no installer and no update.
+- **What Atlas is.** Atlas (`OxyHQ/Atlas`, atlas.oxy.so) is Oxy's app store. It is an Expo Router application: the storefront (`app/(app)/index.tsx`), an application's page (`app/(app)/app/[slug].tsx`) and settings. It has no backend of its own: its AGENTS.md puts every store rule in oxy-api, read through `@oxy.so/core`'s `oxy.store` (`lib/store.ts`). Its worker only serves the static files. It lists applications it does not distribute:
+  - the row's action opens the page, not an install ("an Install that navigated to a website would be a lie", `components/store-cards.tsx`);
+  - the page's only action, *Open*, opens the application's `websiteUrl`;
+  - the developer is printed as "Oxy" whatever the application.
+- **What the store's backend has** (oxy-api, `packages/api/src/db/schema`, `docs/store.mdx`):
+  - **The catalogue:** `app_listings` (the slug, the words, the shelf, the review status), `app_categories`, `app_listing_screenshots` (a platform each: phone, tablet, desktop, web), `app_reviews` and `app_review_replies`.
+  - **No versions, platforms, builds, hashes or signatures.** The listing's own comment sends versions to `app_updates`.
+  - **Oxy Updates** (`app_updates`, `update_assets`, `update_channels`; `routes/updates.ts`, `oxy-ship`) is a self-hosted expo-updates server for the iOS and Android builds. It has content-addressed assets (SHA-256, immutable, `RESTRICT`), byte-stable signed manifests, channels, rollouts and rollbacks. Its platforms are `ios` and `android` only. The publisher pushes straight to devices with no review, and nothing in it is a developer's signature or a capability. Its manifests are signed at serve time with an RSA key the API reads from its environment (`UPDATES_CODE_SIGNING_PRIVATE_KEY`): whoever controls the API controls every device's code.
+  - **The precedents:** the closest to a signed release is the inference catalogue's `inference_model_releases`, which has a manifest kept verbatim, an artifact per path with digest and size, and detached Ed25519 signatures over the manifest's RFC 8785 (JCS) form, all append-only by trigger. Oxy ADR 0012 chose Ed25519 for the platform's asymmetric signatures. Oxy ADR 0045 records how each application is recognised per platform (`webOrigins`, `android`, `ios`) and has no `oxyos`.
+
+What a Mac does is the model:
+- The App Store application asks; system services (`storedownloadd`, `installd`) download, verify and install.
+- Applications are signed, by the developer and by Apple.
+- Installed applications live in `/Applications`, and updates come by themselves.
+- What an application may use is declared, enforced, and asked for in the system's own dialogs.
+- The system's own applications are part of the sealed system and update with it.
+
+Four facts of OxyOS's own shape the design:
+1. **The Bloom host is the runtime.** An application's bundle carries React Native's JavaScript side. Its native side is the host: React Native 0.88, Hermes V1, Fabric, and the modules the host provides, as Expo Go's are fixed for each Expo SDK. The two sides must be the same version, so an application is built *for a runtime*.
+2. **Hermes runs bytecode as trusted input.** Hermes does not verify bytecode before running it, as a JVM verifies a class. Bytecode crafted by hand can corrupt the VM's memory, so a bytecode file from a third party is as dangerous as native code from it.
+3. **`/usr` will be a read-only image** on published installs (ADR 0023, decision 6). Installed applications cannot live in it.
+4. **ADR 0019's rule is ownership.** An entry a root-owned installer wrote from bytes it downloaded would pass that rule. If installed entries carried `X-OxyOS-Grants`, any package could ask for `settings`.
+
+## Decision
+
+1. **The package: the developer's JavaScript, its assets, and a manifest that names every file.** An OxyOS application package is a tree of files described by `manifest.json`:
+   - **`manifest.json`.** The package's id, which is reverse-DNS and is the registry's id (`so.oxy.mention`). The Oxy application it belongs to (oxy-api's application id: its listing, reviews, consent and app assertions). `version` for people, and `versionCode`, an integer that only grows (decisions 4 and 10 compare it). Its name and localized names. Its icon. Its entry, `{ "bundle": "bundle/index.js", "module": "Mention" }`, where the module is the name it registers with `AppRegistry`. Its runtime, `{ "abi": 1, "api": 3 }` (decision 2). Its architectures, `["any"]` for a package with no native code. Its capabilities, each with a purpose in the person's languages (decision 8). The kinds of file and the URL schemes it opens, for ADR 0027's opening of files. Then **`files`**: every other file with its path, size and SHA-256. The manifest is written in its JCS form (RFC 8785), so its bytes are what is signed, and its digest covers the whole package.
+   - **`bundle/index.js`**: Metro's output for the `oxyos` platform, with the assets in the resource layout the host resolves next to the bundle (`drawable-*`, `raw/`, as `sample/bundle.mjs` copies them today).
+   - **The icon**, as the registry already shows icons (a file, or an SVG's drawing).
+   - **No bytecode.** Because Hermes trusts bytecode (fact 2), the package carries the developer's JavaScript and the system compiles it at install (decision 5), as Android's ART compiles an APK's dex on the device. The bytecode that runs is then always the output of the runtime's own `hermesc` from source the developer signed. When a runtime's Hermes changes its bytecode version but keeps its React Native, the system compiles again from the same source, with no new release.
+   - **Native code: reserved, not accepted.** The format keeps `native/x86_64/…` and `native/aarch64/…`, chosen by the machine's architecture, so it need not change when native parts come. A native part would be loaded into the host and would bypass every capability the host enforces. The store accepts none until a runtime defines a native-extension ABI *and* applications are confined by the kernel (decision 15). Without native code a package runs unchanged on x86-64 and AArch64: one `index.js`, as an APK carries one JavaScript bundle for every ABI.
+
+   Distribution is per file, by content address, never as one archive. The installer never unpacks an archive as root (no path traversal or links from a tar or zip). An update fetches only the files that changed. The store already serves content-addressed objects this way (decision 12).
+
+2. **Runtimes: versioned, side by side, supplied by the OS.** A runtime is a Bloom host build, `/usr/lib/oxyos/runtimes/<abi>/` (the host, React Native's and Hermes' libraries, its `hermesc`), with two numbers:
+   - **`abi`** changes when an application must be rebuilt: a new React Native, or a host module whose JavaScript contract breaks. A package runs only on a runtime of its `abi`.
+   - **`api`** grows when a runtime adds without breaking: a new host module, a new option. A package runs on a runtime of its `abi` whose `api` is at least its own.
+
+   Like Flatpak's runtimes and Expo's SDKs, the image carries the current `abi` and the one before it, side by side, for a support window. The launcher starts each application with its runtime's host. A runtime leaves the image only when its window ends, and the store then shows what it can no longer run. The store serves a package only to machines that have its runtime, and Atlas says "not available for this computer" otherwise. Runtimes come with the OS image, never from the store: they are system code. The development machine's `/opt/oxyos` becomes this layout under `/usr/lib/oxyos/runtimes/`.
+
+3. **Two signatures, both verified by the system, never by the application.**
+   - **The developer's.** Ed25519 over the manifest's JCS bytes, as Oxy ADR 0012 and the inference releases chose: `manifest.sig` holds the key id and the signature. The private key is the developer's, in its CI or on its machine. Oxy never holds it, and for Oxy's own applications it is not any of the store's keys. The developer's public keys are kept on its Oxy application (decision 12).
+   - **The store's.** When a release passes review, the store signs it into its metadata (decision 4): the package id, `versionCode`, runtime, architecture, the manifest's digest and length, and the developer key it was signed with. That signature is Oxy's approval for distribution, a Mac's notarization.
+   - **Pinning.** At first install the machine pins the developer key the store named for that id. Every update after that must be signed by the pinned key, or by a key the pinned key signed into its lineage (a rotation statement, as APK Signature Scheme v3's lineage). So the store alone cannot change an installed application's code, a developer key alone cannot publish, and a fresh install trusts the store's word about the key, as on every platform.
+   - **Who verifies:** `oxyos-installd` (decision 5), as root, before any byte is used. Atlas, the session, the shell and the application never do. Launching verifies nothing over the network, so an installed application starts offline.
+
+4. **The store's metadata follows The Update Framework (TUF 1.0).** Signatures on single releases do not stop a repository, a CDN or a network from serving an old release with a known flaw (rollback), from hiding a new one forever (freeze), or from mixing releases that never coexisted. TUF's metadata does, and it is what PyPI (PEP 458) and Uptane chose for the same problem:
+   - **`root`**: the keys of every role. It is signed by a threshold of offline keys held by people, kept in the image (`/usr/share/oxyos/store/root.json`), and rotated by TUF's chain, each new root signed by the old threshold.
+   - **`targets`**: the approved releases (decision 3's statement, as each target's custom data). It is signed by the store's release key at approval, in a KMS or HSM, never in the API's environment as the updates key is today.
+   - **`snapshot`** and **`timestamp`**: what is current, and how fresh that is. They are signed online with short expiries.
+   - **On the machine:** `oxyos-installd` keeps the metadata (`/var/lib/oxyos/apps/store/`) and refuses a version lower than the one it has, or expired metadata, for installs and updates. Running what is installed never depends on it.
+
+5. **The install service: `oxyos-installd`, root, with no network; and a fetcher with only the network.** As `oxyos-accountd` keeps the accounts (ADR 0020, decision 3), one system service keeps the applications. It is split in two, as a Mac's `installd` is apart from its downloader:
+   - **`oxyos-installd`** runs as root, with no capabilities (it owns its own state) and no network (`PrivateNetwork=yes`). It has `ProtectSystem=strict` and writes only `/var/lib/oxyos/apps` (its `StateDirectory`). It verifies metadata and every file, compiles, assembles versions, switches them and removes them. It never runs a package's code and never touches a home.
+   - **The fetcher**, `oxyos-installd --fetch`, is a unit of its own: `DynamicUser=yes`, the network to the store and nothing else. `oxyos-installd` opens each destination file in its own staging directory and hands the fetcher the descriptor and the URL, so the fetcher can write those bytes and reach nothing else. `oxyos-installd` then checks the length and SHA-256 against the verified metadata before the file goes anywhere.
+   - **The compiler** is the runtime's `hermesc`, run by `oxyos-installd` with no network, no privileges, a seccomp filter, and only the source and an output descriptor. Its output is kept as the version's `index.hbc`, with its digest in the install record. It parses untrusted JavaScript, as Hermes would parse source at start, and it runs confined because it does.
+   - **Its socket,** `/run/oxyos/installd/socket`, is `SOCK_SEQPACKET` with one JSON message per packet and peers judged by the kernel's credentials, as accountd's is. A user's session acts for that user alone, and root for administration. The conversation:
+     - `prepare {id}` is answered with a plan: the release for this machine, its size, its capabilities, whether it would change the pinned key;
+     - `commit {plan}` follows the person's confirmation (decision 9);
+     - progress is reported while it runs, then `installed` or `failed {reason}`;
+     - `uninstall {id}`, `list`, `hold`/`release` (decision 10), and `checkUpdates`.
+   - **Failing closed.** A file that does not match, an unknown key, a broken lineage, expired or older metadata, a runtime the machine lacks, or a compile failure leaves nothing installed and the previous version running.
+
+6. **On disk: the bytes once for the machine, the installs for each account.** Each person is an Oxy account and a Unix user (ADR 0020). An application is downloaded once, and each account installs it for itself, as Android's users share an APK:
+   - **`objects/<aa>/<sha256>`**: the content-addressed files, root-owned and read-only. Where the root's ext4 has the `verity` feature they are sealed with fs-verity, so the kernel checks every page read and a file changed on disk is noticed.
+   - **`packages/<id>/<versionCode>/`**: a version's tree, hard links into `objects/` plus its `index.hbc`. A version is assembled whole in a new directory before anything names it.
+   - **`installed/<id>.json`**: the current and previous versions, the pinned key and its lineage, the store's statement, and the accounts that have it.
+   - **`users/<user>/<id>.json`**: that account's install and its decisions on capabilities (decision 8). Owned by root, group the user's, mode 0640: no other account learns what one installed.
+   - **`applications/<id>.desktop`**: the entry `oxyos-installd` writes for the current version (decision 7). Each file is written whole to a new file and renamed over the old, so switching a version is one rename and a crash leaves the old one or the new one, never a mix.
+   - **Any account may install for itself** with no administrator, as on a phone. The package is verified, and other accounts see nothing of it unless they install it too.
+   - **An application's data is the account's,** in `~/.local/share/oxyos/apps/<id>/` and `~/.cache/oxyos/apps/<id>/`, which the host gives as Expo's document and cache directories.
+
+7. **The registry knows three sources, and an id from a trusted one cannot be shadowed.** ADR 0013's search of `$XDG_DATA_DIRS` stays for development, and two fixed, root-owned sources come before it:
+   - **The image's:** `/usr/share/oxyos/applications` (decision 13).
+   - **The install service's:** `/var/lib/oxyos/apps/applications`, read for the session's user only for the ids in `users/<user>/`.
+   - **Development:** the XDG directories, as today. An entry there with an id the first two have is ignored: a profile's directory cannot make `so.oxy.mention` run its own code under Mention's name.
+
+   This amends ADR 0019 at its root. Ownership proves that an administrator wrote a file. It does not prove that the file's contents are an administrator's choice, and the install service's entries are root-owned files whose contents come from the network. So:
+   - **System grants** (`shell`, `lock`, `shortcuts`, `settings`, `store`) come only from the image's own policy, `/usr/share/oxyos/system-apps.json`. It names each system application's id, the grants it gets and, for a store-updated one, the developer key it must be signed with (decision 13). An `X-OxyOS-Grants` in an installed entry is never read. For development, ADR 0019's rule over `/usr/local` stays.
+   - **An installed application's capabilities** come from its install record (decision 8): the manifest's declared capabilities, narrowed by the account's decisions.
+   - **Its identity is verified.** The launch record (ADR 0013, decision 3) of an installed or image application says so (`verified`, with the version and the developer key), and only a verified launch is an application to the platform: for its capabilities, its data directory, and the per-application Oxy tokens of ADR 0020's decision 6. A development entry's launch is marked unverified and gets none of them.
+
+   The launcher starts an installed application with its runtime's host and the version's `index.hbc`, at their real paths, which it judges as ADR 0019 does. While the session runs it, the session holds the version (decision 10). The registry follows the install service's state by inotify, so the dock and Launchpad show an installed application at once.
+
+8. **Capabilities: declared in the manifest, shown at install, enforced by the system, the sensitive ones asked at first use.** An application can use only what it declared, and the store's review reads each purpose. The person sees them all in the install sheet, as a Mac's App Store page shows an application's privacy. Expo's own permission APIs (`requestPermissionsAsync`) are how an application asks, so an Oxy application's code is unchanged (ADR 0015).
+
+   | Capability | What it gives | Decided |
+   | --- | --- | --- |
+   | `network` | `fetch` and `XMLHttpRequest` to the Internet (the host's `oxyos-net`) | Shown at install |
+   | `notifications` | Posting (ADR 0026) | Asked at the first `requestPermissionsAsync`; turned off in Settings |
+   | `files` | The home and the person's volumes (ADR 0027's `OxyOSFiles`) | Asked at first use |
+   | `camera`, `microphone`, `location` | When the host has them | Asked at first use |
+   | `oxy-account` | Short Oxy tokens for this application (ADR 0020, decision 6), with the scopes its Oxy application has | Shown at install, as Oxy's consent screen |
+   | `open-files`, `url-schemes` | Being offered a file or a link (ADR 0027) | Shown at install |
+   | `background`, `login-item` | Running without a window, or at sign-in | Asked |
+
+   - **System grants** are never a store package's (decision 7).
+   - **Who decides.** The person decides in system sheets (decision 9). `oxyos-installd` keeps the answers in `users/<user>/<id>.json`, so no process of the user can grant itself a capability by writing a file. Settings shows and revokes them on a *Privacy* page. The session gives the launch record those grants, and the host makes each module available only with its grant, as `OxyOSSettings` is only Settings' (ADR 0019).
+   - **What enforces it today: the host, and only the host.** A package has no native code (decision 1), so its JavaScript reaches the system only through the host's modules. Kernel confinement, so that a compromised host is contained, is decision 15's gate.
+
+9. **How Atlas asks: a system grant, a host module, the SDK's installer seam; the confirmation is the system's.**
+   - **The grant.** `store` is a new system grant, and the image's policy gives it to `so.oxy.atlas` alone. With it, the Bloom host gives the module `OxyOSStore`: `status(ids)`, `install(id)`, `update(id)`, `uninstall(id)`, `open(id)` and progress events.
+   - **An id, never bytes.** `RequestInstall` in the protocol carries the id and the serial of the person's press in Atlas, which must be a recent real input, as clipboard and notification activations require (ADRs 0007, 0026). The compositor hands it to the session, which asks `oxyos-installd` to `prepare`. Atlas never hands the system bytes, a URL or a signature. The system fetches and verifies what the store's signed metadata names, as `LaunchApplication` takes an id and never a command (ADR 0013).
+   - **The confirmation is the system's.** The shell draws the install sheet over Atlas, the way the lock screen is drawn: a surface no application can draw, cover or press for the person (the compositor sends it only real input). It shows the icon and name from the verified metadata, the developer, the size, and the capabilities with their purposes. *Install* sends `commit`. Atlas learns the outcome and nothing of the sheet. The same sheet confirms an uninstall, and an update that adds capabilities.
+   - **One API on every platform.** ADR 0015 forbids Atlas from asking which platform it is on, so it uses an installer seam in the SDK, beside `oxy.store`: an installer the runtime registers, as the storage seam (`AuthStateStore`) is registered. On OxyOS the runtime registers one backed by `OxyOSStore`. Where none is registered (the web, iOS, Android), Atlas shows what it shows today. Atlas never imports anything of OxyOS's.
+   - **One trust domain, for now.** Until applications are confined (decision 15), a user's processes are one trust domain, as ADR 0019 says of Settings. Store packages cannot reach `oxyos-installd`'s socket, because the host gives them no raw sockets. A native program the user runs could, as it could run anything as the user. With confinement, `oxyos-installd` takes `commit` only from the session's own process.
+
+10. **Updates: automatic, by file, at the next launch, never down.**
+    - **Checking.** `oxyos-app-updates.timer` runs daily and after boot once online, at a random delay. It reads `timestamp` and, when the snapshot moved, `targets`. For each installed id it looks for a higher `versionCode` for the machine's runtimes and architecture.
+    - **Downloading.** The fetcher fetches the missing objects at low priority, and not on a connection NetworkManager says is metered unless the person asked. `oxyos-installd` verifies, compiles and assembles the version, ready to switch. Automatic updates are on by default and can be turned off in Settings.
+    - **Running copies are never changed.** The host reads its assets while it runs, so a version stays while any session runs it. A session `hold`s each version it launched on its own connection to `oxyos-installd` and `release`s it when the application exits. Holds die with the connection. The new version is switched to when the application is not running. *Update* in Atlas on a running application asks, in the system's sheet, to quit it first, as a Mac's App Store does.
+    - **New capabilities wait.** An update that declares a capability the account has not granted, or that rotates the pinned key, is staged and not switched until the person approves it in Atlas's *Updates* through the sheet. Android does the same, and Chrome with an extension that asks for more.
+    - **Rollback.** The previous version is kept until the new one has shown a window. If the new one exits before its first window on its first two launches, `oxyos-installd` switches back, keeps the bad release from being tried again on this machine, and reports it to the store. An application's own data is its own: a version that ran and changed it is not undone.
+    - **Never down.** `versionCode` only grows, TUF refuses older metadata, and the store fixes a bad release by publishing a higher `versionCode`.
+    - **Deltas.** File-level deltas come from content addressing: an update fetches only the objects it lacks, and the compressed transfer is HTTP's. Binary deltas of the bundle (`zstd --patch-from` against the installed object) come later, if measurements show the bundle dominates.
+
+11. **Uninstalling.** From Launchpad or Atlas, confirmed in the system sheet (*Delete Mention and its data?*). The session removes the account's data directories as the user, which is why `oxyos-installd` needs no access to homes. `oxyos-installd` removes the account's install and its capability decisions. When no account has the application any more, it removes the versions no session holds and collects the objects nothing names. A system application cannot be uninstalled. Only its store updates can be removed, back to the image's version (decision 13).
+
+12. **What the store's backend must add.** This is a proposal for the oxy repository, decided there by its own ADR, reusing the shared owners rather than a second copy:
+    - **Identity, on the application registry** beside Oxy ADR 0045's `android` and `ios`: `oxyos: { packageId, signingKeys[] }`. `packageId` is unique and fixed once a release exists. Signing keys are Ed25519 public keys with status and lineage, and a key added after the first release needs a rotation statement signed by an existing key.
+    - **`app_releases`**: application, platform `oxyos`, `version`, `version_code`, `runtime_abi`, `runtime_api`, the manifest verbatim with its digest, the developer key and signature, localized release notes, the review status (`draft`, `pending_review`, `approved`, `published`, `withdrawn`, `revoked`), the rollout percentage, and who submitted and approved it. The signed columns are append-only by trigger, as the inference releases' are.
+    - **`app_release_files`**: release, architecture (`any`, `x86_64`, `aarch64`), path, SHA-256, size. The bytes are content-addressed objects on the store's CDN, reusing Oxy Updates' `update_assets` (content address, immutability, `RESTRICT`, the init and complete upload flow with size checked against the object store) under a store prefix.
+    - **`app_release_capabilities`**: each capability with its purpose, for the review and the store page.
+    - **`app_installs`**: account, application, device, `version_code`, when installed and removed. This is *Purchased* and the restoring of a person's applications on a new machine, and an install count, which is not a count of `app_grants`.
+    - **The TUF repository**: `root`, `timestamp`, `snapshot` and `targets` with consistent snapshots, public and unauthenticated (the store is public; Atlas's AGENTS.md). Targets are re-signed at each approval or revocation, timestamps on a schedule. The release and online keys live in a KMS or HSM, and the root is offline with a threshold.
+    - **Publishing.** `oxy-ship` gains `oxy-ship oxyos build|sign|publish`: Metro for the `oxyos` platform against the runtime, the manifest, the developer's signature with its key, the upload, the release created. The Console gets a *Releases* page (keys, releases, rollout, review). Moderation gets a release queue beside the listing queue, with approve, reject and revoke.
+    - **Reads.** `StoreListingDetail` gains the listing's developer (the owning account's name, where Atlas now prints "Oxy") and, for OxyOS, the current release for a given runtime and architecture: version, size, capabilities, release notes, date. `@oxy.so/core`'s `oxy.store` reads it, and the installer seam of decision 9 sits beside it.
+    - **Revocation.** A release found harmful is revoked. `targets` then carries its revocation, and `oxyos-installd` stops launching it, tells the person why, and installs the store's replacement.
+    - **App assertions** (Oxy ADR 0045) gain `oxyos`. The attester is the platform: a verified launch record (decision 7) and the machine's device credential, held by `oxyos-accountd`. That is the per-application token of ADR 0020's decision 6, decided in the SDK's repository.
+
+13. **What comes with the OS, and what comes from Atlas.** Three kinds of application, as a Mac has its sealed system's applications, the App Store's, and in between those it ships and the App Store updates:
+    - **Platform applications**, in OxyOS's repository and the image, updated only with the OS: the shell (with the lock screen and Launchpad), the login screen, Settings (with its `settings` grant), and the install sheet. They are packages in the same format under `/usr/lib/oxyos/apps/<id>/`, compiled at image build by the runtime's `hermesc`. The image's integrity covers them (dm-verity on published installs), and their entries are in `/usr/share/oxyos/applications`. The one bundle of today splits into them.
+    - **System applications**, in their own repositories, in the image as a starting version and updated through Atlas, not removable: **Atlas**, the App Store, and **Stash**, the file manager ("Files", a Mac's Finder; its repository is Stash's, not OxyOS's). The image build takes the release the store published, pinned by its digest, and verifies the developer's and the store's signatures at build. The image's policy names each one's developer key and system grants (Atlas: `store`; Stash: `files` granted without asking). `oxyos-installd` installs a higher `versionCode` from the store over the image's version, as Android updates a system application from Play into `/data`. An OS update never takes one back down, and removing the updates returns to the image's version.
+    - **Store applications**, everything else (Mention, Alia, Allo, Inbox, Homiio and the others), from Atlas.
+
+14. **Atlas on OxyOS: the App Store.**
+    - **Its build.** In Atlas's repository, from the same source as its web and native builds (ADR 0015, decision 4): Metro for the `oxyos` platform against the runtime, through `@oxy.so/app-preset` once the preset has an OxyOS target. It is published through the store as `so.oxy.atlas`, signed with its developer key. Its entry module is `Atlas`.
+    - **Its place.** Pinned in the dock by the image's policy, as the App Store is, with the `store` grant from that policy alone (decision 7).
+    - **What it does there.** The storefront's reads are public and need no token. *Get* becomes the system sheet, then a progress ring, then *Open* (`OxyOSStore.open`, a launch through the session). An application with a newer release shows *Update*. One the machine cannot run says *Not available for this computer*. Atlas gets an *Updates* page (pending updates, release notes, updates waiting for consent) and a *Purchased* page (`app_installs`). An application's page shows its capabilities, size, version history and compatibility.
+    - **Its account.** Writing a review needs the account, so it waits for ADR 0020's decision 6. Until then Atlas on OxyOS says reviews are not available yet and signs in to nothing.
+
+15. **Third-party applications wait for confinement.** Until each application is confined by the kernel, a package's code runs with everything its account can do, once it gets past the host. Confinement is its own decision (#35, #36): a scope of its own per launch (systemd's `app-…` naming), Landlock to its data and what it was granted, a seccomp filter, no tracing between applications. Until it exists:
+    - the store publishes OxyOS releases only of Oxy's own applications (`applications.type` `first_party` with `isOfficial`), whose code is Oxy's;
+    - the format, the signatures, the service and the store are made whole now, so opening the store to third parties is a policy change, not a redesign.
+
+## Rejected
+
+- **Debian packages (apt) for applications.** Their maintainer scripts run as root, and they install for the whole system with no per-application capabilities or developer signature. Published installs do not take packages into `/usr` (ADR 0023, decision 6).
+- **Flatpak, Snap.** Their runtimes, portals and sandboxes serve GTK, Qt, X11 and Wayland applications through D-Bus portals that assume a Wayland session, which the image rules exclude. OxyOS's applications are bundles for one host. The ideas are taken, not the stacks: Flatpak's side-by-side runtimes, OSTree's content addressing, Snap's store-signed assertions.
+- **AppImage.** It has no install service, signature chain or updates.
+- **Oxy Updates as it is.** It pushes publishers' code to devices without review, signs at serve time with a key in the API's environment, and has no developer signature, capability or install. Taken from it: the content-addressed store and its upload, the byte-stable signed documents, the rollout percentage.
+- **Shipping Hermes bytecode in the package.** Hermes trusts bytecode (fact 2). Compiling on the machine also makes a new Hermes bytecode version cost no release.
+- **One archive per release.** It means an extraction parsed as root, and no sharing of unchanged files between versions.
+- **Atlas installing by itself, or verifying.** Then any application with the same rights could install, the confirmation would be Atlas's, and verification would be the application's.
+- **All capabilities granted at install** (Android before 6). A person grants everything at once and never thinks of it again. Sensitive ones are asked at first use, as a Mac and iOS ask.
+
+## Decisions for the platform's author
+
+Each has a recommendation, the one the decisions above take:
+
+1. **Two signatures** (developer and store, decision 3) or the store's alone, as Google's Play App Signing holds the developer's key. Recommended: two.
+2. **A lost developer key.** With pinning, nobody can update the application, and only a new id helps (Android). Or allow a key reset signed by the offline root's threshold, never by online keys. Recommended: the root's threshold, rarely, recorded.
+3. **TUF** (decision 4) or simpler signed releases with only a version check against rollback. Recommended: TUF.
+4. **Who holds the root's offline keys**, how many, and the threshold (for example 2 of 3 hardware keys); the release key in a KMS or HSM.
+5. **Confirming an install**: the sheet alone, or the account's password too (a Mac's App Store can ask for it), always or for paid applications. Recommended: the sheet alone for free applications.
+6. **Installs for each account** with shared bytes (decision 6), or for the whole machine by an administrator. Recommended: each account, no administrator.
+7. **When capabilities are asked**: decision 8's table, or all at install.
+8. **The runtimes' support window**: how many `abi`s the image carries side by side, and for how long. Recommended: the current and the one before, for at least six months.
+9. **Native code in packages**: not until a native-extension ABI and confinement exist (decision 1), and whether Oxy's own applications may have it earlier. Recommended: not for anyone yet.
+10. **Third parties** only after confinement (decision 15). Recommended: yes.
+11. **What ships in the image**: Atlas and Stash as system applications (decision 13); whether others are installed at setup (Mention, Alia, Allo?), and whether those can be removed.
+12. **Installing outside Atlas**: packages from elsewhere, or only the development entries of decision 7. Recommended: none outside the store, beyond a developer mode with no grants and no Oxy identity.
+13. **Revocation** of an installed release by the store (decision 12), which Apple can do. Recommended: yes, telling the person.
+14. **Installs recorded on the server for each account** (`app_installs`), for *Purchased* and restoring a machine. Recommended: yes, shown in the account's data.
+15. **Where the installer seam lives**: the Oxy SDK beside `oxy.store` (decision 9), or Bloom's platform adapter. Recommended: the SDK, since installing is not presentation.
+
+## Steps
+
+1. **The format.** `crates/oxyos-package`: the manifest (parsing, JCS, digests, the files list, the runtime and capabilities), the developer's signature and its lineage, with tests on packages written by the tests: a file changed, a file missing, a file not listed, a path leaving the tree, a bad signature, a key not in the lineage. A development key and a test TUF root.
+2. **`oxyos-installd` from a local repository.** The service, the fetcher, the compiler's confinement, the layout of decision 6, `prepare`, `commit`, `uninstall`, `hold` and `release`, TUF's checks with the `tuf` crate or an implementation of the specification checked against its conformance tests, and the units, verified with `systemd-analyze`. Tests: each failure leaves nothing installed; a crash at each point leaves the old or the new version; another account sees nothing; rollback; never down. The development compositor installs from a directory served by the tests.
+3. **The registry and the launcher.** The three sources and their order, verified launch records, runtimes under `/usr/lib/oxyos/runtimes/`, holds. Settings, the shell and the login screen become packages of their own instead of one bundle. Scenarios: an installed application in the dock at once, launched and marked verified; a development entry with an installed id ignored; an installed entry asking for `settings` gets nothing.
+4. **The system sheet, `store` and `OxyOSStore`.** `RequestInstall` and its answer in the protocol and the C ABI; the shell's install, uninstall and consent sheets; the host module; capabilities enforced by the host's modules (`network` in `oxyos-net`, `files`, `notifications`), with Expo's permission APIs mapped onto them. Scenarios: an install confirmed and refused; a press that was not the person's refused; an undeclared capability absent.
+5. **The store's backend, in oxy** (its ADR and PRs, decision 12): identities and keys, releases, files, capabilities, installs, the TUF repository and its keys, review, `oxy-ship oxyos`, the Console's *Releases*, the reads in `@oxy.so/core`, the installer seam.
+6. **Atlas on OxyOS, in Atlas** (decision 14): its OxyOS build, *Get*, *Open*, *Update*, *Updates*, *Purchased*, capabilities on the page.
+7. **Updates and the image.** The timer, the metered rule, consent for new capabilities, revocation, fs-verity sealing (confirming the Debian kernel's `FS_VERITY` and enabling the root's `verity` feature at install, ADR 0023), Atlas and Stash as the image's system applications, verified at image build and audited by `check-image-contents.py`.
+8. **Third parties,** once confinement's decision and the per-application Oxy tokens exist (decision 15).
+
+## Not in this decision
+
+- Confining applications by the kernel (#35, #36), and the per-application Oxy token (ADR 0020, decision 6; Oxy ADRs 0029, 0045 and 0050).
+- Paid applications, purchases and in-app purchases, subscriptions, family sharing.
+- A native-extension ABI for packages.
+- Binary deltas, staged rollouts by machine, crash reports.
+- Web applications installed from Astro.
+- Managed machines (an organization's policy, MDM).
+- The OS's own updates, which are ADR 0023's images.
