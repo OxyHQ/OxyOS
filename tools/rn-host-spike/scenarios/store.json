@@ -29,7 +29,8 @@
         "texts": [
           "Store: available",
           "Answer 1: failed unavailable",
-          "Progress: 0"
+          "Progress: 0",
+          "Asked: 1"
         ],
         "react": {
           "touchStart@install": 1,
@@ -49,7 +50,8 @@
       "expect": {
         "texts": [
           "Answer 2: failed unavailable",
-          "Updates: unknown"
+          "Updates: unknown",
+          "Asked: 2"
         ],
         "react": {
           "touchStart@check": 1,
@@ -68,7 +70,8 @@
       ],
       "expect": {
         "texts": [
-          "Answer 3: failed unavailable"
+          "Answer 3: failed unavailable",
+          "Asked: 3"
         ],
         "react": {
           "touchStart@status": 1,

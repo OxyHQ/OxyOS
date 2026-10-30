@@ -275,10 +275,26 @@ impl Session {
             askers.get(&client).cloned().unwrap_or(unknown.clone())
         });
         for open in opens {
-            let launched = self
+            let pid = self
                 .launcher
                 .as_mut()
-                .is_some_and(|launcher| launcher.launch(&open.id).is_ok());
+                .and_then(|launcher| launcher.launch(&open.id).ok());
+            // What it is, for the run's summary, as the shell's launches are recorded.
+            if let Some(launched) = pid.and_then(|pid| self.launcher.as_ref()?.application_of(pid))
+            {
+                let origin = match &launched.origin {
+                    oxyos_apps::Origin::System => "system".to_string(),
+                    oxyos_apps::Origin::Installed { version_code } => {
+                        format!("installed {version_code}")
+                    }
+                    oxyos_apps::Origin::Development => "development".to_string(),
+                };
+                let settings = launched.grants.settings
+                    || self.grant_settings.as_deref() == Some(launched.id.as_str());
+                self.application_launches
+                    .push((launched.id.clone(), origin, settings));
+            }
+            let launched = pid.is_some();
             if let Some(installs) = self.installs.as_ref() {
                 installs.opened(&mut self.compositor.scene, &open, launched);
             }

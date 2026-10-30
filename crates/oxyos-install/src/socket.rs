@@ -113,6 +113,14 @@ impl Connection {
         })
     }
 
+    /// How long a send may wait, alone: a clone shares the socket, so its receive timeout would
+    /// be every clone's.
+    pub fn set_send_timeout(&self, timeout: Duration) -> io::Result<()> {
+        use rustix::net::sockopt::{set_socket_timeout, Timeout};
+        set_socket_timeout(&self.fd, Timeout::Send, Some(timeout))?;
+        Ok(())
+    }
+
     pub fn set_timeout(&self, timeout: Duration) -> io::Result<()> {
         use rustix::net::sockopt::{set_socket_timeout, Timeout};
         set_socket_timeout(&self.fd, Timeout::Recv, Some(timeout))?;

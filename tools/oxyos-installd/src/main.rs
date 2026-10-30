@@ -14,7 +14,7 @@
 //! - `--fetcher`: the fetcher's socket, `/run/oxyos/app-fetch/socket` by default;
 //! - `--passwd`: the user database, `/etc/passwd` by default.
 //!
-//! `oxyos-installd --fetch [--repository URL] [--socket PATH]`: the fetcher, run as a dynamic user
+//! `oxyos-installd --fetch [--development] [--repository URL] [--socket PATH]`: the fetcher, run as a dynamic user
 //! with the network alone (`oxyos-app-fetch.service`). It writes the repository's files into the
 //! descriptors the service hands it, for root alone. `--repository` is `file:///…` in this step.
 //!
@@ -22,6 +22,11 @@
 //! protocol writes it, `crates/oxyos-install/src/ipc.rs`) as the user running it, and prints each
 //! answer on a line, until the answer to it (a watch: until interrupted). For trying the service
 //! by hand, and the update timer's `"automaticUpdates"`.
+//!
+//! `--development`, with the service or the fetcher, for a developer's machine and the scenarios
+//! (as `oxyos-install --developer` is): unprivileged, on directories given, the fetcher serving
+//! only its own user and the service refusing every other. Refused as root; never an install of
+//! the system's.
 //!
 //! The services log on standard error, the journal's.
 
@@ -40,7 +45,7 @@ use std::sync::Arc;
 /// Connections at once: every session keeps one for its holds, Atlas one, the timer one.
 const MAX_CONNECTIONS: usize = 32;
 
-const USAGE: &str = "usage: oxyos-installd [--state DIRECTORY] [--anchor FILE] [--runtimes DIRECTORY] \
+const USAGE: &str = "usage: oxyos-installd [--development] [--state DIRECTORY] [--anchor FILE] [--runtimes DIRECTORY] \
 [--socket PATH] [--fetcher PATH] [--passwd FILE]\n       oxyos-installd --fetch [--repository URL] [--socket PATH]\n       \
 oxyos-installd --client [--socket PATH] REQUEST";
 
@@ -54,6 +59,8 @@ struct Options {
     fetcher: PathBuf,
     passwd: PathBuf,
     repository: String,
+    /// `--development`: unprivileged, serving its own user alone.
+    development: bool,
 }
 
 fn options() -> Result<Options, String> {
@@ -67,6 +74,7 @@ fn options() -> Result<Options, String> {
         fetcher: fetch::FETCH_SOCKET.into(),
         passwd: "/etc/passwd".into(),
         repository: "file:///var/cache/oxyos/store".into(),
+        development: false,
     };
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -77,6 +85,7 @@ fn options() -> Result<Options, String> {
         };
         match argument.as_str() {
             "--fetch" => options.fetcher_mode = true,
+            "--development" => options.development = true,
             "--client" => options.client = Some(String::new()),
             request if options.client.as_deref() == Some("") && !request.starts_with("--") => {
                 options.client = Some(request.to_string())
@@ -137,6 +146,12 @@ fn fetcher(options: &Options) -> Result<(), String> {
     if rustix::process::geteuid().is_root() {
         return Err("the fetcher runs as a user of its own, never root".into());
     }
+    // Root is the install service; in development, the service is this user's own.
+    let served = if options.development {
+        rustix::process::getuid().as_raw()
+    } else {
+        0
+    };
     let repository = LocalRepository::from_url(&options.repository)?;
     let socket = options
         .socket
@@ -170,7 +185,7 @@ fn fetcher(options: &Options) -> Result<(), String> {
             .name("oxyos-fetch".into())
             .spawn(move || {
                 // Root is the install service; nobody else may have files written.
-                if let Err(e) = fetch::serve(&connection, &repository, |peer| peer.uid == 0) {
+                if let Err(e) = fetch::serve(&connection, &repository, |peer| peer.uid == served) {
                     eprintln!("oxyos-installd --fetch: a connection ended: {e}");
                 }
                 open_now.fetch_sub(1, Ordering::SeqCst);
@@ -182,7 +197,14 @@ fn fetcher(options: &Options) -> Result<(), String> {
 }
 
 fn service(options: &Options) -> Result<(), String> {
-    if !rustix::process::geteuid().is_root() {
+    let root = rustix::process::geteuid().is_root();
+    if root && options.development {
+        return Err("--development is a developer's, never root's".into());
+    }
+    if options.development && options.state == std::path::Path::new(STATE_DIRECTORY) {
+        return Err("--development needs a --state of its own".into());
+    }
+    if !root && !options.development {
         return Err(
             "it runs as root: the applications' files are root's, so only an administrator \
              could have written them"

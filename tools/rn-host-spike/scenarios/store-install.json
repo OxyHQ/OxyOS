@@ -1,0 +1,136 @@
+{
+  "about": "Installing from the store through the system's sheet (docs/adr/0030-installing-applications.mdx, decisions 5, 7 and 9), with a real oxyos-installd (its development mode, on directories of the run's own) and a repository where oxyos-pack published Inbox's package as the store would. The store probe asks; the shell shows the sheet (the store only waits); Cancel installs nothing; Instalar, pressed in the shell, installs it: fetched, compiled on the machine, the account's entry written, and the store opens it, the installed version, not the development registry's entry of the same id, given no system grant. With the sheet's answer taken from the store instead of the shell, nothing installs.",
+  "module": "StoreProbe",
+  "window": [
+    520,
+    260
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ]
+  },
+  "steps": [
+    {
+      "name": "Install, pressed in the store: it waits, and the shell shows the system's sheet",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 1",
+          "Answer 0: none yet"
+        ],
+        "react": {
+          "touchStart@install": 1,
+          "touchEnd@install": 1
+        }
+      }
+    },
+    {
+      "name": "Cancelar, pressed in the shell's sheet: nothing is installed, and the store is told",
+      "do": [
+        "press_output",
+        [
+          684,
+          393
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-refuse": 1,
+            "touchEnd@system-sheet-refuse": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Install again: the store's answer was that it was cancelled",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer 1: cancelled",
+          "Asked: 2"
+        ]
+      }
+    },
+    {
+      "name": "Instalar, pressed in the shell's sheet: the install service fetches, compiles and switches",
+      "do": [
+        "press_output",
+        [
+          772,
+          393
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-accept": 1,
+            "touchEnd@system-sheet-accept": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Status, pressed after a moment: the store was told Inbox is installed, its progress having come",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Install: installed",
+          "Asked: 3"
+        ]
+      }
+    },
+    {
+      "name": "Open: the session launches the installed version (the run's summary says it was the installed version, given no system grant)",
+      "do": [
+        "press",
+        [
+          410,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 4"
+        ]
+      }
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.inbox",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ]
+}

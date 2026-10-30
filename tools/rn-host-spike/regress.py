@@ -1331,16 +1331,74 @@ class Machine:
             (target / entry.name).write_text("\n".join(lines) + "\n")
         return into
 
-def install_arguments(scenario, out):
+def install_service(spec, machine, offscreen):
+    """A real oxyos-installd for a scenario (docs/adr/0030-installing-applications.mdx), in its
+    development mode (unprivileged, serving this user alone) on directories of its own: a store
+    repository holding each package of `publish` (oxyos-pack publish, signed with the packages'
+    development key, as the store would publish them), its fetcher, and its state, which the
+    development compositor reads as the install service's (`--installed-fixture`). Its socket and
+    state; stopped and removed when the run ends."""
+    import atexit
+    import pwd
+    import shutil
+    import tempfile
+    tools = pathlib.Path(offscreen).resolve().parent
+    pack, installd = tools / "oxyos-pack", tools / "oxyos-installd"
+    # A Unix socket's path is at most 107 bytes: a short directory of the run's own.
+    base = pathlib.Path(tempfile.mkdtemp(prefix="oxi", dir="/tmp"))
+    keys, repository, state = base / "keys", base / "repository", base / "state"
+    run = lambda *args: subprocess.run([str(a) for a in args], check=True, capture_output=True)
+    run(pack, "store-keys", keys)
+    run(pack, "repository", repository, keys)
+    for id in spec.get("publish", []):
+        run(pack, "publish", machine.by_id[id]["dir"], repository, keys, machine.packages / "development.key")
+    me = pwd.getpwuid(os.getuid())
+    (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
+    logs = open(base / "installd.log", "w")
+    processes = [subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
+                                   f"file://{repository}", "--socket", str(base / "f")],
+                                  stdout=logs, stderr=logs)]
+    wait_for(base / "f")
+    processes.append(subprocess.Popen([str(installd), "--development", "--state", str(state), "--anchor",
+                                       str(repository / "metadata/1.root.json"), "--runtimes",
+                                       str(machine.runtimes), "--socket", str(base / "i"), "--fetcher",
+                                       str(base / "f"), "--passwd", str(base / "passwd")],
+                                      stdout=logs, stderr=logs))
+    wait_for(base / "i")
+
+    def stop():
+        for process in processes:
+            process.terminate()
+            process.wait(timeout=5)
+        shutil.rmtree(base, ignore_errors=True)
+    atexit.register(stop)
+    return base / "i", state
+
+
+def wait_for(path, seconds=10):
+    deadline = time.monotonic() + seconds
+    while not path.exists():
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{path} did not appear")
+        time.sleep(0.05)
+
+
+def install_arguments(scenario, out, machine=None, offscreen=None):
     """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
-    install service the session asks (`installd`: a socket, or null for one that is not there),
-    docs/adr/0030-installing-applications.mdx."""
+    install service the session asks (`installd`: null for a socket no service is at, or
+    {"publish": [ID, ...]} for a real one, `install_service`), docs/adr/0030-installing-
+    applications.mdx."""
     arguments = []
     for app, grants in scenario.get("grants", {}).items():
         arguments += ["--grant", f"{app}={','.join(grants)}"]
     if "installd" in scenario:
-        # None: a socket no service is at (a short path: a Unix socket's is at most 107 bytes).
-        arguments += ["--installd", scenario["installd"] or "/nonexistent/oxyos-installd.socket"]
+        spec = scenario["installd"]
+        if spec is None:
+            # A socket no service is at (a short path: a Unix socket's is at most 107 bytes).
+            arguments += ["--installd", "/nonexistent/oxyos-installd.socket"]
+        else:
+            socket, state = install_service(spec, machine, offscreen)
+            arguments += ["--installd", str(socket), "--installed-fixture", str(state)]
     return arguments
 
 
@@ -1424,7 +1482,7 @@ def main():
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
         command += ["--grant-settings", scenario["settings"]["app"]]
-    command += install_arguments(scenario, out)
+    command += install_arguments(scenario, out, machine if "client" not in scenario else None, options.offscreen)
     if "controls" in scenario:
         # The machine the hardware keys and the Control Center act on (ADR 0025), played as the
         # scenario describes it, in a file of the run's own the session writes back.

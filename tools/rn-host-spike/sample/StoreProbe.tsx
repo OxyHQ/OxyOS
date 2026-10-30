@@ -7,7 +7,7 @@ import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { available, store, updates } from './oxyos/system';
 
-const ID = 'so.oxy.notes';
+const ID = 'so.oxy.inbox';
 
 /** An answer as one line: its kind, and its reason when it has one. */
 function said(answer: any): string {
@@ -37,15 +37,29 @@ export default function StoreProbe() {
   const [state, setState] = React.useState(() => updates.current());
   React.useEffect(() => updates.subscribe(setState), []);
   // Numbered, so each answer is drawn even when it says what the one before said.
-  const show = (asked: Promise<any>) => asked.then((a) => setAnswer((last) => ({ count: last.count + 1, text: said(a) })));
+  const [asked, setAsked] = React.useState(0);
+  // Each action's last outcome on a line of its own: steady whenever it came.
+  const [outcomes, setOutcomes] = React.useState<Record<string, string>>({});
+  const keep = (action: string, pending: Promise<any>) => {
+    show(pending);
+    pending.then((a) => setOutcomes((all) => ({ ...all, [action]: said(a) })));
+  };
+  // What was asked, at once (a sheet may be waiting), then its answer when it comes.
+  const show = (pending: Promise<any>) => {
+    setAsked((n) => n + 1);
+    pending.then((a) => setAnswer((last) => ({ count: last.count + 1, text: said(a) })));
+  };
   return (
     <View style={{ flex: 1, backgroundColor: 'white' }}>
       <Text style={{ position: 'absolute', left: 20, top: 120 }}>{`Store: ${available ? 'available' : 'unavailable'}`}</Text>
       <Text style={{ position: 'absolute', left: 20, top: 140 }}>{`Answer ${answer.count}: ${answer.text}`}</Text>
       <Text style={{ position: 'absolute', left: 20, top: 160 }}>{`Progress: ${progress}`}</Text>
       <Text style={{ position: 'absolute', left: 20, top: 180 }}>{`Updates: ${state ? state.updates.length : 'unknown'}`}</Text>
-      <Button label="Install" x={20} y={20} onPress={() => show(store.install(ID, () => setProgress((n) => n + 1)))} />
-      <Button label="Uninstall" x={180} y={20} onPress={() => show(store.uninstall(ID))} />
+      <Text style={{ position: 'absolute', left: 20, top: 200 }}>{`Asked: ${asked}`}</Text>
+      <Text style={{ position: 'absolute', left: 20, top: 220 }}>{`Install: ${outcomes.install ?? '-'}`}</Text>
+      <Text style={{ position: 'absolute', left: 260, top: 220 }}>{`Uninstall: ${outcomes.uninstall ?? '-'}`}</Text>
+      <Button label="Install" x={20} y={20} onPress={() => keep('install', store.install(ID, () => setProgress((n) => n + 1)))} />
+      <Button label="Uninstall" x={180} y={20} onPress={() => keep('uninstall', store.uninstall(ID))} />
       <Button label="Open" x={340} y={20} onPress={() => show(store.open(ID))} />
       <Button label="Check" x={20} y={70} onPress={() => show(updates.check())} />
       <Button label="UpdateAll" x={180} y={70} onPress={() => show(updates.updateAll())} />

@@ -475,7 +475,9 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 let Some(on) = self.watch_on.as_ref().and_then(|c| c.try_clone().ok()) else {
                     return refusal(Answer::refused(Reason::Failed), "watchUpdates", None);
                 };
-                let _ = on.set_timeout(WATCH_SEND);
+                // A send's timeout alone: the clone shares the socket, and a receive timeout here
+                // would close the watch once it had been quiet for that long.
+                let _ = on.set_send_timeout(WATCH_SEND);
                 // The answer goes first: the state follows it, now and at each change.
                 if let Err(e) = send(&Answer::Watching) {
                     return refusal(
