@@ -2,6 +2,7 @@
 // with OXYOS_HOST_REPORT=<path>, one JSON object per line.
 //
 //   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"texts":[…],"focus":"reply"}
+//   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
 //   {"t":…,"kind":"deliver","event":"touchStart","surface":1,"target":"open-menu"}  (to React)
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
@@ -43,6 +44,9 @@ class Report {
   // `presented` is what the surface still shows with a change that drew nothing (a new focus).
   void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
              const std::string& focus, double damaged = 1.0, bool presented = true);
+  // The window laid out at a new size (logical pixels), in `ms` (Fabric's commit with the new
+  // constraints, Yoga's layout and the mount).
+  void layout(float width, float height, double ms);
   // A frame drawn from its damage that differs from the frame drawn whole (OXYOS_HOST_DAMAGE_CHECK):
   // `pixels` of them. Any is a defect in the damage.
   void damageMismatch(uint32_t surface, size_t pixels);

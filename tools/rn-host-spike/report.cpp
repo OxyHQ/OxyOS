@@ -106,6 +106,11 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
 }
 
+void Report::layout(float width, float height, double ms) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "layout")("width", width)("height", height)("ms", ms));
+}
+
 void Report::damageMismatch(uint32_t surface, size_t pixels) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "damage_mismatch")("surface", surface)("pixels", pixels));

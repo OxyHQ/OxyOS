@@ -960,7 +960,10 @@ int main(int argc, char** argv) {
         if (resized) {
           display = oxyos::Display{window->width(), window->height(), window->scale()};
           pointer.setScale(display.scale);
+          auto laying = Clock::now();
           layOut();
+          oxyos::Report::get().layout(display.width, display.height,
+                                      std::chrono::duration<double, std::milli>(Clock::now() - laying).count());
           // A new size or scale needs a new frame even when the layout does not change (a
           // scale change keeps every logical frame); the old one would be discarded.
           dirty = true;

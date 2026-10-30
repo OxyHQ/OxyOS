@@ -1030,7 +1030,35 @@ impl Compositor {
                 dock.y + dock.height as i32 / 2,
             )
         });
+        let drawn_at = |list: &[RenderItem], key: SurfaceKey| {
+            list.iter().find_map(|item| match *item {
+                RenderItem::Surface {
+                    key: shown, rect, ..
+                } if shown == key => Some(rect),
+                _ => None,
+            })
+        };
         for appearance in self.scene.take_appearances() {
+            // A window zoomed (ADR 0016): its frame goes from where it was drawn last (where its
+            // zoom has it, if zooming) to where it is configured.
+            if appearance.change == oxyos_compositor_core::AppearanceChange::Zoomed {
+                let key = appearance.key;
+                if let (Some(at), Some(to)) = (drawn_at(&list, key), self.scene.upcoming_rect(key))
+                {
+                    let from = self
+                        .transitions
+                        .zooming(key, now)
+                        .or_else(|| {
+                            self.screens
+                                .iter()
+                                .find_map(|screen| drawn_at(&screen.composed, key))
+                        })
+                        .unwrap_or(at);
+                    self.transitions
+                        .zoom(key, appearance.kind, from, at, to, now);
+                }
+                continue;
+            }
             let snapshot = if appearance.arrived() {
                 None
             } else {
@@ -1056,6 +1084,11 @@ impl Compositor {
         }
         if self.scene.is_locked() {
             self.transitions.lock();
+        }
+        for item in &list {
+            if let RenderItem::Surface { key, rect, .. } = *item {
+                self.transitions.zoom_shown(key, rect);
+            }
         }
         let animating = self.transitions.advance(now);
         let changed = ready.iter().zip(&started).any(|(&index, &started)| {
@@ -1094,10 +1127,15 @@ impl Compositor {
         // a window's with its shadow.
         let mut transition_drawn: Vec<oxyos_gpu::Rect> = Vec::new();
         let shadows = &self.shadows;
-        let mut in_transition = |rect: Rect, placed: Rect, look: Option<WindowLook>| {
+        // A window zooming is drawn in its rectangle as a window of that size (`zoomed`): its
+        // corners and shadow are not scaled.
+        let mut in_transition = |rect: Rect,
+                                 placed: Rect,
+                                 look: Option<WindowLook>,
+                                 zoomed: bool| {
             for at in [rect, placed] {
                 transition_drawn.push(match look {
-                    Some(look) => window::extent(look, rect, at, shadows),
+                    Some(look) => window::extent(look, if zoomed { at } else { rect }, at, shadows),
                     None => oxyos_gpu::Rect {
                         x: at.x,
                         y: at.y,
@@ -1152,24 +1190,27 @@ impl Compositor {
                         // A lock surface fading in does so over the lock's cover.
                         let arriving = self.transitions.arriving(key, now);
                         let look = looks.get(&key).copied();
-                        let placed = arriving.place(rect);
-                        if self.transitions.is_arriving(key) {
-                            in_transition(rect, placed, look);
+                        let zoomed = self.transitions.zooming(key, now);
+                        let placed = zoomed.unwrap_or_else(|| arriving.place(rect));
+                        if self.transitions.is_arriving(key) || zoomed.is_some() {
+                            in_transition(rect, placed, look, zoomed.is_some());
                         }
                         if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
                             contents.push(Content::cover(rect));
                         }
-                        // A window's shadow beneath it, and its corners.
+                        // A window's shadow beneath it, and its corners: a window zooming has
+                        // them as a window of the size it is drawn at.
                         let radius = look.map_or(0, |look| {
+                            let cast = if zoomed.is_some() { placed } else { rect };
                             let (shadow, radius) =
-                                Content::shadow(shadows, look, rect, placed, arriving.opacity);
+                                Content::shadow(shadows, look, cast, placed, arriving.opacity);
                             contents.push(shadow);
                             radius
                         });
                         contents.push(Content {
                             key: Some(key),
                             rect,
-                            placed: arriving.place(rect),
+                            placed,
                             extent,
                             format: Some(format),
                             pixels,
@@ -1206,7 +1247,7 @@ impl Compositor {
         // Surfaces going, over what stays, from their last frames.
         for (snapshot, _, at) in self.transitions.going(now) {
             let placed = at.place(snapshot.rect);
-            in_transition(snapshot.rect, placed, snapshot.look);
+            in_transition(snapshot.rect, placed, snapshot.look, false);
             let radius = snapshot.look.map_or(0, |look| {
                 let (shadow, radius) =
                     Content::shadow(shadows, look, snapshot.rect, placed, at.opacity);

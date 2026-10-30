@@ -119,6 +119,10 @@ struct Node {
     size: Size,
     /// Geometry of the latest configure, applied when a frame for it is displayed.
     pending: Option<(u64, (i32, i32), Size)>,
+    /// The geometry an edge resize wants while a configure is unanswered (ADR 0016): one
+    /// configure is in flight, and this one, the latest the pointer asked for, is sent once a
+    /// frame for that one is displayed. Any other configure replaces it.
+    wanted: Option<((i32, i32), Size)>,
     presentation: Presentation,
     scale_120: u32,
     output: OutputId,
@@ -208,6 +212,15 @@ fn bounded(rects: Vec<Rect>) -> Vec<Rect> {
 impl Node {
     fn is_popup(&self) -> bool {
         matches!(self.role, Role::Popup(_))
+    }
+
+    /// The geometry the surface is going to have: what an edge resize wants next, else its
+    /// latest configure's, else what is displayed.
+    fn upcoming(&self) -> ((i32, i32), Size) {
+        self.wanted.unwrap_or_else(|| {
+            self.pending
+                .map_or((self.origin, self.size), |(_, origin, size)| (origin, size))
+        })
     }
 
     /// Content and geometry as displayed, or (`in_flight`) as they will be once the frame
@@ -568,7 +581,7 @@ impl Scene {
             return;
         };
         let fullscreen = node.fullscreen;
-        let mut size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let mut size = node.upcoming().1;
         if node.parent.is_none() {
             let origin = if fullscreen {
                 size = Size::new(target.rect.width, target.rect.height);
@@ -608,10 +621,7 @@ impl Scene {
             .map(|(key, _)| *key)
             .collect();
         for key in affected {
-            let (origin, size) = match self.nodes[&key].pending {
-                Some((_, origin, size)) => (origin, size),
-                None => (self.nodes[&key].origin, self.nodes[&key].size),
-            };
+            let (origin, size) = self.nodes[&key].upcoming();
             self.reconfigure(key, Some(origin), size);
         }
         Ok(())
@@ -1501,6 +1511,7 @@ impl Scene {
                 origin,
                 size,
                 pending: Some((serial, origin, size)),
+                wanted: None,
                 presentation,
                 scale_120,
                 output,
@@ -1586,6 +1597,7 @@ impl Scene {
         let keep = node.pending.map_or(node.origin, |(_, origin, _)| origin);
         node.pending = Some((serial, origin.unwrap_or(keep), size));
         node.pending_fullscreen = node.fullscreen;
+        node.wanted = None;
         if let Some(frame) = discarded {
             self.discard(key, frame);
         }
@@ -2225,9 +2237,7 @@ impl Scene {
     /// Geometry once every pending configure is presented; used to place new children.
     fn global_rect_pending(&self, key: SurfaceKey) -> Option<Rect> {
         let node = self.nodes.get(&key)?;
-        let (origin, size) = node
-            .pending
-            .map_or((node.origin, node.size), |(_, o, s)| (o, s));
+        let (origin, size) = node.upcoming();
         let (x, y) = match node.parent {
             Some(parent) => {
                 let p = self.global_rect_pending(parent)?;
@@ -2574,6 +2584,8 @@ impl Scene {
         }
         let size = node.limits.clamp(size);
         self.reconfigure(key, None, size);
+        // Maximized or tiled, its frame goes there animated (ADR 0016).
+        self.appeared(key, appearances::Change::Zoomed);
     }
 
     // ---- secure lock ---------------------------------------------------------------------
@@ -2794,15 +2806,17 @@ impl Scene {
             i64::from(origin.1) - i64::from(node.origin.1),
         );
         node.origin = origin;
+        let moved = |at: (i32, i32)| {
+            (
+                (i64::from(at.0) + delta.0) as i32,
+                (i64::from(at.1) + delta.1) as i32,
+            )
+        };
         if let Some((serial, pending, size)) = node.pending {
-            node.pending = Some((
-                serial,
-                (
-                    (i64::from(pending.0) + delta.0) as i32,
-                    (i64::from(pending.1) + delta.1) as i32,
-                ),
-                size,
-            ));
+            node.pending = Some((serial, moved(pending), size));
+        }
+        if let Some((wanted, size)) = node.wanted {
+            node.wanted = Some((moved(wanted), size));
         }
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
@@ -2823,7 +2837,7 @@ impl Scene {
         };
         node.output = output;
         let rescale = node.scale_120 != scale && !node.dismissed;
-        let size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let size = node.upcoming().1;
         let children = node.children.clone();
         if rescale {
             self.reconfigure(key, None, size);
@@ -3289,6 +3303,7 @@ impl Scene {
         }
         let mut newly_mapped = Vec::new();
         let mut resized = Vec::new();
+        let mut answered = Vec::new();
         for key in keys {
             let node = self.nodes.get_mut(&key).expect("present");
             let previous = node.presentation.complete_present().expect("presenting");
@@ -3302,6 +3317,12 @@ impl Scene {
                     node.size = size;
                     node.pending = None;
                     node.shown_fullscreen = node.pending_fullscreen;
+                    // The configure in flight is answered: the next an edge resize wants goes.
+                    if let Some(wanted) = node.wanted.take() {
+                        if wanted != (origin, size) {
+                            answered.push((key, wanted));
+                        }
+                    }
                 }
             }
             if !node.mapped {
@@ -3333,6 +3354,9 @@ impl Scene {
             }
         }
         self.deferred.extend(waiting);
+        for (key, (origin, size)) in answered {
+            self.reconfigure(key, Some(origin), size);
+        }
         // A parent's new geometry is on screen: re-place popups whose constrained geometry changed.
         for key in resized {
             self.reconstrain_children(key);

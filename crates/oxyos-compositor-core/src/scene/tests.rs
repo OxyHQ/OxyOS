@@ -6181,6 +6181,120 @@ fn the_compositor_resizes_a_window_from_the_band_outside_its_edges() {
     );
 }
 
+/// The sizes `surface` was configured with since the log was cleared, in order.
+fn configured_sizes(h: &Harness, surface: SurfaceKey) -> Vec<(u32, u32)> {
+    h.log
+        .iter()
+        .filter_map(|(client, event)| match event {
+            Event::Configure {
+                surface: id, rect, ..
+            } if *client == surface.client && *id == surface.id => Some((rect.width, rect.height)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_edge_resize_keeps_one_configure_in_flight_and_the_latest_size_wins() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let edge = w.x + 400 + 3;
+    h.clear_log();
+    h.scene.pointer_motion(edge, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    // A hand's motions faster than the client draws: the first is configured, the others wait.
+    for dx in [10, 20, 30, 40] {
+        h.scene.pointer_motion(edge + dx, w.y + 150);
+    }
+    h.pump();
+    assert_eq!(configured_sizes(&h, window), [(410, 300)]);
+    assert_eq!(h.rect(window), w, "its last frame, where it was");
+    // Its frame for that one is shown: the latest the pointer wanted goes, only it.
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 410, 300));
+    assert_eq!(configured_sizes(&h, window), [(410, 300), (440, 300)]);
+    h.scene.pointer_motion(edge + 50, w.y + 150);
+    h.scene.pointer_motion(edge + 60, w.y + 150);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(configured_sizes(&h, window).len(), 2, "still one in flight");
+    // Its frame for that one shown, the size the pointer was released at goes.
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 440, 300));
+    h.present(window);
+    // Released, it ends exactly where the pointer did, and no configure follows.
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 460, 300));
+    assert_eq!(
+        configured_sizes(&h, window),
+        [(410, 300), (440, 300), (460, 300)]
+    );
+    h.present(window);
+    assert_eq!(configured_sizes(&h, window).len(), 3);
+}
+
+#[test]
+fn a_resize_from_the_left_edge_keeps_the_right_edge_frame_by_frame() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let right = w.right();
+    h.scene.pointer_motion(w.x - 3, w.y - 3);
+    h.scene.pointer_button(BUTTON, true);
+    // Every frame shown is where its own configure put it: the right and bottom edges stay.
+    let mut shown = Vec::new();
+    for step in 1..=12 {
+        h.scene
+            .pointer_motion(w.x - 3 - 7 * step, w.y - 3 - 5 * step);
+        if step % 3 == 0 {
+            h.present(window);
+            shown.push(h.rect(window));
+        }
+    }
+    h.scene.pointer_button(BUTTON, false);
+    while h.scene.configure_serial(window)
+        != h.scene.render_list().iter().find_map(|item| match item {
+            RenderItem::Surface { key, frame, .. } if *key == window => Some(frame.configure),
+            _ => None,
+        })
+    {
+        h.present(window);
+        shown.push(h.rect(window));
+    }
+    assert!(shown.len() >= 4, "{shown:?}");
+    for rect in &shown {
+        assert_eq!(
+            (rect.right(), rect.bottom()),
+            (right, w.bottom()),
+            "{shown:?}"
+        );
+    }
+    assert_eq!(
+        *shown.last().unwrap(),
+        Rect::new(w.x - 84, w.y - 60, 484, 360),
+        "the pointer's"
+    );
+}
+
+#[test]
+fn a_configure_of_its_own_replaces_what_a_resize_wanted() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 403, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x + 413, w.y + 150);
+    h.scene.pointer_motion(w.x + 433, w.y + 150);
+    h.scene.pointer_button(BUTTON, false);
+    // The shell resizes it before the drag's latest size went: the shell's is the last word.
+    h.scene.resize_window(window, Size::new(600, 400));
+    h.clear_log();
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(w.x, w.y, 600, 400));
+    h.present(window);
+    assert!(configured_sizes(&h, window).is_empty());
+}
+
 #[test]
 fn the_resize_band_yields_to_what_is_above_it_and_is_absent_when_full_screen_or_locked() {
     let mut h = Harness::new();

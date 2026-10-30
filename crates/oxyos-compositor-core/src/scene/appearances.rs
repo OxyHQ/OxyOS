@@ -43,6 +43,10 @@ pub enum Change {
     WorkspaceIn { forward: bool },
     /// A window of the workspace left, going out; `forward` as above (it goes to the left).
     WorkspaceOut { forward: bool },
+    /// A window's frame changed at once (zoomed, restored from a zoom, maximized or tiled by the
+    /// shell), not by hand (docs/adr/0016-windows.mdx): it stays on the screen, its frame
+    /// animated from where it was drawn to where it is configured.
+    Zoomed,
 }
 
 /// A surface arriving or going, and how.
@@ -54,7 +58,7 @@ pub struct Appearance {
 }
 
 impl Appearance {
-    /// Whether it comes onto the screen (else it goes).
+    /// Whether it comes onto the screen (else it goes, or, zoomed, stays).
     pub fn arrived(&self) -> bool {
         matches!(
             self.change,

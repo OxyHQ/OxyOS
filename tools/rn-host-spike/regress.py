@@ -52,7 +52,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   notification, lock; "change": arrived, gone, minimized, restored, workspace_in_forward,
   workspace_in_back, workspace_out_forward, workspace_out_back; "arriving"; "first" and "last",
   the opacities of the first and last frames drawn; "ended");
-  "count", how many it ran, exactly;
+  "count", how many it ran, exactly ("change" is also "zoomed": a window's frame zooming, ADR 0016);
+- drag: for a `drag_paced` step (a press moved on the output in N motions at a rate, the compositor
+  serving the application between them, as a hand drags a window's edge): "unanswered_max", the
+  most configures sent that no frame shown answered; "presented_min", the fewest frames the window
+  showed; "bounded", no more configures than frames shown; "steady", the window's edges ("left",
+  "top", "right", "bottom") that must not move in any frame shown;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -124,7 +129,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "grab", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "grab", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle"}
 
@@ -149,6 +154,9 @@ def director_args(step):
         return args + ["--drag", ",".join(map(str, value))]
     if kind == "drag_output":
         return args + ["--drag-output", ",".join(map(str, value))]
+    if kind == "drag_paced":
+        # A drag on the output at a hand's pace: [x0, y0, x1, y1, motions, hz].
+        return args + ["--drag-paced", ",".join(map(str, value))]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
@@ -653,6 +661,22 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"no transition {transition} among {ran['seen']}")
             else:
                 left.remove(match)
+    if "drag" in expect:
+        # A drag at a hand's pace (`drag_paced`): what the window showed meanwhile.
+        drag, wanted = result.get("drag") or {}, expect["drag"]
+        unanswered = drag.get("configures", 0) - drag.get("answered", 0)
+        if unanswered > wanted.get("unanswered_max", unanswered):
+            fail(f"{unanswered} of the {drag.get('configures')} configures sent in the drag were never answered by "
+                 f"a frame shown, expected at most {wanted['unanswered_max']}")
+        if drag.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {drag.get('presented', 0)} frames in the drag, expected at least "
+                 f"{wanted['presented_min']}")
+        if drag.get("configures", 0) > drag.get("presented", 0) and wanted.get("bounded"):
+            fail(f"{drag.get('configures')} configures for {drag.get('presented', 0)} frames shown")
+        for edge in wanted.get("steady", []):
+            low, high = (drag.get("edges") or {}).get(edge) or [None, None]
+            if low is None or low != high:
+                fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "preferences" in expect:

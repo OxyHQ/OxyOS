@@ -83,6 +83,16 @@ pub enum Step {
     /// region asks the compositor to move the window, ADR 0016), then a drag by `by` in eight even
     /// steps and the release, as a hand grabs a window by its toolbar.
     Grab { from: (i32, i32), by: (i32, i32) },
+    /// A press on the output held and moved to `to` in `motions` even steps, `hz` of them a
+    /// second, the compositor serving the application between them, then the release: a hand
+    /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
+    /// (`drag_paced`).
+    DragPaced {
+        from: (i32, i32),
+        to: (i32, i32),
+        motions: u32,
+        hz: u32,
+    },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -170,6 +180,12 @@ impl Step {
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
             Step::Grab { from, by } => format!("grab at {from:?}, moved by {by:?}"),
+            Step::DragPaced {
+                from,
+                to,
+                motions,
+                hz,
+            } => format!("drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
@@ -248,6 +264,15 @@ impl Step {
             Step::Grab { from, by } => {
                 format!("\"grab\":[{},{},{},{}]", from.0, from.1, by.0, by.1)
             }
+            Step::DragPaced {
+                from,
+                to,
+                motions,
+                hz,
+            } => format!(
+                "\"drag_paced\":[{},{},{},{},{motions},{hz}]",
+                from.0, from.1, to.0, to.1
+            ),
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
             Step::ResizeWindow { width, height } => {
@@ -360,7 +385,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
@@ -556,6 +581,18 @@ impl Launch {
                     Step::Grab {
                         from: (n[0], n[1]),
                         by: (n[2], n[3]),
+                    }
+                }
+                Some("--drag-paced") => {
+                    let n = numbers(args.next(), 6)?;
+                    if n[4] < 1 || n[5] < 1 {
+                        return Err("--drag-paced needs at least one motion at 1 Hz or more".into());
+                    }
+                    Step::DragPaced {
+                        from: (n[0], n[1]),
+                        to: (n[2], n[3]),
+                        motions: n[4] as u32,
+                        hz: n[5] as u32,
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
@@ -1250,6 +1287,7 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceIn { forward: false } => "workspace_in_back",
                 AppearanceChange::WorkspaceOut { forward: true } => "workspace_out_forward",
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
+                AppearanceChange::Zoomed => "zoomed",
             };
             format!(
                 "{{\"kind\":\"{}\",\"change\":\"{change}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{}}}",
@@ -1575,6 +1613,170 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
     Ok(())
 }
 
+/// A paced drag (`Step::DragPaced`) on the scene: the press, each motion when its time comes with
+/// the compositor serving the application until then, the release, and the compositor serving it
+/// until its window shows a frame for the latest configure (or five seconds pass). Returns what
+/// the window did, as JSON:
+/// - `motions`; `configures`, how many the window was sent; `answered`, how many of those a frame
+///   it showed answers; `presented`, how many frames it showed; `sizes`, how many sizes those had;
+/// - `latency_ms` (median and max), from each motion to the first frame shown answering a
+///   configure sent at or after it;
+/// - `edges`, the least and most each edge of the window was at across the frames shown (an edge
+///   not dragged stays put), and `final`, the window's rectangle at the end;
+/// - `shown`, each frame shown: [ms since the press, configure serial, x, y, width, height].
+fn drag_paced(
+    session: &mut Session,
+    from: (i32, i32),
+    to: (i32, i32),
+    motions: u32,
+    hz: u32,
+) -> Result<String> {
+    inside_output(from)?;
+    inside_output(to)?;
+    let key = SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    };
+    let displayed = |compositor: &Compositor| {
+        compositor
+            .scene
+            .render_list()
+            .into_iter()
+            .find_map(|item| match item {
+                RenderItem::Surface {
+                    key: k,
+                    rect,
+                    frame,
+                } if k == key => Some((frame.sequence, frame.configure, rect)),
+                _ => None,
+            })
+    };
+    let serial = |compositor: &Compositor| compositor.scene.configure_serial(key).unwrap_or(0);
+    let first_serial = serial(&session.compositor);
+    let start = Instant::now();
+    // Configures first seen sent (serial, when) and frames shown (when, sequence, serial, rect).
+    let mut sent: Vec<(u64, Duration)> = Vec::new();
+    let mut frames: Vec<(Duration, u64, u64, Rect)> = Vec::new();
+    let mut last_sequence = displayed(&session.compositor).map(|(sequence, ..)| sequence);
+    let mut observe = |compositor: &Compositor,
+                       sent: &mut Vec<(u64, Duration)>,
+                       frames: &mut Vec<(Duration, u64, u64, Rect)>| {
+        let now = start.elapsed();
+        let latest = serial(compositor);
+        if latest > sent.last().map_or(first_serial, |(serial, _)| *serial) {
+            sent.push((latest, now));
+        }
+        if let Some((sequence, configure, rect)) = displayed(compositor) {
+            if Some(sequence) != last_sequence {
+                last_sequence = Some(sequence);
+                frames.push((now, sequence, configure, rect));
+            }
+        }
+    };
+    session.compositor.scene.pointer_motion(from.0, from.1);
+    session.compositor.scene.pointer_button(BUTTON, true);
+    let interval = Duration::from_secs(1) / hz;
+    let mut moved: Vec<Duration> = Vec::new();
+    let steps = i64::from(motions);
+    for i in 1..=steps {
+        let due = interval * i as u32;
+        while start.elapsed() < due {
+            session.compositor.serve(&session.listener)?;
+            observe(&session.compositor, &mut sent, &mut frames);
+        }
+        let at = |a: i32, b: i32| (i64::from(a) + (i64::from(b) - i64::from(a)) * i / steps) as i32;
+        moved.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .pointer_motion(at(from.0, to.0), at(from.1, to.1));
+        observe(&session.compositor, &mut sent, &mut frames);
+    }
+    let due = interval * (motions + 1);
+    while start.elapsed() < due {
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut sent, &mut frames);
+    }
+    session.compositor.scene.pointer_button(BUTTON, false);
+    let deadline = start.elapsed() + Duration::from_secs(5);
+    loop {
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut sent, &mut frames);
+        let answered = displayed(&session.compositor)
+            .is_some_and(|(_, configure, _)| configure == serial(&session.compositor));
+        if answered || start.elapsed() > deadline {
+            break;
+        }
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    let mut latencies: Vec<f64> = moved
+        .iter()
+        .filter_map(|&t| {
+            let (serial, _) = sent.iter().find(|(_, when)| *when >= t)?;
+            let (shown, ..) = frames
+                .iter()
+                .find(|(_, _, configure, _)| configure >= serial)?;
+            Some(ms(*shown - t))
+        })
+        .collect();
+    latencies.sort_by(f64::total_cmp);
+    let answered = sent
+        .iter()
+        .filter(|(serial, _)| {
+            frames
+                .iter()
+                .any(|(_, _, configure, _)| configure == serial)
+        })
+        .count();
+    let mut sizes: Vec<(u32, u32)> = frames
+        .iter()
+        .map(|(_, _, _, rect)| (rect.width, rect.height))
+        .collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    let span = |edge: fn(&Rect) -> i64| {
+        let values = frames.iter().map(|(_, _, _, rect)| edge(rect));
+        match (values.clone().min(), values.max()) {
+            (Some(lo), Some(hi)) => format!("[{lo},{hi}]"),
+            _ => "null".to_string(),
+        }
+    };
+    let last = displayed(&session.compositor).map(|(_, _, rect)| rect);
+    Ok(format!(
+        "{{\"motions\":{motions},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"shown\":[{}]}}",
+        sent.len(),
+        frames.len(),
+        sizes.len(),
+        median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
+        latencies.last().map_or("null".to_string(), |ms| format!("{ms:.1}")),
+        span(|r| i64::from(r.x)),
+        span(|r| i64::from(r.y)),
+        span(|r| r.right()),
+        span(|r| r.bottom()),
+        last.map_or("null".to_string(), |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)),
+        frames
+            .iter()
+            .map(|(t, _, configure, r)| format!(
+                "[{:.1},{configure},{},{},{},{}]",
+                ms(*t),
+                r.x,
+                r.y,
+                r.width,
+                r.height
+            ))
+            .collect::<Vec<_>>()
+            .join(","),
+    ))
+}
+
+fn inside_output((x, y): (i32, i32)) -> Result<()> {
+    if OUTPUT.contains_point(x, y) {
+        Ok(())
+    } else {
+        Err(format!("({x}, {y}) is outside the output {OUTPUT:?}").into())
+    }
+}
+
 fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> {
     let outputs: Vec<Rect> = compositor
         .screens
@@ -1738,7 +1940,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
         | Step::Accessibility { .. }
-        | Step::Grab { .. } => {}
+        | Step::Grab { .. }
+        | Step::DragPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -2072,6 +2275,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         session.reader.take_announcements();
         let injected_ns = monotonic_ns();
+        let mut dragged = None;
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
         }
@@ -2083,6 +2287,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             _ if matches!(step, Step::Grab { .. }) => {
                 if let Step::Grab { from, by } = step {
                     grab(&mut session, window, *from, *by)?;
+                }
+                0
+            }
+            _ if matches!(step, Step::DragPaced { .. }) => {
+                if let Step::DragPaced {
+                    from,
+                    to,
+                    motions,
+                    hz,
+                } = step
+                {
+                    dragged = Some(drag_paced(&mut session, *from, *to, *motions, *hz)?);
                 }
                 0
             }
@@ -2139,7 +2355,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{}{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -2156,6 +2372,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             session.compositor.scene.pointer_shape(),
             transitions_json(&mut session.compositor),
+            dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
         ));
         snapshots.push(snapshot(
             &session.compositor,
