@@ -1906,8 +1906,22 @@ impl Compositor {
         }
         let (width, height) = (screen.width, screen.height);
         if !self.gpu_only {
-            self.screens[index].framebuffer =
-                oxyos_gpu::compose_cpu(width, height, DESKTOP, &layers);
+            // Only what changed since the screen's frame before, onto it (ADR 0005); the whole
+            // output when that is unknown.
+            let framebuffer = &mut self.screens[index].framebuffer;
+            match &damage {
+                Some(damage) if framebuffer.len() == width as usize * height as usize => {
+                    oxyos_gpu::compose_cpu_damaged(
+                        framebuffer,
+                        width,
+                        height,
+                        DESKTOP,
+                        &layers,
+                        damage,
+                    )
+                }
+                _ => *framebuffer = oxyos_gpu::compose_cpu(width, height, DESKTOP, &layers),
+            }
         }
         if self.keep_frame && index == 0 {
             self.last_frame.clear();
