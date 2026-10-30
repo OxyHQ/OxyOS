@@ -134,9 +134,10 @@ fn a_window_fades_in_as_it_arrives_and_out_from_its_last_frame_as_it_goes() {
     let (mut s, centre) = session("window");
     // Its first frame, composed at the clock's start: not seen yet.
     assert_eq!(s.compositor.pixel(centre.0, centre.1), DESKTOP);
-    // Halfway in time, 87.5 % of the way; then whole.
-    assert_eq!(s.at(90, centre), white_at(223));
-    assert_eq!(s.at(180, centre), WHITE);
+    // 90 ms in, its opacity's 180 ms spring is 0.821 of the way (ADR 0011); whole once its
+    // size's 300 ms spring is at rest, 441 ms in.
+    assert_eq!(s.at(90, centre), white_at(209));
+    assert_eq!(s.at(441, centre), WHITE);
     assert!(s.compositor.transitions.is_empty());
     // Destroyed, it goes: drawn from its last frame, fading.
     s.destroy.send(()).unwrap();
@@ -146,26 +147,28 @@ fn a_window_fades_in_as_it_arrives_and_out_from_its_last_frame_as_it_goes() {
             Instant::now() < deadline,
             "the window was not destroyed in time"
         );
-        s.compositor.clock = Some(Duration::from_millis(100_200));
+        s.compositor.clock = Some(Duration::from_millis(100_500));
         s.compositor.serve(&s.listener).unwrap();
     }
+    // 50 ms after, its opacity's 150 ms spring is 0.619 of the way out; gone once its size's
+    // 220 ms spring is at rest, 324 ms after.
     assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
-    assert_eq!(s.at(275, centre), white_at(32));
-    assert_eq!(s.at(350, centre), DESKTOP);
+    assert_eq!(s.at(550, centre), white_at(97));
+    assert_eq!(s.at(824, centre), DESKTOP);
     assert!(s.compositor.transitions.is_empty());
 }
 
 #[test]
 fn locking_shows_nothing_of_the_session_going() {
     let (mut s, centre) = session("lock");
-    assert_eq!(s.at(200, centre), WHITE);
+    assert_eq!(s.at(500, centre), WHITE);
     // The window starts going (minimized) as the session locks, in the same turn: the cover at
     // once, and nothing of the window drawn going over it.
     let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
     s.compositor.scene.minimize(window);
     s.compositor.scene.lock();
-    assert_eq!(s.at(210, centre), 0);
-    assert_eq!(s.at(260, centre), 0);
+    assert_eq!(s.at(510, centre), 0);
+    assert_eq!(s.at(560, centre), 0);
     assert!(s.compositor.transitions.is_empty());
     // A window destroyed under the lock has no frame to go from.
     s.compositor.scene.restore(window);
@@ -176,9 +179,9 @@ fn locking_shows_nothing_of_the_session_going() {
             Instant::now() < deadline,
             "the window was not destroyed in time"
         );
-        assert_eq!(s.at(270, centre), 0);
+        assert_eq!(s.at(570, centre), 0);
     }
-    assert_eq!(s.at(280, centre), 0);
+    assert_eq!(s.at(580, centre), 0);
     assert!(s.compositor.transitions.is_empty());
 }
 
@@ -186,20 +189,21 @@ fn locking_shows_nothing_of_the_session_going() {
 fn the_splash_shows_the_mark_until_the_session_is_on_screen_then_fades_out() {
     let (mut s, centre) = session("splash");
     // Shown once nothing changes any more: the next frame has it.
-    assert_eq!(s.at(200, centre), WHITE);
-    assert_eq!(s.at(300, centre), WHITE);
+    assert_eq!(s.at(500, centre), WHITE);
+    assert_eq!(s.at(600, centre), WHITE);
     s.compositor.show_splash();
     // Over everything: the window under it is not seen; the mark is white at the centre, black
     // around.
     let mark = (320, 240);
-    assert_eq!(s.at(300, mark), WHITE);
-    assert_eq!(s.at(201, centre), WHITE);
-    assert_eq!(s.at(202, (5, 5)), 0);
-    // The session is on screen: it fades out over 400 ms, the desktop seen through it.
+    assert_eq!(s.at(600, mark), WHITE);
+    assert_eq!(s.at(501, centre), WHITE);
+    assert_eq!(s.at(502, (5, 5)), 0);
+    // The session is on screen: it fades out on a 450 ms spring, at rest 661 ms after, the
+    // desktop seen through it.
     s.compositor.end_splash();
-    assert_eq!(s.at(203, (5, 5)), 0);
-    assert_ne!(s.at(400, (5, 5)), 0);
-    assert_eq!(s.at(603, (5, 5)), DESKTOP);
+    assert_eq!(s.at(503, (5, 5)), 0);
+    assert_ne!(s.at(700, (5, 5)), 0);
+    assert_eq!(s.at(1164, (5, 5)), DESKTOP);
     assert!(s.compositor.transitions.is_empty());
     assert!(!s.compositor.showing_splash());
 }
@@ -250,7 +254,7 @@ fn a_transition_is_composed_from_its_damage_alone() {
     let (mut s, _) = session("damage");
     // Arriving: every frame of the window's fade and growth from its damage, the last (whole
     // again) included.
-    for ms in [20, 45, 90, 135, 170, 180, 200] {
+    for ms in [20, 45, 90, 135, 200, 300, 441, 460] {
         assert!(s.damage_covers_changes(ms), "arriving, at {ms} ms");
     }
     // Going: from its last frame, shrinking and fading, to nothing.
@@ -261,9 +265,9 @@ fn a_transition_is_composed_from_its_damage_alone() {
             Instant::now() < deadline,
             "the window was not destroyed in time"
         );
-        assert!(s.damage_covers_changes(200));
+        assert!(s.damage_covers_changes(460));
     }
-    for ms in [220, 260, 300, 340, 360] {
+    for ms in [480, 520, 600, 700, 790, 800] {
         assert!(s.damage_covers_changes(ms), "going, at {ms} ms");
     }
     assert!(s.compositor.transitions.is_empty());
@@ -285,42 +289,43 @@ fn a_transition_is_composed_from_its_damage_alone() {
 fn a_window_minimized_shrinks_into_the_dock_and_a_workspace_slides_aside() {
     let (mut s, centre) = session("minimize");
     let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
-    assert_eq!(s.at(200, centre), WHITE);
+    assert_eq!(s.at(500, centre), WHITE);
     // Minimized: it shrinks toward the dock (without a shell, the output's bottom edge's centre)
-    // as it fades, from its damage alone, and is gone at 300 ms.
+    // and fades as it is nearly there, from its damage alone, and is gone once its 380 ms
+    // spring is at rest, 559 ms after.
     s.compositor.scene.minimize(window);
-    for ms in [200, 230, 280, 350, 420] {
+    for ms in [500, 530, 580, 650, 720, 900] {
         assert!(s.damage_covers_changes(ms), "minimizing, at {ms} ms");
     }
-    assert!(s.damage_covers_changes(500));
+    assert!(s.damage_covers_changes(1100));
     assert_eq!(s.compositor.pixel(centre.0, centre.1), DESKTOP);
     assert!(s.compositor.transitions.is_empty());
     // Restored: back out of the dock to where it was.
     s.compositor.scene.restore(window);
-    for ms in [600, 640, 700, 780, 900] {
+    for ms in [1200, 1240, 1300, 1380, 1700] {
         assert!(s.damage_covers_changes(ms), "restoring, at {ms} ms");
     }
     assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
     // Another workspace: the window slides out to the left, whole (never faded), and is gone.
     let workspace = s.compositor.scene.add_workspace().unwrap();
     assert!(s.compositor.scene.activate_workspace(workspace));
-    assert!(s.damage_covers_changes(1000));
+    assert!(s.damage_covers_changes(1800));
     assert_eq!(
         s.compositor.pixel(centre.0, centre.1),
         WHITE,
         "not moved yet"
     );
-    assert!(s.damage_covers_changes(1030));
+    assert!(s.damage_covers_changes(1880));
     let moved_left = (0..640)
         .filter(|&x| s.compositor.pixel(x, centre.1) == WHITE)
         .max()
         .unwrap();
     assert!(moved_left < centre.0, "{moved_left}");
-    assert!(s.damage_covers_changes(1400));
+    assert!(s.damage_covers_changes(2400));
     assert_eq!(s.compositor.pixel(centre.0, centre.1), DESKTOP);
     // Back: it slides in from the left to where it was.
     assert!(s.compositor.scene.activate_workspace(0));
-    for ms in [1500, 1560, 1650, 1900] {
+    for ms in [2500, 2560, 2650, 3100] {
         assert!(s.damage_covers_changes(ms), "sliding in, at {ms} ms");
     }
     assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
@@ -463,25 +468,29 @@ fn a_zoom_draws_the_frame_between_and_ends_exactly_at_the_work_area() {
     let (mut s, ask) = zoom_session("zoom");
     let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
     let from = Rect::new(220, 190, 200, 100);
-    // Arrived and whole, white where it is.
-    assert!(s.damage_covers_changes(200));
+    // Arrived and whole, white where it is, its corners round: its shadow over the desktop at
+    // its corner.
+    assert!(s.damage_covers_changes(500));
     assert!(s.compositor.transitions.is_empty());
     assert_eq!(s.drawn(WHITE), Some(from));
+    assert_ne!(s.compositor.pixel(from.x, from.y), WHITE);
+    assert_eq!(s.compositor.pixel(from.x + 16, from.y + 16), WHITE);
     // Zoomed: the configure goes, and its old frame is drawn stretched toward the work area (the
     // whole output: there are no panels), each edge by its own distance.
     let serial = s.compositor.scene.configure_serial(window).unwrap();
     ask.send(Ask::Zoom(true)).unwrap();
-    s.serve_until(200, &|c| c.scene.configure_serial(window) > Some(serial));
+    s.serve_until(500, &|c| c.scene.configure_serial(window) > Some(serial));
     assert_eq!(s.drawn(WHITE), Some(from), "it starts where it was");
     let between = |s: &Session, ms: u64| {
         s.compositor
             .transitions
             .zooming(window, Duration::from_secs(100) + Duration::from_millis(ms))
             .unwrap()
+            .0
     };
-    assert!(s.damage_covers_changes(260));
+    assert!(s.damage_covers_changes(560));
     let at = s.drawn(WHITE).unwrap();
-    assert_eq!(at, between(&s, 260));
+    assert_eq!(at, between(&s, 560));
     assert!(
         at.x < from.x && at.width > from.width && at.width < 640,
         "{at:?}"
@@ -492,21 +501,34 @@ fn a_zoom_draws_the_frame_between_and_ends_exactly_at_the_work_area() {
     );
     // Its client shows the new size: that frame, drawn in the rectangle between.
     ask.send(Ask::Answer).unwrap();
-    s.serve_until(260, &|c| {
+    s.serve_until(560, &|c| {
         c.surface_rect(1, 1) == Some(Rect::new(0, 0, 640, 480))
     });
-    assert!(s.damage_covers_changes(320));
+    assert!(s.damage_covers_changes(620));
     let at = s.drawn(NEW).unwrap();
-    assert_eq!(at, between(&s, 320));
+    assert_eq!(at, between(&s, 620));
     assert!(at.width < 640 && at.height < 480, "{at:?}");
     assert_eq!(s.drawn(WHITE), None);
-    // It ends exactly at the work area, and the transition with it.
-    for ms in [380, 450] {
+    // Its corners square as it goes: less round than at its start, rounder than at its end.
+    let radius = s
+        .compositor
+        .transitions
+        .zooming(window, Duration::from_millis(100_620))
+        .unwrap()
+        .1;
+    assert!(radius > 0 && radius < 16, "{radius}");
+    // It ends exactly at the work area, the transition with it (its 340 ms spring at rest 500
+    // ms after it began), its corners square: no desktop at the output's corners.
+    for ms in [700, 900] {
         assert!(s.damage_covers_changes(ms), "at {ms} ms");
     }
+    assert!(s.damage_covers_changes(1000));
     assert_eq!(s.drawn(NEW), Some(Rect::new(0, 0, 640, 480)));
-    assert!(s.damage_covers_changes(480));
+    assert!(s.damage_covers_changes(1010));
     assert!(s.compositor.transitions.is_empty());
+    for corner in [(0, 0), (639, 0), (0, 479), (639, 479)] {
+        assert_eq!(s.compositor.pixel(corner.0, corner.1), NEW, "{corner:?}");
+    }
     let seen = s.compositor.transitions.take_seen();
     let zoom = seen
         .iter()
@@ -518,10 +540,18 @@ fn a_zoom_draws_the_frame_between_and_ends_exactly_at_the_work_area() {
     s.compositor.transitions.set_reduce_motion(true);
     let serial = s.compositor.scene.configure_serial(window).unwrap();
     ask.send(Ask::Zoom(false)).unwrap();
-    s.serve_until(600, &|c| c.scene.configure_serial(window) > Some(serial));
+    s.serve_until(1200, &|c| c.scene.configure_serial(window) > Some(serial));
     assert!(s.compositor.transitions.is_empty());
     assert_eq!(s.drawn(NEW), Some(Rect::new(0, 0, 640, 480)));
+    assert_eq!(
+        s.compositor.pixel(0, 0),
+        NEW,
+        "square until its restored frame shows"
+    );
     ask.send(Ask::Answer).unwrap();
-    s.serve_until(600, &|c| c.surface_rect(1, 1) == Some(from));
+    s.serve_until(1200, &|c| c.surface_rect(1, 1) == Some(from));
     assert_eq!(s.drawn(NEW), Some(from));
+    // Its corners round again.
+    assert_ne!(s.compositor.pixel(from.x, from.y), NEW);
+    assert_eq!(s.compositor.pixel(from.x + 16, from.y + 16), NEW);
 }

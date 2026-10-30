@@ -16,8 +16,10 @@ pub enum Kind {
     /// A toplevel or a dialog.
     Window,
     Popup,
-    /// The shell's overlays (the launcher, the overview).
+    /// The shell's overlays (the launcher's icons, the overview).
     Overlay,
+    /// An overlay's backdrop (the launcher's blurred wallpaper): faded, never scaled.
+    Backdrop,
     /// The shell's panels and background.
     Panel,
     /// The shell's notifications.
@@ -79,6 +81,10 @@ pub(super) fn kind(role: &Role) -> Kind {
             kind: ShellKind::Notification,
             ..
         } => Kind::Notification,
+        Role::Shell {
+            kind: ShellKind::Backdrop,
+            ..
+        } => Kind::Backdrop,
         Role::Shell { .. } => Kind::Panel,
         Role::Lock { .. } => Kind::Lock,
         Role::Candidates => Kind::Candidates,

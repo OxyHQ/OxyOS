@@ -371,7 +371,8 @@ fn a_window_zooms_to_its_outputs_work_area_drawn_on_every_screen_it_crosses() {
         .compositor
         .transitions
         .zooming(window, Duration::from_secs(100) + Duration::from_millis(60))
-        .unwrap();
+        .unwrap()
+        .0;
     assert!(
         RIGHT.contains(between) && between != RIGHT && between.width > start.width,
         "{between:?}"
@@ -406,15 +407,16 @@ fn a_window_zooms_to_its_outputs_work_area_drawn_on_every_screen_it_crosses() {
     s.compose_until(2500, "the zoom", |c| {
         c.scene.configure_serial(window) > Some(serial)
     });
-    s.compose_at(2540);
+    s.compose_at(2600);
     let between = s
         .compositor
         .transitions
         .zooming(
             window,
-            Duration::from_secs(100) + Duration::from_millis(2540),
+            Duration::from_secs(100) + Duration::from_millis(2600),
         )
-        .unwrap();
+        .unwrap()
+        .0;
     assert!(
         between.right() > i64::from(RIGHT.x) && between.x < 590,
         "{between:?}"

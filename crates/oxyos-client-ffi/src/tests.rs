@@ -1534,6 +1534,7 @@ fn the_header_matches_the_shell_surface_abi() {
         ("OXYOS_SHELL_PANEL", ShellKind::Panel as i64),
         ("OXYOS_SHELL_OVERLAY", ShellKind::Overlay as i64),
         ("OXYOS_SHELL_NOTIFICATION", ShellKind::Notification as i64),
+        ("OXYOS_SHELL_BACKDROP", ShellKind::Backdrop as i64),
         ("OXYOS_EDGE_NONE", PanelEdge::None as i64),
         ("OXYOS_EDGE_TOP", PanelEdge::Top as i64),
         ("OXYOS_EDGE_BOTTOM", PanelEdge::Bottom as i64),

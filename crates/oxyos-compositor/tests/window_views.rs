@@ -77,7 +77,7 @@ impl Session {
 
 /// A compositor on its test clock with an application's window and the shell's overview, a
 /// transparent overlay showing the window in `CARD`; served until the overview shows it, at
-/// 300 ms (its arrival done).
+/// 600 ms (its arrival done).
 fn session(name: &str) -> Session {
     let directory =
         std::env::temp_dir().join(format!("oxyos-window-views-{name}-{}", std::process::id()));
@@ -184,11 +184,11 @@ fn session(name: &str) -> Session {
         close,
         _directory: TempDir(directory),
     };
-    // Its first frame arrives at the clock's start; whole by 300 ms.
+    // Its first frame arrives at the clock's start; whole by 600 ms.
     session.until(0, "the overview showing the window", |c| {
         c.scene.render_list().len() == 3
     });
-    session.until(300, "the overview arrived", |c| c.pixel(60, 340) == RED);
+    session.until(600, "the overview arrived", |c| c.pixel(60, 340) == RED);
     session
 }
 
@@ -224,7 +224,7 @@ fn a_windows_next_frame_is_in_the_overview_in_the_frame_that_shows_it() {
     let inside = (window.x + 150, window.y + 50);
     let frames = s.compositor.frames;
     s.repaint.send(BLUE).unwrap();
-    s.until(300, "the window's blue frame", |c| {
+    s.until(600, "the window's blue frame", |c| {
         c.pixel(inside.0, inside.1) == BLUE
     });
     assert_eq!(s.pixel((60, 340)), BLUE, "the card shows the same frame");
@@ -254,7 +254,7 @@ fn a_windows_next_frame_is_in_the_overview_in_the_frame_that_shows_it() {
 fn an_open_overview_composes_nothing_when_nothing_changed() {
     let mut s = session("idle");
     let frames = s.compositor.frames;
-    for ms in [310, 320, 330, 400, 500] {
+    for ms in [610, 620, 630, 700, 800] {
         s.at_ms(ms);
     }
     assert_eq!(s.compositor.frames, frames);
@@ -265,7 +265,7 @@ fn an_open_overview_composes_nothing_when_nothing_changed() {
 fn nothing_of_a_window_in_the_overview_shows_under_the_lock() {
     let mut s = session("lock");
     s.compositor.scene.lock();
-    s.at_ms(310);
+    s.at_ms(610);
     for at in [(60, 340), (110, 350)] {
         assert_ne!(s.pixel(at), RED);
         assert_ne!(s.pixel(at), 0x0080_8080);
@@ -273,7 +273,7 @@ fn nothing_of_a_window_in_the_overview_shows_under_the_lock() {
     assert!(s.compositor.screens[0].framebuffer.iter().all(|&p| p == 0));
     // Unlocked, the overview shows it again.
     s.compositor.scene.unlock();
-    s.until(400, "the overview again", |c| c.pixel(60, 340) == RED);
+    s.until(700, "the overview again", |c| c.pixel(60, 340) == RED);
 }
 
 /// Closed, the overview fades out with the windows it showed, as one: halfway, the card is red
@@ -283,11 +283,11 @@ fn nothing_of_a_window_in_the_overview_shows_under_the_lock() {
 fn the_windows_in_the_overview_go_with_it() {
     let mut s = session("going");
     s.close.send(()).unwrap();
-    let start = 300;
+    let start = 600;
     s.until(start, "the overview closing", |c| {
         c.scene.render_list().len() == 1
     });
-    s.at_ms(start + 75);
+    s.at_ms(start + 80);
     let faded = s.pixel((60, 350));
     assert_ne!(faded, DESKTOP, "the card's window fading with it");
     assert_ne!(faded, RED);
@@ -295,6 +295,6 @@ fn the_windows_in_the_overview_go_with_it() {
         faded >> 16 > DESKTOP >> 16,
         "{faded:06x}: red over the desktop"
     );
-    s.at_ms(start + 200);
+    s.at_ms(start + 360);
     assert_eq!(s.pixel((60, 350)), DESKTOP);
 }

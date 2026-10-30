@@ -487,6 +487,8 @@ int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t
 #define OXYOS_SHELL_PANEL 2
 #define OXYOS_SHELL_OVERLAY 3
 #define OXYOS_SHELL_NOTIFICATION 4
+/* An overlay's backdrop: in the overlays' layer, faded in and out, never scaled. */
+#define OXYOS_SHELL_BACKDROP 5
 #define OXYOS_EDGE_NONE 0
 #define OXYOS_EDGE_TOP 1
 #define OXYOS_EDGE_BOTTOM 2

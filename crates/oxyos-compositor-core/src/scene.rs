@@ -123,10 +123,10 @@ struct Node {
     /// configure is in flight, and this one, the latest the pointer asked for, is sent once a
     /// frame for that one is displayed. Any other configure replaces it.
     wanted: Option<((i32, i32), Size)>,
-    /// The geometry (and full-screen state) of the configure a frame being presented answers,
-    /// kept when a newer configure replaces `pending` before that frame is on screen: the frame
-    /// is drawn, and then shown, at the size it was drawn for, never scaled to another.
-    answering: Option<(u64, (i32, i32), Size, bool)>,
+    /// The geometry (and framing) of the configure a frame being presented answers, kept when a
+    /// newer configure replaces `pending` before that frame is on screen: the frame is drawn,
+    /// and then shown, at the size it was drawn for, never scaled to another.
+    answering: Option<(u64, (i32, i32), Size, Framing)>,
     presentation: Presentation,
     scale_120: u32,
     output: OutputId,
@@ -134,10 +134,11 @@ struct Node {
     hidden: bool,
     dismissed: bool,
     fullscreen: bool,
-    /// Whether the latest configure was full-screen, and whether the frame displayed answers a
-    /// full-screen one: what is drawn full-screen, as `pending` and `size` are what is drawn.
-    pending_fullscreen: bool,
-    shown_fullscreen: bool,
+    /// Whether the latest configure was full-screen or zoomed, and whether the frame displayed
+    /// answers such a one: what is drawn full-screen or with square corners, as `pending` and
+    /// `size` are what is drawn.
+    pending_framing: Framing,
+    shown_framing: Framing,
     restore: Option<((i32, i32), Size)>,
     /// A toplevel zoomed to fill the work area (ADR 0016), and the frame it had before.
     maximized: bool,
@@ -307,10 +308,20 @@ pub enum RenderItem {
 }
 
 /// How a window is drawn (`Scene::window_look`): whether it is the active window
-/// (`Scene::active_window`, the one told `Activated`) or one of its dialogs.
+/// (`Scene::active_window`, the one told `Activated`) or one of its dialogs, and whether it is
+/// zoomed to fill the work area, which has square corners (docs/adr/0016-windows.mdx).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WindowLook {
     pub active: bool,
+    pub maximized: bool,
+}
+
+/// What a configure asks of a window's frame besides its geometry: full screen (no corners, no
+/// shadow) or zoomed to fill the work area (square corners).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Framing {
+    fullscreen: bool,
+    maximized: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -475,7 +486,7 @@ fn layer_of(role: &Role) -> Layer {
         Role::Shell { kind, .. } => match kind {
             ShellKind::Background => Layer::Background,
             ShellKind::Panel => Layer::Panel,
-            ShellKind::Overlay => Layer::Overlay,
+            ShellKind::Overlay | ShellKind::Backdrop => Layer::Overlay,
             ShellKind::Notification => Layer::Notification,
         },
         Role::Lock { .. } => Layer::Lock,
@@ -655,7 +666,7 @@ impl Scene {
             node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
             node.answering = node
                 .answering
-                .map(|(serial, _, s, fullscreen)| (serial, origin, s, fullscreen));
+                .map(|(serial, _, s, framing)| (serial, origin, s, framing));
         }
         self.nodes.get_mut(&key).expect("present").output = target.id;
         self.reconfigure(key, None, size);
@@ -1707,8 +1718,8 @@ impl Scene {
                 hidden: false,
                 dismissed: false,
                 fullscreen: false,
-                pending_fullscreen: false,
-                shown_fullscreen: false,
+                pending_framing: Framing::default(),
+                shown_framing: Framing::default(),
                 restore: None,
                 maximized: false,
                 unzoomed: None,
@@ -1781,7 +1792,7 @@ impl Scene {
             (node.presentation.presenting(), node.pending)
         {
             if frame.configure == serial {
-                node.answering = Some((serial, origin, size, node.pending_fullscreen));
+                node.answering = Some((serial, origin, size, node.pending_framing));
             }
         }
         node.scale_120 = scale_120;
@@ -1793,7 +1804,10 @@ impl Scene {
         // Without an explicit origin the latest requested one is kept, not the displayed one.
         let keep = node.pending.map_or(node.origin, |(_, origin, _)| origin);
         node.pending = Some((serial, origin.unwrap_or(keep), size));
-        node.pending_fullscreen = node.fullscreen;
+        node.pending_framing = Framing {
+            fullscreen: node.fullscreen,
+            maximized: node.maximized,
+        };
         node.wanted = None;
         if let Some(frame) = discarded {
             self.discard(key, frame);
@@ -2511,25 +2525,25 @@ impl Scene {
     }
 
     /// How `key` is drawn as a window (docs/adr/0016-windows.mdx), if it is one the compositor
-    /// rounds and shadows: a toplevel or a dialog, not drawn full-screen. Between `begin_frame`
+    /// rounds and shadows: a toplevel or a dialog, not drawn full-screen; zoomed, its corners
+    /// square. Between `begin_frame`
     /// and `end_frame`, as the frame being composed draws it (as `frame_list`); otherwise as
     /// displayed: a window going full-screen is drawn so from its first full-screen frame.
     pub fn window_look(&self, key: SurfaceKey) -> Option<WindowLook> {
         let node = self.live(key)?;
-        let fullscreen = match (node.presentation.presenting(), node.pending, node.answering) {
+        let framing = match (node.presentation.presenting(), node.pending, node.answering) {
             (Some(frame), Some((serial, ..)), _) if serial == frame.configure => {
-                node.pending_fullscreen
+                node.pending_framing
             }
-            (Some(frame), _, Some((serial, _, _, fullscreen))) if serial == frame.configure => {
-                fullscreen
-            }
-            _ => node.shown_fullscreen,
+            (Some(frame), _, Some((serial, _, _, framing))) if serial == frame.configure => framing,
+            _ => node.shown_framing,
         };
-        if !matches!(node.role, Role::Toplevel | Role::Dialog) || fullscreen {
+        if !matches!(node.role, Role::Toplevel | Role::Dialog) || framing.fullscreen {
             return None;
         }
         Some(WindowLook {
             active: self.active == Some(self.root_of(key)),
+            maximized: framing.maximized,
         })
     }
 
@@ -3033,8 +3047,8 @@ impl Scene {
         if let Some((wanted, size)) = node.wanted {
             node.wanted = Some((moved(wanted), size));
         }
-        if let Some((serial, answering, size, fullscreen)) = node.answering {
-            node.answering = Some((serial, moved(answering), size, fullscreen));
+        if let Some((serial, answering, size, framing)) = node.answering {
+            node.answering = Some((serial, moved(answering), size, framing));
         }
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
@@ -3512,14 +3526,14 @@ impl Scene {
             let previous = node.presentation.complete_present().expect("presenting");
             let shown = node.presentation.displayed().expect("just displayed");
             // Answering a configure replaced while it was presented: shown where that one put it.
-            if let Some((serial, origin, size, fullscreen)) = node.answering.take() {
+            if let Some((serial, origin, size, framing)) = node.answering.take() {
                 if shown.configure == serial {
                     if (node.size != size || node.origin != origin) && !node.children.is_empty() {
                         resized.push(key);
                     }
                     node.origin = origin;
                     node.size = size;
-                    node.shown_fullscreen = fullscreen;
+                    node.shown_framing = framing;
                 }
             }
             if let Some((serial, origin, size)) = node.pending {
@@ -3530,7 +3544,7 @@ impl Scene {
                     node.origin = origin;
                     node.size = size;
                     node.pending = None;
-                    node.shown_fullscreen = node.pending_fullscreen;
+                    node.shown_framing = node.pending_framing;
                     // The configure in flight is answered: the next an edge resize wants goes.
                     if let Some(wanted) = node.wanted.take() {
                         if wanted != (origin, size) {

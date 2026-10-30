@@ -1,6 +1,7 @@
 //! What the compositor draws of a window (docs/adr/0016-windows.mdx): its corners, cut from its
 //! pixels, and its shadow beneath it. Every toplevel and dialog has them, unless it is full-screen
-//! (`Scene::window_look`); the active window's shadow is wider and darker.
+//! (`Scene::window_look`); the active window's shadow is wider and darker; a window zoomed to fill
+//! the work area has square corners, so nothing of the desktop shows at them.
 //!
 //! A window in a transition (docs/adr/0011-transitions.mdx) is drawn scaled and moved: its corners
 //! and its shadow are scaled with it, and fade with it.
@@ -80,6 +81,16 @@ pub fn shadow_look(look: WindowLook) -> &'static ShadowLook {
     }
 }
 
+/// The radius of a window's corners as it is drawn at its own size, in logical pixels: square
+/// when zoomed to fill the work area. A zoom's transition goes from one to the other.
+pub fn corner(look: WindowLook) -> u32 {
+    if look.maximized {
+        0
+    } else {
+        WINDOW_RADIUS
+    }
+}
+
 /// How a window at `rect` is drawn where its transition places it (`placed`): its corners'
 /// radius, and its shadow's layer (its rectangle on the output, and where the shadow is in it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,12 +119,19 @@ fn grown(rect: Rect, by: i32) -> Rect {
     )
 }
 
-/// How the window at `rect`, placed at `placed`, is drawn with `look`, its shadow of `profile`.
-pub fn drawn(look: WindowLook, rect: Rect, placed: Rect, profile: &ShadowProfile) -> Drawn {
+/// How the window at `rect`, placed at `placed`, is drawn with `look` and corners of `corner`
+/// (logical pixels at its own size), its shadow of `profile`.
+pub fn drawn(
+    look: WindowLook,
+    corner: u32,
+    rect: Rect,
+    placed: Rect,
+    profile: &ShadowProfile,
+) -> Drawn {
     let scale = scale_256(rect, placed);
     let scaled = |length: i64| ((length * i64::from(scale) + 128).div_euclid(256)) as i32;
     let shadow = shadow_look(look);
-    let radius = scaled(i64::from(WINDOW_RADIUS)) as u32;
+    let radius = scaled(i64::from(corner)) as u32;
     let spread = scaled(i64::from(shadow.spread));
     let shape = grown(
         Rect::new(
@@ -149,7 +167,7 @@ pub fn drawn(look: WindowLook, rect: Rect, placed: Rect, profile: &ShadowProfile
 /// All a window drawn at `placed` changes on the output with `look`: its rectangle and its
 /// shadow's (ADR 0005's damage of a window that came, went, moved or changed its look).
 pub fn extent(look: WindowLook, rect: Rect, placed: Rect, shadows: &Shadows) -> Area {
-    let drawn = drawn(look, rect, placed, &shadows.of(look).0);
+    let drawn = drawn(look, corner(look), rect, placed, &shadows.of(look).0);
     let area = |r: Rect| Area {
         x: r.x,
         y: r.y,
@@ -163,14 +181,20 @@ pub fn extent(look: WindowLook, rect: Rect, placed: Rect, shadows: &Shadows) -> 
 mod tests {
     use super::*;
 
-    const ACTIVE: WindowLook = WindowLook { active: true };
-    const INACTIVE: WindowLook = WindowLook { active: false };
+    const ACTIVE: WindowLook = WindowLook {
+        active: true,
+        maximized: false,
+    };
+    const INACTIVE: WindowLook = WindowLook {
+        active: false,
+        maximized: false,
+    };
 
     #[test]
     fn a_window_casts_its_shadow_below_it_reaching_three_sigma() {
         let shadows = Shadows::new(0);
         let rect = Rect::new(100, 100, 400, 300);
-        let drawn = drawn(ACTIVE, rect, rect, &shadows.active.0);
+        let drawn = drawn(ACTIVE, corner(ACTIVE), rect, rect, &shadows.active.0);
         assert_eq!(drawn.radius, 16);
         // Blur 48 (σ 24) reaches 72 px from the shape, the window 18 px lower.
         assert_eq!(drawn.shadow_rect, Rect::new(28, 46, 544, 444));
@@ -195,7 +219,7 @@ mod tests {
             }
         );
         // The inactive one, blur 24 and 8 px lower: 36 px.
-        let inactive = super::drawn(INACTIVE, rect, rect, &shadows.inactive.0);
+        let inactive = super::drawn(INACTIVE, corner(INACTIVE), rect, rect, &shadows.inactive.0);
         assert_eq!(inactive.shadow_rect, Rect::new(64, 72, 472, 372));
         // What either changes on the output: the window and all of its shadow.
         assert_eq!(
@@ -210,12 +234,37 @@ mod tests {
     }
 
     #[test]
+    fn a_zoomed_window_has_square_corners_and_keeps_its_shadow() {
+        let shadows = Shadows::new(0);
+        let zoomed = WindowLook {
+            active: true,
+            maximized: true,
+        };
+        assert_eq!(corner(zoomed), 0);
+        let rect = Rect::new(0, 28, 1280, 636);
+        let drawn = drawn(zoomed, corner(zoomed), rect, rect, &shadows.active.0);
+        assert_eq!(
+            (drawn.radius, drawn.shadow.radius, drawn.shadow.clip_radius),
+            (0, 0, 0)
+        );
+        // Its shadow is the same as a round window's of its size, square: it still falls below.
+        let round = super::drawn(ACTIVE, corner(ACTIVE), rect, rect, &shadows.active.0);
+        assert_eq!(drawn.shadow_rect, round.shadow_rect);
+        // Halfway through its zoom's corners (8), drawn at half its size: 4.
+        let half = Rect::new(320, 187, 640, 318);
+        assert_eq!(
+            super::drawn(ACTIVE, 8, rect, half, &shadows.active.0).radius,
+            4
+        );
+    }
+
+    #[test]
     fn a_window_drawn_smaller_has_smaller_corners_and_shadow() {
         let shadows = Shadows::new(0);
         let rect = Rect::new(100, 100, 400, 300);
         // At a tenth (going into the dock): 26/256 of the size.
         let placed = Rect::new(280, 400, 40, 30);
-        let drawn = drawn(ACTIVE, rect, placed, &shadows.active.0);
+        let drawn = drawn(ACTIVE, corner(ACTIVE), rect, placed, &shadows.active.0);
         assert_eq!(drawn.radius, 2);
         assert_eq!(drawn.shadow.scale, 26);
         // 18 px lower at a tenth is 2; 72 px of reach is 8.

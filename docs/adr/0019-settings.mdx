@@ -30,7 +30,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - **The keys** are listed by `oxyos-preferences`, each with its type and default:
      - `appearance` (`light`, `dark`, `auto`; `auto` follows the sun of [ADR 0012](./0012-solar-wallpaper));
      - `accent` (one of Bloom's accent colours);
-     - `reduce_motion` (every transition of [ADR 0011](./0011-transitions) takes no time);
+     - `reduce_motion` (every transition of [ADR 0011](./0011-transitions) is a crossfade: nothing grows, shrinks or slides);
      - `reduce_transparency` (glass is drawn opaque);
      - `wallpaper` (a folder under the wallpapers' directory);
      - `lock_after` (minutes idle before the session locks; 0 never);
@@ -85,7 +85,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - **Writing.** The file is written whole, to `preferences.new`, then renamed.
    - **Where it is.** `$XDG_CONFIG_HOME`, or `~/.config` when that is unset or relative.
 
-   `oxyos-session` reads it as it starts: `reduce_motion` makes every transition take no time (`Transitions::set_reduce_motion`: windows, menus, overlays, the lock and the splash arrive and go at once), and `screen_reader` starts the reader as `--reader-on` does, when the session has one. Tests cover the defaults with no file, a file with bad lines, refused changes leaving everything as it was, a round trip through the file, the paths, and reduce motion (nothing runs, nothing is recorded; turned off, windows fade in again).
+   `oxyos-session` reads it as it starts: `reduce_motion` makes every transition a crossfade (`Transitions::set_reduce_motion`: windows, menus, overlays, the lock and the splash fade in and out where they are, a zoom is at once; ADR 0011, step 6), and `screen_reader` starts the reader as `--reader-on` does, when the session has one. Tests cover the defaults with no file, a file with bad lines, refused changes leaving everything as it was, a round trip through the file, the paths, and reduce motion (nothing runs, nothing is recorded; turned off, windows fade in again).
 2. **The grant and the protocol:**
    - `settings` from launch records of entries in system directories;
    - `Preferences` to every client;
