@@ -4309,6 +4309,24 @@ fn name(h: &mut Harness, window: SurfaceKey, title: &str, app_id: &str) {
     }
 }
 
+/// What a client was told, but the menu bar (ADR 0021).
+fn windows_events(events: &[(ClientId, Event)], client: ClientId) -> Vec<Event> {
+    to(events, client)
+        .into_iter()
+        .filter(|event| !is_menu_bar(event))
+        .collect()
+}
+
+fn is_menu_bar(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::MenuBar { .. }
+            | Event::MenuBarItem { .. }
+            | Event::MenuBarText { .. }
+            | Event::MenuBarCommitted { .. }
+    )
+}
+
 /// The windows a shell client was told of, by number: (workspace, minimized, focused, title, app
 /// id), from every event it received; and the workspaces last told.
 type ToldWindows = std::collections::BTreeMap<u32, (u32, bool, bool, String, String)>;
@@ -4406,11 +4424,12 @@ fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
                 | Event::Workspaces { .. }
         )));
     }
-    // Focus moving and a window going: what changed, and nothing else.
+    // Focus moving and a window going: what changed, and nothing else (of windows; the menu
+    // bar follows the active window, `menu_bar_*` below).
     h.activate(inbox);
     let events = logged(&mut h);
     assert_eq!(
-        to(&events, SHELL),
+        windows_events(&events, SHELL),
         [
             Event::WindowState {
                 window: a,
@@ -6446,3 +6465,6 @@ fn windows_are_drawn_as_windows_and_the_active_one_so() {
         (inactive, inactive)
     );
 }
+
+/// The menu bar (ADR 0021).
+mod menus;

@@ -135,6 +135,17 @@ void Report::deliver(const std::string& event, uint32_t surface, const ShadowVie
   write(std::move(line));
 }
 
+void Report::deliver(const std::string& event, uint32_t surface, const std::string& target,
+                     const folly::dynamic& extra) {
+  if (!file_) return;
+  folly::dynamic line = extra;
+  line["kind"] = "deliver";
+  line["event"] = event;
+  line["surface"] = surface;
+  line["target"] = target;
+  write(std::move(line));
+}
+
 void Report::gesture(const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

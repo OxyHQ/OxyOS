@@ -10,6 +10,12 @@
  * width, height, scale, primary }], in the global space's logical pixels; the primary has the dock.
  * Actions are intents: the next state says what happened.
  *
+ * The menu bar (docs/adr/0021-menu-bar.mdx): `menuBar` is the active window's menus, { window,
+ * serial, items: [{ parent, kind: 'menu' | 'item' | 'submenu' | 'separator', enabled, checkable,
+ * checked, label, shortcut }] } (window 0: none is active; no items: it declared none; parent an
+ * earlier item's index, -1 for a menu of the bar). `activateMenuItem(window, serial, index)` chooses
+ * one; the compositor gives it to the application only while those menus are the active window's.
+ *
  * The lock (docs/adr/0010-lock-screen.mdx): `lockSession()` locks; `authenticate(password)` sends
  * the password typed in the lock screen for the session to check, and `authentication` is the
  * latest answer, { id, outcome: 'accepted' | 'rejected' | 'busy' | 'throttled', wait } (wait: the
@@ -52,5 +58,6 @@ export function useOxyOSShell() {
     // not sent); `OxyOSShellLaunch` says whether it was started.
     launch: (id) => native?.launch(id) ?? 0,
     authenticate: (password) => native?.authenticate(password) ?? false,
+    activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
   };
 }

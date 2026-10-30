@@ -27,6 +27,9 @@ class ShellState {
   // The shell of the output `output`.
   explicit ShellState(uint32_t output);
   // { windows: [{ id, appId, title, workspace, minimized, focused, launched }], workspaces, active, locked,
+  //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
+  //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
+  //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
   //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }],
   //   output, outputs: [{ id, x, y, width, height, scale, primary }] }
@@ -46,6 +49,18 @@ class ShellState {
   // A title or application id being received, by window.
   std::map<uint32_t, std::string> title_, appId_;
   uint32_t workspaces_ = 1, active_ = 0;
+  // The active window's menus as last committed, and those being received.
+  struct MenuItem {
+    int64_t parent = -1;
+    uint32_t kind = 0;
+    uint8_t flags = 0;
+    std::string label, shortcut;
+  };
+  struct MenuBar {
+    uint32_t window = 0, serial = 0, count = 0;
+    std::vector<MenuItem> items;
+  };
+  MenuBar menuBar_, receivingMenuBar_;
   bool locked_ = false;
   struct Output {
     int32_t x = 0, y = 0;

@@ -8,6 +8,7 @@
 #include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
+#include "key-chords.h"
 #include "images.h"
 #include "input.h"
 #include "intl.h"
@@ -687,6 +688,30 @@ int main(int argc, char** argv) {
           },
       };
     }
+    // The window's menus (docs/adr/0021-menu-bar.mdx): each change a new commit, its serial
+    // rising, which a choice in the shell's bar names.
+    if (!shellMode) {
+      services.menuBar = {
+          .setMenus = [&window, serial = uint32_t{0}](const std::vector<oxyos::MenuEntry>& entries) mutable {
+            std::vector<OxyOSMenuItem> items;
+            items.reserve(entries.size());
+            for (const auto& entry : entries) {
+              items.push_back(OxyOSMenuItem{.parent = entry.parent,
+                                            .kind = entry.kind,
+                                            .flags = entry.flags,
+                                            .label = entry.label.empty() ? nullptr : entry.label.c_str(),
+                                            .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str()});
+            }
+            // Bloom describes its menus as none when it unmounts, after the window is gone.
+            if (!window) return uint32_t{0};
+            ++serial;
+            window->setMenus(serial, items);
+            oxyos::Report::get().input("menus.set", oxyos::Window::kToplevel,
+                                       folly::dynamic::object("serial", serial)("entries", entries.size()));
+            return serial;
+          },
+      };
+    }
     if (shellMode) {
       services.shell = {
           .state = [&shellState] { return shellState.state(); },
@@ -702,6 +727,9 @@ int main(int argc, char** argv) {
             auto surface = shellSurfaces.lockSurface();
             return surface && window->authenticate(*surface, secret);
           },
+          .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
+            window->activateMenuItem(target, serial, index);
+          },
       };
     }
     window->onClipboardChanged([&instance, &window] {
@@ -709,6 +737,7 @@ int main(int argc, char** argv) {
           "RCTDeviceEventEmitter", "emit",
           folly::dynamic::array("OxyOSClipboardChanged", folly::dynamic::object("text", window->clipboardHasText())));
     });
+    oxyos::KeyChords keyChords;  // the window's keys as offered to JavaScript (key-chords.h)
     oxyos::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
     // The focused input as the compositor was last told (ADR 0008), its caret, and each surface's
     // commit serial: a transaction made for an older one is for text the field no longer has.
@@ -763,6 +792,7 @@ int main(int argc, char** argv) {
         std::optional<OxyOSEvent> authenticated;
         std::vector<OxyOSEvent> launchResults;
         std::vector<OxyOSEvent> preferenceResults;
+        std::vector<OxyOSEvent> menuChoices;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
@@ -770,6 +800,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
               if (event.kind == OXYOS_EVENT_PREFERENCE_RESULT) preferenceResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
               if (event.kind == OXYOS_EVENT_ACTIVATED) {
@@ -779,12 +810,36 @@ int main(int argc, char** argv) {
                 closeRequested = true;
                 oxyos::Report::get().input("close.requested", event.surface);
               }
+              // A key press is offered to JavaScript first (Bloom's menu shortcuts, ADR 0021); one
+              // it takes, and that key's release, go no further.
+              bool keyTaken = false;
+              if (event.kind == OXYOS_EVENT_KEY && services.keyboard.listener) {
+                if (keyChords.swallow(event)) {
+                  keyTaken = true;
+                } else if (auto offered = keyChords.press(event)) {
+                  jsi::Runtime& rt = *services.keyboard.runtime;
+                  try {
+                    auto answer = services.keyboard.listener->call(rt, jsi::valueFromDynamic(rt, *offered));
+                    rt.drainMicrotasks();
+                    keyTaken = answer.isBool() && answer.getBool();
+                  } catch (const jsi::JSError& error) {
+                    std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
+                  }
+                  if (keyTaken) {
+                    keyChords.taken(event.code);
+                    oxyos::Report::get().deliver("shortcut", event.surface, "menu-bar", *offered);
+                  }
+                }
+              }
               if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
                   (event.kind == OXYOS_EVENT_KEY && event.flag) ||
-                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE)) {
+                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE) ||
+                  // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
+                  event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) {
                 lastPress = event.serial;
               }
               report(event);
+              if (keyTaken) return;
               if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
               // An assistive technology's action; a focus move needs new snapshots.
               if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
@@ -872,6 +927,15 @@ int main(int argc, char** argv) {
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSShellLaunch",
                                     folly::dynamic::object("serial", result.code)("launched", result.flag != 0)));
+        }
+        // A command of the window's menus chosen in the shell's bar (ADR 0021): to the adapter,
+        // which runs the one Bloom declared at that index of that commit.
+        for (const auto& choice : menuChoices) {
+          folly::dynamic payload = folly::dynamic::object("serial", choice.code)("index", choice.detail);
+          oxyos::Report::get().input("menu.activated", choice.surface, payload);
+          oxyos::Report::get().deliver("menuActivated", choice.surface, "menu-bar", payload);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSMenuActivated", payload));
         }
         // What came of the lock screen's password (docs/adr/0010-lock-screen.mdx).
         if (authenticated) {
@@ -1046,6 +1110,7 @@ int main(int argc, char** argv) {
     std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
               << mounter.transactions << ",\"presented\":" << window->presented()
               << ",\"js_errors\":" << jsErrors << "}\n";
+    services.keyboard.listener.reset();
     window.reset();
     surface.stop();
     scheduler->unregisterSurface(surface);

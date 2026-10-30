@@ -51,6 +51,10 @@ class Report {
   // An event delivered to React (touch, text, scroll, …) on `view`.
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
+  // An event delivered to JavaScript that no view is the target of (a choice in the shell's menu
+  // bar), named `target`.
+  void deliver(const std::string& event, uint32_t surface, const std::string& target,
+               const folly::dynamic& extra = folly::dynamic::object());
   // What gesture handlers recognized (gesture-handler.h): a state change or an update, as sent to
   // JavaScript, or the gesture taken from React Native.
   void gesture(const folly::dynamic& line);

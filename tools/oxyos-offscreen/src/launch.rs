@@ -722,8 +722,11 @@ fn shell_surfaces(compositor: &Compositor) -> Vec<(SurfaceKey, u64, Rect)> {
 }
 
 /// Starts the shell on a socket of its own, granting `shell`, one on each output as a session
-/// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their surfaces
-/// are shown and unchanged for SETTLE.
+/// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their panels have
+/// set every output's work area (as `oxyos-session` waits for them) and their surfaces are then
+/// unchanged for SETTLE. A shell's background is made before its JavaScript runs, so surfaces
+/// unchanged alone may be that background, still without panels, on a loaded machine: the
+/// application started then would be placed in the whole output.
 fn start_shell(
     session: &mut Session,
     command: &[std::ffi::OsString],
@@ -770,9 +773,14 @@ fn start_shell(
         }
         session.compositor.serve(&session.listener)?;
         let now = shell_surfaces(&session.compositor);
+        let scene = &session.compositor.scene;
+        let reserved = scene
+            .outputs()
+            .iter()
+            .all(|output| scene.work_area(output.id) != Some(output.rect));
         if now != last.0 {
             last = (now, Instant::now());
-        } else if !last.0.is_empty() && last.1.elapsed() >= SETTLE {
+        } else if reserved && last.1.elapsed() >= SETTLE {
             eprintln!("[shell] {} surfaces shown", last.0.len());
             return Ok(children);
         }

@@ -26,9 +26,31 @@ export type ShellWindow = {
       own claim, and it is no registry application's (docs/adr/0013-launching-applications.mdx). */
   launched?: boolean;
 };
+/** An entry of a menu in the top bar: a command (`checked` set when it has a check, `shortcut` its
+    chord as shown), a submenu, or a separator. */
+export type ShellMenuItem =
+  | {
+      kind?: "item";
+      id: string;
+      label: string;
+      enabled?: boolean;
+      checked?: boolean;
+      shortcut?: string;
+    }
+  | {
+      kind: "submenu";
+      id: string;
+      label: string;
+      enabled?: boolean;
+      items: readonly ShellMenuItem[];
+    }
+  | { kind: "separator"; id: string };
+/** A menu of the top bar. The first is drawn in bold: the active application's own menu (its
+    name, About, Hide, Quit), or the shell's when no application is active
+    (docs/adr/0021-menu-bar.mdx). */
 export type ShellMenu = {
   label: string;
-  items: readonly { id: string; label: string; enabled?: boolean }[];
+  items: readonly ShellMenuItem[];
 };
 export type ShellSnapshot = {
   applications: readonly ShellApplication[];

@@ -11,7 +11,80 @@ import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
-import type { ShellActions, ShellLock, ShellSnapshot } from '../../../apps/shell/src/model';
+import type {
+  ShellActions,
+  ShellLock,
+  ShellMenu,
+  ShellMenuItem,
+  ShellSnapshot,
+} from '../../../apps/shell/src/model';
+
+/** The active window's menus as the compositor told them (OxyOSShell's `menuBar`). */
+type MenuBar = {
+  window: number;
+  serial: number;
+  items: {
+    parent: number;
+    kind: 'menu' | 'item' | 'submenu' | 'separator';
+    enabled: boolean;
+    checkable: boolean;
+    checked: boolean;
+    label: string;
+    shortcut: string;
+  }[];
+};
+
+// A chord as OxyOS shows it: `Mod` is Ctrl (docs/adr/0021-menu-bar.mdx), the rest as declared.
+const chord = (shortcut: string) =>
+  shortcut
+    .split('+')
+    .map((key) => (key === 'Mod' ? 'Ctrl' : key === 'Shift' ? 'Mayús' : key))
+    .join('+');
+
+// A command of the window's menus, by the window, the commit and its index there.
+const COMMAND = /^window-menu:(\d+):(\d+):(\d+)$/;
+
+/**
+ * The bar for the active window (ADR 0021): its application's own menu, in bold (the registry's
+ * name, About, Hide, Quit), then the menus it declared, their checks and chords; none when it
+ * declared none, and the shell then shows its own.
+ */
+function windowMenus(bar: MenuBar | undefined, name: string): ShellMenu[] | null {
+  if (!bar || bar.window === 0 || bar.items.length === 0) return null;
+  const children = (parent: number): ShellMenuItem[] =>
+    bar.items.flatMap((item, index): ShellMenuItem[] => {
+      if (item.parent !== parent) return [];
+      const id = `window-menu:${bar.window}:${bar.serial}:${index}`;
+      if (item.kind === 'separator') return [{ kind: 'separator', id }];
+      if (item.kind === 'submenu') {
+        return [{ kind: 'submenu', id, label: item.label, enabled: item.enabled, items: children(index) }];
+      }
+      return [
+        {
+          id,
+          label: item.label,
+          enabled: item.enabled,
+          checked: item.checkable ? item.checked : undefined,
+          shortcut: item.shortcut ? chord(item.shortcut) : undefined,
+        },
+      ];
+    });
+  const own: ShellMenu = {
+    label: name,
+    items: [
+      // No about panel yet: shown, not offered.
+      { id: 'window-app:about', label: `Acerca de ${name}`, enabled: false },
+      { kind: 'separator', id: 'window-app:separator' },
+      { id: `window-app:hide:${bar.window}`, label: `Ocultar ${name}` },
+      { id: `window-app:quit:${bar.window}`, label: `Salir de ${name}` },
+    ],
+  };
+  const declared = bar.items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.parent === -1 && item.kind === 'menu')
+    .map(({ item, index }) => ({ label: item.label, items: children(index) }));
+  return [own, ...declared];
+}
 
 const icon = (name: string) => {
   switch (name) {
@@ -169,6 +242,12 @@ export function ShellSession() {
     workspaceId: String(state.active),
     activeAppId: state.windows.find((window: { focused: boolean }) => window.focused)?.appId,
   };
+  // The active window's menus, after its application's own (ADR 0021); else the shell's.
+  const bar: MenuBar | undefined = state.menuBar;
+  const active = state.windows.find((window: { id: number }) => window.id === bar?.window);
+  const application = active?.launched ? registry.find((app) => app.id === active.appId) : undefined;
+  const menus = windowMenus(bar, application?.name || active?.title || active?.appId || '');
+  if (menus) shown.menus = menus;
   const act: ShellActions = {
     // The application's newest window, if it has one; else the session starts it (ADR 0013).
     activateApp: (id) => {
@@ -186,7 +265,20 @@ export function ShellSession() {
     // The Oxy menu's System Settings opens OxyOS's Settings (docs/adr/0019-settings.mdx), as any
     // application is opened: its window if it has one, else the session starts it.
     menuCommand: (id) => {
-      if (id === 'system.settings') act.activateApp('so.oxy.settings');
+      if (id === 'system.settings') {
+        act.activateApp('so.oxy.settings');
+        return;
+      }
+      const command = COMMAND.exec(id);
+      if (command) {
+        shell.activateMenuItem(Number(command[1]), Number(command[2]), Number(command[3]));
+        return;
+      }
+      // The application's own menu: Hide is the shell's minimize, Quit the window's close request
+      // (as its close bubble's).
+      const own = /^window-app:(hide|quit):(\d+)$/.exec(id);
+      if (own?.[1] === 'hide') shell.minimizeWindow(Number(own[2]));
+      if (own?.[1] === 'quit') shell.closeWindow(Number(own[2]));
     },
   };
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.

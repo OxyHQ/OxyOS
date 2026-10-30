@@ -246,6 +246,30 @@ fn requests() -> Vec<Request> {
             politeness: Politeness::Assertive,
             text: PreeditText::new("Guardado").unwrap(),
         },
+        Request::MenusBegin {
+            surface: 1,
+            serial: 3,
+            items: 2,
+        },
+        Request::MenuItem {
+            surface: 1,
+            index: 1,
+            parent: 0,
+            kind: MenuKind::Item,
+            flags: MenuFlags::new(MenuFlags::CHECKABLE | MenuFlags::CHECKED).unwrap(),
+        },
+        Request::MenuText {
+            surface: 1,
+            index: 1,
+            field: MenuField::Shortcut,
+            text: TextChunk::new("Mod+N").unwrap(),
+        },
+        Request::MenusCommit { surface: 1 },
+        Request::ActivateMenuItem {
+            window: 7,
+            serial: 3,
+            index: 1,
+        },
     ]
 }
 
@@ -516,6 +540,31 @@ fn events() -> Vec<Event> {
             active: 1,
         },
         Event::CloseRequested { surface: 1 },
+        Event::MenuBar {
+            window: 7,
+            serial: 3,
+            items: 2,
+        },
+        Event::MenuBarItem {
+            window: 7,
+            index: 0,
+            parent: NO_MENU_PARENT,
+            kind: MenuKind::Menu,
+            flags: MenuFlags::default(),
+        },
+        Event::MenuBarText {
+            window: 7,
+            index: 0,
+            field: MenuField::Label,
+            text: TextChunk::new("Archivo").unwrap(),
+        },
+        Event::MenuBarCommitted { window: 7 },
+        Event::MenuItemActivated {
+            surface: 1,
+            serial: 40,
+            menus: 3,
+            index: 1,
+        },
     ]
 }
 
@@ -572,6 +621,35 @@ fn accessible_roles_and_states_are_closed_sets() {
     let mut bad_state = bytes.clone();
     bad_state[role + 2] = 0xff;
     assert!(read_request(&mut Cursor::new(bad_state)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
+}
+
+#[test]
+fn menu_kinds_fields_and_flags_are_closed_sets() {
+    assert!(MenuFlags::new(1 << 3).is_none());
+    assert!(MenuKind::from_raw(0).is_none());
+    assert!(MenuKind::from_raw(5).is_none());
+    assert!(MenuField::from_raw(3).is_none());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::MenuItem {
+            surface: 1,
+            index: 0,
+            parent: NO_MENU_PARENT,
+            kind: MenuKind::Menu,
+            flags: MenuFlags::default(),
+        },
+    )
+    .unwrap();
+    // The kind byte follows the 4-byte length, the opcode and three u32 fields; the flags it.
+    let kind = 4 + 1 + 12;
+    let mut bad_kind = bytes.clone();
+    bad_kind[kind] = 9;
+    assert!(read_request(&mut Cursor::new(bad_kind)).is_err());
+    let mut bad_flags = bytes.clone();
+    bad_flags[kind + 1] = 0x80;
+    assert!(read_request(&mut Cursor::new(bad_flags)).is_err());
     assert!(read_request(&mut Cursor::new(bytes)).is_ok());
 }
 

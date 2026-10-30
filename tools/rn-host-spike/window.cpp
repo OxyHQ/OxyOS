@@ -224,6 +224,16 @@ void Window::publishAccessibility(uint32_t id, const std::vector<OxyOSAccessible
   }
 }
 
+void Window::setMenus(uint32_t serial, const std::vector<OxyOSMenuItem>& items) {
+  if (oxyos_client_set_menus(client_, kToplevel, serial, items.data(), items.size()) != 0) {
+    failed("cannot set the window's menus");
+  }
+}
+
+void Window::activateMenuItem(uint32_t window, uint32_t serial, uint32_t index) {
+  if (oxyos_client_activate_menu_item(client_, window, serial, index) != 0) failed("cannot choose a menu item");
+}
+
 void Window::announce(uint32_t id, uint8_t politeness, const std::string& text) {
   if (oxyos_client_announce(client_, id, politeness, text.data(), text.size()) != 0) failed("cannot announce");
 }

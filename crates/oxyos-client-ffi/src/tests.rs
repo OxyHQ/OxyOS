@@ -3059,3 +3059,5 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+/// The menu bar (ADR 0021).
+mod menus;

@@ -50,6 +50,11 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_PREFERENCE_RESULT 52
 #define OXYOS_EVENT_PREFERENCES 53
 #define OXYOS_EVENT_PREFERENCE 54
+#define OXYOS_EVENT_MENU_BAR 70
+#define OXYOS_EVENT_MENU_BAR_ITEM 71
+#define OXYOS_EVENT_MENU_BAR_TEXT 72
+#define OXYOS_EVENT_MENU_BAR_COMMITTED 73
+#define OXYOS_EVENT_MENU_ITEM_ACTIVATED 74
 /* A CONFIGURE's flag bits (docs/adr/0016-windows.mdx). */
 #define OXYOS_CONFIGURE_FULLSCREEN 1
 #define OXYOS_CONFIGURE_MAXIMIZED 2
@@ -167,7 +172,21 @@ typedef struct OxyOSClient OxyOSClient;
  *               given and each one that changes: detail, the chunk's index (0 begins it); flag,
  *               whether it is the last; text, the chunk.
  *   PREFERENCE_RESULT  code: the serial of the oxyos_client_set_preference it answers; flag:
- *               whether the session took the change. */
+ *               whether the session took the change.
+ *   The menu bar (docs/adr/0021-menu-bar.mdx). To the session's shell, the active window's menus,
+ *   whenever they or the active window change (and at once when it connects):
+ *   MENU_BAR    code: the window's number (0: none is active); detail: the serial of its menus'
+ *               commit (0: it has none); width: how many entries follow.
+ *   MENU_BAR_ITEM  code: the window; detail: the entry's index (in order); width: its parent's
+ *               index (OXYOS_NO_MENU_PARENT for a menu of the bar); height: OXYOS_MENU_* kind;
+ *               flag: OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
+ *   MENU_BAR_TEXT  code: the window; detail: the entry; height: OXYOS_MENU_LABEL or
+ *               OXYOS_MENU_SHORTCUT; text: a chunk of it, appended.
+ *   MENU_BAR_COMMITTED  code: the window: the bar is whole.
+ *   To an application:
+ *   MENU_ITEM_ACTIVATED  serial: the choice (a user input, as a key press's); code: the serial of
+ *               the commit (oxyos_client_set_menus) the entry is in; detail: its index there. The
+ *               person chose it in the shell's bar. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -289,6 +308,32 @@ typedef struct OxyOSAccessibleNode {
   uint32_t selection_end;
 } OxyOSAccessibleNode;
 
+/* The menu bar (docs/adr/0021-menu-bar.mdx). What a menu entry is, its state bits, which of its
+ * texts a MENU_BAR_TEXT carries, and the parent of a menu of the bar. */
+#define OXYOS_MENU_MENU 1
+#define OXYOS_MENU_ITEM 2
+#define OXYOS_MENU_SUBMENU 3
+#define OXYOS_MENU_SEPARATOR 4
+#define OXYOS_MENU_DISABLED 1
+#define OXYOS_MENU_CHECKABLE 2
+#define OXYOS_MENU_CHECKED 4
+#define OXYOS_MENU_LABEL 1
+#define OXYOS_MENU_SHORTCUT 2
+#define OXYOS_NO_MENU_PARENT 0xFFFFFFFF
+
+/* One entry of a window's menus: the index of the menu or submenu it is in, earlier in the list
+ * (OXYOS_NO_MENU_PARENT for a menu of the bar), its kind (OXYOS_MENU_MENU, _ITEM, _SUBMENU,
+ * _SEPARATOR), its state (OXYOS_MENU_DISABLED on a command or submenu; _CHECKABLE and _CHECKED on
+ * a command), its label and a command's key chord (`Mod+N`; UTF-8, NUL-terminated, NULL for
+ * none). */
+typedef struct OxyOSMenuItem {
+  uint32_t parent;
+  uint8_t kind;
+  uint8_t flags;
+  const char* label;
+  const char* shortcut;
+} OxyOSMenuItem;
+
 const char* oxyos_last_error(void);
 
 OxyOSClient* oxyos_client_connect(const char* path);
@@ -388,6 +433,16 @@ int oxyos_client_reposition(OxyOSClient* client, uint32_t surface, const OxyOSPo
  * text longer than the protocol allows is cut at a character boundary. 0 on success. */
 int oxyos_client_publish_accessibility(OxyOSClient* client, uint32_t surface, const OxyOSAccessibleNode* nodes,
                                      size_t count);
+/* Declares a toplevel's menus, replacing its last: `count` entries (at most 256, nested at most 4
+ * deep) in order, as the commit `serial`, above every earlier one of the window. A
+ * MENU_ITEM_ACTIVATED names the commit and the chosen entry's index, so the caller keeps its own
+ * ids per commit; a choice from older menus is never delivered. Labels longer than 128 bytes are
+ * cut at a character; a shortcut longer than 32 bytes is left out. 0 on success. */
+int oxyos_client_set_menus(OxyOSClient* client, uint32_t surface, uint32_t serial, const OxyOSMenuItem* items,
+                           size_t count);
+/* The session's shell chooses the entry `index` of the commit `serial` of window `window`'s menus,
+ * as a MENU_BAR told them; the compositor delivers it only while they are the active window's. */
+int oxyos_client_activate_menu_item(OxyOSClient* client, uint32_t window, uint32_t serial, uint32_t index);
 /* Announces `length` bytes of UTF-8 to assistive technologies, as Android's
  * announceForAccessibility and live regions: OXYOS_POLITE after what they are saying,
  * OXYOS_ASSERTIVE at once. Longer text than the protocol takes (1024 bytes) is cut at a character
