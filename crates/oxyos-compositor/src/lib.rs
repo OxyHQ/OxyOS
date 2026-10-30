@@ -25,6 +25,7 @@ use std::error::Error;
 use std::time::{Duration, Instant};
 
 pub mod arrangement;
+pub mod controls;
 pub mod idle;
 pub mod login;
 pub mod settings;
@@ -383,6 +384,11 @@ pub struct Compositor {
     /// session longer, waking for its devices, clients and display, the pointer's next step and a
     /// connection's deadline (`serve`).
     pub idle_wait: Duration,
+    /// The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx):
+    /// what acts on the system's volumes, backlights and Wi-Fi and finds its battery and network,
+    /// given by the program running the compositor. Without them the keys do nothing and the
+    /// shell is told nothing of the system.
+    pub controls: Option<controls::Controls>,
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -685,6 +691,7 @@ impl Compositor {
             hotplugged: false,
             pointer: None,
             idle_wait: Duration::from_millis(5),
+            controls: None,
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
@@ -2321,6 +2328,9 @@ impl Compositor {
         if let Some(deadline) = self.idle.deadline() {
             wait = wait.min(deadline.saturating_sub(self.now()));
         }
+        if let Some(controls) = &self.controls {
+            wait = wait.min(controls.next_wake(Instant::now()));
+        }
         // A transition running composes a frame for every refresh (a display's flip wakes the
         // turn sooner).
         if !self.transitions.is_empty() {
@@ -2397,6 +2407,14 @@ impl Compositor {
             if let Some(seat) = &self.seat {
                 fds.push(PollFd::from_borrowed_fd(seat.as_fd(), PollFlags::IN));
             }
+            // The controls' worker answering: only to wake the turn.
+            if let Some(wake) = self
+                .controls
+                .as_ref()
+                .and_then(|controls| controls.wake_fd())
+            {
+                fds.push(PollFd::from_borrowed_fd(wake, PollFlags::IN));
+            }
             if let (Some(authentication), Some(_)) = (&self.authentication, self.checking) {
                 fds.push(PollFd::from_borrowed_fd(
                     authentication.as_fd(),
@@ -2467,6 +2485,9 @@ impl Compositor {
         // A turn that waited until the deadline locks now, and composes the lock.
         self.follow_idle();
         self.authenticate();
+        if let Some(controls) = &mut self.controls {
+            controls.serve(&mut self.scene, Instant::now());
+        }
         self.frame();
         self.follow_lock();
         self.flush();

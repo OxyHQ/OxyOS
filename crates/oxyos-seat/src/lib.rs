@@ -20,6 +20,11 @@
 //!
 //! Dropping the [`Seat`] gives control back.
 //!
+//! - Backlights (docs/adr/0025-hardware-keys-and-control-center.mdx): [`Brightness`] sets a
+//!   display's or a keyboard's through logind's `SetBrightness` on the caller's session, which
+//!   logind allows the session's own user while the session is in front, with no root and no
+//!   writable sysfs.
+//!
 //! [`notify`] is systemd's other interface a program on a seat speaks: telling the unit that
 //! started it that it is on screen (sd_notify's `READY=1`, docs/adr/0017-boot-logo.mdx).
 
@@ -380,6 +385,47 @@ impl AsFd for Seat {
     /// Readable when logind did something ([`Seat::events`]).
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.wake.as_fd()
+    }
+}
+
+/// The caller's logind session (`XDG_SESSION_ID`, or the session of this process).
+fn own_session(connection: &Connection) -> io::Result<Proxy<'static>> {
+    let manager = Proxy::new(
+        connection,
+        LOGIND,
+        "/org/freedesktop/login1",
+        "org.freedesktop.login1.Manager",
+    )
+    .map_err(failed)?;
+    let path: OwnedObjectPath = match std::env::var("XDG_SESSION_ID") {
+        Ok(id) if !id.is_empty() => manager.call("GetSession", &(id)),
+        _ => manager.call("GetSessionByPID", &(std::process::id())),
+    }
+    .map_err(failed)?;
+    Proxy::new(connection, LOGIND, path, SESSION).map_err(failed)
+}
+
+/// Backlights set through logind (`SetBrightness` on the caller's session): a device of the
+/// `backlight` or `leds` class by its name in sysfs, to a raw value of its own (0 to its
+/// `max_brightness`). logind writes it for the session's user while the session is the seat's
+/// active one, and refuses it otherwise. Its own connection, so it can live on a thread of its
+/// own.
+pub struct Brightness {
+    session: Proxy<'static>,
+}
+
+impl Brightness {
+    pub fn of_session() -> io::Result<Self> {
+        let connection = Connection::system().map_err(failed)?;
+        Ok(Self {
+            session: own_session(&connection)?,
+        })
+    }
+
+    pub fn set(&self, subsystem: &str, name: &str, value: u32) -> io::Result<()> {
+        self.session
+            .call::<_, _, ()>("SetBrightness", &(subsystem, name, value))
+            .map_err(failed)
     }
 }
 
