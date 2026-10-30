@@ -1,15 +1,16 @@
+// The probes, in one development bundle: what scenarios run by their modules to check the host.
+// Applications are packages of their own, each its own bundle (entries/, packages.mjs;
+// docs/adr/0030-installing-applications.mdx).
 import './oxyos/expo-adapter';
 // expo-file-system's native module, once the adapter installed Expo's globals.
 import './oxyos/expo-file-system';
 import './global.css';
 import { AppRegistry } from 'react-native';
-import App from './App';
 import AndroidProbe from './AndroidProbe';
 import ClipboardProbe from './ClipboardProbe';
 import FileSystemProbe from './FileSystemProbe';
 import PressProbe from './PressProbe';
 import NotificationProbe from './NotificationProbe';
-import EditingProbe from './EditingProbe';
 import ImageProbe from './ImageProbe';
 import ImeProbe from './ImeProbe';
 import ModalProbe from './ModalProbe';
@@ -17,24 +18,18 @@ import IntlProbe from './IntlProbe';
 import SecureProbe from './SecureProbe';
 import TransformProbe from './TransformProbe';
 import SheetProbe from './SheetProbe';
-import ShellProbe, { ShellSession } from './ShellProbe';
+import ShellProbe from './ShellProbe';
 import NetworkProbe from './NetworkProbe';
 import PinchProbe from './PinchProbe';
 import MaterialProbe from './MaterialProbe';
 import A11yProbe from './A11yProbe';
 import WindowProbe from './WindowProbe';
-import SettingsApp from './SettingsApp';
 import AnimatedProbe from './AnimatedProbe';
 import MenuBarProbe from './MenuBarProbe';
-import LoginSession from './LoginSession';
 import ExpoProbe from './ExpoProbe';
-// Stash, from its own checkout when the bundle is built with STASH_DIR (oxyos/stash-application.js).
-import './oxyos/stash-application';
 
-AppRegistry.registerComponent('OxyBloom', () => App);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
-AppRegistry.registerComponent('EditingProbe', () => EditingProbe);
 AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
 AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
@@ -49,11 +44,8 @@ AppRegistry.registerComponent('PinchProbe', () => PinchProbe);
 AppRegistry.registerComponent('MaterialProbe', () => MaterialProbe);
 AppRegistry.registerComponent('A11yProbe', () => A11yProbe);
 AppRegistry.registerComponent('WindowProbe', () => WindowProbe);
-AppRegistry.registerComponent('OxyOSSettings', () => SettingsApp);
 AppRegistry.registerComponent('AnimatedProbe', () => AnimatedProbe);
 AppRegistry.registerComponent('MenuBarProbe', () => MenuBarProbe);
 AppRegistry.registerComponent('IntlProbe', () => IntlProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
-AppRegistry.registerComponent('OxyOSShell', () => ShellSession);
-AppRegistry.registerComponent('OxyOSLogin', () => LoginSession);
 AppRegistry.registerComponent('ExpoProbe', () => ExpoProbe);

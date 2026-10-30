@@ -135,8 +135,12 @@ The application's process started to its first frame on the output; the same bef
 | WindowProbe | 84 / 86 | 3.9 | 0.9 | 0.2 | 4.4 | 12.7 | 52.9 |
 | Allo beside the shell | 64 / 64 | 4.0 | 0.9 | 0.1 | 4.4 | 12.6 | 30.1 |
 
-The bundle is one 9.5 MB Hermes bytecode file with every probe and app in it; evaluating it takes
-13 ms. The rest is React's first render, layout, mount and draw: the application's own work.
+These were measured with one 9.5 MB Hermes bytecode file holding every probe and application;
+evaluating it took 13 ms. Each application is now a package of its own ([ADR 0030](./adr/0030-installing-applications)),
+its bytecode compiled from its own bundle: 6.7 MB (Allo, the login screen 6.8), 7.4 MB (the shell),
+8.0 MB (Inbox) and 8.2 MB (Settings), most of it the React Native, React and Bloom every application
+carries, as on every platform; the probes' development bundle is 8.5 MB. The rest is React's first
+render, layout, mount and draw: the application's own work.
 
 ### Idle
 

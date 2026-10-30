@@ -1,0 +1,18 @@
+{
+  "id": "so.oxy.login",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "OxyOS Login",
+  "names": {
+    "es": "Inicio de sesión de OxyOS"
+  },
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "OxyOSLogin"
+  },
+  "architectures": [
+    "any"
+  ]
+}

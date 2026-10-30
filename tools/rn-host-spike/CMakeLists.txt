@@ -222,3 +222,22 @@ if(OXYOS_ASAN)
   endforeach()
   target_link_options(oxyos-bloom-host PRIVATE -fsanitize=address)
 endif()
+
+# The runtime this host is (docs/adr/0030-installing-applications.mdx, decision 2), laid out by
+# `cmake --install BUILD --prefix RUNTIMES/<abi>`: the host, its libraries in lib/ (found by
+# $ORIGIN, wherever the runtime is), the compiler of the Hermes it runs, and runtime.json, the one
+# declaration of its two numbers. ABI changes when an application must be rebuilt: React Native's
+# version (its JavaScript must be the native side's), Hermes' bytecode, or a host module whose
+# JavaScript contract breaks. API grows when the runtime adds without breaking (a host module, an
+# option). ABI 1 is React Native 0.88 with Hermes V1, as built here.
+set(OXYOS_RUNTIME_ABI 1)
+set(OXYOS_RUNTIME_API 1)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/runtime.json
+  "{\"abi\":${OXYOS_RUNTIME_ABI},\"api\":${OXYOS_RUNTIME_API}}\n")
+set_target_properties(oxyos-bloom-host PROPERTIES INSTALL_RPATH "$ORIGIN/lib")
+set_target_properties(reactnative PROPERTIES INSTALL_RPATH "$ORIGIN")
+install(TARGETS oxyos-bloom-host RUNTIME DESTINATION .)
+install(TARGETS reactnative jsi LIBRARY DESTINATION lib)
+install(FILES ${HERMES_BUILD}/lib/libhermesvm.so DESTINATION lib)
+install(PROGRAMS ${HERMES_BUILD}/bin/hermesc DESTINATION .)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/runtime.json DESTINATION .)

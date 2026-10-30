@@ -13,6 +13,9 @@
 //! [`Launcher::launch`]). A policy's id is never another directory's: a user's entry cannot take
 //! a system application's name.
 
+mod runtimes;
+pub use runtimes::{installed as installed_runtimes, runtime, InstalledRuntime, Level, RUNTIMES};
+
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -251,11 +254,13 @@ impl Policy {
 pub enum Launch {
     /// A native OxyOS client: the program and its arguments, from `Exec`.
     Exec(Vec<String>),
-    /// A Bloom application, run by the session's Bloom host: its module, and its bundle when the
-    /// entry names one (relative to the entry; else the session's).
+    /// A Bloom application, run by a Bloom host: its module, its bundle when the entry names one
+    /// (relative to the entry; else the session's), and the runtime it was built for
+    /// (`X-OxyOS-Runtime`, its `abi`), whose host runs it; without one, the session's host does.
     Bloom {
         module: String,
         bundle: Option<PathBuf>,
+        runtime: Option<u32>,
     },
 }
 
@@ -443,6 +448,19 @@ pub fn parse(
         (Some(module), _) => Launch::Bloom {
             module: module.clone(),
             bundle: keys.get("X-OxyOS-Bloom-Bundle").map(|b| relative(b)),
+            runtime: match keys.get("X-OxyOS-Runtime") {
+                None => None,
+                Some(abi) => Some(
+                    Some(abi)
+                        .filter(|abi| {
+                            !abi.starts_with('0') && abi.bytes().all(|b| b.is_ascii_digit())
+                        })
+                        .and_then(|abi| abi.parse::<u32>().ok())
+                        .ok_or_else(|| {
+                            Error(format!("{id}'s X-OxyOS-Runtime is not an abi from 1"))
+                        })?,
+                ),
+            },
         },
         (None, Some(value)) => Launch::Exec(exec(value)?),
         (None, None) => return Err(Error(format!("{id} has neither Exec nor a Bloom module"))),
@@ -631,6 +649,25 @@ fn system_entry(
     )
 }
 
+/// `application` if what it runs is there: a Bloom application whose own bundle is not is not
+/// installed (its entry names where its package will be), and is said so.
+fn installed(application: Option<Application>) -> Result<Option<Application>, Error> {
+    match &application {
+        Some(Application {
+            launch:
+                Launch::Bloom {
+                    bundle: Some(bundle),
+                    ..
+                },
+            ..
+        }) if !bundle.is_file() => Err(Error(format!(
+            "not installed: its bundle {} is not there",
+            bundle.display()
+        ))),
+        _ => Ok(application),
+    }
+}
+
 /// The applications: first the policy's system applications, from the entries it names, then
 /// those in `directories`, the first directory's entry for an id winning; sorted by name. A
 /// policy's id is its alone: another directory's entry for it is ignored, even when the policy's
@@ -645,10 +682,12 @@ pub fn registry(
     let mut found: BTreeMap<String, Option<Application>> = BTreeMap::new();
     let mut skipped = Vec::new();
     for (id, system) in policy.applications() {
-        let application = system_entry(id, system, languages, trusted).unwrap_or_else(|error| {
-            skipped.push(format!("{id}: {error}"));
-            None
-        });
+        let application = system_entry(id, system, languages, trusted)
+            .and_then(installed)
+            .unwrap_or_else(|error| {
+                skipped.push(format!("{id}: {error}"));
+                None
+            });
         found.insert(id.to_string(), application);
     }
     for directory in directories {
@@ -673,9 +712,14 @@ pub fn registry(
             let parsed = std::fs::read_to_string(&path)
                 .map_err(|error| Error(error.to_string()))
                 .and_then(|text| parse(id, &text, directory, languages));
-            match parsed {
-                Ok(application) => {
+            match parsed.map(installed) {
+                Ok(Ok(application)) => {
                     found.insert(id.to_string(), application);
+                }
+                // Not installed: said, and its id still this directory's.
+                Ok(Err(error)) => {
+                    skipped.push(format!("{}: {error}", path.display()));
+                    found.insert(id.to_string(), None);
                 }
                 Err(error) => skipped.push(format!("{}: {error}", path.display())),
             }
@@ -713,11 +757,31 @@ mod tests;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Runtime {
     pub socket: PathBuf,
+    /// The session's Bloom host and bundle: what a development entry naming no runtime and no
+    /// bundle runs.
     pub bloom_host: Option<PathBuf>,
     pub bloom_bundle: Option<PathBuf>,
+    /// Where the runtimes an entry names are ([`RUNTIMES`] in a session).
+    pub runtimes: PathBuf,
     pub window: (u32, u32),
     /// More of the applications' environment (a development compositor's report files).
     pub env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+}
+
+/// The URL a bundle is known by to its JavaScript (React Native's `SourceCode.scriptURL`), which
+/// its assets are found beside: a package's compiled `index.hbc` is its source bundle's, the file
+/// its manifest names (`entry.bundle`, with its assets next to it); any other bundle is itself.
+pub fn script_url(bundle: &Path) -> PathBuf {
+    let package = bundle
+        .file_name()
+        .filter(|name| *name == "index.hbc")
+        .and(bundle.parent());
+    let source = package.and_then(|directory| {
+        let manifest = std::fs::read(directory.join("manifest.json")).ok()?;
+        let manifest = oxyos_package::Manifest::parse(&manifest).ok()?;
+        Some(directory.join(manifest.entry.bundle.as_str()))
+    });
+    source.unwrap_or_else(|| bundle.to_path_buf())
 }
 
 /// How `application` is started in `runtime`: the program, its arguments and its environment:
@@ -733,11 +797,22 @@ pub fn command(
             command.args(&words[1..]);
             command
         }
-        Launch::Bloom { module, bundle } => {
-            let host = runtime
-                .bloom_host
-                .as_ref()
-                .ok_or_else(|| Error("no Bloom host to run Bloom applications".into()))?;
+        Launch::Bloom {
+            module,
+            bundle,
+            runtime: abi,
+        } => {
+            let host = match abi {
+                Some(abi) => {
+                    runtimes::runtime(&runtime.runtimes, *abi)
+                        .map_err(|Error(why)| Error(format!("{}: {why}", application.id)))?
+                        .host
+                }
+                None => runtime
+                    .bloom_host
+                    .clone()
+                    .ok_or_else(|| Error("no Bloom host to run Bloom applications".into()))?,
+            };
             let bundle = bundle
                 .as_ref()
                 .or(runtime.bloom_bundle.as_ref())
@@ -753,7 +828,10 @@ pub fn command(
                     &runtime.window.0.to_string(),
                     &runtime.window.1.to_string(),
                 ])
-                .env("OXYOS_SCRIPT_URL", format!("file://{}", bundle.display()));
+                .env(
+                    "OXYOS_SCRIPT_URL",
+                    format!("file://{}", script_url(bundle).display()),
+                );
             command
         }
     };
@@ -808,13 +886,25 @@ fn pinned(
                 .to_string();
         }
         (
-            Launch::Bloom { bundle, .. },
+            Launch::Bloom {
+                bundle,
+                runtime: abi,
+                ..
+            },
             Runs::Bloom {
                 host,
                 bundle: policy,
             },
         ) => {
-            runtime.bloom_host = Some(administrators(host, host, trusted)?);
+            let host = administrators(host, host, trusted)?;
+            // An entry naming its runtime runs that runtime's host: the policy's must be it.
+            if let Some(level) = abi.take() {
+                let runtime_host = runtimes::runtime(&runtime.runtimes, level).ok()?.host;
+                if runtime_host.canonicalize().ok()? != host {
+                    return None;
+                }
+            }
+            runtime.bloom_host = Some(host);
             *bundle = Some(administrators(policy, policy, trusted)?);
         }
         _ => return None,

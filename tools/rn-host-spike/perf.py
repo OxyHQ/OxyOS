@@ -24,7 +24,7 @@ when a budget (BUDGETS) is exceeded. A frame's budget is a refresh of the displa
 runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz without one), so a
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
-Usage: perf.py --offscreen BIN --host BIN --bundle DIR [--out DIR] [--runs N] [--gpu-only] [--check]
+Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only] [--check]
                [interactions] [cold-start] [idle]
 """
 
@@ -223,7 +223,7 @@ def run_scenario(options, scenario, out, during=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile. Returns (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
-               "--host", options.host, "--bundle", options.bundle, "--out", str(out)]
+               "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out)]
     if options.gpu_only:
         command += ["--gpu-only"]
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -443,8 +443,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*", help="interactions, cold-start, idle (all by default)")
     parser.add_argument("--offscreen", required=True)
-    parser.add_argument("--host", required=True)
-    parser.add_argument("--bundle", required=True)
+    parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
+    parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
     parser.add_argument("--out", default=None)
     parser.add_argument("--runs", type=int, default=3, help="runs of each scenario, pooled")
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")

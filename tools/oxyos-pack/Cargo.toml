@@ -1,0 +1,17 @@
+[package]
+name = "oxyos-pack"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-package = { path = "../../crates/oxyos-package" }
+# Reading a package's description, written by a person.
+serde = "1"
+serde_json = "1"
+# A development key's seed, from the system's random source.
+ring = "0.17"
+
+[lints]
+workspace = true

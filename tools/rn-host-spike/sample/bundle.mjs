@@ -46,7 +46,7 @@ if (hermesc) {
 // `getAppConfig` writes `app.config` into the APK's assets): next to the bundle, by the module that
 // runs it, where the host's ExponentConstants reads it (oxyos/expo-adapter.js).
 const application = require(path.resolve('oxyos/application-build.js'));
-if (application) {
+if (application && path.resolve(entry) === path.resolve('oxyos/stash-application.js')) {
   const config = path.resolve(outDir, 'applications', 'Stash', 'app.config');
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, JSON.stringify(application.config));

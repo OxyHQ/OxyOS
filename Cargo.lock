@@ -1597,6 +1597,7 @@ dependencies = [
 name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
+ "oxyos-package",
  "rustix",
  "serde",
  "serde_json",
@@ -1855,6 +1856,16 @@ dependencies = [
  "oxyos-seat",
  "oxyos-vt",
  "rustix",
+]
+
+[[package]]
+name = "oxyos-pack"
+version = "0.1.0"
+dependencies = [
+ "oxyos-package",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

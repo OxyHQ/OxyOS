@@ -136,10 +136,15 @@ host-build/oxyos-rn-spike "$HERE/tree.js"
 # React Native's JS and actual Bloom, bundled for the oxyos platform, drawn into a PNG. The sample
 # compiles its stylesheet (Tailwind and Bloom's theme) as an Oxy app does, so Bloom's classNames
 # resolve; its one dependency is Tailwind's PostCSS plugin (sample/package.json).
+# The host is laid out as runtime 1 (docs/adr/0030-installing-applications.mdx, decision 2), and each
+# application is a package of its own, compiled with that runtime's hermesc; the probes are one
+# development bundle (sample/packages.mjs).
+rm -rf "$WORK/runtimes" && cmake --install host-build --prefix "$WORK/runtimes/1" >/dev/null
+cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxyos-pack
 (cd "$HERE/sample" && npm ci --no-audit --no-fund >/dev/null && BLOOM_DIR="$BLOOM_DIR" \
-  HERMESC="$WORK/hermes-build/bin/hermesc" node bundle.mjs index.js "$WORK/sample")
-OXYOS_SCRIPT_URL="file://$WORK/sample/index.js" \
-  host-build/oxyos-bloom-host "$WORK/sample/index.js" OxyBloom "$WORK/bloom.png" 1024 640
+  OXYOS_PACK="$REPO/target/release/oxyos-pack" OXYOS_RUNTIME="$WORK/runtimes/1" node packages.mjs "$WORK/packages")
+OXYOS_SCRIPT_URL="file://$WORK/packages/so.oxy.inbox/bundle/index.js" \
+  "$WORK/runtimes/1/oxyos-bloom-host" "$WORK/packages/so.oxy.inbox/index.hbc" OxyBloom "$WORK/bloom.png" 1024 640
 
 # The same app in a window, as a regression: the offscreen compositor launches the host as its own
 # process, which presents through the display protocol, and drives scenarios/sample.json. Each
@@ -151,82 +156,82 @@ cargo build --release --locked --manifest-path "$REPO/Cargo.toml" -p oxyos-offsc
 # With OXYOS_GPU=1 every frame is also composed on a Vulkan device and must match the CPU
 # composition byte for byte (docs/adr/0004-gpu-composition.mdx).
 python3 "$HERE/regress.py" "$HERE/scenarios/sample.json" ${OXYOS_GPU:+--gpu} --offscreen "$REPO/target/release/oxyos-offscreen" \
-  --host "$WORK/host-build/oxyos-bloom-host" --bundle "$WORK/sample" --out "$WORK/regress"
+  --runtimes "$WORK/runtimes" --packages "$WORK/packages" --out "$WORK/regress"
 # A secure field's text is drawn as bullets and never reported or published to an assistive
 # technology (docs/adr/0003-accessibility-protocol.mdx).
 python3 "$HERE/regress.py" "$HERE/scenarios/secure-field.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-secure"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-secure"
 # React Native's Android APIs that OxyOS does not provide fail visibly; the rest answer truthfully
 # (docs/react-native-android-adaptation.mdx).
 python3 "$HERE/regress.py" "$HERE/scenarios/android-adaptation.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-adaptation"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-adaptation"
 # Editing keys in single-line and multiline fields: where each leaves the text and the selection.
 python3 "$HERE/regress.py" "$HERE/scenarios/text-editing.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-editing"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-editing"
 # An input method's transactions (ADR 0008): what each leaves in a field, the events React receives,
 # and what each field tells the compositor.
 python3 "$HERE/regress.py" "$HERE/scenarios/text-input.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-text-input"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-text-input"
 # An input method the session plays: keys through it, its compositions, a change for an older state,
 # and a password field it never sees.
 python3 "$HERE/regress.py" "$HERE/scenarios/input-method.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-input-method"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-input-method"
 # The OxyOS shell (apps/shell) in one window: it renders once the safe area is reported.
 python3 "$HERE/regress.py" "$HERE/scenarios/shell.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-shell"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-shell"
 # The same shell as the session's shell (ADR 0009): its panels and overlay, an application's window
 # between them.
 python3 "$HERE/regress.py" "$HERE/scenarios/session-shell.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-session-shell"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-session-shell"
 # The compositor's windows in the shell: an application joins the dock, and the dock restores it.
 python3 "$HERE/regress.py" "$HERE/scenarios/shell-windows.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-shell-windows"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-shell-windows"
 # fetch and XMLHttpRequest through the network in Rust (crates/oxyos-net), against a local server the
 # regression runs.
 python3 "$HERE/regress.py" "$HERE/scenarios/network.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-network"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-network"
 # Images: a wallpaper frame and the shell's app artwork, their load events and the output's pixels.
 python3 "$HERE/regress.py" "$HERE/scenarios/images.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-images"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-images"
 # expo-clipboard on the OS clipboard, with Ctrl+C and Ctrl+V in a Bloom field.
 python3 "$HERE/regress.py" "$HERE/scenarios/clipboard.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-clipboard"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-clipboard"
 # Bloom's bottom sheet in React Native's Modal, closed by its pan (gesture handler) and by Escape.
 python3 "$HERE/regress.py" "$HERE/scenarios/sheet.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-sheet"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-sheet"
 # The shell's overview: a window's card dragged onto another workspace.
 python3 "$HERE/regress.py" "$HERE/scenarios/shell-overview.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-shell-overview"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-shell-overview"
 # Transforms: views moved, scaled and turned, drawn and pressed where they are drawn.
 python3 "$HERE/regress.py" "$HERE/scenarios/transform.json" --check-damage \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-transform"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-transform"
 # Modal's animationType: its window sliding and fading in and out, frame by frame.
 python3 "$HERE/regress.py" "$HERE/scenarios/modal.json" --check-damage \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-modal"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-modal"
 # A touchpad pinch: two fingers to React Native and to gesture handlers' pinch and rotation.
 python3 "$HERE/regress.py" "$HERE/scenarios/pinch.json" --check-damage \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-pinch"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-pinch"
 # Animated's native driver: opacity, a transform and a colour stepped on the host's frames, and Bloom's Switch.
 python3 "$HERE/regress.py" "$HERE/scenarios/native-animated.json" --check-damage \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-native-animated"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-native-animated"
 # Intl: dates and numbers for several locales and time zones, each as Node prints it with the same CLDR.
 python3 "$HERE/regress.py" "$HERE/scenarios/intl.json" \
-  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
-  --bundle "$WORK/sample" --out "$WORK/regress-intl"
+  --offscreen "$REPO/target/release/oxyos-offscreen" --runtimes "$WORK/runtimes" \
+  --packages "$WORK/packages" --out "$WORK/regress-intl"

@@ -407,6 +407,8 @@ fn main() -> Result<()> {
             socket: socket.clone(),
             bloom_host: env_path("OXYOS_BLOOM_HOST"),
             bloom_bundle: env_path("OXYOS_BLOOM_BUNDLE"),
+            // The image's runtimes, never an environment variable's (ADR 0030, decision 2).
+            runtimes: PathBuf::from(oxyos_apps::RUNTIMES),
             window: (960, 600),
             env: Vec::new(),
         },
@@ -684,14 +686,25 @@ fn spawn_shell(
     command: &[OsString],
     output: OutputId,
 ) -> Result<std::process::Child> {
-    Ok(Command::new(command.first().ok_or(USAGE)?)
+    let mut shell = Command::new(command.first().ok_or(USAGE)?);
+    shell
         .args(&command[1..])
         .arg("--shell")
         .arg(output.to_string())
         .env("OXYOS_COMPOSITOR_SOCKET", socket)
         .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .spawn()?)
+        .env_remove("WAYLAND_DISPLAY");
+    // A Bloom host's bundle is known to its JavaScript by its source's URL, beside its assets: a
+    // package's compiled bundle by the source its manifest names (ADR 0030).
+    if let Some(bundle) = command
+        .get(1)
+        .map(std::path::Path::new)
+        .filter(|b| b.is_file())
+    {
+        let url = oxyos_apps::script_url(bundle);
+        shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
+    }
+    Ok(shell.spawn()?)
 }
 
 /// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch

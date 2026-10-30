@@ -8,6 +8,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <string_view>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -55,7 +56,13 @@ Application Application::launched(const std::string& bundlePath, const std::stri
     std::cerr << "[host] " << application.id
               << " was not started by the session: its id is only a claim, so it has no data directory\n";
   }
-  auto config = std::filesystem::path(bundlePath).parent_path() / "applications" / module / "app.config";
+  // Its embedded app config is next to its source bundle, which its script URL names: a package's
+  // compiled index.hbc is beside its bundle/ (docs/adr/0030-installing-applications.mdx).
+  std::filesystem::path base = std::filesystem::path(bundlePath).parent_path();
+  if (const char* url = std::getenv("OXYOS_SCRIPT_URL"); url && std::string_view(url).starts_with("file://")) {
+    base = std::filesystem::path(url + 7).parent_path();
+  }
+  auto config = base / "applications" / module / "app.config";
   if (std::ifstream in{config}) {
     std::stringstream text;
     text << in.rdbuf();
