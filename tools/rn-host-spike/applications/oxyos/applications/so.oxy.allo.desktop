@@ -1,0 +1,6 @@
+# Text editing in Bloom fields (sample/EditingProbe.tsx), run from the session's Bloom bundle.
+[Desktop Entry]
+Type=Application
+Name=Allo
+Icon=../../../../shell-preview/assets/apps/allo.png
+X-OxyOS-Bloom-Module=EditingProbe

@@ -770,6 +770,13 @@ int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
  * told of. Writes up to `capacity` to `out`; returns how many there are. */
 size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
 
+/* The session's applications (crates/oxyos-apps, docs/adr/0013-launching-applications.mdx), as JSON:
+ * [{"id", "name", "icon" (a file, or null), "pinned" (its place in the dock from 1, or null)}], sorted
+ * by name, in the session's language.
+ * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
+ * `capacity`: call again with more room). */
+int64_t oxyos_applications(char* out, size_t capacity);
+
 /* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
  * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and
  * clockwise from north. */

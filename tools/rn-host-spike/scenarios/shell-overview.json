@@ -7,7 +7,7 @@
   ],
   "shell": "OxyOSShell",
   "app": {
-    "id": "allo",
+    "id": "so.oxy.allo",
     "title": "Allo"
   },
   "steps": [
@@ -16,7 +16,7 @@
       "do": [
         "press_output",
         [
-          534,
+          622,
           693
         ]
       ],

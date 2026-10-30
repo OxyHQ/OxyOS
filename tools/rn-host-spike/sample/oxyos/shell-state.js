@@ -3,8 +3,9 @@
  * and the shell's actions on them. Only a Bloom host run as the shell (`--shell`) has the module.
  *
  * The state: { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active,
- * locked, user: { name, fullName }, capsLock, wallpaper }: wallpaper the file of the solar
- * wallpaper's frame that shows the sun now (null without one)., windows numbered by the compositor and workspaces from 0.
+ * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
+ * solar wallpaper's frame that shows the sun now (null without one); applications the session's
+ * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null }]., windows numbered by the compositor and workspaces from 0.
  * Actions are intents: the next state says what happened.
  *
  * The lock (docs/adr/0010-lock-screen.mdx): `lockSession()` locks; `authenticate(password)` sends

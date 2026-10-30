@@ -7,7 +7,7 @@
   ],
   "shell": "OxyOSShell",
   "app": {
-    "id": "allo",
+    "id": "so.oxy.allo",
     "title": "Allo"
   },
   "steps": [
@@ -30,7 +30,7 @@
           360
         ],
         "output_pixels": {
-          "812,684": "#250224"
+          "738,684": "#926791"
         },
         "react": {
           "touchStart@line": 1,
@@ -56,7 +56,7 @@
       "expect": {
         "window_shown": false,
         "output_pixels": {
-          "812,684": "#250224"
+          "738,684": "#926791"
         },
         "react": {},
         "delivered": {
@@ -71,7 +71,7 @@
       "do": [
         "press_output",
         [
-          825,
+          738,
           693
         ]
       ],

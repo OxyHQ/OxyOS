@@ -604,6 +604,11 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
+    if scenario.get("shell"):
+        # The shell's applications are the development registry's alone (ADR 0013), not the
+        # machine's.
+        env["XDG_DATA_DIRS"] = str(pathlib.Path(__file__).resolve().parent / "applications")
+        env["XDG_DATA_HOME"] = str(out / "xdg-data")
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
