@@ -258,9 +258,14 @@ fn main() -> Result<()> {
     match oxyos_gpu::VulkanCompositor::new() {
         Ok(gpu) if gpu.exports_dma_buf() => {
             eprintln!(
-                "[session] composing on {} ({:?}) into the displays' buffers",
+                "[session] composing on {} ({:?}) into the displays' buffers, {}",
                 gpu.device_name(),
-                gpu.device_kind()
+                gpu.device_kind(),
+                if gpu.exports_sync_file() {
+                    "each handed to the display with its completion (IN_FENCE_FD)"
+                } else {
+                    "each waited for before the display has it"
+                }
             );
             compositor.gpu_only = true;
             compositor.gpu = Some(Gpu {

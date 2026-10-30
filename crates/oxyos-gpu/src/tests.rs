@@ -161,6 +161,51 @@ fn vulkan_matches_the_reference() {
     assert_eq!(empty, vec![5; 256]);
 }
 
+/// A frame composed deferred returns once submitted, with its completion as a sync file where
+/// the device exports one (as a display's frames are, `compose_to_scanout`): the file becomes
+/// readable once the device is done, and the frame then reads back as the reference. A
+/// composition after it waits for it first, deferred or not.
+#[test]
+fn a_deferred_frame_completes_as_its_sync_file_says() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    eprintln!(
+        "{} exports sync files: {}",
+        gpu.device_name(),
+        gpu.exports_sync_file()
+    );
+    let (window, popup) = frame();
+    let layers = layers(&window, &popup);
+    let cpu = compose_cpu(320, 200, 0x0011_2233, &layers);
+    for _ in 0..3 {
+        let completion = gpu
+            .compose_deferred(320, 200, 0x0011_2233, &layers)
+            .unwrap();
+        assert_eq!(completion.is_some(), gpu.exports_sync_file());
+        if let Some(completion) = &completion {
+            let mut fds = [rustix::event::PollFd::new(
+                completion,
+                rustix::event::PollFlags::IN,
+            )];
+            let timeout = rustix::event::Timespec {
+                tv_sec: 10,
+                tv_nsec: 0,
+            };
+            assert_eq!(rustix::event::poll(&mut fds, Some(&timeout)).unwrap(), 1);
+        }
+        assert_eq!(gpu.read_deferred().unwrap(), cpu);
+    }
+    // Deferred, then another composition at once: the first is done before the second begins.
+    gpu.compose_deferred(320, 200, 0x0011_2233, &layers)
+        .unwrap();
+    assert_eq!(gpu.compose(16, 16, 5, &[]).unwrap(), vec![5; 256]);
+}
+
 /// A frame composed into a scanout target and kept reads back as the reference composed it,
 /// once; a later composition replaces it. Where the device exports no DMA-BUF, it says so.
 #[cfg(target_os = "linux")]
