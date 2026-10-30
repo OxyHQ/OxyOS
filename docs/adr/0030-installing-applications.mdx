@@ -6,7 +6,7 @@ order: 39
 
 # ADR 0030: Installing applications (Atlas)
 
-Status: **proposed** (a draft for the platform's author: [the decisions to make](#decisions-for-the-platforms-author) are listed at the end with a recommendation each). Nothing is implemented. Builds on:
+Status: **accepted** (decisions 1 to 15, and every choice under [Decided with the platform's author](#decided-with-the-platforms-author), chosen with the platform's author on 2026-10-30); steps to come. Builds on:
 - [ADR 0001](./0001-native-platform-boundaries): grants from the session authority.
 - [ADR 0013](./0013-launching-applications): the registry, launching and launch records.
 - [ADR 0015](./0015-application-model): one source, platform adapters.
@@ -178,28 +178,29 @@ Four facts of OxyOS's own shape the design:
 - **Atlas installing by itself, or verifying.** Then any application with the same rights could install, the confirmation would be Atlas's, and verification would be the application's.
 - **All capabilities granted at install** (Android before 6). A person grants everything at once and never thinks of it again. Sensitive ones are asked at first use, as a Mac and iOS ask.
 
-## Decisions for the platform's author
+## Decided with the platform's author
 
-Each has a recommendation, the one the decisions above take:
+The author took each recommendation; the decisions above are written to them:
 
-1. **Two signatures** (developer and store, decision 3) or the store's alone, as Google's Play App Signing holds the developer's key. Recommended: two.
-2. **A lost developer key.** With pinning, nobody can update the application, and only a new id helps (Android). Or allow a key reset signed by the offline root's threshold, never by online keys. Recommended: the root's threshold, rarely, recorded.
-3. **TUF** (decision 4) or simpler signed releases with only a version check against rollback. Recommended: TUF.
-4. **Who holds the root's offline keys**, how many, and the threshold (for example 2 of 3 hardware keys); the release key in a KMS or HSM.
-5. **Confirming an install**: the sheet alone, or the account's password too (a Mac's App Store can ask for it), always or for paid applications. Recommended: the sheet alone for free applications.
-6. **Installs for each account** with shared bytes (decision 6), or for the whole machine by an administrator. Recommended: each account, no administrator.
-7. **When capabilities are asked**: decision 8's table, or all at install.
-8. **The runtimes' support window**: how many `abi`s the image carries side by side, and for how long. Recommended: the current and the one before, for at least six months.
-9. **Native code in packages**: not until a native-extension ABI and confinement exist (decision 1), and whether Oxy's own applications may have it earlier. Recommended: not for anyone yet.
-10. **Third parties** only after confinement (decision 15). Recommended: yes.
-11. **What ships in the image**: Atlas and Stash as system applications (decision 13); whether others are installed at setup (Mention, Alia, Allo?), and whether those can be removed.
-12. **Installing outside Atlas**: packages from elsewhere, or only the development entries of decision 7. Recommended: none outside the store, beyond a developer mode with no grants and no Oxy identity.
-13. **Revocation** of an installed release by the store (decision 12), which Apple can do. Recommended: yes, telling the person.
-14. **Installs recorded on the server for each account** (`app_installs`), for *Purchased* and restoring a machine. Recommended: yes, shown in the account's data.
-15. **Where the installer seam lives**: the Oxy SDK beside `oxy.store` (decision 9), or Bloom's platform adapter. Recommended: the SDK, since installing is not presentation.
+1. **Two signatures**, the developer's and the store's (decision 3), not the store's alone.
+2. **A lost developer key** is reset only by a statement the offline root's threshold signs, never an online key: rarely, and recorded in the store's metadata for anyone to see.
+3. **TUF** for the store's metadata (decision 4).
+4. **Keys:** the root offline, held by people as hardware keys with a threshold (2 of 3 to begin with); the release, snapshot and timestamp keys in a KMS or HSM, never in an environment variable.
+5. **Confirming an install is the system's sheet alone,** with no password, for every install, update with new capabilities and uninstall (decision 9). The sheet is the proof a person chose it: no application can draw, cover or press it.
+6. **Installs for each account,** over bytes shared by the machine, with no administrator (decision 6).
+7. **Capabilities** as decision 8's table: declared and shown at install, the sensitive ones asked at first use, revocable in Settings.
+8. **Runtimes:** the image carries the current `abi` and the one before, for at least six months after a new one ships (decision 2).
+9. **No native code in packages,** for anyone, until a native-extension ABI and confinement exist (decision 1).
+10. **Third parties** only once applications are confined (decision 15).
+11. **The image** carries Atlas and Stash as system applications (decision 13); other applications are offered from Atlas, none installed by default at setup.
+12. **Nothing installs outside Atlas,** beyond development entries with no grants and no Oxy identity (decision 7).
+13. **Revocation** by the store of an installed release, telling the person (decision 12).
+14. **Installs are recorded for each account** on the server (`app_installs`), shown in the account's data (decision 12).
+15. **The installer seam is the Oxy SDK's,** beside `oxy.store` (decision 9).
 
 ## Steps
 
+0. **The system grants' policy** (decision 7), first and on its own: system grants from `/usr/share/oxyos/system-apps.json` alone, never from an entry's ownership, amending ADR 0019.
 1. **The format.** `crates/oxyos-package`: the manifest (parsing, JCS, digests, the files list, the runtime and capabilities), the developer's signature and its lineage, with tests on packages written by the tests: a file changed, a file missing, a file not listed, a path leaving the tree, a bad signature, a key not in the lineage. A development key and a test TUF root.
 2. **`oxyos-installd` from a local repository.** The service, the fetcher, the compiler's confinement, the layout of decision 6, `prepare`, `commit`, `uninstall`, `hold` and `release`, TUF's checks with the `tuf` crate or an implementation of the specification checked against its conformance tests, and the units, verified with `systemd-analyze`. Tests: each failure leaves nothing installed; a crash at each point leaves the old or the new version; another account sees nothing; rollback; never down. The development compositor installs from a directory served by the tests.
 3. **The registry and the launcher.** The three sources and their order, verified launch records, runtimes under `/usr/lib/oxyos/runtimes/`, holds. Settings, the shell and the login screen become packages of their own instead of one bundle. Scenarios: an installed application in the dock at once, launched and marked verified; a development entry with an installed id ignored; an installed entry asking for `settings` gets nothing.
