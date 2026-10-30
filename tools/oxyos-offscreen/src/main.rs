@@ -127,6 +127,10 @@ struct Session {
     /// system applications (a session gives `settings` only to the application that policy names
     /// it for): the application `ID`, launched, is given `settings`.
     grant_settings: Option<String>,
+    /// `--grant ID=GRANT,...`: system grants given to an application as the image's policy would.
+    grants: Vec<(String, oxyos_apps::Grants)>,
+    /// `--installd SOCKET`: the session's side of installing (ADR 0030).
+    installs: Option<oxyos_compositor::installs::Installs>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
@@ -201,6 +205,8 @@ impl Session {
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
+            grants: Vec::new(),
+            installs: None,
             controls: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -227,23 +233,88 @@ impl Session {
         Ok(())
     }
 
+    /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
+    /// the session serves them; what the store opens is launched from the registry.
+    fn serve_installs(&mut self) {
+        let Some(installs) = self.installs.as_mut() else {
+            return;
+        };
+        let askers: std::collections::BTreeMap<_, _> = self
+            .compositor
+            .peers
+            .iter()
+            .map(|(client, peer)| {
+                let pid = peer.pid as u32;
+                let launched = self.launcher.as_ref().and_then(|l| l.application_of(pid));
+                let asker = match (launched, &self.app) {
+                    (Some(launched), _) => match launched.origin {
+                        oxyos_apps::Origin::System => oxyos_compositor::installs::Asker::System,
+                        oxyos_apps::Origin::Development => {
+                            oxyos_compositor::installs::Asker::Development
+                        }
+                        oxyos_apps::Origin::Installed { .. } => {
+                            oxyos_compositor::installs::Asker::Installed {
+                                id: launched.id.clone(),
+                                decisions: launched.capabilities.clone(),
+                            }
+                        }
+                    },
+                    (None, Some((started, _))) if *started == pid => {
+                        oxyos_compositor::installs::Asker::Development
+                    }
+                    _ => oxyos_compositor::installs::Asker::Unknown,
+                };
+                (*client, asker)
+            })
+            .collect();
+        let unknown = oxyos_compositor::installs::Asker::Unknown;
+        let opens = installs.serve(&mut self.compositor.scene, &|client| {
+            askers.get(&client).cloned().unwrap_or(unknown.clone())
+        });
+        for open in opens {
+            let launched = self
+                .launcher
+                .as_mut()
+                .is_some_and(|launcher| launcher.launch(&open.id).is_ok());
+            if let Some(installs) = self.installs.as_ref() {
+                installs.opened(&mut self.compositor.scene, &open, launched);
+            }
+        }
+    }
+
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
         let (launcher, app) = (&self.launcher, &self.app);
         let grant_settings = self.grant_settings.as_deref();
+        let fixtures = &self.grants;
         self.compositor.name_clients(&|pid| {
-            let (id, settings) = match app {
-                Some((started, id)) if *started == pid => (id.clone(), false),
+            let (id, granted) = match app {
+                Some((started, id)) if *started == pid => {
+                    (id.clone(), oxyos_apps::Grants::default())
+                }
                 _ => {
                     let launched = launcher.as_ref()?.application_of(pid)?;
-                    (launched.id.clone(), launched.grants.settings)
+                    (launched.id.clone(), launched.grants)
                 }
             };
-            let fixture = grant_settings == Some(id.as_str());
+            let fixture = fixtures.iter().filter(|(fixed, _)| *fixed == id).fold(
+                oxyos_apps::Grants::default(),
+                |all, (_, g)| oxyos_apps::Grants {
+                    settings: all.settings || g.settings,
+                    store: all.store || g.store,
+                    updates: all.updates || g.updates,
+                    privacy: all.privacy || g.privacy,
+                },
+            );
             Some(oxyos_compositor::LaunchRecord {
                 grants: Grants {
-                    settings: settings || fixture,
+                    settings: granted.settings
+                        || fixture.settings
+                        || grant_settings == Some(id.as_str()),
+                    store: granted.store || fixture.store,
+                    updates: granted.updates || fixture.updates,
+                    privacy: granted.privacy || fixture.privacy,
                     ..Grants::default()
                 },
                 application: id,

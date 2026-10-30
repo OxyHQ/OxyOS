@@ -41,7 +41,7 @@ pub struct Grants {
 impl Grants {
     /// The grants `names` name; a name this system does not know is an error, so a policy that
     /// means something else says so.
-    fn named(names: &[String]) -> Result<Self, Error> {
+    pub fn named(names: &[String]) -> Result<Self, Error> {
         let mut grants = Self::default();
         for name in names {
             let grant = match name.as_str() {
@@ -1029,6 +1029,28 @@ pub struct Launched {
     pub capabilities: BTreeMap<String, String>,
 }
 
+/// What the Bloom host is told of a launch: its origin (`system`, `installed`, `development`) and
+/// the capabilities granted, `,`-separated (an installed version's account's grants; empty for any
+/// other, which the host does not narrow).
+pub fn launch_capabilities(
+    origin: &Origin,
+    decisions: &BTreeMap<String, String>,
+) -> (&'static str, String) {
+    match origin {
+        Origin::System => ("system", String::new()),
+        Origin::Development => ("development", String::new()),
+        Origin::Installed { .. } => (
+            "installed",
+            decisions
+                .iter()
+                .filter(|(_, decision)| decision.as_str() == "granted")
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(","),
+        ),
+    }
+}
+
 /// `program` at its real path, if it is the policy's `expected` there and only an administrator
 /// could have written it (`trusted`).
 fn administrators(
@@ -1176,14 +1198,21 @@ impl Launcher {
             }
             None => (command(&application, &self.runtime)?, Grants::default()),
         };
-        let child = command
-            .spawn()
-            .map_err(|error| Error(format!("{id}: {error}")))?;
-        let pid = child.id();
         let capabilities = match (&application.origin, &self.installed) {
             (Origin::Installed { .. }, Some(installed)) => capability_decisions(installed, id),
             _ => BTreeMap::new(),
         };
+        // What the Bloom host enforces for it (docs/adr/0030-installing-applications.mdx,
+        // decision 8): an installed version uses only what its account granted, read here at
+        // launch; a system or development application is not narrowed.
+        let (origin, granted) = launch_capabilities(&application.origin, &capabilities);
+        command
+            .env("OXYOS_APP_ORIGIN", origin)
+            .env("OXYOS_APP_CAPABILITIES", granted);
+        let child = command
+            .spawn()
+            .map_err(|error| Error(format!("{id}: {error}")))?;
+        let pid = child.id();
         self.children.push((
             child,
             Launched {

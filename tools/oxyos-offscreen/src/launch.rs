@@ -416,6 +416,13 @@ pub struct Launch {
     /// session gives it to the system application the image's policy names. A fixture: a
     /// scenario's entries are the developer's.
     pub grant_settings: Option<String>,
+    /// `--grant ID=GRANT,...`: the application ID is given those system grants (`settings`,
+    /// `store`, `updates`, `privacy`) when it is launched, as the image's policy gives them: a
+    /// fixture, as `--grant-settings` is.
+    pub grants: Vec<(String, oxyos_apps::Grants)>,
+    /// `--installd SOCKET`: the install service the store's, Settings' and applications'
+    /// requests go to (ADR 0030), one a scenario runs on directories of its own.
+    pub installd: Option<PathBuf>,
     /// `--runtimes DIR`: where the runtimes an application's entry names are
     /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
     /// image's (`/usr/lib/oxyos/runtimes`).
@@ -448,7 +455,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -531,6 +538,7 @@ impl Launch {
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
+        let (mut grants, mut installd) = (Vec::new(), None);
         let mut runtimes = None;
         let mut installed_fixture = None;
         let mut screens = Vec::new();
@@ -603,6 +611,18 @@ impl Launch {
                 }
                 Some("--runtimes") => {
                     runtimes = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--grant") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    let (id, list) = value.split_once('=').ok_or(USAGE)?;
+                    let names: Vec<String> = list.split(',').map(str::to_string).collect();
+                    let granted = oxyos_apps::Grants::named(&names).map_err(|_| USAGE)?;
+                    grants.push((id.to_string(), granted));
+                    continue;
+                }
+                Some("--installd") => {
+                    installd = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--grant-settings") => {
@@ -885,6 +905,8 @@ impl Launch {
                 reader_locale,
                 preferences,
                 grant_settings,
+                grants,
+                installd,
                 runtimes,
                 installed_fixture,
                 controls,
@@ -1160,6 +1182,7 @@ fn settle(
         }
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
+        session.serve_installs();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
@@ -2426,6 +2449,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    session.grants = launch.grants.clone();
+    if let Some(socket) = &launch.installd {
+        let installs = oxyos_compositor::installs::Installs::new(
+            socket.clone(),
+            std::env::var_os("HOME").map(PathBuf::from),
+        )?;
+        session.compositor.wakers.push(installs.wake_fd()?);
+        session.installs = Some(installs);
+    }
     session.installed_fixture = launch.installed_fixture.clone();
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
@@ -2791,6 +2823,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     while Instant::now() < until {
                         session.compositor.serve(&session.listener)?;
                         session.serve_launches();
+                        session.serve_installs();
                         session.serve_preferences();
                         session.reader.absorb(&mut session.compositor);
                     }

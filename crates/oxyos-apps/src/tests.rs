@@ -1337,3 +1337,28 @@ fn the_registrys_sources_are_followed_even_before_they_are_there() {
     assert!(watch.changed());
     assert!(!watch.changed());
 }
+
+#[test]
+fn the_host_is_told_what_an_installed_version_was_granted() {
+    let decisions: BTreeMap<String, String> = [
+        ("network", "granted"),
+        ("notifications", "undecided"),
+        ("files", "denied"),
+        ("oxy-account", "granted"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    assert_eq!(
+        launch_capabilities(&Origin::Installed { version_code: 3 }, &decisions),
+        ("installed", "network,oxy-account".to_string())
+    );
+    assert_eq!(
+        launch_capabilities(&Origin::System, &decisions),
+        ("system", String::new())
+    );
+    assert_eq!(
+        launch_capabilities(&Origin::Development, &BTreeMap::new()),
+        ("development", String::new())
+    );
+}
