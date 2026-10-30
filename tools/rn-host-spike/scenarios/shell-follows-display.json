@@ -1,0 +1,82 @@
+{
+  "module": "OxyOSSettings",
+  "window": [
+    980,
+    760
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light"
+    }
+  },
+  "shell": "OxyOSShell",
+  "displays": [
+    {
+      "identity": "BOE-0A4B-00000001",
+      "kind": "internal",
+      "size_mm": [
+        301,
+        188
+      ],
+      "modes": [
+        "1920x1200@60000*",
+        "1440x900@60000",
+        "1280x800@60000"
+      ],
+      "connector": "eDP-1"
+    }
+  ],
+  "about": "The session's shell and its applications follow their output when Settings changes its scale (ADR 0018, 0019): a 14-inch 1920x1200 panel, at 1.25 (1536x960 logical) by its density, is set to 1 (1920x1200, 'More space'). React Native's Dimensions (useWindowDimensions) follow the window, as Android's DeviceInfoModule emits didUpdateDimensions on a configuration change: Launchpad, opened from the dock afterwards, covers the whole 1920x1200 with its blurred backdrop. Before, the host gave Dimensions once, at start: the shell kept laying its overlays out for 1536x960, and Launchpad's backdrop stopped at 1536, the wallpaper's banded stretch showing right of it.",
+  "steps": [
+    {
+      "name": "Displays: the built-in display at 1.25",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Displays"
+        ]
+      ],
+      "allow_unchanged": true
+    },
+    {
+      "name": "More space: the display at scale 1, 1920 × 1200 logical",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Looks like 1920 × 1200"
+        ]
+      ],
+      "allow_unchanged": true
+    },
+    {
+      "name": "Launchpad from the dock: its blurred backdrop covers the whole screen, right of 1536 and below 960 too",
+      "do": [
+        "press_output",
+        [
+          901,
+          1173
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "smooth": {
+          "region": [
+            1600,
+            600,
+            1900,
+            900
+          ],
+          "max_step": 2,
+          "median_run_max": 3
+        }
+      }
+    }
+  ]
+}
