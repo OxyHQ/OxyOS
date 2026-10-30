@@ -4,10 +4,12 @@
  * OxyOS, natively and in the browser: only the model differs (docs/adr/0015-application-model.mdx).
  */
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { PanResponder, Pressable, View } from "react-native";
+import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import {
   RiAccessibilityLine,
   RiCalendarLine,
+  RiComputerLine,
   RiImageLine,
   RiInformationLine,
   RiKeyboardLine,
@@ -34,12 +36,21 @@ import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-sectio
 import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
 import { Switch } from "@oxy.so/bloom/switch";
-import { APP_COLOR_PRESETS } from "@oxy.so/bloom/theme";
+import { APP_COLOR_PRESETS, useTheme } from "@oxy.so/bloom/theme";
+import { Text } from "@oxy.so/bloom/typography";
 import {
   ACCENTS,
+  besideOthers,
+  diagonalInches,
   formatMemory,
+  formatRefresh,
+  formatSize,
+  looksLike,
   LOCK_AFTER_CHOICES,
+  refreshRates,
+  resolutions,
   type Appearance,
+  type Display,
   type NotificationPreviews,
   type SettingsActions,
   type SettingsSnapshot,
@@ -265,6 +276,371 @@ function LockScreenPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
+/** How tall the arrangement is drawn, and the room around it. */
+const ARRANGEMENT_HEIGHT = 200;
+const ARRANGEMENT_PADDING = 20;
+
+/**
+ * One display in the arrangement, drawn to scale where it is. Pressed, it is the display whose
+ * settings are shown, as a Mac's Displays settings choose one; dragged, it is dropped where the
+ * person leaves it, and the session places it beside the others (touching one, over none). The
+ * main display shows a bar along its top, as a Mac's arrangement shows the menu bar. Its custom
+ * accessibility actions move it to one side of the others, for those who do not drag.
+ */
+function ArrangedDisplay({
+  display,
+  displays,
+  label,
+  chosen,
+  onChoose,
+  place,
+  factor,
+  actions,
+  strings,
+}: {
+  display: Display;
+  displays: readonly Display[];
+  label: string;
+  chosen: boolean;
+  onChoose: () => void;
+  place: { left: number; top: number; width: number; height: number };
+  factor: number;
+  actions: SettingsActions;
+  strings: PageProps["strings"];
+}) {
+  const theme = useTheme();
+  const words = strings.displays;
+  const [drag, setDrag] = React.useState({ dx: 0, dy: 0 });
+  const responder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderMove: (_, gesture) => setDrag({ dx: gesture.dx, dy: gesture.dy }),
+        onPanResponderRelease: (_, gesture) => {
+          setDrag({ dx: 0, dy: 0 });
+          if (Math.abs(gesture.dx) + Math.abs(gesture.dy) < 3) {
+            onChoose();
+            return;
+          }
+          actions.setDisplayOrigin(
+            display.output,
+            Math.round(display.x + gesture.dx / factor),
+            Math.round(display.y + gesture.dy / factor),
+          );
+        },
+        onPanResponderTerminate: () => setDrag({ dx: 0, dy: 0 }),
+      }),
+    [actions, display.output, display.x, display.y, factor, onChoose],
+  );
+  const sides = [
+    ["moveLeft", "left"],
+    ["moveRight", "right"],
+    ["moveAbove", "above"],
+    ["moveBelow", "below"],
+  ] as const;
+  return (
+    <View
+      {...responder.panHandlers}
+      testID={`arranged-${display.output}`}
+      accessible
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: chosen }}
+      accessibilityActions={[
+        { name: "activate" },
+        ...sides.map(([name]) => ({ name, label: words[name] })),
+      ]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === "activate") {
+          onChoose();
+          return;
+        }
+        const side = sides.find(([name]) => name === event.nativeEvent.actionName)?.[1];
+        if (!side) return;
+        const at = besideOthers(displays, display.output, side);
+        actions.setDisplayOrigin(display.output, at.x, at.y);
+      }}
+      style={{
+        position: "absolute",
+        left: place.left + drag.dx,
+        top: place.top + drag.dy,
+        width: place.width,
+        height: place.height,
+        borderRadius: 6,
+        borderWidth: chosen ? 3 : 1,
+        borderColor: chosen ? theme.colors.text : theme.colors.background,
+        backgroundColor: theme.colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {display.primary ? (
+        <View
+          testID={`main-bar-${display.output}`}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            height: 6,
+            backgroundColor: theme.colors.primaryForeground,
+            opacity: 0.85,
+          }}
+        />
+      ) : null}
+      <Text numberOfLines={1} style={{ color: theme.colors.primaryForeground, fontSize: 12, paddingHorizontal: 4 }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** The displays where they are in the global space, drawn to scale and centred; the one whose
+    settings are shown is outlined. */
+function Arrangement({
+  displays,
+  chosen,
+  onChoose,
+  nameOf,
+  actions,
+  strings,
+}: {
+  displays: readonly Display[];
+  chosen: number;
+  onChoose: (output: number) => void;
+  nameOf: (display: Display) => string;
+  actions: SettingsActions;
+  strings: PageProps["strings"];
+}) {
+  const [width, setWidth] = React.useState(0);
+  const left = Math.min(...displays.map((d) => d.x));
+  const top = Math.min(...displays.map((d) => d.y));
+  const right = Math.max(...displays.map((d) => d.x + d.width));
+  const bottom = Math.max(...displays.map((d) => d.y + d.height));
+  const factor = Math.min(
+    (width - 2 * ARRANGEMENT_PADDING) / Math.max(1, right - left),
+    (ARRANGEMENT_HEIGHT - 2 * ARRANGEMENT_PADDING) / Math.max(1, bottom - top),
+  );
+  const originX = (width - (right - left) * factor) / 2;
+  const originY = (ARRANGEMENT_HEIGHT - (bottom - top) * factor) / 2;
+  return (
+    <View
+      testID="arrangement"
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{ height: ARRANGEMENT_HEIGHT }}
+    >
+      {width > 0
+        ? displays.map((display) => (
+            <ArrangedDisplay
+              key={display.output}
+              display={display}
+              displays={displays}
+              label={nameOf(display)}
+              chosen={display.output === chosen}
+              onChoose={() => onChoose(display.output)}
+              place={{
+                left: originX + (display.x - left) * factor,
+                top: originY + (display.y - top) * factor,
+                width: display.width * factor,
+                height: display.height * factor,
+              }}
+              factor={factor}
+              actions={actions}
+              strings={strings}
+            />
+          ))
+        : null}
+    </View>
+  );
+}
+
+/** The seconds left of a mode on trial, counted down from when the session said it. */
+function useSecondsLeft(trial: SettingsSnapshot["displays"]["trial"]): number {
+  const [left, setLeft] = React.useState(trial?.seconds ?? 0);
+  const output = trial?.output;
+  const seconds = trial?.seconds ?? 0;
+  React.useEffect(() => {
+    setLeft(seconds);
+    if (seconds === 0) return;
+    const start = Date.now();
+    const timer = setInterval(() => {
+      setLeft(Math.max(0, seconds - Math.floor((Date.now() - start) / 1000)));
+    }, 250);
+    return () => clearInterval(timer);
+  }, [output, seconds]);
+  return left;
+}
+
+/**
+ * Displays (docs/adr/0018-several-displays.mdx), as a Mac's: with several, their arrangement and
+ * which is the main one; for the one chosen, its scale ("Larger text" to "More space", what it
+ * looks like at each), its resolution and its refresh rate. A resolution or refresh rate is shown
+ * on trial: kept only if the person keeps it before it goes back.
+ */
+function DisplaysPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.displays;
+  const { displays, trial } = snapshot.displays;
+  const [chosen, setChosen] = React.useState<number | null>(null);
+  const secondsLeft = useSecondsLeft(trial);
+  const display =
+    displays.find((d) => d.output === chosen) ?? displays.find((d) => d.primary) ?? displays[0];
+  const nameOf = (d: Display) => (d.builtin ? words.builtin : d.name);
+  if (!display) {
+    return (
+      <GroupedSection>
+        <GroupedSectionItem title={words.none} testID="no-display" />
+      </GroupedSection>
+    );
+  }
+  const several = displays.length > 1;
+  const mode = display.modes[display.mode];
+  const sizes = resolutions(display);
+  const rates = mode ? refreshRates(display, mode.width, mode.height) : [];
+  const looks = (scale: number) => {
+    const size = looksLike(display, scale);
+    return formatSize(size.width, size.height);
+  };
+  // A resolution keeps the refresh rate shown where it has it, else takes its fastest.
+  const chooseResolution = (value: string) => {
+    const [width, height] = value.split("x").map(Number);
+    const same = refreshRates(display, width, height);
+    const next = same.find((m) => m.refreshMhz === mode?.refreshMhz) ?? same[0];
+    if (next) actions.setDisplayMode(display.output, next);
+  };
+  return (
+    <View style={PAGE}>
+      {several ? (
+        <GroupedSection title={words.arrangement} footer={words.arrangementDescription}>
+          <Arrangement
+            displays={displays}
+            chosen={display.output}
+            onChoose={setChosen}
+            nameOf={nameOf}
+            actions={actions}
+            strings={strings}
+          />
+        </GroupedSection>
+      ) : null}
+      <GroupedSection>
+        <GroupedSectionItem
+          title={nameOf(display)}
+          description={words.size(
+            diagonalInches(display.widthMm, display.heightMm),
+            mode ? formatSize(mode.width, mode.height) : formatSize(display.width, display.height),
+          )}
+          icon={<RiComputerLine />}
+          testID="display-name"
+        />
+        {several ? (
+          <GroupedSectionItem
+            title={words.useAs}
+            testID="use-as-row"
+            rightElement={
+              <SegmentedControl<string>
+                label={words.useAs}
+                type="radio"
+                value={display.primary ? "main" : "extended"}
+                onValueChange={(value) => {
+                  if (value === "main") actions.setPrimaryDisplay(display.output);
+                }}
+                testID="use-as"
+              >
+                <SegmentedControlItem value="main" testID="use-as-main">
+                  <SegmentedControlItemText>{words.main}</SegmentedControlItemText>
+                </SegmentedControlItem>
+                <SegmentedControlItem value="extended" testID="use-as-extended">
+                  <SegmentedControlItemText>{words.extended}</SegmentedControlItemText>
+                </SegmentedControlItem>
+              </SegmentedControl>
+            }
+          />
+        ) : null}
+      </GroupedSection>
+      <GroupedSection footer={words.scaleDescription(looks(display.recommended))}>
+        {display.scales.length > 1 ? (
+          <GroupedSectionItem
+            title={words.scale}
+            testID="scale-row"
+            rightElement={
+              <SegmentedControl<string>
+                label={words.scale}
+                type="radio"
+                value={String(display.scale)}
+                onValueChange={(value) => actions.setDisplayScale(display.output, Number(value))}
+                testID="scale"
+              >
+                {/* Larger text on the left, more space on the right, as a Mac lays them out. */}
+                {[...display.scales].reverse().map((scale) => (
+                  <SegmentedControlItem
+                    key={scale}
+                    value={String(scale)}
+                    accessibilityLabel={words.looksLike(looks(scale))}
+                    testID={`scale-${scale}`}
+                  >
+                    <SegmentedControlItemText>{looks(scale)}</SegmentedControlItemText>
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
+            }
+          />
+        ) : null}
+        <GroupedSectionItem
+          title={words.resolution}
+          rightElement={
+            <Choice
+              label={words.resolution}
+              value={mode ? `${mode.width}x${mode.height}` : ""}
+              items={sizes.map((size) => {
+                const text = formatSize(size.width, size.height);
+                return { value: `${size.width}x${size.height}`, label: size.native ? words.native(text) : text };
+              })}
+              onChange={chooseResolution}
+              testID="resolution"
+            />
+          }
+        />
+        {rates.length > 1 ? (
+          <GroupedSectionItem
+            title={words.refresh}
+            rightElement={
+              <Choice
+                label={words.refresh}
+                value={String(mode?.refreshMhz ?? "")}
+                items={rates.map((rate) => ({ value: String(rate.refreshMhz), label: formatRefresh(rate.refreshMhz) }))}
+                onChange={(value) => {
+                  const next = rates.find((rate) => String(rate.refreshMhz) === value);
+                  if (next) actions.setDisplayMode(display.output, next);
+                }}
+                testID="refresh-rate"
+              />
+            }
+          />
+        ) : (
+          <GroupedSectionItem
+            title={words.refresh}
+            value={mode ? formatRefresh(mode.refreshMhz) : ""}
+            testID="refresh-rate"
+          />
+        )}
+      </GroupedSection>
+      <AlertDialog
+        open={trial !== null}
+        onOpenChange={() => {}}
+        title={words.keepTitle}
+        description={words.keepDescription(secondsLeft)}
+        confirmLabel={words.keep}
+        cancelLabel={words.revert}
+        onConfirm={() => actions.confirmDisplays(true)}
+        onCancel={() => actions.confirmDisplays(false)}
+        dismissible={false}
+        testID="keep-displays"
+      />
+    </View>
+  );
+}
+
 function KeyboardPage({ snapshot, strings }: PageProps) {
   return (
     <GroupedSection footer={strings.systemNote}>
@@ -332,12 +708,20 @@ function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
 function AboutPage({ snapshot, strings }: PageProps) {
   const words = strings.about;
   const { system } = snapshot;
+  // The main display, as the session shows it, when the host says none of its own.
+  const main = snapshot.displays.displays.find((d) => d.primary);
+  const mainMode = main?.modes[main.mode];
+  const display =
+    system.display ||
+    (main && mainMode
+      ? `${main.builtin ? strings.displays.builtin : main.name}, ${formatSize(mainMode.width, mainMode.height)}`
+      : "");
   const rows: [string, string, string][] = [
     [words.name, system.computerName, "about-name"],
     [words.version, system.version, "about-version"],
     [words.processor, system.processor, "about-processor"],
     [words.memory, formatMemory(system.memoryBytes), "about-memory"],
-    [words.display, system.display, "about-display"],
+    [words.display, display, "about-display"],
   ];
   return (
     <GroupedSection>
@@ -370,6 +754,7 @@ export function Settings({
         { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
         { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
         { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+        { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
         { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
       ],
     },
@@ -388,6 +773,7 @@ export function Settings({
     wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
     notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
     "lock-screen": { title: words.lockScreen, content: <LockScreenPage {...props} /> },
+    displays: { title: words.displays, content: <DisplaysPage {...props} /> },
     accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },

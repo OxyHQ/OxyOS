@@ -464,6 +464,8 @@ int main(int argc, char** argv) {
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
+  // Settings' requests to the session, numbered alike: preferences and displays (ADR 0018, 0019).
+  uint32_t settingsSerial = 0;
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
   if (windowed) {
@@ -503,10 +505,53 @@ int main(int argc, char** argv) {
           },
           // Only Settings may ask: the session gave it the preferences with its grant. Anything
           // else would be refused by the compositor, which closes the connection.
-          .set = [&window, serial = uint32_t{0}](const std::string& key, const std::string& value) mutable -> uint32_t {
+          .set = [&window, &settingsSerial](const std::string& key, const std::string& value) -> uint32_t {
             if (!window->settingsGranted()) return 0;
-            ++serial;
-            return window->setPreference(serial, key, value) ? serial : 0;
+            ++settingsSerial;
+            return window->setPreference(settingsSerial, key, value) ? settingsSerial : 0;
+          },
+          // The displays (docs/adr/0018-several-displays.mdx), as the session tells Settings them.
+          .displays = [&window]() -> folly::dynamic {
+            if (!window->settingsGranted()) return nullptr;
+            folly::dynamic displays = folly::dynamic::array;
+            for (const auto& [output, display] : window->displays()) {
+              folly::dynamic modes = folly::dynamic::array, scales = folly::dynamic::array;
+              for (const auto& mode : display.modes) {
+                modes.push_back(folly::dynamic::object("width", mode.width)("height", mode.height)(
+                    "refreshMhz", mode.refreshMhz)("preferred", mode.preferred));
+              }
+              for (uint32_t scale : display.scales) scales.push_back(scale);
+              displays.push_back(folly::dynamic::object("output", output)("name", display.name)(
+                  "builtin", display.builtin)("primary", display.primary)("x", display.x)("y", display.y)(
+                  "width", display.width)("height", display.height)("scale", display.scale120)("mode", display.mode)(
+                  "modes", std::move(modes))("scales", std::move(scales))("recommended", display.recommended)(
+                  "widthMm", display.widthMm)("heightMm", display.heightMm));
+            }
+            const auto& trial = window->trial();
+            return folly::dynamic::object("displays", std::move(displays))(
+                "trial", trial.seconds ? folly::dynamic(folly::dynamic::object("output", trial.output)(
+                                             "seconds", trial.seconds))
+                                       : folly::dynamic(nullptr));
+          },
+          .display = [&window, &settingsSerial](const std::string& change,
+                                                const std::vector<double>& numbers) -> uint32_t {
+            if (!window->settingsGranted()) return 0;
+            auto at = [&](size_t i) { return i < numbers.size() ? numbers[i] : 0.0; };
+            auto whole = [&](size_t i) { return static_cast<uint32_t>(std::max(0.0, at(i))); };
+            uint32_t serial = ++settingsSerial;
+            bool sent = false;
+            if (change == "mode" && numbers.size() == 4) {
+              sent = window->setDisplayMode(serial, whole(0), whole(1), whole(2), whole(3));
+            } else if (change == "scale" && numbers.size() == 2) {
+              sent = window->setDisplayScale(serial, whole(0), whole(1));
+            } else if (change == "origin" && numbers.size() == 3) {
+              sent = window->setDisplayOrigin(serial, whole(0), static_cast<int32_t>(at(1)), static_cast<int32_t>(at(2)));
+            } else if (change == "primary" && numbers.size() == 1) {
+              sent = window->setPrimaryDisplay(serial, whole(0));
+            } else if (change == "confirm" && numbers.size() == 1) {
+              sent = window->confirmDisplays(serial, at(0) != 0);
+            }
+            return sent ? serial : 0;
           },
       };
     } catch (const std::exception& error) {
@@ -675,6 +720,7 @@ int main(int argc, char** argv) {
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
+    folly::dynamic toldDisplays = nullptr;
     if (!shellMode) {
       services.window = {
           .state = [&window] {
@@ -1037,6 +1083,16 @@ int main(int argc, char** argv) {
           toldPreferences = window->preferences();
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
+        }
+        // The displays as the session tells Settings them (docs/adr/0018-several-displays.mdx).
+        if (window && services.settings.displays) {
+          auto displays = services.settings.displays();
+          if (displays != toldDisplays) {
+            toldDisplays = displays;
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSDisplaysChanged", displays));
+            if (!displays.isNull()) oxyos::Report::get().input("displays", oxyos::Window::kToplevel, displays);
+          }
         }
         for (const auto& result : preferenceResults) {
           instance->callFunctionOnModule(
