@@ -1,7 +1,8 @@
 #!/bin/sh
 # Feasibility spike for #33: build Hermes V1 and React Native's ReactCommon (Fabric, Yoga, cxx
-# platform) for Linux x86_64, plus the C++ cores of react-native-worklets and
-# react-native-reanimated, and run a host that mounts a tree through nativeFabricUIManager.
+# platform) for Linux on the machine it runs on (x86-64 or AArch64), plus the C++ cores of
+# react-native-worklets and react-native-reanimated, and run a host that mounts a tree through
+# nativeFabricUIManager.
 #
 # Usage: tools/rn-host-spike/build.sh <react-native-package-dir> <work-dir> [<bloom-checkout>]
 #   e.g. tools/rn-host-spike/build.sh ../Bloom/node_modules/react-native /tmp/rn-spike
@@ -16,6 +17,14 @@ WORK=$(mkdir -p "$2" && cd "$2" && pwd)
 BLOOM_DIR=$(cd "${3:-$RN_DIR/../..}" && pwd)
 HERE=$(cd "$(dirname "$0")" && pwd)
 JOBS=${JOBS:-12}
+
+# Debian's multiarch directory for this machine's libraries (/usr/lib/<triplet>): OxyOS builds for
+# amd64 and arm64 (docs/adr/0027-arm.mdx).
+case $(dpkg --print-architecture) in
+  amd64) MULTIARCH=x86_64-linux-gnu ;;
+  arm64) MULTIARCH=aarch64-linux-gnu ;;
+  *) echo "build.sh: $(dpkg --print-architecture) is not an OxyOS architecture (amd64, arm64)" >&2; exit 1 ;;
+esac
 
 RN_VERSION=$(node -p "require('$RN_DIR/package.json').version")
 HERMES_TAG=$(cat "$RN_DIR/sdks/.hermesv1version")
@@ -38,8 +47,8 @@ if [ ! -e text/usr/include/harfbuzz/hb.h ]; then
   mkdir -p debs/text && (cd debs/text && apt-get download libfreetype-dev libharfbuzz-dev)
   for deb in debs/text/*.deb; do dpkg -x "$deb" text; done
   for lib in freetype harfbuzz; do
-    so=$(ls /usr/lib/x86_64-linux-gnu/lib$lib.so.[0-9]* | head -1)
-    rm -f "text/usr/lib/x86_64-linux-gnu/lib$lib.so" && ln -s "$so" "text/usr/lib/x86_64-linux-gnu/lib$lib.so"
+    so=$(ls /usr/lib/$MULTIARCH/lib$lib.so.[0-9]* | head -1)
+    rm -f "text/usr/lib/$MULTIARCH/lib$lib.so" && ln -s "$so" "text/usr/lib/$MULTIARCH/lib$lib.so"
   done
 fi
 
@@ -49,8 +58,8 @@ if [ ! -e icu/usr/include/unicode/uchar.h ]; then
   mkdir -p debs/icu && (cd debs/icu && apt-get download libicu-dev)
   for deb in debs/icu/*.deb; do dpkg -x "$deb" icu; done
   for lib in icuuc icui18n icudata; do
-    so=$(ls /usr/lib/x86_64-linux-gnu/lib$lib.so.[0-9]* | head -1)
-    rm -f "icu/usr/lib/x86_64-linux-gnu/lib$lib.so" && ln -s "$so" "icu/usr/lib/x86_64-linux-gnu/lib$lib.so"
+    so=$(ls /usr/lib/$MULTIARCH/lib$lib.so.[0-9]* | head -1)
+    rm -f "icu/usr/lib/$MULTIARCH/lib$lib.so" && ln -s "$so" "icu/usr/lib/$MULTIARCH/lib$lib.so"
   done
 fi
 

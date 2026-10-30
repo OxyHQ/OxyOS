@@ -1,4 +1,5 @@
-# Feasibility spike: React Native 0.88 ReactCommon (cxx platform) + Hermes V1 on Linux x86_64.
+# Feasibility spike: React Native 0.88 ReactCommon (cxx platform) + Hermes V1 on Linux, x86-64 or
+# AArch64 (docs/adr/0027-arm.mdx).
 cmake_minimum_required(VERSION 3.13)
 project(oxyos_rn_spike C CXX)
 set(CMAKE_CXX_STANDARD 20)
@@ -6,6 +7,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # Several React Native headers use <cstdint> types without including it; libc++ (Android, Apple)
 # includes it transitively, libstdc++ does not.
 add_compile_options(-include cstdint)
+# The same layout and pixels on every architecture: Clang contracts a * b + c into one fused
+# multiply-add wherever the target has one (AArch64 always; x86-64 only with -mfma), which rounds
+# once instead of twice and moves Yoga's layout and the host's drawing by a level here and there.
+# Off, every operation rounds as written, as Rust's arithmetic does (docs/adr/0027-arm.mdx). Hermes
+# keeps its own setting, as React Native builds it.
+add_compile_options(-ffp-contract=off)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR
     REANIMATED_CODEGEN_DIR SVG_DIR SVG_CODEGEN_DIR GESTURE_HANDLER_DIR OXYOS_CLIENT_LIB TEXTINPUT_DIR)
   if(NOT DEFINED ${var})
@@ -111,8 +118,14 @@ foreach(var TEXT_SYSROOT ICU_SYSROOT)
     message(FATAL_ERROR "${var} is required; run build.sh")
   endif()
 endforeach()
+# The libraries are in Debian's multiarch directory of the target (x86_64-linux-gnu,
+# aarch64-linux-gnu), which CMake learns from the compiler.
+if(NOT CMAKE_LIBRARY_ARCHITECTURE)
+  message(FATAL_ERROR "the compiler names no multiarch directory (CMAKE_LIBRARY_ARCHITECTURE)")
+endif()
 set(TEXT_INCLUDES ${TEXT_SYSROOT}/include/freetype2 ${TEXT_SYSROOT}/include/harfbuzz)
-set(TEXT_LIBS ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libfreetype.so ${TEXT_SYSROOT}/lib/x86_64-linux-gnu/libharfbuzz.so)
+set(TEXT_LIBS ${TEXT_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libfreetype.so
+  ${TEXT_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libharfbuzz.so)
 
 # Replace the cxx platform's measurement stub with the host text engine.
 get_target_property(tlm_sources react_renderer_textlayoutmanager SOURCES)
@@ -211,7 +224,7 @@ target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview rrc_mod
 # Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
 # Hermes already links.
 target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)
-target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/x86_64-linux-gnu/libicuuc.so)
+target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so)
 target_compile_options(oxyos-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
 # Debug aid: OXYOS_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.
