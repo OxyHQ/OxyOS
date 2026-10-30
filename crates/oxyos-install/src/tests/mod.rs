@@ -203,49 +203,36 @@ impl Pkg {
                 developer_key_id: signature.key_id.clone(),
             },
         };
-        let release = key(self.store).sign_release(statement).to_canonical();
-        let text = |bytes: Vec<u8>| json::string(&String::from_utf8(bytes).unwrap());
-        let mut members = vec![
-            ("release", text(release)),
-            ("signature", text(signature.to_canonical())),
-            (
-                "developerKey",
-                json::string(&key(self.published_key).public_key().encode()),
-            ),
-        ];
-        if !self.lineage.0.is_empty() {
-            members.push(("lineage", text(self.lineage.to_canonical())));
-        }
-        if !self.notes.is_empty() {
-            members.push((
-                "releaseNotes",
-                json::object(
-                    self.notes
-                        .iter()
-                        .map(|(language, text)| (*language, json::string(text)))
-                        .collect(),
-                ),
-            ));
-        }
-        json::object(vec![("oxyos", json::object(members))])
+        crate::repository::release_custom(
+            statement,
+            &signature,
+            &key(self.published_key).public_key(),
+            &key(self.store),
+            &self.lineage,
+            &self.notes,
+        )
     }
 }
 
-/// A repository as the store serves it.
-pub struct Repo {
-    pub dir: PathBuf,
-    pub targets: Vec<(String, Value)>,
-    pub versions: [u64; 3],
-    /// When each role's document expires.
-    pub expires: [i64; 3],
+/// A repository as the store serves it: `crate::repository`'s, with the tests' keys of fixed seeds.
+pub type Repo = crate::repository::Repository;
+
+pub use crate::repository::{TARGETS, TIMESTAMP};
+
+/// The tests' ways with a repository, over `crate::repository`, keys by their seeds.
+pub trait TestRepo {
+    fn new(dir: &Path) -> Self;
+    fn root_value(version: u64, root_keys: &[u8], timestamp_key: u8) -> Value;
+    fn write_root(&self, version: u64, root_keys: &[u8], signers: &[u8], timestamp_key: u8);
+    fn add(&mut self, pkg: &Pkg);
+    fn remove(&mut self, pkg: &Pkg);
+    fn publish(&mut self);
+    fn publish_with(&mut self, timestamp_key: u8);
+    fn fetcher(&self, scratch: &Path) -> ThreadFetcher;
 }
 
-pub const TARGETS: usize = 0;
-pub const SNAPSHOT: usize = 1;
-pub const TIMESTAMP: usize = 2;
-
-impl Repo {
-    pub fn new(dir: &Path) -> Self {
+impl TestRepo for Repo {
+    fn new(dir: &Path) -> Self {
         for sub in ["metadata", "targets", "objects"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
         }
@@ -259,169 +246,62 @@ impl Repo {
         repo
     }
 
-    pub fn root_value(version: u64, root_keys: &[u8], timestamp_key: u8) -> Value {
-        let mut keys = Vec::new();
-        let mut ids = |seeds: &[u8]| -> Vec<Value> {
-            seeds
-                .iter()
-                .map(|s| {
-                    let (id, value) = write::key(&key(*s).public_key().0);
-                    keys.push((id.clone(), value));
-                    json::string(&id)
-                })
-                .collect()
-        };
-        let role = |ids: Vec<Value>, threshold: u64| {
-            json::object(vec![
-                ("keyids", Value::Array(ids)),
-                ("threshold", Value::Integer(threshold)),
-            ])
-        };
-        let root = role(ids(root_keys), 2);
-        let targets = role(ids(&[TARGETS_KEY]), 1);
-        let snapshot = role(ids(&[SNAPSHOT_KEY]), 1);
-        let timestamp = role(ids(&[timestamp_key]), 1);
-        keys.sort_by(|a, b| a.0.cmp(&b.0));
-        keys.dedup_by(|a, b| a.0 == b.0);
-        Value::Object(vec![
-            ("_type".into(), json::string("root")),
-            ("spec_version".into(), json::string("1.0.31")),
-            ("version".into(), Value::Integer(version)),
-            ("expires".into(), write::time(NOW + 3 * 365 * 86_400)),
-            ("consistent_snapshot".into(), Value::Bool(true)),
-            ("keys".into(), Value::Object(keys)),
-            (
-                "roles".into(),
-                json::object(vec![
-                    ("root", root),
-                    ("targets", targets),
-                    ("snapshot", snapshot),
-                    ("timestamp", timestamp),
-                ]),
-            ),
-        ])
+    fn root_value(version: u64, root_keys: &[u8], timestamp_key: u8) -> Value {
+        let root: Vec<oxyos_package::PublicKey> =
+            root_keys.iter().map(|s| key(*s).public_key()).collect();
+        crate::repository::root_document(
+            version,
+            &root,
+            2,
+            &key(TARGETS_KEY).public_key(),
+            &key(SNAPSHOT_KEY).public_key(),
+            &key(timestamp_key).public_key(),
+            NOW + 3 * 365 * 86_400,
+        )
     }
 
     /// Writes root `version`, signed by `signers`.
-    pub fn write_root(&self, version: u64, root_keys: &[u8], signers: &[u8], timestamp_key: u8) {
+    fn write_root(&self, version: u64, root_keys: &[u8], signers: &[u8], timestamp_key: u8) {
         let keys: Vec<SigningKey> = signers.iter().map(|s| key(*s)).collect();
         let refs: Vec<&SigningKey> = keys.iter().collect();
-        let bytes = write::sign(Self::root_value(version, root_keys, timestamp_key), &refs);
-        fs::write(
-            self.dir.join(format!("metadata/{version}.root.json")),
-            bytes,
+        crate::repository::write_root(
+            &self.dir,
+            version,
+            Self::root_value(version, root_keys, timestamp_key),
+            &refs,
         )
         .unwrap();
-    }
-
-    /// The root the machine trusts: the image's anchor.
-    pub fn anchor(&self) -> PathBuf {
-        self.dir.join("metadata/1.root.json")
     }
 
     /// Adds a package's release: its objects, its manifest as a target, its custom data.
-    pub fn add(&mut self, pkg: &Pkg) {
+    fn add(&mut self, pkg: &Pkg) {
         let manifest = pkg.manifest();
-        for (_, bytes) in &pkg.files {
-            let hex = Sha256::of(bytes).hex();
-            let dir = self.dir.join("objects").join(&hex[..2]);
-            fs::create_dir_all(&dir).unwrap();
-            fs::write(dir.join(&hex), bytes).unwrap();
-        }
-        let path = pkg.target_path();
-        let location = self.dir.join(write::target_location(&path, &manifest));
-        fs::create_dir_all(location.parent().unwrap()).unwrap();
-        fs::write(location, &manifest).unwrap();
-        self.targets.retain(|(p, _)| *p != path);
-        self.targets
-            .push((path, write::target(&manifest, Some(pkg.custom(&manifest)))));
+        let files: Vec<&[u8]> = pkg
+            .files
+            .iter()
+            .map(|(_, bytes)| bytes.as_slice())
+            .collect();
+        self.add_release(&pkg.target_path(), &manifest, &files, pkg.custom(&manifest))
+            .unwrap();
     }
 
-    pub fn remove(&mut self, pkg: &Pkg) {
-        let path = pkg.target_path();
-        self.targets.retain(|(p, _)| *p != path);
-    }
-
-    fn signed(kind: &str, version: u64, expires: i64, rest: Vec<(&str, Value)>) -> Value {
-        let mut members = vec![
-            ("_type", json::string(kind)),
-            ("spec_version", json::string("1.0.31")),
-            ("version", Value::Integer(version)),
-            ("expires", write::time(expires)),
-        ];
-        members.extend(rest);
-        json::object(members)
+    fn remove(&mut self, pkg: &Pkg) {
+        self.remove_release(&pkg.target_path());
     }
 
     /// Publishes the targets: a new targets, snapshot and timestamp, each its next version.
-    pub fn publish(&mut self) {
+    fn publish(&mut self) {
         self.publish_with(TIMESTAMP_KEY);
     }
 
-    pub fn publish_with(&mut self, timestamp_key: u8) {
-        for v in &mut self.versions {
-            *v += 1;
-        }
-        let targets = write::sign(
-            Self::signed(
-                "targets",
-                self.versions[TARGETS],
-                self.expires[TARGETS],
-                vec![("targets", Value::Object(self.targets.clone()))],
-            ),
-            &[&key(TARGETS_KEY)],
-        );
-        fs::write(
-            self.dir
-                .join(format!("metadata/{}.targets.json", self.versions[TARGETS])),
-            &targets,
-        )
-        .unwrap();
-        let snapshot = write::sign(
-            Self::signed(
-                "snapshot",
-                self.versions[SNAPSHOT],
-                self.expires[SNAPSHOT],
-                vec![(
-                    "meta",
-                    json::object(vec![(
-                        "targets.json",
-                        write::meta(self.versions[TARGETS], Some(&targets)),
-                    )]),
-                )],
-            ),
-            &[&key(SNAPSHOT_KEY)],
-        );
-        fs::write(
-            self.dir.join(format!(
-                "metadata/{}.snapshot.json",
-                self.versions[SNAPSHOT]
-            )),
-            &snapshot,
-        )
-        .unwrap();
-        let timestamp = write::sign(
-            Self::signed(
-                "timestamp",
-                self.versions[TIMESTAMP],
-                self.expires[TIMESTAMP],
-                vec![(
-                    "meta",
-                    json::object(vec![(
-                        "snapshot.json",
-                        write::meta(self.versions[SNAPSHOT], Some(&snapshot)),
-                    )]),
-                )],
-            ),
-            &[&key(timestamp_key)],
-        );
-        fs::write(self.dir.join("metadata/timestamp.json"), &timestamp).unwrap();
+    fn publish_with(&mut self, timestamp_key: u8) {
+        self.publish_metadata(&key(TARGETS_KEY), &key(SNAPSHOT_KEY), &key(timestamp_key))
+            .unwrap();
     }
 
-    /// The fetcher over this repository's `metadata/`… as the store lays it out: TUF's
-    /// documents are asked for by name, so the fetcher's root is the repository and metadata
-    /// paths are under `metadata/`.
-    pub fn fetcher(&self, scratch: &Path) -> ThreadFetcher {
+    /// The fetcher over this repository as the store lays it out: TUF's documents are asked for
+    /// by name, so the fetcher's root is the repository and metadata paths are under `metadata/`.
+    fn fetcher(&self, scratch: &Path) -> ThreadFetcher {
         ThreadFetcher::start(scratch, LocalRepository::new(&self.dir)).unwrap()
     }
 }
