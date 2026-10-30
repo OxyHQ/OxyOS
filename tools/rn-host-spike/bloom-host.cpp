@@ -347,12 +347,19 @@ int main(int argc, char** argv) {
   auto loop = std::make_shared<Loop>();
   auto timerRegistry = std::make_unique<Timers>();
   auto* timers = timerRegistry.get();
-  auto timerManager = std::make_shared<TimerManager>(std::move(timerRegistry));
+  // The instance holds the only reference to its timer manager, as Android's JReactInstance gives
+  // it (its timer executor keeps a weak one): the timers JavaScript leaves pending hold the
+  // runtime's values, so they must go with the instance, before its runtime. Kept here past it,
+  // they were destroyed after the runtime freed what they point into, and the host jumped through
+  // freed memory as it exited. The loop below fires them through `timerManager` while the
+  // instance lives.
+  auto ownedTimerManager = std::make_shared<TimerManager>(std::move(timerRegistry));
+  TimerManager& timerManager = *ownedTimerManager;
   auto runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(
       ::hermes::vm::RuntimeConfig::Builder().withMicrotaskQueue(true).build()));
   int jsErrors = 0;
   auto instance = std::make_unique<ReactInstance>(
-      std::move(runtime), loop, timerManager,
+      std::move(runtime), loop, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
         ++jsErrors;
         std::cerr << "JS error: " << error.message << "\n";
@@ -362,7 +369,7 @@ int main(int argc, char** argv) {
         }
       });
   stage("instance created");
-  timerManager->setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
+  timerManager.setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
   // The display's refresh, as the compositor tells it for the window (display-refresh.h): every
   // frame below is paced by it.
   oxyos::DisplayRefresh refresh;
@@ -998,7 +1005,7 @@ int main(int argc, char** argv) {
         bool ranJs = javascript([&] { return loop->drain(); });
         bool pulled = mounter.pull();
         bool busy = ranJs || pulled;
-        busy |= timers->fire(*timerManager);
+        busy |= timers->fire(timerManager);
         busy |= gestures->tick();
         // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
         // as a mount, a UI job or a frame asked for.
@@ -1508,7 +1515,7 @@ int main(int argc, char** argv) {
     Beat::tickAll();
     bool busy = loop->drain();
     busy |= mounter.pull();
-    busy |= timers->fire(*timerManager);
+    busy |= timers->fire(timerManager);
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
