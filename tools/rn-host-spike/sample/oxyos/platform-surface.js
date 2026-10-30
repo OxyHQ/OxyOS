@@ -14,11 +14,13 @@
  * bar while the window is active; a command chosen there comes back through `onActivate` with the
  * id Bloom gave it. Its `keyboard` offers Bloom each of the window's key presses before the
  * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
- * further.
+ * further. Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
+ * file manager needs beyond expo-file-system.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
+import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -28,6 +30,9 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
     align: true,
     sideOffset: true,
     alignOffset: true,
+    hasPoint: true,
+    pointX: true,
+    pointY: true,
   },
   directEventTypes: {
     topDismiss: { registrationName: 'onDismiss' },
@@ -37,6 +42,7 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
 
 function PopupSurface({
   anchorRef,
+  point,
   side,
   align,
   sideOffset,
@@ -61,6 +67,11 @@ function PopupSurface({
       align={align}
       sideOffset={sideOffset}
       alignOffset={alignOffset}
+      // A context menu's press (Bloom's `point`): the popup is placed against that point of the
+      // anchor rather than its frame.
+      hasPoint={point != null}
+      pointX={point?.x ?? 0}
+      pointY={point?.y ?? 0}
       accessibilityRole={role}
       accessibilityLabel={label}
       onDismiss={(event) => onDismiss(event.nativeEvent.reason)}
@@ -237,6 +248,65 @@ function createAppearance() {
 
 const appearance = createAppearance();
 
+// The person's places and the Trash (Bloom's `PlatformFiles`, docs/adr/0028-file-access.mdx),
+// through the host's file service: the home, its standard folders that exist and the volumes
+// mounted for the user, and the freedesktop.org Trash every file manager on the machine shares.
+// Every URI is file://, as expo-file-system takes them. Only an application's window has it.
+const PLATFORM_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied']);
+
+/** What came of one item, as Bloom's `PlatformFileOutcome` says it. */
+const outcome = (item) =>
+  item.ok
+    ? { uri: item.uri, ok: true, result: item.result }
+    : { uri: item.uri, ok: false, error: PLATFORM_ERRORS.has(item.error) ? item.error : 'io' };
+
+/** A folder's own name, from its URI. */
+const named = (uri) => decodeURIComponent(uri.replace(/\/+$/, '').split('/').pop());
+
+function createFiles() {
+  // A listener's own watch, ended when it unsubscribes.
+  const watching = (op) => (listener) => {
+    let watch = null;
+    let ended = false;
+    requestFiles(op).then(
+      ({ value }) => {
+        if (ended) return unwatchFiles(value);
+        watch = value;
+        onWatch(value, () => listener());
+      },
+      (error) => console.error(`OxyOS could not watch (${op}): ${error.message}`),
+    );
+    return () => {
+      ended = true;
+      if (watch != null) unwatchFiles(watch);
+    };
+  };
+  const each = async (op, uris) => (await requestFiles(op, { uris: [...uris] })).value.map(outcome);
+  return {
+    async places() {
+      const { home, favourites, volumes } = (await requestFiles('places')).value;
+      return [
+        { kind: 'home', name: named(home), uri: home },
+        ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
+        ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
+      ];
+    },
+    watchPlaces: watching('watchPlaces'),
+    trash: (uris) => each('trash', uris),
+    async trashed() {
+      return (await requestFiles('trashed')).value;
+    },
+    watchTrash: watching('watchTrash'),
+    restore: (uris) => each('restore', uris),
+    erase: (uris) => each('erase', uris),
+    async emptyTrash() {
+      await requestFiles('emptyTrash');
+    },
+  };
+}
+
+const files = filesAvailable ? createFiles() : undefined;
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
@@ -250,4 +320,5 @@ export const oxyosSurfaces = {
   menuBar,
   keyboard,
   appearance,
+  files,
 };

@@ -28,7 +28,10 @@ OxyOSPopupViewProps::OxyOSPopupViewProps(
       side(convertRawProp(context, rawProps, "side", sourceProps.side, std::string("bottom"))),
       align(convertRawProp(context, rawProps, "align", sourceProps.align, std::string("start"))),
       sideOffset(convertRawProp(context, rawProps, "sideOffset", sourceProps.sideOffset, 0.0f)),
-      alignOffset(convertRawProp(context, rawProps, "alignOffset", sourceProps.alignOffset, 0.0f)) {}
+      alignOffset(convertRawProp(context, rawProps, "alignOffset", sourceProps.alignOffset, 0.0f)),
+      hasPoint(convertRawProp(context, rawProps, "hasPoint", sourceProps.hasPoint, false)),
+      pointX(convertRawProp(context, rawProps, "pointX", sourceProps.pointX, 0.0f)),
+      pointY(convertRawProp(context, rawProps, "pointY", sourceProps.pointY, 0.0f)) {}
 
 }  // namespace facebook::react
 
@@ -82,12 +85,15 @@ OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size s
   return p;
 }
 
-std::optional<std::pair<uint32_t, Rect>> PopupHost::anchored(Tag anchor) const {
+std::optional<std::pair<uint32_t, Rect>> PopupHost::anchored(const OxyOSPopupViewProps& props) const {
+  Tag anchor = props.anchorTag;
   auto frame = windowFrame(tree_, anchor);
   if (!frame) return std::nullopt;
   auto [surface, origin] = parent_ ? parent_(anchor) : std::pair<uint32_t, Point>{Window::kToplevel, {}};
   frame->origin.x -= origin.x;
   frame->origin.y -= origin.y;
+  // A point in the anchor is a frame of no size there (the positioner makes it one pixel).
+  if (props.hasPoint) *frame = Rect{{frame->origin.x + props.pointX, frame->origin.y + props.pointY}, {0, 0}};
   // The anchor is the part of the view the parent surface shows: the compositor refuses an anchor
   // reaching beyond the parent (InvalidPositioner, as xdg-shell's), and a view may: a trigger
   // scrolled partly away, or at a pane's edge as the window resizes. The parent's size is the one
@@ -117,7 +123,7 @@ void PopupHost::sync(uint64_t serial) {
       // changed (an inline submenu expanding, the window laid out anew).
       auto& popup = open->second;
       auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-      auto anchor = anchored(props->anchorTag);
+      auto anchor = anchored(*props);
       if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
       auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size);
       if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
@@ -131,7 +137,7 @@ void PopupHost::sync(uint64_t serial) {
       continue;
     }
     auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
-    auto anchor = anchored(props->anchorTag);
+    auto anchor = anchored(*props);
     Size size = view.layoutMetrics.frame.size;
     // Opened once its anchor is mounted and its content laid out.
     if (!anchor || size.width <= 0 || size.height <= 0) continue;

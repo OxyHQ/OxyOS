@@ -50,7 +50,7 @@ fn fields(name: &str) -> Vec<Field> {
             let size = match kind {
                 "uint8_t" | "char" | "bool" => 1,
                 "uint16_t" => 2,
-                "int32_t" | "uint32_t" | "float" => 4,
+                "int" | "int32_t" | "uint32_t" | "float" => 4,
                 "uint64_t" | "int64_t" | "size_t" | "double" => 8,
                 pointer if pointer.ends_with('*') => 8,
                 other => panic!("unexpected field type {other}"),
@@ -700,6 +700,7 @@ fn the_header_matches_the_network_abi() {
         ("OXYOS_NET_CHUNK", OXYOS_NET_CHUNK.into()),
         ("OXYOS_NET_DATA", OXYOS_NET_DATA.into()),
         ("OXYOS_NET_COMPLETE", OXYOS_NET_COMPLETE.into()),
+        ("OXYOS_NET_SENT", OXYOS_NET_SENT.into()),
         ("OXYOS_NET_ANSWER", OXYOS_NET_ANSWER.into()),
         ("OXYOS_NET_EMPTY", OXYOS_NET_EMPTY.into()),
     ] {
@@ -722,6 +723,16 @@ fn the_header_matches_the_network_abi() {
         (rust.to_vec(), size_of::<OxyOSNetHeader>())
     );
 
+    let part = fields("OxyOSNetPart");
+    assert_eq!(names(&part), ["bytes", "length", "fd", "offset"]);
+    let rust = [
+        offset_of!(OxyOSNetPart, bytes),
+        offset_of!(OxyOSNetPart, length),
+        offset_of!(OxyOSNetPart, fd),
+        offset_of!(OxyOSNetPart, offset),
+    ];
+    assert_eq!(c_offsets(&part), (rust.to_vec(), size_of::<OxyOSNetPart>()));
+
     let request = fields("OxyOSNetRequest");
     assert_eq!(
         names(&request),
@@ -738,7 +749,10 @@ fn the_header_matches_the_network_abi() {
             "timeout_ms",
             "has_body",
             "with_credentials",
-            "incremental"
+            "incremental",
+            "upload_progress",
+            "parts",
+            "part_count"
         ]
     );
     let rust = [
@@ -755,6 +769,9 @@ fn the_header_matches_the_network_abi() {
         offset_of!(OxyOSNetRequest, has_body),
         offset_of!(OxyOSNetRequest, with_credentials),
         offset_of!(OxyOSNetRequest, incremental),
+        offset_of!(OxyOSNetRequest, upload_progress),
+        offset_of!(OxyOSNetRequest, parts),
+        offset_of!(OxyOSNetRequest, part_count),
     ];
     assert_eq!(
         c_offsets(&request),
@@ -860,7 +877,26 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
 
     let network = oxyos_net_new();
     assert!(!network.is_null());
-    let (method, url, body) = ("PUT", format!("http://{address}/thing"), "hola");
+    let (method, url, body) = ("PUT", format!("http://{address}/thing"), "ho");
+    // The body's second half is a range of a file, handed over by its descriptor.
+    let path = std::env::temp_dir().join(format!("oxyos-ffi-part-{}", std::process::id()));
+    std::fs::write(&path, "--la--").unwrap();
+    let file = std::fs::File::open(&path).unwrap();
+    let parts = [
+        OxyOSNetPart {
+            bytes: body.as_ptr(),
+            length: 2,
+            fd: -1,
+            offset: 0,
+        },
+        OxyOSNetPart {
+            bytes: std::ptr::null(),
+            length: 2,
+            fd: std::os::fd::IntoRawFd::into_raw_fd(file),
+            offset: 2,
+        },
+    ];
+    std::fs::remove_file(&path).unwrap();
     let (name, value) = ("X-Oxy", "yes");
     let header = OxyOSNetHeader {
         name: name.as_ptr().cast(),
@@ -876,17 +912,20 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
         url_length: url.len(),
         headers: &header,
         header_count: 1,
-        body: body.as_ptr(),
-        body_length: body.len(),
+        body: std::ptr::null(),
+        body_length: 0,
         timeout_ms: 5000,
         has_body: 1,
         with_credentials: 1,
         incremental: 0,
+        upload_progress: 1,
+        parts: parts.as_ptr(),
+        part_count: parts.len(),
     };
     // SAFETY: a live network, and a request whose pointers outlive the call.
     assert_eq!(unsafe { oxyos_net_send(network, &request) }, 0);
 
-    let mut got = Vec::new();
+    let (mut got, mut sent) = (Vec::new(), Vec::new());
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while std::time::Instant::now() < deadline {
         let mut answer = OxyOSNetAnswer::default();
@@ -903,6 +942,10 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
                         .map(|h| (seen(h.name, h.name_length), seen(h.value, h.value_length)))
                         .collect()
                 };
+                if answer.kind == OXYOS_NET_SENT {
+                    sent.push((answer.progress, answer.total));
+                    continue;
+                }
                 got.push((
                     answer.kind,
                     answer.status,
@@ -922,6 +965,7 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
     // SAFETY: a network from oxyos_net_new, freed once.
     unsafe { oxyos_net_free(network) };
 
+    assert_eq!(sent.last(), Some(&(4, 4)), "{sent:?}");
     assert_eq!(got.len(), 3, "{got:?}");
     assert_eq!((got[0].0, got[0].1), (OXYOS_NET_RESPONSE, 201));
     assert!(got[0]
@@ -953,6 +997,9 @@ fn a_malformed_request_is_refused_and_sends_nothing() {
         has_body: 0,
         with_credentials: 1,
         incremental: 0,
+        upload_progress: 0,
+        parts: std::ptr::null(),
+        part_count: 0,
     };
     // SAFETY: a live network, and a request whose pointers outlive the call.
     assert_eq!(unsafe { oxyos_net_send(network, &request) }, OXYOS_ERROR);
@@ -2246,6 +2293,19 @@ fn declaration(name: &str) -> String {
             "bool" => "bool".into(),
             "OxyOSClient*" => format!("*mut {}", std::any::type_name::<OxyOSClient>()),
             "const OxyOSRect*" => format!("*const {}", std::any::type_name::<OxyOSRect>()),
+            "size_t*" => "*mut usize".into(),
+            "uint64_t*" => "*mut u64".into(),
+            "const uint8_t*" => "*const u8".into(),
+            "OxyOSFiles*" => format!("*mut {}", std::any::type_name::<crate::files::OxyOSFiles>()),
+            "OxyOSFilesReply*" => format!(
+                "*mut {}",
+                std::any::type_name::<crate::files::OxyOSFilesReply>()
+            ),
+            "const OxyOSFilesReply*" => format!(
+                "*const {}",
+                std::any::type_name::<crate::files::OxyOSFilesReply>()
+            ),
+            "uint8_t" => "u8".into(),
             "const OxyOSSolarAnchor*" => format!(
                 "*const {}",
                 std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
@@ -3810,4 +3870,248 @@ fn asking_for_key_text_sends_the_request() {
         Request::SetKeyText { enabled: true }
     );
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn an_applications_directories_are_named_by_its_id_through_the_c_abi() {
+    use crate::apps::oxyos_application_directory;
+    type Directory = unsafe extern "C" fn(*const c_char, u8, *mut c_char, usize) -> i64;
+    assert_eq!(
+        declaration("oxyos_application_directory"),
+        type_of(oxyos_application_directory as Directory)
+    );
+    let directory = |id: &str, which: u8| -> Option<String> {
+        let id = CString::new(id).unwrap();
+        let mut out = [0 as c_char; 512];
+        // SAFETY: a NUL-terminated id and a buffer of its length.
+        let length =
+            unsafe { oxyos_application_directory(id.as_ptr(), which, out.as_mut_ptr(), out.len()) };
+        let length = usize::try_from(length).ok()?;
+        // SAFETY: the function wrote `length` bytes and a NUL.
+        Some(unsafe { CStr::from_ptr(out.as_ptr()) }.to_str().unwrap()[..length].to_string())
+    };
+    let data = directory("so.oxy.stash", 0).expect("data");
+    let cache = directory("so.oxy.stash", 1).expect("cache");
+    assert!(data.ends_with("/oxyos/apps/so.oxy.stash"), "{data}");
+    assert!(cache.ends_with("/oxyos/apps/so.oxy.stash"), "{cache}");
+    assert_ne!(data, cache);
+    // An id that is not one never names a directory.
+    for id in ["../escape", "", "a/b"] {
+        assert_eq!(directory(id, 0), None, "{id}");
+    }
+    assert_eq!(directory("so.oxy.stash", 2), None);
+}
+
+#[test]
+fn the_header_matches_the_files_abi() {
+    use crate::files::*;
+    type New = unsafe extern "C" fn(*const c_char, usize, *const c_char, usize) -> *mut OxyOSFiles;
+    type Fd = unsafe extern "C" fn(*mut OxyOSFiles) -> i32;
+    type Call = unsafe extern "C" fn(
+        *mut OxyOSFiles,
+        *const c_char,
+        usize,
+        *const u8,
+        usize,
+    ) -> *mut OxyOSFilesReply;
+    type Request =
+        unsafe extern "C" fn(*mut OxyOSFiles, u64, *const c_char, usize, *const u8, usize) -> i32;
+    type Take = unsafe extern "C" fn(*mut OxyOSFiles) -> *mut OxyOSFilesReply;
+    type Id = unsafe extern "C" fn(*const OxyOSFilesReply) -> u64;
+    type Json = unsafe extern "C" fn(*const OxyOSFilesReply, *mut usize) -> *const c_char;
+    type Bytes = unsafe extern "C" fn(*const OxyOSFilesReply, *mut usize) -> *const u8;
+    type Open = unsafe extern "C" fn(*mut OxyOSFiles, *const c_char, usize, *mut u64) -> i32;
+    for (name, rust) in [
+        ("oxyos_files_new", type_of(oxyos_files_new as New)),
+        ("oxyos_files_fd", type_of(oxyos_files_fd as Fd)),
+        ("oxyos_files_call", type_of(oxyos_files_call as Call)),
+        (
+            "oxyos_files_request",
+            type_of(oxyos_files_request as Request),
+        ),
+        ("oxyos_files_take", type_of(oxyos_files_take as Take)),
+        ("oxyos_files_reply_id", type_of(oxyos_files_reply_id as Id)),
+        (
+            "oxyos_files_reply_json",
+            type_of(oxyos_files_reply_json as Json),
+        ),
+        (
+            "oxyos_files_reply_bytes",
+            type_of(oxyos_files_reply_bytes as Bytes),
+        ),
+        (
+            "oxyos_files_open_read",
+            type_of(oxyos_files_open_read as Open),
+        ),
+    ] {
+        assert_eq!(declaration(name), rust, "{name}");
+    }
+    assert!(HEADER.contains("void oxyos_files_free(OxyOSFiles* files);"));
+    assert!(HEADER.contains("void oxyos_files_reply_free(OxyOSFilesReply* reply);"));
+}
+
+/// A reply's id, JSON and bytes, freed.
+///
+/// # Safety
+/// `reply` is a live reply.
+#[allow(unsafe_code)]
+unsafe fn files_reply(reply: *mut crate::files::OxyOSFilesReply) -> (u64, String, Vec<u8>) {
+    use crate::files::*;
+    assert!(!reply.is_null());
+    // SAFETY: a live reply, read before it is freed.
+    unsafe {
+        let mut length = 0;
+        let json = oxyos_files_reply_json(reply, &mut length);
+        let text = std::slice::from_raw_parts(json.cast::<u8>(), length + 1);
+        assert_eq!(text[length], 0, "NUL-terminated");
+        let text = String::from_utf8(text[..length].to_vec()).unwrap();
+        let mut count = 0;
+        let bytes = oxyos_files_reply_bytes(reply, &mut count);
+        let bytes = std::slice::from_raw_parts(bytes, count).to_vec();
+        let id = oxyos_files_reply_id(reply);
+        oxyos_files_reply_free(reply);
+        (id, text, bytes)
+    }
+}
+
+/// The file service through the C ABI, for a home and an application the test makes: the only
+/// test that sets the user's directories, which the service reads once, as it starts.
+#[test]
+fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
+    use crate::files::*;
+    let home = std::env::temp_dir().join(format!("oxyos-ffi-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join("Documents")).unwrap();
+    std::fs::write(home.join("Documents/notes.txt"), "notes").unwrap();
+    let home = std::fs::canonicalize(&home).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("XDG_DATA_HOME", home.join(".local/share"));
+    std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    std::env::set_var("XDG_CACHE_HOME", home.join(".cache"));
+    std::env::set_var("USER", "ffi-test");
+    let id = "so.oxy.ffi";
+    // SAFETY: a live service, and requests and buffers that outlive each call.
+    unsafe {
+        assert!(oxyos_files_new("../x".as_ptr().cast(), 4, std::ptr::null(), 0).is_null());
+        let files = oxyos_files_new(id.as_ptr().cast(), id.len(), std::ptr::null(), 0);
+        assert!(!files.is_null());
+        assert!(home.join(".local/share/oxyos/apps/so.oxy.ffi").is_dir());
+        assert!(home.join(".cache/oxyos/apps/so.oxy.ffi").is_dir());
+        let fd = oxyos_files_fd(files);
+        assert!(fd >= 0);
+        let call = |json: String, bytes: &[u8]| {
+            files_reply(oxyos_files_call(
+                files,
+                json.as_ptr().cast(),
+                json.len(),
+                bytes.as_ptr(),
+                bytes.len(),
+            ))
+        };
+        let ask = |id: u64, json: String| {
+            assert_eq!(
+                oxyos_files_request(
+                    files,
+                    id,
+                    json.as_ptr().cast(),
+                    json.len(),
+                    std::ptr::null(),
+                    0
+                ),
+                0
+            );
+        };
+        // A reply, waited for on the descriptor as the host waits.
+        let take = || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let reply = oxyos_files_take(files);
+                if !reply.is_null() {
+                    return files_reply(reply);
+                }
+                assert!(std::time::Instant::now() < deadline, "no reply");
+                let mut ready = [rustix::event::PollFd::from_borrowed_fd(
+                    std::os::fd::BorrowedFd::borrow_raw(fd),
+                    rustix::event::PollFlags::IN,
+                )];
+                let wait = rustix::event::Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 50_000_000,
+                };
+                let _ = rustix::event::poll(&mut ready, Some(&wait));
+            }
+        };
+        let documents = format!(
+            "file://{}/",
+            home.join(".local/share/oxyos/apps/so.oxy.ffi").display()
+        );
+        let (_, paths, _) = call(r#"{"op":"paths"}"#.into(), &[]);
+        assert!(
+            paths.contains(&format!(r#""documentDirectory":"{documents}""#)),
+            "{paths}"
+        );
+        // Bytes in and out, at once.
+        let data = format!("{documents}data.bin");
+        let (_, written, _) = call(
+            format!(r#"{{"op":"write","uri":"{data}","encoding":"bytes"}}"#),
+            &[0, 1, 2, 255],
+        );
+        assert_eq!(written, r#"{"ok":true,"value":null}"#);
+        let (id0, read, bytes) = call(
+            format!(r#"{{"op":"read","uri":"{data}","encoding":"bytes"}}"#),
+            &[],
+        );
+        assert_eq!(
+            (id0, read.as_str(), bytes),
+            (0, r#"{"ok":true,"value":null}"#, vec![0, 1, 2, 255])
+        );
+        let (_, refused, _) = call(r#"{"op":"read","uri":"file:///etc/passwd"}"#.into(), &[]);
+        assert!(refused.contains(r#""error":"refused""#), "{refused}");
+        // In order, through the queue, by id.
+        let notes = format!("file://{}/Documents/notes.txt", home.display());
+        ask(7, r#"{"op":"watchTrash"}"#.into());
+        let (seven, watch, _) = take();
+        assert_eq!(seven, 7);
+        assert!(watch.contains(r#""value":1"#), "{watch}");
+        ask(8, format!(r#"{{"op":"trash","uris":["{notes}"]}}"#));
+        let mut heard = [take(), take()];
+        heard.sort();
+        assert_eq!(heard[0].0, 0);
+        assert_eq!(heard[0].1, r#"{"watch":1}"#);
+        assert_eq!(heard[1].0, 8);
+        assert!(heard[1].1.contains(r#""ok":true"#), "{heard:?}");
+        assert!(home.join(".local/share/Trash/files/notes.txt").exists());
+        assert!(
+            oxyos_files_call(files, [0xffu8].as_ptr().cast(), 1, std::ptr::null(), 0).is_null()
+        );
+        assert_eq!(
+            oxyos_files_request(files, 9, [0xffu8].as_ptr().cast(), 1, std::ptr::null(), 0),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_files_request(files, 0, "{}".as_ptr().cast(), 2, std::ptr::null(), 0),
+            OXYOS_ERROR
+        );
+        assert!(oxyos_files_take(files).is_null());
+        // A file opened for a request's body: its descriptor and size; nothing outside.
+        let mut size = 0;
+        let fd = oxyos_files_open_read(files, data.as_ptr().cast(), data.len(), &mut size);
+        assert!(fd >= 0 && size == 4);
+        let mut read = Vec::new();
+        std::io::Read::read_to_end(
+            &mut std::fs::File::from(
+                <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd),
+            ),
+            &mut read,
+        )
+        .unwrap();
+        assert_eq!(read, [0, 1, 2, 255]);
+        let outside = "file:///etc/passwd";
+        assert_eq!(
+            oxyos_files_open_read(files, outside.as_ptr().cast(), outside.len(), &mut size),
+            OXYOS_ERROR
+        );
+        oxyos_files_free(files);
+    }
+    std::fs::remove_dir_all(home).unwrap();
 }

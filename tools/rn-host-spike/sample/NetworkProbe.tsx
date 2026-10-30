@@ -2,10 +2,12 @@
  * What React Native's networking does on OxyOS (network.h): fetch, XMLHttpRequest and their
  * bodies against the regression's local server (regress.py, `"http"` in the scenario), plus the
  * failures that must be visible. scenarios/network.json checks every row; an answer still pending
- * after 5 s is shown as `pending`.
+ * after 5 s is shown as `pending`. A multipart form's file is one in the scenario's home, which the
+ * file service opens (files.h); one outside it is refused.
  */
 import * as React from 'react';
 import { Text, View } from 'react-native';
+import { oxyosSurfaces } from './oxyos/platform-surface';
 
 const SERVER = 'http://127.0.0.1:18642';
 const TIMEOUT_MS = 5000;
@@ -63,8 +65,15 @@ const PROBES: Record<string, () => Promise<string>> = {
     return (await fetch(`${SERVER}/echo`, { method: 'POST', body: form })).text();
   },
   'fetch form file': async () => {
+    const places = await oxyosSurfaces.files!.places();
+    const home = places.find(({ kind }) => kind === 'home')!.uri;
     const form = new FormData();
-    form.append('file', { uri: 'file:///tmp/probe.txt', name: 'probe.txt', type: 'text/plain' } as never);
+    form.append('file', { uri: `${home}probe.txt`, name: 'probe.txt', type: 'text/plain' } as never);
+    return (await fetch(`${SERVER}/echo`, { method: 'POST', body: form })).text();
+  },
+  'fetch form outside': async () => {
+    const form = new FormData();
+    form.append('file', { uri: 'file:///etc/hostname', name: 'hostname', type: 'text/plain' } as never);
     return (await fetch(`${SERVER}/echo`, { method: 'POST', body: form })).text();
   },
   'fetch abort': async () => {

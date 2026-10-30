@@ -1,0 +1,211 @@
+{
+  "about": "expo-file-system and the Bloom adapter's places and Trash on OxyOS (sample/FileSystemProbe.tsx, sample/oxyos/expo-file-system.js, docs/adr/0028-file-access.mdx), on a home of the run's own, for an application whose launch gave it the id so.oxy.fsprobe: the real package's File, Directory and Paths and its legacy upload task, and Bloom's usePlatformFiles, as Stash uses them. Each step checks what the application got and what is on the disk. On start: its own folders ($XDG_DATA_HOME/oxyos/apps/ID, $XDG_CACHE_HOME/oxyos/apps/ID, ADR 0030) and its bundle's, reading and writing (text, base64, bytes, appending), files and folders made, listed, copied (never over a file unless asked), moved, renamed and deleted for good, an open file at its own offset, digests, and what the scope refuses (outside the home, the bundle written, the application's folder itself deleted) and what OxyOS cannot do yet (the pickers, previews, the legacy API's reads), each with Expo's error code. Trash: the places, three items put in the Trash (the home itself and a file outside refused), one put back, one erased (one outside the Trash refused), the Trash's watch heard. Watch: Inbox watched while another program drops a file there, which the application renames: created, modified and renamed with both names. Network: a download into a folder named by the response, its progress, again refused, a failed status making no file; uploads with the file as the body (the new API's and the legacy task the Oxy SDK uses) and a multipart form with the file, a file outside refused.",
+  "module": "FileSystemProbe",
+  "window": [
+    1000,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.fsprobe",
+    "title": "File System Probe"
+  },
+  "http": {
+    "port": 18652
+  },
+  "home": {
+    "items": {
+      "Documents/report.txt": "quarterly report",
+      "Documents/old.txt": "old",
+      "Documents/draft.txt": "a draft",
+      "Documents/junk.txt": "junk",
+      "Downloads/": "",
+      "Inbox/": ""
+    },
+    "later": [
+      {
+        "when_shown": "watch: watching Inbox",
+        "items": {
+          "Inbox/drop.txt": "dropped by another program"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "on start, expo-file-system's files and folders in the application's own",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "document: /.local/share/oxyos/apps/so.oxy.fsprobe/",
+          "cache: /.cache/oxyos/apps/so.oxy.fsprobe/",
+          "bundle: true",
+          "legacy document: /.local/share/oxyos/apps/so.oxy.fsprobe/",
+          "create: Hola, món",
+          "create again: threw ERR_UNABLE_TO_CREATE",
+          "text: Hola, món",
+          "base64: SG9sYSwgbcOzbg==",
+          "bytes: 10",
+          "facts: true 10 text/plain true",
+          "md5: e34c75390ed360431c2dc848cb23e848",
+          "sha256: e43235f1afcfec7ee809f7f44fe943271c141943b9040bb22d3a4378c3cd77c5",
+          "info: true 10",
+          "folders: Sub/ plan.md",
+          "copy: Hola, món",
+          "copy over: threw ERR_DESTINATION_ALREADY_EXISTS",
+          "copy overwrite: ok",
+          "move: Projects/Sub/copy.txt",
+          "rename: Projects/Sub/renamed.txt",
+          "directory info: Sub notes.txt plan.md 26",
+          "delete: false false",
+          "delete again: threw ERR_UNABLE_TO_DELETE",
+          "handle: 2,3 at 3 of 5, closed null",
+          "home file: quarterly report",
+          "outside: threw ERR_INVALID_PERMISSION",
+          "outside exists: false",
+          "bundle delete: threw ERR_INVALID_PERMISSION",
+          "documents delete: threw ERR_INVALID_PERMISSION",
+          "space: true",
+          "pick folder: threw ERR_FILE_SYSTEM_UNSUPPORTED",
+          "can preview: false",
+          "preview: threw ERR_FILE_SYSTEM_UNSUPPORTED",
+          "legacy read: threw ERR_FILE_SYSTEM_UNSUPPORTED",
+          "files: done"
+        ],
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.fsprobe/notes.txt": "Hola, món",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/notes.txt": "Hola, món",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/plan.md": "# Plan",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Projects/Sub": false,
+          ".local/share/oxyos/apps/so.oxy.fsprobe/copy.txt": false,
+          ".local/share/oxyos/apps/so.oxy.fsprobe/data.bin": "\u0001\u0002\u0003\u0004\u0005",
+          ".cache/oxyos/apps/so.oxy.fsprobe": true,
+          "Documents/report.txt": "quarterly report"
+        }
+      }
+    },
+    {
+      "name": "Trash: the places and the Trash, through Bloom's usePlatformFiles",
+      "do": [
+        "press",
+        [
+          47,
+          34
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@trash": 1,
+          "touchEnd@trash": 1
+        }
+      }
+    },
+    {
+      "name": "three items went to the Trash, one came back, one was erased",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "places: home:home documents:Documents downloads:Downloads",
+          "trashed: ok ok ok refused refused",
+          "trash holds: draft.txt from Documents/draft.txt, junk.txt from Documents/junk.txt, old.txt from Documents/old.txt",
+          "restored: Documents/draft.txt",
+          "erased: ok refused",
+          "draft back: a draft",
+          "trash heard: true"
+        ],
+        "home": {
+          "trash": [
+            "old.txt"
+          ],
+          "Documents/draft.txt": "a draft",
+          "Documents/old.txt": false,
+          "Documents/junk.txt": false,
+          "Documents/report.txt": "quarterly report"
+        }
+      }
+    },
+    {
+      "name": "Watch: Inbox watched",
+      "do": [
+        "press",
+        [
+          123,
+          34
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@watch": 1,
+          "touchEnd@watch": 1
+        }
+      }
+    },
+    {
+      "name": "another program drops a file in Inbox; the application hears it and renames it",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "watch: watching Inbox",
+          "event 1: created drop.txt",
+          "event 2: modified drop.txt",
+          "event 3: renamed drop.txt to kept.txt"
+        ],
+        "home": {
+          "Inbox/kept.txt": "dropped by another program",
+          "Inbox/drop.txt": false
+        }
+      }
+    },
+    {
+      "name": "Network: downloads and uploads",
+      "do": [
+        "press",
+        [
+          209,
+          34
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@network": 1,
+          "touchEnd@network": 1
+        }
+      }
+    },
+    {
+      "name": "a download into the application's documents, uploads of its notes",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "download: Q3 report.txt quarterly numbers 17/17",
+          "download again: threw ERR_DESTINATION_ALREADY_EXISTS",
+          "download missing: threw ERR_UNABLE_TO_DOWNLOAD (Unable to download a file: response has status: 404)",
+          "upload: 200 PUT 10 Hola, món sent 10",
+          "legacy upload: 200 PUT 10 Hola, món sent 10",
+          "form with file: POST multipart/form-data owner=ada document=Hola, món",
+          "form outside: threw Network request failed",
+          "network: done"
+        ],
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.fsprobe/Q3 report.txt": "quarterly numbers",
+          ".local/share/oxyos/apps/so.oxy.fsprobe/missing.txt": false
+        }
+      }
+    }
+  ]
+}

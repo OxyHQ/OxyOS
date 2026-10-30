@@ -92,7 +92,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
-  (Pointer enter/leave, which follow every motion, are left out of `react`.)
+  (Pointer enter/leave, which follow every motion, are left out of `react`, and so are the W3C
+  pointer presses, every mouse button's pointerdown and pointerup;)
+- react_presses: those presses, exactly, as `react` checks its events;
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
@@ -127,6 +129,19 @@ with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written
 what the session last told the application of how to draw (dark, reduceMotion,
 reduceTransparency, accent) by the time the step settled, each key given; the `final`
 `preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
+
+A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
+afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
+inside it, never the developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
+text, or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour); each
+modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
+on every run. `home.later` is what another program does to it while the run goes on, each when the
+application first shows a text: [{"when_shown": TEXT, "items": {...}}], items as above, made when a
+frame of the application's window shows TEXT (so a step after that one sees the window follow a
+change it did not make). A step's `home` expectation checks the home once the step settled: each path given
+exists (true) or not (false), a file's text, and `trash` the names in the home's Trash (its
+`files/`), each with a `.trashinfo` naming where it was. A scenario's `locale` sets `LANG` and
+`LC_ALL` for the run, and its `tz` the time zone (`TZ`).
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
@@ -186,7 +201,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
@@ -197,7 +212,7 @@ def director_args(step):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
-    if kind in ("press_popup", "press_output"):
+    if kind in ("press_popup", "press_output", "press_secondary", "double_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
@@ -323,7 +338,8 @@ def login_program(out, offscreen, login):
 
 
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes scenarios/network.json's probe calls (sample/NetworkProbe.tsx)."""
+    """The routes the probes of scenarios/network.json and file-system.json call
+    (sample/NetworkProbe.tsx, sample/FileSystemProbe.tsx)."""
 
     def log_message(self, *args):
         pass
@@ -365,8 +381,18 @@ class ProbeServer(BaseHTTPRequestHandler):
         elif self.path == "/slow":
             time.sleep(3)
             self.reply(200, "late")
+        elif self.path == "/report":
+            # A download into a folder takes the name the response gives it.
+            self.reply(200, "quarterly numbers", "text/plain",
+                       [("Content-Disposition", 'attachment; filename="Q3 report.txt"')])
         else:
             self.reply(404, "missing")
+
+    def do_PUT(self):
+        # An upload whose body is the file: its length as sent, and what arrived.
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        self.reply(200, f"PUT {length} {body}")
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
@@ -381,6 +407,151 @@ class ProbeServer(BaseHTTPRequestHandler):
             body = " ".join(fields)
             content_type = "multipart/form-data"
         self.reply(200, f"POST {content_type} {body}")
+
+
+def png_bytes(width, height, colour):
+    """A PNG of one colour (8-bit RGB, rows unfiltered)."""
+    rgb = bytes(int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    raw = b"".join(b"\x00" + rgb * width for _ in range(height))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def make_home(out, home):
+    """The scenario's home, made afresh in the run's directory: its items, each modified at the
+    same moment. Returns its path."""
+    root = (out / "home").resolve()
+    if root.exists():
+        subprocess.run(["chmod", "-R", "u+rwx", str(root)], check=False)
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    modified = home.get("modified", 1767348000)
+    write_items(root, home.get("items", {}), modified)
+    os.utime(root, (modified, modified))
+    return root
+
+
+def write_items(root, items, modified):
+    """Items as `home.items` describes them, each modified at `modified`."""
+    made = []
+    for relative, what in items.items():
+        path = root / relative.rstrip("/")
+        if relative.endswith("/"):
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(what, str):
+                path.write_text(what)
+            elif "bytes" in what:
+                path.write_bytes(bytes(what["bytes"]))
+            else:
+                path.write_bytes(png_bytes(*what["png"]))
+        made.append(path)
+    for path in sorted(made, key=lambda p: -len(p.parts)):
+        os.utime(path, (modified, modified))
+
+
+def change_home_later(home_root, home, report_path):
+    """Another program's changes to the home (`home.later`), each made once the application's
+    window first shows its text, from a thread reading the host's report as it is written."""
+    later = list(home.get("later", []))
+    if not later:
+        return None
+    modified = home.get("modified", 1767348000)
+
+    def watch():
+        seen = 0
+        deadline = time.monotonic() + 120
+        while later and time.monotonic() < deadline:
+            lines = report_path.read_text().splitlines() if report_path.exists() else []
+            for line in lines[seen:]:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("kind") != "frame" or entry.get("surface") != 1:
+                    continue
+                while later and any(later[0]["when_shown"] in text for text in entry.get("texts", [])):
+                    write_items(home_root, later.pop(0)["items"], modified)
+            seen = len(lines)
+            time.sleep(0.02)
+
+    thread = threading.Thread(target=watch, daemon=True)
+    thread.start()
+    return thread
+
+
+def home_state(root):
+    """What the home holds: each path in it, a folder as None and a file as its text (or its
+    size, past 4 KB)."""
+    state = {}
+    for path in root.rglob("*"):
+        relative = str(path.relative_to(root))
+        try:
+            if path.is_dir() and not path.is_symlink():
+                state[relative] = None
+            else:
+                size = path.stat().st_size
+                state[relative] = path.read_text(errors="replace") if size <= 4096 else size
+        except OSError:
+            pass
+    return state
+
+
+class HomeRecorder:
+    """The home as it was through the run, from a thread looking at it every 10 ms: each state
+    with when it was first seen, on the monotonic clock the host's report uses, so each step is
+    checked against the home as it was when the step settled."""
+
+    def __init__(self, root):
+        self.root = root
+        self.states = []
+        self.running = True
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
+    def run(self):
+        while self.running:
+            state = home_state(self.root)
+            if not self.states or self.states[-1][1] != state:
+                self.states.append((time.monotonic_ns(), state))
+            time.sleep(0.01)
+
+    def stop(self):
+        self.running = False
+        self.thread.join()
+        state = home_state(self.root)
+        if not self.states or self.states[-1][1] != state:
+            self.states.append((time.monotonic_ns(), state))
+
+    def at(self, t):
+        """The home as it was at `t` (the last state seen by then)."""
+        seen = [state for when, state in self.states if when <= t]
+        return seen[-1] if seen else (self.states[0][1] if self.states else {})
+
+
+def check_home(state, wanted, fail):
+    """A step's `home`: what the home held once it settled."""
+    for relative, want in wanted.items():
+        if relative == "trash":
+            files = ".local/share/Trash/files/"
+            names = sorted(path[len(files):] for path in state if path.startswith(files) and "/" not in path[len(files):])
+            if names != sorted(want):
+                fail(f"the Trash holds {names}, expected {sorted(want)}")
+            for name in names:
+                text = state.get(f".local/share/Trash/info/{name}.trashinfo")
+                if not isinstance(text, str) or not text.startswith("[Trash Info]\nPath=") or "\nDeletionDate=" not in text:
+                    fail(f"{name} in the Trash has no info saying where it was")
+            continue
+        if isinstance(want, bool):
+            if (relative in state) != want:
+                fail(f"{relative} {'is missing' if want else 'is still there'}")
+        elif state.get(relative) != want:
+            fail(f"{relative} does not hold {want!r}")
 
 
 def latest_frames(report, until, closed_before):
@@ -635,7 +806,7 @@ def check_curve(wanted, seen, fail, refresh_hz=60.0):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0):
+               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -676,6 +847,19 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 got[key] = got.get(key, 0) + 1
         if got != expect["react"]:
             fail(f"React received {got}, expected exactly {expect['react']}")
+    if "home" in expect:
+        check_home(home_root.at(end) if home_root else {}, expect["home"], fail)
+    if "react_presses" in expect:
+        # The W3C pointer presses (pointerdown, pointerup) React received in the step, which `react`
+        # leaves out with the hover: exactly, as "event@name" -> count.
+        got = {}
+        for line in report:
+            if (line["kind"] == "deliver" and start <= line["t"] <= end
+                    and line["event"] in ("pointerDown", "pointerUp")):
+                key = f"{line['event']}@{line.get('within') or line['target']}"
+                got[key] = got.get(key, 0) + 1
+        if got != expect["react_presses"]:
+            fail(f"React received the presses {got}, expected exactly {expect['react_presses']}")
     if "pointer_shape" in expect and result.get("pointer_shape") != expect["pointer_shape"]:
         # The pointer's shape the compositor shows after the step, as the surface under it asked.
         fail(f"the pointer's shape is {result.get('pointer_shape')}, expected {expect['pointer_shape']}")
@@ -1197,7 +1381,26 @@ def main():
         env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    home_root = None
+    if "home" in scenario:
+        # A home of the run's own (docs/adr/0028-file-access.mdx), never the developer's.
+        home_root = make_home(out, scenario["home"])
+        env["HOME"] = str(home_root)
+        env["XDG_DATA_HOME"] = str(home_root / ".local/share")
+        env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_CACHE_HOME"] = str(home_root / ".cache")
+    if "locale" in scenario:
+        env["LANG"] = env["LC_ALL"] = scenario["locale"]
+    if "tz" in scenario:
+        env["TZ"] = scenario["tz"]
+    recorder = None
+    if home_root is not None:
+        report_path.unlink(missing_ok=True)
+        change_home_later(home_root, scenario["home"], report_path)
+        recorder = HomeRecorder(home_root)
     run = subprocess.run(command, env=env, capture_output=True, text=True)
+    if recorder is not None:
+        recorder.stop()
     (out / "director.log").write_text(run.stdout + run.stderr)
     recorded = []
     if login is not None:
@@ -1227,7 +1430,7 @@ def main():
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences", refresh_hz)
+                           out / "preferences", refresh_hz, recorder)
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":
@@ -1247,7 +1450,7 @@ def main():
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last, "window": window}, report, start, failures,
                    screenshot=out / f"launch-{len(scenario['steps']) + 1}.png", shell_report=shell_report,
-                   preferences=out / "preferences", refresh_hz=refresh_hz)
+                   preferences=out / "preferences", refresh_hz=refresh_hz, home_root=recorder)
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
     renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]

@@ -1,9 +1,13 @@
 import './oxyos/expo-adapter';
+// expo-file-system's native module, once the adapter installed Expo's globals.
+import './oxyos/expo-file-system';
 import './global.css';
 import { AppRegistry } from 'react-native';
 import App from './App';
 import AndroidProbe from './AndroidProbe';
 import ClipboardProbe from './ClipboardProbe';
+import FileSystemProbe from './FileSystemProbe';
+import PressProbe from './PressProbe';
 import NotificationProbe from './NotificationProbe';
 import EditingProbe from './EditingProbe';
 import ImageProbe from './ImageProbe';
@@ -32,6 +36,8 @@ AppRegistry.registerComponent('NetworkProbe', () => NetworkProbe);
 AppRegistry.registerComponent('ImageProbe', () => ImageProbe);
 AppRegistry.registerComponent('ImeProbe', () => ImeProbe);
 AppRegistry.registerComponent('ClipboardProbe', () => ClipboardProbe);
+AppRegistry.registerComponent('FileSystemProbe', () => FileSystemProbe);
+AppRegistry.registerComponent('PressProbe', () => PressProbe);
 AppRegistry.registerComponent('NotificationProbe', () => NotificationProbe);
 AppRegistry.registerComponent('SheetProbe', () => SheetProbe);
 AppRegistry.registerComponent('TransformProbe', () => TransformProbe);

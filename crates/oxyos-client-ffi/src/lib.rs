@@ -24,6 +24,7 @@ use std::path::Path;
 
 pub mod accounts;
 pub mod apps;
+pub mod files;
 pub mod gestures;
 pub mod images;
 pub mod intl;

@@ -2,7 +2,7 @@
 //! session has, for the Bloom host run as the shell, which lists them in the launcher and the dock.
 
 use super::fail;
-use std::ffi::c_char;
+use std::ffi::{c_char, CStr};
 
 /// `text` as a JSON string.
 pub(crate) fn json_string(text: &str) -> String {
@@ -81,4 +81,52 @@ pub unsafe extern "C" fn oxyos_applications(out: *mut c_char, capacity: usize) -
         }
     }
     bytes.len() as i64
+}
+
+/// An application's own directory (`oxyos_apps::data_directory` or `cache_directory`, as
+/// `which` is 0 or 1) by its id, the one the session gave it in `OXYOS_APP_ID`
+/// (docs/adr/0030-installing-applications.mdx), written into `out` as `oxyos_applications`
+/// writes; -1 for an id that is not one or without a home (see `oxyos_last_error`).
+///
+/// # Safety
+/// `id` is a NUL-terminated string; `out` points to `capacity` writable bytes, or is null with
+/// `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_application_directory(
+    id: *const c_char,
+    which: u8,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if id.is_null() {
+        return i64::from(fail("null application id"));
+    }
+    // SAFETY: a NUL-terminated string (contract above).
+    let Ok(id) = unsafe { CStr::from_ptr(id) }.to_str() else {
+        return i64::from(fail("the application id is not UTF-8"));
+    };
+    let directory = match which {
+        0 => oxyos_apps::data_directory(id),
+        1 => oxyos_apps::cache_directory(id),
+        _ => return i64::from(fail("no such directory")),
+    };
+    let Some(directory) = directory.as_ref().and_then(|dir| dir.to_str()) else {
+        fail(format!(
+            "{id} has no directory: not an application id, or no home"
+        ));
+        return -1;
+    };
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    let bytes = directory.as_bytes();
+    if bytes.len() < capacity {
+        // SAFETY: `out` has `capacity` bytes, more than the path and its NUL.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.cast::<u8>(), bytes.len());
+            *out.add(bytes.len()) = 0;
+        }
+    }
+    i64::try_from(bytes.len()).unwrap_or(i64::MAX)
 }

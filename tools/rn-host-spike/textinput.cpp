@@ -178,7 +178,11 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
     // JavaScript sets a controlled value and selection (-1 for none). As on Android, a value
     // older than the latest edit is ignored; a current one replaces the text without an echoing
     // change event, and the selection stays where it was, kept within the new text.
-    if (args[0].isInt() && args[0].asInt() < eventCount_) return;
+    // JavaScript's numbers arrive as doubles (a command's arguments are JSI values made dynamic).
+    auto integer = [](const folly::dynamic& value) {
+      return value.isNumber() ? std::optional<int64_t>(static_cast<int64_t>(value.asDouble())) : std::nullopt;
+    };
+    if (auto count = integer(args[0]); count && *count < eventCount_) return;
     auto it = tree_.views().find(focused_);
     if (it == tree_.views().end()) return;
     size_t anchor = anchor_, caret = caret_;
@@ -202,9 +206,11 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
       anchor = clamp(anchor);
       caret = clamp(caret);
     }
-    if (args.size() >= 4 && args[2].isInt() && args[3].isInt() && args[2].asInt() >= 0 && args[3].asInt() >= 0) {
-      anchor = byteOffset(text_, static_cast<int>(args[2].asInt()));
-      caret = byteOffset(text_, static_cast<int>(args[3].asInt()));
+    auto start = args.size() >= 4 ? integer(args[2]) : std::nullopt;
+    auto end = args.size() >= 4 ? integer(args[3]) : std::nullopt;
+    if (start && end && *start >= 0 && *end >= 0) {
+      anchor = byteOffset(text_, static_cast<int>(*start));
+      caret = byteOffset(text_, static_cast<int>(*end));
     }
     if (anchor != anchor_ || caret != caret_) {
       anchor_ = anchor;

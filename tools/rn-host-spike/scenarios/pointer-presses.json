@@ -1,0 +1,204 @@
+{
+  "about": "A desktop's presses in the Bloom host (sample/PressProbe.tsx; input.h, popup.h, textinput.h; docs/react-native-android-adaptation.mdx): every mouse button's press and release is a W3C pointer event to the view under the pointer with its button, the buttons held and the modifiers, as Android's JSPointerDispatcher sends a mouse's, the primary one also the touch it was; a secondary press presses nothing and opens Bloom's context menu in a compositor popup placed at the press (its corner where the pointer was, not at the trigger's); a double press is two presses; and a selection JavaScript sets in a text input (setSelection, whose offsets arrive as doubles) is the one the next key replaces.",
+  "module": "PressProbe",
+  "window": [
+    640,
+    400
+  ],
+  "steps": [
+    {
+      "name": "nothing pressed yet",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Pointer: none",
+          "Downs: 0, presses: 0, chosen: nothing",
+          "Text: hello world"
+        ]
+      }
+    },
+    {
+      "name": "the primary button: its pointer events and its touch reach the pad, once",
+      "do": [
+        "press",
+        [
+          100,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pointer: up button 0 held 0",
+          "Downs: 1, presses: 1, chosen: nothing"
+        ],
+        "react": {
+          "touchStart@pad": 1,
+          "touchEnd@pad": 1
+        },
+        "react_presses": {
+          "pointerDown@pad": 1,
+          "pointerUp@pad": 1
+        }
+      }
+    },
+    {
+      "name": "Shift down",
+      "do": [
+        "key_down",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "a Shift-press says Shift",
+      "do": [
+        "press",
+        [
+          100,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pointer: up button 0 held 0 shift",
+          "Downs: 2, presses: 2, chosen: nothing"
+        ],
+        "react_presses": {
+          "pointerDown@pad": 1,
+          "pointerUp@pad": 1
+        }
+      }
+    },
+    {
+      "name": "Shift up",
+      "do": [
+        "key_up",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "the secondary button presses nothing and opens the context menu where it pressed",
+      "do": [
+        "press_secondary",
+        [
+          150,
+          76
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Rename",
+          "Duplicate",
+          "Pointer: up button 2 held 0",
+          "Downs: 3, presses: 2, chosen: nothing"
+        ],
+        "react": {},
+        "react_presses": {
+          "pointerDown@pad": 1,
+          "pointerUp@pad": 1
+        },
+        "pixels": {
+          "148,100": "#dfe7f5",
+          "156,100": "#fff7f9",
+          "170,74": "#dfe7f5",
+          "170,82": "#fff7f9"
+        }
+      }
+    },
+    {
+      "name": "Rename chosen in the popup",
+      "do": [
+        "press-popup",
+        [
+          40,
+          30
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "texts": [
+          "Downs: 3, presses: 2, chosen: Rename"
+        ],
+        "absent": [
+          "Duplicate"
+        ]
+      }
+    },
+    {
+      "name": "a double press is two presses",
+      "do": [
+        "double_press",
+        [
+          100,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Downs: 5, presses: 4, chosen: Rename"
+        ],
+        "react_presses": {
+          "pointerDown@pad": 2,
+          "pointerUp@pad": 2
+        }
+      }
+    },
+    {
+      "name": "the field takes the keyboard",
+      "do": [
+        "press",
+        [
+          116,
+          224
+        ]
+      ],
+      "expect": {
+        "focus_input": "field"
+      }
+    },
+    {
+      "name": "JavaScript selects 'world'",
+      "do": [
+        "press",
+        [
+          281,
+          224
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "field"
+      }
+    },
+    {
+      "name": "a key replaces the selection JavaScript set",
+      "do": [
+        "type",
+        "X"
+      ],
+      "expect": {
+        "texts": [
+          "Text: hello X"
+        ]
+      }
+    }
+  ]
+}

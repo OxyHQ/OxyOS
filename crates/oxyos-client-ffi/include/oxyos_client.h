@@ -835,6 +835,9 @@ typedef struct OxyOSNet OxyOSNet;
 #define OXYOS_NET_CHUNK 2
 #define OXYOS_NET_DATA 3
 #define OXYOS_NET_COMPLETE 4
+/* What was sent of the body so far (progress) and its length (total), as it goes, for a request
+ * with upload_progress. */
+#define OXYOS_NET_SENT 5
 
 /* Results of oxyos_net_answer. */
 #define OXYOS_NET_ANSWER 1
@@ -847,9 +850,22 @@ typedef struct OxyOSNetHeader {
   size_t value_length;
 } OxyOSNetHeader;
 
+/* A part of a body: `length` bytes at `bytes`, or, `fd` not -1, `length` bytes of the open file
+ * `fd` from `offset`, read as they are sent (never wholly in memory). */
+typedef struct OxyOSNetPart {
+  const uint8_t* bytes;
+  uint64_t length;
+  int fd;
+  uint64_t offset;
+} OxyOSNetPart;
+
 /* timeout_ms is the whole request's (0 for none); has_body says whether body is sent (a request
  * may send an empty body, or none); with_credentials, whether the jar's cookies go with it and
- * what it sets is kept; incremental, whether the body comes as chunks instead of whole. */
+ * what it sets is kept; incremental, whether the body comes as chunks instead of whole;
+ * upload_progress, whether what was sent is answered as it goes (OXYOS_NET_SENT). With part_count
+ * not 0 the body is its parts instead (a multipart form's files); their descriptors are the
+ * network's once oxyos_net_send is called, closed when the request ends, or at once if it cannot
+ * be sent. A body's length is sent as Content-Length. */
 typedef struct OxyOSNetRequest {
   int64_t id;
   const char* method;
@@ -864,9 +880,13 @@ typedef struct OxyOSNetRequest {
   uint8_t has_body;
   uint8_t with_credentials;
   uint8_t incremental;
+  uint8_t upload_progress;
+  const OxyOSNetPart* parts;
+  size_t part_count;
 } OxyOSNetRequest;
 
-/* RESPONSE: status, headers (duplicates joined with ", ") and the URL answered after redirects.
+/* SENT: progress (bytes sent so far) and total (the body's length).
+ * RESPONSE: status, headers (duplicates joined with ", ") and the URL answered after redirects.
  * CHUNK: bytes/length, progress (bytes so far) and total (-1 if unknown).
  * DATA: bytes/length, and content_type (NULL if none).
  * COMPLETE: error (NULL if it succeeded) and timed_out.
@@ -1145,6 +1165,55 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
+
+/* An application's own directories (crates/oxyos-apps), by its id (the registry entry's, as the
+ * session gives it in OXYOS_APP_ID): its data directory (`which` 0, $XDG_DATA_HOME/oxyos/apps/ID)
+ * or its cache directory (1, $XDG_CACHE_HOME/oxyos/apps/ID). Written as oxyos_applications writes;
+ * -1 for an id that is not one or without a home (oxyos_last_error). */
+int64_t oxyos_application_directory(const char* id, uint8_t which, char* out, size_t capacity);
+
+/* Files (crates/oxyos-files, docs/adr/0028-file-access.mdx): the user's home, the volumes mounted
+ * for them and the application's own folders, for an application's OxyOSFiles (expo-file-system's
+ * operations, the places and the Trash). Requests are JSON ({"op", ...}, the operations in
+ * oxyos_files::service) with bytes beside them; answers ({"ok": true, "value"} or {"ok": false,
+ * "error", "message"}) and watched changes (events: id 0) are JSON with bytes beside them too. A
+ * request is answered at once on the calling thread (oxyos_files_call), or queued and answered in
+ * order on the service's own thread, taken from its queue (oxyos_files_take). */
+typedef struct OxyOSFiles OxyOSFiles;
+typedef struct OxyOSFilesReply OxyOSFilesReply;
+/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME, $USER's
+ * volumes under /media and /run/media), for the application `app_id`, the id the session gave an
+ * application it started (NULL for none or a claimed id: no folders of its own), whose documents and
+ * cache folders (oxyos_application_directory's, docs/adr/0030-installing-applications.mdx) are made
+ * if they are not there, run from the bundle in the folder `bundle` (read-only; NULL for none), or
+ * NULL. */
+OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length);
+/* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
+void oxyos_files_free(OxyOSFiles* files);
+/* Readable while replies are queued (for poll/epoll). */
+int oxyos_files_fd(OxyOSFiles* files);
+/* Answers a request (`length` bytes of UTF-8 JSON, not NUL-terminated, and `bytes_length` bytes
+ * beside it, `bytes` NULL for none) at once: the reply, freed with oxyos_files_reply_free; NULL for
+ * a request that is not UTF-8. */
+OxyOSFilesReply* oxyos_files_call(OxyOSFiles* files, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
+/* Queues a request as `id` (not 0); its answer is the reply with that id. 0, or OXYOS_ERROR for a
+ * request that is not UTF-8 (nothing is queued). */
+int oxyos_files_request(OxyOSFiles* files, uint64_t id, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
+/* The next reply without blocking, NULL when there is none; freed with oxyos_files_reply_free. */
+OxyOSFilesReply* oxyos_files_take(OxyOSFiles* files);
+/* The id of the request a reply answers; 0 for an event (a watch's change). */
+uint64_t oxyos_files_reply_id(const OxyOSFilesReply* reply);
+/* A reply's JSON, NUL-terminated, its length in `*length` (if not NULL); valid until it is freed. */
+const char* oxyos_files_reply_json(const OxyOSFilesReply* reply, size_t* length);
+/* A reply's bytes (what was read), their length in `*length` (if not NULL); valid until it is freed. */
+const uint8_t* oxyos_files_reply_bytes(const OxyOSFilesReply* reply, size_t* length);
+/* Frees a reply. NULL is ignored. */
+void oxyos_files_reply_free(OxyOSFilesReply* reply);
+/* Opens a file the scope allows for reading (`uri`, a file:// URI): a request's body, as Networking
+ * sends a multipart form's file part. Its descriptor, the caller's to close (or the network's, given
+ * as an OxyOSNetPart), its size in `*size` if not NULL; OXYOS_ERROR with the reason in
+ * oxyos_last_error. */
+int oxyos_files_open_read(OxyOSFiles* files, const char* uri, size_t length, uint64_t* size);
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
