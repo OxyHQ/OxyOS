@@ -730,9 +730,9 @@ int main(int argc, char** argv) {
             ++serial;
             return window->launch(serial, id) ? serial : 0;
           },
-          .authenticate = [&window, &shellSurfaces](const std::string& secret) {
+          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account) {
             auto surface = shellSurfaces.lockSurface();
-            return surface && window->authenticate(*surface, secret);
+            return surface && window->authenticate(*surface, secret, account);
           },
           .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
             window->activateMenuItem(target, serial, index);

@@ -27,6 +27,11 @@
  * rising `id` for each, as several may come before the shell draws again; action 'switcher-next' | 'switcher-previous' | 'switcher-quit' | 'switcher-hide' |
  * 'switcher-done' | 'switcher-cancel' | 'search'; output the one to show it on).
  * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window.
+ *
+ * The login screen (docs/adr/0020-oxy-account-login.mdx): `authenticate(password, account)` sends the
+ * password for an enrolled account's Unix user, and `accounts()` reads the enrolled accounts from the
+ * accounts' service, [{ user, name, picture }] (null when they cannot be read); `oxyApi` in the state
+ * is Oxy's API, which adding an account needs to reach.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -76,7 +81,8 @@ export function useOxyOSShell() {
     // Asks the session for an application of its registry (ADR 0013): the request's serial (0:
     // not sent); `OxyOSShellLaunch` says whether it was started.
     launch: (id) => native?.launch(id) ?? 0,
-    authenticate: (password) => native?.authenticate(password) ?? false,
+    authenticate: (password, account) => native?.authenticate(password, account) ?? false,
+    accounts: () => native?.accounts() ?? null,
     activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
   };
 }

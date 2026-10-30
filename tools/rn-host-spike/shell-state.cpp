@@ -210,6 +210,13 @@ bool ShellState::observe(const OxyOSEvent& event) {
   }
 }
 
+// Oxy's API, where adding an account at the login screen signs in (docs/adr/0020-oxy-account-login.mdx):
+// OXYOS_OXY_API (a development server), else Oxy's own.
+std::string ShellState::oxyApi() {
+  const char* api = std::getenv("OXYOS_OXY_API");
+  return api && *api ? api : "https://api.oxy.so";
+}
+
 folly::dynamic ShellState::wallpaperUri() const {
   if (!frame_) return nullptr;
   auto file = wallpaperFrames_.find(*frame_);
@@ -239,7 +246,7 @@ folly::dynamic ShellState::state() const {
       folly::dynamic::object("window", menuBar_.window)("serial", menuBar_.serial)("items", std::move(items));
   return folly::dynamic::object("windows", std::move(windows))("menuBar", std::move(menuBar))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
-      "applications", applications_)("output", output_)("outputs", std::move(outputs));
+      "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi());
 }
 
 }  // namespace oxyos

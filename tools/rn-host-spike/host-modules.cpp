@@ -4,6 +4,7 @@
 #include "text.h"
 
 #include <folly/dynamic.h>
+#include <folly/json.h>
 #include <oxyos_client.h>
 #include <jsi/JSIDynamic.h>
 
@@ -345,10 +346,32 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value::undefined();
     });
     // The password reaches the compositor and the session, nothing else: never logged or reported.
+    // At the login screen, with the account it is for.
     module->method("authenticate", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.authenticate: a password");
-      return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt)));
+      std::string account = count > 1 && args[1].isString() ? args[1].asString(rt).utf8(rt) : "";
+      return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt), account));
+    });
+    // The enrolled accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service,
+    // which answers only the login screen's user: [{ user, name, picture }], or null when they
+    // cannot be read.
+    module->method("accounts", [ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      std::string json(4096, '\0');
+      for (int tries = 0; tries < 4; ++tries) {
+        int64_t length = oxyos_accounts(json.data(), json.size());
+        if (length < 0) {
+          std::cerr << "[host] the accounts: " << oxyos_last_error() << "\n";
+          return jsi::Value::null();
+        }
+        if (static_cast<size_t>(length) < json.size()) {
+          json.resize(static_cast<size_t>(length));
+          return jsi::valueFromDynamic(rt, folly::parseJson(json));
+        }
+        json.assign(static_cast<size_t>(length) + 1, '\0');
+      }
+      return jsi::Value::null();
     });
     // A command of the active window's menus, as the shell was told them (ADR 0021).
     module->method("activateMenuItem", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
