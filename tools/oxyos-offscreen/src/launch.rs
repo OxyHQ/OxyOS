@@ -93,6 +93,15 @@ pub enum Step {
         motions: u32,
         hz: u32,
     },
+    /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
+    /// second, the compositor serving the application between them: a touchpad's two fingers
+    /// scrolling a list. What the window showed meanwhile is measured (`scroll_paced`).
+    ScrollPaced {
+        at: (i32, i32),
+        dy: i32,
+        events: u32,
+        hz: u32,
+    },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -194,6 +203,9 @@ impl Step {
                 motions,
                 hz,
             } => format!("drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz"),
+            Step::ScrollPaced { at, dy, events, hz } => {
+                format!("scroll by {dy} at {at:?} in {events} events at {hz} Hz")
+            }
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::KeyDown(codes) => format!("key {} held", chord(codes)),
             Step::KeyUp(codes) => format!("key {} released", chord(codes)),
@@ -284,6 +296,9 @@ impl Step {
                 "\"drag_paced\":[{},{},{},{},{motions},{hz}]",
                 from.0, from.1, to.0, to.1
             ),
+            Step::ScrollPaced { at, dy, events, hz } => {
+                format!("\"scroll_paced\":[{},{},{dy},{events},{hz}]", at.0, at.1)
+            }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
             Step::KeyUp(codes) => format!("\"key_up\":{codes:?}"),
@@ -414,7 +429,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
@@ -636,6 +651,20 @@ impl Launch {
                         to: (n[2], n[3]),
                         motions: n[4] as u32,
                         hz: n[5] as u32,
+                    }
+                }
+                Some("--scroll-paced") => {
+                    let n = numbers(args.next(), 5)?;
+                    if n[3] < 1 || n[4] < 1 {
+                        return Err(
+                            "--scroll-paced needs at least one event at 1 Hz or more".into()
+                        );
+                    }
+                    Step::ScrollPaced {
+                        at: (n[0], n[1]),
+                        dy: n[2],
+                        events: n[3] as u32,
+                        hz: n[4] as u32,
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
@@ -979,6 +1008,21 @@ fn median(values: &[f64]) -> Option<f64> {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     sorted.get(sorted.len() / 2).copied()
+}
+
+/// The frames composed since `from_ns` (CLOCK_MONOTONIC), as JSON: each [ms from then to when its
+/// composition started, how long composing it took, how long of that reading the clients'
+/// buffers, in ms] (`Compositor::frame_times`).
+fn composed_since(compositor: &Compositor, from_ns: i64) -> String {
+    let frames: Vec<String> = compositor
+        .frame_times
+        .iter()
+        .filter_map(|&(started, ms, read)| {
+            let at = started.as_nanos() as i64 - from_ns;
+            (at >= 0).then(|| format!("[{:.2},{ms:.2},{read:.2}]", at as f64 / 1e6))
+        })
+        .collect();
+    format!("[{}]", frames.join(","))
 }
 
 fn monotonic_ns() -> i64 {
@@ -1748,6 +1792,8 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
 ///   not dragged stays put), and `final`, the window's rectangle at the end;
 /// - `composed`, the frames composed meanwhile, and `scaled`, how many drew the window at another
 ///   size than its buffer's (none should: a window resizing shows its last frame at its size);
+/// - `bytes_read`, the application's pixels the compositor read meanwhile (none for a window
+///   moved: nothing it shows changes);
 /// - `shown`, each frame shown: [ms since the press, configure serial, x, y, width, height].
 fn drag_paced(
     session: &mut Session,
@@ -1778,6 +1824,8 @@ fn drag_paced(
     };
     let serial = |compositor: &Compositor| compositor.scene.configure_serial(key).unwrap_or(0);
     let first_serial = serial(&session.compositor);
+    let read = |compositor: &Compositor| compositor.bytes_read.get(&CLIENT).copied().unwrap_or(0);
+    let bytes_before = read(&session.compositor);
     let start = Instant::now();
     // Configures first seen sent (serial, when) and frames shown (when, sequence, serial, rect).
     let mut sent: Vec<(u64, Duration)> = Vec::new();
@@ -1831,9 +1879,13 @@ fn drag_paced(
     let interval = Duration::from_secs(1) / hz;
     let mut moved: Vec<Duration> = Vec::new();
     let steps = i64::from(motions);
+    // Each motion when its time comes: the turns before it wait at most until then, and the turn
+    // the motion wakes composes its frame at once, as a device's event wakes a session's turn.
+    let idle_wait = session.compositor.idle_wait;
     for i in 1..=steps {
         let due = interval * i as u32;
         while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
             session.compositor.serve(&session.listener)?;
             observe(&session.compositor, &mut sent, &mut frames);
         }
@@ -1843,8 +1895,11 @@ fn drag_paced(
             .compositor
             .scene
             .pointer_motion(at(from.0, to.0), at(from.1, to.1));
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
     }
+    session.compositor.idle_wait = idle_wait;
     let due = interval * (motions + 1);
     while start.elapsed() < due {
         session.compositor.serve(&session.listener)?;
@@ -1896,7 +1951,8 @@ fn drag_paced(
     };
     let last = displayed(&session.compositor).map(|(_, _, rect)| rect);
     Ok(format!(
-        "{{\"motions\":{motions},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"scaled\":{scaled},\"shown\":[{}]}}",
+        "{{\"motions\":{motions},\"bytes_read\":{},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"scaled\":{scaled},\"shown\":[{}]}}",
+        read(&session.compositor) - bytes_before,
         sent.len(),
         frames.len(),
         sizes.len(),
@@ -1919,6 +1975,84 @@ fn drag_paced(
             ))
             .collect::<Vec<_>>()
             .join(","),
+    ))
+}
+
+/// A paced scroll (`Step::ScrollPaced`) on the scene: the pointer over the window at `at`, each
+/// event when its time comes with the compositor serving the application until then and the turn
+/// the event wakes composing at once, as a touchpad's wakes a session's; then the compositor
+/// serving it until its window shows no new frame for SETTLE (or five seconds pass). Returns what
+/// the window did, as JSON: `events`; `presented`, the frames it showed meanwhile; and
+/// `latency_ms` (median and max), from each event to the first frame shown after it.
+fn scroll_paced(
+    session: &mut Session,
+    window: Rect,
+    at: (i32, i32),
+    dy: i32,
+    events: u32,
+    hz: u32,
+) -> Result<String> {
+    if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
+        return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
+    }
+    let sequence = |compositor: &Compositor| compositor.surface_sequence(CLIENT, WINDOW);
+    session
+        .compositor
+        .scene
+        .pointer_motion(window.x + at.0, window.y + at.1);
+    let start = Instant::now();
+    let interval = Duration::from_secs(1) / hz;
+    let mut last = sequence(&session.compositor);
+    let mut shown: Vec<Duration> = Vec::new();
+    let mut observe = |compositor: &Compositor, shown: &mut Vec<Duration>| {
+        let now = sequence(compositor);
+        if now != last {
+            last = now;
+            shown.push(start.elapsed());
+        }
+    };
+    let idle_wait = session.compositor.idle_wait;
+    let mut scrolled: Vec<Duration> = Vec::new();
+    // In 256ths of a pixel (`Scene::pointer_scroll`), spread evenly over the events.
+    let total = i64::from(dy) * 256;
+    for i in 1..=i64::from(events) {
+        let due = interval * i as u32;
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+            observe(&session.compositor, &mut shown);
+        }
+        let step = total * i / i64::from(events) - total * (i - 1) / i64::from(events);
+        scrolled.push(start.elapsed());
+        session.compositor.scene.pointer_scroll(0, step as i32);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+    }
+    session.compositor.idle_wait = idle_wait;
+    let deadline = start.elapsed() + Duration::from_secs(5);
+    let mut quiet_since = start.elapsed();
+    while start.elapsed() < deadline && start.elapsed() - quiet_since < SETTLE {
+        let before = shown.len();
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+        if shown.len() != before {
+            quiet_since = start.elapsed();
+        }
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    let mut latencies: Vec<f64> = scrolled
+        .iter()
+        .filter_map(|&t| shown.iter().find(|&&s| s >= t).map(|&s| ms(s - t)))
+        .collect();
+    latencies.sort_by(f64::total_cmp);
+    Ok(format!(
+        "{{\"events\":{events},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}}}}",
+        shown.len(),
+        median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
+        latencies
+            .last()
+            .map_or("null".to_string(), |ms| format!("{ms:.1}")),
     ))
 }
 
@@ -2101,7 +2235,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::ImChange { .. }
         | Step::Accessibility { .. }
         | Step::Grab { .. }
-        | Step::DragPaced { .. } => {}
+        | Step::DragPaced { .. }
+        | Step::ScrollPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -2477,6 +2612,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.take_announcements();
         let injected_ns = monotonic_ns();
         let mut dragged = None;
+        let mut scrolled = None;
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
         }
@@ -2512,6 +2648,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 } = step
                 {
                     dragged = Some(drag_paced(&mut session, *from, *to, *motions, *hz)?);
+                }
+                0
+            }
+            _ if matches!(step, Step::ScrollPaced { .. }) => {
+                if let Step::ScrollPaced { at, dy, events, hz } = step {
+                    scrolled = Some(scroll_paced(&mut session, window, *at, *dy, *events, *hz)?);
                 }
                 0
             }
@@ -2568,7 +2710,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{}{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -2586,7 +2728,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.scene.pointer_shape(),
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
+            composed_since(&session.compositor, injected_ns),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
+            scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
         ));
         snapshots.push(snapshot(
             &session.compositor,

@@ -1,0 +1,18 @@
+{
+  "about": "A window dragged by its title area at a mouse's pace, for the performance harness (perf.py, docs/performance.mdx): WindowProbe (Bloom's SettingsLayout, the rail's top band the title area) pressed and moved 200 px right and 150 px down in 100 motions at a mouse's 125 Hz, the development compositor serving the application between motions (`drag_paced`). The press goes to the application, which asks the compositor to move the window (BeginMove); from then on the compositor moves it with the pointer, recomposing a frame for each motion while the application draws nothing, and reading none of its pixels again. The window follows the pointer (where it ends depends on when the application's BeginMove came).",
+  "module": "WindowProbe",
+  "window": [900, 600],
+  "steps": [
+    {
+      "name": "The window is the active one",
+      "do": ["press", [600, 300]],
+      "allow_unchanged": true,
+      "expect": {"window_rect": [190, 60, 900, 600]}
+    },
+    {
+      "name": "Its title area dragged 200 px right and 150 px down, 100 motions at 125 Hz: a frame composed for nearly every motion, no client pixels read",
+      "do": ["drag_paced", [340, 90, 540, 240, 100, 125]],
+      "expect": {"drag": {"composed_min": 90, "bytes_read_max": 0}}
+    }
+  ]
+}

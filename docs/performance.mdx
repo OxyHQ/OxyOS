@@ -1,0 +1,220 @@
+---
+title: Performance
+description: How OxyOS's compositor and Bloom host are measured, the numbers, what they mean and what was fixed.
+---
+
+# Performance
+
+What a person feels on OxyOS (a window following the hand, a list scrolling, an application
+opening, the machine silent when nothing happens) is measured here, not estimated: by a harness
+anyone can run with one command, on the development compositor, and read-only on a real
+session. The numbers below are from 30 October 2026.
+
+## Running it
+
+```sh
+python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen \
+  --host BUILD/oxyos-bloom-host --bundle BUNDLE [--out DIR] [--runs 3] [--gpu-only] [--check] \
+  [interactions] [cold-start] [idle]
+```
+
+It runs regression scenarios through `regress.py` (every step's expected result is still checked)
+and writes `perf.json` and the tables below. `--gpu-only` composes on the Vulkan device instead
+of the CPU. `--check` fails when a budget is exceeded:
+
+- every frame's work fits a 60 Hz refresh (16.7 ms) at the 95th percentile, for the compositor
+  and for each host;
+- an application or the shell doing nothing wakes at most once a second and uses at most 0.1 %
+  of a core;
+- an application's first frame comes within half a second of its start.
+
+## Method
+
+**Interactions.** Five scenarios (in `tools/rn-host-spike/scenarios/`), each run three times and
+pooled:
+
+| interaction | scenario | what happens |
+|---|---|---|
+| window drag | `perf-window-drag.json` | WindowProbe's title area dragged 250 px at a mouse's 125 Hz (`drag_paced`): the compositor moves the window, the application draws nothing |
+| window drag at 1.25 | `perf-window-drag-scaled.json` | the same beside the shell on a 1600×1000 output at 1.25, the ThinkPad's scale |
+| live resize | `window-resize.json` | the Inbox's edges dragged at 125 Hz: one configure in flight, the host lays out and draws every size |
+| zoom | `windows.json`, steps 3–4 | the green bubble: the window's frame animated to the work area and back (a compositor transition) |
+| window views | `shell-thumbnails.json`, step 1 | the overview opening, Allo's window drawn live in its card ([ADR 0022](./adr/0022-window-views)) |
+| Settings scroll | `perf-settings-scroll.json` | Settings' sidebar scrolled 240 px down and back at a touchpad's 60 Hz (`scroll_paced`) |
+
+For every frame the compositor composes, the director records when it started and how long
+composing it took (`composed` in each step's record: gathering the scene, reading the clients'
+buffers, composing, handing it over), and the part of it reading the clients' buffers. For every
+frame a host presents, its report records the loop's work since its previous frame (`busy_ms`,
+never its waiting) and the part of it running JavaScript (`js_ms`: React Native's runtime and
+the worklets' UI runtime, so React's render, Fabric's commit and Yoga's layout); the rest is
+native (mounting, drawing, presenting, the compositor's events). Paced steps (`drag_paced`,
+`scroll_paced`) send each event when its time comes and compose the frame it wakes at once, as a
+device's event wakes a session's turn.
+
+"interval" is the time between consecutive frames composed while the input lasted, and "late"
+counts intervals over one and a half refreshes. The development compositor has no display, so
+nothing paces it to a refresh: a frame is composed as soon as something changes, and the
+interval is how fast the whole pipeline (input, host, compositor) answers.
+
+**Cold start.** An application's process started by the compositor to its first frame on the
+output, and the host's stages in between (its report's `stage` lines): the process reaching
+`main`, Hermes' instance, Fabric's scheduler, the window configured, the bundle evaluated, and
+React's first render, layout, mount and draw.
+
+**Idle.** Each scenario with one step that waits nine seconds; two seconds after the
+application's first frame, every process's CPU time (`/proc/PID/schedstat`) and context switches
+(every thread's, `/proc/PID/task/*/status`) are sampled over five seconds. The development
+compositor turns every 5 ms by design (its director's pace), so its idle numbers say nothing of
+a session's; a session's are measured on the ThinkPad below.
+
+**Memory.** Every process's resident memory while idle (anonymous, file-backed) and its peak
+(`VmHWM`) over the run.
+
+**Machine.** Intel Core i9-14900K (32 threads), Linux 6.18 under WSL2, shared with other work
+(load average 9 to 22 during the runs): absolute numbers are this machine's, and a few
+percent of noise. Composition is on the CPU (`compose_cpu`), the reference renderer; "Vulkan" is
+Mesa's lavapipe, a software rasterizer, which shows the Vulkan path's costs on the host side but
+not a GPU's.
+
+## Results
+
+### Interactions
+
+Composed on the CPU, three runs pooled; "before" is `main` before the fixes below (one run).
+Times in ms, p50 / p95; "work" is a host's loop's work for each frame it presented, "JS" the
+part of it running JavaScript.
+
+| interaction | frame interval | late | compose | app work | app JS |
+|---|---|---|---|---|---|
+| window drag, before | 8.0 / 8.1 | 0 | 5.8 / 6.6 | — | — |
+| window drag | 8.0 / 8.1 | 0 | 2.3 / 3.0 | — | — |
+| window drag at 1.25, before | 24.1 / max 30.0 | — | 24.1 (2.8 of it reading clients) | — | — |
+| window drag at 1.25 | 8.0 / 8.2 | 0 | 7.0 / 8.1 (0.01 reading) | — | — |
+| live resize, before | 11.3 / 26.5 | 16 | 5.7 / 6.6 | 9.2 / 24.2 | 3.6 / 5.7 |
+| live resize | 8.0 / 11.5 | 1 a run | 3.1 / 3.5 | 6.8 / 11.2 | 3.4 / 5.7 |
+| zoom, before | 16.7 / 16.9 | 0 | 7.6 / 12.7 | 0.7 / 5.1 | 0.3 / 3.5 |
+| zoom | 12.9 / 16.9 | 0 | 3.3 / 11.1 | 0.7 / 4.3 | 0.3 / 3.3 |
+| window views, before | 24.3 / 27.0 | 3 | 21.9 / 26.9 | shell 9.3 | — |
+| window views | 14.1 / 17.7 | 0 | 12.9 / 17.6 | shell 6.2 | — |
+| Settings scroll, before | 16.6 / 17.0 | 0 | 4.7 / 4.9 | 1.6 / 2.1 | 0.3 / 0.4 |
+| Settings scroll | 16.7 / 17.1 | 0 | 3.0 / 3.9 | 1.8 / 2.9 | 0.4 / 0.6 |
+
+A window dragged at a mouse's 125 Hz now gets a frame for every motion, 8 ms apart, at 1.25 as at
+1; before, beside the shell at 1.25, each frame took 24 ms and the 0.8 s drag lasted 2.4 s
+behind the hand. The input-to-frame latency of a live resize is 6.6 ms at the median (a motion
+to the window's frame for it), of a scroll 4.5 ms. The scroll's interval is its input's 60 Hz.
+
+On the Vulkan path (lavapipe, one run): the window drag at 1.25 composes in 8.6 ms (12.8 before,
+3.1 of it reading clients), of which this fixture reads the whole frame back each time.
+
+### JavaScript or native
+
+Steady interactions are not JavaScript-bound. A live resize's frame is 6.8 ms of the host's work
+at the median, 3.4 of it JavaScript (Fabric's commit of the new size and Yoga's layout); a scroll's
+1.8 ms, 0.4 of it JavaScript; a zoom's 0.7, 0.3 of it. The worst frames were native: drawing (a
+border ring visiting every pixel of the box it encloses: 19 ms of a 25 ms frame), composition
+(every surface's pixels copied again, every frame) and the platform's glue (a frame loop running
+60 times a second for nothing). What JavaScript does cost: a re-render of the whole layout, as the
+Inbox's at its breakpoint from two panels to one (30–35 ms once, in a resize), and an
+application's first render.
+
+### Cold start
+
+The application's process started to its first frame on the output; the same before the fixes.
+
+| application | first frame, ms (p50 / max) | process to `main` | Hermes | Fabric | window | bundle evaluated | first render to frame |
+|---|---|---|---|---|---|---|---|
+| Settings | 46 / 47 | 4.1 | 0.8 | 0.1 | 4.4 | 13.6 | 12.7 |
+| Inbox (sample) | 128 / 129 | 3.8 | 0.8 | 0.1 | 4.4 | 13.3 | 93.8 |
+| WindowProbe | 84 / 86 | 3.9 | 0.9 | 0.2 | 4.4 | 12.7 | 52.9 |
+| Allo beside the shell | 64 / 64 | 4.0 | 0.9 | 0.1 | 4.4 | 12.6 | 30.1 |
+
+The bundle is one 9.5 MB Hermes bytecode file with every probe and app in it; evaluating it takes
+13 ms. The rest is React's first render, layout, mount and draw: the application's own work.
+
+### Idle
+
+Five seconds sampled, two after the first frame; median of three runs.
+
+| process | CPU, before | wakeups/s, before | CPU | wakeups/s |
+|---|---|---|---|---|
+| the shell | 0.60 % | 59.6 | 0.00 % | 0 |
+| Allo (beside the shell) | 0.48 % | 59.6 | 0.00 % | 0 |
+| Settings | 0.85 % | 59.6 | 0.00 % | 0 |
+
+### Memory
+
+| process | resident (anonymous, file) | peak, before | peak |
+|---|---|---|---|
+| the shell | 76 MiB (47, 9) | 182 MiB | 127 MiB |
+| Allo | 55 MiB (30, 8) | 55 MiB | 55 MiB |
+| Settings | 67 MiB (40, 8) | 67 MiB | 67 MiB |
+| the development compositor | 25 MiB (18, 6) | 33 MiB | 32 MiB |
+
+The shell's peak is its wallpaper: a 5120 × 2880 JPEG decoded whole (56 MiB) and reduced to the
+output's size.
+
+## The ThinkPad
+
+Read-only, over ssh, on the owner's session (`oxyos-probar`: Intel Core i5-1240P, Iris Xe,
+1920 × 1200 at 1.25, composing with Vulkan into the display's buffers), running `main` before
+these fixes, idle over 60 s (`/proc` as above):
+
+| process | CPU | wakeups/s | resident | peak |
+|---|---|---|---|---|
+| `oxyos-session` | 0.15 % | 21.4 | 98 MiB | 116 MiB |
+| the shell | 2.29 % | 59.3 | 159 MiB | 251 MiB |
+
+The session's main thread woke 4.5 times a second (its quarter-second wait); its controls' worker,
+D-Bus connection and async threads 17 times (the 5 s status poll, by design). The shell's 59
+wakeups and 2.3 % of a core were worklets' frame loop (below). An earlier session's shell held
+195 MiB (peak 322 MiB). While a window was dragged, libinput logged "event processing lagging
+behind by 21–47 ms": the compositor read its devices before waiting, so input that woke a turn
+waited behind that turn's frame, and each frame copied every client's buffer (the shell's
+1920 × 1200 background among them) before composing.
+
+## What was fixed
+
+- **The compositor read every client's whole buffer for every frame** (`Compositor::pixels`),
+  though only a new frame has new pixels and the GPU path keeps what it uploaded: 3 ms a frame
+  at 1600 × 1000 here, more at the ThinkPad's 1920 × 1200. A frame is now read once, when it is
+  first shown, and shared after (`read_frame`); transitions draw their snapshots without copying.
+  `perf-window-drag*.json` guard it: the compositor reads none of the application's pixels while
+  its window is dragged (`drag.bytes_read_max`).
+- **Input that woke a turn was read after the turn's frame.** The compositor's turn now reads the
+  devices after it waits, so the frame it composes shows the input that woke it.
+- **A session's turns were not measured.** A turn whose work takes longer than a refresh is now
+  logged, at most once a second, with where the time went (`[compositor] a turn worked …`): the
+  next run on the ThinkPad says what remains.
+- **The CPU composition copied an opaque layer drawn 1:1 pixel by pixel through the general
+  sampling** (and computed a shadow under its window): a window drag's frame at 1.25 went from
+  18 to 5 ms in `compose_cpu`, pixel for pixel the same (Vulkan's output is compared with it).
+- **The Bloom host woke 60 times a second doing nothing.** Worklets' UI-runtime frame loop asks
+  for its next frame in every frame, and Reanimated runs its mappers in every frame: the host ran
+  them whether or not anything could have changed. A frame now runs only when one is wanted: a
+  frame callback was asked for (the UI runtime's `requestAnimationFrame` is watched), or the host
+  did something that may give it work (`worklets-host.h`). The loop's 1 s safety wake is gone:
+  it sleeps until a descriptor or a deadline (a timer, a paste's timeout, the wallpaper's next
+  frame) wakes it. `perf.py --check` guards it (at most one wakeup a second).
+- **The session polled every quarter second** for its children: SIGCHLD now wakes it, and it
+  waits until what is due on a clock (the sun, a shell restarted, a display's trial mode).
+- **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
+  of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
+  rectangle covers whole at once (pixel for pixel the same).
+- **A wallpaper reduced to the screen held every source row reduced across at once** (another
+  56 MiB in floats) and an ICC conversion copied the whole image: rows are now reduced as they
+  are needed and colours converted a slice at a time; the shell's peak fell by 55 MiB.
+
+## What remains
+
+- **The GPU path waits for each frame on the compositor's thread.** `VulkanCompositor::run`
+  submits and then waits for the fence before the page flip, so a turn lasts as long as the GPU
+  composes. Handing the flip the fence as a sync file (`IN_FENCE_FD`) would let the turn go on;
+  the slow-turn log will show how long the wait is on Iris Xe.
+- **The CPU composition composes the whole output every frame**, damage or not: the overview
+  opening is 13–18 ms a frame on the CPU (window views box-filtered, an overlay over everything).
+  The session composes on the GPU where it can.
+- **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).
+- **A JPEG wallpaper is decoded whole** before it is reduced (56 MiB for 5120 × 2880).
+- **The controls' status poll** (every 5 s) wakes four threads 17 times a second in all.

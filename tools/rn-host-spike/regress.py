@@ -63,8 +63,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   serving the application between them, as a hand drags a window's edge): "unanswered_max", the
   most configures sent that no frame shown answered; "presented_min", the fewest frames the window
   showed; "bounded", no more configures than frames shown; "steady", the window's edges ("left",
-  "top", "right", "bottom") that must not move in any frame shown; and always, no frame composed
-  in the drag drawing the window at another size than its buffer's ("scaled");
+  "top", "right", "bottom") that must not move in any frame shown; "composed_min", the fewest frames
+  composed in the drag (a window moved is a frame for each motion); "bytes_read_max", the most
+  of the application's pixels the compositor may read in the drag (0 for a window moved: it shows
+  nothing new);
+  and always, no frame composed in the drag drawing the window at another size than its
+  buffer's ("scaled");
+- scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
+  rate, the compositor serving the application between them, as a touchpad scrolls a list):
+  "presented_min", the fewest frames the window showed;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -155,7 +162,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
 
@@ -186,6 +193,9 @@ def director_args(step):
     if kind == "drag_paced":
         # A drag on the output at a hand's pace: [x0, y0, x1, y1, motions, hz].
         return args + ["--drag-paced", ",".join(map(str, value))]
+    if kind == "scroll_paced":
+        # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
+        return args + ["--scroll-paced", ",".join(map(str, value))]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
@@ -772,6 +782,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if drag.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {drag.get('presented', 0)} frames in the drag, expected at least "
                  f"{wanted['presented_min']}")
+        if drag.get("composed", 0) < wanted.get("composed_min", 0):
+            fail(f"{drag.get('composed', 0)} frames were composed in the drag, expected at least {wanted['composed_min']}")
+        if drag.get("bytes_read", 0) > wanted.get("bytes_read_max", float("inf")):
+            fail(f"the compositor read {drag['bytes_read']} bytes of the application's pixels in the drag, expected at most "
+                 f"{wanted['bytes_read_max']}")
         if drag.get("configures", 0) > drag.get("presented", 0) and wanted.get("bounded"):
             fail(f"{drag.get('configures')} configures for {drag.get('presented', 0)} frames shown")
         # A window resizing is never drawn scaled: every frame composed draws its buffer 1:1.
@@ -782,6 +797,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "scrolled" in expect:
+        # A paced scroll (`scroll_paced`): "presented_min", the fewest frames the window showed
+        # while it scrolled.
+        scrolled, wanted = result.get("scrolled") or {}, expect["scrolled"]
+        if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
+                 f"{wanted['presented_min']}")
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
