@@ -1359,6 +1359,11 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
+    # glibc fills what it frees (and what it hands out) with this byte, so a use of freed memory
+    # crashes the run every time instead of only when the memory happened to be reused: a host
+    # destroying JavaScript's pending timers after its runtime crashed one exit in tens, and with
+    # this every exit that does it.
+    env["MALLOC_PERTURB_"] = "165"
     # What applications keep (their data and cache directories, application.h) is the run's own,
     # never the user's; a scenario's `app_data` is there before the application starts.
     for kept in ("xdg-data", "xdg-cache"):

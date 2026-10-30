@@ -324,12 +324,22 @@ class Painter {
     if (!rounded && !tint && opacity >= 1 && whole(left) && whole(top) &&
         std::abs(dw * scale_ - picture.width) < 1e-3f && std::abs(dh * scale_ - picture.height) < 1e-3f &&
         whole(box.x0 * scale_) && whole(box.y0 * scale_) && whole(box.x1 * scale_) && whole(box.y1 * scale_)) {
+      // The picture's edges and the box's are whole only to within a rounding error (at 1.25,
+      // 24.8 * 1.25 is 30.999998): each is rounded to the pixel it is, never floored or ceiled as
+      // above, which took a row or column outside the picture's pixels. What is drawn is the
+      // picture's pixels within the box, the region and the canvas.
       const int ox = static_cast<int>(std::round(left)), oy = static_cast<int>(std::round(top));
-      for (int py = y0; py < y1; ++py) {
-        const uint8_t* row = picture.pixels.data() + (static_cast<size_t>(py - oy) * picture.width - ox) * 4;
+      const int bx0 = std::max({static_cast<int>(std::round(box.x0 * scale_)), region_[0], 0, ox});
+      const int by0 = std::max({static_cast<int>(std::round(box.y0 * scale_)), region_[1], 0, oy});
+      const int bx1 = std::min({static_cast<int>(std::round(box.x1 * scale_)), region_[2], canvas_.width,
+                                ox + picture.width});
+      const int by1 = std::min({static_cast<int>(std::round(box.y1 * scale_)), region_[3], canvas_.height,
+                                oy + picture.height});
+      for (int py = by0; py < by1; ++py) {
+        const uint8_t* row = picture.pixels.data() + static_cast<size_t>(py - oy) * picture.width * 4;
         uint32_t* out = canvas_.pixels.data() + static_cast<size_t>(py) * canvas_.width;
-        for (int px = x0; px < x1; ++px) {
-          const uint8_t* t = row + static_cast<size_t>(px) * 4;
+        for (int px = bx0; px < bx1; ++px) {
+          const uint8_t* t = row + static_cast<size_t>(px - ox) * 4;
           if (t[3] == 255) {
             out[px] = 0xff000000u | (uint32_t{t[0]} << 16) | (uint32_t{t[1]} << 8) | t[2];
             continue;
