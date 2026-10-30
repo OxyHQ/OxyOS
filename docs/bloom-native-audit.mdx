@@ -216,7 +216,26 @@ The steps check the window's and popup's exact rectangles.
 - **Before the bundle:** Fabric's bindings are installed before the bundle runs, as iOS installs them (Android installs them after). An app that makes an animated component at the top of a module asks for the module as the bundle loads, and React Native's manager, attaching to a UIManager not yet installed, crashed the host. The probe does, so every scenario its bundle runs covers it.
 - **Measured** (offscreen CPU, WSL2 x86-64, Release host, three runs): 35 or 36 frames for each 600 ms animation, 17.1 ms apart (median; 16.7 to 17.8), each window frame drawn in about 0.12 ms (at most 0.4).
 
-Before, the module was missing, and every `Animated` component threw as it mounted ("Native animated module is not available"), whatever its driver: React Native 0.88 flushes the native queue in each one's mount effect and asserts the module there. Bloom's `Switch` (JavaScript-driven) threw, and the Settings app with it. Reported, not done: `updateAnimatedNodeConfig` (a platform colour's AnimatedColor given a new value), which React Native's C++ implementation leaves empty; `Animated.event` on gesture handlers' events (react-native-gesture-handler's own report). React Native's bridgeless `requestAnimationFrame` is a zero timeout, so a JavaScript-driven animation, such as the Switch's spring, commits as often as the loop turns rather than once a frame.
+Before, the module was missing, and every `Animated` component threw as it mounted ("Native animated module is not available"), whatever its driver: React Native 0.88 flushes the native queue in each one's mount effect and asserts the module there. Bloom's `Switch` (JavaScript-driven) threw, and the Settings app with it. Reported, not done: `updateAnimatedNodeConfig` (a platform colour's AnimatedColor given a new value), which React Native's C++ implementation leaves empty; `Animated.event` on gesture handlers' events (react-native-gesture-handler's own report).
+
+**`requestAnimationFrame`, once a frame.** Bridgeless React Native installs `requestAnimationFrame` as a zero-delay timer (its `TimerManager`: "the same as setTimeout(0)"). Android's timer registry still fires it on the next Choreographer frame. The host's fired it as soon as it was due, so a JavaScript-driven animation committed as often as the loop turned. The host now installs its own `requestAnimationFrame` and `cancelAnimationFrame` after React Native's (`animation-frames.h`):
+- **Pacing:** a frame begins only once the compositor has answered the window's previous frame (presented or discarded) and a display frame (1/60 s) has passed since the last. So callbacks never run faster than the compositor takes frames, nor than the display. The protocol does not tell an output's refresh rate yet, so a display frame is 1/60 s. Without a window, the display's frames alone set the pace.
+- **Callbacks:** a frame runs the callbacks requested before it began, each as a task of its own (microtasks between them), all with the frame's time on `performance.now()`'s clock. A callback requested during a frame waits for the next. `cancelAnimationFrame` removes a callback until its turn, in the frame running too.
+- **Sleeping:** the loop sleeps to the nanosecond (`ppoll`), so a frame due in 16.7 ms is not taken at 17. The native driver's and worklets' frames, which kept the same 60 a second, came 17.1 to 17.5 ms apart before.
+
+Measured per press (offscreen CPU, WSL2 x86-64, Release host, host CPU over a press that changes nothing, three runs each):
+
+| | Before | After |
+| --- | --- | --- |
+| A 600 ms `Animated.timing` in JavaScript | about 597 commits of the box, about 12,600 transactions, about 210 frames presented, about 0.6 s of CPU (a core throughout) | 37 commits, 44 transactions, 37 frames, about 0.05 s |
+| Bloom's `Switch` (its spring) | 112 to 233 frames, 3,600 to 9,000 transactions, 0.9 to 1.3 s | 47 frames, 121 transactions, about 0.06 s |
+
+`requestAnimationFrame`'s frames come 16.8 ms apart (median; 16.7 to 17.9). `scenarios/native-animated.json` checks three things:
+- the JavaScript animation's frames: each commit where a linear 600 ms animation is at that frame's time, 30 to 42 of them, and as many frames of `requestAnimationFrame` at least 16 ms apart on `performance.now()`'s clock;
+- the Switch's frames;
+- `cancelAnimationFrame`, before a frame and inside one.
+
+With React Native's zero-delay timer it fails six ways: 593 commits, 174 and 197 frames presented, and no paced frames. With a cancel inside a frame not honoured, it fails on the text.
 
 **Bloom's styles.** Bloom maps its `className`s to styles with `react-native-css`, which needs the app's Metro to compile a Tailwind stylesheet; Oxy apps do it through `@oxy.so/app-preset` (`global.css`, Tailwind v4 through PostCSS, `inlineRem: 16`). Until the sample did the same (`sample/global.css`), every class-styled part of Bloom lost its style silently: menu rows were laid out as a column without padding, panels had no border. Parts styled with resolved tokens looked right, which hid the gap. With the stylesheet the window has more to draw (bordered, rounded panels), which the painter's fast paths absorbed (see the measurements above). The sample does not import NativeWind's theme (`nativewind/theme`), which Oxy apps add on top: NativeWind is not among Bloom's dependencies, and what an app loses without it on OxyOS has not been checked.
 
