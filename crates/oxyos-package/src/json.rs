@@ -10,12 +10,12 @@
 use std::fmt::Write as _;
 
 /// The deepest nesting a document may have.
-pub(crate) const MAX_DEPTH: usize = 16;
+pub const MAX_DEPTH: usize = 16;
 /// The largest integer: 2^53 − 1, the largest every JSON reader holds exactly.
-pub(crate) const MAX_INTEGER: u64 = (1 << 53) - 1;
+pub const MAX_INTEGER: u64 = (1 << 53) - 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum Value {
+pub enum Value {
     Object(Vec<(String, Value)>),
     Array(Vec<Value>),
     String(String),
@@ -25,7 +25,7 @@ pub(crate) enum Value {
 
 /// Why a document is not JSON this crate reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum JsonError {
+pub enum JsonError {
     /// Not JSON, or JSON outside the value space; the byte offset where it failed.
     Syntax(usize),
     /// A key written twice in one object.
@@ -34,7 +34,7 @@ pub(crate) enum JsonError {
     TooDeep,
 }
 
-pub(crate) fn parse(bytes: &[u8]) -> Result<Value, JsonError> {
+pub fn parse(bytes: &[u8]) -> Result<Value, JsonError> {
     let mut reader = Reader { bytes, at: 0 };
     reader.whitespace();
     let value = reader.value(0)?;
@@ -264,7 +264,7 @@ impl Reader<'_> {
 
 /// The value in RFC 8785's canonical form: no whitespace, members sorted by their keys' UTF-16
 /// code units, strings escaped as ECMAScript's `JSON.stringify` escapes them.
-pub(crate) fn canonical(value: &Value) -> Vec<u8> {
+pub fn canonical(value: &Value) -> Vec<u8> {
     let mut out = String::new();
     write_value(&mut out, value);
     out.into_bytes()
@@ -325,7 +325,7 @@ fn write_string(out: &mut String, text: &str) {
 }
 
 /// Builds an object from members in any order; [`canonical`] sorts them.
-pub(crate) fn object(members: Vec<(&str, Value)>) -> Value {
+pub fn object(members: Vec<(&str, Value)>) -> Value {
     Value::Object(
         members
             .into_iter()
@@ -334,6 +334,6 @@ pub(crate) fn object(members: Vec<(&str, Value)>) -> Value {
     )
 }
 
-pub(crate) fn string(text: &str) -> Value {
+pub fn string(text: &str) -> Value {
     Value::String(text.to_string())
 }

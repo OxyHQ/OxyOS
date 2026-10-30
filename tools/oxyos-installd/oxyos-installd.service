@@ -1,0 +1,67 @@
+# oxyos-installd: installs, updates and removes applications (docs/adr/0030-installing-
+# applications.mdx, decision 5). It runs as root because the applications' files must be root's,
+# so that only an administrator could have written them, and nothing else runs with it. It has no
+# network: the fetcher (oxyos-app-fetch.service) fetches into descriptors it hands over, and it
+# verifies every byte before using it. It compiles each package's JavaScript with the runtime's
+# hermesc in a transient unit of its own (systemd-run: a dynamic user, no network).
+#
+# Not installed by the image yet (ADR 0030, step 7 brings it with the session).
+
+[Unit]
+Description=OxyOS applications
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0030-installing-applications.mdx
+Wants=oxyos-app-fetch.service
+After=oxyos-app-fetch.service local-fs.target
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/oxyos-installd
+Restart=on-failure
+RestartSec=1s
+UMask=0022
+
+# Its own: /var/lib/oxyos/apps (0755: the registry reads the entries and the applications' files)
+# and the socket's directory, /run/oxyos/installd.
+StateDirectory=oxyos/apps
+StateDirectoryMode=0755
+RuntimeDirectory=oxyos/installd
+RuntimeDirectoryMode=0755
+
+# Read-only but for its own directory; no home.
+ProtectSystem=strict
+ProtectHome=yes
+
+# Root, with one capability: giving an account's records the account's group (users/<user>/,
+# 0640), which a process that is not in that group can do only with CAP_CHOWN.
+CapabilityBoundingSet=CAP_CHOWN
+AmbientCapabilities=
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+
+# No network: its socket, the fetcher's and systemd's (for the compiler's transient unit) are
+# Unix sockets, which a private network namespace keeps.
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

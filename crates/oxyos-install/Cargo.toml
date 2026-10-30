@@ -1,0 +1,23 @@
+[package]
+name = "oxyos-install"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The package's manifest, signatures and tree checks, and its strict JSON reader, which the
+# store's TUF metadata is read with too.
+oxyos-package = { path = "../oxyos-package" }
+# Ed25519 for the TUF metadata's signatures and SHA-256 for its hashes: the crate rustls already
+# brings, as oxyos-package uses it.
+ring = "0.17"
+# The sockets (SOCK_SEQPACKET, peer credentials, descriptors passed with SCM_RIGHTS), files by
+# descriptor (openat, linkat, renameat, fsync, fchown, memfd) and the effective user id.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "net", "process"] }
+# The service's socket and its records speak JSON, as oxyos-accountd's do.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

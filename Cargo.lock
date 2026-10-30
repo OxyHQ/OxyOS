@@ -1653,6 +1653,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-install"
+version = "0.1.0"
+dependencies = [
+ "oxyos-package",
+ "ring",
+ "rustix",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "oxyos-installd"
+version = "0.1.0"
+dependencies = [
+ "oxyos-install",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-intl"
 version = "0.1.0"
 dependencies = [

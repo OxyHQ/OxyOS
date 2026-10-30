@@ -108,6 +108,14 @@ impl SigningKey {
         out
     }
 
+    /// A bare Ed25519 signature over `message`, with no context: what TUF's metadata is signed
+    /// with (its own canonical bytes), for the store's tools and the tests' repositories.
+    pub fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
+        let mut out = [0; 64];
+        out.copy_from_slice(self.0.sign(message).as_ref());
+        out
+    }
+
     /// The developer's signature over a manifest's canonical bytes.
     pub fn sign_manifest(&self, manifest: &[u8]) -> DeveloperSignature {
         DeveloperSignature {

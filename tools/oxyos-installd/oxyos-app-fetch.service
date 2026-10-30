@@ -1,0 +1,54 @@
+# oxyos-app-fetch: the install service's fetcher (docs/adr/0030-installing-applications.mdx,
+# decision 5). It runs as a user of its own (a dynamic user), with the network and nothing else:
+# it writes the store's files into descriptors oxyos-installd hands it, for root alone, and
+# reaches no file of the system's but the repository it reads.
+#
+# The repository is a local directory in this step (file:///var/cache/oxyos/store); HTTPS to the
+# store's CDN is a later step. Not installed by the image yet (ADR 0030, step 7).
+
+[Unit]
+Description=OxyOS applications' fetcher
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0030-installing-applications.mdx
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/oxyos-installd --fetch --repository file:///var/cache/oxyos/store
+Restart=on-failure
+RestartSec=1s
+
+DynamicUser=yes
+# Its socket's directory, /run/oxyos/app-fetch: the dynamic user's.
+RuntimeDirectory=oxyos/app-fetch
+RuntimeDirectoryMode=0755
+UMask=0077
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+
+# Its socket, and the network to the store.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target
