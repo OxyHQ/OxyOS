@@ -1,0 +1,149 @@
+---
+title: "ADR 0031: GPU buffers for applications"
+description: How applications draw on the GPU and hand the compositor their buffers with no copy — DMA-BUF with format and modifier negotiation, explicit synchronization on DRM syncobj timelines, damage and feedback, resizes, direct scanout, the fallback to shared memory, security — and how the Bloom host renders on the GPU.
+order: 40
+---
+
+# ADR 0031: GPU buffers for applications
+
+Status: **accepted**; steps to come. Builds on:
+- [ADR 0001](./0001-native-platform-boundaries): surfaces, configures, the presentation invariants and buffer lifetime.
+- [ADR 0004](./0004-gpu-composition): Vulkan composition, DRM/KMS output and its order of work, whose step 2 ("client buffers as Vulkan images, then DMA-BUF import with modifiers") and step 3 ("explicit synchronization") this is.
+- [ADR 0005](./0005-damage): damage and buffer age.
+- [ADR 0018](./0018-several-displays): each output composes and flips on its own, at its refresh.
+- [ADR 0029](./0029-chromium-on-oxyos): Astro's Ozone platform, whose decision 3 sketched this path. This ADR is that sketch decided; where it differs (decision 6), it says why.
+
+## Problem
+
+Every application draws on the CPU and hands the compositor shared memory: the Bloom host rasterizes each frame (`tools/rn-host-spike/renderer.cpp`) into a sealed memfd, and Astro's engine composites in software (ADR 0029, decision 3). The compositor composes on the GPU (ADR 0004) and uploads those pixels every time they change.
+
+That costs twice. The application's CPU draws every pixel, and the CPU and the memory bus then carry the pixels into the GPU. Measured on the development machine (i9-14900K, `perf.py`, three runs pooled, CPU composition), a frame the host draws whole is a few milliseconds of the host's work:
+
+| interaction | host draw per frame (p50 / p95) | host's whole frame work (p50 / p95) |
+|---|---|---|
+| live resize (Inbox, every size drawn whole) | 3.1 / 7.4 ms | 11.3 / 34.6 ms |
+| overview opening (the shell's surface drawn whole) | 5.5 / 6.2 ms | 6.3 / 7.2 ms |
+| Settings scroll (damage-limited, ADR 0005) | 0.7 / 0.8 ms | 2.1 / 2.5 ms |
+
+The ThinkPad's i5-1240P draws the same frames several times slower: before damage, its host drew a frame in 19–20 ms (ADR 0004, "A live app on the display"), more than a 60 Hz refresh. Damage made the small changes cheap; the frames a person watches most (a resize, a transition, a scroll that moves everything, the overview) are still drawn whole on a CPU while an Iris Xe composes a whole 1920×1200 frame in 0.5 ms.
+
+Nothing in the protocol lets a client hand the compositor memory its GPU wrote: no DMA-BUF, no format or modifier the compositor accepts, no fence. ADR 0029 sketched one; this decides it, for every client, and decides how the Bloom host draws on the GPU.
+
+## Decision
+
+### The buffers
+
+1. **One GPU path for every client.** A client's GPU buffer is a DMA-BUF: one or more planes, each a descriptor with an offset and a stride, a DRM format and a DRM format modifier. The Bloom host, Astro's GPU process (through its browser process, ADR 0029) and any other native client use the same requests and the same C ABI, which names nothing of Bloom's. Shared memory stays, unchanged, for clients that draw on the CPU and as every client's fallback (decision 9).
+
+2. **The compositor says what it can take, and clients allocate only from that.** After `Welcome`, and again whenever it changes, the compositor tells each connection its GPU, as linux-dmabuf v4's feedback does:
+   - `GpuDevice { device, formats }`: the composing device's DRM render node as a `dev_t` (0 when the device has none, as Mesa's lavapipe), and how many formats follow;
+   - `GpuFormat { index, format, modifier }`, `formats` times: each DRM format and modifier the compositor can import and compose.
+
+   A connection that hears no `GpuDevice` has no GPU path, and a `GpuDevice` with no formats withdraws it (the compositor lost its GPU, decision 9). The table is the Vulkan device's: for each format the protocol knows, each modifier `VkDrmFormatModifierPropertiesListEXT` lists whose `vkGetPhysicalDeviceImageFormatProperties2` answers importable from DMA-BUF and sampled, with single-plane and multi-plane layouts both described. Composing on the CPU, the compositor lists the linear modifier alone (decision 10).
+
+   Formats are DRM fourccs, the ones the protocol's `Format` already uses: `Argb8888` (premultiplied, B, G, R, A in memory, Vulkan's `B8G8R8A8_UNORM`) and `Xrgb8888` (opaque). Others (`Abgr8888` for GL clients, YUV for video) join the list when a client needs them; the compositor never lists a format it cannot compose.
+
+   A client allocates on the GPU the compositor names, when it has one of its own. Linear memory can be read by any device; a tiled modifier only by the device it was made for. So a client picks its Vulkan device by `VK_EXT_physical_device_drm` matching `device`, and, failing that (another GPU, or `device` 0), allocates only linear buffers. On the ThinkPad, whose NVIDIA T550 has no outputs, applications draw on the Iris Xe the compositor composes on.
+
+3. **A buffer is attached plane by plane, and the compositor imports it before using it.** The transport carries one descriptor per message (`oxyos-ipc`), so:
+   - `AttachDmabufPlane { buffer, plane, offset, stride }` with the plane's descriptor, once per plane;
+   - `AttachDmabuf { buffer, format, modifier, extent, planes }` then makes them a buffer.
+
+   The compositor checks it before anything else (decision 11) and imports it: on its Vulkan device as a `VkImage` with `VkImageDrmFormatModifierExplicitCreateInfoEXT` and the planes' memory (`VK_EXT_external_memory_dma_buf`), or, composing on the CPU, as a read-only mapping. An import that fails for a well-formed buffer (memory exhausted, a layout the driver refuses) answers `BufferFailed { buffer }` and is not a protocol error: the client allocates again or falls back. A submit naming a failed buffer is discarded (`Feedback Discarded`, `Released`). `DestroyBuffer` ends a GPU buffer as it ends a shared one.
+
+4. **Damage, feedback and release are the protocol's own.** `Damage` before `Submit` (ADR 0005), `Submit` with its configure serial, `Feedback` with the outcome and time, and `Released` keep their meaning for GPU buffers, with one addition from explicit synchronization (decision 6): `Released` means the compositor holds no more references to the buffer. Without a release point, it is sent only once the GPU no longer reads it; with one, it may come first, and the point says when the GPU is done.
+
+5. **Resizes.** A client draws a new size into new buffers allocated after the `Configure` asking for it, never into one the compositor still shows: invariant 2 of ADR 0001 (the last valid content stays until the new frame is ready) holds for GPU buffers because the compositor keeps the old buffer referenced until a frame of the new size latches. A client keeps a few buffers per size (three for the Bloom host, double or triple buffering as its frame pacing needs), allocates the new size's lazily as the live resize asks for it (one configure in flight, ADR 0016), and destroys the old size's once they are released. Buffer age (ADR 0005, decision 4) is per buffer: a new buffer's is unknown and it is drawn whole.
+
+### Synchronization
+
+6. **Explicit only, on DRM syncobj timelines.** A client registers timelines and names points on them with each frame, as wp-linux-drm-syncobj-v1 does; no fence is inferred from the buffer (no implicit synchronization).
+   - `ImportTimeline { timeline }` with a DRM syncobj's descriptor, and `DestroyTimeline { timeline }`. Timelines are the connection's, numbered by the client.
+   - `SetSync { surface, acquire_timeline, acquire_point, release_timeline, release_point }`, before `Submit`, as `Damage` is: the next frame of the surface is ready to read when the acquire point signals, and the compositor signals the release point once it no longer reads the buffer. The release point must be later than the acquire point when both are on one timeline.
+   - A GPU buffer submitted with no `SetSync` is ready when submitted (a buffer the CPU wrote, or one the client waited for), and its `Released` comes once the GPU no longer reads it. That is still explicit: the client states the buffer is ready.
+
+   **The compositor never waits for a client's fence, on the CPU or the GPU.** A frame's acquire point is watched with an eventfd (`DRM_IOCTL_SYNCOBJ_EVENTFD`) in the compositor's event loop; the frame becomes the surface's queued frame only once it signals, and until then the surface shows its last frame. Nothing of a client's fence enters the compositor's own GPU submissions. This differs from ADR 0029's sketch ("imports the acquire point as a Vulkan semaphore and waits on the GPU") on purpose: a semaphore wait in the compositor's submission puts a slow client's work in front of every output's frame and every other client's, and a Vulkan wait cannot be withdrawn once submitted, so a fence that never signals would hang composition instead of being dropped. Waiting for readiness costs one wake of the event loop (well under a millisecond) and keeps ADR 0001's rule, the compositor never waits on a client, exact. A frame still waiting when the next one arrives is superseded as a queued frame is (ADR 0001, one queued replacement): `Feedback Discarded`, and its release point signalled once its acquire point has (the compositor never read it).
+
+   **Release.** The composition that last read a buffer gives its completion as a sync file (ADR 0004's `compose_to_scanout`, `VK_KHR_external_semaphore_fd`), and the compositor imports it into the release point (`DRM_IOCTL_SYNCOBJ_FD_TO_HANDLE` with a sync file, then a transfer to the point), so the point signals when the GPU finishes, with no CPU between. A buffer read by several outputs' compositions is released when all of them are done: their sync files are merged (ADR 0001's invariant 6, per-consumer references). A device that exports no sync file, and the CPU compositor, signal the point from the CPU once they know the reading is done.
+
+   **Why timelines rather than a sync file with each frame.**
+
+   | | A sync file each way per frame (linux-explicit-synchronization) | Syncobj timelines (chosen) |
+   |---|---|---|
+   | Descriptors on the socket | One with every submit, and one back with every release | One per timeline, once; each frame names two points (integers, within one 64-byte packet) |
+   | The release | Comes back as a descriptor in an event; the client's GPU work waits for it only once it has arrived | A point the client's next frame can wait on before the compositor has signalled it (wait-before-signal): the client queues its next frame at once |
+   | Vulkan | Binary semaphores imported per frame (`SYNC_FD`) | Timeline semaphores imported once (`OPAQUE_FD`, a syncobj on Mesa and NVIDIA's driver) |
+   | Drivers that need it | | NVIDIA's driver, for which Wayland compositors (Mutter, KWin, wlroots) moved to wp-linux-drm-syncobj-v1 |
+   | Needs | A sync file | A DRM device with `DRM_CAP_SYNCOBJ_TIMELINE` on both sides (i915/xe, amdgpu, nouveau and NVIDIA's, panfrost/panthor, msm, v3d, virtio-gpu) |
+
+   The cost is the DRM device: a machine without one has no GPU buffers at all, and the client draws into shared memory (decision 9). For clients whose API speaks sync files (GL's `EGL_ANDROID_native_fence_sync`, Chromium's GPU fences, a Vulkan driver without timeline export such as lavapipe), the C ABI bridges both ways: it imports a sync file into a point, and exports a point the compositor has given a fence as a sync file. A timeline is a kernel object of its own, not of a device: the client imports it into its own GPU's descriptor, whichever render node that is.
+
+7. **Presentation feedback is the display's.** `Feedback Presented` carries the flip's time on `Clock::Monotonic` for the frame that first showed the buffer (ADR 0004's flip timestamps), on whichever output it was shown first; `Discarded` for a frame superseded or answering an obsolete configure. A frame waiting for its acquire point has no feedback until it is shown or superseded, so a client pacing itself by feedback (the Bloom host, Chromium's swap acknowledgement) never draws faster than its GPU finishes.
+
+### Scanout and composition
+
+8. **Direct scanout of a full-screen window.** When a surface is all an output shows (`Scene::scanout_candidate`: full screen, on top, covering the output, nothing over it), the compositor puts the client's buffer on the output's primary plane instead of composing: a KMS framebuffer made once per buffer and card (`drmPrimeFDToHandle`, `AddFB2` with the modifier), flipped with the frame's acquire already signalled, released when a later flip replaces it. The pointer stays on the cursor plane. Anything over the surface (a popup, a notification, the lock screen, a transition) composes again, the next frame; nothing is ever shown over a scanned-out buffer by mistake, because the decision is the scene's for each frame.
+
+   So that a client can allocate buffers the plane takes, the compositor tells a surface that could be scanned out which formats and modifiers its output's primary plane takes (from the plane's `IN_FORMATS`, intersected with decision 2's table, on the same device): `GpuScanout { surface, formats }` and `GpuScanoutFormat { surface, index, format, modifier }`, sent when the surface becomes a candidate or its output changes, and with no formats when it stops being one. A client that ignores it is composed as before. Applications still never learn which output they are on (ADR 0029, step 6): the formats are the surface's.
+
+9. **The fallback is shared memory, chosen at run time, per surface.** A client uses shared memory when the compositor named no GPU (`GpuDevice` absent or withdrawn), when no device of the client's can share with it (decision 2), when no format and modifier of the table can be allocated, when an import fails (`BufferFailed`), or when its own device is lost. It may come back to the GPU when the compositor names one again. The compositor keeps showing a surface's last content composed when a GPU buffer can no longer be read (its device lost, a VT switch that reopens it): the CPU copy the CPU compositor read, or the frame composed last, until the client's next frame.
+
+10. **The CPU compositor reads linear buffers, and lists only those.** The development compositor and a session that could not open a Vulkan device compose on the CPU (`compose_cpu`). They list the linear modifier alone, map a linear buffer read-only once at import, and read only the damaged rows of a new frame, bracketed by `DMA_BUF_IOCTL_SYNC` (start and end of a read), into the copy they compose from (as shared memory is read with `pread` today). Mapping is safe where a mapping of shared memory is not: a DMA-BUF's size cannot change, so no client can make the compositor fault by shrinking it, and only descriptors that are DMA-BUFs are mapped (decision 11). The GPU compositor never maps a client's buffer. With `--gpu`, the development compositor's check of every frame against the CPU reference still holds: the reference reads the same buffer through its mapping.
+
+### Security
+
+11. **Every buffer is checked before it is used, and belongs to one connection.**
+    - **Descriptors.** A plane's descriptor must be a DMA-BUF (it answers `DMA_BUF_IOCTL_SYNC`; a memfd or any other file is refused), a timeline's a DRM syncobj (the kernel's import refuses anything else). Each is received close-on-exec, kept by the compositor, and closed with its buffer.
+    - **Sizes.** The extent is within `MAX_DIMENSION`; the planes are the format and modifier's count (`drmFormatModifierPlaneCount`), each plane's offset and stride aligned to 4 and, for the linear modifier, each plane's `offset + stride × rows` within its descriptor's size (`lseek(SEEK_END)`) and its stride at least a row; for tiled modifiers, Vulkan's import checks the layout against the memory. The format and modifier must be in the table the compositor sent (decision 2), not merely importable.
+    - **Quotas.** A connection holds at most 64 GPU buffers, 16 timelines and 1 GiB of GPU buffer memory (each plane's descriptor size, counted once per buffer), and at most one acquire point waited for per surface; the transport's own bounds on messages hold.
+    - **No sharing between clients.** Buffer and timeline numbers are the connection's: no request names another connection's, and the compositor never gives a client's buffer, timeline or pixels to another client (the shell's window views are composed by the compositor, ADR 0022). A client that hands its own descriptors to another process it trusts (Chromium's GPU process to its browser) shares only its own content.
+    - **Faults.** A client's buffer cannot fault the compositor (decision 10), its fence cannot stall it (decision 6), and a buffer it writes after submitting changes only its own surface, as shared memory does.
+
+### The Bloom host on the GPU
+
+12. **A renderer of OxyOS's own on Vulkan, in Rust, beside the CPU renderer.** `crates/oxyos-paint` draws the CPU renderer's primitives on a Vulkan device (`ash`, as `oxyos-gpu` does), behind a C ABI in `oxyos-client-ffi` the host calls. The host's view tree, layout, damage and traversal (`renderer.cpp`'s `drawView`) stay one; only the painter beneath them has two implementations, the CPU one unchanged and kept as the fallback.
+
+    | Option | For | Against |
+    |---|---|---|
+    | Skia (Ganesh or Graphite on Vulkan) | Mature, complete (paths, text, filters); what Chromium draws with | Not in Debian; built from source with its own toolchain, a dependency of tens of megabytes in every image; replaces the host's renderer rather than adding a backend, so the CPU path would change too; its own glyph cache and coverage rules, so parity with today's frames is a new problem |
+    | A Rust renderer on wgpu (vello or our own) | Portable, safe | wgpu hides what this path needs: DMA-BUF export with a chosen modifier and sync files need its HAL's unsafe interop with `ash` anyway; vello has no blur or filters yet; ADR 0004 chose Vulkan directly for the compositor for the same reasons |
+    | Vulkan directly (`ash`), our primitives (chosen) | The primitive set is small and known: it is the CPU painter's; exported images with modifiers and sync files are first-class; shares device code and practice with `oxyos-gpu`; the same coverage rules as the CPU painter, so parity is checkable | Our code to maintain; anything new the host draws must be drawn twice (once per painter) |
+
+    What it draws, each as the CPU painter does:
+    - **Fills, rounded corners and borders**: a quad per box; the fragment shader computes the CPU painter's coverage (the rounded rectangle's 4×4 samples, a border as the outer shape less the inner) and blends premultiplied source-over.
+    - **Text**: the glyphs the host's FreeType and HarfBuzz already rasterize (`text.cpp`, `TextEngine::rasterize`), the same 8-bit masks, uploaded once into an atlas (an `R8` image, keyed by face, glyph and scale) and drawn as quads tinted by the run's colour; shaping and layout do not move.
+    - **Images**: decoded pictures as textures, uploaded once and kept while their views hold them, sampled bilinearly at the pixel's centre, rounded and tinted as the CPU painter does.
+    - **Transforms, modals and opacity groups**: the subtree drawn into an offscreen image, then sampled through the inverse transform, as `Painter::layer` does.
+    - **Clipping**: scissor rectangles for rectangular clips, the rounded clip's coverage in the shader.
+    - **Blur** (expo-blur): the target drawn at the reduced scale into an offscreen image, blurred by separable Gaussian passes in floating point, drawn with the CPU painter's ordered dither (`Painter::smooth`), so wide blurs do not band; masks (masked-view) as a multiply of two offscreen images.
+    - **Shadows** of windows stay the compositor's (ADR 0016).
+    - **Damage**: the frame is drawn only within its damage, scissored, onto a buffer holding the frame of its age (ADR 0005), exactly as the CPU painter's `limit`.
+
+    The host allocates its buffers on the same device (decision 2), exported as DMA-BUF with a modifier from the compositor's table (the scanout table first, for a full-screen window), submits each frame with a sync file from its submission imported into the acquire point, and waits for the release point before drawing into a buffer again. It draws on the GPU when the compositor names a device it can share with, and on the CPU otherwise (decision 9); `OXYOS_HOST_RENDERER=cpu` forces the CPU painter.
+
+13. **Parity is tested, not assumed.** The two painters need not agree byte for byte (the GPU's blending rounds in its own places), but every frame must look the same:
+    - every regression scenario runs on both painters, and every expectation holds on both (texts, focus, pixels within `pixel_tolerance`, smooth gradients, damage);
+    - with `OXYOS_HOST_RENDER_CHECK`, the host draws each frame on both painters and reports the largest difference of any channel and the share of pixels differing by more than 3 levels; the regression fails a frame where more than 0.1 % of pixels do, or any differs by more than 32 (an edge drawn a pixel off, a glyph missing, a layer misplaced);
+    - the damage check (`OXYOS_HOST_DAMAGE_CHECK`) holds on the GPU painter as on the CPU one: a frame drawn from its damage equals the frame drawn whole on the same painter.
+
+## Testing
+
+- **On any machine:** the protocol's codec and state (attach, plane counts, quotas, sync before submit, superseded frames waiting for their points), the scene's latching, the client library's tables and swap bookkeeping, and every check of decision 11 with descriptors that are not DMA-BUFs.
+- **In a disposable virtual machine** (`tools/gpu-vm/gpu-vm`): the development machine (WSL2) has no DRM device and no udmabuf, so the GPU path's tests run under KVM on Debian Trixie's own kernel, with this machine's root shared read-only and its freshly built binaries. The guest has udmabuf and the system dma-heap (DMA-BUFs from memfds), virtio-gpu's render node (DRM syncobj timelines with eventfds and sync-file transfer), vgem's fences, and Mesa's lavapipe, which in the guest exports and imports DMA-BUF with the linear modifier and exports sync files. Nothing is loaded or changed on the host. There, `oxyos-gpu`'s import is checked against the CPU reference byte for byte, the compositor's latching against real fences, and `regress.py`'s scenarios run with a minimal Vulkan client (`tools/oxyos-gpu-client`) and the Bloom host on both painters.
+- **On the ThinkPad** (Iris Xe, Mesa's ANV and iris, kernel 6.12): tiled modifiers, timeline semaphores imported natively, direct scanout of a full-screen window, and the host's frame times on a real GPU; each step names what to verify there.
+
+## Steps
+
+1. This decision.
+2. **The protocol, the client and the compositor:** the requests and events of decisions 2, 3, 6 and 8 (requests and events 160 to 169), `oxyos-client` and the C ABI (tables, attaching, timelines, synchronized submits, the sync-file bridge), the scene's latching on acquire points and release on completion, `oxyos-gpu` importing DMA-BUFs and composing them in the same pass as shared memory (byte for byte with the CPU reference), the CPU compositor's linear reads, the development compositor, `tools/gpu-vm`, `tools/oxyos-gpu-client` and scenarios for them. Direct scanout's framebuffers and flips in `oxyos-kms` and the session.
+3. **The Bloom host on the GPU** (decisions 12 and 13): `oxyos-paint`, the host's painter split in two, the regression on both painters, and `perf.py` before and after (frame time for scroll, resize and transitions; memory).
+4. **Astro** (ADR 0029, step 3): `GLOzone` over EGL with GBM buffers attached through the same C ABI, its fences through the sync-file bridge.
+
+## Consequences
+
+- An application drawing on the GPU costs the CPU its layout and its commands, not its pixels, and the compositor reads its pixels where they are. The frames drawn whole (resizes, transitions, the overview) stop being bound by the CPU.
+- A full-screen application is shown with no composition at all.
+- Shared memory remains a complete path: a machine without a DRM device, a GPU the compositor cannot share with, or a lost device shows every application as today, and the CPU painter is never removed.
+- The protocol grows by ten messages and two descriptor-carrying requests; descriptors are still one per message.
+- Two painters must stay in step: a primitive the host gains is drawn by both, and decision 13's checks fail the regression when they part.
+- Tests of the GPU path need KVM or a GPU; without either they are skipped and say so, never passed by a stand-in.
