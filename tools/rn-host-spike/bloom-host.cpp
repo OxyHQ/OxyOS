@@ -8,6 +8,7 @@
 #include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
+#include "key-chords.h"
 #include "images.h"
 #include "input.h"
 #include "intl.h"
@@ -701,6 +702,8 @@ int main(int argc, char** argv) {
                                             .label = entry.label.empty() ? nullptr : entry.label.c_str(),
                                             .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str()});
             }
+            // Bloom describes its menus as none when it unmounts, after the window is gone.
+            if (!window) return uint32_t{0};
             ++serial;
             window->setMenus(serial, items);
             oxyos::Report::get().input("menus.set", oxyos::Window::kToplevel,
@@ -734,6 +737,7 @@ int main(int argc, char** argv) {
           "RCTDeviceEventEmitter", "emit",
           folly::dynamic::array("OxyOSClipboardChanged", folly::dynamic::object("text", window->clipboardHasText())));
     });
+    oxyos::KeyChords keyChords;  // the window's keys as offered to JavaScript (key-chords.h)
     oxyos::TextInputEdit drawn;  // the focused input's caret and selection as last drawn
     // The focused input as the compositor was last told (ADR 0008), its caret, and each surface's
     // commit serial: a transaction made for an older one is for text the field no longer has.
@@ -806,6 +810,27 @@ int main(int argc, char** argv) {
                 closeRequested = true;
                 oxyos::Report::get().input("close.requested", event.surface);
               }
+              // A key press is offered to JavaScript first (Bloom's menu shortcuts, ADR 0021); one
+              // it takes, and that key's release, go no further.
+              bool keyTaken = false;
+              if (event.kind == OXYOS_EVENT_KEY && services.keyboard.listener) {
+                if (keyChords.swallow(event)) {
+                  keyTaken = true;
+                } else if (auto offered = keyChords.press(event)) {
+                  jsi::Runtime& rt = *services.keyboard.runtime;
+                  try {
+                    auto answer = services.keyboard.listener->call(rt, jsi::valueFromDynamic(rt, *offered));
+                    rt.drainMicrotasks();
+                    keyTaken = answer.isBool() && answer.getBool();
+                  } catch (const jsi::JSError& error) {
+                    std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
+                  }
+                  if (keyTaken) {
+                    keyChords.taken(event.code);
+                    oxyos::Report::get().deliver("shortcut", event.surface, "menu-bar", *offered);
+                  }
+                }
+              }
               if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
                   (event.kind == OXYOS_EVENT_KEY && event.flag) ||
                   (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE) ||
@@ -814,6 +839,7 @@ int main(int argc, char** argv) {
                 lastPress = event.serial;
               }
               report(event);
+              if (keyTaken) return;
               if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
               // An assistive technology's action; a focus move needs new snapshots.
               if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
@@ -1084,6 +1110,7 @@ int main(int argc, char** argv) {
     std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
               << mounter.transactions << ",\"presented\":" << window->presented()
               << ",\"js_errors\":" << jsErrors << "}\n";
+    services.keyboard.listener.reset();
     window.reset();
     surface.stop();
     scheduler->unregisterSurface(surface);

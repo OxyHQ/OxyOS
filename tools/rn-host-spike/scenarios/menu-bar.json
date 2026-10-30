@@ -1,5 +1,5 @@
 {
-  "about": "An application's menus in the session's menu bar (ADR 0021, step 3): the sample (sample/MenuBarProbe.tsx, launched as Allo) declares File (New Ctrl+N, Open… Ctrl+O, a separator, an Open Recent submenu) and Edit (Undo Ctrl+Z, disabled; a separator; Wrap Lines, a check item) through the platform's `menuBar` (sample/oxyos/platform-surface.js). While its window is active, the shell's top bar shows its application's own menu in bold (the registry's name), then File and Edit with their chords; choosing New there runs it in the application exactly once (the compositor delivers one MENU_ITEM_ACTIVATED, the host one event to JavaScript, and the page counts one document), and Wrap Lines toggles from the bar and shows its check the next time Edit opens. Minimized, no window is active and the bar shows the shell's own menus; restored from the dock, the application's again. Bloom's own Menubar and its Ctrl+N chord are Bloom's step of the ADR, not released yet: the sample gives the adapter the ADR's description itself, and Ctrl+N without the bar is not checked here. Without the adapter's `menuBar` the bar shows the shell's own menus and every step fails.",
+  "about": "An application's menus in the session's menu bar (ADR 0021, step 3): the sample (sample/MenuBarProbe.tsx, launched as Allo) declares, with Bloom's Menubar, File (New Mod+N, Open… Mod+O, a separator, an Open Recent submenu) and Edit (Undo Mod+Z, disabled; a separator; Wrap Lines, a check item). With the host adapter's `menu-bar` (sample/oxyos/platform-surface.js) Bloom draws nothing in the window and describes the menus to the platform; while the window is active the shell's top bar shows its application's own menu in bold (the registry's name), then File and Edit with their chords as Ctrl. Choosing New there runs it in the application exactly once (one MENU_ITEM_ACTIVATED from the compositor, one event to JavaScript, the page counting one document). Ctrl+N in the window, with a text field focused, runs it again without the bar: the adapter's `keyboard` offers the key to Bloom before the field, which takes it, and the field receives nothing; Ctrl+A stays the field's. Wrap Lines toggles from the bar and shows its check the next time Edit opens. Minimized, no window is active and the bar shows the shell's own menus; restored from the dock, the application's again. Without the adapter's `menuBar` and `keyboard` Bloom draws its bar in the window, the shell's bar is its own, and every step but the minimized one fails.",
   "module": "MenuBarProbe",
   "window": [
     600,
@@ -12,7 +12,7 @@
   },
   "steps": [
     {
-      "name": "the window is active: the shell's bar shows its application's menu, then File and Edit",
+      "name": "the window is active: the shell's bar shows its application's menu, then File and Edit; Bloom draws no bar in the window",
       "do": [
         "press",
         [
@@ -23,9 +23,12 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "menu bar: the platform’s",
           "new documents: 0",
           "wrap lines: off"
+        ],
+        "absent": [
+          "File",
+          "Edit"
         ],
         "in_shell": {
           "texts": [
@@ -105,6 +108,95 @@
       }
     },
     {
+      "name": "a press in the note field focuses it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "note",
+        "react": {
+          "touchStart@note": 1,
+          "touchEnd@note": 1,
+          "focus@note": 1,
+          "selectionChange@note": 1
+        }
+      }
+    },
+    {
+      "name": "typing in it",
+      "do": [
+        "type",
+        "hola"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "hola"
+        ]
+      }
+    },
+    {
+      "name": "Ctrl+N in the window runs New without the bar: Bloom takes it before the field, which receives nothing",
+      "do": [
+        "key",
+        [
+          29,
+          49
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "new documents: 2",
+          "hola"
+        ],
+        "absent": [
+          "holan"
+        ],
+        "focus_input": "note",
+        "react": {
+          "shortcut@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl+A stays the field's: it selects its text, and nothing runs",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "new documents: 2",
+          "hola"
+        ],
+        "react": {
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
       "name": "Edit: Undo disabled with its chord, Wrap Lines unchecked",
       "do": [
         "press_output",
@@ -126,7 +218,12 @@
           "144,118": "#ffffff"
         },
         "react": {},
-        "delivered": {}
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
       }
     },
     {
@@ -142,7 +239,7 @@
       "expect": {
         "texts": [
           "wrap lines: on",
-          "new documents: 1"
+          "new documents: 2"
         ],
         "react": {
           "menuActivated@menu-bar": 1
@@ -191,7 +288,7 @@
       "expect": {
         "texts": [
           "wrap lines: off",
-          "new documents: 1"
+          "new documents: 2"
         ],
         "react": {
           "menuActivated@menu-bar": 1
@@ -248,7 +345,7 @@
           ]
         },
         "texts": [
-          "new documents: 1",
+          "new documents: 2",
           "wrap lines: off"
         ],
         "react": {}

@@ -146,6 +146,14 @@ struct SettingsService {
   std::function<uint32_t(const std::string& key, const std::string& value)> set;
 };
 
+// The window's key presses for Bloom's `PlatformKeyboard` (key-chords.h): JavaScript's one
+// listener, called with each press before the focused view, which returns whether it took the key
+// (a menu's shortcut ran). Set by JavaScript in an application's window; never in the shell.
+struct KeyboardService {
+  jsi::Runtime* runtime = nullptr;
+  std::shared_ptr<jsi::Function> listener;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
@@ -157,6 +165,7 @@ struct HostServices {
   WindowService window{};
   SettingsService settings{};
   MenuBarService menuBar{};
+  KeyboardService keyboard{};
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

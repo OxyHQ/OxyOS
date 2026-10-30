@@ -444,6 +444,20 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value(static_cast<double>(services.menuBar.setMenus(entries)));
     });
     module->listeners();
+  } else if (name == "OxyOSKeyboard") {
+    // The window's keys, offered to JavaScript before the focused view (sample/oxyos/platform-surface.js,
+    // docs/adr/0021-menu-bar.mdx): `setListener(fn)`, fn({ key, code, altKey, ctrlKey, metaKey, shiftKey,
+    // repeat }) returning true for a key it took. Only an application's window has it.
+    module->constants(folly::dynamic::object("available", services.applicationWindow));
+    module->method("setListener", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (!services.applicationWindow) throw jsi::JSError(rt, "OxyOSKeyboard: only an application's window has it");
+      if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
+        throw jsi::JSError(rt, "OxyOSKeyboard.setListener: a function");
+      }
+      services.keyboard.runtime = &rt;
+      services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
+      return jsi::Value::undefined();
+    });
   } else if (name == "OxyOSClipboard") {
     // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
     // latest key or press the app received: the compositor refuses it unless the app has keyboard

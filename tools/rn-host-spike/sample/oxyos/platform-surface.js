@@ -12,7 +12,9 @@
  * An application's window also has the `menu-bar` capability (docs/adr/0021-menu-bar.mdx): Bloom
  * gives `menuBar.setMenus` its menus whenever they change and the session's shell shows them in its
  * bar while the window is active; a command chosen there comes back through `onActivate` with the
- * id Bloom gave it.
+ * id Bloom gave it. Its `keyboard` offers Bloom each of the window's key presses before the
+ * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
+ * further.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
@@ -189,10 +191,27 @@ function createMenuBar() {
 
 const menuBar = nativeMenuBar?.getConstants()?.available ? createMenuBar() : undefined;
 
+const nativeKeyboard = TurboModuleRegistry.get('OxyOSKeyboard');
+
+function createKeyboard() {
+  const listeners = new Set();
+  // The host calls this with each key press before the focused view, and waits for the answer.
+  nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const keyboard = nativeKeyboard?.getConstants()?.available ? createKeyboard() : undefined;
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set(['popup-surface', ...(window ? ['window'] : []), ...(menuBar ? ['menu-bar'] : [])]),
   PopupSurface,
   window,
   menuBar,
+  keyboard,
 };

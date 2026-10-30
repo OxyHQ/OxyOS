@@ -6,7 +6,7 @@ order: 30
 
 # ADR 0021: The menu bar
 
-Status: **accepted** (the global menu bar was chosen with the platform's author); steps 2 and 3 implemented on OxyOS's side, Bloom's step 1 in progress. The `menu-bar` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0009](./0009-session-shell) (the shell and its top bar), [ADR 0013](./0013-launching-applications) (applications' names) and [ADR 0016](./0016-windows) (the active window).
+Status: **accepted** (the global menu bar was chosen with the platform's author); steps 2 and 3 implemented; step 1 in Bloom ([OxyHQ/Bloom#518](https://github.com/OxyHQ/Bloom/pull/518), not released yet). The `menu-bar` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0009](./0009-session-shell) (the shell and its top bar), [ADR 0013](./0013-launching-applications) (applications' names) and [ADR 0016](./0016-windows) (the active window).
 
 ## Problem
 
@@ -78,18 +78,20 @@ Bloom already has a menu bar (`@oxy.so/bloom/menubar`, shadcn's): an application
    - the sample's Ctrl+N does the same without the bar;
    - a check item toggles in both.
 
-   *Done,* but for Ctrl+N, with Bloom's part not released yet. The pieces:
-   - **The adapter.** `sample/oxyos/platform-surface.js` reports `menu-bar` and gives `menuBar` (as above) when the host runs an application in a window of its own. `setMenus` turns Bloom's menus into entries in order (menus, commands with their check and chord, submenus, separators; entries past the protocol's limits, or without a label, are left out rather than refused whole), sends them as a new commit unless they are the same as the last, and keeps that commit's ids by index; a choice (`OxyOSMenuActivated`, the host's `OxyOSMenuBar` module) runs `onActivate`'s listeners with the id of that index in that commit.
+   *Done* with Bloom's step 1 as [OxyHQ/Bloom#518](https://github.com/OxyHQ/Bloom/pull/518) (not released yet; the scenario's bundle is built from its branch). The pieces:
+   - **The adapter's menus.** `sample/oxyos/platform-surface.js` reports `menu-bar` and gives `menuBar` (as above) when the host runs an application in a window of its own. `setMenus` turns Bloom's menus into entries in order (menus, commands with their check and chord, submenus, separators; entries past the protocol's limits, or without a label, are left out rather than refused whole), sends them as a new commit unless they are the same as the last, and keeps that commit's ids by index (the last eight commits'); a choice (`OxyOSMenuActivated`, from the host's `OxyOSMenuBar` module) runs `onActivate`'s listeners with the id of that index in that commit.
+   - **The adapter's keys.** Bloom matches chords itself (decision 3) on the keys its platform's `keyboard` offers. The host offers each key press of an application's window to JavaScript before anything else sees it (`OxyOSKeyboard`, `key-chords.h`): synchronously, as a W3C `KeyboardEvent` (`key`, `code`, the modifiers, `repeat`); a press Bloom takes, and its release, are delivered to nothing else (not the focused field, a popup or Escape's close). The compositor sends Linux key codes and the host has no keymap yet, so a code's key is read on the US layout: a chord is matched by its key's place on a US keyboard, whatever the layout.
    - **The shell.** The host run as the shell keeps the bar in its state (`menuBar`); `ShellSession` (`sample/ShellProbe.tsx`) builds the top bar from it: the application's own menu in bold (its name from the registry, else the window's title; About, shown but not offered until there is an about panel; Hide, the shell's minimize; Quit, the window's close request as the close bubble's), then the menus it declared. `TopBar` (`apps/shell`) draws commands with their check (Bloom's `DropdownMenuCheckboxItem`) and chord (`DropdownMenuShortcut`, `Mod` shown as Ctrl), submenus and separators. With no window active, or one that declared no menus, it shows the shell's own. Settings is not offered yet: no entry says it is an application's settings.
-   - **The scenario.** `scenarios/menu-bar.json` (`sample/MenuBarProbe.tsx`, launched as Allo, declaring File and Edit with chords, a disabled Undo, a submenu and a check item):
-     - the bar shows Allo in bold, File and Edit while its window is active;
+   - **The scenario.** `scenarios/menu-bar.json` (`sample/MenuBarProbe.tsx`: Bloom's `Menubar` with File and Edit, their shortcuts, a disabled Undo, a submenu and a check item, launched as Allo):
+     - Bloom draws no bar in the window, and the shell's bar shows Allo in bold, File and Edit while the window is active;
      - File opens with New Ctrl+N, Open… Ctrl+O and Open Recent;
      - choosing New runs it once (one `menu.activated` from the compositor, one event to JavaScript, the page counting one document);
-     - Edit shows Undo disabled with Ctrl+Z, and Wrap Lines unchecked; chosen, the page turns it on, the application commits its menus again and Edit shows it checked; chosen again, off;
+     - with a text field focused and typed in, Ctrl+N runs New again without the bar: Bloom takes the key before the field (React receives nothing but the shortcut, the field keeps its text), and Ctrl+A stays the field's, selecting its text;
+     - Edit shows Undo disabled with Ctrl+Z, and Wrap Lines unchecked; chosen, the page turns it on, Bloom describes the menus again and Edit shows it checked; chosen again, off;
      - minimized, no window is active and the bar is the shell's own (OxyOS, Ver); restored from the dock, the application's again.
 
-     It passes; with the adapter's `menuBar` taken away, every step but the minimized one fails (31 failures). Every other host scenario that runs without a display still passes.
-   - **Not checked yet.** Bloom's `Menubar` describing itself (step 1) is being written: until it is released, the sample gives the adapter the description this decision specifies itself, as Bloom will. Ctrl+N running New without the bar needs Bloom's chords (step 1) and is not in the scenario.
+     It passes. With the adapter's `menuBar` and `keyboard` taken away (Bloom then draws its bar in the window), every step but the minimized one fails (48 failures); with only `keyboard` taken away, the Ctrl+N step fails (and the counts after it). Every other host scenario that runs without a display (28) passes with the same build and bundle. In full runs, `shell-windows` and `lock-screen` sometimes found the application's window placed before the shell's panels had taken their room (the development compositor waits only for the shell's surfaces to stop changing). Each passed when run again, and `origin/main` passed both six times in a row in the same session.
+   - **Not checked yet.** That a key Bloom took would have done something in the field had it been delivered: Ctrl+N does nothing in a field today, so the scenario shows the field received nothing, not that it was spared a change. Chords on layouts other than US.
 
 ## Not in this decision
 
