@@ -1,0 +1,49 @@
+---
+title: "ADR 0015: The application model"
+description: How one Oxy application, built from Bloom, runs on the web, as a native mobile or desktop application and on OxyOS without asking which: what an application declares, what Bloom makes of it, and what each platform supplies.
+order: 24
+---
+
+# ADR 0015: The application model
+
+Status: **accepted** (decisions 1 to 4, chosen with the platform's author). Each capability below is specified, and implemented, by a decision of its own: windows by [ADR 0016](./0016-windows), the menu bar and more than one window by later ones. Builds on [ADR 0001](./0001-native-platform-boundaries) (Bloom never learns the display protocol) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+
+## Problem
+
+An Oxy application is built once and runs in three places: in a browser (the web build), as a native application (Expo on phones and tablets, and on desktops), and on OxyOS (the Bloom host). They differ in what a window is:
+
+- **Its controls.** A browser tab has none of its own; an installed web application can draw over the browser's title bar; a phone's application has none; a Mac's are AppKit's traffic lights; OxyOS's must be drawn.
+- **Its commands.** On a Mac and on OxyOS the menu bar at the top of the screen shows the active application's menus; elsewhere an application shows them itself, or as a command palette, an overflow menu or a long press.
+- **Moving, resizing, more than one window.** The browser or the window server does it, or nothing does.
+
+If each application handled this, every one would check which platform it is on and do it differently, and an application written and tested on the web would be wrong on OxyOS. Popups already avoid that ([ADR 0002](./0002-bloom-platform-surface-api)): Bloom asks its platform adapter whether it can open a popup surface, and an application's menu is the same code in all three. This decision makes that the rule for the whole application.
+
+## Decision
+
+1. **Three layers, each with one job.**
+   - **The application declares what it is, never how it is drawn:** the shape of its window (a sidebar application, a toolbar application, full-bleed media), its title, its toolbar, its commands (name, shortcut, enabled, checked) and its pages, with Bloom's components and declarations. It never asks which platform it is on (no `Platform.OS` test for a platform's look, no `oxyos` import) and never draws a platform's chrome.
+   - **Bloom presents it**, from the capabilities the platform's adapter reports. Where a platform lacks a capability Bloom presents it the way it does today; it never fakes one.
+   - **The platform supplies an adapter**, registered by the runtime that runs the application (`BloomProvider platform={…}`), never by the application: the web build's, the native runtime's (phone, tablet, desktop) and the Bloom host's on OxyOS. An adapter reports what it can do and does it; an adapter that reports nothing leaves Bloom as it is today.
+2. **Two compositors, each composing its own.** Bloom's layout compositor (AppShell and its panels) composes what is inside a window: the sidebar, the panels, the toolbar, and where the window's controls sit among them. Every application uses it, on every platform. OxyOS's display compositor composes windows on the screen: where they are, their shadows and corners, their transitions, which is active. Neither does the other's job: the display compositor knows no panels, and Bloom places no windows.
+3. **Capabilities are added at their owner in Bloom**, each with its own decision, as `popup-surface` was:
+
+   | Capability | What the application declares | Without it | OxyOS | A desktop's native runtime | An installed web application |
+   | --- | --- | --- | --- | --- | --- |
+   | `popup-surface` ([ADR 0002](./0002-bloom-platform-surface-api)) | A menu, a select | Bloom's in-window panel or sheet | A compositor popup | A native popup window | — |
+   | `window` ([ADR 0016](./0016-windows)) | Its window's shape | No controls and no inset (a browser tab, a phone) | Bloom draws the controls; the compositor moves, resizes, zooms and minimizes | The platform draws its controls (a Mac's traffic lights); Bloom keeps their room | The browser's controls over the title bar area (Window Controls Overlay); Bloom keeps their room |
+   | `menu-bar` (to come) | Its commands | Shortcuts, a command palette and the application's own menus | The top bar shows the active application's menus | The system's menu bar (a Mac's) or the window's | Shortcuts and a command palette |
+   | `windows` (to come) | Another window (a document, a compose window) | A modal or a new route | A new toplevel | A new native window | A new tab |
+
+   Keyboard shortcuts are Bloom's on every platform: a command's shortcut works whether or not a menu bar shows it.
+4. **One build per platform, from one source.** The web build, the native builds and the OxyOS bundle are built from the same application source; what differs between them is the adapter their runtime registers. An application is tested where it is cheap (the web, Bloom's tests) and is right on OxyOS without changes, and the OxyOS scenarios test the adapter, not each application.
+
+## Consequences
+
+- Bloom keeps every existing API and behavior: a capability changes a component's presentation only where an adapter reports it.
+- An application that tests the platform for its chrome is a defect, in review as in any of Bloom's components. A platform test for something no capability covers is a request for a capability.
+- The Settings application (`so.oxy.settings`) is the first built this way, and the check that this holds: the same source in the browser, natively and on OxyOS.
+
+## Not in this decision
+
+- The `menu-bar` and `windows` capabilities themselves, and the native desktop runtime's adapter.
+- Which Oxy applications ship on OxyOS, and how they are installed (#35, #36).

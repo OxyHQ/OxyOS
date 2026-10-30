@@ -1,0 +1,102 @@
+---
+title: "ADR 0016: Windows"
+description: What an OxyOS window is — no title bar, its controls as glass bubbles always in the same place, its content arranged around them by Bloom — and what the protocol, the compositor and Bloom each do for it.
+order: 25
+---
+
+# ADR 0016: Windows
+
+Status: **accepted** (chosen with the platform's author); steps to come. The `window` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0004](./0004-gpu-composition) (composition), [ADR 0009](./0009-session-shell) (the shell) and [ADR 0011](./0011-transitions) (transitions).
+
+## Problem
+
+An OxyOS application's window is its client's buffer and nothing else: no controls, no shadow, square corners. It cannot zoom or minimize itself, cannot be resized by its edges, and is never told whether it is the active window. Its client can ask to be moved (`BeginMove`), but nothing in Bloom does.
+
+The windows wanted are a Mac's, as macOS 26 and 27 draw them, not a title bar with buttons on it:
+- **No title bar.** The content fills the window.
+- **The controls are three glass bubbles** (close, minimize, zoom) **at the window's top leading corner, always in the same place.** The content is arranged around them:
+  - in Mail, the sidebar starts below them;
+  - in an application without a sidebar, the toolbar starts after them;
+  - in a photo or a video, the content fills the window and the bubbles float over it.
+- **Standard corners and a shadow,** deeper on the active window.
+
+## Decision
+
+1. **The window has no title bar; its content is the whole window.** The title stays a property of the window (`SetTitle`, for the shell, the overview and the screen reader), not something drawn over it.
+2. **The controls are Bloom's, in the platform's place.** On OxyOS, Bloom draws the controls inside the application, as AppKit draws a Mac's inside each application, never the window server. So the glass is the application's own material, and the content is placed around them in the same frame. The platform says where they are, the same for every application:
+   - **Size and place.** Three bubbles, each 14 px across in a 20 px target, 4 px apart, their centres 26 px from the window's top, the first 24 px from its leading edge (the left, or the right in a right-to-left locale).
+   - **Their room** is 52 px from the top and 88 px from the leading edge.
+   - **Colour.** On the active window they are red, yellow and green glass. On an inactive one they are neutral glass. The pointer over the group shows their symbols (×, −, and zoom's).
+   - **The press.** A press shrinks a bubble (to 88 %) and lets it spring back as it acts, as macOS 27's do.
+
+   Elsewhere the platform may draw its own controls (a Mac's traffic lights, a browser's over an installed web application) and report their room, which Bloom keeps the same way; a platform without windows (a phone, a browser tab) reports no capability and has none.
+3. **The content adapts; the controls never move.** AppShell (Bloom's layout compositor, [ADR 0015](./0015-application-model)) keeps their room. The application declares nothing but its shape:
+   - **A sidebar in flow** starts its content below their room; the controls sit at its top.
+   - **Without one** (none, hidden or collapsed into a drawer), the header or toolbar starts after their room.
+   - **Full-bleed content** (`windowControls="overlay"`: a photo, a video, a map) keeps no room. The controls float over it on a glass plate. While media plays they fade out when the pointer has been still for two seconds or has left the window, and come back as it moves, with the page's own controls.
+   - **A full-screen window** shows no controls.
+4. **The window is moved by its empty chrome.** The sidebar's top band and the header or toolbar are drag regions: a press there that no control inside takes starts a move (`BeginMove`, with the press's serial), and a double press zooms. Bloom's `WindowDragRegion` is that region, and AppShell uses it; an application needs none of its own.
+5. **The compositor resizes windows by their edges.** A band 6 px wide outside each edge (in the shadow), and 12 px at the corners, shows the resize pointer and resizes from the edge or corner pressed. The client is configured as the compositor's own resizes configure it, and its popups follow. A window states the sizes it can take (`SetSizeLimits`): the compositor never configures it outside them.
+6. **A window zooms and minimizes itself; it closes itself.**
+   - **Zoom** (`SetMaximized`) fills the work area (the output without the panels' exclusive zones) and restores the frame it had.
+   - **Minimize** (`Minimize`) is the shell's minimize, with its transition into the dock.
+   - **The close bubble** is the application's own close request, the same path as the shell's `CloseRequested`. An application with something to save answers it (`onCloseRequest`, Bloom's); otherwise the window closes.
+7. **The window is told its state.** `Configure` carries `maximized` as it carries `fullscreen`. A new event, `Activated`, says when a toplevel becomes and stops being the active window: the one that has, itself or through one of its popups or dialogs, the keyboard focus. The window learns it before the frame that shows it, so the controls and the content can draw it.
+8. **The compositor draws corners and shadows.**
+   - Every toplevel and dialog is drawn with corners of the same radius, 16 px, cut from its pixels by composition. The radius is reported to Bloom, so its panels are concentric with the window.
+   - The window has a shadow: wider and darker on the active window, lighter on the others.
+   - A full-screen window has neither.
+
+   Composition (`oxyos-gpu`) gains the corner mask and the shadow, on the CPU reference and in the shader with the same integer arithmetic, as opacity did ([ADR 0011](./0011-transitions)).
+
+## Bloom's API
+
+`@oxy.so/bloom/platform-surface` gains the `window` capability and its adapter field. An adapter that does not report it is today's:
+
+```ts
+interface PlatformWindow {
+  readonly controls: 'bloom' | 'platform';     // who draws them
+  readonly metrics: {
+    controls: { start: number; top: number; width: number; height: number }; // leading-relative
+    room: { top: number; leading: number };
+    radius: number;
+  };
+  getState(): { active: boolean; maximized: boolean; fullscreen: boolean };
+  subscribe(listener: () => void): () => void;
+  close(): void;      // the application's close request
+  minimize(): void;
+  zoom(): void;       // maximize or restore
+  startMove(): void;  // from the press being handled
+}
+```
+
+These are new in Bloom:
+
+- **`useWindow()`:** the state and the actions, or `null` without the capability.
+- **`WindowControls`:** the bubbles. It draws them where `controls` is `bloom`, and nothing otherwise.
+- **`WindowDragRegion`.**
+- **`useWindowControlsRoom()`:** the room to keep, zero without the capability.
+
+AppShell gains `windowControls?: 'auto' | 'overlay'` (`auto`, the default, is decision 3). The settings layout is split out of `SettingsModal` (`SettingsLayout`: the rail, the pages, the narrow-width navigation, the saved toast), sized by its container and keeping the controls' room in its rail, so the same settings are a modal, an application window or a panel.
+
+## Steps
+
+1. **The protocol and the compositor:**
+   - `SetSizeLimits`, `SetMaximized`, `Minimize`, `Activated`, and `maximized` in `Configure`;
+   - the edge resize band;
+   - the C ABI.
+
+   Tests on the scene (limits held when resizing, the work area, activation through a popup, no move or resize when full-screen or locked) and through real sockets.
+2. **Corners and shadows in composition,** byte for byte on the CPU reference and the Vulkan device, and drawn only where they change (ADR 0005).
+3. **Bloom:** the capability, `useWindow`, `WindowControls`, `WindowDragRegion`, AppShell keeping the room, and `SettingsLayout`, with Bloom's tests for each shape (sidebar, toolbar, overlay, none).
+4. **The OxyOS adapter** in the Bloom host. A scenario on a sample window checks:
+   - its controls (minimize into the dock, zoom filling the work area and back, close);
+   - a move from its toolbar and a resize from its edge;
+   - its look when active and inactive.
+5. **The Settings application** (`so.oxy.settings`), built on it.
+
+## Not in this decision
+
+- Full-screen's own controls (a Mac shows the menu bar and the controls when the pointer reaches the top edge), and tiling.
+- The window's menu (a long press on zoom) and the menu bar ([ADR 0015](./0015-application-model)).
+- Windows of clients that are not Bloom applications: they get corners, shadows, resizing and their state, and draw their own controls.
