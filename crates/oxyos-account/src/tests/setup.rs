@@ -466,6 +466,9 @@ fn no_secret_is_printed() {
 
 #[test]
 fn with_the_systems_tools_a_setup_makes_a_real_user_and_verifier() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("setup-real");
     let machine = machine_with(FakeApi::default(), SystemUsers::with_prefix(root.path()));
     let enrolled = enrolled(machine.setup.enroll(request(PASSWORD)));
@@ -511,6 +514,9 @@ fn with_the_systems_tools_an_offline_setup_changes_no_file() {
 
 #[test]
 fn with_the_systems_tools_a_failed_setup_removes_the_user_and_home() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("setup-real-undo");
     let mut users = SystemUsers::with_prefix(root.path());
     // A chpasswd that fails, as one would on a full disk.

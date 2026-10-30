@@ -9,6 +9,9 @@ use std::path::Path;
 
 #[test]
 fn a_user_is_made_with_its_own_group_and_a_home_only_it_opens() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("users-create");
     let users = SystemUsers::with_prefix(root.path());
     let name = account().user_name();
@@ -29,6 +32,9 @@ fn a_user_is_made_with_its_own_group_and_a_home_only_it_opens() {
 
 #[test]
 fn the_verifier_is_a_yescrypt_hash_of_the_password_never_the_password() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("users-verifier");
     let users = SystemUsers::with_prefix(root.path());
     let name = account().user_name();
@@ -52,6 +58,9 @@ fn the_verifier_is_a_yescrypt_hash_of_the_password_never_the_password() {
 
 #[test]
 fn a_name_in_use_is_not_made_again() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("users-twice");
     let users = SystemUsers::with_prefix(root.path());
     let name = account().user_name();
@@ -61,6 +70,9 @@ fn a_name_in_use_is_not_made_again() {
 
 #[test]
 fn removing_a_user_takes_its_group_and_home() {
+    if !super::passwd_tools() {
+        return;
+    }
     let root = Root::new("users-remove");
     let users = SystemUsers::with_prefix(root.path());
     let name = account().user_name();

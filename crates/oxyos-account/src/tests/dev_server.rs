@@ -115,6 +115,10 @@ fn assert_enrolled(
 #[test]
 #[ignore = "needs an Oxy API development server: see this file's documentation"]
 fn dev_server_setup_with_a_password() {
+    assert!(
+        super::passwd_tools(),
+        "the dev-server tests make users with the passwd tools"
+    );
     let api = env("OXYOS_ACCOUNT_DEV_API").expect("OXYOS_ACCOUNT_DEV_API");
     let identifier = env("OXYOS_ACCOUNT_DEV_IDENTIFIER").expect("OXYOS_ACCOUNT_DEV_IDENTIFIER");
     let password = env("OXYOS_ACCOUNT_DEV_PASSWORD").expect("OXYOS_ACCOUNT_DEV_PASSWORD");
@@ -166,6 +170,10 @@ fn dev_server_setup_with_a_password() {
 #[test]
 #[ignore = "needs an Oxy API development server: see this file's documentation"]
 fn dev_server_setup_with_an_authenticator() {
+    assert!(
+        super::passwd_tools(),
+        "the dev-server tests make users with the passwd tools"
+    );
     let api = env("OXYOS_ACCOUNT_DEV_API").expect("OXYOS_ACCOUNT_DEV_API");
     let (Some(identifier), Some(password), Some(command)) = (
         env("OXYOS_ACCOUNT_DEV_TOTP_IDENTIFIER"),

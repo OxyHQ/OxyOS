@@ -20,7 +20,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 pub(crate) const ACCOUNT: &str = "0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e";
 pub(crate) const OTHER_ACCOUNT: &str = "64f7c2a1b8e9d3f4a1c2b3d4";
@@ -357,6 +357,88 @@ impl Root {
             (fields.next() == Some(name)).then(|| fields.next().unwrap_or("").to_owned())
         })
     }
+}
+
+/// Set to `required` (as CI's Debian job does) to fail, not skip, where [`passwd_tools`] finds the
+/// system's passwd tools unable to work on a root of the tests' own.
+const PASSWD_TOOLS: &str = "OXYOS_ACCOUNT_PASSWD_TOOLS";
+
+/// Whether the system's `useradd`, `chpasswd` and `userdel` can make, verify and remove a user on a
+/// root of the tests' own without privileges, as Debian trixie's (shadow 4.17) do; the tests that
+/// run them ask first, and are skipped, saying why, where they cannot. Ubuntu 24.04's (shadow
+/// 4.13) cannot: its `chpasswd` has no `--prefix`, its `useradd` opens the host's lastlog despite
+/// one, and its `userdel` keeps a home it could not give the user. A `chpasswd` without
+/// `--prefix` is found before `useradd` runs at all, so a probe never reaches the host's files.
+pub(crate) fn passwd_tools() -> bool {
+    static PROBE: OnceLock<Result<(), String>> = OnceLock::new();
+    match PROBE.get_or_init(probe_passwd_tools) {
+        Ok(()) => true,
+        Err(why) if std::env::var(PASSWD_TOOLS).as_deref() == Ok("required") => {
+            panic!("{PASSWD_TOOLS}=required, and the passwd tools cannot run on a root of the tests' own: {why}")
+        }
+        Err(why) => {
+            eprintln!("skipped: the passwd tools cannot run on a root of the tests' own: {why}");
+            false
+        }
+    }
+}
+
+fn probe_passwd_tools() -> Result<(), String> {
+    let users = crate::users::SystemUsers::new();
+    let help = Command::new(&users.chpasswd)
+        .arg("--help")
+        .output()
+        .map_err(|error| format!("chpasswd: {error}"))?;
+    let help = String::from_utf8_lossy(&help.stdout) + String::from_utf8_lossy(&help.stderr);
+    if !help.contains("--prefix") {
+        return Err("chpasswd has no --prefix".into());
+    }
+    let root = Root::new("probe");
+    let prefix = |tool: &Path| {
+        let mut command = Command::new(tool);
+        command.env_clear().arg("--prefix").arg(root.path());
+        command
+    };
+    let name = "oxy-probe";
+    let ran = |what: &str, output: std::io::Result<std::process::Output>| {
+        let output = output.map_err(|error| format!("{what}: {error}"))?;
+        let said = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        if !output.status.success() {
+            return Err(format!("{what} failed ({}): {said}", output.status));
+        }
+        Ok(said)
+    };
+    let said = ran(
+        "useradd",
+        prefix(&users.useradd)
+            .args(["--create-home", "--user-group", "--", name])
+            .output(),
+    )?;
+    if said.contains("lastlog") || said.contains("faillog") {
+        return Err(format!("useradd reaches outside its --prefix: {said}"));
+    }
+    let mut chpasswd = prefix(&users.chpasswd)
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("chpasswd: {error}"))?;
+    chpasswd
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("{name}:probe password\n").as_bytes())
+        .map_err(|error| format!("chpasswd: {error}"))?;
+    ran("chpasswd", chpasswd.wait_with_output())?;
+    ran(
+        "userdel",
+        prefix(&users.userdel)
+            .args(["--remove", "--", name])
+            .output(),
+    )?;
+    if root.path().join("home").join(name).exists() {
+        return Err("userdel left the home".into());
+    }
+    Ok(())
 }
 
 /// Whether `password` is the one `hash` verifies, by the system's crypt(3) (libxcrypt), as
