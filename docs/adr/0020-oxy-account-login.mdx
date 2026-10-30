@@ -1,0 +1,71 @@
+---
+title: "ADR 0020: Signing in with an Oxy account"
+description: How a person signs in to OxyOS with their Oxy account — set up online once, then offline with the account's own password — who holds the account's credential on the machine, and what the login screen is.
+order: 29
+---
+
+# ADR 0020: Signing in with an Oxy account
+
+Status: **accepted** (decisions 1 to 7, chosen with the platform's author; decision 2 is the author's choice of the account's own password over a password of the machine); steps to come. Resolves the open decisions of [Oxy account and session on OxyOS](../account-session) for [#35](https://github.com/OxyHQ/OxyOS/issues/35). Builds on [ADR 0001](./0001-native-platform-boundaries) (the session authority, grants), [ADR 0006](./0006-seat) (logind), [ADR 0010](./0010-lock-screen) (PAM, the throttle, failing closed) and [ADR 0015](./0015-application-model).
+
+## Problem
+
+OxyOS requires an Oxy account, as a Chromebook requires a Google account. The account is set up on the machine online, through the Oxy SDK's own sign-in, and from then on works offline: cold boot, sign-in and unlock with no network. There is no local-only account, no guest and no anonymous desktop.
+
+Today the session is started from a terminal login as a Unix user, and the lock checks that user's Unix password with PAM. Nothing ties the user to an Oxy account. The SDK's own sign-in (Oxy ADR 0030) is an email and a code or link, an optional password, and an optional authenticator: an account need not have a password at all, and nothing on the machine could check one offline. On a phone, every Oxy app reads one shared device credential. On OxyOS that would hand every process a secret that can mint tokens for the account.
+
+## Decision
+
+1. **Each Oxy account set up on the machine is one Unix user.** The account's Oxy user id names it (`oxy-<id>`); its home is the user's, and its display name and picture are the account's. The Unix user is how the kernel, logind, PAM and file permissions keep people apart; it is never a second account. Nothing signs in to the desktop except an enrolled account.
+2. **Offline, the account's own Oxy password signs in and unlocks.** This is how a Chromebook uses the Google password.
+   - **At setup** the person signs in to Oxy online. An account without a password sets one then, through the SDK's own flow for adding one (a fresh code to the account's email, Oxy ADR 0030 D6). The person then gives the password once more, and the system checks it with Oxy online (`POST /auth/signin/password`).
+   - **The machine keeps a verifier, never the password.** The Unix user's password is set to it: a yescrypt hash in `/etc/shadow`, the system's established primitive, readable by root alone. PAM checks it, as it checks the lock's password today ([ADR 0010](./0010-lock-screen)): offline, with no network request, throttled as the lock throttles.
+   - **Online, the password is checked with Oxy too.** At sign-in and unlock the local check decides; when the network is up, the system also checks with Oxy, after the local check, without delaying the session.
+     - **The password was changed elsewhere.** Oxy accepts a password the machine does not know: the verifier is replaced with it, and the old one stops working.
+     - **Oxy refuses a password the machine accepts:** the password was changed elsewhere, so the machine asks for the new one the next time it is online and keeps the old one only while offline.
+     - **The account was removed from the machine elsewhere, or deleted.** At the next online check the person is signed out and the machine forgets the account's credential. The next sign-in needs Oxy online, as the first did.
+   - **An authenticator** (Oxy ADR 0030's second factor) is asked for at setup and in every online sign-in Oxy asks it for, never offline. Offline the machine has only the verifier, as a Chromebook does.
+   - **Limits.** Remote revocation and a changed password take effect only once the machine is online: it never promises otherwise. No mandatory reconnect period is set; that would be a product decision of its own.
+3. **The account's credential is the system's, held by one service.** `oxyos-accountd` is a system service. It runs as root, because it creates users and sets their verifiers, and nothing else runs with it; systemd confines it to what that needs (its own state, the user database, the network to Oxy's API). It holds each enrolled account's device credential (the SDK's `{deviceId, deviceSecret}`, Oxy ADR 0029) in its own directory, `/var/lib/oxyos/accounts`, readable by it alone.
+   - **What it does.** It runs the online steps of decision 2 (setting up, checking the password, the verifier, revocation). It mints the account's short access tokens with the SDK's own contract (`POST /session/device/token`).
+   - **What nobody else sees.** No application, shell, compositor or login screen ever holds the device credential.
+   - **Its own ADR.** How applications get what they need from it is decision 6.
+4. **The login screen is OxyOS's own, on the seat.** `oxyos-login` is a system service that starts on the seat when the machine boots, after the boot logo (ADR 0017). It runs the compositor ([ADR 0006](./0006-seat)) with the login screen, a Bloom client like the lock screen, and knows nothing of passwords:
+   - **What it shows.** The enrolled accounts (picture and name), and a password field.
+   - **How it signs someone in.** A password goes through the compositor to PAM (service `oxyos-login`, the same path as the lock's). Once PAM accepts it, the login program opens the person's logind session (`pam_systemd`) and starts `oxyos-session` as that user, handing the seat over. Signing out returns to it.
+   - **Adding an account.** "Add an account" (and the first boot) runs setup: the SDK's own sign-in dialog, in a Bloom client of the login screen, online only. The credential it obtains goes straight to `oxyos-accountd`, through the SDK's storage seam (an OxyOS `AuthStateStore` that hands it over and keeps nothing). If the machine is offline, setup says it needs the network and does nothing else: a first enrollment never succeeds offline.
+
+   It is a first-party login program, not a display manager or greeter of another desktop (GDM, LightDM); no X11, Wayland or toolkit is involved ([ADR 0001](./0001-native-platform-boundaries)).
+5. **Lock, sign out and remove are distinct.**
+   - **Lock** keeps the session and needs the password (ADR 0010).
+   - **Sign out** ends the session and returns to the login screen. The account stays enrolled and can sign in offline.
+   - **Remove** (from Settings, or by Oxy's own device list online) ends the account's sessions, revokes its device session online when possible, forgets its credential, its verifier and, once confirmed, its home.
+   - **More than one account.** Several accounts may be enrolled. Each is its own user, its own session and its own credential, and switching shows the login screen. One person's data, tokens and surfaces never reach another's session.
+6. **Applications never get the device credential.** The machine's Oxy session is the platform's, as [ADR 0015](./0015-application-model) makes everything else the platform's. An application signs in to nothing: it is given short tokens for itself by the platform, through the SDK, which on OxyOS asks `oxyos-accountd` instead of running its own sign-in.
+   - **Its own decision, and the SDK's.** The SDK has no token scoped to an application yet: every holder of a device credential receives the same bearer. A token for one application, given to a platform that proves which application asks, is a server and SDK change that amends Oxy ADRs 0029, 0045 and 0050, and is decided in the SDK's repository.
+   - **Who is asking.** On OxyOS the application is known by its launch record ([ADR 0013](./0013-launching-applications)).
+   - **Until then,** OxyOS applications get no Oxy token.
+7. **Failing closed.** If `oxyos-accountd`, the login screen or the setup client fails, nobody is signed in. A failed or offline setup leaves no account. A verifier that cannot be read refuses, as PAM does. No path opens a desktop without PAM's acceptance for an enrolled account's user.
+
+## Steps
+
+1. **`oxyos-accountd`'s setup:**
+   - enrolling an account from a device credential, through the SDK's contracts;
+   - the Unix user, its home and its verifier;
+   - the online password check.
+
+   Tested against the Oxy API's development server, and offline (setup refused, no account left behind).
+2. **The login program:** `oxyos-login` on the seat, its login screen (Bloom), PAM `oxyos-login`, and starting the person's session. Then on the ThinkPad:
+   - the first setup, online;
+   - a cold boot offline;
+   - signing in and unlocking offline;
+   - a wrong password throttled.
+3. **The online checks:** a password changed elsewhere (both ways), revocation on reconnect, the account removed. Tests with the development server.
+4. **Several accounts:** switching, and removing one.
+5. **Applications' tokens:** the SDK's decision (decision 6), then the OxyOS side.
+
+## Not in this decision
+
+- Disk encryption bound to the password (a home encrypted with a key the password unlocks, as `systemd-homed` or fscrypt can do), the TPM, and biometrics. The verifier in `/etc/shadow` protects sign-in, not data at rest.
+- Accounts without a password by their nature: a Commons account, whose self-custody key signs in (Oxy ADR 0030 D1) and which cannot have a password. It needs a way in offline of its own.
+- A guest or kiosk mode, which the product does not have.
