@@ -66,8 +66,8 @@ A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (
 beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
 what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
 
-A scenario with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) runs with a preferences file
-of its own written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
+Every scenario runs with a preferences file of its own, light unless it says otherwise. A scenario
+with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
 `settings` as a session grants an administrator's entry. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
 reduceTransparency, accent) by the time the step settled, each key given; the `final`
@@ -648,12 +648,15 @@ def main():
         # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
         # application with the shell grant; its report is the application's with ".shell".
         command += ["--shell", f"{options.host},{bundle},{scenario['shell']}"]
+    # The user's preferences (ADR 0019), in a file of the run's own: light unless the scenario says
+    # otherwise, so what a scenario sees never depends on the time of day it runs at (an automatic
+    # appearance follows the sun). With `settings`, the application the session would grant it to.
+    preferences = out / "preferences"
+    given = {"appearance": "light", **scenario.get("settings", {}).get("preferences", {})}
+    preferences.write_text("".join(f"{key} = {value}\n" for key, value in given.items()))
+    command += ["--preferences", str(preferences)]
     if "settings" in scenario:
-        # The user's preferences (ADR 0019), in a file of the run's own, and the application the
-        # session would grant `settings` to.
-        preferences = out / "preferences"
-        preferences.write_text("".join(f"{key} = {value}\n" for key, value in scenario["settings"].get("preferences", {}).items()))
-        command += ["--preferences", str(preferences), "--grant-settings", scenario["settings"]["app"]]
+        command += ["--grant-settings", scenario["settings"]["app"]]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
