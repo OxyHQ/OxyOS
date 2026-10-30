@@ -29,6 +29,21 @@ of the CPU. `--check` fails when a budget is exceeded:
   of a core;
 - an application's first frame comes within half a second of its start.
 
+**JavaScript's profile.** With `OXYOS_HOST_JS_PROFILE=FILE` in a Bloom host's environment
+(regress.py and perf.py pass theirs on), Hermes' own sampling profiler records the application's
+JavaScript, 1000 samples a second (`OXYOS_HOST_JS_PROFILE_HZ` changes it), and the host writes
+the profile to FILE as it ends: a Chrome trace (`traceEvents`, `samples`, `stackFrames`) that
+Chrome's DevTools (Performance, *Load profile*), Perfetto and speedscope open. Each frame is named
+by its function and its line and column in the bundle's source; `bundle.mjs` deletes that source
+once Hermes compiled it, and building the same bundle without `HERMESC` writes it again,
+identical. A sample is taken by interrupting the JavaScript thread, so a profiled host turns more
+often than it would: its timings are its own.
+
+```sh
+OXYOS_HOST_JS_PROFILE=$PWD/stash-profile.json python3 tools/rn-host-spike/regress.py \
+  tools/rn-host-spike/scenarios/perf-stash.json --offscreen ... --host ... --bundle ...
+```
+
 ## Method
 
 **Interactions.** Five scenarios (in `tools/rn-host-spike/scenarios/`), each run three times and

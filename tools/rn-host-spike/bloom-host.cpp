@@ -383,8 +383,31 @@ int main(int argc, char** argv) {
   // instance lives.
   auto ownedTimerManager = std::make_shared<TimerManager>(std::move(timerRegistry));
   TimerManager& timerManager = *ownedTimerManager;
+  // OXYOS_HOST_JS_PROFILE=FILE: Hermes' sampling profiler records the application's JavaScript
+  // (at OXYOS_HOST_JS_PROFILE_HZ samples a second, 1000 unless set) and the profile is written to
+  // FILE as the host ends (docs/performance.mdx). Off, Hermes has no sampler.
+  const char* jsProfile = std::getenv("OXYOS_HOST_JS_PROFILE");
+  if (jsProfile && !*jsProfile) jsProfile = nullptr;
+  auto* hermesRoot = jsProfile ? jsi::castInterface<facebook::hermes::IHermesRootAPI>(facebook::hermes::makeHermesRootAPI())
+                               : nullptr;
+  if (hermesRoot) {
+    const char* hz = std::getenv("OXYOS_HOST_JS_PROFILE_HZ");
+    hermesRoot->enableSamplingProfiler(hz && std::atof(hz) > 0 ? std::atof(hz) : 1000);
+  }
+  // Written while the runtime lives: the samples name its functions.
+  auto writeJsProfile = [&] {
+    if (!hermesRoot) return;
+    try {
+      hermesRoot->dumpSampledTraceToFile(jsProfile);
+      std::cerr << "[host] JavaScript profile written to " << jsProfile << "\n";
+    } catch (const std::exception& error) {
+      std::cerr << "[host] could not write the JavaScript profile to " << jsProfile << ": " << error.what() << "\n";
+    }
+    hermesRoot->disableSamplingProfiler();
+    hermesRoot = nullptr;
+  };
   auto runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(
-      ::hermes::vm::RuntimeConfig::Builder().withMicrotaskQueue(true).build()));
+      ::hermes::vm::RuntimeConfig::Builder().withMicrotaskQueue(true).withEnableSampleProfiling(jsProfile != nullptr).build()));
   int jsErrors = 0;
   auto instance = std::make_unique<ReactInstance>(
       std::move(runtime), loop, std::move(ownedTimerManager),
@@ -1623,6 +1646,7 @@ int main(int argc, char** argv) {
       std::cerr << "[host] " << error.what() << "\n";
       status = 1;
     }
+    writeJsProfile();
     gestures->onCancelResponder = nullptr;
     gestures->onIntercept = nullptr;
     std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"window\":true,\"transactions\":"
@@ -1663,6 +1687,7 @@ int main(int argc, char** argv) {
     if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
 
+  writeJsProfile();
   stage("render");
   auto stats = oxyos::render(tree, display, outPath);
   std::cout << "{\"engine\":\"hermes\",\"fabric\":true,\"bridgeless\":true,\"transactions\":"
