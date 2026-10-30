@@ -1745,6 +1745,16 @@ impl VulkanCompositor {
 
     /// Frees the scanout targets at `indices` (a display that went away); their indices may be
     /// given to targets made later.
+    /// What scanout targets `indices` hold is no longer known (the display showed something else
+    /// meanwhile, a client's buffer scanned out directly): each is composed whole next.
+    pub fn forget_scanout_contents(&mut self, indices: &[usize]) {
+        for &index in indices {
+            if let Some(target) = self.scanout.get_mut(index).and_then(Option::as_mut) {
+                target.stale = None;
+            }
+        }
+    }
+
     pub fn remove_scanout_targets(&mut self, indices: &[usize]) {
         // A frame on its way into one of them is done first.
         if let Err(error) = self.complete() {
