@@ -4322,6 +4322,7 @@ fn told(events: &[(ClientId, Event)], client: ClientId) -> (ToldWindows, Option<
                 workspace,
                 minimized,
                 focused,
+                launched: _,
             } => {
                 let entry = windows.entry(window).or_default();
                 (entry.0, entry.1, entry.2) = (workspace, minimized, focused);
@@ -4414,12 +4415,14 @@ fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
                 workspace: 0,
                 minimized: false,
                 focused: true,
+                launched: false,
             },
             Event::WindowState {
                 window: b,
                 workspace: 0,
                 minimized: false,
                 focused: false,
+                launched: false,
             },
         ]
     );
@@ -5424,4 +5427,52 @@ fn the_shell_asks_for_an_application_by_id_and_is_answered() {
     .unwrap();
     h.scene.disconnect(SHELL);
     assert!(h.scene.take_launches().is_empty());
+}
+
+#[test]
+fn a_launched_processs_windows_are_its_registry_applications() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    // The application claims an id.
+    for (index, text) in ["so.oxy.inbox"].iter().enumerate() {
+        h.request(
+            APP,
+            Request::SetAppId {
+                surface: 1,
+                index: index as u8,
+                last: true,
+                text: PreeditText::new(text).unwrap(),
+            },
+        )
+        .unwrap();
+    }
+    let told = |h: &mut Harness| {
+        let mut launched = None;
+        let mut app = String::new();
+        for event in h.events_for(SHELL) {
+            match event {
+                Event::WindowState { launched: l, .. } => launched = Some(l),
+                Event::WindowAppId { index, text, .. } => {
+                    if index == 0 {
+                        app.clear();
+                    }
+                    app.push_str(text.as_str());
+                }
+                _ => {}
+            }
+        }
+        (launched, app)
+    };
+    h.scene.activate(window);
+    h.pump();
+    // Not launched by the session: its own claim, marked so (the latest the shell was told).
+    assert_eq!(told(&mut h), (Some(false), "so.oxy.inbox".to_string()));
+    // Its launch record names it: the registry's id, whatever it claims, and marked launched.
+    h.scene.set_application(APP, "so.oxy.allo");
+    h.pump();
+    assert_eq!(told(&mut h), (Some(true), "so.oxy.allo".to_string()));
+    assert_eq!(h.scene.application(APP), Some("so.oxy.allo"));
+    // Gone with its client.
+    h.scene.disconnect(APP);
+    assert_eq!(h.scene.application(APP), None);
 }

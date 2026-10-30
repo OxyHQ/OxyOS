@@ -278,6 +278,8 @@ fn main() -> Result<()> {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
+        // The windows of what it started are their registry application's (ADR 0013).
+        compositor.name_clients(&|pid| launcher.application_of(pid).map(String::from));
         if let Some(status) = application
             .as_mut()
             .map(|application| application.try_wait())

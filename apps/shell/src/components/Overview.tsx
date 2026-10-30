@@ -38,6 +38,7 @@ import type {
   ShellWindow,
   ShellApplication,
 } from "../model";
+import { belongsTo } from "../model";
 
 function aspectRatio(window: ShellWindow) {
   const size = window.thumbnailSize;
@@ -433,7 +434,7 @@ export function Overview({
                           drag={drag.controller}
                           faded={drag.dragged?.window.id === window.id}
                           app={snapshot.applications.find(
-                            (app) => app.id === window.appId,
+                            (app) => belongsTo(window, app.id),
                           )}
                           contentHeight={contentHeight}
                           close={() => {
@@ -503,7 +504,7 @@ export function Overview({
           <WindowThumbnail
             window={drag.dragged.window}
             app={snapshot.applications.find(
-              (app) => app.id === drag.dragged!.window.appId,
+              (app) => belongsTo(drag.dragged!.window, app.id),
             )}
             contentHeight={drag.dragged.contentHeight}
             focus={() => {}}

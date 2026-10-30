@@ -86,6 +86,8 @@ pub const OXYOS_AUTH_THROTTLED: u32 = 4;
 /// A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event).
 pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
 pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
+/// The session started the window's process: its application id is the registry's (ADR 0013).
+pub const OXYOS_WINDOW_LAUNCHED: u8 = 4;
 /// Pointer shapes (`oxyos_client_set_pointer_shape`), the protocol's.
 pub const OXYOS_POINTER_ARROW: u8 = 1;
 pub const OXYOS_POINTER_TEXT: u8 = 2;
@@ -526,13 +528,15 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             workspace,
             minimized,
             focused,
+            launched,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_WINDOW_STATE,
                 code: window,
                 detail: workspace,
                 flag: u8::from(minimized) * OXYOS_WINDOW_MINIMIZED
-                    + u8::from(focused) * OXYOS_WINDOW_FOCUSED,
+                    + u8::from(focused) * OXYOS_WINDOW_FOCUSED
+                    + u8::from(launched) * OXYOS_WINDOW_LAUNCHED,
                 ..out
             }
         }

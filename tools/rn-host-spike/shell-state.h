@@ -23,7 +23,7 @@ class ShellState {
   // Takes in a window or workspace event; true if what the shell knows changed.
   bool observe(const OxyOSEvent& event);
   ShellState();
-  // { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active, locked,
+  // { windows: [{ id, appId, title, workspace, minimized, focused, launched }], workspaces, active, locked,
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
 //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }] }
 // The applications are the session's registry (docs/adr/0013-launching-applications.mdx).
@@ -35,7 +35,7 @@ class ShellState {
   struct Window {
     std::string appId, title;
     uint32_t workspace = 0;
-    bool minimized = false, focused = false;
+    bool minimized = false, focused = false, launched = false;
   };
   std::map<uint32_t, Window> windows_;
   // A title or application id being received, by window.

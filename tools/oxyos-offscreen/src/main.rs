@@ -103,6 +103,9 @@ struct Session {
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
+    /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
+    /// launch of its own, recorded as the session records one.
+    app: Option<(u32, String)>,
 }
 
 impl Session {
@@ -137,11 +140,20 @@ impl Session {
             ime: None,
             reader: reader::Reader::default(),
             launcher: None,
+            app: None,
         })
     }
 
-    /// Starts the applications the shell asked for that the registry lists, and answers it.
+    /// Starts the applications the shell asked for that the registry lists, and answers it;
+    /// names the windows of what was started (ADR 0013).
     fn serve_launches(&mut self) {
+        let (launcher, app) = (&self.launcher, &self.app);
+        self.compositor.name_clients(&|pid| match app {
+            Some((started, id)) if *started == pid => Some(id.clone()),
+            _ => launcher
+                .as_ref()
+                .and_then(|launcher| launcher.application_of(pid).map(String::from)),
+        });
         let Some(launcher) = self.launcher.as_mut() else {
             return;
         };

@@ -45,6 +45,10 @@ pub struct Peer {
     accepted: Instant,
     /// What it may do, decided when it connected.
     grants: Grants,
+    /// Its process, as the kernel gave it when it connected.
+    pub pid: i32,
+    /// Its launch record was looked for (ADR 0013).
+    named: bool,
 }
 
 pub struct Compositor {
@@ -353,9 +357,30 @@ impl Compositor {
                 presses: 0,
                 accepted: Instant::now(),
                 grants,
+                pid: credentials.pid,
+                named: false,
             },
         );
         Ok(())
+    }
+
+    /// Applies launch records (docs/adr/0013-launching-applications.mdx): each client connected
+    /// since the last call whose process `application_of` names (one the session started) is
+    /// that application, its windows the registry's, whatever they claim. A client's record is
+    /// looked for once, when it has said Hello.
+    pub fn name_clients(&mut self, application_of: &dyn Fn(u32) -> Option<String>) {
+        for (client, peer) in self.peers.iter_mut() {
+            if peer.named || peer.protocol.version().is_none() {
+                continue;
+            }
+            peer.named = true;
+            let Ok(pid) = u32::try_from(peer.pid) else {
+                continue;
+            };
+            if let Some(id) = application_of(pid) {
+                self.scene.set_application(*client, &id);
+            }
+        }
     }
 
     /// Closes connections that have not sent Hello in time.

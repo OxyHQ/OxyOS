@@ -123,6 +123,7 @@ bool ShellState::observe(const OxyOSEvent& event) {
       window.workspace = event.detail;
       window.minimized = (event.flag & OXYOS_WINDOW_MINIMIZED) != 0;
       window.focused = (event.flag & OXYOS_WINDOW_FOCUSED) != 0;
+      window.launched = (event.flag & OXYOS_WINDOW_LAUNCHED) != 0;
       return true;
     }
     case OXYOS_EVENT_WINDOW_TITLE:
@@ -174,7 +175,7 @@ folly::dynamic ShellState::state() const {
   folly::dynamic windows = folly::dynamic::array();
   for (const auto& [id, window] : windows_) {
     windows.push_back(folly::dynamic::object("id", id)("appId", window.appId)("title", window.title)(
-        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused));
+        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched));
   }
   return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(

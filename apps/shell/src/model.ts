@@ -22,6 +22,9 @@ export type ShellWindow = {
   /** Pixel dimensions of the supplied thumbnail; preserves the surface aspect ratio. */
   thumbnailSize?: { width: number; height: number };
   minimized?: boolean;
+  /** False when the session did not start the window's process: its `appId` is then only its
+      own claim, and it is no registry application's (docs/adr/0013-launching-applications.mdx). */
+  launched?: boolean;
 };
 export type ShellMenu = {
   label: string;
@@ -70,3 +73,10 @@ export type ShellCommand = {
   id: number;
   action: "dismiss" | "launcher" | "overview";
 };
+
+/** Whether `window` is the application `appId`'s: its id, given by the session's launch record
+    or (when the platform says nothing of launch records) its own. A window the session did not
+    start is no registry application's, whatever it claims. */
+export function belongsTo(window: ShellWindow, appId: string): boolean {
+  return window.launched !== false && window.appId === appId;
+}
