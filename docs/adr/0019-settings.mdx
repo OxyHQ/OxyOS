@@ -35,7 +35,8 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - `wallpaper` (a folder under the wallpapers' directory);
      - `lock_after` (minutes idle before the session locks; 0 never);
      - `screen_reader` (on at login);
-     - `clock_24h`.
+     - `clock_24h`;
+     - `do_not_disturb` and `notification_previews` (`always`, `unlocked`), added by [ADR 0026](./0026-notifications).
 2. **The system's settings stay the system's.** The time zone and automatic time (systemd-timedated), the keyboard layout (systemd-localed, which writes `/etc/default/keyboard`) and the computer's name (systemd-hostnamed) are changed through those services, as their own command-line tools change them. The session calls them over the system bus as the user, and polkit decides. A change that needs an administrator is asked for by the session's own authentication dialog, never by the application. Until that dialog exists ([Not in this decision](#not-in-this-decision)), Settings shows these settings and their current values and says they cannot be changed yet. The session follows a change it learns of (the keyboard layout of new strokes; the time zone of the clock and the wallpaper).
 3. **Only Settings may change them, by its launch record.** A new grant, `settings`:
    - **Who gets it.** The session gives it to a client whose process it launched ([ADR 0013](./0013-launching-applications)) as an application whose entry asks for it (`X-OxyOS-Grants=settings`, a `;`-separated list), when only an administrator could have written that entry and what it runs.
@@ -157,6 +158,6 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
 ## Not in this decision
 
 - The session's polkit authentication agent (the dialog an administrator's change asks for), and changing the system's settings through it.
-- Displays (arrangement, resolution, scale), sound, networks, Bluetooth, notifications, users and the Oxy account: each comes with the decision that adds what it sets.
+- Displays (arrangement, resolution, scale), sound, networks, Bluetooth, users and the Oxy account: each comes with the decision that adds what it sets. Notifications' preferences are [ADR 0026](./0026-notifications)'s.
 - Preferences of applications (each keeps its own); syncing preferences with the Oxy account.
 - Sandboxing applications from one another (#35, #36): without it, any program running as the user can write the preferences file or trace Settings.
