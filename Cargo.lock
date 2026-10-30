@@ -1586,6 +1586,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-app-storage"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "serde_json",
+]
+
+[[package]]
 name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
@@ -1627,6 +1635,7 @@ name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
  "oxyos-account",
+ "oxyos-app-storage",
  "oxyos-apps",
  "oxyos-client",
  "oxyos-files",
@@ -1638,7 +1647,9 @@ dependencies = [
  "oxyos-protocol",
  "oxyos-solar",
  "oxyos-vector",
+ "ring",
  "rustix",
+ "serde_json",
 ]
 
 [[package]]
@@ -1820,6 +1831,7 @@ name = "oxyos-net"
 version = "0.1.0"
 dependencies = [
  "cookie_store",
+ "rustix",
  "ureq",
  "url",
 ]
