@@ -212,6 +212,11 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
 function useInstallModel() {
   const state = useUpdateState();
   const [failed, setFailed] = React.useState<string | null>(null);
+  // Without the `updates` grant the session refuses: the page says updates are not available here.
+  const [updatesAllowed, setUpdatesAllowed] = React.useState(available);
+  React.useEffect(() => {
+    if (available) systemUpdates.state().then((answer: any) => answer?.refused && setUpdatesAllowed(false));
+  }, []);
   const [apps, setApps] = React.useState<PrivacyApplication[] | null | undefined>(available ? null : undefined);
   const reload = React.useCallback(async () => {
     const answer = await privacy.list();
@@ -232,8 +237,8 @@ function useInstallModel() {
     updateAll: () => systemUpdates.updateAll().then(done),
   };
   return {
-    updates: available ? { system: { kind: 'apt' as const }, state, failed } : undefined,
-    updatesActions: available ? updates : undefined,
+    updates: updatesAllowed ? { system: { kind: 'apt' as const }, state, failed } : undefined,
+    updatesActions: updatesAllowed ? updates : undefined,
     privacy: apps,
     privacyActions: available
       ? { decide: (id: string, capability: string, granted: boolean) => privacy.decide(id, capability, granted).then(reload) }

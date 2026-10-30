@@ -79,8 +79,14 @@ impl Scene {
         text: PreeditText,
     ) -> Result<(), ErrorCode> {
         let grants = self.clients[&client];
+        // Without a grant that asks, the request is refused and said, not an error: an
+        // application cannot know its grants before it asks (Settings run as a development entry,
+        // Atlas outside a session), and shows that what it asked is not available here.
         if !(grants.store || grants.updates || grants.privacy) {
-            return Err(ErrorCode::Unauthorized);
+            if last {
+                self.refuse_system_request(client, serial);
+            }
+            return Ok(());
         }
         let receiving = &mut self.system.receiving;
         let entry = receiving
@@ -118,6 +124,23 @@ impl Scene {
     /// What `client` holds, if it is connected.
     pub fn grants_of(&self, client: ClientId) -> Option<super::Grants> {
         self.clients.get(&client).copied()
+    }
+
+    fn refuse_system_request(&mut self, client: ClientId, serial: u32) {
+        let text = r#"{"refused":{"reason":"notPermitted"}}"#;
+        let parts = chunks(text);
+        let count = parts.len();
+        for (index, text) in parts.into_iter().enumerate() {
+            self.emit(
+                client,
+                Event::SystemText {
+                    serial,
+                    index: index as u16,
+                    last: index + 1 == count,
+                    text,
+                },
+            );
+        }
     }
 
     /// The requests asked for since the last call, in order.

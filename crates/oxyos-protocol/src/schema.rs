@@ -273,7 +273,8 @@ messages! {
         // grant asks the session: one request of the session's vocabulary as JSON text in chunks
         // (`index` 0 begins it, `last` completes it), citing `input`, the serial of a user input
         // it received (0 for none): the session refuses what changes anything without one. The
-        // answers come as SystemText naming `serial`.
+        // answers come as SystemText naming `serial`; without one of those grants, the answer is
+        // a refusal.
         160 => SystemRequest { serial: u32, input: u64, index: u16, last: bool, text: PreeditText },
         // The session's shell (its `shell` grant): the person's answer to a system sheet
         // (SheetText), citing `serial`, a press or a key the shell received; an acceptance

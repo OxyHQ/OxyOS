@@ -85,8 +85,15 @@ fn texts(events: &[Event]) -> String {
 fn only_the_store_updates_and_privacy_grants_ask_and_an_input_is_noted() {
     let mut h = Harness::new();
     let long = format!(r#"{{"install":{{"id":"so.oxy.{}"}}}}"#, "x".repeat(100));
-    assert_eq!(ask(&mut h, APP, 1, 0, &long), Err(ErrorCode::Unauthorized));
+    // Without a grant that asks: refused and said, nothing handed on.
+    h.clear_log();
+    ask(&mut h, APP, 1, 0, &long).unwrap();
+    h.pump();
     assert!(h.scene.take_system_requests().is_empty());
+    assert_eq!(
+        texts(&h.events_for(APP)),
+        r#"{"refused":{"reason":"notPermitted"}}"#
+    );
     h.scene.grant(APP, store()).unwrap();
     let input = app_press(&mut h);
     ask(&mut h, APP, 2, input, &long).unwrap();
@@ -114,7 +121,8 @@ fn only_the_store_updates_and_privacy_grants_ask_and_an_input_is_noted() {
     assert_eq!(texts(&h.events_for(APP)), answer);
     // Revoked, it asks no more and is told nothing.
     h.scene.revoke(APP, store());
-    assert_eq!(ask(&mut h, APP, 5, 0, "{}"), Err(ErrorCode::Unauthorized));
+    ask(&mut h, APP, 5, 0, "{}").unwrap();
+    assert!(h.scene.take_system_requests().is_empty());
     h.clear_log();
     h.scene.system_text(APP, 2, &answer);
     h.pump();
