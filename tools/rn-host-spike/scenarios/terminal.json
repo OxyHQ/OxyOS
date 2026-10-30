@@ -5,7 +5,7 @@
   "steps": [
     {
       "name": "press the Bloom Button",
-      "do": ["press", [686, 359]],
+      "do": ["press", [686, 283]],
       "expect": {"texts": ["Pressed 1 time"], "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1}, "focus_surface": 1}
     },
     {
@@ -15,12 +15,12 @@
     },
     {
       "name": "the pointer works after the return",
-      "do": ["press", [686, 359]],
+      "do": ["press", [686, 283]],
       "expect": {"texts": ["Pressed 2 times"], "react": {"touchStart@press-me": 1, "touchEnd@press-me": 1}, "delivered": {"1": {"press": 1, "release": 1}}}
     },
     {
       "name": "focus the reply field",
-      "do": ["press", [686, 407]],
+      "do": ["press", [686, 331]],
       "expect": {"focus_input": "reply"}
     },
     {
