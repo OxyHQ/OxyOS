@@ -964,6 +964,17 @@ impl Compositor {
         }
     }
 
+    /// A request the scene refused: said in the log by its name, never its fields (a password may
+    /// be one), and the client disconnected.
+    fn refuse(&mut self, client: ClientId, opcode: u8, code: ErrorCode) {
+        let name = Request::SCHEMA
+            .iter()
+            .find(|(known, _, _)| *known == opcode)
+            .map_or("an unknown request", |(_, name, _)| *name);
+        eprintln!("[compositor] client {client:?}: {name} refused: {code:?}");
+        self.fail(client, code);
+    }
+
     pub fn fail(&mut self, client: ClientId, code: ErrorCode) {
         if let Some(peer) = self.peers.get(&client) {
             let _ = peer
@@ -1015,10 +1026,11 @@ impl Compositor {
             Ok(None) => {}
             Err(code) => return self.fail(client, code),
         }
+        let opcode = request.opcode();
         let fd = match (request, fd) {
             (Request::ClipboardReceive { .. }, Some(pipe)) => {
                 if let Err(code) = self.scene.handle(client, request) {
-                    return self.fail(client, code);
+                    return self.refuse(client, opcode, code);
                 }
                 // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend; a
                 // refused one is closed here, and the receiver reads its end at once.
@@ -1038,7 +1050,7 @@ impl Compositor {
                 return self.fail(client, ErrorCode::InvalidBuffer);
             };
             if let Err(code) = self.scene.handle(client, request) {
-                return self.fail(client, code);
+                return self.refuse(client, opcode, code);
             }
             self.peers
                 .get_mut(&client)
@@ -1049,7 +1061,7 @@ impl Compositor {
         }
         let goodbye = matches!(request, Request::Goodbye {});
         if let Err(code) = self.scene.handle(client, request) {
-            return self.fail(client, code);
+            return self.refuse(client, opcode, code);
         }
         match request {
             Request::Submit {

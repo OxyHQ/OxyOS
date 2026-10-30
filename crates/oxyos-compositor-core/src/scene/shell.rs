@@ -229,15 +229,13 @@ impl Scene {
                 }
             }
             Request::FocusShellSurface { surface, serial } => {
-                if !self.focus_shell_surface(
+                self.focus_shell_surface(
                     SurfaceKey {
                         client,
                         id: surface,
                     },
                     serial,
-                ) {
-                    return Err(ErrorCode::InvalidRole);
-                }
+                )?;
             }
             _ => unreachable!("only the shell's requests are passed here"),
         }
