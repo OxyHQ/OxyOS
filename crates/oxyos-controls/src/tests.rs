@@ -9,6 +9,14 @@ use std::time::{Duration, Instant};
 
 const STEP: u32 = FULL_LEVEL / STEPS;
 
+/// A volume as read from `wpctl`, which prints two decimals: within half a hundredth.
+fn read_volume(value: u32, muted: bool) -> Level {
+    Level {
+        resolution: FULL_LEVEL.div_ceil(200),
+        ..Level::new(value, muted)
+    }
+}
+
 /// A directory of the test's own, removed first if a previous run left it.
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("oxyos-controls-{}-{name}", std::process::id()));
@@ -43,23 +51,23 @@ fn keys_move_in_sixteen_steps_to_the_next_level_beyond() {
     // From nothing to all in sixteen presses, and back.
     let mut level = 0;
     for step in 1..=STEPS {
-        level = stepped(level, STEPS, true);
+        level = stepped(level, STEPS, true, 0);
         assert_eq!(level, step * STEP);
     }
-    assert_eq!(stepped(level, STEPS, true), FULL_LEVEL, "never past all");
+    assert_eq!(stepped(level, STEPS, true, 0), FULL_LEVEL, "never past all");
     for step in (0..STEPS).rev() {
-        level = stepped(level, STEPS, false);
+        level = stepped(level, STEPS, false, 0);
         assert_eq!(level, step * STEP);
     }
-    assert_eq!(stepped(0, STEPS, false), 0, "never below nothing");
+    assert_eq!(stepped(0, STEPS, false, 0), 0, "never below nothing");
     // Between two steps (another program set it): to the one beyond, either way.
-    assert_eq!(stepped(5 * STEP + 100, STEPS, true), 6 * STEP);
-    assert_eq!(stepped(5 * STEP + 100, STEPS, false), 5 * STEP);
+    assert_eq!(stepped(5 * STEP + 100, STEPS, true, 0), 6 * STEP);
+    assert_eq!(stepped(5 * STEP + 100, STEPS, false, 0), 5 * STEP);
     // A fine step is a quarter of one.
-    assert_eq!(stepped(5 * STEP, STEPS * 4, true), 5 * STEP + STEP / 4);
+    assert_eq!(stepped(5 * STEP, STEPS * 4, true, 0), 5 * STEP + STEP / 4);
     // A keyboard of three brightnesses: two steps.
-    assert_eq!(stepped(0, 2, true), FULL_LEVEL / 2);
-    assert_eq!(stepped(FULL_LEVEL / 2, 2, true), FULL_LEVEL);
+    assert_eq!(stepped(0, 2, true, 0), FULL_LEVEL / 2);
+    assert_eq!(stepped(FULL_LEVEL / 2, 2, true, 0), FULL_LEVEL);
     assert_eq!(steps_of(FULL_LEVEL / 2, STEPS), 8);
     assert_eq!(steps_of(5 * STEP + 100, STEPS), 5);
     assert_eq!(steps_of(FULL_LEVEL, STEPS), 16);
@@ -87,7 +95,7 @@ fn wpctl_is_run_for_the_default_devices_with_a_deadline() {
     let wpctl = Wpctl::new(script(&dir, "echo 'Volume: 0.25 [MUTED]'"));
     assert_eq!(
         wpctl.level(Control::OutputVolume).unwrap(),
-        Some(Level::new(FULL_LEVEL / 4, true))
+        Some(read_volume(FULL_LEVEL / 4, true))
     );
     wpctl
         .set_level(Control::InputVolume, FULL_LEVEL / 2)
@@ -251,7 +259,7 @@ fn a_session_acts_through_wpctl_sysfs_and_its_setter() {
     );
     assert_eq!(
         session.level(Control::OutputVolume).unwrap(),
-        Some(Level::new(FULL_LEVEL / 2, false))
+        Some(read_volume(FULL_LEVEL / 2, false))
     );
     // No keyboard backlight on this machine.
     assert_eq!(session.level(Control::KeyboardBrightness).unwrap(), None);
@@ -497,7 +505,8 @@ fn commands_are_answered_with_what_the_system_has_then() {
                     value: FULL_LEVEL / 2,
                     muted: false,
                     steps: 2,
-                    fine_steps: 2
+                    fine_steps: 2,
+                    resolution: 0
                 }),
                 tag: Some(2)
             }
@@ -568,4 +577,19 @@ fn a_level_set_again_before_the_system_follows_is_set_once() {
             Command::ReadStatus,
         ]
     );
+}
+
+#[test]
+fn a_level_read_rounded_still_steps_away_from_where_it_is() {
+    // The session set 7/16 (0.4375); `wpctl` reads it back as 0.44.
+    let (read, _) = crate::audio::parse_volume("Volume: 0.44").unwrap();
+    let resolution = FULL_LEVEL.div_ceil(200);
+    let down = stepped(read, STEPS, false, resolution);
+    assert_eq!(down, 6 * STEP, "one step down, never the same step");
+    // Read exactly, the same value steps up to the next step as before.
+    assert_eq!(stepped(read, STEPS, true, resolution), 8 * STEP);
+    // At a step read rounded down (0.375 as 0.38 is above; 0.3125 as 0.31 is below).
+    let (read, _) = crate::audio::parse_volume("Volume: 0.31").unwrap();
+    assert_eq!(stepped(read, STEPS, true, resolution), 6 * STEP);
+    assert_eq!(stepped(read, STEPS, false, resolution), 4 * STEP);
 }

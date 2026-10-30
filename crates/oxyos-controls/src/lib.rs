@@ -62,6 +62,10 @@ pub struct Level {
     pub steps: u32,
     /// The steps with Shift and Alt: four times as many, as many as the device has at most.
     pub fine_steps: u32,
+    /// How far the system's own level may be from `value`, as read: 0 for a level read exactly
+    /// (a backlight's), more for one the system reports rounded (`wpctl` prints a volume to two
+    /// decimals). A key steps from the level the system may really have.
+    pub resolution: u32,
 }
 
 impl Level {
@@ -72,6 +76,7 @@ impl Level {
             muted,
             steps: STEPS,
             fine_steps: STEPS * 4,
+            resolution: 0,
         }
     }
 }
@@ -155,10 +160,16 @@ pub trait System: Send {
 
 /// Where a key moves a level from `value`: to the next of `steps` evenly spaced levels above
 /// it (`up`) or below it, so a level between two goes to the one beyond, as a Mac's does; never
-/// past either end.
-pub fn stepped(value: u32, steps: u32, up: bool) -> u32 {
+/// past either end. `resolution` is how far the real level may be from `value` (a level read
+/// rounded): a value within it of a step is that step, so a key never lands where it started.
+pub fn stepped(value: u32, steps: u32, up: bool, resolution: u32) -> u32 {
     let steps = u64::from(steps.max(1));
     let full = u64::from(FULL_LEVEL);
+    let value = if up {
+        value.saturating_add(resolution)
+    } else {
+        value.saturating_sub(resolution)
+    };
     let value = u64::from(value.min(FULL_LEVEL));
     // Where the value is, in steps: below (floor) and above (ceiling).
     let below = value * steps / full;
