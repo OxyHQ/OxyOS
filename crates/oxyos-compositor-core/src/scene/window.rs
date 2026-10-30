@@ -368,6 +368,11 @@ impl Scene {
         self.active = active;
     }
 
+    /// The window the compositor is moving with the pointer (`BeginMove`), if any.
+    pub fn moving_window(&self) -> Option<SurfaceKey> {
+        self.moving.map(|moving| moving.surface)
+    }
+
     /// The window that is active (ADR 0016), if any.
     pub fn active_window(&self) -> Option<SurfaceKey> {
         self.active

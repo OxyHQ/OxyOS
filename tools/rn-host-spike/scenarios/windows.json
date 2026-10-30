@@ -1,0 +1,136 @@
+{
+  "about": "An application window as ADR 0016 draws it (sample/WindowProbe.tsx: Bloom's SettingsLayout in a window, its controls Bloom's at the rail's top): the page told the window's state (active, zoomed, full screen) through Bloom's `window` capability and the host's adapter; the rail's top band moving the window (the compositor's BeginMove, from the press the application handles); the green bubble zooming it to the work area and restoring it; the compositor resizing it from the band beyond its edge; the yellow bubble minimizing it. Without the adapter's `window` the page says it has none and the bubbles are not drawn, so every step fails.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The window is the active one, neither zoomed nor full screen, and its page says so",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "window_shown": true
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "A press held on the rail's top band, by the controls, moves the window with the pointer",
+      "do": [
+        "grab",
+        [
+          150,
+          30,
+          -100,
+          -40
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          90,
+          20,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "The green bubble zooms the window to the work area, and the page is told",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Pressed again, it restores the frame the window had",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          90,
+          20,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "The band beyond the right edge resizes the window, its left edge staying",
+      "do": [
+        "drag_output",
+        [
+          993,
+          300,
+          1093,
+          300
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          90,
+          20,
+          1000,
+          600
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "The yellow bubble minimizes the window",
+      "do": [
+        "press",
+        [
+          48,
+          26
+        ]
+      ],
+      "expect": {
+        "window_shown": false
+      },
+      "allow_unchanged": true
+    }
+  ]
+}
