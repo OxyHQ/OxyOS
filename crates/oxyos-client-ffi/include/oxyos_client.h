@@ -1124,6 +1124,27 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
 
+/* Files (crates/oxyos-files, docs/adr/0027-files.mdx): the user's home and the volumes mounted for
+ * them, for an application's OxyOSFiles. Requests are JSON ({"id", "op", ...}, the operations in
+ * oxyos_files::service), run in order on the service's own thread; answers ({"id", "ok", "value"}
+ * or {"id", "ok": false, "error", "message"}) and watched changes ({"changed": WATCH}) are JSON
+ * too, taken from its queue. A service is used by one thread at a time. */
+typedef struct OxyOSFiles OxyOSFiles;
+/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME, $USER's
+ * volumes under /media and /run/media), or NULL. */
+OxyOSFiles* oxyos_files_new(void);
+/* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
+void oxyos_files_free(OxyOSFiles* files);
+/* Readable while answers are queued (for poll/epoll). */
+int oxyos_files_fd(OxyOSFiles* files);
+/* Queues a request (`length` bytes of UTF-8 JSON, not NUL-terminated). 0, or OXYOS_ERROR for text
+ * that is not UTF-8 (nothing is queued). */
+int oxyos_files_request(OxyOSFiles* files, const char* json, size_t length);
+/* Takes the next answer or change without blocking, written into `out` (`capacity` bytes,
+ * NUL-terminated); returns its length, 0 when there is none. A length of `capacity` or more did not
+ * fit: nothing was taken, and a call with that much more room takes it. */
+int64_t oxyos_files_answer(OxyOSFiles* files, char* out, size_t capacity);
+
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
  * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as

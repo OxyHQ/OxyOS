@@ -2241,6 +2241,7 @@ fn declaration(name: &str) -> String {
             "int64_t*" => "*mut i64".into(),
             "uint32_t*" => "*mut u32".into(),
             "int" => "i32".into(),
+            "OxyOSFiles*" => format!("*mut {}", std::any::type_name::<crate::files::OxyOSFiles>()),
             "const OxyOSSolarAnchor*" => format!(
                 "*const {}",
                 std::any::type_name::<crate::solar::OxyOSSolarAnchor>()
@@ -3555,4 +3556,103 @@ fn the_control_center_sends_its_requests() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_header_matches_the_files_abi() {
+    use crate::files::*;
+    type Fd = unsafe extern "C" fn(*mut OxyOSFiles) -> i32;
+    type Send = unsafe extern "C" fn(*mut OxyOSFiles, *const c_char, usize) -> i32;
+    type Take = unsafe extern "C" fn(*mut OxyOSFiles, *mut c_char, usize) -> i64;
+    for (name, rust) in [
+        ("oxyos_files_fd", type_of(oxyos_files_fd as Fd)),
+        ("oxyos_files_request", type_of(oxyos_files_request as Send)),
+        ("oxyos_files_answer", type_of(oxyos_files_answer as Take)),
+    ] {
+        assert_eq!(declaration(name), rust, "{name}");
+    }
+    assert!(HEADER.contains("OxyOSFiles* oxyos_files_new(void);"));
+    assert!(HEADER.contains("void oxyos_files_free(OxyOSFiles* files);"));
+}
+
+/// The file service through the C ABI, for a home the test makes: the only test that sets the
+/// user's directories, which the service reads once, as it starts.
+#[test]
+fn files_are_listed_trashed_and_watched_through_the_c_abi() {
+    use crate::files::*;
+    let home = std::env::temp_dir().join(format!("oxyos-ffi-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(home.join("Documents")).unwrap();
+    std::fs::write(home.join("Documents/notes.txt"), "notes").unwrap();
+    let home = std::fs::canonicalize(&home).unwrap();
+    std::env::set_var("HOME", &home);
+    std::env::set_var("XDG_DATA_HOME", home.join(".local/share"));
+    std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
+    std::env::set_var("USER", "ffi-test");
+    let files = oxyos_files_new();
+    assert!(!files.is_null());
+    // SAFETY: a live service, and requests and buffers that outlive each call.
+    unsafe {
+        let fd = oxyos_files_fd(files);
+        assert!(fd >= 0);
+        let ask = |json: String| {
+            assert_eq!(
+                oxyos_files_request(files, json.as_ptr().cast(), json.len()),
+                0
+            );
+        };
+        // An answer, waited for on the descriptor as the host waits.
+        let take = || -> String {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let mut small = [0 as c_char; 8];
+                let length = oxyos_files_answer(files, small.as_mut_ptr(), small.len());
+                if length > 0 {
+                    // Too long for 8 bytes: kept, and taken with room.
+                    assert!(length >= 8);
+                    let mut room = vec![0 as c_char; usize::try_from(length).unwrap() + 1];
+                    assert_eq!(
+                        oxyos_files_answer(files, room.as_mut_ptr(), room.len()),
+                        length
+                    );
+                    let bytes: Vec<u8> = room[..room.len() - 1].iter().map(|&c| c as u8).collect();
+                    return String::from_utf8(bytes).unwrap();
+                }
+                assert!(std::time::Instant::now() < deadline, "no answer");
+                let mut ready = [rustix::event::PollFd::from_borrowed_fd(
+                    std::os::fd::BorrowedFd::borrow_raw(fd),
+                    rustix::event::PollFlags::IN,
+                )];
+                let wait = rustix::event::Timespec {
+                    tv_sec: 0,
+                    tv_nsec: 50_000_000,
+                };
+                let _ = rustix::event::poll(&mut ready, Some(&wait));
+            }
+        };
+        let documents = home.join("Documents");
+        let documents = documents.to_str().unwrap();
+        ask(format!(r#"{{"id":1,"op":"list","path":{documents:?}}}"#));
+        let listed = take();
+        assert!(listed.starts_with(r#"{"id":1,"ok":true"#), "{listed}");
+        assert!(listed.contains(r#""name":"notes.txt""#), "{listed}");
+        ask(r#"{"id":2,"op":"list","path":"/etc"}"#.to_string());
+        assert!(take().contains(r#""error":"refused""#));
+        ask(format!(r#"{{"id":3,"op":"watch","path":{documents:?}}}"#));
+        let watch = take();
+        assert!(watch.contains(r#""value":1"#), "{watch}");
+        let notes = format!("{documents}/notes.txt");
+        ask(format!(r#"{{"id":4,"op":"trash","paths":[{notes:?}]}}"#));
+        let mut heard = [take(), take()];
+        heard.sort();
+        assert!(heard[0].contains(r#"{"changed":1}"#), "{heard:?}");
+        assert!(heard[1].contains(r#""id":4,"ok":true"#), "{heard:?}");
+        assert!(home.join(".local/share/Trash/files/notes.txt").exists());
+        assert_eq!(
+            oxyos_files_request(files, [0xffu8].as_ptr().cast(), 1),
+            OXYOS_ERROR
+        );
+        oxyos_files_free(files);
+    }
+    std::fs::remove_dir_all(home).unwrap();
 }
