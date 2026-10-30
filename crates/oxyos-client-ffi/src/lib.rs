@@ -23,6 +23,7 @@ use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::Path;
 
 pub mod accounts;
+pub mod application;
 pub mod apps;
 pub mod files;
 pub mod gestures;

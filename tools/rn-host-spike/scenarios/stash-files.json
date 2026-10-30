@@ -1,0 +1,714 @@
+{
+  "about": "Stash (OxyHQ/Stash), OxyOS's file manager, on a home of the run's own (docs/adr/0028-file-access.mdx, the bundle built with STASH_DIR): the person's places in its sidebar and the home's items, selection by a press, Shift and Ctrl, a double press opening a folder, a file another program writes appearing at once, Return renaming in place with the stem selected and the name kept on the disk, New Folder from the File menu's shortcut, Move to Trash into the freedesktop.org Trash with where it was, the Trash's view, a context menu at a secondary press in a popup of its own, and Put Back. Every step checks what the assistive technology holds, the focus and the disk, not only pixels.",
+  "module": "Stash",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
+  },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/report.txt": "r",
+      "Pictures/": "",
+      "notes.txt": "hello",
+      "plan.txt": "p",
+      "todo.txt": "t"
+    },
+    "later": [
+      {
+        "when_shown": "report.txt",
+        "items": {
+          "Documents/arrived.txt": "new"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "The home, first: the sidebar's places (the home selected, Documents, Pictures), its items in order, nothing selected",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "texts": [
+          "Documents",
+          "notes.txt",
+          "Pictures",
+          "plan.txt",
+          "todo.txt",
+          "5 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "home",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "home"
+            },
+            {
+              "role": "List",
+              "name": "home"
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "plan.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": []
+            }
+          ]
+        },
+        "a11y_order": {
+          "window": [
+            "home",
+            "Documents",
+            "Pictures",
+            "Trash",
+            "Documents",
+            "notes.txt",
+            "Pictures",
+            "plan.txt",
+            "todo.txt"
+          ]
+        },
+        "home": {
+          "notes.txt": "hello",
+          "todo.txt": "t",
+          "Documents/report.txt": "r",
+          "trash": []
+        }
+      }
+    },
+    {
+      "name": "A press selects notes.txt alone",
+      "do": [
+        "press",
+        [
+          389,
+          123
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@item-notes.txt": 1,
+          "pointerUp@item-notes.txt": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "plan.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift held",
+      "do": [
+        "key_down",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Shift+press on todo.txt selects from notes.txt to it",
+      "do": [
+        "press",
+        [
+          701,
+          123
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@item-todo.txt": 1,
+          "pointerUp@item-todo.txt": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "plan.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift released",
+      "do": [
+        "key_up",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Ctrl held",
+      "do": [
+        "key_down",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Ctrl+press on Pictures takes it out of the selection, the rest kept",
+      "do": [
+        "press",
+        [
+          493,
+          123
+        ]
+      ],
+      "expect": {
+        "react_presses": {
+          "pointerDown@item-Pictures": 1,
+          "pointerUp@item-Pictures": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "plan.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl released",
+      "do": [
+        "key_up",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A double press opens Documents: the sidebar and the heading follow, its items listed",
+      "do": [
+        "double_press",
+        [
+          285,
+          123
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "report.txt"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Documents",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "home",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "Documents"
+            },
+            {
+              "role": "List",
+              "name": "Documents"
+            },
+            {
+              "role": "ListItem",
+              "name": "report.txt",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A file another program writes into Documents appears at once, nothing pressed",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "arrived.txt",
+          "2 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "arrived.txt",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "report.txt",
+              "state": []
+            }
+          ]
+        },
+        "home": {
+          "Documents/arrived.txt": "new"
+        }
+      }
+    },
+    {
+      "name": "Back (Ctrl+[, the Go menu's shortcut) to the home",
+      "do": [
+        "key",
+        [
+          29,
+          26
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "home"
+            },
+            {
+              "role": "Button",
+              "name": "home",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press selects notes.txt",
+      "do": [
+        "press",
+        [
+          389,
+          123
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return renames it in place: the field has focus, its stem selected, as Finder opens it",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "field": {
+          "text": "notes.txt",
+          "anchor": 0,
+          "cursor": 5
+        },
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Name"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Typing replaces the stem, the extension kept",
+      "do": [
+        "type",
+        "ideas"
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "field": {
+          "text": "ideas.txt",
+          "anchor": 5,
+          "cursor": 5
+        },
+        "home": {
+          "notes.txt": "hello",
+          "ideas.txt": false
+        }
+      }
+    },
+    {
+      "name": "Return keeps the name: on the disk at once, the item selected under it",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": null,
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "ideas.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "role": "TextInput"
+            },
+            {
+              "name": "notes.txt"
+            }
+          ]
+        },
+        "home": {
+          "ideas.txt": "hello",
+          "notes.txt": false
+        }
+      }
+    },
+    {
+      "name": "New Folder (Ctrl+Shift+N, the File menu's): made on the disk, selected, its whole name selected to rename",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          49
+        ]
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "field": {
+          "text": "untitled folder",
+          "anchor": 0,
+          "cursor": 15
+        },
+        "home": {
+          "untitled folder": true
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "untitled folder",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return keeps its name",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": null,
+        "home": {
+          "untitled folder": true
+        }
+      }
+    },
+    {
+      "name": "A press selects todo.txt",
+      "do": [
+        "press",
+        [
+          701,
+          123
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "untitled folder",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Move to Trash (Ctrl+Backspace): it leaves the home for the Trash, with where it was",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "at_absent": {
+          "window": [
+            {
+              "name": "todo.txt"
+            }
+          ]
+        },
+        "home": {
+          "todo.txt": false,
+          "trash": [
+            "todo.txt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The Trash, from the sidebar: what it holds",
+      "do": [
+        "press",
+        [
+          67,
+          393
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Trash",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Heading",
+              "name": "Trash"
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A secondary press on it opens its context menu at the press, in a popup of its own: Put Back, Delete Immediately",
+      "do": [
+        "press_secondary",
+        [
+          285,
+          123
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "react_presses": {
+          "pointerDown@item-todo.txt": 1,
+          "pointerUp@item-todo.txt": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            }
+          ],
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Context menu"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Put Back"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Delete Immediately…"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Put Back: it is in the home again, the Trash empty",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Put Back"
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "texts": [
+          "The Trash is empty"
+        ],
+        "home": {
+          "todo.txt": "t",
+          "trash": []
+        }
+      }
+    }
+  ]
+}

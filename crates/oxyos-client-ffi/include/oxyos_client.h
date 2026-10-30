@@ -1215,6 +1215,34 @@ void oxyos_files_reply_free(OxyOSFilesReply* reply);
  * oxyos_last_error. */
 int oxyos_files_open_read(OxyOSFiles* files, const char* uri, size_t length, uint64_t* size);
 
+/* An application's key-value storage in `directory`, its data directory (crates/oxyos-app-storage,
+ * React Native's AsyncStorage): a request as JSON, {"op": "get"|"remove", "keys": [...]},
+ * {"op": "set"|"merge", "pairs": [[key, value], ...]}, {"op": "keys"} or {"op": "clear"}, answered as
+ * JSON, {"ok": ...} ("get": [[key, value or null], ...]; "keys": the keys; else null) or
+ * {"error": "why"}. Written as oxyos_applications writes: a read asked again with more room reads
+ * again; a change's answer always fits in 4096 bytes. */
+int64_t oxyos_app_storage(const char* directory, const char* request, char* out, size_t capacity);
+
+/* The machine's connectivity as it changes (crates/oxyos-net, NetInfo): the default route's
+ * interface and its type, watched through rtnetlink. */
+typedef struct OxyOSConnectivity OxyOSConnectivity;
+OxyOSConnectivity* oxyos_connectivity_new(void);
+void oxyos_connectivity_free(OxyOSConnectivity* connectivity);
+/* Readable when a link, an address or a route changed; -1 where that cannot be watched. */
+int oxyos_connectivity_fd(OxyOSConnectivity* connectivity);
+/* Takes what the kernel said and reads it again: 1 if it changed, else 0. */
+int oxyos_connectivity_refresh(OxyOSConnectivity* connectivity);
+/* {"type": "none"|"wifi"|"ethernet"|"cellular"|"vpn"|"other", "isConnected", "interface" (or null)},
+ * written as oxyos_applications writes. */
+int64_t oxyos_connectivity_state(OxyOSConnectivity* connectivity, char* out, size_t capacity);
+
+/* `length` bytes from the kernel's CSPRNG (getrandom(2)) into `out`: 0, or OXYOS_ERROR. */
+int oxyos_random_bytes(uint8_t* out, size_t length);
+/* The digest of `length` bytes at `data` with `algorithm` ("SHA-1", "SHA-256", "SHA-384", "SHA-512",
+ * expo-crypto's names) into `out`: its length (larger than `capacity`: nothing written), or
+ * OXYOS_ERROR for an algorithm OxyOS does not provide. */
+int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, uint8_t* out, size_t capacity);
+
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
  * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as

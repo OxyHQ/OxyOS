@@ -7,6 +7,7 @@
 #include "damage.h"
 #include "expo-blur.h"
 #include "files.h"
+#include "keyboard-controller.h"
 #include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
@@ -295,6 +296,21 @@ void stage(const char* name) {
 
 }  // namespace
 
+// What the application's storage and the connectivity answered (application.h), to JavaScript.
+bool deliverApplication(oxyos::HostServices& services) {
+  bool busy = services.storage && services.storage->deliver();
+  if (services.connectivity) busy |= services.connectivity->deliver();
+  return busy;
+}
+
+// Their descriptors, which wake the loop when they have something.
+std::vector<int> applicationFds(const oxyos::HostServices& services) {
+  std::vector<int> fds;
+  if (services.storage) fds.push_back(services.storage->fd());
+  if (services.connectivity && services.connectivity->fd() >= 0) fds.push_back(services.connectivity->fd());
+  return fds;
+}
+
 int main(int argc, char** argv) {
   // A pipe or socket whose reader went away (a paste's receiver, a server) is an error on that
   // write, never a signal that ends the app.
@@ -367,7 +383,7 @@ int main(int argc, char** argv) {
   // application's own folders are its data and cache directories (application.h, ADR 0030), only
   // if the session started it, and its bundle's folder is read-only. Events reach JavaScript as
   // RCTDeviceEventEmitter events from the loop below.
-  const auto application = oxyos::Application::launched();
+  const auto application = oxyos::Application::launched(bundlePath, moduleName);
   std::error_code bundleError;
   auto bundleFile = std::filesystem::canonical(bundlePath, bundleError);
   oxyos::Files files(
@@ -377,6 +393,11 @@ int main(int argc, char** argv) {
       },
       application, bundleError ? std::string() : bundleFile.parent_path().string());
   oxyos::HostServices services{blobs, networking};
+  // The application it runs, as its launcher started it (application.h).
+  services.application = application;
+  services.emit = [&instance](const std::string& event, folly::dynamic body) {
+    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
+  };
   oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
   oxyos::ReanimatedHost reanimated(worklets, [&scheduler] { return scheduler.get(); }, refresh);
@@ -438,6 +459,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCMaskedViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<KeyboardControllerViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSWindowViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
@@ -729,6 +751,12 @@ int main(int argc, char** argv) {
         },
         .hasText = [&window] { return window->clipboardHasText(); },
     };
+    // react-native-keyboard-controller's dismiss: the focused input loses focus, as Android's
+    // clears it.
+    services.blurFocusedInput = [&editing, &tree] {
+      auto focused = tree.views().find(editing.focused());
+      if (focused != tree.views().end()) editing.command(focused->second.view, "blur", folly::dynamic::array());
+    };
     // An announcement is what the application says now: it interrupts what is being said, as
     // an announcement event does TalkBack's queue.
     services.announce = [&window](const std::string& text) {
@@ -980,6 +1008,7 @@ int main(int argc, char** argv) {
         busy |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
         busy |= networking.deliver();
         busy |= files.deliver();
+        busy |= deliverApplication(services);
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
@@ -1440,6 +1469,8 @@ int main(int argc, char** argv) {
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
           // The file service's is -1 until an application asks it something: poll ignores it.
           for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
+          for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
+          for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();
@@ -1460,6 +1491,7 @@ int main(int argc, char** argv) {
               << mounter.transactions << ",\"presented\":" << window->presented()
               << ",\"js_errors\":" << jsErrors << "}\n";
     services.keyboard.listener.reset();
+    services.blurFocusedInput = nullptr;
     window.reset();
     surface.stop();
     scheduler->unregisterSurface(surface);
@@ -1484,6 +1516,7 @@ int main(int argc, char** argv) {
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
     busy |= networking.deliver();
+    busy |= deliverApplication(services);
     if (busy || timers->oneShotDueBefore(deadline)) {
       quietSince = Clock::now();
     } else if (Clock::now() - quietSince > std::chrono::milliseconds(500)) {

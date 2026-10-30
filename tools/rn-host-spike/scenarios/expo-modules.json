@@ -1,0 +1,58 @@
+{
+  "about": "The platform modules an Expo application reaches, through each package's own API (sample/ExpoProbe.tsx, application.h, sample/oxyos/expo-adapter.js): AsyncStorage kept in the application's data directory by its id (a value an earlier run kept is read back; values are written, deep-merged as Android merges them, listed and removed, and the file holds exactly what is left), NetInfo's connectivity from the kernel, expo-crypto's digests (FIPS 180's test vectors for \"abc\") and CSPRNG, expo-secure-store keeping nothing and saying why, expo-haptics without hardware, expo-web-browser with no browser, React Native's Linking and expo-linking with no link and none to open, and expo-constants with no app config of the sample's own. Nothing pretends to succeed and nothing is left pending.",
+  "module": "ExpoProbe",
+  "window": [
+    800,
+    560
+  ],
+  "app": {
+    "id": "so.oxy.expoprobe",
+    "title": "Expo probe"
+  },
+  "app_data": {
+    "so.oxy.expoprobe": {
+      "async-storage.json": {
+        "kept": "from before"
+      }
+    }
+  },
+  "steps": [],
+  "final": {
+    "texts": [
+      "AsyncStorage.getItem(kept): ok \"from before\"",
+      "AsyncStorage.setItem: ok \"now\"",
+      "AsyncStorage.mergeItem: ok {\"name\":\"Ada\",\"prefs\":{\"dark\":true,\"size\":2}}",
+      "AsyncStorage.mergeItem(text): rejected: the value kept for key written is not a JSON object",
+      "AsyncStorage.removeItem: ok [\"user\",\"written\"]",
+      "NetInfo.fetch: ok \"boolean true\"",
+      "Crypto.digestStringAsync(SHA-256): ok \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"",
+      "Crypto.digestStringAsync(SHA-1, base64): ok \"qZk+NkcGgWq6PiVxeFDCbJzQ2J0=\"",
+      "Crypto.digestStringAsync(MD5): rejected: OxyOS does not provide the MD5 digest",
+      "Crypto.digest(SHA-512): ok 64",
+      "Crypto.getRandomBytes: ok \"32 true\"",
+      "Crypto.randomUUID: ok true",
+      "SecureStore.getItemAsync: ok null",
+      "SecureStore.setItemAsync: rejected: OxyOS keeps no secrets for applications",
+      "Haptics.impactAsync: ok",
+      "Linking.getInitialURL: ok null",
+      "Linking.canOpenURL: ok false",
+      "ExpoLinking.getLinkingURL: ok null",
+      "WebBrowser.openBrowserAsync: rejected: OxyOS has no web browser yet",
+      "Constants.expoConfig: ok null",
+      "Constants.executionEnvironment: ok \"bare\""
+    ],
+    "absent": [
+      "pending",
+      "running",
+      "threw"
+    ],
+    "app_data": {
+      "so.oxy.expoprobe": {
+        "async-storage.json": {
+          "user": "{\"name\":\"Ada\",\"prefs\":{\"dark\":true,\"size\":2}}",
+          "written": "now"
+        }
+      }
+    }
+  }
+}

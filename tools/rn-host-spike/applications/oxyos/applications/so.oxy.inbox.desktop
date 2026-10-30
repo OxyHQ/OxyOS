@@ -4,4 +4,4 @@ Type=Application
 Name=Inbox
 Icon=../../../../shell-preview/assets/apps/inbox.png
 X-OxyOS-Bloom-Module=OxyBloom
-X-OxyOS-Pinned=1
+X-OxyOS-Pinned=2

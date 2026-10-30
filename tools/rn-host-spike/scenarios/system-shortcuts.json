@@ -16,11 +16,11 @@
     },
     {
       "name": "Inbox from the dock: its window comes over Allo's, the active one, and the dock marks it running",
-      "do": ["press_output", [680, 693]],
+      "do": ["press_output", [709, 693]],
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1, "leave": 1}},
-        "output_pixels": {"680,716": "#64717a", "738,716": "#64717a", "900,480": "#fff7f9"}
+        "output_pixels": {"709,716": "#64717a", "767,716": "#64717a", "900,480": "#fff7f9"}
       }
     },
     {
@@ -31,7 +31,7 @@
         "react": {},
         "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
         "focus_surface": 1,
-        "output_pixels": {"900,480": "#ffffff", "650,385": "#ffffff", "680,716": "#64717a", "738,716": "#64717a"},
+        "output_pixels": {"900,480": "#ffffff", "650,385": "#ffffff", "709,716": "#64717a", "767,716": "#64717a"},
         "in_shell": {"absent": ["Inbox", "Allo"]}
       }
     },
@@ -98,7 +98,7 @@
         "react": {},
         "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
         "focus_surface": 1,
-        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "680,716": "#64717a"},
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "709,716": "#64717a"},
         "transitions": {"count": 1, "seen": [{"kind": "window", "change": "gone", "ended": true}]}
       }
     },
@@ -109,7 +109,7 @@
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
-        "output_pixels": {"900,480": "#fff7f9", "680,716": "#64717a"},
+        "output_pixels": {"900,480": "#fff7f9", "709,716": "#64717a"},
         "transitions": {"count": 1, "seen": [{"kind": "window", "change": "arrived", "ended": true}]}
       }
     },
@@ -121,7 +121,7 @@
         "react": {},
         "delivered": {"1": {"focus.in": 1}, "launched": {"close.requested": 1}},
         "focus_surface": 1,
-        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "680,716": "#f7f9fc", "738,716": "#64717a"}
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "709,716": "#f7f9fc", "767,716": "#64717a"}
       }
     },
     {
@@ -163,13 +163,13 @@
         "react": {},
         "window_shown": false,
         "delivered": {"1": {"focus.out": 1}},
-        "output_pixels": {"738,716": "#64717a"},
+        "output_pixels": {"767,716": "#64717a"},
         "transitions": {"count": 1, "seen": [{"kind": "window", "change": "minimized", "first": 255, "ended": true}]}
       }
     },
     {
       "name": "Allo in the dock restores it",
-      "do": ["press_output", [738, 693]],
+      "do": ["press_output", [767, 693]],
       "expect": {
         "react": {},
         "window_shown": true,

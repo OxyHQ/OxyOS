@@ -1,8 +1,10 @@
 /**
  * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it,
- * expo-clipboard, expo-notifications, and expo-blur's views). expo-modules-core's own global
- * polyfill provides the module classes; the native work is done by the host's TurboModules
- * (OxyOSFontRegistry, OxyOSClipboard, OxyOSNotifications) and host components (expo-blur.h). Anything OxyOS cannot do fails loudly.
+ * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-linking,
+ * expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, and expo-blur's views). expo-modules-core's own global polyfill provides the
+ * module classes; the native work is done by the host's TurboModules (OxyOSFontRegistry,
+ * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto) and host components
+ * (expo-blur.h). Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
@@ -10,13 +12,162 @@ import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 installExpoGlobalPolyfill();
 
-// Expo's native side makes version 4 UUIDs (expo-notifications names a notification by one); the
-// polyfill's asks the web's crypto, which Hermes has not. Identifiers, not secrets: unique is enough.
-globalThis.expo.uuidv4 = () =>
-  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+// The kernel's CSPRNG and digests (crates/oxyos-client-ffi): expo-crypto's, and Expo's own
+// version 4 UUIDs (expo-notifications names a notification by one), as its native side makes them.
+const crypto = TurboModuleRegistry.getEnforcing('OxyOSCrypto');
+const uuidv4 = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+globalThis.expo.uuidv4 = uuidv4;
+
+// expo-crypto, as its Android module: getRandomValues fills an integer typed array in place,
+// digests are SHA-1, SHA-256, SHA-384 and SHA-512 (MD2, MD4 and MD5 throw, naming the
+// algorithm).
+globalThis.expo.modules.ExpoCrypto = {
+  getRandomValues: (typedArray) => crypto.getRandomValues(typedArray),
+  randomUUID: uuidv4,
+  digestString: (algorithm, data, options) => crypto.digestString(algorithm, String(data), options?.encoding ?? 'hex'),
+  digestStringAsync: async (algorithm, data, options) =>
+    crypto.digestString(algorithm, String(data), options?.encoding ?? 'hex'),
+  digest: (algorithm, output, data) => crypto.digest(algorithm, output, data),
+};
+
+// expo-crypto's AES-GCM (its `aes` module, which the package loads with the rest): not provided on
+// OxyOS yet. Its classes and functions are there so that the rest of expo-crypto loads; making a
+// key or sealed data, encrypting or decrypting fails, naming it.
+const noAes = "expo-crypto's AES is not available on OxyOS yet";
+class EncryptionKey {
+  constructor() {
+    throw new Error(noAes);
+  }
+  static generate = async () => {
+    throw new Error(noAes);
+  };
+  static import = async () => {
+    throw new Error(noAes);
+  };
+}
+class SealedData {
+  constructor() {
+    throw new Error(noAes);
+  }
+  static fromParts = () => {
+    throw new Error(noAes);
+  };
+  static fromCombined = () => {
+    throw new Error(noAes);
+  };
+}
+globalThis.expo.modules.ExpoCryptoAES = {
+  EncryptionKey,
+  SealedData,
+  encryptAsync: async () => {
+    throw new Error(noAes);
+  },
+  decryptAsync: async () => {
+    throw new Error(noAes);
+  },
+};
+
+// expo-constants: the application this process runs (OxyOSApplication), as its Android
+// ConstantsService answers: the public app config its build embedded next to the bundle
+// (`manifest`, null when it has none, as Android without `app.config`), a bare build's execution
+// environment, no status bar, the computer's name and the system's version. Nothing of a
+// platform's own (`platform` names none of Android's or iOS's).
+const application = TurboModuleRegistry.getEnforcing('OxyOSApplication').getConstants();
+globalThis.expo.modules.ExponentConstants = {
+  sessionId: uuidv4(),
+  executionEnvironment: 'bare',
+  statusBarHeight: 0,
+  deviceName: application.deviceName || null,
+  systemFonts: [],
+  systemVersion: application.systemVersion || null,
+  manifest: application.manifest,
+  platform: {},
+  getWebViewUserAgentAsync: async () => null,
+};
+
+// expo-linking, as its Android module (and React Native's Linking, the host's IntentAndroid): an
+// application on OxyOS is started from its registry entry, never by a link, so there is no
+// linking URL and none arrives (`onURLReceived` is never sent).
+const ExpoLinking = new globalThis.expo.EventEmitter();
+Object.assign(ExpoLinking, {
+  getLinkingURL: () => null,
+  clearInitialURL: () => {},
+});
+globalThis.expo.modules.ExpoLinking = ExpoLinking;
+
+// expo-haptics: OxyOS drives no haptic hardware, so feedback resolves without effect, as Expo's
+// own implementation does on a desktop that has none (its web module, with no vibration and no
+// coarse pointer). Android's performHapticsAsync is Android's alone and is not provided.
+globalThis.expo.modules.ExpoHaptics = {
+  impactAsync: async () => {},
+  notificationAsync: async () => {},
+  selectionAsync: async () => {},
+};
+
+// @expo/app-integrity: App Attest and Play Integrity are iOS's and Android's, and the package's own
+// functions say so on any other platform (its web module is empty too); OxyOS cannot yet prove an
+// application's identity to a server. The module is there so that importing the package does not
+// fail before those functions can say it.
+globalThis.expo.modules.ExpoAppIntegrity = {};
+
+// expo-web-browser: OxyOS has no web browser yet, so opening a page or an authentication session
+// rejects with that reason (the Oxy SDK's sign-in then tries Linking.openURL, which rejects too).
+// With nothing open, dismissing leaves nothing open.
+const noBrowser = async () => {
+  throw new Error('OxyOS has no web browser yet');
+};
+globalThis.expo.modules.ExpoWebBrowser = {
+  openBrowserAsync: noBrowser,
+  openAuthSessionAsync: noBrowser,
+  warmUpAsync: noBrowser,
+  mayInitWithUrlAsync: noBrowser,
+  coolDownAsync: noBrowser,
+  getCustomTabsSupportingBrowsersAsync: noBrowser,
+  dismissBrowser: async () => ({ type: 'dismiss' }),
+  dismissAuthSession: () => {},
+};
+
+// expo-secure-store: OxyOS keeps no secrets for an application. The machine's Oxy account is the
+// platform's (docs/adr/0020-oxy-account-login.mdx, decision 6): an application never holds the
+// device credential and is to get its session from the platform, which is not available yet. So
+// nothing is ever kept: a read finds nothing, a delete leaves nothing, and keeping a value fails
+// with the reason. The module is there, rather than missing, so that what an application keeps
+// in it never falls back to plain storage (the Oxy SDK's own fallback, AsyncStorage) instead.
+const noSecrets =
+  'OxyOS keeps no secrets for applications: the Oxy account is the platform\'s (ADR 0020), and its session for applications is not available yet';
+let toldNoSecrets = false;
+const nothingKept = () => {
+  if (!toldNoSecrets) {
+    toldNoSecrets = true;
+    console.warn(`expo-secure-store: ${noSecrets}. Nothing is kept: the Oxy SDK starts signed out.`);
+  }
+  return null;
+};
+globalThis.expo.modules.ExpoSecureStore = {
+  AFTER_FIRST_UNLOCK: 0,
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1,
+  ALWAYS: 2,
+  WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: 3,
+  ALWAYS_THIS_DEVICE_ONLY: 4,
+  WHEN_UNLOCKED: 5,
+  WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
+  getValueWithKeyAsync: async () => nothingKept(),
+  getValueWithKeySync: () => nothingKept(),
+  deleteValueWithKeyAsync: async () => {},
+  setValueWithKeyAsync: async () => {
+    throw new Error(noSecrets);
+  },
+  setValueWithKeySync: () => {
+    throw new Error(noSecrets);
+  },
+  canUseBiometricAuthentication: () => false,
+};
 
 const fonts = TurboModuleRegistry.getEnforcing('OxyOSFontRegistry');
 const loaded = new Set();

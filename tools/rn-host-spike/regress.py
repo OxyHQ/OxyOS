@@ -143,6 +143,11 @@ exists (true) or not (false), a file's text, and `trash` the names in the home's
 `files/`), each with a `.trashinfo` naming where it was. A scenario's `locale` sets `LANG` and
 `LC_ALL` for the run, and its `tz` the time zone (`TZ`).
 
+What applications keep (their data and cache directories by id, application.h) is under the run's
+own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
+application's data directory before it starts; the `final` `app_data` expectation checks each such
+file holds that JSON once the run ended.
+
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
 
@@ -1171,6 +1176,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for key, value in expect["preferences_file"].items():
             if kept.get(key) != value:
                 fail(f"preferences file: {key} = {kept.get(key)!r}, expected {value!r}")
+    for app, files in expect.get("app_data", {}).items():
+        # What the application kept, as JSON, once the run ended.
+        for name, content in files.items():
+            run = preferences.parent
+            data_home = run / "home" / ".local/share" if (run / "home").is_dir() else run / "xdg-data"
+            path = data_home / "oxyos" / "apps" / app / name
+            kept = json.loads(path.read_text()) if path.exists() else None
+            if kept != content:
+                fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
@@ -1345,11 +1359,16 @@ def main():
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
     env = dict(os.environ, OXYOS_HOST_REPORT=str(report_path), OXYOS_SCRIPT_URL=f"file://{bundle}")
+    # What applications keep (their data and cache directories, application.h) is the run's own,
+    # never the user's; a scenario's `app_data` is there before the application starts.
+    for kept in ("xdg-data", "xdg-cache"):
+        shutil.rmtree(out / kept, ignore_errors=True)
+    env["XDG_DATA_HOME"] = str(out / "xdg-data")
+    env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's.
         env["XDG_DATA_DIRS"] = str(pathlib.Path(__file__).resolve().parent / "applications")
-        env["XDG_DATA_HOME"] = str(out / "xdg-data")
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
@@ -1389,6 +1408,12 @@ def main():
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(home_root / ".cache")
+    # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
+    for app, files in scenario.get("app_data", {}).items():
+        directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
+        directory.mkdir(parents=True, exist_ok=True)
+        for name, content in files.items():
+            (directory / name).write_text(json.dumps(content))
     if "locale" in scenario:
         env["LANG"] = env["LC_ALL"] = scenario["locale"]
     if "tz" in scenario:
