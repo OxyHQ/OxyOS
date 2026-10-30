@@ -194,7 +194,9 @@ typedef struct OxyOSClient OxyOSClient;
  *   POPUP_DONE  detail: dismiss reason.
  *   POINTER     serial; x, y: surface-local position in 1/256 logical pixels; detail: pointer
  *               kind; code: button (Linux input code, 272 = left).
- *   KEY         serial; code: key (Linux input code); flag: pressed.
+ *   KEY         serial; code: key (Linux input code); flag: pressed; text: with key text
+ *               (oxyos_client_set_key_text), what the session's layout typed with it, NUL-terminated
+ *               (empty for a modifier, an editing key, a control character or a dead key).
  *   FOCUS       flag: focused.
  *   TOUCH       serial; x, y as POINTER; detail: touch kind; code: touch id.
  *   FEEDBACK    serial: frame sequence; detail: outcome.
@@ -706,6 +708,26 @@ int oxyos_client_show_windows(OxyOSClient* client, uint32_t surface, const OxyOS
 int64_t oxyos_client_present_damaged(OxyOSClient* client, uint32_t surface, uint64_t configure, uint32_t width,
                                    uint32_t height, uint32_t format, const uint8_t* pixels, size_t length,
                                    const OxyOSRect* damage, size_t count);
+
+/* Each key's text comes with the key, in KEY's `text`, and is never sent again as TEXT or in a
+ * text input transaction; text no key typed (an input method's) still comes as TEXT or a
+ * transaction (docs/adr/0029-chromium-on-oxyos.mdx). 0, or OXYOS_ERROR. */
+int oxyos_client_set_key_text(OxyOSClient* client, bool enabled);
+
+/* Buffers the caller owns, drawn in place by a renderer that may live in another process (a
+ * browser's GPU process), presented with no copy (docs/adr/0029-chromium-on-oxyos.mdx).
+ * attach_buffer: `fd`, a regular file sealed against shrinking (a memfd) holding `height` rows of
+ * `stride` bytes from `offset`, becomes a buffer of `width` x `height` pixels in `format`; returns
+ * its id (above 0), or -1. The caller keeps `fd`. submit_buffer: shows it on `surface` in answer
+ * to the configure `configure`, of which only `count` rectangles at `damage` changed (0:
+ * everything); returns the frame's sequence number, which its FEEDBACK names, or -1. The
+ * compositor reads the buffer until a RELEASED event names it; the caller does not draw into it
+ * before then. detach_buffer: the buffer is no longer used; 0, or OXYOS_ERROR. */
+int64_t oxyos_client_attach_buffer(OxyOSClient* client, int fd, uint32_t format, uint32_t width, uint32_t height,
+                                   uint32_t stride, uint32_t offset);
+int64_t oxyos_client_submit_buffer(OxyOSClient* client, uint32_t surface, uint64_t buffer, uint64_t configure,
+                                   const OxyOSRect* damage, size_t count);
+int oxyos_client_detach_buffer(OxyOSClient* client, uint64_t buffer);
 
 /* Takes one queued event without blocking. */
 int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);

@@ -7117,3 +7117,93 @@ fn the_shell_is_told_each_windows_size() {
         .iter()
         .all(|event| !matches!(event, Event::WindowSize { .. })));
 }
+
+/// What a client asking for key text (ADR 0029) receives as keys are typed: each key with its
+/// text, and the text never again on its own.
+#[test]
+fn key_text_comes_with_the_key_and_never_again_as_text() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    h.scene.keyboard(KEY_A, false, None);
+    let plain = to(&logged(&mut h), APP);
+    assert!(
+        matches!(
+            plain.as_slice(),
+            [
+                Event::Key {
+                    key: KEY_A,
+                    pressed: true,
+                    ..
+                },
+                Event::Text { .. },
+                Event::Key { pressed: false, .. }
+            ]
+        ),
+        "without key text, the key and then its text: {plain:?}"
+    );
+
+    h.request(APP, Request::SetKeyText { enabled: true })
+        .unwrap();
+    h.scene.keyboard(KEY_A, true, Some("é"));
+    h.scene.keyboard(KEY_A, false, None);
+    h.scene.text("composed");
+    let typed = to(&logged(&mut h), APP);
+    let Event::KeyText {
+        serial,
+        key: KEY_A,
+        pressed: true,
+        text,
+        ..
+    } = typed[0]
+    else {
+        panic!("expected the key with its text, got {typed:?}");
+    };
+    assert_eq!(text.as_str(), "é");
+    assert!(matches!(
+        typed[1],
+        Event::KeyText { pressed: false, text, .. } if text.as_str().is_empty()
+    ));
+    assert!(
+        matches!(&typed[2..], [Event::Text { text, .. }] if text.as_str() == "composed"),
+        "text no key typed still comes as Text: {typed:?}"
+    );
+    // A key with its text authorizes as a key press does.
+    assert!(h.scene.recent_input(APP, serial));
+
+    h.request(APP, Request::SetKeyText { enabled: false })
+        .unwrap();
+    h.scene.keyboard(KEY_B, true, Some("b"));
+    assert!(matches!(
+        to(&logged(&mut h), APP).as_slice(),
+        [Event::Key { key: KEY_B, .. }, Event::Text { .. }]
+    ));
+}
+
+#[test]
+fn a_key_the_input_method_gives_back_carries_its_text_with_key_text() {
+    let (mut h, _) = served("");
+    h.request(APP, Request::SetKeyText { enabled: true })
+        .unwrap();
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let a = held(&logged(&mut h));
+    h.request(
+        IME,
+        Request::InputMethodKeyHandled {
+            serial: a,
+            used: false,
+        },
+    )
+    .unwrap();
+    let delivered = to(&logged(&mut h), APP);
+    assert!(
+        matches!(
+            delivered.as_slice(),
+            [Event::KeyText { serial, key: KEY_A, pressed: true, text, .. }]
+                if *serial == a && text.as_str() == "a"
+        ),
+        "the key with its text, and no transaction committing it again: {delivered:?}"
+    );
+}

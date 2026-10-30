@@ -3195,6 +3195,9 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         ),
         Event::Key {
             surface, pressed, ..
+        }
+        | Event::KeyText {
+            surface, pressed, ..
         } => (surface, if pressed { "key.press" } else { "key.release" }),
         Event::Text { surface, .. } => (surface, "text"),
         Event::Preedit { surface, .. } => (surface, "preedit"),

@@ -16,8 +16,8 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
-    PointerKind, PointerShape, Positioner, PreeditStyle, Rect, Request, ShellKind, Size, TextChunk,
-    TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ShellKind,
+    Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -349,6 +349,8 @@ pub struct Stats {
 #[derive(Debug, Default)]
 pub struct Scene {
     clients: BTreeMap<ClientId, Grants>,
+    /// Clients that take each key's text with the key (SetKeyText, ADR 0029).
+    key_text: BTreeSet<ClientId>,
     nodes: BTreeMap<SurfaceKey, Node>,
     /// Root surfaces, bottom to top; kept sorted by layer.
     roots: Vec<SurfaceKey>,
@@ -1020,6 +1022,7 @@ impl Scene {
         self.forget_preference_changes(client);
         self.forget_display_client(client);
         self.forget_notification_client(client);
+        self.key_text.remove(&client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
         self.inputs.remove(&client);
@@ -1362,6 +1365,14 @@ impl Scene {
             ),
             Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
             Request::Minimize { surface } => self.minimize_request(key(surface)),
+            Request::SetKeyText { enabled } => {
+                if enabled {
+                    self.key_text.insert(client);
+                } else {
+                    self.key_text.remove(&client);
+                }
+                Ok(())
+            }
             Request::MenusBegin {
                 surface,
                 serial,
@@ -3384,21 +3395,73 @@ impl Scene {
         if pressed {
             self.last_user_serial = serial;
         }
-        let Some(target) = self.focus.filter(|f| self.visible(*f)) else {
-            return;
+        if let Some(target) = self.focus.filter(|f| self.visible(*f)) {
+            self.emit_key(target, serial, key, pressed, None);
+        }
+    }
+
+    /// A key and what it typed, for the focused surface: the key, then its text as Text (or a
+    /// text input transaction), or both in one KeyText for a client that asked for key text
+    /// (ADR 0029).
+    pub(super) fn surface_key_typed(&mut self, key: u32, pressed: bool, text: Option<&str>) {
+        let serial = self.next_serial();
+        if pressed {
+            self.last_user_serial = serial;
+        }
+        let left = match self.focus.filter(|f| self.visible(*f)) {
+            Some(target) => self.emit_key(target, serial, key, pressed, text),
+            None => text,
         };
+        if let Some(text) = left {
+            self.text(text);
+        }
+    }
+
+    /// Sends a key with `serial` to `target`. Returns the text still to send: none when it went
+    /// with the key in a KeyText; a text longer than one chunk goes as before.
+    pub(super) fn emit_key<'t>(
+        &mut self,
+        target: SurfaceKey,
+        serial: u64,
+        key: u32,
+        pressed: bool,
+        text: Option<&'t str>,
+    ) -> Option<&'t str> {
         if pressed {
             self.record_press(serial, target, false);
         }
-        self.emit(
-            target.client,
-            Event::Key {
-                surface: target.id,
-                serial,
-                key,
-                pressed,
-            },
-        );
+        let carried = self
+            .key_text
+            .contains(&target.client)
+            .then(|| PreeditText::new(text.unwrap_or("")))
+            .flatten();
+        match carried {
+            Some(text) => {
+                self.emit(
+                    target.client,
+                    Event::KeyText {
+                        surface: target.id,
+                        serial,
+                        key,
+                        pressed,
+                        text,
+                    },
+                );
+                None
+            }
+            None => {
+                self.emit(
+                    target.client,
+                    Event::Key {
+                        surface: target.id,
+                        serial,
+                        key,
+                        pressed,
+                    },
+                );
+                text
+            }
+        }
     }
 
     fn touch_event(

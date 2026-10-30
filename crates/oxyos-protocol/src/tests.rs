@@ -358,6 +358,7 @@ fn requests() -> Vec<Request> {
             serial: 10,
             keep: true,
         },
+        Request::SetKeyText { enabled: true },
     ]
 }
 
@@ -610,6 +611,13 @@ fn events() -> Vec<Event> {
             key: 30,
             pressed: true,
             text: PreeditText::new("a").unwrap(),
+        },
+        Event::KeyText {
+            surface: 1,
+            serial: 21,
+            key: 30,
+            pressed: true,
+            text: PreeditText::new("é").unwrap(),
         },
         Event::WindowState {
             window: 7,

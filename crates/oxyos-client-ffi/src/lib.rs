@@ -565,6 +565,24 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::KeyText {
+            surface,
+            serial,
+            key,
+            pressed,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_KEY,
+                surface,
+                serial,
+                code: key,
+                flag: pressed.into(),
+                ..out
+            }
+        }
         Event::Focus { surface, focused } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_FOCUS,
@@ -2712,6 +2730,150 @@ pub unsafe extern "C" fn oxyos_client_present_damaged(
             -1
         }
     }
+}
+
+/// The connection takes each key's text with the key (docs/adr/0029-chromium-on-oxyos.mdx): a
+/// KEY event then carries what the session's layout typed with it in `text`, and that text is
+/// never sent again as TEXT or in a text input transaction. 0, or OXYOS_ERROR.
+///
+/// # Safety
+/// `client` is null or came from [`oxyos_client_connect`] and is not used by another thread.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_key_text(
+    client: *mut OxyOSClient,
+    enabled: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return OXYOS_ERROR;
+    };
+    status(client.send(&Request::SetKeyText { enabled }))
+}
+
+/// The rectangles a caller passed (none when `count` is 0), as the protocol's.
+///
+/// # Safety
+/// `damage` points to `count` readable `OxyOSRect`s (any pointer when `count` is 0).
+#[allow(unsafe_code)]
+unsafe fn rects(damage: *const OxyOSRect, count: usize) -> Vec<Rect> {
+    if count == 0 {
+        return Vec::new();
+    }
+    // SAFETY: the caller guarantees `count` readable rectangles at `damage`.
+    unsafe { std::slice::from_raw_parts(damage, count) }
+        .iter()
+        .map(|rect| Rect::new(rect.x, rect.y, rect.width, rect.height))
+        .collect()
+}
+
+/// Makes shared memory the caller owns a buffer of the connection: `fd` (a regular file sealed
+/// against shrinking, as a memfd, holding `height` rows of `stride` bytes from `offset`) in
+/// `format`, of `width` × `height` pixels. Returns the buffer's id (above 0), or -1. The caller
+/// keeps `fd` and draws into it; the compositor reads it from each
+/// [`oxyos_client_submit_buffer`] naming it until a RELEASED event names it.
+///
+/// # Safety
+/// `client` is null or came from [`oxyos_client_connect`] and is not used by another thread;
+/// `fd` is an open descriptor for the duration of the call.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_attach_buffer(
+    client: *mut OxyOSClient,
+    fd: c_int,
+    format: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    offset: u32,
+) -> i64 {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return -1;
+    };
+    let Some(format) = Format::from_raw(format) else {
+        fail("unknown pixel format");
+        return -1;
+    };
+    if fd < 0 {
+        fail("no descriptor");
+        return -1;
+    }
+    // SAFETY: the caller guarantees `fd` is open for the duration of the call.
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+    let layout = oxyos_protocol::BufferLayout {
+        format,
+        extent: Size::new(width, height),
+        stride,
+        offset,
+    };
+    match client.attach_buffer(fd, layout) {
+        Ok(buffer) => i64::try_from(buffer).unwrap_or(-1),
+        Err(error) => {
+            fail(error);
+            -1
+        }
+    }
+}
+
+/// Submits a buffer from [`oxyos_client_attach_buffer`] for `surface` in answer to the configure
+/// with serial `configure`, of which only `count` rectangles at `damage` changed since the
+/// surface's previous frame (none: everything). Returns the frame's sequence number, which its
+/// FEEDBACK names, or -1.
+///
+/// # Safety
+/// As [`oxyos_client_attach_buffer`]; `damage` points to `count` readable `OxyOSRect`s (any
+/// pointer when `count` is 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_submit_buffer(
+    client: *mut OxyOSClient,
+    surface: u32,
+    buffer: u64,
+    configure: u64,
+    damage: *const OxyOSRect,
+    count: usize,
+) -> i64 {
+    if count > 0 && damage.is_null() {
+        fail("null damage");
+        return -1;
+    }
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return -1;
+    };
+    // SAFETY: forwarded caller contract.
+    let damage = unsafe { rects(damage, count) };
+    let damage = (!damage.is_empty()).then_some(damage.as_slice());
+    match client.submit_buffer(surface, buffer, configure, damage) {
+        Ok(sequence) => i64::try_from(sequence).unwrap_or(-1),
+        Err(error) => {
+            fail(error);
+            -1
+        }
+    }
+}
+
+/// Ends a buffer from [`oxyos_client_attach_buffer`]; the compositor forgets it once nothing of
+/// it is shown. 0, or OXYOS_ERROR.
+///
+/// # Safety
+/// As [`oxyos_client_attach_buffer`].
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_detach_buffer(
+    client: *mut OxyOSClient,
+    buffer: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        fail("null client");
+        return OXYOS_ERROR;
+    };
+    status(client.detach_buffer(buffer))
 }
 
 /// Takes one queued event without blocking: `OXYOS_POLL_EVENT` with `*out` filled,
