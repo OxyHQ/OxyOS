@@ -28,6 +28,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
+  frames composed while a transition ran; "seen", the transitions it must have run, each matched
+  by a distinct one having every key given ("kind": window, popup, overlay, panel, lock;
+  "arriving"; "first" and "last", the opacities of the first and last frames drawn; "ended");
+  "count", how many it ran, exactly;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -494,6 +499,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             got = [[f["width"], f["height"]] for s, f in frames.items() if (s == 1) == (role == "window")]
             if got != [size]:
                 fail(f"{role} frames are {got} px, expected [{size}]")
+    if "transitions" in expect:
+        ran = result.get("transitions") or {"frames": 0, "seen": []}
+        wanted = expect["transitions"]
+        if ran["frames"] < wanted.get("frames_min", 0):
+            fail(f"{ran['frames']} frames composed in transitions, expected at least {wanted['frames_min']}")
+        if "count" in wanted and len(ran["seen"]) != wanted["count"]:
+            fail(f"{len(ran['seen'])} transitions ran, expected {wanted['count']}: {ran['seen']}")
+        left = list(ran["seen"])
+        for transition in wanted.get("seen", []):
+            match = next((t for t in left if all(t.get(k) == v for k, v in transition.items())), None)
+            if match is None:
+                fail(f"no transition {transition} among {ran['seen']}")
+            else:
+                left.remove(match)
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:

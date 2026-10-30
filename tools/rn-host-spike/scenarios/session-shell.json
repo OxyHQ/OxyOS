@@ -68,7 +68,19 @@
           "1100,400": "#3653b7",
           "640,140": "#2c4cb7"
         },
-        "react": {}
+        "react": {},
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "overlay",
+              "arriving": true,
+              "first": 0,
+              "ended": true
+            }
+          ],
+          "count": 1
+        }
       }
     },
     {
@@ -112,7 +124,19 @@
         "output_pixels": {
           "640,106": "#4378ff"
         },
-        "react": {}
+        "react": {},
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "overlay",
+              "arriving": false,
+              "first": 255,
+              "ended": true
+            }
+          ],
+          "count": 1
+        }
       }
     },
     {
@@ -201,7 +225,19 @@
         "output_pixels": {
           "300,120": "#4679fd"
         },
-        "react": {}
+        "react": {},
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "popup",
+              "arriving": false,
+              "first": 255,
+              "ended": true
+            }
+          ],
+          "count": 1
+        }
       }
     },
     {

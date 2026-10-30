@@ -111,6 +111,7 @@
       "name": "choose Archive in the menu",
       "do": ["press-popup", [60, 110]],
       "expect": {
+        "transitions": {"frames_min": 3, "count": 1, "seen": [{"kind": "popup", "arriving": false, "first": 255, "ended": true}]},
         "popups": 0,
         "focus_surface": 1,
         "texts": ["Chosen: Archive"],
