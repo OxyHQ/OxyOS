@@ -1805,6 +1805,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-paint"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "naga",
+ "oxyos-client",
+ "oxyos-protocol",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-platform-probe"
 version = "0.1.0"
 dependencies = [
