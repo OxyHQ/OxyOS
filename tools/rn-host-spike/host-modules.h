@@ -196,6 +196,17 @@ struct KeyboardService {
   std::shared_ptr<jsi::Function> listener;
 };
 
+// Installing applications (docs/adr/0030-installing-applications.mdx): a request of the session's
+// vocabulary (its serial, 0 if it was not sent), the shell's answer to a sheet, a capability asked
+// at first use (its serial), what this launch may use, and whether it may use a capability now.
+struct SystemService {
+  std::function<uint32_t(const std::string& text)> request;
+  std::function<void(uint32_t sheet, bool accepted)> answerSheet;
+  std::function<uint32_t(const std::string& capability)> requestCapability;
+  std::function<folly::dynamic()> launch;
+  std::function<bool(const std::string& capability)> allows;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
@@ -210,6 +221,7 @@ struct HostServices {
   WindowService window{};
   SettingsService settings{};
   NotificationsService notifications{};
+  SystemService system{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
   // The user's files (files.h, docs/adr/0028-file-access.mdx): set for an application's window,

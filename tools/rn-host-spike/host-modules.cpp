@@ -638,6 +638,37 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value::undefined();
     });
     module->listeners();
+  } else if (name == "OxyOSSystem") {
+    // Installing applications (sample/oxyos/system.js, docs/adr/0030-installing-applications.mdx):
+    // a request of the session's vocabulary, answered by `OxyOSSystemAnswer`s naming its serial
+    // (0: the update state, unasked); the shell's answer to a sheet (`OxyOSSheet`,
+    // `OxyOSSheetDismissed`); a capability asked at first use, answered by
+    // `OxyOSCapabilityResult`; and what this launch may use. Requests cite the latest press.
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.system.request) throw jsi::JSError(rt, "OxyOSSystem: no connection to the session");
+    };
+    module->method("request", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSystem.request: the request's JSON");
+      return jsi::Value(static_cast<double>(services.system.request(args[0].asString(rt).utf8(rt))));
+    });
+    module->method("answerSheet", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+        throw jsi::JSError(rt, "OxyOSSystem.answerSheet: a sheet and whether it is accepted");
+      }
+      services.system.answerSheet(static_cast<uint32_t>(args[0].asNumber()), args[1].getBool());
+      return jsi::Value::undefined();
+    });
+    module->method("requestCapability", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSystem.requestCapability: a capability");
+      return jsi::Value(static_cast<double>(services.system.requestCapability(args[0].asString(rt).utf8(rt))));
+    });
+    module->method("getLaunch", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return services.system.launch ? jsi::valueFromDynamic(rt, services.system.launch()) : jsi::Value::null();
+    });
+    module->listeners();
   } else if (name == "OxyOSNotifications") {
     // An application's notifications, behind expo-notifications (sample/oxyos/expo-adapter.js,
     // docs/adr/0026-notifications.mdx): posting, withdrawing, and the responses the session gave.
@@ -651,6 +682,8 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 2 || !args[0].isNumber() || !args[1].isObject()) {
         throw jsi::JSError(rt, "OxyOSNotifications.post: a serial and the notification");
       }
+      // An installed version posts only once its account granted it (ADR 0030, decision 8).
+      if (services.system.allows && !services.system.allows("notifications")) return jsi::Value(false);
       return jsi::Value(services.notifications.post(static_cast<uint32_t>(args[0].asNumber()),
                                                     jsi::dynamicFromValue(rt, args[1])));
     });

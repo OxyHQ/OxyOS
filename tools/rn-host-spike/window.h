@@ -117,6 +117,11 @@ class Window {
   // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
   // answers. False if it could not be sent.
   bool setPreference(uint32_t serial, const std::string& key, const std::string& value);
+  // Installing applications (docs/adr/0030-installing-applications.mdx): a request of the
+  // session's vocabulary citing `input`, the shell's answer to a sheet, a capability asked.
+  bool systemRequest(uint32_t serial, uint64_t input, const std::string& text);
+  void sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial);
+  bool requestCapability(uint32_t serial, uint64_t input, uint8_t capability);
   // The session's displays (docs/adr/0018-several-displays.mdx), told to Settings alone: each as
   // the session last told it, by its output (its name, modes, scale choices from the most space to
   // the largest text, the one its density recommends, its rectangle in the global space, scale,
