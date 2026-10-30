@@ -28,5 +28,11 @@
     "repository": "OxyHQ/Astro",
     "path": "apps/browser/assets/app-icon.png",
     "revision": "5a6bf7d71c11b92b0e18ed8bee6a5211b2100a74"
+  },
+  "oxyos": {
+    "description": "Drawn in this repository for OxyOS's own applications.",
+    "files": [
+      "settings.svg"
+    ]
   }
 }
