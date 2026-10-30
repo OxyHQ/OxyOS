@@ -1,4 +1,6 @@
 import './oxyos/expo-adapter';
+// expo-file-system's native module, once the adapter installed Expo's globals.
+import './oxyos/expo-file-system';
 import './global.css';
 import { AppRegistry } from 'react-native';
 import App from './App';

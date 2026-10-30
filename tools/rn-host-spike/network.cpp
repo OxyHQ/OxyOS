@@ -99,6 +99,13 @@ void Networking::send(Request request) {
   }
   // Only a text body is answered as it arrives, as on Android.
   bool incremental = request.incremental && request.responseType == "text";
+  std::vector<OxyOSNetPart> parts;
+  for (const auto& part : request.parts) {
+    parts.push_back({.bytes = reinterpret_cast<const uint8_t*>(part.bytes.data()),
+                     .length = part.fd >= 0 ? part.length : part.bytes.size(),
+                     .fd = part.fd,
+                     .offset = 0});
+  }
   OxyOSNetRequest native{
       .id = request.id,
       .method = request.method.data(),
@@ -113,6 +120,10 @@ void Networking::send(Request request) {
       .has_body = request.hasBody,
       .with_credentials = request.withCredentials,
       .incremental = incremental,
+      // What was sent of a body is told as it goes, as Android's ProgressRequestBody tells it.
+      .upload_progress = request.hasBody,
+      .parts = parts.data(),
+      .part_count = parts.size(),
   };
   if (oxyos_net_send(net_, &native) != 0) return reject(request.id, oxyos_last_error());
   live_[request.id] = Live{.responseType = request.responseType, .incremental = incremental};
@@ -149,6 +160,9 @@ bool Networking::deliver() {
     folly::dynamic id = answer.id;
     std::string bytes = view(reinterpret_cast<const char*>(answer.bytes), answer.length);
     switch (answer.kind) {
+      case OXYOS_NET_SENT:
+        emit_("didSendNetworkData", folly::dynamic::array(id, static_cast<int64_t>(answer.progress), answer.total));
+        break;
       case OXYOS_NET_RESPONSE: {
         folly::dynamic headers = folly::dynamic::object;
         for (size_t i = 0; i < answer.header_count; ++i) {

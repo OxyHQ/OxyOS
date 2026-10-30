@@ -844,6 +844,12 @@ fn the_service_answers_at_once_or_in_order_with_bytes_beside() {
     place.dir("home/ada/Documents");
     let service = Service::new(scope).expect("service");
 
+    let (media, _) = call(
+        &service,
+        json!({"op": "mimeType", "uri": "file:///a/b%20c.PDF"}),
+        &[],
+    );
+    assert_eq!(media["value"], "application/pdf");
     let (paths, _) = call(&service, json!({"op": "paths"}), &[]);
     assert_eq!(paths["value"]["documentDirectory"], d(&documents));
     let notes = u(&documents.join("notes.txt"));

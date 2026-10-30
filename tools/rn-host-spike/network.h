@@ -4,9 +4,11 @@
 //
 // The requests themselves are Rust's (crates/oxyos-net, through oxyos_client.h): TLS, redirects,
 // compression, a cookie jar for the process, timeouts, each request on a thread of its own. This
-// side turns what they answer into React Native's events on the JavaScript thread (`deliver`).
-// What OxyOS does not support yet fails the request with a message, never silently: file uploads
-// in multipart bodies.
+// side turns what they answer into React Native's events on the JavaScript thread (`deliver`),
+// what was sent of a body as it goes included (`didSendNetworkData`, as Android sends it). A body
+// may hold files (a multipart form's file parts, a body from a file URI): each is opened through
+// the file service's scope (files.h) and read as it is sent, never wholly in memory. What OxyOS
+// does not support yet fails the request with a message, never silently.
 #pragma once
 
 #include "oxyos_client.h"
@@ -52,11 +54,21 @@ class Networking {
   Networking(const Networking&) = delete;
   Networking& operator=(const Networking&) = delete;
 
+  // A part of a body: bytes, or (`fd` not -1) `length` bytes of an open file, the network's once
+  // sent.
+  struct Part {
+    std::string bytes;
+    int fd = -1;
+    uint64_t length = 0;
+  };
+
   struct Request {
     int64_t id = 0;
     std::string method, url;
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
+    // A body of parts instead of `body` (one with files).
+    std::vector<Part> parts;
     bool hasBody = false;
     std::string responseType;  // "text", "base64" or "blob"
     bool incremental = false;

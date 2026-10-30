@@ -3,6 +3,7 @@
  * expo-clipboard, expo-notifications, and expo-blur's views). expo-modules-core's own global
  * polyfill provides the module classes; the native work is done by the host's TurboModules
  * (OxyOSFontRegistry, OxyOSClipboard, OxyOSNotifications) and host components (expo-blur.h). Anything OxyOS cannot do fails loudly.
+ * expo-file-system's module is expo-file-system.js, installed after this.
  */
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';

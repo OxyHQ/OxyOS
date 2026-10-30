@@ -1,5 +1,6 @@
 #include "host-modules.h"
 
+#include "files.h"
 #include "images.h"
 #include "text.h"
 
@@ -20,6 +21,7 @@
 #include <random>
 #include <set>
 #include <tuple>
+#include <unistd.h>
 
 using namespace facebook;
 using namespace facebook::react;
@@ -123,12 +125,37 @@ std::optional<std::string> blobBytes(const BlobStore& blobs, const folly::dynami
 }
 
 // A request's body from React Native's description of it (convertRequestBody), or the reason it
-// cannot be sent. Multipart parts that are files are not supported on OxyOS yet.
+// cannot be sent. A multipart part that is a file (`{uri, type, name}`, as React Native's FormData
+// gives one) and a body from a URI are read from the file as they are sent, opened through the file
+// service's scope (`files`, an application's window only); a `data:` URI's base64 is its bytes.
 struct Body {
   bool present = false;
   std::string bytes;
+  // A body with files: its parts (`bytes` unused).
+  std::vector<Networking::Part> parts;
   std::string contentType;  // set for multipart bodies
   std::string error;
+
+  Body() = default;
+  Body(const Body&) = delete;
+  Body& operator=(const Body&) = delete;
+  Body(Body&& other) noexcept { *this = std::move(other); }
+  Body& operator=(Body&& other) noexcept {
+    present = other.present;
+    bytes = std::move(other.bytes);
+    parts = std::exchange(other.parts, {});
+    contentType = std::move(other.contentType);
+    error = std::move(other.error);
+    return *this;
+  }
+  // Files opened for a body never sent are closed.
+  ~Body() {
+    for (const auto& part : parts) {
+      if (part.fd >= 0) ::close(part.fd);
+    }
+  }
+  // The parts, handed to the network, which owns their files from then.
+  std::vector<Networking::Part> release() { return std::exchange(parts, {}); }
 };
 
 // A multipart boundary no part is likely to contain: random, as OkHttp's.
@@ -140,7 +167,37 @@ std::string boundary() {
   return boundary;
 }
 
-Body requestBody(const BlobStore& blobs, const folly::dynamic& data) {
+// A file part's content from its URI: a file the scope allows, or a data URI's bytes; false with
+// the reason in `error` otherwise.
+bool filePart(Files* files, const std::string& uri, Networking::Part& part, std::string& error) {
+  if (uri.rfind("data:", 0) == 0) {
+    auto comma = uri.find(',');
+    auto meta = uri.substr(0, comma == std::string::npos ? 0 : comma);
+    if (comma == std::string::npos || meta.size() < 7 || meta.compare(meta.size() - 7, 7, ";base64") != 0) {
+      error = "a data: URI in a request body must be base64";
+      return false;
+    }
+    auto bytes = base64Decode(uri.substr(comma + 1));
+    if (!bytes) {
+      error = "a data: URI in a request body is not valid base64";
+      return false;
+    }
+    part.bytes = std::move(*bytes);
+    return true;
+  }
+  if (uri.rfind("file:", 0) != 0) {
+    error = "a request body's file must be a file:// or data: URI on OxyOS, not " + uri;
+    return false;
+  }
+  if (!files) {
+    error = "files are reached from an application's window only";
+    return false;
+  }
+  part.fd = files->openRead(uri, part.length, error);
+  return part.fd >= 0;
+}
+
+Body requestBody(const BlobStore& blobs, Files* files, const folly::dynamic& data) {
   Body body;
   if (!data.isObject()) return body;
   if (data.count("string") && data["string"].isString()) {
@@ -164,28 +221,114 @@ Body requestBody(const BlobStore& blobs, const folly::dynamic& data) {
     }
   } else if (data.count("formData") && data["formData"].isArray()) {
     std::string boundary = oxyos::boundary();
+    bool withFiles = false;
+    // Bytes gather until a file: each file is a part of its own, read as it is sent.
+    std::string pending;
     for (const auto& part : data["formData"]) {
-      if (!part.count("string")) {
-        body.error = "file parts in multipart bodies are not supported on OxyOS yet";
-        return body;
-      }
-      body.bytes += "--" + boundary + "\r\n";
+      pending += "--" + boundary + "\r\n";
+      bool typed = false;
       if (part.count("headers") && part["headers"].isArray()) {
         for (const auto& header : part["headers"]) {
           if (header.isArray() && header.size() == 2) {
-            body.bytes += header[0].asString() + ": " + header[1].asString() + "\r\n";
+            std::string name = header[0].asString(), lower = name;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+            typed |= lower == "content-type";
+            pending += name + ": " + header[1].asString() + "\r\n";
           }
         }
       }
-      body.bytes += "\r\n" + part["string"].asString() + "\r\n";
+      pending += "\r\n";
+      if (part.count("string") && part["string"].isString()) {
+        pending += part["string"].asString();
+      } else if (part.count("uri") && part["uri"].isString()) {
+        // As Android: a file part says its type.
+        if (!typed) {
+          body.error = "Binary FormData part needs a content-type header.";
+          return body;
+        }
+        Networking::Part file;
+        if (!filePart(files, part["uri"].asString(), file, body.error)) return body;
+        if (file.fd >= 0) {
+          body.parts.push_back({.bytes = std::exchange(pending, {})});
+          body.parts.push_back(std::move(file));
+          withFiles = true;
+        } else {
+          pending += file.bytes;
+        }
+      } else {
+        body.error = "Unrecognized FormData part.";
+        return body;
+      }
+      pending += "\r\n";
     }
-    body.bytes += "--" + boundary + "--\r\n";
+    pending += "--" + boundary + "--\r\n";
+    if (withFiles) {
+      body.parts.push_back({.bytes = std::move(pending)});
+    } else {
+      body.bytes = std::move(pending);
+    }
     body.present = true;
     body.contentType = "multipart/form-data; boundary=" + boundary;
-  } else if (data.count("uri")) {
-    body.error = "request bodies from a URI are not supported on OxyOS yet";
+  } else if (data.count("uri") && data["uri"].isString()) {
+    Networking::Part file;
+    if (!filePart(files, data["uri"].asString(), file, body.error)) return body;
+    body.present = true;
+    if (file.fd >= 0) {
+      body.parts.push_back(std::move(file));
+    } else {
+      body.bytes = std::move(file.bytes);
+    }
   }
   return body;
+}
+
+// Bytes JavaScript gives: a string's UTF-8, an ArrayBuffer's or a typed array's view of one; none
+// for undefined or null.
+std::vector<uint8_t> givenBytes(jsi::Runtime& rt, const jsi::Value& value) {
+  if (value.isString()) {
+    std::string text = value.asString(rt).utf8(rt);
+    return {text.begin(), text.end()};
+  }
+  if (!value.isObject()) return {};
+  auto object = value.asObject(rt);
+  if (object.isArrayBuffer(rt)) {
+    auto buffer = object.getArrayBuffer(rt);
+    return {buffer.data(rt), buffer.data(rt) + buffer.size(rt)};
+  }
+  auto backing = object.getProperty(rt, "buffer");
+  if (!backing.isObject() || !backing.asObject(rt).isArrayBuffer(rt)) {
+    throw jsi::JSError(rt, "OxyOSFiles: content is a string, an ArrayBuffer or a typed array");
+  }
+  auto buffer = backing.asObject(rt).getArrayBuffer(rt);
+  auto offset = static_cast<size_t>(object.getProperty(rt, "byteOffset").asNumber());
+  auto length = static_cast<size_t>(object.getProperty(rt, "byteLength").asNumber());
+  if (offset + length > buffer.size(rt)) throw jsi::JSError(rt, "OxyOSFiles: a view beyond its buffer");
+  return {buffer.data(rt) + offset, buffer.data(rt) + offset + length};
+}
+
+// A reply's bytes as JavaScript's memory, without a copy.
+class ReplyBuffer : public jsi::MutableBuffer {
+ public:
+  explicit ReplyBuffer(std::shared_ptr<std::vector<uint8_t>> bytes) : bytes_(std::move(bytes)) {}
+  size_t size() const override { return bytes_->size(); }
+  uint8_t* data() override { return bytes_->data(); }
+
+ private:
+  std::shared_ptr<std::vector<uint8_t>> bytes_;
+};
+
+// A reply for JavaScript: `{json, bytes}` with its bytes as a Uint8Array, or, `asText`, as a
+// string (UTF-8, which the service made valid).
+jsi::Value replyValue(jsi::Runtime& rt, const Files::Reply& reply, bool asText) {
+  jsi::Object out(rt);
+  out.setProperty(rt, "json", jsi::String::createFromUtf8(rt, reply.json));
+  if (asText) {
+    out.setProperty(rt, "text", jsi::String::createFromUtf8(rt, reply.bytes->data(), reply.bytes->size()));
+  } else {
+    jsi::ArrayBuffer buffer(rt, std::make_shared<ReplyBuffer>(reply.bytes));
+    out.setProperty(rt, "bytes", rt.global().getPropertyAsFunction(rt, "Uint8Array").callAsConstructor(rt, buffer));
+  }
+  return out;
 }
 
 }  // namespace
@@ -701,7 +844,7 @@ std::shared_ptr<TurboModule> createHostModule(
           request.headers.emplace_back(key, header[1].asString());
         }
       }
-      Body body = requestBody(services.blobs, jsi::dynamicFromValue(rt, args[4]));
+      Body body = requestBody(services.blobs, services.files, jsi::dynamicFromValue(rt, args[4]));
       request.responseType = text(rt, args[5]);
       request.incremental = args[6].isBool() && args[6].getBool();
       request.timeoutMs = args[7].isNumber() ? static_cast<long>(args[7].getNumber()) : 0;
@@ -710,8 +853,14 @@ std::shared_ptr<TurboModule> createHostModule(
         services.networking.reject(request.id, body.error);
         return jsi::Value::undefined();
       }
+      // As Android: a body from a URI says its type.
+      if (body.present && !typed && body.contentType.empty() && jsi::dynamicFromValue(rt, args[4]).count("uri")) {
+        services.networking.reject(request.id, "Payload is set but no content-type header specified");
+        return jsi::Value::undefined();
+      }
       request.hasBody = body.present;
       request.body = std::move(body.bytes);
+      request.parts = body.release();
       if (!body.contentType.empty() && !typed) request.headers.emplace_back("Content-Type", body.contentType);
       services.networking.send(std::move(request));
       return jsi::Value::undefined();
@@ -775,6 +924,46 @@ std::shared_ptr<TurboModule> createHostModule(
                              : "application/octet-stream";
       return resolved(rt, jsi::String::createFromUtf8(rt, "data:" + type + ";base64," + base64Encode(*bytes)));
     });
+  } else if (name == "OxyOSFiles") {
+    // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window, beneath
+    // expo-file-system and the Bloom adapter: `call(json, content?, as?)` answers at once,
+    // `request(id, json, content?, as?)` with a promise, each `{json, bytes}` (`{json, text}` when
+    // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent
+    // elsewhere, so a call fails visibly.
+    if (!services.files) return nullptr;
+    auto asText = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
+      return count > at && args[at].isString() && args[at].asString(rt).utf8(rt) == "text";
+    };
+    module->method("call", [&services, asText](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSFiles.call: a request as JSON text");
+      auto bytes = count > 1 ? givenBytes(rt, args[1]) : std::vector<uint8_t>{};
+      auto reply = services.files->call(args[0].asString(rt).utf8(rt), bytes.data(), bytes.size());
+      return replyValue(rt, reply, asText(rt, args, count, 2));
+    });
+    module->method("request", [&services, asText, invoker](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSFiles.request: an id and a request as JSON text");
+      }
+      auto id = static_cast<uint64_t>(args[0].getNumber());
+      auto json = args[1].asString(rt).utf8(rt);
+      auto bytes = count > 2 ? givenBytes(rt, args[2]) : std::vector<uint8_t>{};
+      bool text = asText(rt, args, count, 3);
+      // Settled on the JavaScript thread, through the module's invoker, once the service answers.
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "request"), 2,
+          [&services, invoker, id, json, bytes, text](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args,
+                                                        size_t) mutable {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            services.files->request(id, json, std::move(bytes), [invoker, resolve, text](Files::Reply reply) {
+              invoker->invokeAsync([resolve, reply = std::move(reply), text](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, replyValue(rt, reply, text));
+              });
+            });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
+    });
+    module->listeners();
   } else if (name == "OxyOSFontRegistry") {
     // Registers a font file under a family name with the host's text engine.
     module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {

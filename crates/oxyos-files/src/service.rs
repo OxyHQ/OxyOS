@@ -22,6 +22,7 @@
 //! | `diskSpace` | | `{total, available}` |
 //! | `stat` | `uri` | `{exists, directory, size, modified, created}` |
 //! | `size` | `uri` | a folder's bytes |
+//! | `mimeType` | `uri` | its name's media type, or null |
 //! | `read` | `uri`, `encoding` | null (the content) |
 //! | `write` | `uri`, `encoding`, `append` (bytes: the content) | null |
 //! | `createFile` | `uri`, `intermediates`, `overwrite` | null |
@@ -393,6 +394,11 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
         "diskSpace" => value(access::disk_space(scope)?),
         "stat" => value(access::stat(scope, text(request, "uri")?)?),
         "size" => value(access::size(scope, text(request, "uri")?)?.into()),
+        "mimeType" => {
+            let path = uri::path_of(text(request, "uri")?)?;
+            let name = path.rsplit('/').next().unwrap_or_default();
+            value(crate::mime::of_name(name).map_or(Value::Null, Value::from))
+        }
         "read" => Ok((
             Value::Null,
             access::read(scope, text(request, "uri")?, encoding()?)?,
