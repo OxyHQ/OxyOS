@@ -1571,6 +1571,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-apps",
  "oxyos-client",
+ "oxyos-files",
  "oxyos-gestures",
  "oxyos-image",
  "oxyos-intl",
@@ -1618,6 +1619,15 @@ dependencies = [
  "oxyos-protocol",
  "oxyos-seat",
  "zbus",
+]
+
+[[package]]
+name = "oxyos-files"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "rustix",
+ "serde_json",
 ]
 
 [[package]]
