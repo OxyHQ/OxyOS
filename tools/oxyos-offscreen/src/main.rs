@@ -36,6 +36,8 @@ const OUTPUT: Rect = Rect::new(0, 0, 1280, 720);
 const OUTPUT_ID: OutputId = 1;
 const DEADLINE: Duration = Duration::from_secs(10);
 const BUTTON: u32 = 272;
+/// The secondary (right) button's Linux code: a context menu's.
+const SECONDARY_BUTTON: u32 = 273;
 
 /// The primary's composed frame as a PNG in `directory` (`NAME.png`), and every output's by its id
 /// beside it (`NAME.output-ID.png`, in its own pixels), but `OUTPUT_ID`'s while it is the primary:

@@ -35,6 +35,12 @@ pub enum Step {
     PressPopup { x: i32, y: i32 },
     /// The same at a point of the output, wherever it is (the shell's panels and overlays).
     PressOutput { x: i32, y: i32 },
+    /// A secondary (right) button press and release at a window-local logical point: a context
+    /// menu's.
+    PressSecondary { x: i32, y: i32 },
+    /// Two left-button presses at a window-local logical point in quick succession, with nothing
+    /// between them: a double click.
+    DoublePress { x: i32, y: i32 },
     /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a point.
     Scroll { x: i32, y: i32, dy: i32 },
     /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
@@ -164,6 +170,8 @@ impl Step {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
+            Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
+            Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::Scroll { x, y, dy } => format!("scroll by {dy} at ({x}, {y})"),
             Step::Pinch {
                 x,
@@ -227,6 +235,8 @@ impl Step {
             Step::Press { x, y } => format!("\"press\":[{x},{y}]"),
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
+            Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
+            Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::Scroll { x, y, dy } => format!("\"scroll\":[{x},{y},{dy}]"),
             Step::Pinch {
                 x,
@@ -623,6 +633,14 @@ impl Launch {
                 Some("--press-output") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressOutput { x: n[0], y: n[1] }
+                }
+                Some("--press-secondary") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::PressSecondary { x: n[0], y: n[1] }
+                }
+                Some("--double-press") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::DoublePress { x: n[0], y: n[1] }
                 }
                 Some("--scroll") => {
                     let n = numbers(args.next(), 3)?;
@@ -1573,6 +1591,22 @@ fn inject_through(
             on_outputs(*x, *y)?;
             press(devices, compositor, at(*x, *y))?;
         }
+        Step::PressSecondary { x, y } => {
+            inside(window, *x, *y)?;
+            let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            devices.button_code(SECONDARY_BUTTON, true)?;
+            compositor.read_input();
+            devices.button_code(SECONDARY_BUTTON, false)?;
+        }
+        Step::DoublePress { x, y } => {
+            inside(window, *x, *y)?;
+            let point = at(window.x + x, window.y + y);
+            press(devices, compositor, point)?;
+            compositor.read_input();
+            press(devices, compositor, point)?;
+        }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
@@ -2164,6 +2198,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::PressOutput { x, y } => {
             on_outputs(*x, *y)?;
             press(&mut compositor.scene, *x, *y);
+        }
+        Step::PressSecondary { x, y } => {
+            inside(window, *x, *y)?;
+            compositor.scene.pointer_motion(window.x + x, window.y + y);
+            compositor.scene.pointer_button(SECONDARY_BUTTON, true);
+            compositor.scene.pointer_button(SECONDARY_BUTTON, false);
+        }
+        Step::DoublePress { x, y } => {
+            inside(window, *x, *y)?;
+            press(&mut compositor.scene, window.x + x, window.y + y);
+            press(&mut compositor.scene, window.x + x, window.y + y);
         }
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;

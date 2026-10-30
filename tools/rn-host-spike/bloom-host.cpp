@@ -5,6 +5,7 @@
 #include "android-components.h"
 #include "damage.h"
 #include "expo-blur.h"
+#include "files.h"
 #include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
@@ -360,6 +361,11 @@ int main(int argc, char** argv) {
   oxyos::Networking networking(blobs, [&instance](const std::string& event, folly::dynamic args) {
     instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
   });
+  // The user's files (files.h), for an application's window: answers reach JavaScript as
+  // RCTDeviceEventEmitter events from the loop below.
+  oxyos::Files files([&instance](const std::string& event, folly::dynamic payload) {
+    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(payload)));
+  });
   oxyos::HostServices services{blobs, networking};
   oxyos::WorkletsHost worklets(refresh);
   std::unique_ptr<Scheduler> scheduler;
@@ -495,6 +501,7 @@ int main(int argc, char** argv) {
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
+      if (!shellMode) services.files = &files;
       services.shellWindow = shellMode;
       // The session's preferences (docs/adr/0019-settings.mdx), from the connection's first events.
       services.settings = {
@@ -962,6 +969,7 @@ int main(int argc, char** argv) {
         busy |= animated.tick();
         busy |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
         busy |= networking.deliver();
+        busy |= files.deliver();
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
@@ -1420,7 +1428,8 @@ int main(int argc, char** argv) {
           }
           std::vector<pollfd> fds;
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
-          for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
+          // The file service's is -1 until an application asks it something: poll ignores it.
+          for (int fd : {networking.fd(), images.fd(), files.fd()}) fds.push_back({fd, POLLIN, 0});
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();

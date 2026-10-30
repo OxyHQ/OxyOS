@@ -46,7 +46,11 @@ class PointerInput {
   PointerInput(const ViewTree& tree, Surfaces surfaces) : tree_(tree), surfaces_(std::move(surfaces)) {}
 
   // Handles a compositor pointer or scroll event. The primary button starts, moves and ends one
-  // touch; a cancel or the pointer leaving cancels it.
+  // touch; a cancel or the pointer leaving cancels it. Every mouse button's press and release is
+  // also a W3C pointer event (pointerdown, pointerup) to the view under the pointer, bubbling, with
+  // the button, the buttons held and the modifiers, as Android's JSPointerDispatcher sends a
+  // mouse's: a secondary press reaches nothing else (no touch), so it opens a context menu and
+  // presses nothing. Key events only update the modifiers held.
   void handle(const OxyOSEvent& event);
   // Scrolls a text input's text by (dx, dy) if it can still move that way (textinput.h); true
   // if it moved. A text input under the pointer takes the wheel before the scroll views around it.
@@ -86,6 +90,9 @@ class PointerInput {
   // outermost first, as W3C pointer events do. Pressability's hover is built on them.
   void hover(const std::optional<SurfaceContent>& content, float x, float y);
 
+  // A mouse button's W3C pointer event (pointerdown or pointerup) to the view under (x, y).
+  void pointerButton(const SurfaceContent& content, uint32_t code, bool down, float x, float y);
+
   enum class Phase { Start, Move, End, Cancel };
   void dispatch(Phase phase, float x, float y);
   struct Finger {
@@ -122,6 +129,9 @@ class PointerInput {
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;
   bool down_ = false;
+  // The mouse buttons held (W3C `buttons` bits) and the keyboard's modifiers.
+  int buttons_ = 0;
+  bool ctrl_ = false, shift_ = false, alt_ = false, meta_ = false;
   facebook::react::Tag target_ = -1;
   int identifier_ = 0;
   float x_ = 0, y_ = 0;  // last pointer position, surface-local logical

@@ -1,5 +1,6 @@
 #include "host-modules.h"
 
+#include "files.h"
 #include "images.h"
 #include "text.h"
 
@@ -775,6 +776,17 @@ std::shared_ptr<TurboModule> createHostModule(
                              : "application/octet-stream";
       return resolved(rt, jsi::String::createFromUtf8(rt, "data:" + type + ";base64," + base64Encode(*bytes)));
     });
+  } else if (name == "OxyOSFiles") {
+    // The user's home and mounted volumes (docs/adr/0027-files.mdx), for an application's window:
+    // requests as JSON text, answered by `OxyOSFilesAnswer` and watched changes said by
+    // `OxyOSFilesChanged`, each the service's JSON. Absent elsewhere, so a call fails visibly.
+    if (!services.files) return nullptr;
+    module->method("request", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSFiles.request: a request as JSON text");
+      services.files->request(args[0].asString(rt).utf8(rt));
+      return jsi::Value::undefined();
+    });
+    module->listeners();
   } else if (name == "OxyOSFontRegistry") {
     // Registers a font file under a family name with the host's text engine.
     module->method("registerFont", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {

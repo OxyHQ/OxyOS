@@ -36,6 +36,11 @@ class OxyOSPopupViewProps final : public ViewProps {
   std::string align{"start"};
   Float sideOffset{0};
   Float alignOffset{0};
+  // A point in the anchor view (from its top-left corner) to place against instead of its frame:
+  // a context menu opens where the pointer pressed (Bloom's `PopupSurfaceProps.point`).
+  bool hasPoint{false};
+  Float pointX{0};
+  Float pointY{0};
 };
 
 using OxyOSPopupViewShadowNode = ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps>;
@@ -89,7 +94,8 @@ class PopupHost {
     bool dismissed = false;  // closed by the compositor; the view is still mounted
   };
   // The anchor's surface, and its frame there.
-  std::optional<std::pair<uint32_t, facebook::react::Rect>> anchored(facebook::react::Tag anchor) const;
+  std::optional<std::pair<uint32_t, facebook::react::Rect>> anchored(
+      const facebook::react::OxyOSPopupViewProps& props) const;
   const ViewTree& tree_;
   Window& window_;
   AccessibilityBridge& accessibility_;

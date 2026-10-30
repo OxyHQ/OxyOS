@@ -111,11 +111,15 @@ impl Devices {
     }
 
     pub fn button(&mut self, pressed: bool) -> io::Result<()> {
-        self.pointer.emit(&[InputEvent::new(
-            EV_KEY,
-            KeyCode::BTN_LEFT.0,
-            i32::from(pressed),
-        )])
+        self.button_code(u32::from(KeyCode::BTN_LEFT.0), pressed)
+    }
+
+    /// Presses or releases one of the pointer's buttons by its Linux code (BTN_LEFT, BTN_RIGHT,
+    /// BTN_MIDDLE).
+    pub fn button_code(&mut self, code: u32, pressed: bool) -> io::Result<()> {
+        let code = u16::try_from(code).map_err(io::Error::other)?;
+        self.pointer
+            .emit(&[InputEvent::new(EV_KEY, code, i32::from(pressed))])
     }
 
     /// Scrolls by `dy` logical pixels (positive moves the content's view down), in whole and
