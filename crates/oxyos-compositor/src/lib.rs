@@ -429,6 +429,8 @@ pub struct Compositor {
     /// the time went, at most once a second: a session's, whose frames are otherwise not measured.
     pub slow_turns: bool,
     slow_turn_logged: Option<Instant>,
+    /// With `slow_turns`: when the GPU's composing times were last summed up (`serve`).
+    gpu_times_logged: Option<Instant>,
     /// Descriptors that only wake a turn, readable when the program running the compositor has
     /// something of its own to do (a child of its exited); it reads them itself.
     pub wakers: Vec<std::os::fd::OwnedFd>,
@@ -747,8 +749,8 @@ pub struct Gpu {
     pub device_ms: Vec<f64>,
     /// With `--gpu-only`: how long each readback of the shown frame took, in ms.
     pub readback_ms: Vec<f64>,
-    /// For each frame composed for the display: the host's copy into the upload buffer, and
-    /// submission to fence (`VulkanCompositor::last_host_ms`), in ms.
+    /// For each frame composed for the display: the host's copy into the upload buffer, and its
+    /// wait for the device (`VulkanCompositor::last_host_ms`), in ms.
     pub host_ms: Vec<(f64, f64)>,
     /// The bytes each frame composed for the display uploaded.
     pub uploaded: Vec<u64>,
@@ -798,6 +800,7 @@ impl Compositor {
             wakers: Vec::new(),
             slow_turns: false,
             slow_turn_logged: None,
+            gpu_times_logged: None,
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
@@ -2424,10 +2427,13 @@ impl Compositor {
                     .collect()
             });
             let (target, framebuffer) = screen.scanout[screen.scanout_back];
+            // A frame kept for the director's check is waited for; a session's goes to the display
+            // with its completion, if the device gives one, and the turn goes on at once.
             let composed = if self.gpu_only && self.reads_back {
                 screen.shown_kept = true;
                 gpu.compositor
                     .compose_to_scanout_kept(target, DESKTOP, &shifted, damage.as_deref())
+                    .map(|()| None)
             } else {
                 gpu.compositor
                     .compose_to_scanout(target, DESKTOP, &shifted, damage.as_deref())
@@ -2442,7 +2448,8 @@ impl Compositor {
                 self.compositions
                     .push((submitted - self.composing_since).as_secs_f64() * 1e3);
             }
-            let presented = composed.and_then(|()| display.present_framebuffer(framebuffer));
+            let presented = composed
+                .and_then(|completion| display.present_framebuffer_after(framebuffer, completion));
             screen.scanout_back = (screen.scanout_back + 1) % screen.scanout.len();
             return self.handed_over(index, presented, submitted);
         }
@@ -2729,8 +2736,8 @@ impl Compositor {
                 self.slow_turn_logged = Some(Instant::now());
                 let gpu = match &self.gpu {
                     Some(gpu) if self.frames != frames => {
-                        let (copy, fence) = gpu.compositor.last_host_ms();
-                        format!(" (uploading {copy:.1}, submission to fence {fence:.1})")
+                        let (copy, wait) = gpu.compositor.last_host_ms();
+                        format!(" (uploading {copy:.1}, waiting for the GPU {wait:.1})")
                     }
                     _ => String::new(),
                 };
@@ -2744,6 +2751,27 @@ impl Compositor {
                     ms(framed),
                     ms(woke.elapsed() - framing.duration_since(woke) - framed),
                 );
+            }
+            // Every ten seconds that composed frames on the GPU: how long it took to compose them.
+            if self
+                .gpu_times_logged
+                .is_none_or(|logged| logged.elapsed() >= Duration::from_secs(10))
+            {
+                self.gpu_times_logged = Some(Instant::now());
+                if let Some(gpu) = &mut self.gpu {
+                    let mut times = gpu.compositor.take_completed_ms();
+                    if !times.is_empty() {
+                        times.sort_by(f64::total_cmp);
+                        eprintln!(
+                            "[compositor] the GPU composed {} frames in the last 10 s: {:.2} ms median, \
+                             {:.2} at the 95th percentile, {:.2} at most",
+                            times.len(),
+                            times[times.len() / 2],
+                            times[(times.len() * 95 / 100).min(times.len() - 1)],
+                            times[times.len() - 1],
+                        );
+                    }
+                }
             }
         }
         Ok(())

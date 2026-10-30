@@ -83,10 +83,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let composing = Instant::now();
         if let Some(compositor) = &mut vulkan {
             let back = index % 2;
-            compositor.compose_to_scanout(back, frame.background, &layers, None)?;
+            // The frame goes to the display with its completion where the device gives one: the
+            // time measured is then the submission's, and the device's is the frame before's.
+            let completion =
+                compositor.compose_to_scanout(back, frame.background, &layers, None)?;
             compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);
             device_ms.extend(compositor.last_gpu_ms());
-            display.present_framebuffer(targets[back])?;
+            display.present_framebuffer_after(targets[back], completion)?;
         } else {
             let pixels = oxyos_gpu::compose_cpu(width, height, frame.background, &layers);
             compose_ms.push(composing.elapsed().as_secs_f64() * 1e3);

@@ -208,10 +208,29 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
 
 ## What remains
 
-- **The GPU path waits for each frame on the compositor's thread.** `VulkanCompositor::run`
-  submits and then waits for the fence before the page flip, so a turn lasts as long as the GPU
-  composes. Handing the flip the fence as a sync file (`IN_FENCE_FD`) would let the turn go on;
-  the slow-turn log will show how long the wait is on Iris Xe.
+- **The GPU path waited for each frame on the compositor's thread** (`VulkanCompositor::run`
+  submitted, then waited for the fence before the page flip): on the ThinkPad the session logged
+  turns of 28–35 ms, 20–31 ms of them waiting for Iris Xe. A frame for a display now goes to it
+  with its completion: the submission signals a semaphore exported as a sync file, which the
+  atomic commit takes as the plane's `IN_FENCE_FD`, so the kernel flips once the device is done
+  and the turn goes on at once (reading input, serving clients). The next composition waits for
+  the last one first, done long before (a frame is composed once the one before flipped). A
+  device that exports no sync file, and the frames the director keeps to check, are waited for as
+  before; the session's log says which (`[session] composing on … each handed to the display with
+  its completion (IN_FENCE_FD)`). Not yet seen on a display: lavapipe exports no sync file.
+- **The GPU composed a frame layer by layer, region by region**: a dispatch per layer per
+  damaged region, each reading and writing every pixel of the output it covers, with a barrier
+  between dispatches, and up to eight overlapping regions composed each in full. On the
+  ThinkPad, 17–44 ms of device time a frame while a window was dragged. The shader now composes
+  each pixel once: one dispatch per region (the damage made disjoint, `disjoint`), each pixel
+  taking the background and the layers over it from a table (a storage buffer), starting at the
+  topmost one that covers it whole and opaque (the wallpaper under a window is never read). For
+  a window dragged on a 1920 × 1200 desktop at 1.25 (shell, window, its shadow, the bars), the
+  memory a frame moves goes from about 160 MB in 16 dispatches to 10 MB in one; a whole frame,
+  from 64 to 21 MB. Byte for byte the CPU reference's (every Vulkan test, and scenarios with
+  `--gpu`, which compare every frame). Lavapipe, a CPU, runs it about twice as slowly: its cost
+  is arithmetic, not memory; a session never composes on it. The session now logs every ten
+  seconds how long the GPU took to compose its frames (`[compositor] the GPU composed …`).
 - **The CPU composition composes the whole output every frame**, damage or not: the overview
   opening is 13–18 ms a frame on the CPU (window views box-filtered, an overlay over everything).
   The session composes on the GPU where it can.

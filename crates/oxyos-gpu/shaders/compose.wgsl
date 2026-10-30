@@ -1,7 +1,9 @@
-// One layer of a frame, composed into the output (docs/adr/0004): the same arithmetic as
-// `compose_cpu` (and, for corners and shadows, `src/shape.rs`; for filtered sampling,
-// `src/filter.rs`), so the two agree byte for byte. Pixels are 0x00RRGGBB in the output and
-// 0xAARRGGBB (B, G, R, A in memory) in a layer.
+// A frame composed into the output (docs/adr/0004), pixel by pixel: each pixel of the region a
+// dispatch covers takes the background and then every layer over it, bottom to top, with the
+// same arithmetic as `compose_cpu` (and, for corners and shadows, `src/shape.rs`; for filtered
+// sampling, `src/filter.rs`), so the two agree byte for byte; it is written once. Layers under
+// the topmost one that covers the pixel whole, opaque, are never seen there and are skipped.
+// Pixels are 0x00RRGGBB in the output and 0xAARRGGBB (B, G, R, A in memory) in a layer.
 
 struct Layer {
     // The layer's rectangle on the output (logical pixels), and the size of its pixels.
@@ -19,8 +21,8 @@ struct Layer {
     // profile's premultiplied pixel for its distance from `shadow_*`, not within `clip_*`.
     mode: u32,
     color: u32,
-    // The part of the layer this dispatch composes (a damaged region's), from (base_x,
-    // base_y) within the layer, count_x × count_y pixels.
+    // The part of the layer drawn (within its clip), from (base_x, base_y) within the layer,
+    // count_x × count_y pixels.
     base_x: u32,
     base_y: u32,
     count_x: u32,
@@ -49,9 +51,24 @@ struct Layer {
     sampling: u32,
 }
 
-var<push_constant> layer: Layer;
+// The region of the output a dispatch composes, the output's size, its background and how many
+// layers `layers` holds, bottom to top.
+struct Frame {
+    base_x: u32,
+    base_y: u32,
+    count_x: u32,
+    count_y: u32,
+    out_width: u32,
+    out_height: u32,
+    background: u32,
+    layers: u32,
+}
+
+var<push_constant> frame: Frame;
 @group(0) @binding(0) var<storage, read> src: array<u32>;
 @group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+// The frame's layers, bottom to top: each one's `base_*` and `count_*` the part of it drawn.
+@group(0) @binding(2) var<storage, read> layers: array<Layer>;
 
 // Half-pixel distances beyond this from a shadow's shape are taken as this (`shape::FAR`).
 const FAR: i32 = 8192;
@@ -103,30 +120,30 @@ fn beyond(at: u32, start: i32, length: u32, radius: u32) -> i32 {
 }
 
 // `shape::shadow_entry`.
-fn shadow_entry(x: u32, y: u32, entries: u32) -> u32 {
-    let radius = layer.shadow_radius;
-    let qx = beyond(x, layer.shadow_x, layer.shadow_width, radius);
-    let qy = beyond(y, layer.shadow_y, layer.shadow_height, radius);
+fn shadow_entry(i: u32, x: u32, y: u32, entries: u32) -> u32 {
+    let radius = layers[i].shadow_radius;
+    let qx = beyond(x, layers[i].shadow_x, layers[i].shadow_width, radius);
+    let qy = beyond(y, layers[i].shadow_y, layers[i].shadow_height, radius);
     var distance = 4 * max(qx, qy);
     if (qx > 0 && qy > 0) {
         distance = i32(isqrt(u32(qx * qx + qy * qy) << 4u));
     }
     distance -= 8 * i32(radius);
-    let steps = clamp(distance, -(1 << 18u), 1 << 18u) * 256 + i32(entries / 2u * layer.scale);
+    let steps = clamp(distance, -(1 << 18u), 1 << 18u) * 256 + i32(entries / 2u * layers[i].scale);
     if (steps <= 0) {
         return 0u;
     }
-    return min(u32(steps) / layer.scale, entries - 1u);
+    return min(u32(steps) / layers[i].scale, entries - 1u);
 }
 
 // `beneath` in `compose_cpu`: how much of a shadow's pixel what it is beneath covers.
-fn beneath(x: u32, y: u32) -> u32 {
-    let cx = i32(x) - layer.clip_x;
-    let cy = i32(y) - layer.clip_y;
-    if (cx < 0 || cy < 0 || cx >= i32(layer.clip_width) || cy >= i32(layer.clip_height)) {
+fn beneath(i: u32, x: u32, y: u32) -> u32 {
+    let cx = i32(x) - layers[i].clip_x;
+    let cy = i32(y) - layers[i].clip_y;
+    if (cx < 0 || cy < 0 || cx >= i32(layers[i].clip_width) || cy >= i32(layers[i].clip_height)) {
         return 0u;
     }
-    return corner_coverage(u32(cx), u32(cy), layer.clip_width, layer.clip_height, layer.clip_radius);
+    return corner_coverage(u32(cx), u32(cy), layers[i].clip_width, layers[i].clip_height, layers[i].clip_radius);
 }
 
 // `filter::ONE`: an output pixel's weights along an axis sum to it.
@@ -174,9 +191,9 @@ fn through(taps: Taps, at: u32) -> u32 {
 
 // `filter::sample`: the layer's pixel for output pixel (lx, ly), filtered, premultiplied, its
 // alpha in the high byte; an opaque layer's alpha is 255.
-fn sample(lx: u32, ly: u32, opaque: bool) -> u32 {
-    let columns = taps(lx, layer.width, layer.src_width);
-    let rows = taps(ly, layer.height, layer.src_height);
+fn sample(i: u32, lx: u32, ly: u32, opaque: bool) -> u32 {
+    let columns = taps(lx, layers[i].width, layers[i].src_width);
+    let rows = taps(ly, layers[i].height, layers[i].src_height);
     var sum = vec4<u32>(0u);
     var above = 0u;
     for (var y = rows.first; y <= rows.last; y++) {
@@ -189,7 +206,7 @@ fn sample(lx: u32, ly: u32, opaque: bool) -> u32 {
             let to_x = through(columns, x);
             let wx = to_x - before;
             before = to_x;
-            let pixel = src[layer.src_offset + y * layer.src_width + x];
+            let pixel = src[layers[i].src_offset + y * layers[i].src_width + x];
             var alpha = pixel >> 24u;
             if (opaque) {
                 alpha = 255u;
@@ -210,59 +227,95 @@ fn channel(source: u32, under: u32, keep: u32, shift: u32, opacity: u32) -> u32 
     return min(s + d * keep / 255u, 255u) << shift;
 }
 
-@compute @workgroup_size(8, 8)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    if (id.x >= layer.count_x || id.y >= layer.count_y) {
-        return;
+// How much of pixel (lx, ly) of `layer` it covers: all of it, but at its rounded corners and, a
+// shadow, within what it is beneath.
+fn coverage_of(i: u32, lx: u32, ly: u32) -> u32 {
+    var coverage = corner_coverage(lx, ly, layers[i].width, layers[i].height, layers[i].radius);
+    if (layers[i].mode == 3u) {
+        coverage = coverage * (255u - beneath(i, lx, ly)) / 255u;
     }
-    let lx = layer.base_x + id.x;
-    let ly = layer.base_y + id.y;
-    if (lx >= layer.width || ly >= layer.height) {
-        return;
-    }
-    let x = layer.x + i32(lx);
-    let y = layer.y + i32(ly);
-    if (x < 0 || y < 0 || u32(x) >= layer.out_width || u32(y) >= layer.out_height) {
-        return;
-    }
-    let index = u32(y) * layer.out_width + u32(x);
-    // How much of the pixel the layer covers: all of it, but at its rounded corners and, a
-    // shadow, within what it is beneath.
-    var coverage = corner_coverage(lx, ly, layer.width, layer.height, layer.radius);
-    if (layer.mode == 3u) {
-        coverage = coverage * (255u - beneath(lx, ly)) / 255u;
-    }
-    if (coverage == 0u) {
-        return;
-    }
+    return coverage;
+}
+
+// `under` with pixel (lx, ly) of `layer` over it, `coverage` of it.
+fn blend(i: u32, lx: u32, ly: u32, coverage: u32, under: u32) -> u32 {
     // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).
-    var source = layer.color & 0xffffffu;
+    var source = layers[i].color & 0xffffffu;
     var alpha = 255u;
-    if (layer.mode == 3u) {
-        let pixel = src[layer.src_offset + shadow_entry(lx, ly, layer.src_width)];
+    if (layers[i].mode == 3u) {
+        let pixel = src[layers[i].src_offset + shadow_entry(i, lx, ly, layers[i].src_width)];
         source = pixel & 0xffffffu;
         alpha = pixel >> 24u;
-    } else if (layer.mode != 2u) {
+    } else if (layers[i].mode != 2u) {
         // Nearest neighbour, as the reference: the source pixel under the output pixel's corner;
         // or filtered.
         var pixel = 0u;
-        if (layer.sampling == 1u) {
-            pixel = sample(lx, ly, layer.mode == 0u);
+        if (layers[i].sampling == 1u) {
+            pixel = sample(i, lx, ly, layers[i].mode == 0u);
         } else {
-            let sx = lx * layer.src_width / layer.width;
-            let sy = ly * layer.src_height / layer.height;
-            pixel = src[layer.src_offset + sy * layer.src_width + sx];
+            let sx = lx * layers[i].src_width / layers[i].width;
+            let sy = ly * layers[i].src_height / layers[i].height;
+            pixel = src[layers[i].src_offset + sy * layers[i].src_width + sx];
         }
         source = pixel & 0xffffffu;
-        if (layer.mode == 1u) {
+        if (layers[i].mode == 1u) {
             alpha = pixel >> 24u;
         }
     }
     // Scaled by the layer's opacity at this pixel (its opacity by its coverage), then
     // source-over: at 255 an opaque pixel is copied and a premultiplied one blended, as without
     // an opacity.
-    let opacity = layer.opacity * coverage / 255u;
+    let opacity = layers[i].opacity * coverage / 255u;
     let keep = 255u - alpha * opacity / 255u;
-    let under = dst[index];
-    dst[index] = channel(source, under, keep, 16u, opacity) | channel(source, under, keep, 8u, opacity) | channel(source, under, keep, 0u, opacity);
+    return channel(source, under, keep, 16u, opacity) | channel(source, under, keep, 8u, opacity) | channel(source, under, keep, 0u, opacity);
+}
+
+// Where output pixel (x, y) falls in the part of `layer` drawn, if it does: (lx, ly, 1); else 0.
+fn within(i: u32, x: u32, y: u32) -> vec3<u32> {
+    let lx = i32(x) - layers[i].x;
+    let ly = i32(y) - layers[i].y;
+    if (lx < i32(layers[i].base_x) || ly < i32(layers[i].base_y)
+        || lx >= i32(layers[i].base_x + layers[i].count_x) || ly >= i32(layers[i].base_y + layers[i].count_y)) {
+        return vec3<u32>(0u);
+    }
+    return vec3<u32>(u32(lx), u32(ly), 1u);
+}
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= frame.count_x || id.y >= frame.count_y) {
+        return;
+    }
+    let x = frame.base_x + id.x;
+    let y = frame.base_y + id.y;
+    if (x >= frame.out_width || y >= frame.out_height) {
+        return;
+    }
+    // The topmost layer covering the pixel whole with an opaque copy or a fill at full opacity:
+    // the pixel takes its colour whatever is under it, so the layers under it are skipped.
+    var first = 0u;
+    for (var above = frame.layers; above > 0u; above--) {
+        let i = above - 1u;
+        if ((layers[i].mode != 0u && layers[i].mode != 2u) || layers[i].opacity != 255u) {
+            continue;
+        }
+        let at = within(i, x, y);
+        if (at.z == 1u && corner_coverage(at.x, at.y, layers[i].width, layers[i].height, layers[i].radius) == 255u) {
+            first = i;
+            break;
+        }
+    }
+    var color = frame.background & 0xffffffu;
+    for (var i = first; i < frame.layers; i++) {
+        let at = within(i, x, y);
+        if (at.z == 0u) {
+            continue;
+        }
+        let coverage = coverage_of(i, at.x, at.y);
+        if (coverage == 0u) {
+            continue;
+        }
+        color = blend(i, at.x, at.y, coverage, color);
+    }
+    dst[y * frame.out_width + x] = color;
 }
