@@ -57,6 +57,36 @@ void Report::animated(const facebook::react::ShadowView& view, const folly::dyna
   write(folly::dynamic::object("kind", "animated")("target", name(view))("props", props));
 }
 
+void Report::committed(const ShadowViewMutationList& mutations) {
+  if (!file_) return;
+  for (const auto& mutation : mutations) {
+    if (mutation.type != ShadowViewMutation::Update) continue;
+    auto before = std::dynamic_pointer_cast<const ViewProps>(mutation.oldChildShadowView.props);
+    auto after = std::dynamic_pointer_cast<const ViewProps>(mutation.newChildShadowView.props);
+    if (!before || !after || after->testId.empty()) continue;
+    folly::dynamic props = folly::dynamic::object();
+    if (before->opacity != after->opacity) props["opacity"] = after->opacity;
+    if (before->transform != after->transform) {
+      folly::dynamic transform = folly::dynamic::array;
+      for (const auto& operation : after->transform.operations) {
+        if (operation.type == TransformOperationType::Translate) {
+          transform.push_back(folly::dynamic::object("translateX", operation.x.value));
+          transform.push_back(folly::dynamic::object("translateY", operation.y.value));
+        }
+      }
+      props["transform"] = std::move(transform);
+    }
+    if (!props.empty()) {
+      write(folly::dynamic::object("kind", "committed")("target", after->testId)("props", std::move(props)));
+    }
+  }
+}
+
+void Report::animationFrame(double timestamp, size_t callbacks) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "animation_frame")("timestamp", timestamp)("callbacks", callbacks));
+}
+
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
   line["t"] = monotonicNs();

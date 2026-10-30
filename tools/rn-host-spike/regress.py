@@ -36,7 +36,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   channel, over at least `animated_frames` frames (8 by default); with `animated_linear_ms`, every
   frame's value is where a linear animation of that duration is at that frame's time, within one
   frame. A view it does not list must not move: the driver may set it (a node's first frame sets
-  its start), but always to the same values;
+  its start), but always to the same values. `animated_frames` may be [least, most];
+- committed: the same for what React's commits changed in the step (opacity and translation of
+  views with a testID, as mounted: a JavaScript-driven Animated's frames among them), with
+  `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
+- animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
+  [least, most]; "interval_ms", the least time between two; their timestamps rise and are
+  performance.now()'s clock (within a millisecond of the report's, CLOCK_MONOTONIC);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
   by a distinct one having every key given ("kind": window, popup, overlay, panel,
@@ -308,12 +314,12 @@ def gesture_events(report, start, end):
     return events
 
 
-def animated_values(report, start, end):
+def animated_values(report, start, end, kind="animated"):
     """What Animated's native driver set in a step, by view and prop: [(t, [channels])], a colour
     (an ARGB integer) as its red, green and blue, a transform's entry as `transform.KEY`."""
     values = {}
     for line in report:
-        if line["kind"] != "animated" or not start <= line["t"] <= end:
+        if line["kind"] != kind or not start <= line["t"] <= end:
             continue
         for prop, value in line["props"].items():
             entries = [(f"transform.{key}", v) for entry in value for key, v in entry.items()] \
@@ -325,24 +331,27 @@ def animated_values(report, start, end):
     return values
 
 
-def check_animated(expect, report, start, end, fail):
-    """The step's `animated` (see the module's documentation)."""
-    got = animated_values(report, start, end)
-    for view in sorted(set(got) - set(expect["animated"])):
-        for prop, frames in got[view].items():
-            if any(value != frames[0][1] for _, value in frames):
-                fail(f"the native driver moved {view} {prop} ({[value for _, value in frames]}), which the step does not list")
-    least, linear_ms = expect.get("animated_frames", 8), expect.get("animated_linear_ms")
+def check_animated(expect, report, start, end, fail, kind="animated"):
+    """The step's `animated` or `committed` (see the module's documentation)."""
+    got = animated_values(report, start, end, kind)
+    if kind == "animated":
+        for view in sorted(set(got) - set(expect[kind])):
+            for prop, frames in got[view].items():
+                if any(value != frames[0][1] for _, value in frames):
+                    fail(f"the native driver moved {view} {prop} ({[value for _, value in frames]}), which the step does not list")
+    bounds, linear_ms = expect.get(f"{kind}_frames", 8), expect.get(f"{kind}_linear_ms")
+    least, most = bounds if isinstance(bounds, list) else (bounds, None)
 
     def channels(value):
         return [int(value[i:i + 2], 16) for i in (1, 3, 5)] if isinstance(value, str) else [value]
 
-    for view, props in expect["animated"].items():
+    for view, props in expect[kind].items():
         for prop, (first, last) in props.items():
             frames = got.get(view, {}).get(prop, [])
             name = f"{view} {prop}"
-            if len(frames) < least:
-                fail(f"{name} was set on {len(frames)} frames, expected at least {least}")
+            if len(frames) < least or (most is not None and len(frames) > most):
+                fail(f"{name} was set on {len(frames)} frames, expected {least} to {most}" if most is not None
+                     else f"{name} was set on {len(frames)} frames, expected at least {least}")
                 continue
             low, high = channels(first), channels(last)
             shown = [[round(c, 3) for c in value] for _, value in frames]
@@ -448,6 +457,22 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{entry}: {key} went {[round(v, 2) for v in values]}, expected from {first} to {last} monotonically")
     if "animated" in expect:
         check_animated(expect, report, start, end, fail)
+    if "committed" in expect:
+        check_animated(expect, report, start, end, fail, "committed")
+    if "animation_frames" in expect:
+        wanted = expect["animation_frames"]
+        frames = [line for line in report if line["kind"] == "animation_frame" and start <= line["t"] <= end]
+        low, high = wanted.get("count", [0, float("inf")])
+        if not low <= len(frames) <= high:
+            fail(f"requestAnimationFrame ran {len(frames)} frames, expected {low} to {high}")
+        stamps = [line["timestamp"] for line in frames]
+        gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+        if gaps and min(gaps) < wanted.get("interval_ms", 0):
+            fail(f"requestAnimationFrame's frames came {min(gaps):.2f} ms apart, expected at least {wanted['interval_ms']}")
+        if any(gap <= 0 for gap in gaps):
+            fail("requestAnimationFrame's timestamps did not rise")
+        if any(abs(line["t"] / 1e6 - line["timestamp"]) > 1 for line in frames):
+            fail("requestAnimationFrame's timestamps are not on performance.now()'s clock")
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]

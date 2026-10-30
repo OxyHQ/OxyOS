@@ -12,6 +12,12 @@
  * - "Start" and "Back" are animated components made at the top of this module, so Animated's native
  *   module is first asked for while the bundle loads, before anything renders, in every scenario
  *   this bundle runs.
+ * - "JS" runs a 600 ms linear animation in JavaScript (`useNativeDriver: false`): a box moving 150
+ *   to the right, one commit per frame of `requestAnimationFrame`, which the host paces on its
+ *   window's frames, as Android's Choreographer does.
+ * - "rAF" asks requestAnimationFrame for three callbacks, a, b and c, and cancels b at once; a cancels
+ *   c in the same frame and asks for one more, which runs in the next frame, later: "raf a next".
+ *   A frame's time is never ahead of performance.now().
  * - Bloom's Switch: a press turns it on, its thumb moving along the track, and calls
  *   onCheckedChange once.
  */
@@ -29,6 +35,7 @@ export default function AnimatedProbe() {
   const opacity = React.useRef(new Animated.Value(0)).current;
   const offset = React.useRef(new Animated.Value(0)).current;
   const scrolled = React.useRef(new Animated.Value(0)).current;
+  const moved = React.useRef(new Animated.Value(0)).current;
   const onScroll = React.useMemo(
     () => Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true }),
     [scrolled],
@@ -46,6 +53,28 @@ export default function AnimatedProbe() {
     animate(opacity, to, 'fade');
     animate(offset, to * 200, 'slide');
     animate(progress, to, 'tint');
+  };
+  const runInJavaScript = () => {
+    setEnded([]);
+    Animated.timing(moved, { toValue: 150, duration: DURATION, easing: Easing.linear, useNativeDriver: false }).start(
+      ({ finished }) => setEnded([`js${finished ? '' : ' (stopped)'}`]),
+    );
+  };
+  const checkFrames = () => {
+    const ran: string[] = [];
+    let first = 0;
+    requestAnimationFrame((time) => {
+      first = time;
+      ran.push(time <= performance.now() ? 'a' : 'a (ahead of performance.now)');
+      cancelAnimationFrame(c);
+      requestAnimationFrame((later) => {
+        ran.push(later > first ? 'next' : 'next (not later)');
+        setEnded([`raf ${ran.join(' ')}`]);
+      });
+    });
+    const b = requestAnimationFrame(() => ran.push('b'));
+    const c = requestAnimationFrame(() => ran.push('c'));
+    cancelAnimationFrame(b);
   };
   const tint = progress.interpolate({ inputRange: [0, 1], outputRange: ['#d03030', '#3050d0'] });
 
@@ -66,6 +95,18 @@ export default function AnimatedProbe() {
             height: 40,
             backgroundColor: '#3050d0',
             transform: [{ translateX: offset }],
+          }}
+        />
+        <Animated.View
+          testID="jsbox"
+          style={{
+            position: 'absolute',
+            left: 110,
+            top: 20,
+            width: 30,
+            height: 30,
+            backgroundColor: '#8030c0',
+            transform: [{ translateX: moved }],
           }}
         />
         <Animated.View
@@ -106,6 +147,20 @@ export default function AnimatedProbe() {
         >
           <Text style={{ margin: 8 }}>Back</Text>
         </AnimatedPressable>
+        <Pressable
+          testID="js-start"
+          onPress={runInJavaScript}
+          style={{ position: 'absolute', left: 200, top: 170, width: 80, height: 36, backgroundColor: '#e0e0e0' }}
+        >
+          <Text style={{ margin: 8 }}>JS</Text>
+        </Pressable>
+        <Pressable
+          testID="raf"
+          onPress={checkFrames}
+          style={{ position: 'absolute', left: 110, top: 210, width: 60, height: 24, backgroundColor: '#e0e0e0' }}
+        >
+          <Text style={{ marginLeft: 8, marginTop: 2 }}>rAF</Text>
+        </Pressable>
         <View style={{ position: 'absolute', left: 300, top: 175 }}>
           <Switch
             testID="switch"

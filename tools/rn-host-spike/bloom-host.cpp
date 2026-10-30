@@ -23,6 +23,7 @@
 #include "text.h"
 #include "textinput.h"
 #include "window.h"
+#include "animation-frames.h"
 #include "native-animated.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
@@ -215,6 +216,7 @@ class Mounter : public SchedulerDelegate {
       auto transaction = coordinator->pullTransaction();
       if (transaction && !transaction->getMutations().empty()) {
         if (beforeApply) beforeApply(transaction->getMutations());
+        oxyos::Report::get().committed(transaction->getMutations());
         tree_.apply(transaction->getMutations());
         ++transactions;
         // As each platform's mounting layer does: report the mount, which runs the UIManager's
@@ -338,6 +340,9 @@ int main(int argc, char** argv) {
       });
   stage("instance created");
   timerManager->setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
+  // requestAnimationFrame, once a frame (animation-frames.h); made after the instance, so its
+  // callbacks go before the runtime does.
+  oxyos::AnimationFrames animationFrames(instance->getBufferedRuntimeExecutor());
   loop->drain();
 
   oxyos::Display display{width, height, 1.0f};
@@ -369,6 +374,8 @@ int main(int argc, char** argv) {
         }));
     // ECMA-402's Intl, which Hermes has on Android from the platform (intl.h).
     oxyos::installIntl(rt);
+    // In place of React Native's, which runs callbacks as a zero-delay timer.
+    animationFrames.install(rt);
     TurboModuleBinding::install(
         rt, [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
           if (name == "WorkletsModule") return worklets.module(runtime, invoker);
@@ -724,6 +731,7 @@ int main(int argc, char** argv) {
         busy |= worklets.tick();
         busy |= reanimated.tick();
         busy |= animated.tick();
+        busy |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
         busy |= networking.deliver();
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
         bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
@@ -952,21 +960,27 @@ int main(int argc, char** argv) {
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
         // image decoder, a paste's pipe, the next timer of JavaScript's or a gesture handler's, or
-        // the next frame for worklets' frame callbacks or for Animated's native driver.
+        // the next frame for worklets' frame callbacks, Animated's native driver or
+        // requestAnimationFrame (the compositor's answer to the window's frame wakes it for that too).
         // It waits only after a second idle turn, since what one turn dispatches (an event for
         // Fabric's beat) is delivered on the next; and at most a second, should anything else
         // need a turn.
         idleTurns = busy ? 0 : idleTurns + 1;
         if (idleTurns >= 2) {
           auto deadline = Clock::now() + std::chrono::seconds(1);
-          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame(), animated.nextFrame()}) {
+          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame(), animated.nextFrame(),
+                           animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel))}) {
             if (due && *due < deadline) deadline = *due;
           }
           std::vector<pollfd> fds;
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
           for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
-          auto wait = std::chrono::ceil<std::chrono::milliseconds>(deadline - Clock::now()).count();
-          if (wait > 0) poll(fds.data(), fds.size(), static_cast<int>(wait));
+          // To the nanosecond: a frame due in 16.7 ms is not taken at 17.
+          auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - Clock::now()).count();
+          if (wait > 0) {
+            timespec timeout{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
+            ppoll(fds.data(), fds.size(), &timeout, nullptr);
+          }
         }
       }
     } catch (const std::exception& error) {
@@ -998,6 +1012,7 @@ int main(int argc, char** argv) {
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
+    busy |= animationFrames.tick(true);
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
     busy |= networking.deliver();

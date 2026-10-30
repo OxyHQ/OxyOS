@@ -1,5 +1,5 @@
 {
-  "about": "Animated's native driver (sample/AnimatedProbe.tsx), React Native's C++ implementation as Android runs it: the probe and Bloom's Switch mount (without NativeAnimatedModule they throw at once, 'Native animated module is not available'); a press runs three 600 ms linear animations on the native driver, each frame's opacity, transform and colour set on the views between commits where a linear animation is at that frame's time, ending exactly at their values, drawn there, and JavaScript told of each end once; the moved box is pressed where the driver moved it; they run back; a scroll view's onScroll, through Animated.event on the native driver, moves a bar as far as the view scrolled; and Bloom's Switch turns on with one press, its thumb moved along the track, and calls onCheckedChange once.",
+  "about": "Animated's native driver (sample/AnimatedProbe.tsx), React Native's C++ implementation as Android runs it: the probe and Bloom's Switch mount (without NativeAnimatedModule they throw at once, 'Native animated module is not available'); a press runs three 600 ms linear animations on the native driver, each frame's opacity, transform and colour set on the views between commits where a linear animation is at that frame's time, ending exactly at their values, drawn there, and JavaScript told of each end once; the moved box is pressed where the driver moved it; they run back; a scroll view's onScroll, through Animated.event on the native driver, moves a bar as far as the view scrolled; a 600 ms Animated.timing in JavaScript (useNativeDriver false) commits once a frame of requestAnimationFrame, which the host runs once a display frame as Android's Choreographer does (React Native's own runs it as a zero-delay timer: about 600 commits), each frame's value where a linear animation is at its time; and Bloom's Switch turns on with one press, its thumb moved along the track, and calls onCheckedChange once.",
   "module": "AnimatedProbe",
   "window": [
     400,
@@ -187,7 +187,84 @@
       }
     },
     {
-      "name": "one press turns Bloom's Switch on: its thumb moves from the track's start to its end over the track's new colour, and onCheckedChange is called once",
+      "name": "a press on JS runs a 600 ms linear Animated.timing in JavaScript: requestAnimationFrame runs once a display frame, never sooner, on performance.now()'s clock, and each of its frames commits the box where a linear animation is at that frame's time, about 36 in all, not one per turn of the loop; it ends 150 to the right",
+      "do": [
+        "press",
+        [
+          240,
+          188
+        ]
+      ],
+      "expect": {
+        "committed": {
+          "jsbox": {
+            "transform.translateX": [
+              0,
+              150
+            ]
+          }
+        },
+        "committed_frames": [
+          30,
+          42
+        ],
+        "committed_linear_ms": 600,
+        "animation_frames": {
+          "count": [
+            30,
+            42
+          ],
+          "interval_ms": 16
+        },
+        "window_frames": [
+          30,
+          42
+        ],
+        "texts": [
+          "Ended: js"
+        ],
+        "react": {
+          "touchStart@js-start": 1,
+          "touchEnd@js-start": 1
+        },
+        "pixels": {
+          "275,35": "#8030c0",
+          "125,35": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "requestAnimationFrame and cancelAnimationFrame: of three callbacks, the one cancelled at once and the one the first cancels in the same frame do not run; one asked for during a frame runs in the next, later, and no frame's time is ahead of performance.now()",
+      "do": [
+        "press",
+        [
+          140,
+          222
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Ended: raf a next"
+        ],
+        "absent": [
+          "(ahead",
+          "(not later)"
+        ],
+        "react": {
+          "touchStart@raf": 1,
+          "touchEnd@raf": 1
+        },
+        "animation_frames": {
+          "count": [
+            2,
+            2
+          ],
+          "interval_ms": 16
+        }
+      }
+    },
+    {
+      "name": "one press turns Bloom's Switch on: its thumb moves from the track's start to its end over the track's new colour, its spring a frame of requestAnimationFrame each display frame, and onCheckedChange is called once",
       "do": [
         "press",
         [
@@ -206,6 +283,17 @@
         "pixels": {
           "310,188": "#9422ae",
           "334,188": "#ffeefc"
+        },
+        "window_frames": [
+          25,
+          70
+        ],
+        "animation_frames": {
+          "count": [
+            25,
+            70
+          ],
+          "interval_ms": 16
         }
       }
     }
