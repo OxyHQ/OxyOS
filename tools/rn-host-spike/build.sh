@@ -19,7 +19,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 JOBS=${JOBS:-12}
 
 # Debian's multiarch directory for this machine's libraries (/usr/lib/<triplet>): OxyOS builds for
-# amd64 and arm64 (docs/adr/0027-arm.mdx).
+# amd64 and arm64 (docs/adr/0032-arm.mdx).
 case $(dpkg --print-architecture) in
   amd64) MULTIARCH=x86_64-linux-gnu ;;
   arm64) MULTIARCH=aarch64-linux-gnu ;;

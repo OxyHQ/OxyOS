@@ -1,5 +1,5 @@
 # Feasibility spike: React Native 0.88 ReactCommon (cxx platform) + Hermes V1 on Linux, x86-64 or
-# AArch64 (docs/adr/0027-arm.mdx).
+# AArch64 (docs/adr/0032-arm.mdx).
 cmake_minimum_required(VERSION 3.13)
 project(oxyos_rn_spike C CXX)
 set(CMAKE_CXX_STANDARD 20)
@@ -10,7 +10,7 @@ add_compile_options(-include cstdint)
 # The same layout and pixels on every architecture: Clang contracts a * b + c into one fused
 # multiply-add wherever the target has one (AArch64 always; x86-64 only with -mfma), which rounds
 # once instead of twice and moves Yoga's layout and the host's drawing by a level here and there.
-# Off, every operation rounds as written, as Rust's arithmetic does (docs/adr/0027-arm.mdx). Hermes
+# Off, every operation rounds as written, as Rust's arithmetic does (docs/adr/0032-arm.mdx). Hermes
 # keeps its own setting, as React Native builds it.
 add_compile_options(-ffp-contract=off)
 foreach(var RN_DIR HERMES_SRC HERMES_BUILD CODEGEN_DIR THIRD_PARTY_DIR WORKLETS_DIR REANIMATED_DIR

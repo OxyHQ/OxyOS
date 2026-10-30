@@ -44,7 +44,7 @@ A Mac installs from its recovery system onto an erased disk, with no partition e
 
 4. **The bootloader: systemd-boot, started by Debian's signed shim.** On an installed system (the live medium keeps live-build's GRUB for UEFI and syslinux for BIOS):
    - **Secure Boot.** The chain is Debian's: `shim-signed` (signed by Microsoft's third-party UEFI CA, which PCs trust) starts `systemd-boot-efi-amd64-signed` (systemd-boot signed by Debian, which shim trusts), which starts Debian's signed kernel. The boot acceptance tests boot the live medium through Debian's signed shim and GRUB with Secure Boot on (step 2); the installed chain is tested the same way when the installer exists (step 4).
-   - **Entries** are Boot Loader Specification Type 1 entries written by `kernel-install` for each kernel, with the command line in `/etc/kernel/cmdline`: the root, and the boot logo's `quiet splash loglevel=3 vt.global_cursor_default=0` (ADR 0017).
+   - **Entries** are Boot Loader Specification Type 1 entries written by `kernel-install` for each kernel, with the command line in `/etc/kernel/cmdline`: the root, and the boot logo's `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles` (ADR 0017).
    - **Boot counting.** A new kernel's entry is tried a few times and kept only once the boot reaches `boot-complete.target` (systemd's automatic boot assessment), so a bad update falls back by itself. This is why not GRUB: Debian's GRUB has no Boot Loader Specification entries and no boot counting, and its `update-grub` and `os-prober` belong to the multi-system disks decision 2 rules out.
    - **UEFI only.** systemd-boot is UEFI's; every machine OxyOS targets has UEFI.
    - **Later, OxyOS's own signatures.** Debian's chain leaves the initramfs and the command line unsigned. Unified kernel images (`systemd-ukify`), which sign kernel, initramfs and command line together and measure them, need a key the firmware or shim trusts: OxyOS's own shim, built with OxyOS's certificate and signed by Microsoft after the [shim review](https://github.com/rhboot/shim-review), as distributions do. Enrolling a key by MOK is for development machines only. That is part of the publication gate (decision 6).
@@ -116,6 +116,6 @@ Seen, not changed:
 - Dual boot, resizing another system, and installing beside one.
 - The TPM, measured boot, biometrics and unlock by PIN; signing in with the password that unlocked the disk.
 - Hibernation and swap.
-- Machines other than x86-64 with UEFI.
+- Machines other than x86-64 with UEFI: ARM machines are [ADR 0032](./0032-arm)'s.
 - An encrypted home of each account's own (fscrypt or `systemd-homed`), for which the root's filesystem is made ready.
 - How a published medium is distributed and verified by the person (checksums, signatures, a download page).

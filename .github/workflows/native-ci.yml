@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 # Each job runs on x86-64 and on AArch64 (GitHub's Arm runners), natively: OxyOS is built and tested
-# for both architectures (docs/adr/0027-arm.mdx). Nothing here builds or publishes an image.
+# for both architectures (docs/adr/0032-arm.mdx). Nothing here builds or publishes an image.
 jobs:
   verify:
     strategy:

@@ -38,7 +38,7 @@ Oxy shell (separate process)       Oxy applications / Astro (separate processes)
 ## Implementation choices and limits
 
 - Rust for the protocol/compositor core, with small C/C++ integration boundaries only where upstream libraries require them. Keep unsafe code outside the safe core and review it explicitly when introduced.
-- Linux/Debian Trixie, systemd and existing driver/service implementations remain the initial system base. Start with x86_64/UEFI on a named reference machine. Do not promise arbitrary-PC support.
+- Linux/Debian Trixie, systemd and existing driver/service implementations remain the initial system base. Start with x86_64/UEFI on a named reference machine. Do not promise arbitrary-PC support. AArch64 is the second architecture, built and tested from the same sources, its machines brought up in the order and on the reference machines of [ADR 0032](./adr/0032-arm).
 - DRM/KMS atomic modesetting for output and Vulkan through supported drivers for composition are the selected first hardware path. Validate buffer formats/modifiers, external-memory import and fence interoperability on the reference GPU before freezing the graphics ABI.
 - Reuse established input, shaping, font, image and accessibility libraries after feasibility work. An own protocol does not justify new drivers, shaping algorithms, crypto or authentication primitives.
 - Bloom needs an Oxy React Native host/runtime backend. Hermes/Fabric, Yoga and the native-module support matrix must be proven together against the selected Bloom/RN revisions. Do not select dependencies by assuming Astro's macOS host is a Linux host.
