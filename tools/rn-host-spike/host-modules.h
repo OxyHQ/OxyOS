@@ -201,6 +201,9 @@ struct HostServices {
   // Whether the host runs an application in a window of its own (not the shell, not offscreen):
   // known before JavaScript starts, so Bloom's adapter reports the `window` capability from it.
   bool applicationWindow = false;
+  // Whether it runs the session's shell, whose surfaces' keys are offered to JavaScript too
+  // (Launchpad's arrows and Return, docs/adr/0009-session-shell.mdx).
+  bool shellWindow = false;
   WindowService window{};
   SettingsService settings{};
   NotificationsService notifications{};

@@ -85,7 +85,10 @@ wire_enum! {
 }
 wire_enum! {
     /// Privileged shell roles. Each requires a session grant; the label alone authorizes nothing.
-    ShellKind: u8 { Background = 1, Panel = 2, Overlay = 3, Notification = 4 }
+    /// A backdrop is an overlay's: in the overlays' layer, beneath the overlay made after it, and
+    /// faded in and out, never scaled (docs/adr/0011-transitions.mdx), as Launchpad's blurred
+    /// desktop is under its icons.
+    ShellKind: u8 { Background = 1, Panel = 2, Overlay = 3, Notification = 4, Backdrop = 5 }
 }
 wire_enum! {
     PanelEdge: u8 { None = 0, Top = 1, Bottom = 2, Left = 3, Right = 4 }

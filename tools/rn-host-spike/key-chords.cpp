@@ -115,7 +115,10 @@ std::optional<folly::dynamic> KeyChords::press(const OxyOSEvent& event) {
 
 bool KeyChords::swallow(const OxyOSEvent& event) {
   if (event.kind != OXYOS_EVENT_KEY || event.flag) return false;
-  return taken_.erase(event.code) > 0;
+  if (taken_.erase(event.code) == 0) return false;
+  // Released: the key's next press is a new one, not a repeat.
+  held_.erase(event.code);
+  return true;
 }
 
 }  // namespace oxyos

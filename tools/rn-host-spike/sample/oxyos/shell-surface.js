@@ -4,11 +4,13 @@
  * renders the `OxyOSShellSurface` host component. Its subtree stays in the shell's React tree; the
  * Bloom host, run as the shell (`--shell`), draws it in a panel or an overlay of its own, where the
  * shell's layout put it (docs/adr/0009-session-shell.mdx). The overview's cards show each window
- * live through `WindowView` (docs/adr/0022-window-views.mdx).
+ * live through `WindowView` (docs/adr/0022-window-views.mdx). A `backdrop` region is an overlay's,
+ * beneath it, which the compositor fades and never scales (docs/adr/0011-transitions.mdx).
  */
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
+import { oxyosSurfaces } from './platform-surface';
 
 const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () => ({
   uiViewClassName: 'OxyOSShellSurface',
@@ -71,4 +73,6 @@ function WindowView({ windowId, style, accessibilityLabel }) {
   );
 }
 
-export const oxyosShell = { Surface, Masked, WindowView };
+// The keys the shell's surfaces receive, offered before the focused field (the host's
+// OxyOSKeyboard, as an application's window has it): Launchpad's arrows and Return.
+export const oxyosShell = { Surface, Masked, WindowView, keyboard: oxyosSurfaces.keyboard };

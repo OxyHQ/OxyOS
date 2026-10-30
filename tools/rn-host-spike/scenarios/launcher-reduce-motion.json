@@ -1,0 +1,112 @@
+{
+  "about": "Launchpad and a window with reduce motion on (docs/adr/0011-transitions.mdx, the preference of docs/adr/0019-settings.mdx), on the ThinkPad's display (1600×1000 at 1.25): every transition is a crossfade, as a Mac's are with Reduce Motion, nothing growing, shrinking or sliding: Launchpad's icons and backdrop fade in where they rest and out where they were, each easing out, and Inbox's window, opened from it, fades in at its size. With reduce motion making transitions as they are without it, the icons settle from larger and the window grows, and it fails; with it making them take no time, nothing fades, and it fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "outputs": "1600x1000@1.25",
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "the dock's first button opens Launchpad: its backdrop and its icons crossfade in where they rest",
+      "do": [
+        "press_output",
+        [
+          581,
+          773
+        ]
+      ],
+      "expect": {
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": true,
+              "first": 0,
+              "ended": true,
+              "eased": true,
+              "still": true,
+              "lasts_ms": [
+                230,
+                320
+              ]
+            },
+            {
+              "kind": "overlay",
+              "arriving": true,
+              "first": 0,
+              "ended": true,
+              "eased": true,
+              "still": true,
+              "lasts_ms": [
+                230,
+                320
+              ]
+            }
+          ],
+          "count": 2
+        },
+        "output_pixels": {
+          "265,175": "#1a73e8",
+          "1300,500": "#486fd4"
+        }
+      }
+    },
+    {
+      "name": "Inbox, pressed, opens: Launchpad crossfades out where it was, Inbox's window crossfades in at its size",
+      "do": [
+        "press_output",
+        [
+          212,
+          140
+        ]
+      ],
+      "expect": {
+        "transitions": {
+          "seen": [
+            {
+              "kind": "backdrop",
+              "arriving": false,
+              "first": 255,
+              "ended": true,
+              "eased": true,
+              "still": true
+            },
+            {
+              "kind": "overlay",
+              "arriving": false,
+              "first": 255,
+              "ended": true,
+              "eased": true,
+              "still": true
+            },
+            {
+              "kind": "window",
+              "arriving": true,
+              "first": 0,
+              "ended": true,
+              "eased": true,
+              "still": true,
+              "lasts_ms": [
+                230,
+                320
+              ]
+            }
+          ],
+          "count": 3
+        }
+      }
+    }
+  ]
+}

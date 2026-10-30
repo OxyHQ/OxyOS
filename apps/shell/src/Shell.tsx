@@ -15,7 +15,7 @@ import { Wallpaper } from "./components/Wallpaper";
 import { TopBar } from "./components/TopBar";
 import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
-import { Launchpad } from "./components/Launchpad";
+import { Launchpad, LaunchpadBackdrop } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
 import { Bezel } from "./components/Bezel";
@@ -208,6 +208,14 @@ export function Shell({
   useEffect(() => {
     setSwitcher((current) => current && followSwitcher(current, snapshot));
   }, [snapshot]);
+  const launcherArea = {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: dock ? DOCK_HEIGHT : 0,
+    display: view === "launcher" ? "flex" : "none",
+  } as const;
   const menuCommand = (id: string) => {
     if (id === "view.launcher") setView("launcher");
     else if (id === "view.overview") setView("overview");
@@ -261,29 +269,24 @@ export function Shell({
           )}
         </Box>
         {/* The launcher covers the whole screen, the top bar included, but the dock: as Launchpad
-            covers the menu bar and leaves the Dock, whose button closes it again. It is built
-            once, when the shell starts, and kept while hidden, as macOS keeps Launchpad: opening
-            it shows what is built. Hidden, it has no surface and takes no input. */}
-        <Surface
-          kind="overlay"
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: dock ? DOCK_HEIGHT : 0,
-            display: view === "launcher" ? "flex" : "none",
-          }}
-        >
+            covers the menu bar and leaves the Dock, whose button closes it again. Its blurred
+            backdrop is a surface of its own beneath its icons', so the compositor fades the one
+            and settles the other (docs/adr/0011-transitions.mdx). It is built once, when the
+            shell starts, and kept while hidden, as macOS keeps Launchpad: opening it shows what
+            is built. Hidden, it has no surfaces and takes no input. */}
+        <Surface kind="backdrop" style={launcherArea}>
+          <LaunchpadBackdrop open={view === "launcher"} wallpaper={wallpaper} />
+        </Surface>
+        <Surface kind="overlay" style={launcherArea}>
           <Launchpad
             open={view === "launcher"}
             escapeRequest={escapeRequest}
             searchRequest={searchRequest}
             applications={snapshot.applications}
             folders={snapshot.folders}
-            wallpaper={wallpaper}
             launch={activateApp}
             dismiss={dismiss}
+            keyboard={platform.keyboard}
           />
         </Surface>
         {switcher && (

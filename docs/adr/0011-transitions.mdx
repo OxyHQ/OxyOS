@@ -6,7 +6,7 @@ order: 20
 
 # ADR 0011: Transitions
 
-Status: **accepted**; steps 1 to 5 implemented. Builds on [ADR 0004](./0004-gpu-composition) (composition on the CPU and a Vulkan device, byte for byte), [ADR 0005](./0005-damage) (damage) and [ADR 0009](./0009-session-shell) (the shell's surfaces).
+Status: **accepted**; steps 1 to 6 implemented. Builds on [ADR 0004](./0004-gpu-composition) (composition on the CPU and a Vulkan device, byte for byte), [ADR 0005](./0005-damage) (damage) and [ADR 0009](./0009-session-shell) (the shell's surfaces).
 
 ## Problem
 
@@ -15,12 +15,14 @@ Every surface appears and goes at once: a window is there on the frame its first
 ## Decision
 
 1. **The compositor animates arrivals and departures; applications animate their content.** As the macOS window server animates windows and menus while AppKit and the application animate what is inside them. The compositor owns:
-   - **Windows and dialogs:** when a toplevel or a dialog is first shown, its frame grows from 96 % to its size and fades in, 180 ms, easing out; when it goes (destroyed, its client gone, minimized), its last frame shrinks to 96 % and fades out, 150 ms.
-   - **Popups (menus):** they appear at once, as a Mac's do; they fade out, 150 ms, when dismissed or destroyed.
-   - **The shell's overlays** (the launcher, the overview): they fade in and settle from 104 % to their size, 200 ms; they fade out, 150 ms.
-   - **The lock** ([ADR 0010](./0010-lock-screen)): the covers are opaque on the next frame, as they are now: protection is never animated. The lock screen's surface fades in over them, 250 ms; on unlock it fades out, 250 ms, over the desktop shown again.
-   - **The shell's panels**, when the session starts: they fade in, 250 ms.
-   - **The session's start:** from its first frame until its shell is on screen, the session shows the Oxy mark, white, centred on black (an eighth of the output's height, Bloom's drawing of it, the one the Oxy SDK ships), as a Mac shows its own while it starts; it then fades out over the shell, 400 ms. It is the compositor's own frame (`splash.rs`), drawn over everything. Before the session, from Plymouth's first frame, the boot logo shows the same pixels, so the session taking the display over changes nothing on screen ([ADR 0017](./0017-boot-logo)); the mark's outline, not Bloom's view box, is what is centred and an eighth of the height.
+   - **Windows and dialogs:** when a toplevel or a dialog is first shown, its frame grows from 94 % to its size and fades in; when it goes (destroyed, its client gone), its last frame shrinks to 94 % and fades out, quicker.
+   - **Popups (menus):** they appear at once, as a Mac's do; they fade out when dismissed or destroyed.
+   - **The shell's overlays** (the launcher's icons, the overview): they fade in and settle from 104 % to their size; they grow back to 104 % as they fade out, as Launchpad's icons do. **An overlay's backdrop** (the launcher's blurred wallpaper, a surface of its own beneath it, step 6) only fades: it is never scaled.
+   - **The lock** ([ADR 0010](./0010-lock-screen)): the covers are opaque on the next frame, as they are now: protection is never animated. The lock screen's surface fades in over them; on unlock it fades out over the desktop shown again.
+   - **The shell's panels**, when the session starts: they fade in.
+   - **The session's start:** from its first frame until its shell is on screen, the session shows the Oxy mark, white, centred on black (an eighth of the output's height, Bloom's drawing of it, the one the Oxy SDK ships), as a Mac shows its own while it starts; it then fades out over the shell.
+
+   Each motion is one of the session's springs, the same set for all (step 6, which gives them). It is the compositor's own frame (`splash.rs`), drawn over everything. Before the session, from Plymouth's first frame, the boot logo shows the same pixels, so the session taking the display over changes nothing on screen ([ADR 0017](./0017-boot-logo)); the mark's outline, not Bloom's view box, is what is centred and an eighth of the height.
 
    What a surface shows is never changed by its transition: it is drawn whole, scaled about its centre, at an opacity. Input goes by a surface's real geometry from its first frame, and never to a surface going away; a transition never delays a configure, a frame's feedback or an event. Applications keep animating their own content (Bloom, Reanimated, the host's modal windows as on Android); nothing is added to the protocol.
 
@@ -28,7 +30,7 @@ Every surface appears and goes at once: a window is there on the frame its first
 
 3. **A surface going away keeps its last frame for its transition.** When a departing transition begins, the compositor copies the surface's displayed pixels, once; the scene forgets the surface at once (its client's resources are freed, its buffers released) and the copy is drawn until the transition ends. The copy is the compositor's alone and is dropped when the transition ends.
 
-4. **Transitions run on the display's time.** They are measured on `CLOCK_MONOTONIC`; while one runs, the compositor composes a frame for every refresh (its turn wakes for the next), and a transitioning surface's rectangle is damaged on each. They ease out (cubic). A future accessibility setting, reduce motion, makes every duration zero; this decision leaves room for it and no more.
+4. **Transitions run on the display's time.** They are measured on `CLOCK_MONOTONIC`; while one runs, the compositor composes a frame for every refresh (its turn wakes for the next), and a transitioning surface's rectangle is damaged on each. Each moves on a spring released from rest, never linearly (step 6). With reduce motion ([ADR 0019](./0019-settings)) every one is a crossfade: nothing grows, shrinks or slides.
 
 ## Steps
 
@@ -91,8 +93,45 @@ Every surface appears and goes at once: a window is there on the frame its first
 
    Every host scenario that runs without a display passes (34) with `--check-damage`, none of their expectations changed: their pixels are checked where surfaces are settled at 1:1, or (`shell-thumbnails`) where a view's colour is flat, and a flat colour drawn smaller or larger is exactly that colour. `windows`, `window-resize`, `shell-windows`, `session-shell`, `lock-screen`, `shell-overview`, `shell-thumbnails` (the overview's views) and `session-two-outputs` (a second output at 1.5, where a window at scale 1 is drawn larger and a window asked for frames at 1.5 is drawn 1:1) also pass with every frame composed on lavapipe identical to the CPU reference, their transitions' frames among them. Not verified: the session on the ThinkPad's display, where the platform's author saw the pixelation.
 
+6. **One set of motions, on springs.** On the ThinkPad the platform's author found the launcher's look and its opening odd, and asked for a Mac's motion everywhere. The launcher opening was the overlay's 104 % settle applied to the whole launcher, its full-screen copy of the wallpaper included: the desktop's own wallpaper seemed to breathe in and out, and the top bar under it flashed through a scaled, fading copy of itself; a Mac zooms Launchpad's icons and only fades the blurred desktop behind them. And every transition was the same cubic ease-out cut at a fixed duration, a curve no Mac motion follows.
+
+   *Decision.* Every motion the compositor runs is a spring released from rest, as Core Animation's and SwiftUI's are, told by its response (the period it would swing at undamped: how quick it feels) and its damping ratio (1: it arrives without overshooting); a size and a place go on one spring, an opacity on its own, shorter one, so a surface is whole before it has quite settled, as a Mac's are. A transition lasts until its springs are at rest, within a thousandth of their way (under half a pixel of a 400 px move, a quarter of an opacity level), and its last frame is the surface whole or gone. `crates/oxyos-compositor/src/motion.rs` holds the set, the one place every motion's curve and length come from:
+
+   | Motion | Size and place (response, damping) | Opacity | From / to | 90 % of the way | At rest |
+   | --- | --- | --- | --- | --- | --- |
+   | A window arriving | 300 ms, 1 | 180 ms | 94 % | 186 ms | 441 ms |
+   | A window going (closed) | 220 ms, 1 | 150 ms | 94 % | 137 ms | 324 ms |
+   | A menu going | — | 150 ms | — | 93 ms | 221 ms |
+   | An overlay arriving (Launchpad's icons, the overview) | 320 ms, 1 | 200 ms | 104 % | 199 ms | 471 ms |
+   | An overlay going | 240 ms, 1 | 160 ms | 104 % | 149 ms | 353 ms |
+   | A backdrop arriving / going | — | 300 / 240 ms | — | 186 / 149 ms | 441 / 353 ms |
+   | Into the dock / out of it | 380 ms, 1 | 160 ms after 180 ms / 120 ms | a tenth, at the dock | 236 ms | 559 ms |
+   | A switch of workspace | 380 ms, 1 | — | the output's width | 236 ms | 559 ms |
+   | A zoom (and its corners, [ADR 0016](./0016-windows)) | 340 ms, 1 | — | the new frame | 211 ms | 500 ms |
+   | A notification arriving | 400 ms, 0.82 (an overshoot of 1.1 %) | 200 ms | beside itself | 195 ms | 580 ms |
+   | A notification going | — | 200 ms | — | 124 ms | 294 ms |
+   | The lock screen arriving / going | — | 300 ms | — | 186 ms | 441 ms |
+   | The shell's panels arriving | — | 300 ms | — | 186 ms | 441 ms |
+   | The splash going | — | 450 ms | — | 279 ms | 662 ms |
+   | Anything, with reduce motion | — | 200 ms | — | 124 ms | 294 ms |
+
+   These replace the durations steps 2 and 4 give. Dismissals are quicker than arrivals, as a Mac's are. A window minimized stays whole until it is nearly in the dock (its fade waits 180 ms), and is whole at once coming back out. A popup arriving and a panel going are at once, as before, and the lock's covers are never animated. Reduce motion turns every other motion into the crossfade (`Motion::reduced`), at the surface's own place and size; a zoom is then at once, as before, since a crossfade would show the old frame stretched.
+
+   *Overlays and their backdrops.* The shell gains a kind of surface, `ShellKind::Backdrop` (5, `OXYOS_SHELL_BACKDROP`): an overlay's backdrop, in the overlays' layer, which the compositor fades and never scales. Launchpad is two surfaces: its backdrop (the wallpaper at the screen's size, blurred by 30 and darkened by a fifth, a quarter in dark mode, as a Mac's Launchpad blurs the desktop) and, above it, its icons, the overlay, which settle from 104 %. The Bloom host makes the regions a commit shows in the order React made them (their tags), so a backdrop is always beneath its overlay. Neither is animated by React: both are the compositor's, drawn once by the host and moved on the display's time, so the motion never waits on JavaScript or the host's drawing.
+
+   *What a scenario checks.* The compositor records each frame a transition draws (`Seen::path`: its time in the transition, its opacity and how far along its size and place are), the development compositor reports it, and `regress.py` checks a transition's curve: `eased`, its opacity and its size and place only ever going toward their end and, from the second display frame on, ahead of a linear motion of the same length (a spring from rest eases out; a linear one fails it); `still`, nothing grown, shrunk or moved (a backdrop, a crossfade); `lasts_ms`, when its last frame is; `frame_gap_ms`, the time between its frames.
+
+   *Done.* Tests: the springs worked by hand (a critically damped one of 300 ms is 0.2817 of the way at 50 ms, 0.8210 at 150, at rest at 441; never past its end; ahead of a linear motion from the first display frame on), an underdamped one overshooting by its damping once, a fade's delay, every motion 90 % of the way within 260 ms and at rest within 600; every arrival's and departure's frames monotonic and ahead of linear, for windows, overlays, backdrops and menus; a window arriving (209/255 and 97.4 % at 90 ms, its opacity whole by 250 ms, its size at rest at 441); Launchpad's icons from 104 % over a backdrop never scaled; reduce motion as a crossfade at the window's own place, a window minimized fading where it is, a menu still at once; a minimize whole until nearly in the dock; a notification past its place by a few pixels and back; and through real sockets the window's pixels (white over the desktop at 209/255 at 90 ms, 97/255 going at 50 ms), every frame of every motion within its damage, and the zoom's corners. Scenarios: `session-shell` checks the backdrop and the icons arriving and going, eased; `launcher` (below) and `launcher-reduce-motion` (the two crossfading where they rest, and a window opened from it fading in at its size: with reduce motion ignored, or making everything at once, it fails).
+
+   *The launcher, a Mac's* (`apps/shell/src/components/Launchpad.tsx`, `launcher.ts`): seven columns and five rows spread over the screen (fewer on a small one), the grid 78 % of the width, an icon 56 % of its column (78 px at the ThinkPad's 1280 × 744 logical pixels, from 68), every icon on Apple's icon grid's body (896 of 1024, corners 208: an SVG drawn on it as it is, a picture without it rounded to it on white, so Inbox's square, Allo's round and Settings' own icons are one size and shape); a capsule search field at the top that takes the keyboard as Launchpad opens; the arrows move a highlight (a light plate behind the icon and its label, the selected button to a screen reader) through the icons and across pages, Return opens it, a search highlights its first result; Escape clears the search, then closes; a press outside the icons, or between them, closes it. The host offers the shell's surfaces' keys before the focused field, as it does an application's window's (`OxyOSKeyboard`), so the arrows are Launchpad's, not the field's caret's. `scenarios/launcher.json`, at the ThinkPad's 1600 × 1000 at 1.25: open from the dock (backdrop and icons arriving, eased, the backdrop still; the icons' and the backdrop's pixels; Allo told it lost the keyboard; the search focused), → and → (the plate behind Inbox, then Allo; the selected button; the search receiving nothing), Escape (both going, eased; Allo's keyboard back), Super+Space again (the search focused again: a field left focused while hidden never asked for the keyboard again, which this caught), "inb" (Inbox alone, highlighted), Return (Launchpad going as Inbox's window arrives).
+
+   *The backdrop's cost.* The host blurs what expo-blur's view targets at full size; at the ThinkPad's scale Launchpad's backdrop (a deviation of 37 device pixels) took 230 ms to draw, delaying Launchpad's first frame. A blur that wide is now worked out on its target drawn reduced (k times smaller, k an eighth of the deviation, at most 8), as Dimezis' view on Android draws its target into a reduced bitmap, then stretched back. Stretched back from 8 bits, its gradient banded: each level held for a band of 8 to 32 rows, the bands' edges stepping along the reduced pixels' grid (seen on the first build of this step). So the reduced blur is kept at full precision (`LevelImage`, a plane of levels per channel), stretched back bilinearly, each source row stretched along the columns once for the k device rows it serves, and dithered as it is written in 8 bits (an 8 × 8 ordered threshold, ±half a level: `Painter::smooth`), so a gradient shallower than a level per pixel is a fine even pattern, not bands. Drawing the backdrop takes 37 to 40 ms here (the old launcher, the wallpaper dimmed, took 27); blurs under 16 px (the lock screen's clock, `material`'s) are as before. `regress.py`'s `smooth` checks a region of a gradient: neighbouring pixels at most 2 levels apart, and down its columns a level held for at most 3 rows as the median run; `launcher` checks the backdrop's (the 8-bit stretch held levels for a median of 8 rows and fails it; dithered, 1).
+
+   *Measured, and not.* On the development machine (the CPU reference composes every frame whole), a transition's frames over the ThinkPad's 1600 × 1000 come 25 to 50 ms apart, Launchpad's whole output scaled and box-filtered each frame: the curve is checked, the rate is not. On the ThinkPad the session composes on the Iris Xe (a full-screen layer drawn at 104 %, filtered, about 1 to 1.5 ms, step 5), so every frame of these motions should be on time at 60 Hz; still to be measured there.
+
 ## Not in this decision
 
 - A Mac's genie (bending a window as it goes into the dock), and a slide for a window moved to another workspace.
-- The reduce-motion setting itself.
+- Mission Control's windows flying from their places on the desktop to their cards: the overview settles as an overlay does.
+- A backdrop blurring what is under it (a Mac blurs the windows behind Launchpad too): the compositor composes no blur, so Launchpad's backdrop is the wallpaper alone, blurred by the shell.
 - Transitions an application asks for: none is needed yet.

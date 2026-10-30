@@ -82,6 +82,25 @@ struct Clip {
   bool empty() const { return x1 <= x0 || y1 <= y0; }
 };
 
+// Premultiplied pixels kept at full precision, each channel a plane of levels (0 to 255): alpha,
+// red, green, blue. A wide blur's result, so its smooth gradients are never quantized before they
+// are stretched over the screen (Painter::smooth).
+struct LevelImage {
+  int width = 0, height = 0;
+  std::vector<float> planes[4];
+};
+
+// An 8 × 8 ordered (Bayer) threshold in [-0.5, 0.5): added to a level before it is rounded to 8
+// bits, so a gradient shallower than a level per pixel turns into a fine even pattern rather
+// than bands a level apart.
+inline float ditherAt(int x, int y) {
+  static constexpr uint8_t bayer[8][8] = {
+      {0, 32, 8, 40, 2, 34, 10, 42},  {48, 16, 56, 24, 50, 18, 58, 26}, {12, 44, 4, 36, 14, 46, 6, 38},
+      {60, 28, 52, 20, 62, 30, 54, 22}, {3, 35, 11, 43, 1, 33, 9, 41},  {51, 19, 59, 27, 49, 17, 57, 25},
+      {15, 47, 7, 39, 13, 45, 5, 37},  {63, 31, 55, 23, 61, 29, 53, 21}};
+  return (bayer[y & 7][x & 7] + 0.5f) / 64.0f - 0.5f;
+}
+
 class Painter {
  public:
   Painter(Canvas& canvas, float scale) : canvas_(canvas), scale_(scale) {}
@@ -450,6 +469,98 @@ class Painter {
     }
   }
 
+  // Draws `image` stretched over the logical rectangle (dx, dy, dw, dh), sampled bilinearly at
+  // full precision and dithered as it is written in 8 bits (ditherAt), within `clip`, rounded by
+  // `radii` over the box (bx, by, bw, bh), at `opacity`: a wide blur's result, whose gradients
+  // would otherwise band, the steps a level apart following the reduced pixels' grid.
+  void smooth(const LevelImage& image, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+              float bw, float bh, const BorderRadii& radii, float opacity) {
+    if (image.width <= 0 || image.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+    Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+    if (box.empty()) return;
+    int x0 = std::max({static_cast<int>(std::floor(box.x0 * scale_)), region_[0], 0});
+    int y0 = std::max({static_cast<int>(std::floor(box.y0 * scale_)), region_[1], 0});
+    int x1 = std::min({static_cast<int>(std::ceil(box.x1 * scale_)), region_[2], canvas_.width});
+    int y1 = std::min({static_cast<int>(std::ceil(box.y1 * scale_)), region_[3], canvas_.height});
+    if (x0 >= x1 || y0 >= y1) return;
+    bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
+                   radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0;
+    const float s = 1 / scale_;
+    // Each column's share inside the box, its two samples and the weight of the second.
+    struct Column {
+      float cover, weight;
+      int left, right;
+    };
+    std::vector<Column> columns(static_cast<size_t>(x1 - x0));
+    for (int px = x0; px < x1; ++px) {
+      float lx = px * s;
+      float u = ((lx + s / 2 - dx) / dw) * image.width - 0.5f;
+      int u0 = static_cast<int>(std::floor(u));
+      columns[px - x0] = Column{std::clamp((std::min(lx + s, box.x1) - std::max(lx, box.x0)) * scale_, 0.0f, 1.0f),
+                                u - u0, std::clamp(u0, 0, image.width - 1), std::clamp(u0 + 1, 0, image.width - 1)};
+    }
+    // A source row stretched along the columns, kept while the device rows between it and the next
+    // are drawn (a reduced row serves k device rows): each pixel is then one step between two.
+    const size_t span = columns.size();
+    std::vector<float> stretched[2] = {std::vector<float>(span * 4), std::vector<float>(span * 4)};
+    int held[2] = {-1, -1};
+    auto stretch = [&](int sourceRow, int slot) {
+      if (held[slot] == sourceRow) return;
+      if (held[1 - slot] == sourceRow) {
+        stretched[slot] = stretched[1 - slot];
+      } else {
+        size_t base = static_cast<size_t>(sourceRow) * image.width;
+        for (int c = 0; c < 4; ++c) {
+          const float* plane = image.planes[c].data() + base;
+          for (size_t i = 0; i < span; ++i) {
+            const Column& column = columns[i];
+            stretched[slot][i * 4 + c] =
+                plane[column.left] + (plane[column.right] - plane[column.left]) * column.weight;
+          }
+        }
+      }
+      held[slot] = sourceRow;
+    };
+    for (int py = y0; py < y1; ++py) {
+      float ly = py * s;
+      float rowCover = std::clamp((std::min(ly + s, box.y1) - std::max(ly, box.y0)) * scale_, 0.0f, 1.0f);
+      float v = ((ly + s / 2 - dy) / dh) * image.height - 0.5f;
+      int v0 = static_cast<int>(std::floor(v));
+      float fv = v - v0;
+      stretch(std::clamp(v0, 0, image.height - 1), 0);
+      stretch(std::clamp(v0 + 1, 0, image.height - 1), 1);
+      uint32_t* row = canvas_.pixels.data() + static_cast<size_t>(py) * canvas_.width;
+      for (int px = x0; px < x1; ++px) {
+        const size_t i = static_cast<size_t>(px - x0);
+        float coverage = columns[i].cover * rowCover;
+        if (rounded && coverage > 0) coverage *= roundedCoverage(px * s, ly, s, bx, by, bw, bh, radii);
+        if (coverage <= 0) continue;
+        const float* top = &stretched[0][i * 4];
+        const float* bottom = &stretched[1][i * 4];
+        const float k = opacity * coverage;
+        float level[4];
+        for (int c = 0; c < 4; ++c) level[c] = (top[c] + (bottom[c] - top[c]) * fv) * k;
+        const float dither = ditherAt(px, py);
+        // Rounded to the nearest level (the sum is never below -0.5, so adding a half and
+        // truncating is rounding).
+        auto quantize = [dither](float value) {
+          return static_cast<uint32_t>(std::clamp(static_cast<int>(value + dither + 0.5f), 0, 255));
+        };
+        uint32_t& out = row[px];
+        const float alpha = level[0] / 255.0f;
+        if (alpha <= 0) continue;
+        if (level[0] >= 254.5f) {
+          out = 0xff000000u | (quantize(level[1]) << 16) | (quantize(level[2]) << 8) | quantize(level[3]);
+          continue;
+        }
+        auto over = [&](int shift, float source) {
+          return quantize(source + ((out >> shift) & 0xff) * (1 - alpha)) << shift;
+        };
+        out = over(24, level[0]) | over(16, level[1]) | over(8, level[2]) | over(0, level[3]);
+      }
+    }
+  }
+
  private:
   Canvas& canvas_;
   float scale_;
@@ -752,11 +863,10 @@ Picture asPicture(const Canvas& canvas) {
   return picture;
 }
 
-// Blurs a canvas's premultiplied pixels with a Gaussian of standard deviation `sigma` device
-// pixels, as three box blurs of the sizes that approximate it (each pass a running sum, so the
-// cost does not grow with the radius), along rows then columns, the edges extended.
-void gaussianBlur(Canvas& canvas, float sigma) {
-  const int w = canvas.width, h = canvas.height;
+// Blurs `w` × `h` planes of levels with a Gaussian of standard deviation `sigma` pixels, as three
+// box blurs of the sizes that approximate it (each pass a running sum, so the cost does not grow
+// with the radius), along rows then columns, the edges extended.
+void blurPlanes(std::vector<float> (&planes)[4], int w, int h, float sigma) {
   if (w <= 0 || h <= 0 || sigma < 0.5f) return;
   // The widths of three boxes whose succession has this standard deviation.
   float ideal = std::sqrt(12 * sigma * sigma / 3 + 1);
@@ -765,11 +875,7 @@ void gaussianBlur(Canvas& canvas, float sigma) {
   int upper = lower + 2;
   int lowerCount = static_cast<int>(
       std::round((12 * sigma * sigma - 3.0f * lower * lower - 12.0f * lower - 9) / (-4.0f * lower - 4)));
-  std::vector<float> planes[4], scratch(static_cast<size_t>(w) * h);
-  for (int c = 0; c < 4; ++c) {
-    planes[c].resize(static_cast<size_t>(w) * h);
-    for (size_t i = 0; i < planes[c].size(); ++i) planes[c][i] = (canvas.pixels[i] >> (24 - 8 * c)) & 0xff;
-  }
+  std::vector<float> scratch(static_cast<size_t>(w) * h);
   // One box of half-width `r` along `count` lines of `length` samples `step` apart, the lines
   // `stride` apart: from `in` to `out`.
   auto box = [](const std::vector<float>& in, std::vector<float>& out, int r, int lines, int length, int stride,
@@ -793,6 +899,27 @@ void gaussianBlur(Canvas& canvas, float sigma) {
       box(scratch, plane, r, w, h, 1, w);
     }
   }
+}
+
+// A canvas's premultiplied pixels as planes of levels (alpha, red, green, blue).
+LevelImage levelsOf(const Canvas& canvas) {
+  LevelImage image;
+  image.width = canvas.width;
+  image.height = canvas.height;
+  for (int c = 0; c < 4; ++c) {
+    image.planes[c].resize(canvas.pixels.size());
+    for (size_t i = 0; i < canvas.pixels.size(); ++i) image.planes[c][i] = (canvas.pixels[i] >> (24 - 8 * c)) & 0xff;
+  }
+  return image;
+}
+
+// Blurs a canvas's premultiplied pixels with a Gaussian of standard deviation `sigma` device
+// pixels (blurPlanes), rounded back to 8 bits.
+void gaussianBlur(Canvas& canvas, float sigma) {
+  if (canvas.width <= 0 || canvas.height <= 0 || sigma < 0.5f) return;
+  LevelImage image = levelsOf(canvas);
+  auto& planes = image.planes;
+  blurPlanes(planes, canvas.width, canvas.height, sigma);
   for (size_t i = 0; i < canvas.pixels.size(); ++i) {
     uint32_t pixel = 0;
     for (int c = 0; c < 4; ++c) {
@@ -820,19 +947,31 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   auto target = tree.views().find(blurTarget.target);
   if (!blurAt || !targetAt || target == tree.views().end()) return;
   const float scale = painter.scale(), sigma = blurTarget.radius * scale;
+  // A wide blur (16 device pixels of deviation or more: Launchpad's backdrop, 37 at 1.25) is
+  // worked out on the target drawn reduced, as Dimezis' view draws it into a bitmap scaled down:
+  // k times smaller (an eighth of the deviation, at most 8), blurred by what the Gaussian has left
+  // to do at that size (drawing it reduced and stretching it back blur by about k²/4 of variance
+  // between them), and stretched back over the view, bilinearly, at full precision and dithered
+  // (Painter::smooth): stretched from 8 bits, its gradients would band. What a blur that wide keeps
+  // is far coarser than k pixels, so it is within a level or two of the blur at full size, for a
+  // k²th of the drawing and the blurring: Launchpad's backdrop at 1.25 took 230 ms, now 37 to 40,
+  // most of it the stretch back.
+  const int k = sigma >= 16 ? std::min(8, static_cast<int>(sigma / 8)) : 1;
+  const float reducedScale = scale / k;
+  const float reducedSigma = k > 1 ? std::sqrt(std::max(0.25f, sigma * sigma - k * k / 4.0f)) / k : sigma;
   // What the blur reads around a pixel: three standard deviations.
-  const int margin = static_cast<int>(std::ceil(3 * sigma));
+  const int margin = static_cast<int>(std::ceil(3 * reducedSigma));
   Canvas layer;
-  layer.width = painted.x1 - painted.x0 + 2 * margin;
-  layer.height = painted.y1 - painted.y0 + 2 * margin;
+  layer.width = (painted.x1 - painted.x0 + k - 1) / k + 2 * margin;
+  layer.height = (painted.y1 - painted.y0 + k - 1) / k + 2 * margin;
   layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
-  const float left = static_cast<float>(painted.x0 - margin) / scale;
-  const float top = static_cast<float>(painted.y0 - margin) / scale;
+  const float left = static_cast<float>(painted.x0) / scale - margin / reducedScale;
+  const float top = static_cast<float>(painted.y0) / scale - margin / reducedScale;
   // The target where it is relative to this view, in the layer's coordinates.
   Affine map = viewTransform(target->second.view);
   float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx - left;
   float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty - top;
-  Painter inside(layer, scale);
+  Painter inside(layer, reducedScale);
   inside.placesWindows = false;
   RenderStats unseen;
   ++drawingBlurTarget;
@@ -841,8 +980,17 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
                 std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()},
            1.0f, inside, unseen, edit);
   --drawingBlurTarget;
-  gaussianBlur(layer, sigma);
-  painter.image(asPicture(layer), left, top, layer.width / scale, layer.height / scale,
+  if (k > 1) {
+    // Kept in levels and stretched back bilinearly, dithered as it is written: quantized to 8 bits
+    // at the reduced size, its bands a level apart would follow the reduced pixels' grid as steps.
+    LevelImage levels = levelsOf(layer);
+    blurPlanes(levels.planes, layer.width, layer.height, reducedSigma);
+    painter.smooth(levels, left, top, layer.width / reducedScale, layer.height / reducedScale,
+                   clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity);
+    return;
+  }
+  gaussianBlur(layer, reducedSigma);
+  painter.image(asPicture(layer), left, top, layer.width / reducedScale, layer.height / reducedScale,
                 clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity, std::nullopt);
 }
 

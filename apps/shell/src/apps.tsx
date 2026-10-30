@@ -8,6 +8,16 @@ function isSvgIcon(icon: ShellApplication["icon"]): icon is { svg: string } {
   return typeof icon === "object" && icon !== null && "svg" in icon;
 }
 
+/**
+ * Apple's icon grid, which OxyOS's icons are drawn on: a 1024 canvas whose body, the rounded
+ * square, is 896 across at 64 from each edge, its corners 208 (`assets`' and the registry's SVG
+ * icons). An icon drawn on it is shown as it is; a picture without it (a bitmap, its own square
+ * or a round logo) is put in that body, clipped to its corners, on white, as macOS 26 puts an icon
+ * that is not its shape in one, so every icon in a row is the same size and shape.
+ */
+const BODY = 896 / 1024;
+const CORNER = 208 / 896;
+
 /** Actual application artwork supplied by the registry. No generic recoloured glyphs. */
 export function AppIcon({
   app,
@@ -18,36 +28,64 @@ export function AppIcon({
   size?: number;
   circular?: boolean;
 }) {
-  const artworkSize = circular
-    ? size - 4
-    : isSvgIcon(app.icon)
-      ? size * 0.82
-      : size;
+  if (circular) {
+    return (
+      <Box
+        className="items-center justify-center"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: "#fff",
+          overflow: "hidden",
+          borderWidth: 1,
+          borderColor: "#e5e9ee",
+        }}
+      >
+        {isSvgIcon(app.icon) ? (
+          <SvgXml xml={app.icon.svg} width={size - 4} height={size - 4} />
+        ) : (
+          <Image
+            source={app.icon}
+            resizeMode="contain"
+            style={{ width: size - 4, height: size - 4 }}
+          />
+        )}
+      </Box>
+    );
+  }
+  if (isSvgIcon(app.icon)) {
+    // Drawn on the grid: the canvas is the icon, its body and corners its own.
+    return (
+      <Box style={{ width: size, height: size }}>
+        <SvgXml xml={app.icon.svg} width={size} height={size} />
+      </Box>
+    );
+  }
+  const body = size * BODY;
+  const radius = body * CORNER;
   return (
     <Box
       className="items-center justify-center"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: circular ? size / 2 : size * 0.22,
-        backgroundColor: "#fff",
-        overflow: "hidden",
-        borderWidth: circular ? 1 : 0,
-        boxShadow: circular
-          ? undefined
-          : "0 2px 3px #0a153b35, 0 0 0 .5px #ffffff25",
-        borderColor: "#e5e9ee",
-      }}
+      style={{ width: size, height: size }}
     >
-      {isSvgIcon(app.icon) ? (
-        <SvgXml xml={app.icon.svg} width={artworkSize} height={artworkSize} />
-      ) : (
+      <Box
+        style={{
+          width: body,
+          height: body,
+          borderRadius: radius,
+          backgroundColor: "#fff",
+          boxShadow: "0 1px 2px #00000030",
+        }}
+      >
+        {/* The picture rounds its own corners: a parent's do not clip what it draws on every
+            platform. */}
         <Image
           source={app.icon}
-          resizeMode="contain"
-          style={{ width: artworkSize, height: artworkSize }}
+          resizeMode="cover"
+          style={{ width: body, height: body, borderRadius: radius }}
         />
-      )}
+      </Box>
     </Box>
   );
 }

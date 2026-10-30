@@ -1,5 +1,5 @@
 {
-  "about": "The OxyOS shell as the session's shell (ADR 0009) with an application: the shell (sample/ShellProbe.tsx's OxyOSShell, a Bloom host run with --shell and the shell grant) starts first; its root is the background, its top bar and dock are panels at the output's edges, kept out of the work area, and the application's window is placed between them. A press on the dock opens the launcher as an overlay over the whole screen but the dock, as Launchpad covers the menu bar and the windows with its own background (the wallpaper, dimmed) and leaves the Dock, and a press on the backdrop closes it; the top bar's menu opens as a popup of its panel, above the window; the window takes its own presses. Each step checks the shell's surfaces and the work area the compositor holds, the window's place, pixels of the output, and that the application receives exactly its own events.",
+  "about": "The OxyOS shell as the session's shell (ADR 0009) with an application: the shell (sample/ShellProbe.tsx's OxyOSShell, a Bloom host run with --shell and the shell grant) starts first; its root is the background, its top bar and dock are panels at the output's edges, kept out of the work area, and the application's window is placed between them. A press on the dock opens the launcher over the whole screen but the dock, as Launchpad covers the menu bar and the windows with its own background and leaves the Dock: its backdrop (the wallpaper, blurred and darkened) a surface of its own beneath its icons', the one fading in while the other settles from larger (ADR 0011), and a press outside the icons closes it; the top bar's menu opens as a popup of its panel, above the window; the window takes its own presses. Each step checks the shell's surfaces and the work area the compositor holds, the window's place, pixels of the output, and that the application receives exactly its own events.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -8,7 +8,7 @@
   "shell": "OxyOSShell",
   "steps": [
     {
-      "name": "the dock's first button opens the launcher: an overlay over the whole screen but the dock, as Launchpad's, the panels and the window kept under it",
+      "name": "the dock's first button opens the launcher over the whole screen but the dock, as Launchpad's, the panels and the window kept under it: its backdrop fades in as its icons settle from larger, each easing out",
       "do": [
         "press_output",
         [
@@ -42,6 +42,12 @@
               0,
               1280,
               720
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
             ]
           ],
           "work_area": [
@@ -65,26 +71,35 @@
         ],
         "output_pixels": {
           "709,693": "#63a0ef",
-          "1100,400": "#3653b7",
-          "640,140": "#2c4cb7"
+          "1100,400": "#4d73d4",
+          "640,140": "#3e67d4"
         },
         "react": {},
         "transitions": {
           "frames_min": 3,
           "seen": [
             {
+              "kind": "backdrop",
+              "arriving": true,
+              "first": 0,
+              "ended": true,
+              "eased": true,
+              "still": true
+            },
+            {
               "kind": "overlay",
               "arriving": true,
               "first": 0,
-              "ended": true
+              "ended": true,
+              "eased": true
             }
           ],
-          "count": 1
+          "count": 2
         }
       }
     },
     {
-      "name": "a press on its backdrop closes it: the overlay goes",
+      "name": "a press outside the icons closes it: its icons grow back as they fade, its backdrop fades",
       "do": [
         "press_output",
         [
@@ -129,13 +144,22 @@
           "frames_min": 3,
           "seen": [
             {
+              "kind": "backdrop",
+              "arriving": false,
+              "first": 255,
+              "ended": true,
+              "eased": true,
+              "still": true
+            },
+            {
               "kind": "overlay",
               "arriving": false,
               "first": 255,
-              "ended": true
+              "ended": true,
+              "eased": true
             }
           ],
-          "count": 1
+          "count": 2
         }
       }
     },

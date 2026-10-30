@@ -1429,8 +1429,9 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
 /// The application's popups now shown, as [x, y, width, height] on the output.
 /// The transitions a step ran (docs/adr/0011-transitions.mdx): the frames composed while any
 /// ran, and for each its kind, whether a surface arrived, the opacities of the first and last
-/// frames drawn in it, how many those were and whether it ran to its end. Taken: the next step
-/// reports its own.
+/// frames drawn in it, how many those were, whether it ran to its end, and each frame drawn
+/// (`path`: its time in the transition, its opacity, and how far along its size and place were,
+/// in thousandths). Taken: the next step reports its own.
 fn transitions_json(compositor: &mut Compositor) -> String {
     let seen: Vec<String> = compositor
         .transitions
@@ -1449,14 +1450,20 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
             };
+            let path: Vec<String> = seen
+                .path
+                .iter()
+                .map(|step| format!("[{},{},{}]", step.ms, step.opacity, step.moved_permille))
+                .collect();
             format!(
-                "{{\"kind\":\"{}\",\"change\":\"{change}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{}}}",
+                "{{\"kind\":\"{}\",\"change\":\"{change}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{},\"path\":[{}]}}",
                 format!("{:?}", seen.kind).to_lowercase(),
                 seen.arriving(),
                 opacity(seen.first),
                 opacity(seen.last),
                 seen.frames,
-                seen.ended
+                seen.ended,
+                path.join(",")
             )
         })
         .collect();

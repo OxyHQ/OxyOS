@@ -492,6 +492,7 @@ int main(int argc, char** argv) {
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
+      services.shellWindow = shellMode;
       // The session's preferences (docs/adr/0019-settings.mdx), from the connection's first events.
       services.settings = {
           .drawing = [&window] {
@@ -1016,7 +1017,8 @@ int main(int argc, char** argv) {
                   }
                   if (keyTaken) {
                     keyChords.taken(event.code);
-                    oxyos::Report::get().deliver("shortcut", event.surface, "menu-bar", *offered);
+                    oxyos::Report::get().deliver("shortcut", event.surface, shellMode ? "shell" : "menu-bar",
+                                                 *offered);
                   }
                 }
               }

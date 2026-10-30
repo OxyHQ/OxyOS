@@ -6670,8 +6670,14 @@ fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or
 #[test]
 fn windows_are_drawn_as_windows_and_the_active_one_so() {
     let mut h = Harness::new();
-    let active = Some(WindowLook { active: true });
-    let inactive = Some(WindowLook { active: false });
+    let active = Some(WindowLook {
+        active: true,
+        maximized: false,
+    });
+    let inactive = Some(WindowLook {
+        active: false,
+        maximized: false,
+    });
     let window = h.toplevel(APP, 1, 800, 600);
     let other = h.toplevel(OTHER, 1, 400, 300);
     assert_eq!(h.scene.focus(), Some(other));
@@ -6761,6 +6767,40 @@ fn windows_are_drawn_as_windows_and_the_active_one_so() {
     assert_eq!(h.scene.window_look(other), None);
     h.present(other);
     assert!(h.scene.window_look(other).is_some());
+    // Zoomed to fill the work area, its corners square from the frame that fills it: before,
+    // still round (ADR 0016).
+    let zoomed = Some(WindowLook {
+        active: false,
+        maximized: true,
+    });
+    h.request(
+        OTHER,
+        Request::SetMaximized {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(h.scene.window_look(other), inactive);
+    h.submit(other);
+    h.scene.begin_frame();
+    assert_eq!(h.scene.window_look(other), zoomed, "the frame composed");
+    h.scene.end_frame(1, Clock::Synthetic);
+    assert_eq!(h.scene.window_look(other), zoomed);
+    // Restored, round again from its restored frame.
+    h.request(
+        OTHER,
+        Request::SetMaximized {
+            surface: 1,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(h.scene.window_look(other), zoomed);
+    h.present(other);
+    assert_eq!(h.scene.window_look(other), inactive);
     // The active window is the one told it is (`active_window`): locked, none is.
     assert_eq!(h.scene.active_window(), Some(window));
     h.scene.lock();

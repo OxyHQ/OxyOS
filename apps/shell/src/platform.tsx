@@ -12,8 +12,11 @@ export type ShellSurfaceProps = {
   /** A lock region is the lock screen: all that shows while the session is locked. A
       notification is above everything but the lock: a hardware key's bezel takes no input
       (docs/adr/0025-hardware-keys-and-control-center.mdx); one at the right edge is a banner, at
-      the output's top-right corner, which takes presses (docs/adr/0026-notifications.mdx). */
-  kind: "panel" | "overlay" | "notification" | "lock";
+      the output's top-right corner, which takes presses (docs/adr/0026-notifications.mdx). A
+      backdrop is an overlay's, beneath it (Launchpad's blurred wallpaper): the compositor fades
+      it in and out and never scales it, while the overlay above settles
+      (docs/adr/0011-transitions.mdx). */
+  kind: "panel" | "overlay" | "backdrop" | "notification" | "lock";
   edge?: "top" | "bottom" | "left" | "right";
   /** Whether a panel keeps its strip of the output out of where windows are placed. */
   exclusive?: boolean;
@@ -43,6 +46,24 @@ export type WindowViewProps = {
   accessibilityLabel?: string;
 };
 
+/** A key press as the platform offers it before the focused field (W3C names). */
+export type ShellKeyEvent = {
+  key: string;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+};
+
+/**
+ * The platform's key presses before the focused field receives them: a listener returning true
+ * took the key, and the field does not receive it (Launchpad's arrows and Return while its search
+ * has the keyboard). Returns the unsubscribe.
+ */
+export type ShellKeyboard = {
+  subscribe(listener: (event: ShellKeyEvent) => boolean): () => void;
+};
+
 export type ShellPlatform = {
   Surface: ComponentType<ShellSurfaceProps>;
   /** Where the platform masks views; without it, what would be masked is drawn plainly. */
@@ -53,6 +74,9 @@ export type ShellPlatform = {
   /** Says `text` to assistive technologies, politely (after what they are saying) or at once;
       without it, React Native's announcement, which interrupts. */
   announce?: (text: string, polite: boolean) => void;
+  /** Its keys before the focused field, where it offers them; elsewhere a field's own
+      `onKeyPress` is all there is. */
+  keyboard?: ShellKeyboard;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

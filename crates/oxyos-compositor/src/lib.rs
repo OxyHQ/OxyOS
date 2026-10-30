@@ -30,6 +30,7 @@ pub mod controls;
 pub mod displays;
 pub mod idle;
 pub mod login;
+pub mod motion;
 pub mod settings;
 pub mod splash;
 pub mod transitions;
@@ -607,12 +608,13 @@ impl Content {
     fn shadow(
         shadows: &window::Shadows,
         look: WindowLook,
+        corner: u32,
         rect: Rect,
         placed: Rect,
         opacity: u8,
     ) -> (Self, u32) {
         let (profile, source) = shadows.of(look);
-        let drawn = window::drawn(look, rect, placed, profile);
+        let drawn = window::drawn(look, corner, rect, placed, profile);
         let shadow = Self {
             key: None,
             rect: drawn.shadow_rect,
@@ -1329,17 +1331,30 @@ impl Compositor {
                 let key = appearance.key;
                 if let (Some(at), Some(to)) = (drawn_at(&list, key), self.scene.upcoming_rect(key))
                 {
-                    let from = self
-                        .transitions
-                        .zooming(key, now)
-                        .or_else(|| {
-                            self.screens
-                                .iter()
-                                .find_map(|screen| drawn_at(&screen.composed, key))
-                        })
-                        .unwrap_or(at);
-                    self.transitions
-                        .zoom(key, appearance.kind, from, at, to, now);
+                    // Its corners square as it fills the work area and round as it leaves it.
+                    let corner = looks.get(&key).map_or(0, |&look| window::corner(look));
+                    let (from, radius) = self.transitions.zooming(key, now).unwrap_or_else(|| {
+                        let from = self
+                            .screens
+                            .iter()
+                            .find_map(|screen| drawn_at(&screen.composed, key))
+                            .unwrap_or(at);
+                        (from, corner)
+                    });
+                    let upcoming = if self.scene.is_maximized(key) {
+                        0
+                    } else {
+                        window::WINDOW_RADIUS
+                    };
+                    self.transitions.zoom(
+                        key,
+                        appearance.kind,
+                        from,
+                        at,
+                        to,
+                        (radius, upcoming),
+                        now,
+                    );
                 }
                 continue;
             }
@@ -1509,7 +1524,8 @@ impl Compositor {
                         // A lock surface fading in does so over the lock's cover.
                         let arriving = self.transitions.arriving(key, now);
                         let look = looks.get(&key).copied();
-                        let zoomed = self.transitions.zooming(key, now);
+                        let zooming = self.transitions.zooming(key, now);
+                        let zoomed = zooming.map(|(at, _)| at);
                         let placed = zoomed.unwrap_or_else(|| arriving.place(rect));
                         if self.transitions.is_arriving(key) || zoomed.is_some() {
                             in_transition(rect, placed, look, zoomed.is_some());
@@ -1518,11 +1534,19 @@ impl Compositor {
                             contents.push(Content::cover(rect));
                         }
                         // A window's shadow beneath it, and its corners: a window zooming has
-                        // them as a window of the size it is drawn at.
+                        // them as a window of the size it is drawn at, its corners on their way
+                        // from one radius to the other.
                         let radius = look.map_or(0, |look| {
                             let cast = if zoomed.is_some() { placed } else { rect };
-                            let (shadow, radius) =
-                                Content::shadow(shadows, look, cast, placed, arriving.opacity);
+                            let corner = zooming.map_or_else(|| window::corner(look), |(_, r)| r);
+                            let (shadow, radius) = Content::shadow(
+                                shadows,
+                                look,
+                                corner,
+                                cast,
+                                placed,
+                                arriving.opacity,
+                            );
                             contents.push(shadow);
                             radius
                         });
@@ -1664,8 +1688,14 @@ impl Compositor {
             let placed = at.place(snapshot.rect);
             in_transition(snapshot.rect, placed, snapshot.look, false);
             let radius = snapshot.look.map_or(0, |look| {
-                let (shadow, radius) =
-                    Content::shadow(shadows, look, snapshot.rect, placed, at.opacity);
+                let (shadow, radius) = Content::shadow(
+                    shadows,
+                    look,
+                    window::corner(look),
+                    snapshot.rect,
+                    placed,
+                    at.opacity,
+                );
                 contents.push(shadow);
                 radius
             });
@@ -3449,13 +3479,26 @@ mod tests {
         let list = [surface(1, 100, 1)];
         let window = SurfaceKey { client: 1, id: 1 };
         let rect = Rect::new(100, 0, 10, 10);
-        let looks = |active| Looks::from([(window, WindowLook { active })]);
+        let looks = |active| {
+            Looks::from([(
+                window,
+                WindowLook {
+                    active,
+                    maximized: false,
+                },
+            )])
+        };
         let damage = |before: (&[RenderItem], &Looks), after: (&[RenderItem], &Looks)| {
             super::output_damage(before, after, &shadows, &|_, _, _| None)
         };
         let (active, inactive) = (looks(true), looks(false));
-        let with_shadow =
-            |look: bool| window::extent(WindowLook { active: look }, rect, rect, &shadows);
+        let with_shadow = |look: bool| {
+            let look = WindowLook {
+                active: look,
+                maximized: false,
+            };
+            window::extent(look, rect, rect, &shadows)
+        };
         // Nothing changed, nothing damaged.
         assert_eq!(damage((&list, &active), (&list, &active)), []);
         // Only its look: where both shadows are.
