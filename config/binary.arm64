@@ -1,0 +1,10 @@
+# config/binary.arm64 - what differs on arm64 from config/binary; live-build reads it after
+# config/binary when LB_ARCHITECTURE is arm64 (config/bootstrap).
+
+# No BIOS bootloader: AArch64 machines boot through UEFI only. The EFI bootloader is
+# config/binary's GRUB, started by Debian's signed shim (LB_UEFI_SECURE_BOOT).
+LB_BOOTLOADER_BIOS=""
+
+# The failsafe entry without config/binary's PC-only arguments (APIC, APM, the VESA mode):
+# no kernel mode setting, no boot logo.
+LB_BOOTAPPEND_LIVE_FAILSAFE="boot=live components nomodeset nosplash"

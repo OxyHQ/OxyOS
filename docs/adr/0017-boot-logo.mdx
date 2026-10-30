@@ -35,11 +35,12 @@ Nothing may stand between the kernel and the session that the image rules forbid
 
    The splash itself is corrected: it centred Bloom's view box of the mark, (80.58, 263.58, 1009.84, 1002.84), which leaves 20 units left of the outline and 119 right of it. The mark sat 7 pixels left of centre at 1920×1200, 5 % of its width, and was 144 pixels tall, not an eighth of the height. It now scales and centres the outline's own bounds, (100.625, 282.875, 871.125, 965.25), measured by a test that draws it at two pixels a unit: centred to the pixel and 150 tall there.
 
-3. **A quiet console.** The live command line (`LB_BOOTAPPEND_LIVE`) and an installed system's (`GRUB_CMDLINE_LINUX_DEFAULT`, in the GRUB drop-in) are `quiet splash loglevel=3 vt.global_cursor_default=0`:
+3. **A quiet console.** The live command line (`LB_BOOTAPPEND_LIVE`) and an installed system's (`GRUB_CMDLINE_LINUX_DEFAULT`, in the GRUB drop-in) are `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles`:
    - **`splash`** starts Plymouth (the initramfs script and `plymouth-start.service` start it unless `nosplash`). The failsafe entry keeps `nosplash`.
    - **`quiet`**: the kernel's console log level is 4, and systemd 257 shows status only on failure (`SHOW_STATUS_ERROR`).
    - **`loglevel=3`**: only errors and worse reach the console, among them the initramfs's udevd, which initramfs-tools runs at `notice` with `quiet` and which logs to the kernel's buffer. `rd.udev.log_level` is dracut's and is not used. `systemd.show_status=auto` would add the line about a job that takes long, so it is not used either.
    - **`vt.global_cursor_default=0`**: Trixie's kernel (6.12, `linux-headers-6.12.111+deb13-amd64`'s configuration) builds the EFI framebuffer and its console in, and not the console's deferred takeover. So the framebuffer console takes the firmware's framebuffer as the kernel starts, clears it and blinks a cursor until Plymouth's first frame; this hides the cursor. The console's login prompt shows it again: `/etc/issue` begins with `\e[?25h`, which agetty writes as the escape that shows it, at every prompt, an automatic login's too.
+   - **`plymouth.ignore-serial-consoles`**: when the firmware names a serial console (QEMU `virt`'s ACPI SPCR table or a device tree's `stdout-path`, `ttyAMA0`; many arm64 machines and servers do), the kernel adds it as a console, and Plymouth, seeing a serial console among the kernel's, shows its text view instead of the theme: black until the login prompt, no mark. The argument tells it to ignore serial consoles for that choice; consoles the command line names (`console=ttyS0`, the acceptance tests' second boot) keep their output. Found booting the arm64 image ([ADR 0032](./0032-arm)); on both architectures, as an amd64 machine can have SPCR too.
 
 4. **The firmware's logo until the kernel, the Oxy mark from Plymouth's first frame.** Plymouth's `bgrt` theme keeps the firmware's logo (the ACPI BGRT image) on screen through the boot. It is not used: the mark that follows, the session's, is the Oxy mark, so the vendor's logo would cut to it at the session's first frame, the moment the handover is meant to be invisible. Otherwise the session would have to show the vendor's logo. The firmware's own picture cannot be changed from the OS. So there is one cut, and it comes first: the firmware's logo, black from the kernel's start (the framebuffer console cleared it), then the Oxy mark from Plymouth's first frame, unchanged until the session's desktop fades in over it.
 
@@ -60,7 +61,7 @@ Nothing may stand between the kernel and the session that the image rules forbid
    *Done.* `oxyos-boot-logo` writes the theme's 26 images (140 KB); its tests check the crop (centred on a 1920×1200 output, every pixel is the frame's) and that the committed images decode to what `splash` draws now. `scripts/check-image-config.py` checks the boot logo:
    - `plymouth-themes` and `plymouth-label` are kept out, and `fontconfig` is installed with `plymouth`;
    - the theme is `oxyos`, at `DeviceScale=1`, a script theme that draws no text;
-   - the live command line has `quiet splash loglevel=3 vt.global_cursor_default=0`, and the failsafe entry `nosplash`.
+   - the live command line has `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles`, and the failsafe entry `nosplash`.
 
    Each was seen to fail on a broken copy. The retired stack's checks are unchanged.
 

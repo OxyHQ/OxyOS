@@ -5,8 +5,6 @@
 //! The workspace forbids `unsafe`; this crate denies it and allows it only on the Vulkan items,
 //! each with the contract it relies on.
 
-use std::ffi::CStr;
-
 /// What a layer puts on the output.
 #[derive(Clone, Copy, Debug)]
 pub enum Paint<'a> {
@@ -491,12 +489,6 @@ fn shader() -> Vec<u32> {
         .chunks_exact(4)
         .map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]]))
         .collect()
-}
-
-fn name(raw: &[std::ffi::c_char]) -> String {
-    CStr::from_bytes_until_nul(&raw.iter().map(|&c| c as u8).collect::<Vec<u8>>())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -2,6 +2,10 @@
 # There is no graphical session yet. Do not add a display server, compositor,
 # greeter, browser shell or desktop application here: none of them run on the
 # OxyOS display protocol, and scripts/check-image-config.py rejects them.
+#
+# One manifest for every architecture (amd64, arm64). What only one architecture has is in a
+# live-build conditional, "#if ARCHITECTURES <arch>" to "#endif" (not nested); everything else
+# is installed on both. scripts/check-image-config.py checks each architecture's list.
 
 # Live system
 live-boot
@@ -48,15 +52,21 @@ dosfstools
 # firmware is left out too, and scripts/check-image-config.py refuses it (SERVER_FIRMWARE):
 # NICs (bnx2, bnx2x, cavium, myricom, netronome, netxen), switch ASICs (marvell-prestera), HBAs
 # (qlogic), BMC graphics (ast) and data-centre GPUs (nvidia-tesla-*-gsp).
+#
+# Most firmware packages are architecture-independent and serve both architectures: a PCIe GPU
+# or Wi-Fi card works the same in an x86-64 PC and an AArch64 workstation, a USB adapter in any
+# machine, and the Raspberry Pi's Wi-Fi is Broadcom's (firmware-brcm80211). What only exists in
+# PCs (the CPU microcode, Intel's integrated graphics, cameras, audio DSPs, and old PCI cards) is
+# amd64-only. The Qualcomm laptops' firmware (firmware-qcom-soc) and daemons (pd-mapper,
+# qrtr-ns, tqftpserv) are not here yet: those machines boot only with a device tree the
+# generic UEFI image does not load, and the daemons start unconditionally, failing elsewhere
+# (docs/iso-build.mdx, "Architectures").
 firmware-linux-free
 firmware-linux
 firmware-linux-nonfree
 firmware-misc-nonfree
-amd64-microcode
-intel-microcode
-# Graphics: AMD, Intel (and its IPU cameras), NVIDIA's consumer GPUs.
+# Graphics: AMD's and NVIDIA's consumer GPUs (integrated, or on PCIe in either architecture).
 firmware-amd-graphics
-firmware-intel-graphics
 firmware-nvidia-graphics
 # Wireless and Bluetooth.
 wireless-regdb
@@ -68,15 +78,25 @@ firmware-carl9170
 firmware-mediatek
 firmware-brcm80211
 firmware-libertas
-firmware-ipw2x00
 firmware-zd1211
 atmel-firmware
 bluez-firmware
-# Audio, and the other Intel devices of a laptop.
-firmware-sof-signed
+# Audio amplifiers.
+firmware-cirrus
+# USB TV tuners.
+firmware-siano
+
+#if ARCHITECTURES amd64
+# PCs only: the CPU microcode (Intel, AMD); Intel's graphics and IPU cameras, its audio DSPs
+# (SOF) and its other laptop devices; Intel's PRO/Wireless mini-PCI cards; PCI capture cards.
+# (firmware-misc-nonfree recommends firmware-intel-graphics and firmware-intel-misc, so Debian
+# installs those two on arm64 as well: its packaging, not this manifest.)
+amd64-microcode
+intel-microcode
+firmware-intel-graphics
 firmware-intel-sound
 firmware-intel-misc
-firmware-cirrus
-# TV tuners and capture cards a desktop may have.
+firmware-sof-signed
+firmware-ipw2x00
 firmware-ivtv
-firmware-siano
+#endif

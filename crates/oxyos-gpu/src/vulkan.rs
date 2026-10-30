@@ -6,7 +6,7 @@
 
 #![allow(unsafe_code)]
 
-use super::{name, shader, Layer, Paint};
+use super::{shader, Layer, Paint};
 use ash::vk;
 use std::fmt;
 
@@ -574,7 +574,12 @@ impl VulkanCompositor {
             queue,
             family,
             memory,
-            name: name(&properties.device_name),
+            // The driver's name for the device, NUL-terminated in a fixed array of `c_char` (signed on
+            // x86-64, unsigned on AArch64): ash reads it as a C string either way.
+            name: properties
+                .device_name_as_c_str()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default(),
             kind: properties.device_type.into(),
             timestamp_period: properties.limits.timestamp_period,
             timestamp_bits,

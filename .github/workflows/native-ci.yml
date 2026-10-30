@@ -15,10 +15,16 @@ concurrency:
   group: native-${{ github.ref }}
   cancel-in-progress: true
 
+# Each job runs on x86-64 and on AArch64 (GitHub's Arm runners), natively: OxyOS is built and tested
+# for both architectures (docs/adr/0032-arm.mdx). Nothing here builds or publishes an image.
 jobs:
   verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - id: toolchain
@@ -52,7 +58,11 @@ jobs:
   # the job above skips those tests, saying why (crates/oxyos-account/src/tests/mod.rs,
   # `passwd_tools`). Here they must run.
   passwd-tools:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     container: debian:trixie
     timeout-minutes: 15
     steps:

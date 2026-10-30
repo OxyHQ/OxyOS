@@ -1,6 +1,11 @@
 """Boot acceptance tests for an OxyOS image, in QEMU.
 
-    python3 tools/image/acceptance IMAGE.iso [--firmware uefi|secureboot|bios] [--out DIR]
+    python3 tools/image/acceptance IMAGE.iso [--firmware uefi|secureboot|bios] [--arch amd64|arm64]
+                                             [--out DIR]
+
+The image's architecture comes from its name (oxyos-base-…-arm64.iso) unless --arch says it:
+amd64 boots in qemu-system-x86_64 (q35, OVMF or SeaBIOS), arm64 in qemu-system-aarch64 (virt,
+AAVMF; UEFI only), with KVM when the machine runs that architecture, else emulated (TCG).
 
 Two boots of the image as built, through its own firmware path and bootloader:
 
@@ -11,8 +16,9 @@ Two boots of the image as built, through its own firmware path and bootloader:
    pixel for pixel, the theme's own `splash-WxH.png` centred on black, as the session's splash
    is. After Plymouth goes, the console must show its prompt.
 2. **The system** (a test-only command line). At the menu the default entry is edited, as a
-   person edits it, to add `console=tty0 console=ttyS0,115200`: the kernel's standard way to put
-   a console on the serial port, nothing in the image. live-config logs its live user in there as
+   person edits it, to add `console=tty0 console=ttyS0,115200` (`ttyAMA0` on arm64, the virt
+   machine's PL011): the kernel's standard way to put a console on the serial port, nothing in
+   the image. live-config logs its live user in there as
    it does on the first terminal. Over the serial console: the boot finishes `running`, no
    system or user unit failed, the services the base needs are active, Plymouth is gone, and
    systemd's own boot time.
@@ -28,7 +34,7 @@ import sys
 import time
 
 import frames
-from machine import Failure, Machine
+from machine import FIRMWARE, SERIAL_CONSOLE, Failure, Machine, default_accel
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 THEME = ROOT / "config" / "includes.chroot_after_packages" / "usr" / "share" / "plymouth" / "themes" / "oxyos"
@@ -36,10 +42,16 @@ THEME = ROOT / "config" / "includes.chroot_after_packages" / "usr" / "share" / "
 # What the console base must be running once booted. Bluetooth and UPower start on demand or
 # when their hardware is there, which QEMU's machine does not have.
 REQUIRED_UNITS = ["systemd-journald.service", "systemd-udevd.service", "dbus.service", "systemd-logind.service",
-                  "NetworkManager.service", "getty@tty1.service", "serial-getty@ttyS0.service"]
+                  "NetworkManager.service", "getty@tty1.service"]
 REQUIRED_USER_UNITS = ["pipewire.socket", "pipewire-pulse.socket"]
 
-TEST_ARGUMENTS = "console=tty0 console=ttyS0,115200"
+
+def test_arguments(architecture):
+    return f"console=tty0 console={SERIAL_CONSOLE[architecture]},115200"
+
+
+def required_units(architecture):
+    return REQUIRED_UNITS + [f"serial-getty@{SERIAL_CONSOLE[architecture]}.service"]
 
 
 class Run:
@@ -117,7 +129,8 @@ def wait_for_menu(screen, timeout, settle=3.0):
 
 
 def boot_logo(args, run):
-    machine = Machine(args.image, run.out / "boot-logo", args.firmware, args.resolution, args.display, args.accel)
+    machine = Machine(args.image, run.out / "boot-logo", args.firmware, args.resolution, args.display, args.accel,
+                      architecture=args.arch)
     machine.start()
     run.facts["accel"] = machine.accel
     screen = Screen(machine, machine.directory / "screen.ppm")
@@ -185,33 +198,36 @@ def boot_logo(args, run):
         machine.stop()
 
 
-def edit_entry(machine, firmware):
+def edit_entry(machine, firmware, arguments):
     """Add the test-only arguments to the default entry's command line, as a person would."""
     if firmware == "bios":
         # isolinux: Tab shows the entry's command line, ready to extend.
         machine.keys("tab")
         time.sleep(0.5)
-        machine.type(" " + TEST_ARGUMENTS)
+        machine.type(" " + arguments)
         machine.keys("ret")
     else:
-        # GRUB: e edits the entry. Its lines are `setparams 'Live system (amd64)'`, an empty
-        # line, then the kernel's (live-build's grub.cfg); Ctrl+E goes to the line's end.
+        # GRUB: e edits the entry. Its lines are `setparams 'Live system (<architecture>)'`, an
+        # empty line, then the kernel's (live-build's grub.cfg); Ctrl+E goes to the line's end.
         machine.keys("e")
         time.sleep(1)
         machine.keys("down")
         machine.keys("down")
         machine.keys("ctrl", "e")
-        machine.type(" " + TEST_ARGUMENTS)
+        machine.type(" " + arguments)
         machine.keys("ctrl", "x")
 
 
 def system(args, run):
-    machine = Machine(args.image, run.out / "system", args.firmware, args.resolution, args.display, args.accel)
+    machine = Machine(args.image, run.out / "system", args.firmware, args.resolution, args.display, args.accel,
+                      architecture=args.arch)
     machine.start()
     screen = Screen(machine, machine.directory / "screen.ppm")
+    arguments = test_arguments(args.arch)
+    units = required_units(args.arch)
     try:
         wait_for_menu(screen, args.timeout)
-        edit_entry(machine, args.firmware)
+        edit_entry(machine, args.firmware, arguments)
         edited = machine.elapsed()
         needle, offset = machine.wait_serial("login:", "$ ", timeout=args.timeout)
         reached = machine.elapsed()
@@ -227,17 +243,18 @@ def system(args, run):
         cmdline = machine.run("cat /proc/cmdline")
         run.facts["cmdline"] = cmdline
         run.check("the shipped command line, plus only the test's console",
-                  "quiet splash loglevel=3 vt.global_cursor_default=0" in cmdline and TEST_ARGUMENTS in cmdline, cmdline)
+                  "quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles" in cmdline
+                  and arguments in cmdline, cmdline)
         state = machine.run("systemctl is-system-running --wait", timeout=args.timeout)
         run.check("the boot finishes running, not degraded", state.strip() == "running", state.strip())
         failed = machine.run("systemctl --failed --no-legend --plain")
         run.check("no failed system unit", not failed.strip(), failed.strip() or "none")
         user_failed = machine.run("systemctl --user --failed --no-legend --plain")
         run.check("no failed user unit", not user_failed.strip(), user_failed.strip() or "none")
-        active = machine.run("systemctl is-active " + " ".join(REQUIRED_UNITS)).split()
-        inactive = [u for u, s in zip(REQUIRED_UNITS, active) if s != "active"]
-        run.check("the base's services are active", len(active) == len(REQUIRED_UNITS) and not inactive,
-                  ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_UNITS, active)))
+        active = machine.run("systemctl is-active " + " ".join(units)).split()
+        inactive = [u for u, s in zip(units, active) if s != "active"]
+        run.check("the base's services are active", len(active) == len(units) and not inactive,
+                  ", ".join(f"{u} {s}" for u, s in zip(units, active)))
         user_active = machine.run("systemctl --user is-active " + " ".join(REQUIRED_USER_UNITS)).split()
         run.check("PipeWire listens in the user's session", user_active == ["active"] * len(REQUIRED_USER_UNITS),
                   ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active)))
@@ -248,6 +265,9 @@ def system(args, run):
                   "debian.sources" in sources and "No such file" in sources and "oxyos.list" not in sources, sources)
         identity = machine.run(". /etc/os-release && printf '%s %s\\n' \"$ID\" \"$VERSION_ID\"")
         run.check("the system is OxyOS's base", identity.startswith("oxyos "), identity)
+        machine_architecture = machine.run("dpkg --print-architecture").strip()
+        run.check("the system is the image's architecture", machine_architecture == args.arch,
+                  f"{machine_architecture} ({machine.run('uname -m').strip()})")
         if args.firmware != "bios":
             secure = machine.run("od -An -t u1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
                                  " 2>/dev/null | awk '{print $NF}'").strip()
@@ -272,20 +292,32 @@ def main():
     parser = argparse.ArgumentParser(prog="tools/image/acceptance", description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("image", type=pathlib.Path)
     parser.add_argument("--firmware", choices=["uefi", "secureboot", "bios"], default="uefi")
+    parser.add_argument("--arch", choices=sorted(FIRMWARE),
+                        help="the image's architecture (default: from its name, else amd64)")
     parser.add_argument("--resolution", default="1920x1200",
                         help="the display's preferred mode; the theme must have a splash of this size")
-    parser.add_argument("--display", choices=["std", "virtio"], default="std")
+    parser.add_argument("--display", choices=["std", "virtio"],
+                        help="amd64: QEMU's standard VGA (default) or virtio-vga; arm64 has virtio-gpu only")
     parser.add_argument("--accel", choices=["kvm", "tcg"])
-    parser.add_argument("--timeout", type=float, help="seconds for each wait (default 240 with KVM, 1500 without)")
+    parser.add_argument("--timeout", type=float,
+                        help="seconds for each wait (default 240 with KVM, 1500 emulated, 3000 emulated arm64)")
     parser.add_argument("--interval", type=float, default=0.02, help="seconds between screen reads")
     parser.add_argument("--only", choices=["boot-logo", "system"])
     parser.add_argument("--out", type=pathlib.Path)
     args = parser.parse_args()
     args.image = args.image.resolve()
     args.resolution = tuple(int(n) for n in args.resolution.split("x"))
+    if args.arch is None:
+        args.arch = next((a for a in FIRMWARE if args.image.stem.endswith("-" + a)), "amd64")
+    if args.firmware not in FIRMWARE[args.arch]:
+        parser.error(f"{args.arch} boots only through {' or '.join(FIRMWARE[args.arch])}")
+    if args.display is None:
+        args.display = "virtio" if args.arch == "arm64" else "std"
+    elif args.arch == "arm64" and args.display != "virtio":
+        parser.error("the virt machine has no VGA: arm64 boots with --display virtio (virtio-gpu)")
     if args.timeout is None:
-        import os
-        args.timeout = 240 if (args.accel or ("kvm" if os.access("/dev/kvm", os.R_OK | os.W_OK) else "tcg")) == "kvm" else 1500
+        accel = args.accel or default_accel(args.arch)
+        args.timeout = 240 if accel == "kvm" else 3000 if args.arch == "arm64" else 1500
     out = args.out or args.image.parent.parent / "acceptance" / args.image.stem / args.firmware
     run = Run(out.resolve())
     started = time.time()
@@ -297,7 +329,8 @@ def main():
     except Failure as error:
         run.check("the run completes", False, str(error))
     failed = [c for c in run.checks if not c["passed"]]
-    result = {"image": str(args.image), "firmware": args.firmware, "resolution": "x".join(map(str, args.resolution)),
+    result = {"image": str(args.image), "architecture": args.arch, "firmware": args.firmware,
+              "resolution": "x".join(map(str, args.resolution)),
               "display": args.display, "seconds": round(time.time() - started, 1), "passed": not failed,
               "checks": run.checks, **run.facts}
     (run.out / "results.json").write_text(json.dumps(result, indent=2) + "\n")

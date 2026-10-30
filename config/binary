@@ -9,8 +9,12 @@ LB_BINARY_FILESYSTEM="fat32"
 # Set apt/aptitude generic indices
 LB_APT_INDICES="false"
 
-# Set boot parameters: the boot logo's quiet console (docs/adr/0017-boot-logo.mdx)
-LB_BOOTAPPEND_LIVE="boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 username=user hostname=oxyos"
+# Set boot parameters: the boot logo's quiet console (docs/adr/0017-boot-logo.mdx). Plymouth
+# ignores serial consoles: where the firmware names one (an AArch64 machine's ACPI SPCR table or
+# its device tree's stdout-path, as QEMU's virt machine has), Plymouth would otherwise force its
+# text view on every display, and the screen would never show the boot logo. The kernel and
+# systemd still write to that console.
+LB_BOOTAPPEND_LIVE="boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles username=user hostname=oxyos"
 
 # Set boot parameters
 LB_BOOTAPPEND_INSTALL=""

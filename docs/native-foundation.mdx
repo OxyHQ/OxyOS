@@ -68,7 +68,7 @@ Expected result:
 | `tools/oxyos-session` | The OxyOS session: the compositor on a real seat running the application it launches, as the user of a logind session ([The session](#the-session)) |
 | `tools/oxyos-offscreen` | CPU offscreen development compositor with two client processes and real shared-memory buffers; `--launch` runs one application process (the Bloom host) and presses scripted points; writes PNG snapshots. `--login SOCKET` runs a login screen instead: locked, no application, its passwords the login program's (`oxyos-login --dev`) |
 | `scripts/check-native-boundary.py` | Check resolved Cargo dependencies against forbidden desktop backends and repository boundaries |
-| `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux; `oxyos-account`'s tests again in a Debian trixie container, where the ones running the system's passwd tools must run |
+| `.github/workflows/native-ci.yml` | Formatting, tests, Clippy, dependency-boundary check and probe on Linux, on x86-64 and natively on AArch64 ([ADR 0032](./adr/0032-arm)); `oxyos-account`'s tests again in a Debian trixie container on both, where the ones running the system's passwd tools must run |
 
 Decisions and policies (roles, coordinates, grabs, outside press, dismissal, lock, buffer lifetime) are in [ADR 0001](./adr/0001-native-platform-boundaries).
 

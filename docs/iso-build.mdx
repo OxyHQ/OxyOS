@@ -28,19 +28,35 @@ Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot 
 | File | Role |
 | --- | --- |
 | `common` | apt, systemd, `live-boot` initramfs, recommends on. Sources `oxyos.conf` for `LB_IMAGE_NAME`. |
-| `bootstrap` | `amd64`, Debian `trixie`, `main contrib non-free non-free-firmware` from `deb.debian.org`. |
+| `bootstrap` | `amd64` unless the build sets `LB_ARCHITECTURE` ([Architectures](#architectures)), Debian `trixie`, `main contrib non-free non-free-firmware` from `deb.debian.org`. |
 | `chroot` | squashfs + overlay, stock `linux-image`. `LB_SECURITY="false"`; the security suite comes from `archives/oxyos.list.*`. |
 | `binary` | `iso-hybrid`, syslinux (BIOS) + grub-efi (UEFI), Secure Boot `auto`, text debian-installer (`LB_DEBIAN_INSTALLER_GUI="false"`: the GTK installer runs an X.org server). |
+| `binary.arm64`, `chroot.arm64` | What differs on arm64, read by live-build after `binary` and `chroot`: no BIOS bootloader, a failsafe entry without the PC's arguments, the `arm64` kernel. |
 | `oxyos.conf` | OS identity (name, version, codename, URLs). `includes.chroot_after_packages/etc/oxyos/oxyos.conf` must be an identical copy; the check script enforces it. |
 
-Live command line: `boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 username=user hostname=oxyos`; an installed system's GRUB gets the same `quiet splash loglevel=3 vt.global_cursor_default=0` from the drop-in below. The failsafe entry keeps `nosplash`. Why each is there: [ADR 0017](./adr/0017-boot-logo).
+Live command line: `boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles username=user hostname=oxyos`; an installed system's GRUB gets the same `quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles` from the drop-in below. The failsafe entry keeps `nosplash`. Why each is there: [ADR 0017](./adr/0017-boot-logo). `plymouth.ignore-serial-consoles` came with arm64: where the firmware names a serial console (an AArch64 machine's ACPI SPCR table or its device tree's `stdout-path`; QEMU's `virt` machine has both), the kernel enables it with no `console=` argument, and Plymouth, seeing a serial console, forces its text view on every display, so the screen stayed black until the login prompt. With it Plymouth keeps the boot logo on the screen; the kernel and systemd still write to the serial console.
+
+### Architectures
+
+One configuration builds two images: **amd64** (x86-64 PCs; UEFI, Secure Boot, BIOS) and **arm64** (AArch64 machines with UEFI: the generic arm64 UEFI image, which QEMU's `virt` machine boots with AAVMF, as do UEFI arm64 desktops and servers' firmware; Secure Boot through Debian's shim). The architecture is chosen when building (`tools/image/build.sh --arch arm64`), and nothing in `config/` is copied or edited per architecture:
+
+- **The settings.** `config/bootstrap` takes `LB_ARCHITECTURE` from the environment `tools/image/container.sh` exports, `amd64` by default. live-build reads every configuration file's override for the architecture after the file itself (`config/<file>.<architecture>`, its `Get_conffiles`): `binary.arm64` and `chroot.arm64` hold what differs, and only that. `check-image-config.py` refuses an override for an architecture `config/` does not build.
+- **The packages.** The one manifest; what only one architecture installs is in a live-build conditional, `#if ARCHITECTURES amd64` to `#endif` (not nested, the only condition allowed). `check-image-config.py` expands the manifest for each architecture as live-build does and checks each list.
+- **The build is native.** An arm64 image is built in the arm64 container, live-build bootstrapping and running its chroot as on an arm64 machine; on an x86-64 host the container runs through QEMU's user-mode emulation (Debian's `qemu-user-binfmt`). Nothing is cross-built.
+
+On arm64 the image has no BIOS bootloader (UEFI only), the kernel is Debian's `linux-image-arm64` (the generic UEFI kernel, with the device trees of the boards it supports), and the PC-only packages below are not installed. GRUB through Debian's Microsoft-signed `shimaa64.efi` is Secure Boot's chain, as on amd64.
+
+What the generic UEFI image does not boot yet, and why (each target's own boot path, device trees, firmware and graphics, decided in the ARM ADR):
+- **The Raspberry Pi** boots its own firmware from a FAT partition (`config.txt`, its device tree), not UEFI: a Pi image is its own image type. `raspi-firmware` is not in this image, and the check script refuses it.
+- **Qualcomm laptops** (Snapdragon X, the ThinkPad X13s) boot Linux only with a device tree the bootloader loads; GRUB here loads none. Their firmware (`firmware-qcom-soc`) and the daemons their audio, battery and modem need (`protection-domain-mapper`, `qrtr-tools`, `tqftpserv`, `rmtfs`) wait for that boot path: the daemons' units start on every machine and fail where there is no Qualcomm remote processor, which would leave every other machine `degraded`.
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest for every architecture; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode.
 
 **Firmware: laptops and desktops.** OxyOS runs on laptops and desktops, so the image carries the firmware of their hardware and not a server's. The manifest names it (`LB_FIRMWARE_CHROOT="false"` and `LB_FIRMWARE_BINARY="false"`, which the check script enforces):
-- **in:** the CPU microcode (Intel, AMD); graphics: AMD, Intel (with its IPU cameras) and NVIDIA's consumer GPUs (`firmware-nvidia-graphics`); Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom, Marvell, and the older USB and PCI adapters, with `wireless-regdb`; audio: Intel SOF and DSPs, Cirrus Logic amplifiers; Intel's other devices; TV tuners and capture cards; `firmware-misc-nonfree` for everything else small.
+- **in, on both architectures** (Debian's firmware packages are architecture-independent, and a PCIe or USB device needs the same firmware in either machine): graphics: AMD's and NVIDIA's consumer GPUs (`firmware-nvidia-graphics`); Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom (the Raspberry Pi's too), Marvell, and the older USB adapters, with `wireless-regdb`; Cirrus Logic amplifiers; USB TV tuners; `firmware-misc-nonfree` for everything else small (Arm's Mali CSF firmware among it).
+- **in, amd64 only** (`#if ARCHITECTURES amd64`): what only PCs have: the CPU microcode (Intel, AMD); Intel's graphics (with its IPU cameras), audio DSPs (SOF) and other laptop devices; Intel's PRO/Wireless mini-PCI cards; PCI capture cards.
 - **out, refused:** firmware only servers and data centres have, matched by `SERVER_FIRMWARE` in `scripts/check-image-config.py` (in the manifest) and by the built image's audit. That covers network adapters (`firmware-bnx2`, `-bnx2x`, `-cavium`, `-myricom`, `-netronome`, `-netxen`, `-liquidio`), switch ASICs (`-marvell-prestera`), storage HBAs (`-qlogic`), BMC graphics (`-ast`) and data-centre GPUs (`-nvidia-tesla-*-gsp`). `archives/no-server-firmware.pref.chroot` pins them to -1 during the build: `firmware-libertas` recommends `firmware-marvell-prestera`, and a hard dependency on one fails the build.
 - **out, not firmware:** what live-build's own detection would add, since it installs every package with a file under `/lib/firmware`. In a built image that was astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`), and through them Cairo, `libxcb-render0` and `libxcb-shm0`; the telephony cards' `dahdi-firmware-nonfree`; and the two `b43` installers, which download firmware from the internet as they install.
 
@@ -81,17 +97,18 @@ For development only: the result is the console base system, not OxyOS, and it i
 ### Building
 
 ```sh
-tools/image/build.sh            # build, then audit what was built
-tools/image/build.sh audit      # audit the newest image again
-tools/image/build.sh clean      # remove the build tree, keep the package cache
+tools/image/build.sh                  # build the amd64 image, then audit what was built
+tools/image/build.sh --arch arm64     # the arm64 image, in the arm64 container
+tools/image/build.sh audit [ISO]      # audit the newest image (or ISO) again
+tools/image/build.sh clean [--arch A] # remove an architecture's build tree, keep its package cache
 ```
 
-`build.sh` runs live-build in a privileged `debian:trixie` container (pinned by digest; `--privileged` for the chroot's mounts and device nodes), so nothing is installed on the host. The repository is mounted read-only; everything is written under `OXYOS_BUILD_DIR` (default `~/oxyos-build`; not `/tmp`, which is often RAM and a build needs several GB):
+`build.sh` runs live-build in a privileged `debian:trixie` container of the image's architecture (pinned by digest: each platform's manifest in one image index, since Docker's classic image store keeps one platform per digest; `--privileged` for the chroot's mounts and device nodes), so nothing is installed on the host. An arm64 build on an x86-64 host needs QEMU's user-mode emulation registered (Debian's `qemu-user-binfmt`, whose `binfmt_misc` entry has the `F` flag, so the container needs no emulator of its own); `build.sh` says so when it is missing. The audit's extraction runs in the host's own container, whatever the image's architecture. The repository is mounted read-only; everything is written under `OXYOS_BUILD_DIR` (default `~/oxyos-build`; not `/tmp`, which is often RAM and a build needs several GB):
 
 | Path | What |
 | --- | --- |
-| `build/` | live-build's tree, a fresh copy of `config/` each build; `build/cache/` keeps the downloaded packages and the bootstrap stage between builds (`OXYOS_FRESH=1` drops them) |
-| `out/oxyos-base-<version>-<commit>-amd64.iso` | the image; *base* because it is the console base. `.packages` (every package and version installed), `.build-info` (commit, `SOURCE_DATE_EPOCH`, live-build's and debootstrap's versions, the container), `.iso.sha256`, `build.log` |
+| `build/<arch>/` | live-build's tree, a fresh copy of `config/` each build; `build/<arch>/cache/` keeps the downloaded packages and the bootstrap stage between builds (`OXYOS_FRESH=1` drops them) |
+| `out/oxyos-base-<version>-<commit>-<arch>.iso` | the image; *base* because it is the console base. `.packages` (every package and version installed), `.build-info` (commit, architecture, `SOURCE_DATE_EPOCH`, live-build's and debootstrap's versions, the container), `.iso.sha256`, `build-<arch>.log` |
 | `audit/<image>/` | what the audit extracted |
 | `acceptance/<image>/<firmware>/` | the acceptance tests' screens, serial logs and results |
 
@@ -114,21 +131,27 @@ It reports the sizes (the ISO, the squashfs, what packages install, the largest 
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso                       # UEFI
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firmware secureboot  # Debian's shim
 python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-amd64.iso --firmware bios        # SeaBIOS, isolinux
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-arm64.iso                        # AAVMF
+python3 tools/image/acceptance ~/oxyos-build/out/oxyos-base-…-arm64.iso --firmware secureboot  # AAVMF, Debian's shim
 ```
 
-The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf` for UEFI: `OVMF_CODE_4M.fd`, or `OVMF_CODE_4M.secboot.fd` with `OVMF_VARS_4M.ms.fd`'s Microsoft keys for Secure Boot). KVM is used when `/dev/kvm` is usable, else TCG with longer timeouts. The display is QEMU's standard VGA (`--display virtio` for virtio-gpu) with an EDID whose preferred mode is the size under test, 1920×1200 by default, the ThinkPad's: the theme must have a `splash-WxH.png` of that size, since the mark is compared pixel for pixel. Two boots:
+The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf` for UEFI: `OVMF_CODE_4M.fd`, or `OVMF_CODE_4M.secboot.fd` with `OVMF_VARS_4M.ms.fd`'s Microsoft keys for Secure Boot). KVM is used when `/dev/kvm` is usable, else TCG with longer timeouts. The display is QEMU's standard VGA (`--display virtio` for virtio-gpu) with an EDID whose preferred mode is the size under test, 1920×1200 by default, the ThinkPad's: the theme must have a `splash-WxH.png` of that size, since the mark is compared pixel for pixel.
+
+The architecture comes from the image's name (`--arch` overrides it). An arm64 image boots in `qemu-system-aarch64`'s `virt` machine with Debian's `qemu-efi-aarch64` (`AAVMF_CODE.no-secboot.fd`, or `AAVMF_CODE.secboot.fd` with `AAVMF_VARS.ms.fd`'s Microsoft keys), UEFI only (`--firmware bios` is refused): `virtio-gpu-pci` with the EDID under test as the display (the machine has no VGA; AAVMF draws its console on it and the kernel's `virtio-gpu` driver takes it over), the medium on `virtio-scsi`, a USB keyboard for the keys QMP sends, and the PL011 serial port, `ttyAMA0`, as the test's console. Emulated on an x86-64 host (TCG, 4 CPUs, `-cpu max,pauth-impdef=on`), each wait gets 3000 s; KVM is used on an arm64 host.
+
+On either architecture, two boots:
 
 1. **The boot logo.** At the bootloader's menu the tests press Enter, as a person would, so the command line is exactly the shipped one. From then on the screen is read over QMP (`screendump`) many times a second and each frame classified: the bootloader's picture, black, the mark (the frame equal, byte for byte, to the theme's `splash-WxH.png` centred on black), something mark-sized in the centre that differs from it, or anything else. The checks:
    - the kernel takes the display to black, with nothing drawn;
    - from the first black frame until the mark, every frame is black: no kernel or initramfs text, no cursor;
    - the mark is the theme's pixels;
    - the console's prompt follows the mark.
-2. **The system.** At the menu the default entry is edited as a person edits it (GRUB: `e`, the end of the kernel's line, `Ctrl+X`; isolinux: `Tab`) to add `console=tty0 console=ttyS0,115200`: the kernel's standard way to have a console on the serial port. Nothing is added to the image for the tests. systemd starts a getty there, and the tests log in as live-config's live user with its default password. Over the serial console they check:
+2. **The system.** At the menu the default entry is edited as a person edits it (GRUB: `e`, the end of the kernel's line, `Ctrl+X`; isolinux: `Tab`) to add `console=tty0 console=ttyS0,115200` (`ttyAMA0` on arm64): the kernel's standard way to have a console on the serial port. Nothing is added to the image for the tests. systemd starts a getty there, and the tests log in as live-config's live user with its default password. Over the serial console they check:
    - the boot finishes `running` (`systemctl is-system-running --wait`), not `degraded`;
    - no failed system or user unit;
    - journald, udevd, D-Bus, logind, NetworkManager and both gettys active, and PipeWire's sockets in the user's session;
    - Plymouth has quit;
-   - `/etc/os-release` is OxyOS's;
+   - `/etc/os-release` is OxyOS's, and `dpkg` the image's architecture;
    - UEFI and the Secure Boot state match the firmware.
 
    They record systemd's boot time (`systemd-analyze`) and its slowest units, and the boot's error-level journal.
@@ -136,6 +159,20 @@ The tests boot the image as built in QEMU (`qemu-system-x86_64`, Debian's `ovmf`
 Written under `acceptance/<image>/<firmware>/`: `results.json` (each check, the boot logo's timeline with the time after Enter of each change, the command line, the boot time), the frames as small PNGs (`1-bootloader-menu`, `2-black`, `3-mark`, `5-console`, `6-console-after-boot`, and any frame that failed a check), each boot's serial log and QEMU's log. The exit status is non-zero when a check fails.
 
 The screen is read about 35 times a second (a dump and its decoding take under 10 ms with KVM): a flash shorter than that can pass unseen. What QEMU cannot show: a real panel's mode and its firmware's logo, the time the panel is dark, the passphrase field at an encrypted disk, i915's handling of the CRTC. Those stay [ADR 0017](./adr/0017-boot-logo)'s step 3, on the ThinkPad.
+
+### The arm64 image, built and booted
+
+On a developer's machine (WSL2, x86-64; the arm64 container and the machine emulated by QEMU, TCG), at commit `1f6cc4d8fc17` with this configuration:
+
+- **Built** in 2 h 6 min (7572 s, every arm64 program emulated; the bootstrap and packages cached): `oxyos-base-1.0-…-arm64.iso`, 998.5 MiB; 382 packages, 1119.5 MiB installed, of which 505.7 MiB are firmware files; a 532.1 MiB squashfs and a 104.8 MiB initramfs. The kernel package is the largest (170 MiB, with the device trees). live-build reports Secure Boot on: the ISO boots `EFI/boot/bootaa64.efi` (Debian's Microsoft-signed `shimaa64.efi`) and `grubaa64.efi` (`grub-efi-arm64-signed`).
+- **Audited**: no forbidden package or file, no server firmware, every package in the manifest's closure, the includes unchanged, the boot logo in the initramfs (`usr/lib/aarch64-linux-gnu/plymouth/script.so`). The residue is amd64's: `libx11-6`, `libx11-data`, `libx11-xcb1`, `libxcb1`, `/etc/X11/xkb`, `/etc/X11/Xsession.d`. `firmware-misc-nonfree` recommends `firmware-intel-graphics` and `firmware-intel-misc`, so Debian installs those two on arm64 too, although the manifest names them for amd64 only.
+- **Booted**: all 18 checks pass with AAVMF (UEFI) and with AAVMF's Secure Boot and Microsoft's keys (`SecureBoot` 1), at 1920×1200 on virtio-gpu. Emulated, after Enter at GRUB's menu: black at 15 to 16.5 s (GRUB loads the kernel and initramfs), the Oxy mark, byte for byte the theme's `splash-1920x1200.png`, at 16.2 to 17.9 s, the console at 89 to 93 s. systemd: 33 to 34 s in the kernel and 62 to 68 s in userspace. No failed unit; `dpkg` is arm64 and the kernel `aarch64`.
+
+Building and booting found two things, fixed here:
+- **No boot logo on arm64.** QEMU's `virt` machine names its PL011 as the console (ACPI SPCR, and `stdout-path` in its device tree), as many AArch64 machines' firmware does. The kernel enables that serial console with no `console=` argument, Plymouth then forces its text view on every display, and the screen stayed black until the login prompt. The command line now has `plymouth.ignore-serial-consoles` (live and installed, both architectures).
+- **The audit's extraction** looked for `/live/initrd.img`, which live-build writes for syslinux only: the arm64 ISO has only the kernel's versioned name. It now takes the medium's one `/live/initrd.img*`.
+
+The amd64 image from the same commit is unchanged by the arm64 work: the same 389 packages and sizes as [ADR 0023](./adr/0023-installing-oxyos)'s build, the audit passes, and all checks pass with UEFI (18), Secure Boot (18) and SeaBIOS (17), with the new command line.
 
 ### Static checks
 

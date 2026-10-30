@@ -13,7 +13,7 @@ zune-jpeg = "0.5"
 # A JPEG drawn smaller than it is decoded at a half, a quarter or an eighth of its size from its
 # DCT coefficients (as libjpeg's scale-on-decode), never whole: jpeg-decoder's `scale`.
 jpeg-decoder = { version = "0.3", default-features = false }
-moxcms = "0.7"
+moxcms = "0.8"
 
 [lints]
 workspace = true
