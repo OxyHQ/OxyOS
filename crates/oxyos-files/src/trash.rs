@@ -17,6 +17,7 @@
 //!   **Removing** it, or emptying the Trash, deletes it for good: the only deletion there is.
 
 use crate::entries::{self, Entry};
+use crate::scope::Access;
 use crate::{Error, Scope};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
@@ -308,7 +309,7 @@ pub fn restore(scope: &Scope, id: &str) -> Result<PathBuf, Error> {
         .parent()
         .and_then(|parent| parent.to_str())
         .ok_or_else(|| Error::Refused("the root".into()))?;
-    let folder = scope.folder(parent)?;
+    let folder = scope.folder(parent, Access::Write)?;
     let target = folder.join(original.file_name().ok_or(Error::InvalidName)?);
     entries::rename_new(&trash.files().join(&name), &target)?;
     let _ = std::fs::remove_file(trash.info_of(&name));

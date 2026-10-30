@@ -1146,26 +1146,42 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
 
-/* Files (crates/oxyos-files, docs/adr/0028-file-access.mdx): the user's home and the volumes mounted for
- * them, for an application's OxyOSFiles. Requests are JSON ({"id", "op", ...}, the operations in
- * oxyos_files::service), run in order on the service's own thread; answers ({"id", "ok", "value"}
- * or {"id", "ok": false, "error", "message"}) and watched changes ({"changed": WATCH}) are JSON
- * too, taken from its queue. A service is used by one thread at a time. */
+/* Files (crates/oxyos-files, docs/adr/0028-file-access.mdx): the user's home, the volumes mounted
+ * for them and the application's own folders, for an application's OxyOSFiles (expo-file-system's
+ * operations, the places and the Trash). Requests are JSON ({"op", ...}, the operations in
+ * oxyos_files::service) with bytes beside them; answers ({"ok": true, "value"} or {"ok": false,
+ * "error", "message"}) and watched changes (events: id 0) are JSON with bytes beside them too. A
+ * request is answered at once on the calling thread (oxyos_files_call), or queued and answered in
+ * order on the service's own thread, taken from its queue (oxyos_files_take). */
 typedef struct OxyOSFiles OxyOSFiles;
-/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME, $USER's
- * volumes under /media and /run/media), or NULL. */
-OxyOSFiles* oxyos_files_new(void);
+typedef struct OxyOSFilesReply OxyOSFilesReply;
+/* The service for the user running the process ($HOME, $XDG_DATA_HOME, $XDG_CONFIG_HOME,
+ * $XDG_CACHE_HOME, $USER's volumes under /media and /run/media), for the application `app_id` (its
+ * reverse domain name; NULL for none: no folders of its own), whose documents and cache folders
+ * ($XDG_DATA_HOME/ID, $XDG_CACHE_HOME/ID) are made if they are not there, run from the bundle in the
+ * folder `bundle` (read-only; NULL for none), or NULL. */
+OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
 void oxyos_files_free(OxyOSFiles* files);
-/* Readable while answers are queued (for poll/epoll). */
+/* Readable while replies are queued (for poll/epoll). */
 int oxyos_files_fd(OxyOSFiles* files);
-/* Queues a request (`length` bytes of UTF-8 JSON, not NUL-terminated). 0, or OXYOS_ERROR for text
- * that is not UTF-8 (nothing is queued). */
-int oxyos_files_request(OxyOSFiles* files, const char* json, size_t length);
-/* Takes the next answer or change without blocking, written into `out` (`capacity` bytes,
- * NUL-terminated); returns its length, 0 when there is none. A length of `capacity` or more did not
- * fit: nothing was taken, and a call with that much more room takes it. */
-int64_t oxyos_files_answer(OxyOSFiles* files, char* out, size_t capacity);
+/* Answers a request (`length` bytes of UTF-8 JSON, not NUL-terminated, and `bytes_length` bytes
+ * beside it, `bytes` NULL for none) at once: the reply, freed with oxyos_files_reply_free; NULL for
+ * a request that is not UTF-8. */
+OxyOSFilesReply* oxyos_files_call(OxyOSFiles* files, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
+/* Queues a request as `id` (not 0); its answer is the reply with that id. 0, or OXYOS_ERROR for a
+ * request that is not UTF-8 (nothing is queued). */
+int oxyos_files_request(OxyOSFiles* files, uint64_t id, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
+/* The next reply without blocking, NULL when there is none; freed with oxyos_files_reply_free. */
+OxyOSFilesReply* oxyos_files_take(OxyOSFiles* files);
+/* The id of the request a reply answers; 0 for an event (a watch's change). */
+uint64_t oxyos_files_reply_id(const OxyOSFilesReply* reply);
+/* A reply's JSON, NUL-terminated, its length in `*length` (if not NULL); valid until it is freed. */
+const char* oxyos_files_reply_json(const OxyOSFilesReply* reply, size_t* length);
+/* A reply's bytes (what was read), their length in `*length` (if not NULL); valid until it is freed. */
+const uint8_t* oxyos_files_reply_bytes(const OxyOSFilesReply* reply, size_t* length);
+/* Frees a reply. NULL is ignored. */
+void oxyos_files_reply_free(OxyOSFilesReply* reply);
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,

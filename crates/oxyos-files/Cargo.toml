@@ -14,5 +14,14 @@ serde_json = "1"
 # The Trash's deletion dates, in local time as the freedesktop.org Trash specification writes them.
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
+# expo-file-system's base64 content.
+base64 = "0.23"
+# File digests (`File.digest`, `md5`): RustCrypto's MD5, SHA-1 and SHA-2.
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+# An application's id, by the registry's own rule.
+oxyos-apps = { path = "../oxyos-apps" }
+
 [lints]
 workspace = true

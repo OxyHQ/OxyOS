@@ -3,10 +3,9 @@
 
 use crate::entries;
 use crate::places::{self, Favourite, Volume};
-use crate::service::{self, Service};
 use crate::trash;
-use crate::watch::Watcher;
-use crate::{Error, Scope};
+use crate::watch::{Change, Watcher};
+use crate::{Access, Error, Scope};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -14,12 +13,12 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 /// A directory of the test's own, removed when it ends.
-struct Place {
-    root: PathBuf,
+pub(crate) struct Place {
+    pub(crate) root: PathBuf,
 }
 
 impl Place {
-    fn new(name: &str) -> Place {
+    pub(crate) fn new(name: &str) -> Place {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let root = std::env::temp_dir().join(format!(
             "oxyos-files-{name}-{}-{}",
@@ -33,17 +32,17 @@ impl Place {
         }
     }
 
-    fn path(&self, relative: &str) -> PathBuf {
+    pub(crate) fn path(&self, relative: &str) -> PathBuf {
         self.root.join(relative)
     }
 
-    fn dir(&self, relative: &str) -> PathBuf {
+    pub(crate) fn dir(&self, relative: &str) -> PathBuf {
         let path = self.path(relative);
         std::fs::create_dir_all(&path).expect("folder");
         path
     }
 
-    fn file(&self, relative: &str, text: &str) -> PathBuf {
+    pub(crate) fn file(&self, relative: &str, text: &str) -> PathBuf {
         let path = self.path(relative);
         std::fs::create_dir_all(path.parent().expect("parent")).expect("folder");
         std::fs::write(&path, text).expect("file");
@@ -63,7 +62,7 @@ impl Drop for Place {
 }
 
 /// A home with a volume `USB Stick` mounted for the user, as a session's scope sees them.
-fn scope_in(place: &Place) -> Scope {
+pub(crate) fn scope_in(place: &Place) -> Scope {
     let home = place.dir("home/ada");
     let media = place.dir("media/ada");
     place.dir("media/ada/USB Stick");
@@ -87,7 +86,7 @@ fn scope_in(place: &Place) -> Scope {
     .expect("scope")
 }
 
-fn text(path: &Path) -> &str {
+pub(crate) fn text(path: &Path) -> &str {
     path.to_str().expect("UTF-8")
 }
 
@@ -101,15 +100,23 @@ fn a_path_is_taken_only_inside_the_home_and_the_volumes() {
     std::os::unix::fs::symlink(&outside, home.join("away")).expect("link");
     std::os::unix::fs::symlink(&documents, home.join("docs")).expect("link");
 
-    assert_eq!(scope.folder(text(&home)).expect("home"), home);
-    assert_eq!(scope.folder(text(&documents)).expect("in"), documents);
+    assert_eq!(scope.folder(text(&home), Access::Read).expect("home"), home);
+    assert_eq!(
+        scope.folder(text(&documents), Access::Read).expect("in"),
+        documents
+    );
     // A link inside leading inside is where it leads.
     assert_eq!(
-        scope.folder(text(&home.join("docs"))).expect("link"),
+        scope
+            .folder(text(&home.join("docs")), Access::Read)
+            .expect("link"),
         documents
     );
     let volume = place.path("media/ada/USB Stick");
-    assert_eq!(scope.folder(text(&volume)).expect("volume"), volume);
+    assert_eq!(
+        scope.folder(text(&volume), Access::Read).expect("volume"),
+        volume
+    );
 
     for refused in [
         "relative/path".to_string(),
@@ -124,16 +131,19 @@ fn a_path_is_taken_only_inside_the_home_and_the_volumes() {
         text(&place.path("media/ada")).to_string(),
     ] {
         assert!(
-            matches!(scope.folder(&refused), Err(Error::Refused(_))),
+            matches!(scope.folder(&refused, Access::Read), Err(Error::Refused(_))),
             "{refused:?} was taken"
         );
     }
     assert!(matches!(
-        scope.folder(text(&home.join("missing"))),
+        scope.folder(text(&home.join("missing")), Access::Read),
         Err(Error::NotFound)
     ));
     let file = place.file("home/ada/notes.txt", "hi");
-    assert!(matches!(scope.folder(text(&file)), Err(Error::NotAFolder)));
+    assert!(matches!(
+        scope.folder(text(&file), Access::Read),
+        Err(Error::NotAFolder)
+    ));
 }
 
 #[test]
@@ -466,8 +476,10 @@ fn a_watched_folder_says_when_its_items_change() {
     let documents = place.dir("home/ada/Documents");
     let music = place.dir("home/ada/Music");
     let (told, heard) = mpsc::channel();
-    let watcher = Watcher::new(scope.mountinfo(), move |ids| {
-        let _ = told.send(ids);
+    let watcher = Watcher::new(scope.mountinfo(), move |change| {
+        if let Change::Watches(ids) = change {
+            let _ = told.send(ids);
+        }
     })
     .expect("watcher");
     let docs = watcher.watch(&[documents.clone()], false).expect("watch");
@@ -492,111 +504,4 @@ fn a_watched_folder_says_when_its_items_change() {
     // A folder that goes says so.
     std::fs::remove_dir(&music).expect("remove");
     assert_eq!(changes(&heard), vec![tunes]);
-}
-
-/// Requests through the service, each answer read from its queue as the host reads it.
-fn ask(service: &Service, request: serde_json::Value) -> serde_json::Value {
-    service.request(&request.to_string());
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(answer) = service.take() {
-            let answer: serde_json::Value = serde_json::from_str(&answer).expect("json");
-            if answer.get("id") == request.get("id") {
-                return answer;
-            }
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no answer to {request}"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
-}
-
-#[test]
-fn the_service_answers_requests_in_order_with_their_ids() {
-    let place = Place::new("service");
-    let scope = scope_in(&place);
-    let home = scope.home().to_path_buf();
-    place.dir("home/ada/Documents");
-    place.file("home/ada/Documents/a.txt", "abc");
-    let service = Service::new(scope).expect("service");
-
-    let places = ask(&service, serde_json::json!({"id": 1, "op": "places"}));
-    assert_eq!(places["ok"], true);
-    assert_eq!(places["value"]["home"], text(&home));
-    assert_eq!(places["value"]["favourites"][0]["key"], "documents");
-    assert_eq!(places["value"]["volumes"][0]["name"], "USB Stick");
-    assert_eq!(places["value"]["trash"], 0);
-
-    let listed = ask(
-        &service,
-        serde_json::json!({"id": 2, "op": "list", "path": home.join("Documents")}),
-    );
-    assert_eq!(listed["value"]["entries"][0]["name"], "a.txt");
-    assert_eq!(listed["value"]["entries"][0]["size"], 3);
-
-    let refused = ask(
-        &service,
-        serde_json::json!({"id": 3, "op": "list", "path": "/etc"}),
-    );
-    assert_eq!(
-        (refused["ok"].clone(), refused["error"].clone()),
-        (false.into(), "refused".into())
-    );
-    let unknown = ask(&service, serde_json::json!({"id": 4, "op": "format"}));
-    assert_eq!(unknown["error"], "refused");
-    let garbage = service::answer(
-        &Scope::new(
-            &home,
-            &home,
-            &home,
-            vec![],
-            PathBuf::from("/nonexistent"),
-            1000,
-        )
-        .expect("scope"),
-        &Watcher::new(Path::new("/nonexistent"), |_| {}).expect("watcher"),
-        "not json",
-    );
-    assert!(garbage.contains("\"ok\":false"), "{garbage}");
-
-    // Several at once: each its own result.
-    let trashed = ask(
-        &service,
-        serde_json::json!({"id": 5, "op": "trash", "paths": [home.join("Documents/a.txt"), "/etc/passwd", home]}),
-    );
-    let results = trashed["value"].as_array().expect("results");
-    assert_eq!(results[0]["ok"], true);
-    assert_eq!(results[1]["error"], "refused");
-    assert_eq!(results[2]["error"], "refused");
-    let listed = ask(&service, serde_json::json!({"id": 6, "op": "trashList"}));
-    assert_eq!(listed["value"][0]["name"], "a.txt");
-    assert_eq!(
-        listed["value"][0]["original"],
-        text(&home.join("Documents/a.txt"))
-    );
-
-    // A watch says when its folder changes, as {"changed": N} in the same queue.
-    let watch = ask(
-        &service,
-        serde_json::json!({"id": 7, "op": "watch", "path": home.join("Documents")}),
-    );
-    let number = watch["value"].as_u64().expect("watch");
-    let made = ask(
-        &service,
-        serde_json::json!({"id": 8, "op": "createFolder", "parent": home.join("Documents"), "name": "New Folder"}),
-    );
-    assert_eq!(made["value"]["folder"], true);
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(answer) = service.take() {
-            let answer: serde_json::Value = serde_json::from_str(&answer).expect("json");
-            if answer["changed"].as_u64() == Some(number) {
-                break;
-            }
-        }
-        assert!(std::time::Instant::now() < deadline, "no change said");
-        std::thread::sleep(Duration::from_millis(5));
-    }
 }

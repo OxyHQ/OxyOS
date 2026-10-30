@@ -1,30 +1,39 @@
 //! What an OxyOS application reaches of the file system (docs/adr/0028-file-access.mdx): the user's
-//! home and the removable media mounted for them, and nothing else.
+//! home, the removable media mounted for them and the application's own folders, and nothing
+//! else; beneath `expo-file-system`'s API and the Bloom adapter's places and Trash.
 //!
-//! - [`Scope`] decides what a path names: an absolute path with no `.` or `..`, inside the home or
-//!   a mounted volume once its links are resolved, and never inside a Trash, which only the
-//!   Trash's own operations reach. Everything else is refused, with the reason.
-//! - [`entries`] lists a folder and creates, renames and moves items, never replacing one.
+//! - [`Scope`] decides what a path names: an absolute path with no `.` or `..`, inside the home, a
+//!   mounted volume or the application's folders once its links are resolved (its bundle read,
+//!   never changed), and never inside a Trash, which only the Trash's own operations reach.
+//!   Everything else is refused, with the reason.
+//! - [`access`]: `expo-file-system`'s operations as its Android implementation does them: facts,
+//!   reading, writing, creating, deleting, copying and moving (never over an item unless asked),
+//!   listing, digests and open files, by `file://` URI ([`uri`]).
+//! - [`entries`] lists a folder and renames items, never replacing one.
 //! - [`trash`] moves items to the Trash as the freedesktop.org Trash specification (1.0) says,
-//!   and lists, restores and removes what it holds. Nothing here deletes an item that is not in
-//!   the Trash.
+//!   and lists, restores and removes what it holds.
 //! - [`places`]: the home, its favourite folders (the XDG user directories) and the volumes.
-//! - [`watch`]: a folder's, the Trash's and the volumes' changes, through inotify and the mount
+//! - [`watch`]: what changes in a folder or a file, typed and debounced as `expo-file-system`'s
+//!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
-//! - [`Service`] runs requests in order on a thread of its own and answers them, and the changes
-//!   watched, through one descriptor the Bloom host polls (`OxyOSFiles`).
+//! - [`Service`] answers requests on the caller's thread (`expo-file-system`'s synchronous calls)
+//!   or in order on a thread of its own, and says the changes watched, through one descriptor the
+//!   Bloom host polls (`OxyOSFiles`).
 
 use std::fmt;
 use std::io;
 
+pub mod access;
 pub mod entries;
+pub mod mime;
 pub mod places;
 mod scope;
 pub mod service;
 pub mod trash;
+pub mod uri;
 pub mod watch;
 
-pub use scope::Scope;
+pub use scope::{Access, Application, Root, Scope};
 pub use service::Service;
 
 /// Why a request was not done.
@@ -37,14 +46,26 @@ pub enum Error {
     NotFound,
     /// Something is already there with that name.
     Exists,
-    /// A folder was wanted.
+    /// The folder a copy, a move or a download would go into does not exist.
+    NoDestination,
+    /// A folder was wanted, and something else is there.
     NotAFolder,
+    /// A file was wanted, and a folder is there.
+    NotAFile,
     /// A name that cannot be an item's: empty, with a `/`, `.` or `..`, or longer than 255 bytes.
     InvalidName,
     /// The item and where it goes are on different volumes: a move would be a copy.
     CrossDevice,
     /// The system did not allow it.
     Denied,
+    /// A request's argument that cannot be: its reason (a mode, an encoding, an algorithm).
+    Invalid(String),
+    /// What OxyOS cannot do yet: its reason.
+    Unsupported(String),
+    /// The application cancelled it.
+    Cancelled,
+    /// A transfer the network could not make, or whose server refused it: the reason.
+    Network(String),
     /// Anything else the system answered.
     Io(io::Error),
 }
@@ -56,10 +77,16 @@ impl Error {
             Error::Refused(_) => "refused",
             Error::NotFound => "not-found",
             Error::Exists => "exists",
+            Error::NoDestination => "no-destination",
             Error::NotAFolder => "not-a-folder",
+            Error::NotAFile => "not-a-file",
             Error::InvalidName => "invalid-name",
             Error::CrossDevice => "cross-device",
             Error::Denied => "denied",
+            Error::Invalid(_) => "invalid",
+            Error::Unsupported(_) => "unsupported",
+            Error::Cancelled => "cancelled",
+            Error::Network(_) => "network",
             Error::Io(_) => "io",
         }
     }
@@ -71,10 +98,16 @@ impl fmt::Display for Error {
             Error::Refused(reason) => write!(f, "refused: {reason}"),
             Error::NotFound => f.write_str("nothing is there"),
             Error::Exists => f.write_str("an item with that name is already there"),
+            Error::NoDestination => f.write_str("the destination's folder does not exist"),
             Error::NotAFolder => f.write_str("not a folder"),
+            Error::NotAFile => f.write_str("a folder is there, not a file"),
             Error::InvalidName => f.write_str("not a name an item can have"),
             Error::CrossDevice => f.write_str("on another volume"),
             Error::Denied => f.write_str("not allowed by the system"),
+            Error::Invalid(reason) | Error::Unsupported(reason) | Error::Network(reason) => {
+                f.write_str(reason)
+            }
+            Error::Cancelled => f.write_str("cancelled"),
             Error::Io(error) => write!(f, "{error}"),
         }
     }
@@ -119,5 +152,7 @@ pub fn valid_name(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
+#[cfg(test)]
+mod access_tests;
 #[cfg(test)]
 mod tests;
