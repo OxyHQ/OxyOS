@@ -24,6 +24,38 @@ pub(super) struct Launches {
     asked: Vec<LaunchRequest>,
 }
 
+/// Text a client sends in chunks for one of its requests (`request`, its serial): `index` 0 begins
+/// it, each next chunk follows in order, `last` completes it, and the whole text then. A chunk out
+/// of order or text beyond `max` bytes is a protocol error, and what was received is dropped.
+pub(super) fn assemble(
+    receiving: &mut BTreeMap<(ClientId, u32), (String, u8)>,
+    request: (ClientId, u32),
+    index: u8,
+    last: bool,
+    text: PreeditText,
+    max: usize,
+) -> Result<Option<String>, ErrorCode> {
+    let entry = receiving
+        .entry(request)
+        .or_insert_with(|| (String::new(), 0));
+    if index == 0 {
+        *entry = (String::new(), 0);
+    } else if index != entry.1 {
+        receiving.remove(&request);
+        return Err(ErrorCode::InvalidOrder);
+    }
+    if entry.0.len() + text.as_str().len() > max {
+        receiving.remove(&request);
+        return Err(ErrorCode::QuotaExceeded);
+    }
+    entry.0.push_str(text.as_str());
+    entry.1 = index.wrapping_add(1);
+    if !last {
+        return Ok(None);
+    }
+    Ok(receiving.remove(&request).map(|(text, _)| text))
+}
+
 impl Scene {
     pub(super) fn launch_request(
         &mut self,
@@ -37,29 +69,17 @@ impl Scene {
             return Err(ErrorCode::Unauthorized);
         }
         let launches = &mut self.launches;
-        let entry = launches
-            .receiving
-            .entry((client, serial))
-            .or_insert_with(|| (String::new(), 0));
-        if index == 0 {
-            *entry = (String::new(), 0);
-        } else if index != entry.1 {
-            launches.receiving.remove(&(client, serial));
-            return Err(ErrorCode::InvalidOrder);
-        }
-        if entry.0.len() + text.as_str().len() > MAX_APP_ID_BYTES {
-            launches.receiving.remove(&(client, serial));
-            return Err(ErrorCode::QuotaExceeded);
-        }
-        entry.0.push_str(text.as_str());
-        entry.1 = index.wrapping_add(1);
-        if !last {
+        let Some(id) = assemble(
+            &mut launches.receiving,
+            (client, serial),
+            index,
+            last,
+            text,
+            MAX_APP_ID_BYTES,
+        )?
+        else {
             return Ok(());
-        }
-        let (id, _) = launches
-            .receiving
-            .remove(&(client, serial))
-            .expect("just received");
+        };
         if launches.asked.len() >= MAX_PENDING_LAUNCHES {
             return Err(ErrorCode::QuotaExceeded);
         }

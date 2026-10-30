@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 
 /// The longest value a preference takes, in bytes.
 pub const MAX_VALUE_BYTES: usize = 64;
+/// The longest accent, in bytes: every client is told it in one event (`Preferences`, whose text
+/// is one 32-byte chunk), so a change of how they draw arrives whole. Bloom's names are short.
+pub const MAX_ACCENT_BYTES: usize = 32;
 
 /// Light, dark, or following the sun where the system's time zone is (ADR 0012).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,7 +38,7 @@ impl Appearance {
 pub struct Preferences {
     pub appearance: Appearance,
     /// One of Bloom's accent colours, by name (a Bloom application that does not know it keeps
-    /// its own): lowercase letters, digits and dashes.
+    /// its own): lowercase letters, digits and dashes, at most [`MAX_ACCENT_BYTES`].
     pub accent: String,
     /// Every transition takes no time (ADR 0011).
     pub reduce_motion: bool,
@@ -103,10 +106,10 @@ fn boolean(value: &str) -> Result<bool, Refused> {
     }
 }
 
-/// A name: lowercase letters, digits and dashes, beginning with a letter.
-fn name(value: &str) -> Result<String, Refused> {
+/// A name of at most `max` bytes: lowercase letters, digits and dashes, beginning with a letter.
+fn name(value: &str, max: usize) -> Result<String, Refused> {
     let mut chars = value.chars();
-    let valid = value.len() <= MAX_VALUE_BYTES
+    let valid = value.len() <= max
         && chars.next().is_some_and(|c| c.is_ascii_lowercase())
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     if valid {
@@ -129,14 +132,14 @@ impl Preferences {
                     _ => return Err(Refused::BadValue),
                 }
             }
-            "accent" => self.accent = name(value)?,
+            "accent" => self.accent = name(value, MAX_ACCENT_BYTES)?,
             "reduce_motion" => self.reduce_motion = boolean(value)?,
             "reduce_transparency" => self.reduce_transparency = boolean(value)?,
             "wallpaper" => {
                 self.wallpaper = if value.is_empty() {
                     None
                 } else {
-                    Some(name(value)?)
+                    Some(name(value, MAX_VALUE_BYTES)?)
                 }
             }
             "lock_after" => {

@@ -3,8 +3,8 @@
 use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
-    AccessibleAction, DismissReason, GesturePhase, PointerKind, ServerConnection,
-    NO_ACCESSIBLE_PARENT,
+    AccessibleAction, DismissReason, GesturePhase, PointerKind, PreeditText, ServerConnection,
+    MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -2862,6 +2862,165 @@ fn the_shell_asks_for_an_application_through_the_c_abi() {
         assert!(matches!(
             requests.last(),
             Some(Request::LaunchApplication {
+                index: 1,
+                last: true,
+                ..
+            })
+        ));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_PREFERENCE_RESULT",
+            i64::from(OXYOS_EVENT_PREFERENCE_RESULT),
+        ),
+        ("OXYOS_EVENT_PREFERENCES", OXYOS_EVENT_PREFERENCES.into()),
+        ("OXYOS_EVENT_PREFERENCE", OXYOS_EVENT_PREFERENCE.into()),
+        ("OXYOS_PREFERENCES_DARK", OXYOS_PREFERENCES_DARK.into()),
+        (
+            "OXYOS_PREFERENCES_REDUCE_MOTION",
+            OXYOS_PREFERENCES_REDUCE_MOTION.into(),
+        ),
+        (
+            "OXYOS_PREFERENCES_REDUCE_TRANSPARENCY",
+            OXYOS_PREFERENCES_REDUCE_TRANSPARENCY.into(),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    let accent = PreeditText::new("ocean-blue").unwrap();
+    for (event, kind) in [
+        (
+            Event::PreferenceResult {
+                serial: 1,
+                accepted: true,
+            },
+            OXYOS_EVENT_PREFERENCE_RESULT,
+        ),
+        (
+            Event::Preferences {
+                dark: true,
+                reduce_motion: true,
+                reduce_transparency: true,
+                accent,
+            },
+            OXYOS_EVENT_PREFERENCES,
+        ),
+        (
+            Event::Preference {
+                index: 0,
+                last: true,
+                text: accent,
+            },
+            OXYOS_EVENT_PREFERENCE,
+        ),
+    ] {
+        assert_eq!(u32::from(event.opcode()), kind);
+    }
+    let result = convert(&Event::PreferenceResult {
+        serial: 7,
+        accepted: false,
+    })
+    .unwrap();
+    assert_eq!(
+        (result.kind, result.code, result.flag),
+        (OXYOS_EVENT_PREFERENCE_RESULT, 7, 0)
+    );
+    let preferences = convert(&Event::Preferences {
+        dark: true,
+        reduce_motion: false,
+        reduce_transparency: true,
+        accent,
+    })
+    .unwrap();
+    assert_eq!(preferences.kind, OXYOS_EVENT_PREFERENCES);
+    assert_eq!(
+        preferences.flag,
+        OXYOS_PREFERENCES_DARK | OXYOS_PREFERENCES_REDUCE_TRANSPARENCY
+    );
+    assert_eq!(
+        CStr::from_bytes_until_nul(&preferences.text).unwrap(),
+        c"ocean-blue"
+    );
+    let preference = convert(&Event::Preference {
+        index: 2,
+        last: true,
+        text: PreeditText::new("ue").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (preference.kind, preference.detail, preference.flag),
+        (OXYOS_EVENT_PREFERENCE, 2, 1)
+    );
+    assert_eq!(CStr::from_bytes_until_nul(&preference.text).unwrap(), c"ue");
+
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-preference-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let wallpaper = "a-wallpaper-with-a-rather-long-name";
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        // `wallpaper=` and its value: 45 bytes, two chunks.
+        (0..2)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // are NUL-terminated.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_set_preference(client, 7, std::ptr::null(), c"x".as_ptr()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_set_preference(client, 7, c"".as_ptr(), c"x".as_ptr()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_set_preference(client, 7, c"a=b".as_ptr(), c"x".as_ptr()),
+            OXYOS_ERROR
+        );
+        let long = CString::new("a".repeat(MAX_PREFERENCE_BYTES)).unwrap();
+        assert_eq!(
+            oxyos_client_set_preference(client, 7, c"wallpaper".as_ptr(), long.as_ptr()),
+            OXYOS_ERROR
+        );
+        let value = CString::new(wallpaper).unwrap();
+        assert_eq!(
+            oxyos_client_set_preference(client, 7, c"wallpaper".as_ptr(), value.as_ptr()),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        let text: String = requests
+            .iter()
+            .map(|request| match request {
+                Request::SetPreference {
+                    serial: 7, text, ..
+                } => text.as_str().to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(text, format!("wallpaper={wallpaper}"));
+        assert!(matches!(
+            requests.last(),
+            Some(Request::SetPreference {
                 index: 1,
                 last: true,
                 ..

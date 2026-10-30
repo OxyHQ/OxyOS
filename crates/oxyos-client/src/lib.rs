@@ -8,7 +8,8 @@ use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
     ClientConnection, Event, Format, Politeness, PreeditText, Rect, Request, Size, TextChunk,
-    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MIN_VERSION, VERSION,
+    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MAX_PREFERENCE_BYTES,
+    MIN_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -316,6 +317,30 @@ impl Client {
                 index,
                 last: usize::from(index) + 1 == count,
                 text,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Settings (its `settings` grant, ADR 0019) changes the preference `key` to `value`, as
+    /// `key=value` in chunks; a `PreferenceResult` with `serial` answers. A key is not empty and
+    /// has no `=`; the whole is at most MAX_PREFERENCE_BYTES.
+    pub fn set_preference(&self, serial: u32, key: &str, value: &str) -> io::Result<()> {
+        let text = format!("{key}={value}");
+        if key.is_empty() || key.contains('=') || text.len() > MAX_PREFERENCE_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a preference is a key with no `=` and its value, at most 128 bytes",
+            ));
+        }
+        let chunks = TextChunk::split(&text);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::SetPreference {
+                serial,
+                index: index as u8,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
             })?;
         }
         Ok(())

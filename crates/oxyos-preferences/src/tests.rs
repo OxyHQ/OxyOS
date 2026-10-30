@@ -54,7 +54,20 @@ fn a_change_is_validated_and_a_refused_one_changes_nothing() {
     assert_eq!(preferences.set("accent", "Ocean"), Err(Refused::BadValue));
     assert_eq!(preferences.set("accent", "../etc"), Err(Refused::BadValue));
     assert_eq!(
-        preferences.set("accent", &"a".repeat(MAX_VALUE_BYTES + 1)),
+        preferences.set("accent", &"a".repeat(MAX_ACCENT_BYTES + 1)),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(
+        preferences.set("accent", &"a".repeat(MAX_ACCENT_BYTES)),
+        Ok(())
+    );
+    // A wallpaper's name may be longer than an accent's.
+    assert_eq!(
+        preferences.set("wallpaper", &"a".repeat(MAX_VALUE_BYTES)),
+        Ok(())
+    );
+    assert_eq!(
+        preferences.set("wallpaper", &"a".repeat(MAX_VALUE_BYTES + 1)),
         Err(Refused::BadValue)
     );
     assert_eq!(

@@ -47,6 +47,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPS_LOCK 46
 #define OXYOS_EVENT_LAUNCH_RESULT 49
 #define OXYOS_EVENT_ACTIVATED 51
+#define OXYOS_EVENT_PREFERENCE_RESULT 52
+#define OXYOS_EVENT_PREFERENCES 53
+#define OXYOS_EVENT_PREFERENCE 54
 /* A CONFIGURE's flag bits (docs/adr/0016-windows.mdx). */
 #define OXYOS_CONFIGURE_FULLSCREEN 1
 #define OXYOS_CONFIGURE_MAXIMIZED 2
@@ -61,6 +64,11 @@ typedef struct OxyOSClient OxyOSClient;
 /* The session started the window's process: its application id is the registry's, not its claim
  * (docs/adr/0013-launching-applications.mdx). */
 #define OXYOS_WINDOW_LAUNCHED 4
+
+/* A PREFERENCES event's flag bits (docs/adr/0019-settings.mdx). */
+#define OXYOS_PREFERENCES_DARK 1
+#define OXYOS_PREFERENCES_REDUCE_MOTION 2
+#define OXYOS_PREFERENCES_REDUCE_TRANSPARENCY 4
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1
@@ -141,7 +149,18 @@ typedef struct OxyOSClient OxyOSClient;
  *               output; unlocked, it destroys them.
  *   AUTHENTICATION_RESULT  detail: OXYOS_AUTH_*, what came of the password `surface` submitted;
  *               code: the seconds until another may be tried (0: at once). Only the session
- *               unlocks, and LOCK_STATE then says so. */
+ *               unlocks, and LOCK_STATE then says so.
+ *   The user's preferences (docs/adr/0019-settings.mdx):
+ *   PREFERENCES  to every client, when it connects and whenever they change: flag,
+ *               OXYOS_PREFERENCES_* bits (dark: the appearance, an automatic one resolved by the
+ *               session; reduce motion; reduce transparency); text: Bloom's accent colour, by name,
+ *               NUL-terminated.
+ *   To Settings (the `settings` grant, given by its launch record):
+ *   PREFERENCE  a chunk of one preference as kept, `key=value`, all of them when the grant is
+ *               given and each one that changes: detail, the chunk's index (0 begins it); flag,
+ *               whether it is the last; text, the chunk.
+ *   PREFERENCE_RESULT  code: the serial of the oxyos_client_set_preference it answers; flag:
+ *               whether the session took the change. */
 typedef struct OxyOSEvent {
   uint32_t kind;
   uint32_t surface;
@@ -309,6 +328,11 @@ int oxyos_client_lock_session(OxyOSClient* client);
  * registry (docs/adr/0013-launching-applications.mdx). A LAUNCH_RESULT answers: code, `serial`;
  * flag, whether it was started. */
 int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, size_t length);
+/* Settings (the `settings` grant, docs/adr/0019-settings.mdx) changes the preference `key` (not
+ * empty, no `=`) to `value` (may be empty), both NUL-terminated UTF-8, at most 128 bytes as
+ * `key=value`. A PREFERENCE_RESULT answers: code, `serial`; flag, whether the session took it.
+ * Without the grant the compositor closes the connection. */
+int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char* key, const char* value);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
 /* Focuses (and restores, showing its workspace), closes (the application is asked), minimizes or
  * moves (to `workspace`) the window numbered `window`; activates, adds or removes a workspace. */

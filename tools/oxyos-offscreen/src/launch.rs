@@ -340,9 +340,16 @@ pub struct Launch {
     /// language (`LC_ALL`), the session's otherwise.
     pub reader: Option<PathBuf>,
     pub reader_locale: Option<String>,
+    /// `--preferences FILE`: the user's preferences, kept in FILE as the session keeps its own
+    /// (docs/adr/0019-settings.mdx); the defaults, kept for the run alone, without it.
+    pub preferences: Option<PathBuf>,
+    /// `--grant-settings ID`: the application ID is given `settings` when it is launched, as a
+    /// session gives it to an entry only an administrator could have written. A fixture: a
+    /// scenario's entries are the developer's.
+    pub grant_settings: Option<String>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -372,6 +379,7 @@ impl Launch {
         let mut shell = None;
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
+        let (mut preferences, mut grant_settings) = (None, None);
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -422,6 +430,15 @@ impl Launch {
                 }
                 Some("--input-method") => {
                     input_method = true;
+                    continue;
+                }
+                Some("--preferences") => {
+                    preferences = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--grant-settings") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    grant_settings = Some(value.to_string());
                     continue;
                 }
                 Some("--lock-password") => {
@@ -629,6 +646,8 @@ impl Launch {
                             lock_password: lock_password.clone(),
                             reader: reader.clone(),
                             reader_locale: reader_locale.clone(),
+                            preferences: preferences.clone(),
+                            grant_settings: grant_settings.clone(),
                         },
                     ));
                 }
@@ -838,6 +857,7 @@ fn settle(
         }
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
+        session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
         }
@@ -1639,6 +1659,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         _ => None,
     };
     let mut session = Session::start()?;
+    // The preferences before any client connects, so each is told them with its Welcome.
+    session.settings = oxyos_compositor::settings::Settings::from_file(launch.preferences.clone());
+    session
+        .settings
+        .apply(&mut session.compositor, oxyos_compositor::settings::now());
+    session.grant_settings = launch.grant_settings.clone();
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
     }

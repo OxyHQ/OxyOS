@@ -174,6 +174,10 @@ messages! {
         59 => SetSizeLimits { surface: u32, min_width: u32, min_height: u32, max_width: u32, max_height: u32 },
         60 => SetMaximized { surface: u32, enabled: bool },
         61 => Minimize { surface: u32 },
+        // Settings (the `settings` grant, ADR 0019) changes one of the user's preferences:
+        // `key=value` in chunks as SetAppId's; `serial`, its own, names the change in
+        // PreferenceResult. The session validates it, keeps it and applies it.
+        62 => SetPreference { serial: u32, index: u8, last: bool, text: PreeditText },
     }
 }
 
@@ -274,6 +278,18 @@ messages! {
         // has the keyboard focus itself or through its popups or dialogs. The shell's panels
         // taking focus leave it active; its overlays and the lock do not.
         51 => Activated { surface: u32, active: bool },
+        // To the client whose SetPreference `serial` named the change (ADR 0019): whether the
+        // session took it.
+        52 => PreferenceResult { serial: u32, accepted: bool },
+        // To every client, when it connects and whenever they change (ADR 0019): the preferences
+        // that change how it draws. `dark`, the appearance (an automatic one resolved by the
+        // session: dark while the sun is down where the system's time zone is); every transition
+        // takes no time; glass is drawn opaque; Bloom's accent colour, by name.
+        53 => Preferences { dark: bool, reduce_motion: bool, reduce_transparency: bool, accent: PreeditText },
+        // To clients with the `settings` grant (ADR 0019): each of the user's preferences as it is
+        // kept, `key=value` in chunks as WindowTitle's, all of them when the grant is given and
+        // each one that changes.
+        54 => Preference { index: u8, last: bool, text: PreeditText },
     }
 }
 

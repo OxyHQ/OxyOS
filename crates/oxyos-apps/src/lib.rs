@@ -2,10 +2,35 @@
 //! Entries (freedesktop.org's Desktop Entry Specification) in `oxyos/applications` under the XDG
 //! data directories, each named by its application's id. Only OxyOS's own directory is read: the
 //! system's applications speak no OxyOS display protocol.
+//!
+//! An entry may ask for grants (`X-OxyOS-Grants`, docs/adr/0019-settings.mdx). They are honored
+//! only for an entry only an administrator could have written ([`administrator_written`]), and
+//! a launch keeps them only if what it runs is an administrator's too ([`Launcher::launch`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+/// What a launched application may do beyond an application's own, asked for by its entry
+/// (`X-OxyOS-Grants`, a `;`-separated list).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Grants {
+    /// `settings`: it changes the user's preferences (docs/adr/0019-settings.mdx).
+    pub settings: bool,
+}
+
+impl Grants {
+    /// The grants a list names; names this system does not know grant nothing.
+    fn named(list: &str) -> Self {
+        let mut grants = Self::default();
+        for name in list.split(';').map(str::trim) {
+            if name == "settings" {
+                grants.settings = true;
+            }
+        }
+        grants
+    }
+}
 
 /// How an application is started.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +56,9 @@ pub struct Application {
     pub launch: Launch,
     /// Its place in the dock, from 1, when it is kept there (`X-OxyOS-Pinned`).
     pub pinned: Option<u32>,
+    /// What its entry asks for (`X-OxyOS-Grants`), if only an administrator could have written
+    /// the entry; nothing otherwise.
+    pub grants: Grants,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,13 +181,15 @@ fn exec(value: &str) -> Result<Vec<String>, Error> {
 }
 
 /// The application an entry describes: `id`, the entry's `text`, in `directory`, named in
-/// `languages` (the most wanted first, as `es_ES`, `es`). None for an entry not to list
+/// `languages` (the most wanted first, as `es_ES`, `es`). Its grants are the entry's only if
+/// `trusted`: only an administrator could have written it. None for an entry not to list
 /// (`NoDisplay`, `Hidden`, not an application).
 pub fn parse(
     id: &str,
     text: &str,
     directory: &Path,
     languages: &[String],
+    trusted: bool,
 ) -> Result<Option<Application>, Error> {
     if !valid_id(id) {
         return Err(Error(format!("{id:?} is not an application id")));
@@ -210,7 +240,79 @@ pub fn parse(
         icon: keys.get("Icon").map(|icon| relative(icon)),
         launch,
         pinned,
+        grants: match keys.get("X-OxyOS-Grants") {
+            Some(list) if trusted => Grants::named(list),
+            _ => Grants::default(),
+        },
     }))
+}
+
+/// What the trust rule asks of a file or directory, as `lstat` gives it (a link is not followed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Status {
+    pub uid: u32,
+    /// Its permission bits.
+    pub mode: u32,
+    pub kind: Kind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    File,
+    Directory,
+    Link,
+    Other,
+}
+
+/// A file or directory as `lstat` gives it.
+pub fn lstat(path: &Path) -> Option<Status> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    let kind = metadata.file_type();
+    Some(Status {
+        uid: metadata.uid(),
+        mode: metadata.mode() & 0o7777,
+        kind: if kind.is_symlink() {
+            Kind::Link
+        } else if kind.is_file() {
+            Kind::File
+        } else if kind.is_dir() {
+            Kind::Directory
+        } else {
+            Kind::Other
+        },
+    })
+}
+
+/// Whether only an administrator could have written the file at `path` (absolute, with no `.`
+/// or `..`), as `stat` describes what is there: it is a file, not a link, and it and every
+/// directory from it up to `/` are owned by root and writable by no group and no one else.
+/// Anyone who could change any of them could change what the path holds.
+pub fn trusted_by(path: &Path, stat: &dyn Fn(&Path) -> Option<Status>) -> bool {
+    use std::path::Component;
+    let plain = path.is_absolute()
+        && path
+            .components()
+            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)));
+    let root_only = |status: Status| status.uid == 0 && status.mode & 0o022 == 0;
+    plain
+        && stat(path).is_some_and(|file| file.kind == Kind::File && root_only(file))
+        && path.ancestors().skip(1).all(|directory| {
+            stat(directory).is_some_and(|d| d.kind == Kind::Directory && root_only(d))
+        })
+}
+
+/// Whether only an administrator could have written the file at `path`: [`trusted_by`] what is
+/// on the filesystem. `path` is taken as given; [`real_path`] resolves the links on the way.
+pub fn administrator_written(path: &Path) -> bool {
+    trusted_by(path, &lstat)
+}
+
+/// `path` with every link of its directories resolved, its own name kept: a link there stays
+/// one, and the trust rule refuses it.
+pub fn real_path(path: &Path) -> Option<PathBuf> {
+    let directory = path.parent()?.canonicalize().ok()?;
+    Some(directory.join(path.file_name()?))
 }
 
 /// The directories applications are looked for in, the first wanted first: `oxyos/applications`
@@ -252,9 +354,25 @@ pub fn languages_of(locale: &str) -> Vec<String> {
     out
 }
 
+/// An entry's text, and whether only an administrator could have written it, as `trusted` judges
+/// the entry at its real path. A trusted entry is read at the path judged, which only root can
+/// change, so what is read is what was judged.
+fn read_entry(path: &Path, trusted: &dyn Fn(&Path) -> bool) -> std::io::Result<(String, bool)> {
+    if let Some(real) = real_path(path).filter(|real| trusted(real)) {
+        return Ok((std::fs::read_to_string(real)?, true));
+    }
+    Ok((std::fs::read_to_string(path)?, false))
+}
+
 /// The applications in `directories`, the first directory's entry for an id winning, sorted by
-/// name; entries that cannot be read or are invalid are left out, each said in `skipped`.
-pub fn registry(directories: &[PathBuf], languages: &[String]) -> (Vec<Application>, Vec<String>) {
+/// name; entries that cannot be read or are invalid are left out, each said in `skipped`. An
+/// entry's grants are honored if `trusted` says only an administrator could have written it
+/// (given its real path; [`administrator_written`] in a session).
+pub fn registry(
+    directories: &[PathBuf],
+    languages: &[String],
+    trusted: &dyn Fn(&Path) -> bool,
+) -> (Vec<Application>, Vec<String>) {
     let mut found: BTreeMap<String, Option<Application>> = BTreeMap::new();
     let mut skipped = Vec::new();
     for directory in directories {
@@ -275,9 +393,9 @@ pub fn registry(directories: &[PathBuf], languages: &[String]) -> (Vec<Applicati
             if found.contains_key(id) {
                 continue;
             }
-            let parsed = std::fs::read_to_string(&path)
+            let parsed = read_entry(&path, trusted)
                 .map_err(|error| Error(error.to_string()))
-                .and_then(|text| parse(id, &text, directory, languages));
+                .and_then(|(text, trusted)| parse(id, &text, directory, languages, trusted));
             match parsed {
                 Ok(application) => {
                     found.insert(id.to_string(), application);
@@ -297,8 +415,13 @@ pub fn registry(directories: &[PathBuf], languages: &[String]) -> (Vec<Applicati
 }
 
 /// The application with `id` in `directories`, if any lists it.
-pub fn find(directories: &[PathBuf], languages: &[String], id: &str) -> Option<Application> {
-    registry(directories, languages)
+pub fn find(
+    directories: &[PathBuf],
+    languages: &[String],
+    trusted: &dyn Fn(&Path) -> bool,
+    id: &str,
+) -> Option<Application> {
+    registry(directories, languages, trusted)
         .0
         .into_iter()
         .find(|application| application.id == id)
@@ -366,13 +489,59 @@ pub fn command(
     Ok(command)
 }
 
+/// A process a session started, while it runs: its application's id and what it may do.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Launched {
+    pub id: String,
+    pub grants: Grants,
+}
+
+/// The program an application with grants runs, by its real path, if only an administrator could
+/// have written it (`trusted`): it is given absolute, as an entry with grants must give it. A
+/// grant follows the program, not only the entry: an administrator's entry running a program
+/// anyone else could change would give that program the grant.
+fn administrators(program: &Path, trusted: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
+    if !program.is_absolute() {
+        return None;
+    }
+    let real = program.canonicalize().ok()?;
+    trusted(&real).then_some(real)
+}
+
+/// `application` and `runtime` running only what an administrator wrote, by real paths, if they
+/// do: an `Exec`'s program, or the Bloom host and the bundle it runs.
+fn pinned(
+    application: &Application,
+    runtime: &Runtime,
+    trusted: &dyn Fn(&Path) -> bool,
+) -> Option<(Application, Runtime)> {
+    let mut application = application.clone();
+    let mut runtime = runtime.clone();
+    match &mut application.launch {
+        Launch::Exec(words) => {
+            words[0] = administrators(Path::new(&words[0]), trusted)?
+                .to_str()?
+                .to_string();
+        }
+        Launch::Bloom { bundle, .. } => {
+            runtime.bloom_host = Some(administrators(runtime.bloom_host.as_deref()?, trusted)?);
+            let given = bundle.clone().or(runtime.bloom_bundle.clone())?;
+            *bundle = Some(administrators(&given, trusted)?);
+        }
+    }
+    Some((application, runtime))
+}
+
 /// The processes a session started for applications (docs/adr/0013-launching-applications.mdx).
 pub struct Launcher {
     pub runtime: Runtime,
     directories: Vec<PathBuf>,
     languages: Vec<String>,
-    /// Each process started, its pid and its application's id, until it exits.
-    children: Vec<(std::process::Child, String)>,
+    /// Whether only an administrator could have written a file at a real path
+    /// ([`administrator_written`]; the tests' own rule in tests).
+    trusted: Box<dyn Fn(&Path) -> bool>,
+    /// Each process started, and what it was launched as, until it exits.
+    children: Vec<(std::process::Child, Launched)>,
 }
 
 impl Launcher {
@@ -381,19 +550,35 @@ impl Launcher {
             runtime,
             directories,
             languages,
+            trusted: Box::new(administrator_written),
             children: Vec::new(),
         }
     }
 
-    /// Starts the application `id` if the registry lists it; the pid it runs as.
+    /// Starts the application `id` if the registry lists it; the pid it runs as. It has its
+    /// entry's grants only if what it runs is an administrator's too, and then runs it by its
+    /// real path, so what was judged is what runs.
     pub fn launch(&mut self, id: &str) -> Result<u32, Error> {
-        let application = find(&self.directories, &self.languages, id)
+        let application = find(&self.directories, &self.languages, &*self.trusted, id)
             .ok_or_else(|| Error(format!("no application {id:?}")))?;
-        let child = command(&application, &self.runtime)?
+        let granted = (application.grants != Grants::default())
+            .then(|| pinned(&application, &self.runtime, &*self.trusted))
+            .flatten();
+        let (mut command, grants) = match &granted {
+            Some((pinned, runtime)) => (command(pinned, runtime)?, pinned.grants),
+            None => (command(&application, &self.runtime)?, Grants::default()),
+        };
+        let child = command
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
         let pid = child.id();
-        self.children.push((child, application.id));
+        self.children.push((
+            child,
+            Launched {
+                id: application.id,
+                grants,
+            },
+        ));
         Ok(pid)
     }
 
@@ -401,22 +586,22 @@ impl Launcher {
     pub fn reap(&mut self) -> Vec<String> {
         let mut exited = Vec::new();
         self.children
-            .retain_mut(|(child, id)| match child.try_wait() {
+            .retain_mut(|(child, launched)| match child.try_wait() {
                 Ok(None) => true,
                 _ => {
-                    exited.push(id.clone());
+                    exited.push(launched.id.clone());
                     false
                 }
             });
         exited
     }
 
-    /// The application a running process it started is, by pid.
-    pub fn application_of(&self, pid: u32) -> Option<&str> {
+    /// What a running process it started was launched as, by pid.
+    pub fn application_of(&self, pid: u32) -> Option<&Launched> {
         self.children
             .iter()
             .find(|(child, _)| child.id() == pid)
-            .map(|(_, id)| id.as_str())
+            .map(|(_, launched)| launched)
     }
 
     /// Stops every process it started: asked first (SIGTERM), then killed after `grace`.

@@ -221,3 +221,30 @@ fn the_frame_follows_the_day_and_says_when_it_changes() {
         Some(frame)
     );
 }
+
+#[test]
+fn night_is_the_sun_below_the_horizon_and_says_when_it_ends() {
+    // Madrid, the June solstice: sunrise about 04:45 UTC, sunset about 19:48.
+    let (night, sunrise) = night_at(utc(2026, 6, 21, 1, 0), MADRID);
+    assert!(night);
+    assert!(
+        (sunrise - utc(2026, 6, 21, 4, 45)).abs() <= 15 * 60,
+        "{sunrise}"
+    );
+    // The first minute the sun is up, the one before it still down.
+    assert!(position(sunrise, MADRID).elevation >= 0.0);
+    assert!(position(sunrise - 60, MADRID).elevation < 0.0);
+    let (night, sunset) = night_at(utc(2026, 6, 21, 12, 0), MADRID);
+    assert!(!night);
+    assert!(
+        (sunset - utc(2026, 6, 21, 19, 48)).abs() <= 15 * 60,
+        "{sunset}"
+    );
+    // Where the sun does not set (the pole in June), look again a day on.
+    let pole = Place {
+        latitude: 89.0,
+        longitude: 0.0,
+    };
+    let now = utc(2026, 6, 21, 0, 0);
+    assert_eq!(night_at(now, pole), (false, now + 86_400));
+}
