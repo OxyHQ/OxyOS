@@ -192,7 +192,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/intl-js.h.in ${CMAKE_CURRENT_BINARY_D
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/intl.js)
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp damage.cpp host-modules.cpp application.cpp files.cpp clipboard.cpp images.cpp network.cpp worklets-host.cpp intl.cpp
   reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp textinput.cpp popup.cpp report.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp shell-surface.cpp svg.cpp
-  gesture-handler.cpp modal.cpp expo-blur.cpp masked-view.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  gesture-handler.cpp modal.cpp expo-blur.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)

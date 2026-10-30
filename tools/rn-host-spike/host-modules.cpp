@@ -331,6 +331,41 @@ jsi::Value replyValue(jsi::Runtime& rt, const Files::Reply& reply, bool asText) 
   return out;
 }
 
+// The bytes a typed array (a Uint8Array, or any integer TypedArray) views, writable in place.
+std::pair<uint8_t*, size_t> typedBytes(jsi::Runtime& rt, const jsi::Value& value) {
+  if (!value.isObject()) throw jsi::JSError(rt, "a typed array is needed");
+  auto array = value.asObject(rt);
+  auto buffer = array.getProperty(rt, "buffer");
+  if (!buffer.isObject() || !buffer.asObject(rt).isArrayBuffer(rt)) throw jsi::JSError(rt, "a typed array is needed");
+  auto bytes = buffer.asObject(rt).getArrayBuffer(rt);
+  size_t offset = static_cast<size_t>(array.getProperty(rt, "byteOffset").asNumber());
+  size_t length = static_cast<size_t>(array.getProperty(rt, "byteLength").asNumber());
+  if (offset + length > bytes.size(rt)) throw jsi::JSError(rt, "the typed array is outside its buffer");
+  return {bytes.data(rt) + offset, length};
+}
+
+// A digest by expo-crypto's algorithm name, or a JavaScript error naming what OxyOS lacks.
+std::string digestOf(jsi::Runtime& rt, const std::string& algorithm, const uint8_t* data, size_t length) {
+  std::string digest(64, '\0');
+  int64_t size = oxyos_digest(algorithm.c_str(), data, length, reinterpret_cast<uint8_t*>(digest.data()), digest.size());
+  if (size < 0) throw jsi::JSError(rt, oxyos_last_error());
+  digest.resize(static_cast<size_t>(size));
+  return digest;
+}
+
+std::string hex(const std::string& bytes) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string out;
+  for (unsigned char byte : bytes) {
+    out += kHex[byte >> 4];
+    out += kHex[byte & 15];
+  }
+  return out;
+}
+
+// An AsyncStorage callback's error, as its Android module gives one: {message}.
+folly::dynamic storageError(const std::string& message) { return folly::dynamic::object("message", message); }
+
 }  // namespace
 
 folly::dynamic deviceDimensions(const Display& display) {
@@ -962,6 +997,173 @@ std::shared_ptr<TurboModule> createHostModule(
             return jsi::Value::undefined();
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
+    });
+    module->listeners();
+  } else if (name == "OxyOSApplication") {
+    // The application this host runs (application.h), for the Expo modules built on it
+    // (sample/oxyos/expo-adapter.js): its id (the registry entry's), whether the session started
+    // it, its module, its embedded app config (expo-constants' manifest), its directories, and the
+    // machine's name and version for expo-constants.
+    const auto& application = services.application;
+    auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
+    module->constants(folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
+        "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
+                                                                       : folly::dynamic(nullptr))(
+        "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
+        "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID")));
+  } else if (name == "IntentAndroid") {
+    // React Native's Linking, as its Android module answers it. OxyOS starts an application from
+    // its registry entry, never from a link, so it was opened by none; and no application on
+    // OxyOS opens links yet (there is no browser, nor a handler for a scheme), so none can be
+    // opened: asked, it says so, and opening one fails with the reason.
+    module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return resolved(rt, jsi::Value::null());
+    });
+    module->method("canOpenURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return resolved(rt, jsi::Value(false));
+    });
+    module->method("openURL", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      std::string url = count > 0 ? text(rt, args[0]) : "";
+      auto colon = url.find(':');
+      std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
+      return rejected(rt, "OxyOS has no application that opens " + scheme + " links yet (" + url + ")");
+    });
+    module->method("openSettings", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return rejected(rt, "OxyOS has no settings page for an application yet");
+    });
+    module->method("sendIntent", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return rejected(rt, "OxyOS has no Android intents");
+    });
+    module->listeners();
+  } else if (name == "RNCAsyncStorage") {
+    // @react-native-async-storage/async-storage (application.h, crates/oxyos-app-storage): kept in
+    // the application's data directory, by its id, on a thread of its own; each callback as its
+    // Android module calls it. Without an id there is nowhere to keep anything: every call fails.
+    auto ask = [&services, invoker](jsi::Runtime& rt, folly::dynamic request, const jsi::Value* callback,
+                                    std::function<void(jsi::Runtime&, jsi::Function&, const folly::dynamic&)> answer) {
+      if (!callback || !callback->isObject() || !callback->asObject(rt).isFunction(rt)) return;
+      auto done = std::make_shared<jsi::Function>(callback->asObject(rt).asFunction(rt));
+      if (services.application.dataDirectory.empty()) {
+        answer(rt, *done, folly::dynamic::object("error", "OxyOS keeps nothing for this application: it was started without an application id"));
+        return;
+      }
+      if (!services.storage) services.storage = std::make_unique<AsyncStorage>(services.application.dataDirectory);
+      services.storage->request(std::move(request), [invoker, done, answer](folly::dynamic result) {
+        invoker->invokeAsync([done, answer, result = std::move(result)](jsi::Runtime& rt) { answer(rt, *done, result); });
+      });
+    };
+    auto keys = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      return count > 0 ? jsi::dynamicFromValue(rt, args[0]) : folly::dynamic::array();
+    };
+    // Changes and multiGet: an array of errors, or null.
+    auto errors = [](jsi::Runtime& rt, const folly::dynamic& result) {
+      return result.count("error") ? jsi::valueFromDynamic(rt, folly::dynamic::array(storageError(result["error"].asString())))
+                                   : jsi::Value::null();
+    };
+    module->method("multiGet", [ask, keys, errors](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ask(rt, folly::dynamic::object("op", "get")("keys", keys(rt, args, count)), count > 1 ? &args[1] : nullptr,
+          [errors](jsi::Runtime& rt, jsi::Function& done, const folly::dynamic& result) {
+            done.call(rt, errors(rt, result), result.count("ok") ? jsi::valueFromDynamic(rt, result["ok"]) : jsi::Value::null());
+          });
+      return jsi::Value::undefined();
+    });
+    for (const char* change : {"multiSet", "multiMerge", "multiRemove"}) {
+      std::string op = std::string(change) == "multiSet" ? "set" : std::string(change) == "multiMerge" ? "merge" : "remove";
+      module->method(change, [ask, keys, errors, op](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        folly::dynamic request = folly::dynamic::object("op", op)(op == "remove" ? "keys" : "pairs", keys(rt, args, count));
+        ask(rt, std::move(request), count > 1 ? &args[1] : nullptr,
+            [errors](jsi::Runtime& rt, jsi::Function& done, const folly::dynamic& result) { done.call(rt, errors(rt, result)); });
+        return jsi::Value::undefined();
+      });
+    }
+    // getAllKeys and clear: one error, or null.
+    auto error = [](jsi::Runtime& rt, const folly::dynamic& result) {
+      return result.count("error") ? jsi::valueFromDynamic(rt, storageError(result["error"].asString())) : jsi::Value::null();
+    };
+    module->method("getAllKeys", [ask, error](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ask(rt, folly::dynamic::object("op", "keys"), count > 0 ? &args[0] : nullptr,
+          [error](jsi::Runtime& rt, jsi::Function& done, const folly::dynamic& result) {
+            done.call(rt, error(rt, result), result.count("ok") ? jsi::valueFromDynamic(rt, result["ok"]) : jsi::Value::null());
+          });
+      return jsi::Value::undefined();
+    });
+    module->method("clear", [ask, error](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ask(rt, folly::dynamic::object("op", "clear"), count > 0 ? &args[0] : nullptr,
+          [error](jsi::Runtime& rt, jsi::Function& done, const folly::dynamic& result) { done.call(rt, error(rt, result)); });
+      return jsi::Value::undefined();
+    });
+  } else if (name == "RNCNetInfo") {
+    // @react-native-community/netinfo (application.h, crates/oxyos-net): the machine's
+    // connectivity from the kernel, and `netInfo.networkStatusDidChange` when it changes, as its
+    // Android module tells them. Whether the internet answers is NetInfo's own check over HTTP.
+    auto connectivity = [&services]() -> Connectivity& {
+      if (!services.connectivity) {
+        services.connectivity = std::make_unique<Connectivity>([&services](const folly::dynamic& state) {
+          if (services.emit) services.emit("netInfo.networkStatusDidChange", state);
+        });
+      }
+      return *services.connectivity;
+    };
+    // Its configuration is NetInfo's reachability check, which runs in JavaScript.
+    module->method("configure", [](jsi::Runtime&, const jsi::Value*, size_t) { return jsi::Value::undefined(); });
+    module->method("getCurrentState", [connectivity](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      folly::dynamic state = connectivity().state();
+      // An interface asked for that is not the one in use is not connected, as on Android.
+      if (count > 0 && args[0].isString()) {
+        std::string requested = args[0].asString(rt).utf8(rt);
+        if (requested != state["type"].asString()) {
+          state = folly::dynamic::object("type", requested)("isConnected", false)("details", nullptr);
+        }
+      }
+      return resolved(rt, jsi::valueFromDynamic(rt, state));
+    });
+    module->listeners();
+  } else if (name == "OxyOSCrypto") {
+    // expo-crypto (sample/oxyos/expo-adapter.js): the kernel's CSPRNG and digests in Rust
+    // (oxyos-client-ffi): SHA-1, SHA-256, SHA-384 and SHA-512. Expo's MD2, MD4 and MD5 are not
+    // provided: asked for, they throw.
+    module->method("getRandomValues", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1) throw jsi::JSError(rt, "getRandomValues: a typed array is needed");
+      auto [data, length] = typedBytes(rt, args[0]);
+      if (oxyos_random_bytes(data, length) != 0) throw jsi::JSError(rt, oxyos_last_error());
+      return jsi::Value(rt, args[0]);
+    });
+    // The digest of a string's UTF-8, as hex or base64.
+    module->method("digestString", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 3) throw jsi::JSError(rt, "digestString: an algorithm, the data and an encoding");
+      std::string data = text(rt, args[1]);
+      std::string digest = digestOf(rt, text(rt, args[0]), reinterpret_cast<const uint8_t*>(data.data()), data.size());
+      return jsi::String::createFromAscii(rt, text(rt, args[2]) == "base64" ? base64Encode(digest) : hex(digest));
+    });
+    // The digest of a typed array's bytes, into another.
+    module->method("digest", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 3) throw jsi::JSError(rt, "digest: an algorithm, an output and the data");
+      auto [data, length] = typedBytes(rt, args[2]);
+      std::string digest = digestOf(rt, text(rt, args[0]), data, length);
+      auto [out, room] = typedBytes(rt, args[1]);
+      if (room < digest.size()) throw jsi::JSError(rt, "digest: the output is too small");
+      std::copy(digest.begin(), digest.end(), out);
+      return jsi::Value::undefined();
+    });
+  } else if (name == "KeyboardController") {
+    // react-native-keyboard-controller, as its Android module answers with the software keyboard
+    // hidden, which on OxyOS it always is: there is none (a hardware keyboard and the input
+    // method, ADR 0008, need no room). Its events never come, its keyboard has no corners, and
+    // dismissing it takes focus from the focused input unless asked to keep it. Its modes and the
+    // status bar's translucency change nothing here. Moving focus to the next or previous input
+    // and measuring a view are not provided yet: they throw.
+    module->constants(folly::dynamic::object("keyboardBorderRadius", 0));
+    module->unsupported({"setInputMode", "setDefaultMode", "preload", "setTranslucent"});
+    module->method("dismiss", [&services](jsi::Runtime&, const jsi::Value* args, size_t count) {
+      bool keepFocus = count > 0 && args[0].isBool() && args[0].getBool();
+      if (!keepFocus && services.blurFocusedInput) services.blurFocusedInput();
+      return jsi::Value::undefined();
+    });
+    module->method("setFocusTo", [](jsi::Runtime& rt, const jsi::Value*, size_t) -> jsi::Value {
+      throw jsi::JSError(rt, "KeyboardController.setFocusTo is not available on OxyOS yet");
+    });
+    module->method("viewPositionInWindow", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return rejected(rt, "KeyboardController.viewPositionInWindow is not available on OxyOS yet");
     });
     module->listeners();
   } else if (name == "OxyOSFontRegistry") {

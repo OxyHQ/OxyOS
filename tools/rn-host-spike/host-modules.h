@@ -1,6 +1,7 @@
 // TurboModules the OxyOS host implements for React Native's start-up and Bloom.
 #pragma once
 
+#include "application.h"
 #include "network.h"
 #include "renderer.h"
 
@@ -217,6 +218,18 @@ struct HostServices {
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;
+  // The application it runs (application.h): its id, module, directories and embedded app config.
+  Application application{};
+  // Its AsyncStorage, made when it is first asked for (in its data directory), and the machine's
+  // connectivity, watched once NetInfo asks; the host's loop waits on their descriptors and
+  // delivers what they answer.
+  std::unique_ptr<AsyncStorage> storage;
+  std::unique_ptr<Connectivity> connectivity;
+  // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
+  // unset without a window.
+  std::function<void()> blurFocusedInput;
+  // Sends an event to RCTDeviceEventEmitter, from the JavaScript thread.
+  std::function<void(const std::string& event, folly::dynamic body)> emit;
 };
 
 // React Native's Dimensions for a window of `display`'s size and scale: DeviceInfo's constant at
