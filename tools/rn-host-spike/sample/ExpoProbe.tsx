@@ -4,6 +4,7 @@
  * them: AsyncStorage kept in the application's data directory (a value kept by an earlier run read
  * back, values written, merged, listed and removed), NetInfo's connectivity, expo-crypto's
  * digests and random values, expo-secure-store keeping nothing, expo-haptics without hardware,
+ * expo-web-browser with no browser,
  * Linking and expo-linking with no link and none to open, and expo-constants with no app config
  * of its own. Each row either works, or rejects or throws with its reason; none is left pending.
  * scenarios/expo-modules.json checks every row and the storage file.
@@ -17,6 +18,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 import * as ExpoLinking from 'expo-linking';
 import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
 import { Linking } from 'react-native';
 
 type Outcome = string;
@@ -104,6 +106,7 @@ const PROBES: [string, () => unknown][] = [
   ['Linking.getInitialURL', () => Linking.getInitialURL()],
   ['Linking.canOpenURL', () => Linking.canOpenURL('https://oxy.so')],
   ['ExpoLinking.getLinkingURL', () => ExpoLinking.getLinkingURL()],
+  ['WebBrowser.openBrowserAsync', () => WebBrowser.openBrowserAsync('https://oxy.so')],
   ['Constants.expoConfig', () => Constants.expoConfig],
   ['Constants.executionEnvironment', () => Constants.executionEnvironment],
 ];

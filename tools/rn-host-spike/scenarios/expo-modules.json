@@ -1,7 +1,10 @@
 {
-  "about": "The platform modules an Expo application reaches, through each package's own API (sample/ExpoProbe.tsx, application.h, sample/oxyos/expo-adapter.js): AsyncStorage kept in the application's data directory by its id (a value an earlier run kept is read back; values are written, deep-merged as Android merges them, listed and removed, and the file holds exactly what is left), NetInfo's connectivity from the kernel, expo-crypto's digests (FIPS 180's test vectors for \"abc\") and CSPRNG, expo-secure-store keeping nothing and saying why, expo-haptics without hardware, React Native's Linking and expo-linking with no link and none to open, and expo-constants with no app config of the sample's own. Nothing pretends to succeed and nothing is left pending.",
+  "about": "The platform modules an Expo application reaches, through each package's own API (sample/ExpoProbe.tsx, application.h, sample/oxyos/expo-adapter.js): AsyncStorage kept in the application's data directory by its id (a value an earlier run kept is read back; values are written, deep-merged as Android merges them, listed and removed, and the file holds exactly what is left), NetInfo's connectivity from the kernel, expo-crypto's digests (FIPS 180's test vectors for \"abc\") and CSPRNG, expo-secure-store keeping nothing and saying why, expo-haptics without hardware, expo-web-browser with no browser, React Native's Linking and expo-linking with no link and none to open, and expo-constants with no app config of the sample's own. Nothing pretends to succeed and nothing is left pending.",
   "module": "ExpoProbe",
-  "window": [800, 560],
+  "window": [
+    800,
+    560
+  ],
   "app": {
     "id": "so.oxy.expoprobe",
     "title": "Expo probe"
@@ -34,10 +37,15 @@
       "Linking.getInitialURL: ok null",
       "Linking.canOpenURL: ok false",
       "ExpoLinking.getLinkingURL: ok null",
+      "WebBrowser.openBrowserAsync: rejected: OxyOS has no web browser yet",
       "Constants.expoConfig: ok null",
       "Constants.executionEnvironment: ok \"bare\""
     ],
-    "absent": ["pending", "running", "threw"],
+    "absent": [
+      "pending",
+      "running",
+      "threw"
+    ],
     "app_data": {
       "so.oxy.expoprobe": {
         "async-storage.json": {

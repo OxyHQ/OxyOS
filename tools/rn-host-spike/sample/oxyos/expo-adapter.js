@@ -1,7 +1,7 @@
 /**
  * OxyOS side of the Expo modules Bloom and Oxy apps reach (expo-font, expo-asset beneath it,
- * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-secure-store,
- * expo-haptics, and expo-blur's views). expo-modules-core's own global polyfill provides the
+ * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-linking,
+ * expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity, and expo-blur's views). expo-modules-core's own global polyfill provides the
  * module classes; the native work is done by the host's TurboModules (OxyOSFontRegistry,
  * OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto) and host components
  * (expo-blur.h). Anything OxyOS cannot do fails loudly.
@@ -108,6 +108,29 @@ globalThis.expo.modules.ExpoHaptics = {
   impactAsync: async () => {},
   notificationAsync: async () => {},
   selectionAsync: async () => {},
+};
+
+// @expo/app-integrity: App Attest and Play Integrity are iOS's and Android's, and the package's own
+// functions say so on any other platform (its web module is empty too); OxyOS cannot yet prove an
+// application's identity to a server. The module is there so that importing the package does not
+// fail before those functions can say it.
+globalThis.expo.modules.ExpoAppIntegrity = {};
+
+// expo-web-browser: OxyOS has no web browser yet, so opening a page or an authentication session
+// rejects with that reason (the Oxy SDK's sign-in then tries Linking.openURL, which rejects too).
+// With nothing open, dismissing leaves nothing open.
+const noBrowser = async () => {
+  throw new Error('OxyOS has no web browser yet');
+};
+globalThis.expo.modules.ExpoWebBrowser = {
+  openBrowserAsync: noBrowser,
+  openAuthSessionAsync: noBrowser,
+  warmUpAsync: noBrowser,
+  mayInitWithUrlAsync: noBrowser,
+  coolDownAsync: noBrowser,
+  getCustomTabsSupportingBrowsersAsync: noBrowser,
+  dismissBrowser: async () => ({ type: 'dismiss' }),
+  dismissAuthSession: () => {},
 };
 
 // expo-secure-store: OxyOS keeps no secrets for an application. The machine's Oxy account is the
