@@ -1,0 +1,132 @@
+{
+  "about": "Stash (scenarios/stash.json) on a 1600x1000 display at 1.25 (ADR 0018): the same first screen and the same press, its points in logical pixels of the window, drawn at the output's scale.",
+  "module": "Stash",
+  "window": [
+    1024,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
+  },
+  "steps": [
+    {
+      "name": "Its first screen: Oxy Files, signed out, in a window whose controls Bloom draws",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Oxy Files",
+          "Your files, on every device",
+          "Sign in with Oxy"
+        ],
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Close"
+            },
+            {
+              "role": "Button",
+              "name": "Minimize"
+            },
+            {
+              "role": "Button",
+              "name": "Zoom"
+            },
+            {
+              "role": "Button",
+              "name": "Oxy Files",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Photos",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Trash",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "Oxy Files"
+            },
+            {
+              "role": "Radio",
+              "name": "as Icons",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "as List",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "Your files, on every device"
+            },
+            {
+              "role": "Button",
+              "name": "Sign in with Oxy",
+              "state": []
+            }
+          ]
+        },
+        "a11y_order": {
+          "window": [
+            "Oxy Files",
+            "Photos",
+            "Trash",
+            "Oxy Files",
+            "Your files, on every device",
+            "Sign in with Oxy"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Trash, pressed in the sidebar",
+      "do": [
+        "press",
+        [
+          67,
+          245
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Trash",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Photos",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "Trash"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
