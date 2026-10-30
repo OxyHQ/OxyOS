@@ -463,6 +463,44 @@ fn without_damage_or_history_a_buffer_is_written_whole() {
     assert_eq!(contents(&shared_a, extent), pixels(extent, 7));
 }
 
+#[test]
+fn a_buffer_reused_after_frames_of_another_size_is_written_whole() {
+    let (mut client, server) = connected();
+    let small = Size::new(4, 2);
+    let large = Size::new(6, 3);
+    let xrgb = Format::Xrgb8888;
+    client.present(1, 1, small, &pixels(small, 0)).unwrap();
+    let (a, shared_a, _) = submitted(&server);
+    // A resize: a larger frame, of which (as a host says) a corner outside the small one changed.
+    let corner = [Rect::new(4, 2, 2, 1)];
+    client
+        .present_damaged(1, 2, large, xrgb, &pixels(large, 1), Some(&corner))
+        .unwrap();
+    server.recv_request().unwrap();
+    until_submit(&server);
+    server
+        .send_event(
+            &Event::Released {
+                surface: 1,
+                buffer: a,
+            },
+            None,
+        )
+        .unwrap();
+    client.poll().unwrap();
+    // And back: the small buffer missed a frame of another size, so it is written whole.
+    let changed = [Rect::new(0, 0, 1, 1)];
+    client
+        .present_damaged(1, 3, small, xrgb, &pixels(small, 7), Some(&changed))
+        .unwrap();
+    let submit = until_submit(&server);
+    assert!(
+        matches!(submit, Request::Submit { buffer, .. } if buffer == a),
+        "{submit:?}"
+    );
+    assert_eq!(contents(&shared_a, small), pixels(small, 7));
+}
+
 // ---- text input (ADR 0008) -------------------------------------------------------------------
 
 /// The requests up to and including the next TextInputCommit.

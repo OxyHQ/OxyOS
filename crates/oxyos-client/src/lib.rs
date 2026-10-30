@@ -47,6 +47,14 @@ struct Buffer {
 /// Frames' damage kept per client, enough for buffers reused a few frames later.
 const HISTORY: usize = 16;
 
+/// A frame presented: what changed in it, at its size (`None`: everything).
+struct Presented {
+    surface: u32,
+    sequence: u64,
+    extent: Size,
+    damage: Option<Vec<Rect>>,
+}
+
 /// What a non-blocking poll found.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Poll {
@@ -63,7 +71,7 @@ pub struct Client {
     next_buffer: u64,
     sequence: u64,
     /// The latest frames: surface, sequence, and what changed in them (`None`: everything).
-    history: std::collections::VecDeque<(u32, u64, Option<Vec<Rect>>)>,
+    history: std::collections::VecDeque<Presented>,
     /// The descriptor the event last returned carried (a ClipboardSend's pipe).
     descriptor: Option<OwnedFd>,
     /// What this client offered to the clipboard, by offer: each type's content. Only the
@@ -215,29 +223,31 @@ impl Client {
                 self.buffers.len() - 1
             }
         };
-        // What this buffer lacks: the frames presented since it was written, and this one.
+        // What this buffer lacks: the frames presented since it was written, and this one. A
+        // frame of another size in between (a resize and back) changed everything.
         let written = self.buffers[index].written;
         let missed: Option<Vec<Rect>> = if written == 0 {
             None
         } else {
-            let since: Vec<&(u32, u64, Option<Vec<Rect>>)> = self
+            let since: Vec<&Presented> = self
                 .history
                 .iter()
-                .filter(|(s, sequence, _)| *s == surface && *sequence > written)
+                .filter(|frame| frame.surface == surface && frame.sequence > written)
                 .collect();
             // The history must reach back to the frame after the one written.
             let complete = self
                 .history
                 .iter()
-                .any(|(s, sequence, _)| *s == surface && *sequence <= written);
+                .any(|frame| frame.surface == surface && frame.sequence <= written);
             complete
                 .then(|| {
-                    since
-                        .iter()
-                        .try_fold(damage.clone()?, |mut all, (_, _, frame)| {
-                            all.extend(frame.as_ref()?);
-                            Some(all)
-                        })
+                    since.iter().try_fold(damage.clone()?, |mut all, frame| {
+                        if frame.extent != extent {
+                            return None;
+                        }
+                        all.extend(frame.damage.as_ref()?);
+                        Some(all)
+                    })
                 })
                 .flatten()
         };
@@ -269,7 +279,12 @@ impl Client {
                 rect: *rect,
             })?;
         }
-        self.history.push_back((surface, self.sequence, damage));
+        self.history.push_back(Presented {
+            surface,
+            sequence: self.sequence,
+            extent,
+            damage,
+        });
         if self.history.len() > HISTORY {
             self.history.pop_front();
         }

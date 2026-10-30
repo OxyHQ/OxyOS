@@ -62,12 +62,13 @@ class TextEngine {
       const facebook::react::ParagraphAttributes& paragraph,
       float maxWidth);
 
-  // Gray coverage bitmap for a glyph: width, height, left, top and pixels (row-major).
+  // Gray coverage bitmap for a glyph laid out in `face`, rasterized at `scale` device pixels per
+  // logical pixel: width, height, left, top and pixels (row-major).
   struct Bitmap {
     int width = 0, height = 0, left = 0, top = 0;
     std::vector<uint8_t> pixels;
   };
-  const Bitmap& rasterize(void* face, uint32_t glyph);
+  const Bitmap& rasterize(void* face, uint32_t glyph, float scale);
 
  private:
   TextEngine();

@@ -1,0 +1,33 @@
+{
+  "about": "Text on an output at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): the application is asked for frames at 1.25 and draws its glyphs rasterized at their size in the output's pixels, not the logical glyphs set at scaled positions (which drew them a fifth smaller and spread apart). Settings' sidebar label 'Appearance' (selected, #2a1132) on a 1600x1000 output at 1.25, in output pixels: the strokes of its 'a', 'r' and 'n' fall where the logical glyphs left the selection's background.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The sidebar's label drawn at the output's pixels",
+      "do": [
+        "wait",
+        200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "309,264": "#2a1132",
+          "309,268": "#2a1132",
+          "326,264": "#2a1132",
+          "326,268": "#2a1132",
+          "272,261": "#2a1132",
+          "283,261": "#2a1132"
+        }
+      }
+    }
+  ]
+}

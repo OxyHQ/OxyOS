@@ -53,6 +53,8 @@ struct TextEngine::Impl {
   std::map<std::string, std::string> families;
   std::vector<std::string> fallbacks;
   std::map<std::tuple<std::string, int, int>, Face> faces;
+  // Each face's file, weight and size, so a glyph laid out in it is drawn at another size.
+  std::map<void*, std::tuple<std::string, int, float>> origins;
   std::map<std::pair<void*, uint32_t>, Bitmap> bitmaps;
   std::recursive_mutex mutex;
 
@@ -79,6 +81,7 @@ struct TextEngine::Impl {
       FT_Set_Var_Design_Coordinates(entry.ft, axes->num_axis, coords.data());
       FT_Done_MM_Var(library, axes);
     }
+    origins[entry.ft] = {path, weight, size};
     entry.hb = hb_ft_font_create_referenced(entry.ft);
     hb_ft_font_changed(entry.hb);
     entry.ascent = entry.ft->size->metrics.ascender / 64.0f;
@@ -324,8 +327,18 @@ ParagraphLayout TextEngine::layout(
   return result;
 }
 
-const TextEngine::Bitmap& TextEngine::rasterize(void* face, uint32_t glyph) {
+const TextEngine::Bitmap& TextEngine::rasterize(void* face, uint32_t glyph, float scale) {
   std::lock_guard lock(impl_->mutex);
+  // Drawn at the surface's scale: the same face at the size in device pixels, not the logical
+  // glyph moved to scaled positions.
+  if (scale != 1.0f) {
+    auto origin = impl_->origins.find(face);
+    if (origin != impl_->origins.end()) {
+      const auto& [path, weight, size] = origin->second;
+      Face& scaled = impl_->face(path, weight, size * scale);
+      if (scaled.ft) face = scaled.ft;
+    }
+  }
   auto key = std::make_pair(face, glyph);
   auto it = impl_->bitmaps.find(key);
   if (it != impl_->bitmaps.end()) return it->second;
