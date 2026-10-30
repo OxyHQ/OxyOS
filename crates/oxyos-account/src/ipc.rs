@@ -5,7 +5,10 @@
 //!   [`MAX_MESSAGE`] bytes. A longer or undecodable one ends the conversation.
 //! - **Who may enroll:** the peer's credentials come from the kernel (`SO_PEERCRED`), never from
 //!   what it sends: root, or the login program's user ([`Enrollers`]). Anyone else is answered
-//!   `notPermitted` and nothing else.
+//!   `notPermitted` and nothing else, once its first message is read ([`refuse`]).
+//! - **Every answer follows the message it answers.** The service never closes a connection with a
+//!   message of the client's unread: Linux resets a Unix socket closed with its receive queue not
+//!   empty, and the client would read `ECONNRESET` instead of the answer before it.
 //! - **A conversation** is one setup on one connection:
 //!
 //!   ```text
@@ -45,6 +48,9 @@ pub const MAX_MESSAGE: usize = 16 * 1024;
 /// How long a conversation may wait for the client (a person typing an authenticator's code).
 pub const IDLE: Duration = Duration::from_secs(5 * 60);
 
+/// How long a peer that may not enroll is waited for, to read what it sends before refusing it.
+pub const REFUSAL_WAIT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Request {
@@ -64,8 +70,6 @@ pub enum Request {
 #[serde(rename_all = "camelCase")]
 pub enum Reason {
     NotPermitted,
-    /// The service is setting up as many accounts as it does at once.
-    Busy,
     InvalidRequest,
     InvalidAccount,
     UnusablePassword,
@@ -367,6 +371,16 @@ impl AsFd for Connection {
     }
 }
 
+/// Answers a connection's first message with a refusal, without looking at it; if the peer sends
+/// nothing within [`REFUSAL_WAIT`] or closes, nothing is answered.
+pub fn refuse(connection: &Connection, reason: Reason) -> io::Result<()> {
+    connection.set_timeout(REFUSAL_WAIT)?;
+    match connection.receive::<serde::de::IgnoredAny>()? {
+        Some(_) => connection.send(&Answer::refused(reason)),
+        None => Ok(()),
+    }
+}
+
 /// Runs one client's conversation to its end, if `enrollers` allows the peer. Each outcome is
 /// handed to `log`.
 pub fn serve<A: OxyApi, U: Users>(
@@ -376,10 +390,10 @@ pub fn serve<A: OxyApi, U: Users>(
     mut log: impl FnMut(&Peer, &Outcome),
 ) -> io::Result<()> {
     let peer = connection.peer()?;
-    connection.set_timeout(IDLE)?;
     if !enrollers.allow(peer.uid) {
-        return connection.send(&Answer::refused(Reason::NotPermitted));
+        return refuse(connection, Reason::NotPermitted);
     }
+    connection.set_timeout(IDLE)?;
     let mut conversation = Conversation::new(setup);
     loop {
         let Some(request) = connection.receive::<Request>()? else {

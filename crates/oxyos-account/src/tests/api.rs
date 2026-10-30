@@ -281,10 +281,21 @@ fn an_answer_outside_the_contract_is_no_sign_in() {
 
 #[test]
 fn an_unreachable_api_is_offline() {
-    // A port nothing listens on: the connection is refused, as with no network.
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
+    // A port bound and never listened on: the connection is refused, as with no network. It stays
+    // bound for the test, so no other test's server can take it meanwhile (a port bound and let go
+    // could be).
+    let socket = rustix::net::socket(
+        rustix::net::AddressFamily::INET,
+        rustix::net::SocketType::STREAM,
+        None,
+    )
+    .unwrap();
+    rustix::net::bind(
+        &socket,
+        &std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0),
+    )
+    .unwrap();
+    let port = std::net::SocketAddrV4::try_from(rustix::net::getsockname(&socket).unwrap())
         .unwrap()
         .port();
     let api = api(&format!("http://127.0.0.1:{port}"));

@@ -27,8 +27,10 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-/// Conversations at once; more wait to be accepted.
+/// Conversations at once.
 const MAX_CONVERSATIONS: usize = 4;
+/// Refusals of peers that may not enroll at once, each at most `ipc::REFUSAL_WAIT` long.
+const MAX_REFUSALS: usize = 4;
 
 struct Options {
     state: PathBuf,
@@ -112,7 +114,11 @@ fn run() -> Result<(), String> {
         options.state.display(),
         options.api
     );
-    let open = Arc::new(AtomicUsize::new(0));
+    // Conversations, and refusals of peers that may not enroll, each have their own few threads:
+    // peers that may not enroll cannot keep those that may out. A connection past them is closed
+    // unanswered (its client sees the connection end, and nothing is set up).
+    let conversations = Arc::new(AtomicUsize::new(0));
+    let refusals = Arc::new(AtomicUsize::new(0));
     loop {
         let connection = match listener.accept() {
             Ok(connection) => connection,
@@ -121,17 +127,30 @@ fn run() -> Result<(), String> {
                 continue;
             }
         };
-        if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONVERSATIONS {
+        let enrollers = enrollers(&options.enroller);
+        let allowed = match connection.peer() {
+            Ok(peer) => enrollers.allow(peer.uid),
+            Err(error) => {
+                eprintln!("oxyos-accountd: a connection's peer: {error}");
+                continue;
+            }
+        };
+        let (open, limit) = if allowed {
+            (conversations.clone(), MAX_CONVERSATIONS)
+        } else {
+            (refusals.clone(), MAX_REFUSALS)
+        };
+        if open.fetch_add(1, Ordering::SeqCst) >= limit {
             open.fetch_sub(1, Ordering::SeqCst);
-            let _ = connection.send(&ipc::Answer::refused(ipc::Reason::Busy));
+            eprintln!("oxyos-accountd: too many connections at once: one closed unanswered");
             continue;
         }
         let setup = setup.clone();
         let open_now = open.clone();
-        let enrollers = enrollers(&options.enroller);
         let spawned = std::thread::Builder::new()
             .name("oxyos-accountd-conversation".into())
             .spawn(move || {
+                // serve checks the peer itself too, and refuses it if it may not enroll.
                 if let Err(error) = ipc::serve(&connection, &setup, enrollers, log) {
                     eprintln!("oxyos-accountd: a conversation ended: {error}");
                 }

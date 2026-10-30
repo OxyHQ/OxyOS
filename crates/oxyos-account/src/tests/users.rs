@@ -4,7 +4,7 @@ use super::{account, crypt_verifies, Root, TempDir, PASSWORD};
 use crate::users::{passwd_entry, verifier_password, SystemUsers, Users, UsersError};
 use crate::Secret;
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 #[test]
@@ -99,22 +99,15 @@ fn only_a_password_pam_can_check_becomes_a_verifier() {
     assert!(!verifier_password(&Secret::new("nul\0byte")));
 }
 
-/// Tools that write down how they were run, in place of the system's.
+/// Tools that write down how they were run, in place of the system's: links to the committed
+/// `record-tool`. A script written by the test itself could not be run reliably: a process another
+/// test thread forks while the file is open for writing keeps it open until it execs, and running
+/// the script meanwhile fails (`ETXTBSY`). A link is made without opening anything.
 fn recording_tools(dir: &Path) -> SystemUsers {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tests/record-tool");
     let mut users = SystemUsers::new();
     for tool in ["useradd", "chpasswd", "userdel"] {
-        let script = dir.join(tool);
-        let record = dir.join(format!("{tool}.record"));
-        fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\n{{ echo \"args: $*\"; echo \"env: $(env | sort | tr '\\n' ' ')\"; \
-                 echo \"stdin: $(cat)\"; }} > '{}'\n",
-                record.display()
-            ),
-        )
-        .unwrap();
-        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(&fixture, dir.join(tool)).unwrap();
     }
     users.useradd = dir.join("useradd");
     users.chpasswd = dir.join("chpasswd");
