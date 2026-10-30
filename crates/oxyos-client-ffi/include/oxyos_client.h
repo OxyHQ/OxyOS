@@ -761,7 +761,9 @@ typedef struct OxyOSDmabufPlane {
 
 /* A frame's synchronization: the compositor reads the buffer once the acquire point signals and
  * signals the release point once it no longer reads it. Timeline 0 is none: a buffer submitted
- * without an acquire point is ready when submitted. */
+ * without an acquire point is ready when submitted. A point signals with every earlier point of its
+ * timeline, and buffers are released out of order: give each buffer a timeline of its own, its
+ * frames' acquire and release points one after another. */
 typedef struct OxyOSSync {
   uint32_t acquire_timeline;
   uint64_t acquire_point;

@@ -1644,6 +1644,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-gpu-client"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "oxyos-client",
+ "oxyos-dmabuf",
+ "oxyos-ipc",
+ "oxyos-protocol",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-image"
 version = "0.1.0"
 dependencies = [

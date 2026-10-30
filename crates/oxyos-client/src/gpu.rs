@@ -352,7 +352,10 @@ impl Client {
     /// the compositor waits for before it reads the buffer, and its release point, which it
     /// signals once it no longer does (`SetSync`, sent after the damage and before the
     /// `Submit`). Refused before anything is sent for a timeline this connection does not have,
-    /// or a release point not after the acquire point on the same timeline.
+    /// or a release point not after the acquire point on the same timeline. A point signals with
+    /// every earlier point of its timeline and buffers are released out of order (a queued frame
+    /// superseded while the one before it is shown), so each buffer has a timeline of its own:
+    /// its frames' acquire and release points one after another.
     pub fn submit_buffer_synced(
         &mut self,
         surface: u32,
