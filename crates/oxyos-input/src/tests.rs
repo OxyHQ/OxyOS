@@ -43,6 +43,7 @@ fn tap(keyboard: &mut Keyboard, code: u32) -> Option<String> {
         Typed::SwitchTerminal(number) => panic!("a terminal switch to {number}, not text"),
         Typed::Terminate => panic!("the end of the session, not text"),
         Typed::Lock => panic!("the lock, not text"),
+        Typed::ToggleReader => panic!("the screen reader's switch, not text"),
         Typed::Nothing => panic!("a press is always someone's"),
     }
 }
@@ -258,6 +259,28 @@ fn ctrl_super_q_locks_and_is_no_applications_key() {
     assert_eq!(fr.key(Q, true), Typed::Key(None));
     assert_eq!(fr.key(Q, false), Typed::Key(None));
     assert_eq!(fr.key(A, true), Typed::Lock);
+}
+
+#[test]
+fn super_f5_switches_the_screen_reader_and_is_no_applications_key() {
+    const CTRL: u32 = 29;
+    const SUPER: u32 = 125;
+    const F5: u32 = 63;
+    let mut us = composing("us");
+    assert_eq!(us.key(SUPER, true), Typed::Key(None));
+    assert_eq!(us.key(F5, true), Typed::ToggleReader);
+    assert_eq!(us.key(F5, false), Typed::Nothing);
+    assert_eq!(us.key(SUPER, false), Typed::Key(None));
+    // F5 alone is the application's (reload), as is Ctrl+Super+F5.
+    assert_eq!(us.key(F5, true), Typed::Key(None));
+    assert_eq!(us.key(F5, false), Typed::Key(None));
+    assert_eq!(us.key(CTRL, true), Typed::Key(None));
+    assert_eq!(us.key(SUPER, true), Typed::Key(None));
+    assert_eq!(us.key(F5, true), Typed::Key(None));
+    // On the Spanish layout too.
+    let mut es = composing("es");
+    es.key(SUPER, true);
+    assert_eq!(es.key(F5, true), Typed::ToggleReader);
 }
 
 #[test]

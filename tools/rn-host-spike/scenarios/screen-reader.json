@@ -1,0 +1,58 @@
+{
+  "about": "The session's screen reader (ADR 0014) on sample/A11yProbe.tsx, in Spanish, its voice a record of what it says: its keys, Ctrl+Alt with Right, Left or Space, reach it alone (React sees none of them) and move its cursor through the elements that have something to say, each said as name, value, state and role; Space activates the element under the cursor, whose announcement is said at once, interrupting; a live region's change is said politely; the element an application focuses is said and takes the cursor, which then moves on from it. Without the compositor taking the reader's keys, nothing is said and nothing is activated.",
+  "module": "A11yProbe",
+  "window": [480, 560],
+  "reader": {"locale": "es_ES.UTF-8"},
+  "steps": [
+    {
+      "name": "Ctrl+Alt+Right: the first element, said",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "spoken": [{"text": "Volumen, regulador", "interrupting": true}]}
+    },
+    {
+      "name": "on to the live region's text",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "spoken": ["Nivel 5"]}
+    },
+    {
+      "name": "on to Guardar, a button",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "spoken": ["Guardar, botón"]}
+    },
+    {
+      "name": "Ctrl+Alt+Space activates it: its announcement is said at once",
+      "do": ["key", [29, 56, 57]],
+      "allow_unchanged": true,
+      "expect": {"react": {"click@save": 1}, "spoken": [{"text": "Guardado", "interrupting": true}]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to the level",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "spoken": ["Nivel 5"]}
+    },
+    {
+      "name": "the level changes: the live region is said politely",
+      "do": ["a11y-action", ["increment", "Volumen"]],
+      "expect": {"texts": ["Nivel 6"], "spoken": [{"text": "Nivel 6", "interrupting": false}]}
+    },
+    {
+      "name": "the application focuses Nota: it is said, its value with it",
+      "do": ["a11y-action", ["focus", "Nota"]],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {"window": [{"role": "TextInput", "name": "Nota", "state": ["focused"]}]},
+        "spoken": ["Nota, hola ñandú, campo de texto"]
+      }
+    },
+    {
+      "name": "the cursor moves on from what was focused",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "spoken": ["Abrir diálogo, botón"]}
+    }
+  ]
+}

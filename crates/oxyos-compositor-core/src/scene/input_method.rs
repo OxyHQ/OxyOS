@@ -251,16 +251,19 @@ impl Scene {
         }
     }
 
-    /// A key from the keyboard, with what the layout types with it. Compositor shortcuts come
-    /// first; then, while the input method serves a field, it receives the key and the key waits
+    /// A key from the keyboard, with what the layout types with it. The screen reader's keys and
+    /// compositor shortcuts come first; then, while the input method serves a field, it receives the key and the key waits
     /// for its answer; otherwise the key, then its text, go to the focused surface.
     pub fn keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
+        if self.reader_key(key, pressed) {
+            return;
+        }
         let served = self
             .input_method
             .as_ref()
             .and_then(|im| im.active.map(|_| im.client));
         let Some(client) = served.filter(|_| !self.is_shortcut(key)) else {
-            self.key(key, pressed);
+            self.surface_key(key, pressed);
             if let Some(text) = text {
                 self.text(text);
             }

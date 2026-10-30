@@ -59,6 +59,9 @@ pub struct Grants {
     /// The input method (ADR 0008): serves the focused text field, receiving its state and the
     /// keys first. At most one connected client holds it.
     pub input_method: bool,
+    /// The screen reader (ADR 0014): its keys (Ctrl+Alt with an arrow or Space) are taken from
+    /// the keyboard and sent to it alone. At most one connected client holds it.
+    pub screen_reader: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,6 +331,8 @@ pub struct Scene {
     caps_lock: bool,
     /// Applications the shell asked for (ADR 0013).
     launches: launch::Launches,
+    /// The screen reader's keys held and taken (ADR 0014).
+    reader_keys: reader::ReaderKeys,
     /// Surfaces arrived and gone since the compositor last asked (ADR 0011).
     appearances: Vec<appearances::Appearance>,
 }
@@ -562,6 +567,10 @@ impl Scene {
         if grants.input_method && self.input_method.is_some() {
             return Err(ErrorCode::Unauthorized);
         }
+        // One screen reader at a time: the session starts it.
+        if grants.screen_reader && self.screen_reader().is_some() {
+            return Err(ErrorCode::Unauthorized);
+        }
         self.clients.insert(client, grants);
         self.activation.insert(client, self.serial);
         if grants.accessibility {
@@ -646,6 +655,7 @@ impl Scene {
         grants.shortcuts &= !revoked.shortcuts;
         grants.accessibility &= !revoked.accessibility;
         grants.input_method &= !revoked.input_method;
+        grants.screen_reader &= !revoked.screen_reader;
         if revoked.input_method {
             self.forget_input_method(client);
         }
@@ -2705,7 +2715,15 @@ impl Scene {
                 .is_some_and(|target| self.live(target).is_some())
     }
 
+    /// A key from the keyboard: the screen reader's first (ADR 0014), then the shell's
+    /// shortcuts, then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
+        if !self.reader_key(key, pressed) {
+            self.surface_key(key, pressed);
+        }
+    }
+
+    fn surface_key(&mut self, key: u32, pressed: bool) {
         let serial = self.next_serial();
         if self.is_shortcut(key) {
             if let Some(target) = self.shortcut_target {
@@ -2997,6 +3015,8 @@ pub use lock::Secret;
 mod launch;
 pub use launch::LaunchRequest;
 mod appearances;
+/// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
+mod reader;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 
 #[cfg(test)]

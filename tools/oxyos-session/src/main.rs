@@ -12,8 +12,8 @@
 //!   when logind asks and before the machine sleeps; only a password PAM accepts for the session's
 //!   user, under the service `oxyos`, unlocks it.
 //!
-//! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...] [-- COMMAND
-//! [ARGS]...]` runs COMMAND
+//! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...]
+//! [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...]` runs COMMAND
 //! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
 //! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
 //! that grants `shell` and `lock` (the shell is the lock screen as well); COMMAND, if given,
@@ -28,6 +28,11 @@
 //! the shell asks for an id, and the session starts it if its registry (`oxyos-apps`) lists it, a
 //! Bloom application with the Bloom host `OXYOS_BLOOM_HOST` names and the bundle
 //! `OXYOS_BLOOM_BUNDLE` names when its entry has none.
+//!
+//! The screen reader (docs/adr/0014-screen-reader.mdx) is `--reader PROGRAM` (or the program
+//! `OXYOS_READER` names): off until Super+F5 starts it, which stops it again (`--reader-on` starts
+//! it with the session). It runs on a socket of its own that grants `accessibility` and
+//! `screen_reader`, so its keys (Ctrl+Alt with an arrow or Space) reach it alone.
 //!
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
@@ -50,7 +55,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] \
-                     [--shell PROGRAM,ARG...] [-- COMMAND [ARGS]...] (COMMAND is required without a shell)";
+                     [--shell PROGRAM,ARG...] [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...] \
+                     (COMMAND is required without a shell)";
 /// The shell's panels set the work area within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const OUTPUT_ID: u32 = 1;
@@ -65,6 +71,8 @@ fn main() -> Result<()> {
     let mut command: Vec<OsString> = Vec::new();
     let mut shell_command: Option<Vec<OsString>> = None;
     let mut pointer: Option<(PathBuf, u32)> = None;
+    let mut reader_program: Option<OsString> = std::env::var_os("OXYOS_READER");
+    let mut reader_on = false;
     while let Some(arg) = args.next() {
         match arg.to_str() {
             Some("--pointer") => {
@@ -85,6 +93,8 @@ fn main() -> Result<()> {
                     .ok_or(USAGE)?;
                 shell_command = Some(value.split(',').map(OsString::from).collect());
             }
+            Some("--reader") => reader_program = Some(args.next().ok_or(USAGE)?),
+            Some("--reader-on") => reader_on = true,
             Some("--layout") => {
                 layout = Some(oxyos_input::Layout::named(
                     &args
@@ -102,6 +112,9 @@ fn main() -> Result<()> {
     }
     // A session shows something: its shell, an application, or both.
     if command.is_empty() && shell_command.is_none() {
+        return Err(USAGE.into());
+    }
+    if reader_on && reader_program.is_none() {
         return Err(USAGE.into());
     }
 
@@ -232,6 +245,18 @@ fn main() -> Result<()> {
         )?),
         None => None,
     };
+    // The screen reader's socket, only when the session has one (ADR 0014).
+    let reader_socket = runtime.join(format!("oxyos-{}-reader", std::process::id()));
+    let _reader_socket = RemoveOnDrop(reader_socket.clone());
+    if reader_program.is_some() {
+        let reader_listener = Listener::bind(&reader_socket)?;
+        reader_listener.set_nonblocking(true)?;
+        compositor.reader_listener = Some(reader_listener);
+    }
+    let mut reader = match (&reader_program, reader_on) {
+        (Some(program), true) => Some(spawn_reader(&reader_socket, program)?),
+        _ => None,
+    };
     // The session is on screen: the mark fades out over it.
     compositor.end_splash();
     let mut application = match command.first() {
@@ -277,6 +302,28 @@ fn main() -> Result<()> {
             compositor
                 .scene
                 .launched(request.client, request.serial, launched);
+        }
+        if let Some(status) = reader
+            .as_mut()
+            .map(|reader| reader.try_wait())
+            .transpose()?
+            .flatten()
+        {
+            eprintln!("[session] the screen reader exited ({status})");
+            reader = None;
+        }
+        if compositor.take_reader_toggle() {
+            match (reader.take(), &reader_program) {
+                (Some(mut running), _) => {
+                    eprintln!("[session] stopping the screen reader");
+                    end(&mut running)?;
+                }
+                (None, Some(program)) => {
+                    eprintln!("[session] starting the screen reader");
+                    reader = Some(spawn_reader(&reader_socket, program)?);
+                }
+                (None, None) => eprintln!("[session] no screen reader (--reader)"),
+            }
         }
         // The windows of what it started are their registry application's (ADR 0013).
         compositor.name_clients(&|pid| launcher.application_of(pid).map(String::from));
@@ -329,7 +376,11 @@ fn main() -> Result<()> {
     if let Some(shell) = shell.as_mut() {
         end(shell)?;
     }
+    if let Some(reader) = reader.as_mut() {
+        end(reader)?;
+    }
     compositor.shell_listener = None;
+    compositor.reader_listener = None;
     // The last frame completes before the display and the devices are given back.
     compositor.complete_flip(true);
     compositor.input = None;
@@ -378,6 +429,15 @@ fn spawn_shell(socket: &std::path::Path, command: &[OsString]) -> Result<std::pr
         .args(&command[1..])
         .arg("--shell")
         .arg(OUTPUT_ID.to_string())
+        .env("OXYOS_COMPOSITOR_SOCKET", socket)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .spawn()?)
+}
+
+/// The session's screen reader, on `socket`, in the session's language.
+fn spawn_reader(socket: &std::path::Path, program: &OsString) -> Result<std::process::Child> {
+    Ok(Command::new(program)
         .env("OXYOS_COMPOSITOR_SOCKET", socket)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")

@@ -152,6 +152,11 @@ wire_enum! {
     Politeness: u8 { Polite = 1, Assertive = 2 }
 }
 wire_enum! {
+    /// A screen reader's command from its keys (ADR 0014): move its cursor to the next or the
+    /// previous element, or activate the element under it.
+    ReaderCommand: u8 { Next = 1, Previous = 2, Activate = 3 }
+}
+wire_enum! {
     /// What a text field is for (ADR 0008).
     TextPurpose: u8 {
         Normal = 0, Digits = 1, Number = 2, Phone = 3, Url = 4, Email = 5, Name = 6,

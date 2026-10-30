@@ -1,8 +1,8 @@
 use super::*;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
-    PreeditText, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
-    MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
+    PreeditText, ReaderCommand, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES,
+    MAX_ACCESSIBLE_TEXT_BYTES, MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::collections::HashMap;
 
@@ -5529,4 +5529,173 @@ fn a_launched_processs_windows_are_its_registry_applications() {
     // Gone with its client.
     h.scene.disconnect(APP);
     assert_eq!(h.scene.application(APP), None);
+}
+
+// ---- the screen reader's keys (ADR 0014) -----------------------------------------------------
+
+/// The screen reader: an assistive technology whose keys are its own.
+const SCREEN_READER: ClientId = 8;
+const CTRL: u32 = 29;
+const RIGHT_CTRL: u32 = 97;
+const ALT: u32 = 56;
+const ALT_GR: u32 = 100;
+const SPACE: u32 = 57;
+const LEFT: u32 = 105;
+const RIGHT: u32 = 106;
+
+fn screen_reader() -> Grants {
+    Grants {
+        accessibility: true,
+        screen_reader: true,
+        ..Grants::default()
+    }
+}
+
+/// The keys `client` was sent, as (key, pressed).
+fn keys_to(events: &[(ClientId, Event)], client: ClientId) -> Vec<(u32, bool)> {
+    to(events, client)
+        .iter()
+        .filter_map(|event| match event {
+            Event::Key { key, pressed, .. } => Some((*key, *pressed)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn commands(events: &[(ClientId, Event)]) -> Vec<ReaderCommand> {
+    to(events, SCREEN_READER)
+        .iter()
+        .filter_map(|event| match event {
+            Event::ScreenReaderCommand { command } => Some(*command),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Ctrl+Alt+`key`, pressed and released, through the keyboard's path.
+fn chord(h: &mut Harness, key: u32, ctrl: u32) {
+    h.scene.keyboard(ctrl, true, None);
+    h.scene.keyboard(ALT, true, None);
+    h.scene.keyboard(key, true, (key == SPACE).then_some(" "));
+    h.scene.keyboard(key, false, None);
+    h.scene.keyboard(ALT, false, None);
+    h.scene.keyboard(ctrl, false, None);
+}
+
+#[test]
+fn the_screen_readers_keys_reach_it_alone() {
+    let mut h = Harness::new();
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    chord(&mut h, RIGHT, CTRL);
+    chord(&mut h, LEFT, RIGHT_CTRL);
+    chord(&mut h, SPACE, CTRL);
+    let events = logged(&mut h);
+    assert_eq!(
+        commands(&events),
+        [
+            ReaderCommand::Next,
+            ReaderCommand::Previous,
+            ReaderCommand::Activate
+        ]
+    );
+    // The application sees the modifiers, never the chord's key, its release or its text.
+    let modifiers = |ctrl| [(ctrl, true), (ALT, true), (ALT, false), (ctrl, false)];
+    let expected = [modifiers(CTRL), modifiers(RIGHT_CTRL), modifiers(CTRL)].concat();
+    assert_eq!(keys_to(&events, APP), expected);
+    assert!(!to(&events, APP)
+        .iter()
+        .any(|event| matches!(event, Event::TextInputCommitText { .. })));
+    // The same keys without both modifiers, or with AltGr (which types), are the application's.
+    h.scene.keyboard(RIGHT, true, None);
+    h.scene.keyboard(RIGHT, false, None);
+    h.scene.keyboard(CTRL, true, None);
+    h.scene.keyboard(ALT_GR, true, None);
+    h.scene.keyboard(SPACE, true, None);
+    h.scene.keyboard(SPACE, false, None);
+    let events = logged(&mut h);
+    assert!(commands(&events).is_empty());
+    assert!(keys_to(&events, APP).contains(&(RIGHT, false)));
+    assert!(keys_to(&events, APP).contains(&(SPACE, true)));
+}
+
+#[test]
+fn without_a_screen_reader_its_keys_are_ordinary() {
+    let mut h = Harness::new();
+    // An assistive technology without the grant has no keys.
+    h.scene.connect(READER, reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    chord(&mut h, RIGHT, CTRL);
+    let events = logged(&mut h);
+    assert!(keys_to(&events, APP).contains(&(RIGHT, true)));
+    assert!(keys_to(&events, APP).contains(&(RIGHT, false)));
+    assert!(to(&events, READER).is_empty());
+}
+
+#[test]
+fn the_screen_readers_keys_come_before_the_input_method_shortcuts_and_the_lock() {
+    let (mut h, _) = served("");
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    // Even were Right a shortcut of the shell's.
+    h.scene.set_shortcuts([SUPER, RIGHT]);
+    h.scene.keyboard(CTRL, true, None);
+    let ctrl = held(&logged(&mut h));
+    h.scene.keyboard(ALT, true, None);
+    let alt = held(&logged(&mut h));
+    for serial in [ctrl, alt] {
+        h.request(
+            IME,
+            Request::InputMethodKeyHandled {
+                serial,
+                used: false,
+            },
+        )
+        .unwrap();
+    }
+    logged(&mut h);
+    h.scene.keyboard(RIGHT, true, None);
+    h.scene.keyboard(RIGHT, false, None);
+    let events = logged(&mut h);
+    assert_eq!(commands(&events), [ReaderCommand::Next]);
+    assert!(to(&events, IME).is_empty());
+    assert!(to(&events, SHELL).is_empty());
+    assert!(to(&events, APP).is_empty());
+    // Locked, the reader still has its keys: it reads the lock screen.
+    h.scene.lock();
+    logged(&mut h);
+    h.scene.key(SPACE, true);
+    h.scene.key(SPACE, false);
+    assert_eq!(commands(&logged(&mut h)), [ReaderCommand::Activate]);
+}
+
+#[test]
+fn one_screen_reader_and_a_release_is_taken_with_its_press() {
+    let mut h = Harness::new();
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    assert_eq!(
+        h.scene.connect(9, screen_reader()),
+        Err(ErrorCode::Unauthorized)
+    );
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    h.scene.key(CTRL, true);
+    h.scene.key(ALT, true);
+    h.scene.key(RIGHT, true);
+    // The reader goes with the key held: its release is still not the application's.
+    h.scene.disconnect(SCREEN_READER);
+    h.scene.key(RIGHT, false);
+    assert_eq!(keys_to(&logged(&mut h), APP), [(CTRL, true), (ALT, true)]);
+    // With no reader, the chord is the application's again.
+    h.scene.key(RIGHT, true);
+    h.scene.key(RIGHT, false);
+    assert_eq!(
+        keys_to(&logged(&mut h), APP),
+        [(RIGHT, true), (RIGHT, false)]
+    );
+    assert_eq!(h.scene.connect(9, screen_reader()), Ok(()));
 }

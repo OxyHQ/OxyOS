@@ -26,6 +26,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - announcements: what the assistive technology would have said in the step, exactly and in
   order: an application's announcements and live regions' changes, each matching the keys
   given (politeness, text, live);
+- spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
+  exactly and in order: each a text, or keys matching an utterance (text, interrupting);
 - output_pixels: as pixels, in output coordinates rather than the window's;
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
@@ -59,6 +61,10 @@ before.
 
 A scenario with `wallpaper` ({folder, tz, now}) has the shell show the solar wallpaper's frame for
 that moment where that time zone is (ADR 0012).
+
+A scenario with `reader` ({"locale": LOCALE}) runs the session's screen reader (`oxyos-reader`,
+beside the offscreen compositor unless `--reader` names it) in that locale, its voice a record of
+what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [29, 56, 106]).
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
@@ -293,7 +299,7 @@ def gesture_events(report, start, end):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None):
+               shell_report=None, spoken=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -480,6 +486,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if len(said) != len(wanted) or not all(all(a.get(k) == v for k, v in w.items())
                                                for a, w in zip(said, wanted)):
             fail(f"the assistive technology would have said {said}, expected {wanted}")
+    if "spoken" in expect:
+        # What the screen reader said between the step's input and its settling.
+        said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
+        wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
+        if len(said) != len(wanted) or not all(all(u.get(k) == v for k, v in w.items())
+                                               for u, w in zip(said, wanted)):
+            fail(f"the screen reader said {[(u['text'], u['interrupting']) for u in said]}, expected {expect['spoken']}")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():
@@ -570,6 +583,8 @@ def main():
     parser.add_argument("--host", required=True)
     parser.add_argument("--bundle", required=True, help="directory holding index.js and its assets")
     parser.add_argument("--out", default=None)
+    parser.add_argument("--reader", default=None,
+                        help="the screen reader for scenarios with `reader` (oxyos-reader beside --offscreen)")
     parser.add_argument("--seat", action="store_true",
                         help="with --kms: run in the caller's logind session, devices through logind")
     parser.add_argument("--uinput", action="store_true",
@@ -611,6 +626,10 @@ def main():
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
         command += ["--lock-password", scenario["lock_password"]]
+    if "reader" in scenario:
+        # The session's screen reader (ADR 0014), saying into a record, in the scenario's locale.
+        reader = options.reader or str(pathlib.Path(options.offscreen).resolve().parent / "oxyos-reader")
+        command += ["--reader", reader, "--reader-locale", scenario["reader"].get("locale", "en_US.UTF-8")]
     if scenario.get("input_method"):
         # The session plays an input method the scenario's steps drive (ADR 0008).
         command += ["--input-method"]
@@ -671,11 +690,15 @@ def main():
     shell_report = ([json.loads(line) for line in shell_path.read_text().splitlines() if line.strip()]
                     if shell_path.exists() else [])
 
+    speech_path = out / "speech.jsonl"
+    spoken = ([json.loads(line) for line in speech_path.read_text().splitlines() if line.strip()]
+              if "reader" in scenario else None)
+
     failures = []
     start = summary["t_launch"]
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
-                           out / f"launch-{index + 2}.png", shell_report)
+                           out / f"launch-{index + 2}.png", shell_report, spoken)
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":

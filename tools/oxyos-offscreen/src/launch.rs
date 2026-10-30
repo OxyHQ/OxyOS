@@ -326,9 +326,15 @@ pub struct Launch {
     /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
     /// development compositor's fixture in place of the session's PAM (lock.rs).
     pub lock_password: Option<String>,
+    /// `--reader PROGRAM`: the session's screen reader (docs/adr/0014-screen-reader.mdx), started
+    /// before the application on a socket granting `accessibility` and `screen_reader`, its voice
+    /// a record (`speech.jsonl` in the output directory); `--reader-locale LOCALE` is its
+    /// language (`LC_ALL`), the session's otherwise.
+    pub reader: Option<PathBuf>,
+    pub reader_locale: Option<String>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
@@ -357,6 +363,7 @@ impl Launch {
         let (mut seat, mut input_method) = (false, false);
         let mut shell = None;
         let mut lock_password = None;
+        let (mut reader, mut reader_locale) = (None, None);
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -394,6 +401,15 @@ impl Launch {
                 Some("--shell") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     shell = Some(value.split(',').map(Into::into).collect());
+                    continue;
+                }
+                Some("--reader") => {
+                    reader = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--reader-locale") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    reader_locale = Some(value.to_string());
                     continue;
                 }
                 Some("--input-method") => {
@@ -596,6 +612,8 @@ impl Launch {
                             input_method,
                             shell: shell.clone(),
                             lock_password: lock_password.clone(),
+                            reader: reader.clone(),
+                            reader_locale: reader_locale.clone(),
                         },
                     ));
                 }
@@ -683,6 +701,46 @@ fn start_shell(
             return Ok(child);
         }
     }
+}
+
+/// Starts the screen reader on a socket of its own, granting `accessibility` and `screen_reader`,
+/// saying what it says into `record`, and serves the session until it is connected.
+fn start_reader(
+    session: &mut Session,
+    program: &Path,
+    locale: Option<&str>,
+    record: &Path,
+) -> Result<std::process::Child> {
+    let socket = session.socket.with_file_name("reader");
+    let listener = oxyos_ipc::Listener::bind(&socket)?;
+    listener.set_nonblocking(true)?;
+    session.compositor.reader_listener = Some(listener);
+    if record.exists() {
+        fs::remove_file(record)?;
+    }
+    let mut reader = Command::new(program);
+    reader
+        .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+        .env("OXYOS_SPEECH", format!("record:{}", record.display()))
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY");
+    if let Some(locale) = locale {
+        reader.env("LC_ALL", locale);
+    }
+    let mut child = reader.spawn()?;
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    while session.compositor.scene.screen_reader().is_none() {
+        if Instant::now() > deadline {
+            let _ = child.kill();
+            return Err("deadline exceeded waiting for the screen reader".into());
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!("the screen reader exited ({status}) before it connected").into());
+        }
+        session.compositor.serve(&session.listener)?;
+    }
+    eprintln!("[reader] connected");
+    Ok(child)
 }
 
 /// The shell's surfaces and the work area they leave, as a step records them.
@@ -1722,6 +1780,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
+    // The screen reader before the application, as a session that runs one starts it.
+    let screen_reader = match &launch.reader {
+        Some(program) => Some(start_reader(
+            &mut session,
+            program,
+            launch.reader_locale.as_deref(),
+            &out.join("speech.jsonl"),
+        )?),
+        None => None,
+    };
     let mut children = Children(vec![Command::new(&launch.command[0])
         .args(&launch.command[1..])
         .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
@@ -1738,6 +1806,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.app = Some((children.0[0].id(), id));
     }
     children.0.extend(shell);
+    children.0.extend(screen_reader);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
     let launched_ns = monotonic_ns();
@@ -1926,6 +1995,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
     // Its socket closes with the session; the shell, a client like the others, is waited for.
     session.compositor.shell_listener = None;
+    session.compositor.reader_listener = None;
     let gpu = match session.compositor.gpu.take() {
         Some(gpu) if gpu.mismatches > 0 => {
             return Err(if launch.gpu_only {
