@@ -119,7 +119,10 @@ impl Wpctl {
         };
         let (value, muted) = parse_volume(&out)
             .ok_or_else(|| io::Error::other(format!("wpctl said {:?}", out.trim())))?;
-        Ok(Some(Level::new(value, muted)))
+        // `wpctl` prints the volume to two decimals: the real one is within half a hundredth.
+        let mut level = Level::new(value, muted);
+        level.resolution = FULL_LEVEL.div_ceil(200);
+        Ok(Some(level))
     }
 
     /// Sets a volume and unmutes it, as a volume key does.

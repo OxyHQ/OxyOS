@@ -197,7 +197,7 @@ impl Controls {
                     key,
                     HardwareKey::VolumeUp | HardwareKey::BrightnessUp | HardwareKey::KeyboardUp
                 );
-                let value = stepped(known.value, steps, up);
+                let value = stepped(known.value, steps, up, known.resolution);
                 self.set(scene, control, known, value, Some(output));
             }
         }
