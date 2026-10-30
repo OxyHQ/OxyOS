@@ -1,0 +1,1014 @@
+{
+  "about": "OxyOS's Files (apps/files, sample/FilesApp.tsx; docs/adr/0027-files.mdx) on a home the scenario makes: the service (crates/oxyos-files through the host's OxyOSFiles) lists it, and every change goes to the disk and back. Clicks select one item, Shift extends, Ctrl takes one out (each press a W3C pointer press to the item alone, once, with its touch); the secondary button opens the item's context menu as a compositor popup and presses nothing; Return renames in place; Ctrl+Shift+N makes a folder (its menu's chord, ADR 0021); another program's file appears as the service's watch says the folder changed; the arrows and type-select move the selection; Ctrl+Backspace puts an item in the freedesktop.org Trash with its info; a drag moves an item into a folder; the list view sorts by a column; the screen reader opens a folder; Back returns; the Trash shows what it holds and Put Back returns it. The home is checked on the disk after each change.",
+  "module": "OxyOSFiles",
+  "window": [
+    1100,
+    680
+  ],
+  "app": {
+    "id": "so.oxy.files",
+    "title": "Files"
+  },
+  "locale": "en_US.UTF-8",
+  "tz": "UTC",
+  "home": {
+    "items": {
+      "Desktop/": "",
+      "Documents/": "",
+      "Documents/Budget 2026.xlsx": {
+        "bytes": 38912
+      },
+      "Documents/notes.md": "# Notes\n",
+      "Documents/Report 9.pdf": {
+        "bytes": 120000
+      },
+      "Documents/Report 10.pdf": {
+        "bytes": 482133
+      },
+      "Downloads/": "",
+      "Music/": "",
+      "Pictures/": "",
+      "Pictures/sunset.png": {
+        "png": [
+          64,
+          48,
+          "#e07a2a"
+        ]
+      },
+      "Projects/": "",
+      "Videos/": "",
+      "todo.txt": "milk\n",
+      ".bashrc": "export EDITOR=vi\n"
+    },
+    "later": [
+      {
+        "when_shown": "Archive",
+        "items": {
+          "from another program.txt": "hello\n"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "the home in icons: its folders and files by name, the hidden one not shown, nothing selected; a press on the background reaches only the background",
+      "do": [
+        "press",
+        [
+          600,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Favourites",
+          "Locations",
+          "Home",
+          "Desktop",
+          "Documents",
+          "Downloads",
+          "Music",
+          "Pictures",
+          "Projects",
+          "Videos",
+          "todo.txt",
+          "Computer",
+          "Trash",
+          "8 items"
+        ],
+        "absent": [
+          ".bashrc"
+        ],
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "touchStart@items": 1,
+          "touchEnd@items": 1
+        },
+        "react_presses": {
+          "pointerDown@items": 1,
+          "pointerUp@items": 1
+        },
+        "focus_surface": 1,
+        "at": {
+          "window": [
+            {
+              "role": "Grid",
+              "name": "Home"
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [],
+              "value": "Plain text"
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [],
+              "value": "Folder"
+            },
+            {
+              "role": "Button",
+              "name": "Back"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a rubber band from the background selects every item it touches",
+      "do": [
+        "drag",
+        [
+          930,
+          260,
+          400,
+          100
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "6 of 8 selected"
+        ],
+        "react_presses": {
+          "pointerDown@items": 1,
+          "pointerUp@item-Documents": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Videos",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a click selects one item: its press and its touch reach it alone, once",
+      "do": [
+        "press",
+        [
+          894,
+          120
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 8 selected"
+        ],
+        "react": {
+          "touchStart@item-todo.txt": 1,
+          "touchEnd@item-todo.txt": 1
+        },
+        "react_presses": {
+          "pointerDown@item-todo.txt": 1,
+          "pointerUp@item-todo.txt": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift down",
+      "do": [
+        "key_down",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "delivered": {
+          "1": {
+            "key.press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Shift-click extends from the anchor to the item clicked",
+      "do": [
+        "press",
+        [
+          270,
+          120
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "7 of 8 selected"
+        ],
+        "react": {
+          "touchStart@item-Desktop": 1,
+          "touchEnd@item-Desktop": 1
+        },
+        "react_presses": {
+          "pointerDown@item-Desktop": 1,
+          "pointerUp@item-Desktop": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Music",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Videos",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Shift up",
+      "do": [
+        "key_up",
+        [
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "delivered": {
+          "1": {
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl down",
+      "do": [
+        "key_down",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "delivered": {
+          "1": {
+            "key.press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Ctrl-click takes one item out of the selection (Ctrl is OxyOS's command modifier)",
+      "do": [
+        "press",
+        [
+          582,
+          120
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "6 of 8 selected"
+        ],
+        "react": {
+          "touchStart@item-Music": 1,
+          "touchEnd@item-Music": 1
+        },
+        "react_presses": {
+          "pointerDown@item-Music": 1,
+          "pointerUp@item-Music": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Music",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl up",
+      "do": [
+        "key_up",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "react_presses": {},
+        "delivered": {
+          "1": {
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the secondary button on a selected item opens its menu in a compositor popup where it pressed; it presses nothing, and the selection stays",
+      "do": [
+        "press_secondary",
+        [
+          374,
+          120
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Open",
+          "Rename",
+          "Move to Trash",
+          "6 of 8 selected"
+        ],
+        "react": {},
+        "react_presses": {
+          "pointerDown@item-Documents": 1,
+          "pointerUp@item-Documents": 1
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "Menu"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Move to Trash"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes the menu: the popup's key, once",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 0,
+        "absent": [
+          "Move to Trash"
+        ],
+        "react": {
+          "key@Context menu": 1
+        },
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "a click on another item selects it alone",
+      "do": [
+        "press",
+        [
+          790,
+          120
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 8 selected"
+        ],
+        "react": {
+          "touchStart@item-Projects": 1,
+          "touchEnd@item-Projects": 1
+        },
+        "react_presses": {
+          "pointerDown@item-Projects": 1,
+          "pointerUp@item-Projects": 1
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Projects",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return renames it in place: the field takes the keyboard with its name",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "react": {
+          "shortcut@menu-bar": 1,
+          "focus@rename": 1,
+          "selectionChange@rename": 2
+        },
+        "react_presses": {},
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Name",
+              "value": "Projects"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a new name replaces the whole of a folder's",
+      "do": [
+        "type",
+        "Code"
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Name",
+              "value": "Code"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return keeps it: the service renames it, the window follows the disk",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": null,
+        "home": {
+          "Code": true,
+          "Projects": false
+        },
+        "texts": [
+          "Code",
+          "1 of 8 selected"
+        ],
+        "absent": [
+          "Projects"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Code",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+N (File > New Folder) makes an untitled folder and renames it",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          49
+        ]
+      ],
+      "expect": {
+        "home": {
+          "untitled folder": true
+        },
+        "focus_input": "rename",
+        "texts": [
+          "1 of 9 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Name",
+              "value": "untitled folder"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "its name",
+      "do": [
+        "type",
+        "Archive"
+      ],
+      "expect": {
+        "focus_input": "rename"
+      }
+    },
+    {
+      "name": "kept: the folder is Archive, first by name; another program then puts a file in the home, and the window shows it",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "home": {
+          "Archive": true,
+          "untitled folder": false
+        },
+        "focus_input": null,
+        "texts": [
+          "Archive"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Archive",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the file another program made is shown, nothing pressed",
+      "do": [
+        "wait",
+        600
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "from another program.txt",
+          "1 of 10 selected"
+        ],
+        "react": {},
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "the right arrow selects the next item",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Archive",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Code",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        },
+        "react": {
+          "shortcut@menu-bar": 1
+        },
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "typing a name's first letter selects the first item it begins (type-select)",
+      "do": [
+        "key",
+        20
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "todo.txt",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "Code",
+              "state": []
+            }
+          ]
+        },
+        "react": {
+          "shortcut@menu-bar": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Backspace (File > Move to Trash) puts it in the home's Trash with its info",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "home": {
+          "todo.txt": false,
+          "trash": [
+            "todo.txt"
+          ]
+        },
+        "absent": [
+          "todo.txt"
+        ],
+        "texts": [
+          "9 items"
+        ],
+        "react": {
+          "shortcut@menu-bar": 1
+        }
+      }
+    },
+    {
+      "name": "a drag of Code onto Archive moves it there",
+      "do": [
+        "drag",
+        [
+          374,
+          120,
+          270,
+          120
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Archive/Code": true,
+          "Code": false
+        },
+        "absent": [
+          "Code"
+        ],
+        "texts": [
+          "8 items"
+        ],
+        "react_presses": {
+          "pointerDown@item-Code": 1,
+          "pointerUp@item-Archive": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+2 (View > as List): the list, its columns",
+      "do": [
+        "key",
+        [
+          29,
+          3
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Name",
+          "Date Modified",
+          "Size",
+          "Kind",
+          "Plain text",
+          "Folder"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "List",
+              "name": "Home"
+            },
+            {
+              "role": "ListItem",
+              "name": "Desktop",
+              "value": "Folder, --, Jan 2, 2026, 10:00 AM",
+              "custom": [
+                "Select",
+                "Rename",
+                "Move to Trash"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the screen reader opens a folder (its item's activation)",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Documents"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Budget 2026.xlsx",
+          "notes.md",
+          "Report 9.pdf",
+          "Report 10.pdf",
+          "4 items"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Report 10.pdf",
+              "value": "PDF document, 482 KB, Jan 2, 2026, 10:00 AM"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press on Size sorts by size, largest first",
+      "do": [
+        "press",
+        [
+          872,
+          73
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Size, descending"
+            }
+          ]
+        },
+        "react_presses": {
+          "pointerDown@column-size": 1,
+          "pointerUp@column-size": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+[ (Go > Back): the home again",
+      "do": [
+        "key",
+        [
+          29,
+          26
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Archive",
+          "Desktop",
+          "8 items"
+        ],
+        "absent": [
+          "notes.md"
+        ]
+      }
+    },
+    {
+      "name": "the Trash, from the sidebar: what it holds and where it was",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Trash"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "todo.txt",
+          "Date Deleted",
+          "1 item"
+        ],
+        "absent": [
+          "Archive"
+        ]
+      }
+    },
+    {
+      "name": "the secondary button on it: Put Back and Delete Immediately",
+      "do": [
+        "press_secondary",
+        [
+          420,
+          101
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Put Back",
+          "Delete Immediately…"
+        ],
+        "react": {},
+        "react_presses": {
+          "pointerDown@item-todo.txt": 1,
+          "pointerUp@item-todo.txt": 1
+        }
+      }
+    },
+    {
+      "name": "Put Back: it is where it was, and the Trash is empty",
+      "do": [
+        "press_popup",
+        [
+          100,
+          31
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "home": {
+          "todo.txt": true,
+          "trash": []
+        },
+        "texts": [
+          "The Trash is empty"
+        ]
+      }
+    },
+    {
+      "name": "Pictures, from the sidebar",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Pictures"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "sunset.png",
+          "Image",
+          "1 item"
+        ]
+      }
+    },
+    {
+      "name": "Ctrl+1 (View > as Icons): a picture's icon is the picture, which the host decodes",
+      "do": [
+        "key",
+        [
+          29,
+          2
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "sunset.png"
+        ],
+        "absent": [
+          "Kind"
+        ],
+        "pixels": {
+          "270,113": "#e07a2a"
+        }
+      }
+    },
+    {
+      "name": "selected, Space shows its preview",
+      "do": [
+        "press",
+        [
+          270,
+          120
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 1 selected"
+        ],
+        "react_presses": {
+          "pointerDown@item-sunset.png": 1,
+          "pointerUp@item-sunset.png": 1
+        }
+      }
+    },
+    {
+      "name": "the preview: the picture larger, what it is",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "texts": [
+          "sunset.png",
+          "Image · 157 bytes",
+          "Modified: Jan 2, 2026, 10:00 AM"
+        ],
+        "react_presses": {}
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "absent": [
+          "Image · 157 bytes"
+        ],
+        "texts": [
+          "1 of 1 selected"
+        ]
+      }
+    }
+  ]
+}

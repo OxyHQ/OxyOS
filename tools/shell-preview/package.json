@@ -6,7 +6,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test ../../apps/shell/tests/*.test.ts ../../apps/login/tests/*.test.ts ../../apps/settings/tests/*.test.ts",
+    "test": "node --test ../../apps/shell/tests/*.test.ts ../../apps/login/tests/*.test.ts ../../apps/settings/tests/*.test.ts ../../apps/files/tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

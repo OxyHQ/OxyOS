@@ -1,0 +1,9 @@
+# OxyOS's Files (apps/files, docs/adr/0027-files.mdx), run from the session's Bloom bundle. Always
+# first in the dock, as a Mac's Finder is.
+[Desktop Entry]
+Type=Application
+Name=Files
+Name[es]=Archivos
+Icon=../../../../shell-preview/assets/apps/files.png
+X-OxyOS-Bloom-Module=OxyOSFiles
+X-OxyOS-Pinned=1

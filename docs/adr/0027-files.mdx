@@ -1,0 +1,85 @@
+---
+title: "ADR 0027: Files"
+description: How an OxyOS application reaches the user's files (a host module scoped to the home and the removable media, with the freedesktop.org Trash and inotify's changes), how files will open in other applications, and the Files application, a Mac's Finder on Bloom.
+order: 36
+---
+
+# ADR 0027: Files
+
+Status: **accepted; implemented** but opening a file in another application (decision 7), which is specified here and waits for an application that opens files. Builds on [ADR 0013](./0013-launching-applications) (launch records; it left opening files for later), [ADR 0015](./0015-application-model) (one application, a model per platform), [ADR 0016](./0016-windows) (the window), [ADR 0019](./0019-settings) (a platform application's own host module), [ADR 0021](./0021-menu-bar) (the menu bar and shortcuts) and [ADR 0002](./0002-bloom-platform-surface-api) (popups through the compositor).
+
+## Problem
+
+A Mac has Finder: the user's files in a window, its sidebar their favourite folders and the disks, its toolbar back and forward, the path, the view and the search; items selected with clicks, Shift and ⌘ and a rubber band, moved by dragging, renamed in place, put in the Trash, the window following what changes on the disk. OxyOS has nothing of it: no application can see a file, and nothing says which files an application may reach, how it learns that a folder changed, what deleting means, or how a file opens in another application.
+
+## Options
+
+How an application reaches the file system:
+
+- **(a) Expo's `expo-file-system`.** Its API (`File`, `Directory`, `Paths.document`) is an application's sandbox on a phone: its own documents and cache directories. It has no Trash, no watching, no volumes and no notion of the user's home; a file manager would need all of them added to an API Expo owns, and an ordinary application would still get, through it, the whole home.
+- **(b) A host module of the platform's, behind the application's own model** (`OxyOSFiles`), as Settings has `OxyOSSettings` ([ADR 0019](./0019-settings)). The model is the application's (`FileSystem` in `apps/files`), so the same application runs in the browser and in tests on a file system kept in memory, and on OxyOS on the host's.
+
+## Decision
+
+1. **(b): the host's `OxyOSFiles`, over `crates/oxyos-files`.** A file manager is a platform application, as Settings is, and its model is the platform's. The service is Rust (`crates/oxyos-files`): requests as JSON (`{"id", "op", ...}`), run in the order they came on a thread of the service's own, so a slow disk never stalls a frame; answers and watched changes as JSON, from a queue whose descriptor the host polls with the compositor's, the network's and the images'. The C ABI is four calls whatever the operations (`oxyos_files_new`, `_fd`, `_request`, `_answer`); the host's module is `request(json)` and two events (`OxyOSFilesAnswer`, `OxyOSFilesChanged`). The service starts with an application's first request; the shell and the login screen have no module. An ordinary application's documents through `expo-file-system`'s API, scoped to its own folder, is its own decision; it would be built on this crate's scope.
+2. **What a path may name: the home and the removable media.**
+   - **Taken:** an absolute path with no `.` or `..` (an application never needs them, and refusing them leaves nothing to normalize) that, once its links are resolved, is in the user's home or in a volume mounted for the user directly under `/media/USER` or `/run/media/USER` (where udisks mounts removable media), as the mount table (`/proc/self/mountinfo`) lists them.
+   - **Refused,** with the reason: a relative path, `.` or `..`, a NUL; anything outside both, `/etc` or another user's home; a link in the home that leads out of it (a link that leads in is where it leads); the inside of a Trash, which only the Trash's operations reach, so what it holds always matches its info files. The home and a volume's root can be listed, never renamed, moved or put in the Trash.
+   - **Item and folder.** A folder is resolved through its links; an item to rename, move or trash is the link itself, its parent resolved. Names that are not UTF-8 are not listed (an application could not name them back).
+   - **What it is not.** The platform's rule for what applications reach, checked on canonical paths so a link cannot lead out of it. It is not a sandbox: without one (#35, #36), any program running as the user reaches what the user does.
+3. **Changes never destroy.** A new folder, a rename and a move never replace an item: renameat2's `RENAME_NOREPLACE`, and `Exists` when the name is taken. A file system that cannot do that (`EINVAL`: some FUSE and older drivers) is looked at first, a race only another program of the user's could lose. A move between volumes would be a copy and is refused (`CrossDevice`) until copying is decided. There is no delete: removing is the Trash's.
+4. **The places.** The home; the favourite folders, the XDG user directories (`user-dirs.dirs`: `"$HOME/..."` or an absolute path, a directory set to the home itself disabled, as the specification says), each only if it exists inside the home; the volumes, each by its mount point's name, which udisks takes from the volume's label.
+5. **The Trash is freedesktop.org's (Trash specification 1.0),** so every file manager on the machine shares it:
+   - an item in the home goes to `$XDG_DATA_HOME/Trash`; one on a volume to that volume's, at its root: `.Trash/UID` when the volume has a `.Trash` that is a folder, not a link, and sticky, else `.Trash-UID`, made with mode 0700;
+   - its `.trashinfo` is created first, exclusively, with the original path (absolute in the home's Trash, relative to the volume's root in a volume's, percent-encoded) and the deletion date in local time; then the item moves into `files/`. A name taken takes a number (`report 2.txt`); a failed move removes the info again;
+   - an item in the Trash is named by its path in `files/`; it is put back where it was (never over an item there now, and only into the home or the volume), deleted for good, or the Trash emptied, the info of items no longer there included. A read-only folder the user owns is made writable to be removed, as file managers do.
+6. **Watching.** A watch is a number, on a folder (inotify: an item created, removed, moved in or out, written and closed, its attributes changed; the folder itself removed or moved), on the Trash, or on the volumes (the mount table, readable as urgent data when it changes). One thread waits on both and says which watches changed, each once per wake whatever many events it read: the application reads the folder again, so a burst of changes is one reading. A lost queue (`IN_Q_OVERFLOW`) tells every watch. The window follows: a file another program creates shows at once; a folder that goes leaves the window on its parent.
+7. **Opening a file in another application** (specified; not implemented, below):
+   - **Which application.** An entry says what it opens with the Desktop Entry specification's `MimeType=`; a file's type is shared-mime-info's, from its name and, where that is ambiguous, its content. A default for a type is the user's choice, kept as the session keeps preferences ([ADR 0019](./0019-settings)); without one, the registry's first entry for it.
+   - **Who asks.** Any application, with a user input it received (as the clipboard's reads cite one, [ADR 0007](./0007-clipboard)), sends `OpenFiles` with the paths in chunks; the compositor hands it to the program running it, as a launch ([ADR 0013](./0013-launching-applications)), which judges the paths by decision 2 and the application by its registry.
+   - **How they arrive.** The session starts the application, or uses the process it already launched for it (its launch record), and tells that client `FilesOpened` with the paths; the Bloom host gives them to JavaScript as React Native's `Linking` gives a URL (`file://`), the initial one for a start and `url` events after.
+   - **The launch record** keeps the files an application was given. With a sandbox (#35, #36), they are what it may reach outside its own folder, as a Mac's powerbox grants them; until then, the record says what it was asked to open.
+   - **Not yet.** No application in the registry declares a type it opens, so Files says so ("No application can open “notes.md” yet.") rather than pretending; the protocol and the session's choice come with the first application that opens documents.
+8. **The Files application** (`so.oxy.files`, `apps/files`), built as [ADR 0015](./0015-application-model) says: Bloom's `AppShell` with its sidebar and one pane, the model the platform's.
+   - **The sidebar,** Bloom's, under the window's controls: Favourites (Home, Desktop, Documents, Downloads, Pictures, Music, Videos, those that exist) and Locations (the computer, each volume, the Trash).
+   - **The toolbar,** the pane's drag region ([ADR 0016](./0016-windows)): back and forward (Bloom's `ButtonGroup`), the path (Bloom's `Breadcrumb`, each folder a way back up), the view (Bloom's `SegmentedControl`: icons or a list) and the search in the folder (Bloom's `Search`, case and accents aside).
+   - **The items:** a grid of icons, or a list whose columns (name, date modified, size, kind; date deleted in the Trash) sort by a press on their header, again to reverse. Names sort as Finder sorts them, numbers by their value. Folders are drawn in the accent colour, a document as a page with its kind's glyph, a PNG or JPEG under 24 MB as the picture itself (the host decodes it at the size it is drawn, on its own threads, `crates/oxyos-image`).
+   - **Selection:** a click selects one; Shift extends from the anchor; Ctrl adds or removes one (⌘ on a Mac: Bloom's command modifier, [ADR 0021](./0021-menu-bar)); a rubber band from the background selects what it touches, adding with a modifier; a press on the background deselects.
+   - **Keys** (Bloom's `useWindowKeys`, after the menus' shortcuts): the arrows (across and down a grid, down a list; Shift extends), Home and End, Return to rename, Space for a preview, Escape to close it or to cancel a rename, and typing a name's first letters (type-select). **The menus** in the shell's bar ([ADR 0021](./0021-menu-bar)): File (New Folder Ctrl+Shift+N, Open Ctrl+O, Rename, Move to Trash Ctrl+Backspace, or Put Back and Delete Immediately in the Trash, Empty Trash), Edit (Select All), View (as Icons Ctrl+1, as List Ctrl+2, Sort By, Show Hidden Files Ctrl+Shift+.), Go (Back Ctrl+[, Forward Ctrl+], Enclosing Folder Ctrl+↑, the places).
+   - **Context menus** (Bloom's `ContextMenu`): an item's (Open, Rename, Move to Trash; Put Back, Delete Immediately in the Trash) and the folder's (New Folder, the other view; Empty Trash), opened by the secondary button where it pressed, as compositor popups.
+   - **Dragging** selected items onto a folder moves them there; a folder the drag may not enter (one of the items, inside one, where they already are) does not light.
+   - **Renaming** in place, the name before its extension selected; refused names (empty, with `/`, longer than 255 bytes, taken) say why.
+   - **Accessibility:** the items are a list (or a grid) of list items named by their names, their kind, size and date as their value, selected as their state; activating opens, and Rename, Move to Trash (Put Back) and Select are actions the screen reader offers ([ADR 0003](./0003-accessibility-protocol), [ADR 0014](./0014-screen-reader)).
+   - **Light, dark and the accent** follow the session's preferences, as every Bloom application does.
+
+### What the platform gained for it
+
+A desktop's list needs input that React Native on Android does not give and that Bloom did not have:
+
+- **Every mouse button's press is a W3C pointer event** (`pointerdown`, `pointerup`: the button, the buttons held, Shift, Ctrl, Alt, Meta), as Android's `JSPointerDispatcher` sends a mouse's: the host sends them to the view under the pointer (`input.h`). React Native's Android view config lists their bubbling events but not the props, so no view could listen; the OxyOS override of the base view config adds them, as its iOS config has them (`sample/oxyos/Libraries/NativeComponent/BaseViewConfig.oxyos.js`). A secondary press reaches nothing else (no touch), so it opens a menu and presses nothing.
+- **Bloom's `useWindowKeys`** (`@oxy.so/bloom/kbd`): an application's own keys from the window's key source, the one menus' shortcuts use (the platform adapter's `keyboard`, else the DOM's), after the menus; never while a text field or a menu has the keys, unless the field's owner asks (`whileTyping`, for Escape). And `isCommandKey`, Bloom's command modifier for a pointer's or a key's event.
+- **Bloom's native `ContextMenu` on a platform with popups** opens on the secondary button (or a long press) at the press, in the platform's popup, anchored to the trigger at that point (`PopupSurfaceProps.point`); the host places the popup against that point of the anchor (`popup.h`). A phone keeps the sheet.
+- **A trigger's child that states its role keeps it** (Bloom's `TriggerSlot`): a list item that opens a context menu is a list item, not a button.
+- **The host's text input takes a selection JavaScript sets** (`setTextAndSelection`): its offsets arrive as numbers that are doubles, which it ignored, so a field's `setSelection` did nothing.
+
+## Steps
+
+1. **The service.** `crates/oxyos-files`: the scope, the items, the places, the Trash, watching and the service's thread; the C ABI.
+
+   *Done.* Tests (on directories the tests make: a home, a media parent, a volume, a mount table of their own): the scope (every refused form, a link out and a link in, the Trash's insides, the home and a volume's root never items, a media parent not a volume); the mount table (octal escapes, only the user's direct children, each once); the user directories (relative, absolute, disabled, outside the home, missing); listing (hidden items, links and broken links, sizes and times), new folders, renames and moves never replacing, a folder never into itself; the Trash's encoding, the home's Trash (the info's lines, mode 0700, a numbered name, listing with where each was and when, putting back, not over an item, removing, ids outside refused), a volume's Trash by both methods, emptying with a read-only folder and an orphaned info; a watched folder (twenty writes told once, a move told to both folders, a watch ended, a folder removed); the service's answers in order with their ids, errors as codes. Through the C ABI: the header's declarations, and a home listed, refused, watched and trashed through the descriptor, an answer too long kept until there is room.
+2. **The Bloom host and Bloom.** `OxyOSFiles` (`files.h`); W3C pointer presses; the base view config; `useWindowKeys`; native `ContextMenu` in a popup at a point; the text input's selection.
+
+   *Done* with Bloom's changes as [OxyHQ/Bloom#524](https://github.com/OxyHQ/Bloom/pull/524) (no release yet; the scenarios' bundle is built from its branch), with Bloom's tests.
+3. **The application, its entry and its scenarios.** `apps/files`, `sample/FilesApp.tsx`, `so.oxy.files` (its icon the owner's, first in the dock as Finder is: Inbox is second now, and the shell scenarios' dock positions moved with it).
+
+   *Done.* Tests on the model (`apps/files/tests`): names' order, each column's order and reversing, hidden items and the search, clicks with Shift and Ctrl, the arrows in a list and a grid, the rubber band, type-select, history, paths and roots (nothing outside the scope), names, where a drag may drop, kinds and thumbnails, sizes and dates in two languages, and the file system in memory keeping the service's rules. `scenarios/files.json` and `files-scaled.json` (1600x1000 at 1.25) run Files on a home the scenario makes; see their `about`.
+4. **Opening files in other applications** (decision 7): the protocol, the session's choice, the host's `Linking`; with the first application that opens documents.
+
+## Not in this decision
+
+- Copying (with its progress and cancelling), and moving between volumes, which copies.
+- Ejecting a volume (udisks over the system bus, as its polkit rules allow), network volumes, the computer's own disks.
+- Dragging between applications (a drag-and-drop protocol), and files on the desktop.
+- Undo, Get Info, aliases, Quick Look beyond a picture and an item's facts, previews of other formats.
+- Searching beyond the folder shown (an index, as Spotlight's).
+- Sharing, tags, and keeping files in step with the Oxy account (an iCloud Drive of Oxy's): each its own decision, as is sandboxing (#35, #36).
