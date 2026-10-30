@@ -222,6 +222,10 @@ python3 "$HERE/regress.py" "$HERE/scenarios/modal.json" --check-damage \
 python3 "$HERE/regress.py" "$HERE/scenarios/pinch.json" --check-damage \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
   --bundle "$WORK/sample" --out "$WORK/regress-pinch"
+# Animated's native driver: opacity, a transform and a colour stepped on the host's frames, and Bloom's Switch.
+python3 "$HERE/regress.py" "$HERE/scenarios/native-animated.json" --check-damage \
+  --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \
+  --bundle "$WORK/sample" --out "$WORK/regress-native-animated"
 # Intl: dates and numbers for several locales and time zones, each as Node prints it with the same CLDR.
 python3 "$HERE/regress.py" "$HERE/scenarios/intl.json" \
   --offscreen "$REPO/target/release/oxyos-offscreen" --host "$WORK/host-build/oxyos-bloom-host" \

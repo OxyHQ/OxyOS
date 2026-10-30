@@ -1,0 +1,213 @@
+{
+  "about": "Animated's native driver (sample/AnimatedProbe.tsx), React Native's C++ implementation as Android runs it: the probe and Bloom's Switch mount (without NativeAnimatedModule they throw at once, 'Native animated module is not available'); a press runs three 600 ms linear animations on the native driver, each frame's opacity, transform and colour set on the views between commits where a linear animation is at that frame's time, ending exactly at their values, drawn there, and JavaScript told of each end once; the moved box is pressed where the driver moved it; they run back; a scroll view's onScroll, through Animated.event on the native driver, moves a bar as far as the view scrolled; and Bloom's Switch turns on with one press, its thumb moved along the track, and calls onCheckedChange once.",
+  "module": "AnimatedProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "a press on Start runs the three animations on the native driver: each frame's value is where a linear 600 ms animation is, from the start to exactly the end, and they are drawn at their end: the faded box opaque, the moved box 200 to the right and gone from its layout, the tinted box blue; JavaScript is told of each end",
+      "do": [
+        "press",
+        [
+          60,
+          188
+        ]
+      ],
+      "expect": {
+        "animated": {
+          "fade": {
+            "opacity": [
+              0,
+              1
+            ]
+          },
+          "slide": {
+            "transform.translateX": [
+              0,
+              200
+            ]
+          },
+          "tint": {
+            "backgroundColor": [
+              "#d03030",
+              "#3050d0"
+            ]
+          }
+        },
+        "animated_frames": 25,
+        "animated_linear_ms": 600,
+        "window_frames": [
+          25,
+          60
+        ],
+        "texts": [
+          "Ended: fade, slide, tint"
+        ],
+        "react": {
+          "touchStart@start": 1,
+          "touchEnd@start": 1
+        },
+        "pixels": {
+          "60,50": "#d03030",
+          "50,120": "#ffffff",
+          "250,120": "#3050d0",
+          "340,50": "#3050d0",
+          "310,188": "#f7ebf0",
+          "334,188": "#968396"
+        }
+      }
+    },
+    {
+      "name": "a press where the driver moved the box reaches it, and where its layout alone would put it reaches the page",
+      "do": [
+        "press",
+        [
+          250,
+          120
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@slide": 1,
+          "touchEnd@slide": 1
+        },
+        "animated": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the moved box's layout is the page's",
+      "do": [
+        "press",
+        [
+          50,
+          120
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        },
+        "animated": {}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a press on Back runs them back to where they started",
+      "do": [
+        "press",
+        [
+          150,
+          188
+        ]
+      ],
+      "expect": {
+        "animated": {
+          "fade": {
+            "opacity": [
+              1,
+              0
+            ]
+          },
+          "slide": {
+            "transform.translateX": [
+              200,
+              0
+            ]
+          },
+          "tint": {
+            "backgroundColor": [
+              "#3050d0",
+              "#d03030"
+            ]
+          }
+        },
+        "animated_frames": 25,
+        "animated_linear_ms": 600,
+        "window_frames": [
+          25,
+          60
+        ],
+        "texts": [
+          "Ended: fade, slide, tint"
+        ],
+        "react": {
+          "touchStart@back": 1,
+          "touchEnd@back": 1
+        },
+        "pixels": {
+          "60,50": "#ffffff",
+          "50,120": "#3050d0",
+          "250,120": "#ffffff",
+          "340,50": "#d03030"
+        }
+      }
+    },
+    {
+      "name": "the wheel scrolls the scroll view 40 down: its onScroll, through Animated.event on the native driver, moves the bar 40 to the right, set from the scroll event and drawn there",
+      "do": [
+        "scroll",
+        [
+          340,
+          130,
+          40
+        ]
+      ],
+      "expect": {
+        "scroll_offset": {
+          "scroller": [
+            0,
+            40
+          ]
+        },
+        "react": {
+          "scroll@scroller": 1
+        },
+        "delivered": {
+          "1": {
+            "scroll": 1
+          }
+        },
+        "animated": {
+          "bar": {
+            "transform.translateX": [
+              0,
+              40
+            ]
+          }
+        },
+        "animated_frames": 1,
+        "pixels": {
+          "250,221": "#30a050",
+          "210,221": "#ffffff"
+        }
+      }
+    },
+    {
+      "name": "one press turns Bloom's Switch on: its thumb moves from the track's start to its end over the track's new colour, and onCheckedChange is called once",
+      "do": [
+        "press",
+        [
+          322,
+          188
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Switch on, changed 1"
+        ],
+        "react": {
+          "touchStart@switch": 1,
+          "touchEnd@switch": 1
+        },
+        "pixels": {
+          "310,188": "#9422ae",
+          "334,188": "#ffeefc"
+        }
+      }
+    }
+  ]
+}

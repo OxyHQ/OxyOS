@@ -9,6 +9,7 @@
 //   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
 //   {"t":…,"kind":"gesture","event":"state","handler":"PanGestureHandler","view":"card","state":"ACTIVE",…}
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
+//   {"t":…,"kind":"animated","target":"fade","props":{"opacity":0.42}}  (set by Animated's native driver)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the
 // two logs line up. Views are named by testID, else by accessibility label, else component#tag.
@@ -59,6 +60,9 @@ class Report {
   // How an animating modal's window is presented in a frame (modal.h): moved down by `offset`
   // logical pixels of the window's `height`, at `alpha`.
   void modalPresented(const char* event, const std::string& within, float offset, float alpha, float height);
+  // Props Animated's native driver set on `view` between commits (native-animated.h), as computed
+  // for a frame: what the view is drawn with next.
+  void animated(const facebook::react::ShadowView& view, const folly::dynamic& props);
   // A popup's lifecycle.
   void popup(const char* event, uint32_t surface, const facebook::react::ShadowView* view,
              const folly::dynamic& extra = folly::dynamic::object());
