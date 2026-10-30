@@ -19,6 +19,8 @@
 //! `Content-Length`, as Android's OkHttp sends a body's whose length it knows. With
 //! `upload_progress`, what was sent is answered as it goes ([`Answer::Sent`]).
 
+pub mod connectivity;
+
 use cookie_store::{CookieStore, RawCookie};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
