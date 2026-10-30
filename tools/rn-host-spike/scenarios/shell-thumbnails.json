@@ -1,0 +1,74 @@
+{
+  "about": "The overview shows each window live (docs/adr/0022-window-views.mdx): the application (sample/EditingProbe.tsx, Allo, 600 × 360) runs beside the shell; the dock's overview button opens the overview, and its card for Allo shows Allo's own pixels, drawn by the compositor where the card's OxyOSWindowView is (477 × 286 at 262, 182, the window's proportions, from the WindowSize the shell was told): its text fields' tint, its white, under the card's title bar, box-filtered. The shell sent that one view, never a pixel. A press on the card goes to the shell under the window drawn there, never to Allo: the overview closes and Allo is focused, and where the card was the wallpaper shows again. With the compositor drawing no views, the card is its own #eef3f8 and the first step fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the overview opens: Allo's card shows Allo's own pixels, live",
+      "do": [
+        "press_output",
+        [
+          622,
+          693
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "in_shell": {
+          "texts": [
+            "Escritorio 1",
+            "Allo",
+            "Nuevo escritorio"
+          ],
+          "absent": [
+            "Vista previa no disponible"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "output_pixels": {
+          "400,170": "#d0e5f3",
+          "500,215": "#e9dce3",
+          "380,290": "#e9dce3",
+          "300,420": "#ffffff",
+          "600,400": "#ffffff",
+          "500,467": "#ffffff",
+          "500,468": "#b3bcc3"
+        }
+      }
+    },
+    {
+      "name": "a press on the card is the shell's: the overview closes and Allo is focused, the pointer entering it",
+      "do": [
+        "press_output",
+        [
+          600,
+          400
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "output_pixels": {
+          "300,420": "#5481fb"
+        }
+      }
+    }
+  ]
+}

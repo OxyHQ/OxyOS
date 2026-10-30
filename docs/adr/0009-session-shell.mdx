@@ -40,7 +40,7 @@ On OxyOS it runs in the Bloom host, which so far makes one toplevel window (`sam
 
 3. **Not decided here.** Each needs its own decision when its turn comes:
    - **The active application's menus** in the top bar: applications publishing their menus, commands sent back.
-   - **Window thumbnails** in the overview: the compositor sharing scaled copies of windows' frames with the shell.
+   - **Window thumbnails** in the overview: decided in [ADR 0022](./0022-window-views): the compositor draws the windows live where the shell places them, and the shell never receives their pixels.
    - **Launching applications** from the dock and the launcher, and the application registry: the session's launch records (#35).
 
    Until then the shell gets no menus, no thumbnails (it shows each window's icon and title), and `activateApp` focuses the application's newest window if it has one, and otherwise does nothing.

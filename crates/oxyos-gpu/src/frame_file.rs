@@ -1,18 +1,21 @@
 //! A composed frame's layers in a file, so frames composed by one machine's compositor can be
 //! composed again elsewhere (on another device, or another OS's Vulkan driver) and compared.
 //!
-//! Format, little-endian: `OXYFRAME3`, then width, height, background and the layer count (u32
+//! Format, little-endian: `OXYFRAME4`, then width, height, background and the layer count (u32
 //! each); per layer x, y (i32), width, height, extent width, extent height (u32), kind (u8:
 //! 0 opaque, 1 premultiplied, 2 fill, 3 shadow), opacity (u8), radius (u32), a shadow's shape
 //! and what it is beneath (x, y as i32, width, height and radius as u32, each) and its scale
-//! (u32), colour (u32), byte length (u64) and the pixels. `OXYFRAME2` files, from before corners
-//! and shadows, are read with every radius 0; `OXYFRAME1` files, from before opacities, also with
-//! every layer at 255.
+//! (u32), its filter (u8: 0 nearest, 1 box) and clip (u8: 1 if it has one, then x, y as i32 and
+//! width, height as u32), colour (u32), byte length (u64) and the pixels. `OXYFRAME3` files,
+//! from before filters and clips, are read with every layer nearest and unclipped; `OXYFRAME2`
+//! files, from before corners and shadows, also with every radius 0; `OXYFRAME1` files, from
+//! before opacities, also with every layer at 255.
 
-use crate::{Layer, Paint, Rect, Shadow};
+use crate::{Filter, Layer, Paint, Rect, Shadow};
 use std::io::{self, Read, Write};
 
-const MAGIC: &[u8; 9] = b"OXYFRAME3";
+const MAGIC: &[u8; 9] = b"OXYFRAME4";
+const MAGIC_3: &[u8; 9] = b"OXYFRAME3";
 const MAGIC_2: &[u8; 9] = b"OXYFRAME2";
 const MAGIC_1: &[u8; 9] = b"OXYFRAME1";
 
@@ -87,6 +90,17 @@ pub fn write(
             }
         }
         out.write_all(&shadow.scale.to_le_bytes())?;
+        let filter = match layer.filter {
+            Filter::Nearest => 0,
+            Filter::Box => 1,
+        };
+        out.write_all(&[filter, u8::from(layer.clip.is_some())])?;
+        let clip = layer.clip.unwrap_or_default();
+        out.write_all(&clip.x.to_le_bytes())?;
+        out.write_all(&clip.y.to_le_bytes())?;
+        for value in [clip.width, clip.height] {
+            out.write_all(&value.to_le_bytes())?;
+        }
         out.write_all(&color.to_le_bytes())?;
         out.write_all(&(pixels.len() as u64).to_le_bytes())?;
         out.write_all(pixels)?;
@@ -107,9 +121,11 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
     let invalid = |what: &str| io::Error::new(io::ErrorKind::InvalidData, what.to_string());
     let mut magic = [0; 9];
     input.read_exact(&mut magic)?;
-    // The version: 1 without opacities, 2 without corners and shadows.
+    // The version: 1 without opacities, 2 without corners and shadows, 3 without filters and
+    // clips.
     let version = match &magic {
-        magic if magic == MAGIC => 3,
+        magic if magic == MAGIC => 4,
+        magic if magic == MAGIC_3 => 3,
         magic if magic == MAGIC_2 => 2,
         magic if magic == MAGIC_1 => 1,
         _ => return Err(invalid("not a frame file")),
@@ -144,6 +160,23 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             clip_radius: shape[10],
             scale: shape[11],
         };
+        let (mut filter, mut clip) = (Filter::Nearest, None);
+        if version >= 4 {
+            let mut flags = [0; 2];
+            input.read_exact(&mut flags)?;
+            filter = match flags[0] {
+                0 => Filter::Nearest,
+                1 => Filter::Box,
+                _ => return Err(invalid("unknown filter")),
+            };
+            let at = u32s(input, 4)?;
+            clip = (flags[1] == 1).then_some(Rect {
+                x: at[0] as i32,
+                y: at[1] as i32,
+                width: at[2],
+                height: at[3],
+            });
+        }
         let color = u32s(input, 1)?[0];
         let mut length = [0; 8];
         input.read_exact(&mut length)?;
@@ -164,6 +197,8 @@ pub fn read(input: &mut impl Read) -> io::Result<Frame> {
             changed: None,
             opacity: opacity[0],
             radius: shape[0],
+            filter,
+            clip,
         };
         let kind = match kind[0] {
             0 => Kind::Opaque,

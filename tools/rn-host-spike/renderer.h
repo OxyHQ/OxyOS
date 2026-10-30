@@ -109,6 +109,17 @@ struct RenderStats {
   // placeholder when empty), unless clipped out entirely.
   std::vector<std::string> textContent;
   bool written = false;  // whether render() saved the PNG
+  // The windows shown live in what was drawn (docs/adr/0022-window-views.mdx), in drawing order:
+  // each OxyOSWindowView's window number, its frame and the part of it its ancestors leave
+  // visible (in the canvas's logical pixels), its corners' radius and its opacity. Views under a
+  // transform, a mask or a blur are not among them.
+  struct WindowView {
+    uint32_t window = 0;
+    facebook::react::Rect rect, clip;
+    float radius = 0, opacity = 1;
+    bool operator==(const WindowView&) const = default;
+  };
+  std::vector<WindowView> windowViews;
 };
 
 // Pixels are 0xAARRGGBB, premultiplied, row-major, `width * scale` by `height * scale`. A window's
@@ -192,6 +203,11 @@ class TextInputGeometry {
 inline constexpr const char* kPopupComponent = "OxyOSPopupView";
 // Component whose subtree is a shell region in a surface of its own (shell-surface.h).
 inline constexpr const char* kShellSurfaceComponent = "OxyOSShellSurface";
+// Component where the compositor draws a window live, over the shell surface it is in
+// (shell-surface.h, docs/adr/0022-window-views.mdx).
+inline constexpr const char* kWindowViewComponent = "OxyOSWindowView";
+// The window an OxyOSWindowView shows: its number, if it names one.
+std::optional<uint32_t> windowViewNumber(const facebook::react::ShadowView& view);
 // Whether a view's subtree is drawn in a surface of its own, never in its root's.
 inline bool ownSurface(const std::string& name) { return name == kPopupComponent || name == kShellSurfaceComponent; }
 // React Native's Modal: on Android a window of its own over the activity's. Here its subtree is

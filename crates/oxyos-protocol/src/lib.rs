@@ -52,6 +52,8 @@ pub const MAX_MENU_LABEL_BYTES: usize = 128;
 pub const MAX_MENU_SHORTCUT_BYTES: usize = 32;
 /// `parent` of a menu of the bar.
 pub const NO_MENU_PARENT: u32 = u32::MAX;
+/// Most windows one shell surface shows live (`PlaceWindowView`, ADR 0022).
+pub const MAX_WINDOW_VIEWS: usize = 64;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

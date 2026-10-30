@@ -29,10 +29,24 @@ export type MaskedProps = {
   children: ReactNode;
 };
 
+/**
+ * A window's live contents where the view is (docs/adr/0022-window-views.mdx): the platform's
+ * compositor draws the window there itself, fitted to `style`'s size in its proportions, clipped
+ * as the view is, with the view's top-left corner radius. The shell never holds the pixels.
+ */
+export type WindowViewProps = {
+  windowId: string;
+  style?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
+};
+
 export type ShellPlatform = {
   Surface: ComponentType<ShellSurfaceProps>;
   /** Where the platform masks views; without it, what would be masked is drawn plainly. */
   Masked?: ComponentType<MaskedProps>;
+  /** Where the platform shows windows live (the overview's cards); without it, a window's
+      `thumbnail` if it has one, or its icon. */
+  WindowView?: ComponentType<WindowViewProps>;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

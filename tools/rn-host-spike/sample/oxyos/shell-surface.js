@@ -3,7 +3,8 @@
  * each region the shell wraps in `Surface` (the top bar, the dock, the open overview or launcher)
  * renders the `OxyOSShellSurface` host component. Its subtree stays in the shell's React tree; the
  * Bloom host, run as the shell (`--shell`), draws it in a panel or an overlay of its own, where the
- * shell's layout put it (docs/adr/0009-session-shell.mdx).
+ * shell's layout put it (docs/adr/0009-session-shell.mdx). The overview's cards show each window
+ * live through `WindowView` (docs/adr/0022-window-views.mdx).
  */
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -47,4 +48,27 @@ function Masked({ mask, style, children }) {
   );
 }
 
-export const oxyosShell = { Surface, Masked };
+// A window shown live (docs/adr/0022-window-views.mdx): the OxyOSWindowView host component, where
+// the compositor draws the window numbered `window` itself, over the shell surface the view is in,
+// fitted to the view in its proportions and clipped as it is. The shell never holds its pixels.
+const OxyOSWindowView = NativeComponentRegistry.get('OxyOSWindowView', () => ({
+  uiViewClassName: 'OxyOSWindowView',
+  validAttributes: {
+    window: true,
+  },
+}));
+
+function WindowView({ windowId, style, accessibilityLabel }) {
+  return (
+    // Never flattened away: the host finds the window's place by its view.
+    <OxyOSWindowView
+      window={Number(windowId)}
+      style={style}
+      accessible={!!accessibilityLabel}
+      accessibilityLabel={accessibilityLabel}
+      collapsable={false}
+    />
+  );
+}
+
+export const oxyosShell = { Surface, Masked, WindowView };

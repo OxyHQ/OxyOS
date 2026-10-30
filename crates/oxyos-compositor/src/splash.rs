@@ -50,6 +50,7 @@ pub fn splash(size: Size) -> Option<Snapshot> {
         format: Format::Xrgb8888,
         pixels,
         look: None,
+        views: Vec::new(),
     })
 }
 

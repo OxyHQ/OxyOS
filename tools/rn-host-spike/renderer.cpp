@@ -370,6 +370,13 @@ class Painter {
 
   // The device pixels painted, as limit() set them.
   const std::array<int, 4>& region() const { return region_; }
+  // Whether a window shown live is placed from what it paints (docs/adr/0022-window-views.mdx):
+  // the surface's canvas, or a layer of a view only moved and scaled (a dragged card); not a mask,
+  // a blur, a modal animating or a view turned or skewed. `toSurface` maps its logical pixels
+  // to the surface's, and `surfaceClip` is what clips the layer there.
+  bool placesWindows = true;
+  Affine toSurface;
+  Clip surfaceClip{-1e9f, -1e9f, 1e9f, 1e9f};
 
   void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
     auto& engine = TextEngine::shared();
@@ -407,7 +414,8 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "AndroidTextInput", "AndroidHorizontalScrollContentView",
                                             "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
-                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView"};
+                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
+                                            kWindowViewComponent};
 
 // The input's text laid out as it is drawn: single-line inputs do not wrap.
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -628,6 +636,14 @@ void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip
   }
   Canvas layer;
   Painter inside(layer, layerScale);
+  // Moved and scaled, not turned or skewed: the windows in it are placed where it is drawn.
+  inside.placesWindows = painter.placesWindows && map.b == 0 && map.c == 0 && map.a > 0 && map.d > 0;
+  if (inside.placesWindows) {
+    Rect bounds = painter.toSurface.bounds(Rect{{clip.x0, clip.y0}, {clip.x1 - clip.x0, clip.y1 - clip.y0}});
+    inside.surfaceClip = painter.surfaceClip.intersect(
+        Clip{bounds.origin.x, bounds.origin.y, bounds.getMaxX(), bounds.getMaxY()});
+    inside.toSurface = painter.toSurface.after(map.after(Affine::translation(area.origin.x, area.origin.y)));
+  }
   bool invertible = std::abs(map.determinant()) >= 1e-6f && area.size.width > 0 && area.size.height > 0;
   const auto& region = painter.region();
   // The canvas's painted region, in logical pixels, as the layer's own coordinates see it.
@@ -770,6 +786,7 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx - left;
   float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty - top;
   Painter inside(layer, scale);
+  inside.placesWindows = false;
   RenderStats unseen;
   ++drawingBlurTarget;
   drawView(tree, blurTarget.target, targetX, targetY,
@@ -801,6 +818,7 @@ void drawMasked(const ViewTree& tree, Tag tag, float x, float y, float w, float 
   Clip inside{clip.x0 - left, clip.y0 - top, clip.x1 - left, clip.y1 - top};
   inside = inside.intersect(Clip{x - left, y - top, x - left + w, y - top + h});
   Painter maskPainter(mask, scale), contentPainter(content, scale);
+  maskPainter.placesWindows = contentPainter.placesWindows = false;
   // Nothing of it painted: its subtree is still walked, for the stats.
   if (painted.empty()) {
     maskPainter.limit(0, 0, 0, 0);
@@ -937,6 +955,26 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
       std::string value = data.attributedStringBox.getValue().getString();
       auto props = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
       stats.textContent.push_back(value.empty() ? props->placeholder : shownText(*props, value));
+    }
+  }
+
+  // A window shown live (docs/adr/0022-window-views.mdx): the compositor draws it here, over what
+  // the surface shows, within what clips the view; the host draws nothing of it.
+  if (name == kWindowViewComponent && painter.placesWindows && visible) {
+    if (auto window = windowViewNumber(view)) {
+      Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
+      auto border = props ? props->resolveBorderMetrics(view.layoutMetrics).borderRadii : BorderRadii{};
+      float radius = std::max({border.topLeft.horizontal, border.topRight.horizontal, border.bottomLeft.horizontal,
+                               border.bottomRight.horizontal});
+      // In the surface's logical pixels.
+      const Affine& map = painter.toSurface;
+      Rect rect = map.bounds(Rect{{x, y}, {w, h}});
+      Rect cut = map.bounds(Rect{{inside.x0, inside.y0}, {inside.x1 - inside.x0, inside.y1 - inside.y0}});
+      Clip kept = painter.surfaceClip.intersect(Clip{cut.origin.x, cut.origin.y, cut.getMaxX(), cut.getMaxY()});
+      if (!kept.empty()) {
+        stats.windowViews.push_back(RenderStats::WindowView{
+            *window, rect, Rect{{kept.x0, kept.y0}, {kept.x1 - kept.x0, kept.y1 - kept.y0}}, radius * map.a, opacity});
+      }
     }
   }
 
@@ -1181,6 +1219,7 @@ void drawModals(const ViewTree& tree, const Display& display, Painter& painter, 
     layer.height = static_cast<int>(std::lround(display.height * display.scale));
     layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
     Painter inside(layer, display.scale);
+    inside.placesWindows = false;
     drawModalOnto(tree, modal, display, inside, stats, edit);
     painter.layer(layer, display.scale, area, Affine::translation(0, presented.offset), window, presented.alpha);
   }

@@ -59,6 +59,9 @@ pub const OXYOS_EVENT_WINDOW_TITLE: u32 = 38;
 pub const OXYOS_EVENT_WINDOW_APP_ID: u32 = 39;
 pub const OXYOS_EVENT_WINDOW_CLOSED: u32 = 40;
 pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
+/// To the session's shell (ADR 0022): a window's size in logical pixels (code: the window;
+/// width, height), when it is first told and whenever it changes.
+pub const OXYOS_EVENT_WINDOW_SIZE: u32 = 80;
 /// To an application: the shell asks it to close a window.
 pub const OXYOS_EVENT_CLOSE_REQUESTED: u32 = 42;
 /// A touchpad pinch over one of the client's surfaces.
@@ -646,6 +649,15 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::WindowSize { window, size } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_WINDOW_SIZE,
+                code: window,
+                width: size.width,
+                height: size.height,
+                ..out
+            }
+        }
         Event::Workspaces { count, active } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_WORKSPACES,
@@ -1171,6 +1183,68 @@ pub unsafe extern "C" fn oxyos_client_manage(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// A window a shell surface shows live (docs/adr/0022-window-views.mdx): the window's number,
+/// where it is drawn in the surface (logical pixels; fitted with its proportions kept, centred),
+/// the part of the surface it may cover, its corners' radius and its opacity (255: as it is).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSWindowView {
+    pub window: u32,
+    pub rect: OxyOSRect,
+    pub clip: OxyOSRect,
+    pub radius: u32,
+    pub opacity: u8,
+}
+
+/// The windows the shell's surface `surface` shows live, bottom to top, replacing those it
+/// showed: `count` (at most 64) `OxyOSWindowView`s at `views` (any pointer when 0), shown with
+/// the surface's next present. The compositor draws them over the surface's pixels; the shell
+/// never receives them. Only the session's shell may (the `shell` grant). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `views` points to `count` readable
+/// `OxyOSWindowView`s when `count` is not 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_show_windows(
+    client: *mut OxyOSClient,
+    surface: u32,
+    views: *const OxyOSWindowView,
+    count: usize,
+) -> c_int {
+    if count > oxyos_protocol::MAX_WINDOW_VIEWS {
+        return fail("too many windows shown live");
+    }
+    let views = if count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: per the contract, `views` points to `count` readable views.
+        unsafe { std::slice::from_raw_parts(views, count) }
+    };
+    let rect = |r: OxyOSRect| Rect::new(r.x, r.y, r.width, r.height);
+    // SAFETY: forwarded caller contract.
+    let cleared = unsafe { send(client, Request::ClearWindowViews { surface }) };
+    if cleared != 0 {
+        return cleared;
+    }
+    for view in views {
+        let request = Request::PlaceWindowView {
+            surface,
+            window: view.window,
+            rect: rect(view.rect),
+            clip: rect(view.clip),
+            radius: view.radius,
+            opacity: view.opacity,
+        };
+        // SAFETY: forwarded caller contract.
+        let sent = unsafe { send(client, request) };
+        if sent != 0 {
+            return sent;
+        }
+    }
+    0
 }
 
 /// The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0 on success, or

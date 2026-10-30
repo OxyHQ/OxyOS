@@ -1,4 +1,5 @@
 import React, {
+  type ComponentType,
   useRef,
   useMemo,
   useEffect,
@@ -39,6 +40,7 @@ import type {
   ShellApplication,
 } from "../model";
 import { belongsTo } from "../model";
+import type { WindowViewProps } from "../platform";
 
 function aspectRatio(window: ShellWindow) {
   const size = window.thumbnailSize;
@@ -59,6 +61,7 @@ function WindowThumbnail({
   close,
   drag,
   faded = false,
+  WindowView,
 }: {
   window: ShellWindow;
   app?: ShellApplication;
@@ -67,6 +70,8 @@ function WindowThumbnail({
   close: () => void;
   drag?: OverviewDragController;
   faded?: boolean;
+  /** The platform's live window (ADR 0022), preferred to a still thumbnail. */
+  WindowView?: ComponentType<WindowViewProps>;
 }) {
   const width = contentHeight * aspectRatio(window);
   const id = window.id;
@@ -144,7 +149,20 @@ function WindowThumbnail({
         className="items-center justify-center"
         style={{ width, height: contentHeight }}
       >
-        {window.thumbnail ? (
+        {WindowView ? (
+          // The window itself, live: the compositor draws it here, its proportions kept, the
+          // card's bottom corners rounded with it.
+          <WindowView
+            windowId={window.id}
+            style={{
+              width,
+              height: contentHeight,
+              borderBottomLeftRadius: 13,
+              borderBottomRightRadius: 13,
+            }}
+            accessibilityLabel={`Ventana ${window.title}`}
+          />
+        ) : window.thumbnail ? (
           <Image
             source={window.thumbnail}
             resizeMode="contain"
@@ -176,11 +194,14 @@ export function Overview({
   actions,
   dismiss,
   escapeRequest = 0,
+  WindowView,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
   dismiss: () => void;
   escapeRequest?: number;
+  /** Where the platform shows windows live (docs/adr/0022-window-views.mdx). */
+  WindowView?: ComponentType<WindowViewProps>;
 }) {
   const { width, height } = useWindowDimensions();
   const desktops = useRef<React.ComponentRef<typeof ScrollView>>(null);
@@ -433,6 +454,7 @@ export function Overview({
                           window={window}
                           drag={drag.controller}
                           faded={drag.dragged?.window.id === window.id}
+                          WindowView={WindowView}
                           app={snapshot.applications.find(
                             (app) => belongsTo(window, app.id),
                           )}
@@ -509,6 +531,7 @@ export function Overview({
             contentHeight={drag.dragged.contentHeight}
             focus={() => {}}
             close={() => {}}
+            WindowView={WindowView}
           />
         </Animated.View>
       )}

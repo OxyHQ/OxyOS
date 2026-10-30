@@ -6725,3 +6725,281 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// The menu bar (ADR 0021).
 mod menus;
+// ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
+
+/// The shell's overview: an overlay over the whole output.
+fn overview(h: &mut Harness) -> SurfaceKey {
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 9,
+            kind: ShellKind::Overlay,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(SCREEN.width, SCREEN.height),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 9));
+    key(SHELL, 9)
+}
+
+/// The shell's list of windows shown live on its surface 9, sent with its next frame.
+fn place_views(h: &mut Harness, views: &[(u32, Rect, Rect)]) -> Result<(), ErrorCode> {
+    h.request(SHELL, Request::ClearWindowViews { surface: 9 })?;
+    for &(window, rect, clip) in views {
+        h.request(
+            SHELL,
+            Request::PlaceWindowView {
+                surface: 9,
+                window,
+                rect,
+                clip,
+                radius: 13,
+                opacity: 255,
+            },
+        )?;
+    }
+    Ok(())
+}
+
+/// The windows shown live in the frame being composed: (surface, window, frame's buffer, rect,
+/// clip).
+fn views(scene: &Scene) -> Vec<(SurfaceKey, SurfaceKey, u64, Rect, Rect)> {
+    scene
+        .frame_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::View {
+                surface,
+                window,
+                frame,
+                rect,
+                clip,
+                ..
+            } => Some((surface, window, frame.buffer, rect, clip)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The buffer a surface shows in the list composed now.
+fn shown_buffer(scene: &Scene, surface: SurfaceKey) -> u64 {
+    scene
+        .frame_list()
+        .into_iter()
+        .find_map(|item| match item {
+            RenderItem::Surface { key, frame, .. } if key == surface => Some(frame.buffer),
+            _ => None,
+        })
+        .expect("shown")
+}
+
+#[test]
+fn a_shell_surface_shows_windows_live_where_it_places_them() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 1280, 800);
+    let number = h.scene.window_number(window).unwrap();
+    let overlay = overview(&mut h);
+    let card = Rect::new(100, 100, 400, 400);
+    place_views(&mut h, &[(number, card, card)]).unwrap();
+    // Not before the surface's frame that goes with the list.
+    assert!(views(&h.scene).is_empty());
+    h.present(overlay);
+    // Fitted in its proportions (1280 × 800 in 400 × 400: 400 × 250), centred, above the
+    // overlay and its own frame: the one the window shows.
+    let fitted = Rect::new(100, 175, 400, 250);
+    let list = h.scene.frame_list();
+    let overlay_at = list
+        .iter()
+        .position(|item| matches!(item, RenderItem::Surface { key, .. } if *key == overlay))
+        .unwrap();
+    assert!(matches!(
+        list[overlay_at + 1],
+        RenderItem::View { surface, window: w, rect, .. } if surface == overlay && w == window && rect == fitted
+    ));
+    assert_eq!(
+        views(&h.scene),
+        vec![(
+            overlay,
+            window,
+            shown_buffer(&h.scene, window),
+            fitted,
+            fitted
+        )]
+    );
+    // Live: the window's next frame is in the view in the frame that first shows it.
+    h.submit(window);
+    h.scene.begin_frame();
+    let presenting = shown_buffer(&h.scene, window);
+    assert_eq!(views(&h.scene)[0].2, presenting);
+    h.scene.end_frame(1, Clock::Synthetic);
+    h.pump();
+    // A clip: only its part of the window is drawn; one outside the window draws none.
+    let clip = Rect::new(0, 0, 300, 200);
+    place_views(
+        &mut h,
+        &[
+            (number, card, clip),
+            (number, Rect::new(600, 100, 400, 400), clip),
+            (number + 100, card, card),
+        ],
+    )
+    .unwrap();
+    h.present(overlay);
+    assert_eq!(
+        views(&h.scene)
+            .iter()
+            .map(|view| view.4)
+            .collect::<Vec<_>>(),
+        vec![Rect::new(100, 175, 200, 25)],
+        "the clip within the window; no window numbered so"
+    );
+    // A window on another workspace or minimized is shown live too: the overview shows every
+    // workspace's windows.
+    place_views(&mut h, &[(number, card, card)]).unwrap();
+    h.present(overlay);
+    h.scene.minimize(window);
+    assert!(!h.rendered(window));
+    assert_eq!(views(&h.scene).len(), 1);
+    // A window gone is drawn no more, and its number names nothing.
+    h.request(APP, Request::Destroy { surface: 1 }).unwrap();
+    assert!(views(&h.scene).is_empty());
+    // The overlay gone, its list is.
+    let window = h.toplevel(APP, 2, 640, 480);
+    let number = h.scene.window_number(window).unwrap();
+    place_views(&mut h, &[(number, card, card)]).unwrap();
+    h.present(overlay);
+    assert_eq!(views(&h.scene).len(), 1);
+    h.request(SHELL, Request::Destroy { surface: 9 }).unwrap();
+    assert!(views(&h.scene).is_empty());
+    assert!(h.scene.window_views.is_empty());
+}
+
+#[test]
+fn only_the_shell_shows_windows_live_and_only_on_its_shell_surfaces() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 800, 600);
+    let number = h.scene.window_number(window).unwrap();
+    // An application cannot, not even on its own window.
+    assert_eq!(
+        h.scene
+            .handle(APP, Request::ClearWindowViews { surface: 1 }),
+        Err(ErrorCode::Unauthorized)
+    );
+    let rect = Rect::new(0, 0, 100, 100);
+    assert_eq!(
+        h.scene.handle(
+            APP,
+            Request::PlaceWindowView {
+                surface: 1,
+                window: number,
+                rect,
+                clip: rect,
+                radius: 0,
+                opacity: 255,
+            }
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    // The shell, on a toplevel of its own: not a shell surface.
+    h.toplevel(SHELL, 1, 200, 200);
+    assert_eq!(
+        h.scene
+            .handle(SHELL, Request::ClearWindowViews { surface: 1 }),
+        Err(ErrorCode::InvalidRole)
+    );
+    assert_eq!(
+        h.scene
+            .handle(SHELL, Request::ClearWindowViews { surface: 5 }),
+        Err(ErrorCode::UnknownSurface)
+    );
+    overview(&mut h);
+    // A view is placed in a list begun.
+    assert_eq!(
+        h.scene.handle(
+            SHELL,
+            Request::PlaceWindowView {
+                surface: 9,
+                window: number,
+                rect,
+                clip: rect,
+                radius: 0,
+                opacity: 255,
+            }
+        ),
+        Err(ErrorCode::InvalidOrder)
+    );
+    let many = vec![(number, rect, rect); oxyos_protocol::MAX_WINDOW_VIEWS];
+    place_views(&mut h, &many).unwrap();
+    assert_eq!(
+        h.scene.handle(
+            SHELL,
+            Request::PlaceWindowView {
+                surface: 9,
+                window: number,
+                rect,
+                clip: rect,
+                radius: 0,
+                opacity: 255,
+            }
+        ),
+        Err(ErrorCode::QuotaExceeded)
+    );
+}
+
+#[test]
+fn nothing_of_a_window_shown_live_is_drawn_while_locked() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 800, 600);
+    let number = h.scene.window_number(window).unwrap();
+    let overlay = overview(&mut h);
+    let card = Rect::new(100, 100, 400, 300);
+    place_views(&mut h, &[(number, card, card)]).unwrap();
+    h.present(overlay);
+    assert_eq!(views(&h.scene).len(), 1);
+    h.scene.lock();
+    assert!(views(&h.scene).is_empty());
+    assert!(h
+        .scene
+        .render_list()
+        .iter()
+        .all(|item| matches!(item, RenderItem::Cover { .. })));
+    // The shell's list sent while locked is not shown under the lock either.
+    place_views(&mut h, &[(number, card, card), (number, card, card)]).unwrap();
+    h.present(overlay);
+    assert!(views(&h.scene).is_empty());
+    h.scene.unlock();
+    assert_eq!(views(&h.scene).len(), 2);
+}
+
+#[test]
+fn the_shell_is_told_each_windows_size() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 800, 600);
+    let number = h.scene.window_number(window).unwrap();
+    let sizes = |h: &Harness| -> Vec<(u32, Size)> {
+        to(&h.log, SHELL)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::WindowSize { window, size } => Some((window, size)),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(sizes(&h), vec![(number, Size::new(800, 600))]);
+    h.scene.resize_window(window, Size::new(640, 400));
+    h.pump();
+    // Told once the new size is shown, once.
+    h.present(window);
+    h.present(window);
+    assert_eq!(
+        sizes(&h),
+        vec![(number, Size::new(800, 600)), (number, Size::new(640, 400))]
+    );
+    // Applications are never told.
+    assert!(to(&h.log, APP)
+        .iter()
+        .all(|event| !matches!(event, Event::WindowSize { .. })));
+}

@@ -211,13 +211,25 @@ export function ShellSession() {
   type Told = { id: number; primary: boolean };
   const dock = (state.outputs ?? []).some((output: Told) => output.id === state.output && output.primary);
   const windows = state.windows.map(
-    (window: { id: number; appId: string; title: string; workspace: number; minimized: boolean; launched: boolean }) => ({
+    (window: {
+      id: number;
+      appId: string;
+      title: string;
+      workspace: number;
+      minimized: boolean;
+      launched: boolean;
+      width: number;
+      height: number;
+    }) => ({
       id: String(window.id),
       appId: window.appId,
       title: window.title,
       workspaceId: String(window.workspace),
       minimized: window.minimized,
       launched: window.launched,
+      // The window's proportions (ADR 0022): its card is drawn in them, and the compositor draws
+      // the window in it live (the platform's WindowView).
+      thumbnailSize: window.width > 0 && window.height > 0 ? { width: window.width, height: window.height } : undefined,
     }),
   );
   // The session's applications (ADR 0013): those kept in the dock by their place, then the others

@@ -2,7 +2,8 @@
  * The compositor's windows and workspaces as the session's shell knows them (OxyOSShell, ADR 0009),
  * and the shell's actions on them. Only a Bloom host run as the shell (`--shell`) has the module.
  *
- * The state: { windows: [{ id, appId, title, workspace, minimized, focused }], workspaces, active,
+ * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, width, height }],
+ * workspaces, active,
  * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper the file of the
  * solar wallpaper's frame that shows the sun now (null without one); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null }]., windows numbered by the compositor and workspaces from 0.

@@ -119,6 +119,9 @@ class Window {
   // `serial` answers. False if it could not be sent.
   bool launch(uint32_t serial, const std::string& id);
   bool authenticate(uint32_t id, const std::string& secret);
+  // The windows a shell surface shows live (docs/adr/0022-window-views.mdx), bottom to top,
+  // shown with its next present. Throws on failure.
+  void showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);
   // The pointer's shape while it is over a surface (OXYOS_POINTER_*).

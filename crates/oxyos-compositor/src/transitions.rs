@@ -128,6 +128,22 @@ pub struct Snapshot {
     pub format: Format,
     pub pixels: Vec<u8>,
     pub look: Option<oxyos_compositor_core::WindowLook>,
+    /// The windows a shell surface showed live over its pixels (docs/adr/0022-window-views.mdx),
+    /// which go with it.
+    pub views: Vec<ViewSnapshot>,
+}
+
+/// A window a shell surface going showed live: its frame's pixels when the surface began going,
+/// and where they were drawn (on the output, as the surface was at `Snapshot::rect`).
+#[derive(Clone, Debug)]
+pub struct ViewSnapshot {
+    pub rect: Rect,
+    pub clip: Rect,
+    pub radius: u32,
+    pub opacity: u8,
+    pub extent: Size,
+    pub format: Format,
+    pub pixels: Vec<u8>,
 }
 
 struct Running {
@@ -672,6 +688,7 @@ mod tests {
             format: Format::Xrgb8888,
             pixels: vec![0; 200 * 100 * 4],
             look: None,
+            views: Vec::new(),
         }
     }
 

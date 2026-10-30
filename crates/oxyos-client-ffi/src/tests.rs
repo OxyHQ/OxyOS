@@ -3061,3 +3061,119 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
 }
 /// The menu bar (ADR 0021).
 mod menus;
+
+#[test]
+fn the_header_matches_the_window_views_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_WINDOW_SIZE"),
+        i64::from(OXYOS_EVENT_WINDOW_SIZE)
+    );
+    let size = Event::WindowSize {
+        window: 7,
+        size: oxyos_protocol::Size::new(1280, 800),
+    };
+    assert_eq!(u32::from(size.opcode()), OXYOS_EVENT_WINDOW_SIZE);
+    let event = convert(&size).unwrap();
+    assert_eq!(
+        (event.kind, event.code, event.width, event.height),
+        (OXYOS_EVENT_WINDOW_SIZE, 7, 1280, 800)
+    );
+    // The view as C lays it out: two rectangles of four 4-byte fields after the window, then
+    // the radius and the opacity.
+    assert!(HEADER.contains(
+        "typedef struct OxyOSWindowView {\n  uint32_t window;\n  OxyOSRect rect;\n  OxyOSRect clip;\n  uint32_t radius;\n  uint8_t opacity;\n} OxyOSWindowView;"
+    ));
+    assert_eq!(
+        [
+            offset_of!(OxyOSWindowView, window),
+            offset_of!(OxyOSWindowView, rect),
+            offset_of!(OxyOSWindowView, clip),
+            offset_of!(OxyOSWindowView, radius),
+            offset_of!(OxyOSWindowView, opacity),
+            size_of::<OxyOSWindowView>(),
+        ],
+        [0, 4, 20, 36, 40, 44]
+    );
+}
+
+#[test]
+fn the_shell_shows_windows_live_through_the_c_abi() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-views-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..4)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let rect = |x, y, width, height| OxyOSRect {
+        x,
+        y,
+        width,
+        height,
+    };
+    let views = [
+        OxyOSWindowView {
+            window: 7,
+            rect: rect(40, 96, 320, 200),
+            clip: rect(24, 80, 400, 180),
+            radius: 13,
+            opacity: 255,
+        },
+        OxyOSWindowView {
+            window: 8,
+            rect: rect(400, 96, 160, 100),
+            clip: rect(400, 96, 160, 100),
+            radius: 0,
+            opacity: 64,
+        },
+    ];
+    let too_many = vec![views[0]; oxyos_protocol::MAX_WINDOW_VIEWS + 1];
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the views
+    // outlive the calls.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_show_windows(client, 3, too_many.as_ptr(), too_many.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_show_windows(client, 3, views.as_ptr(), 2), 0);
+        assert_eq!(oxyos_client_show_windows(client, 3, std::ptr::null(), 0), 0);
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::ClearWindowViews { surface: 3 },
+                Request::PlaceWindowView {
+                    surface: 3,
+                    window: 7,
+                    rect: Rect::new(40, 96, 320, 200),
+                    clip: Rect::new(24, 80, 400, 180),
+                    radius: 13,
+                    opacity: 255,
+                },
+                Request::PlaceWindowView {
+                    surface: 3,
+                    window: 8,
+                    rect: Rect::new(400, 96, 160, 100),
+                    clip: Rect::new(400, 96, 160, 100),
+                    radius: 0,
+                    opacity: 64,
+                },
+                Request::ClearWindowViews { surface: 3 },
+            ]
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
