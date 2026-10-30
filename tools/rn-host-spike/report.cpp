@@ -140,6 +140,11 @@ void Report::layout(float width, float height, double ms) {
   write(folly::dynamic::object("kind", "layout")("width", width)("height", height)("ms", ms));
 }
 
+void Report::settled(double ms, int turns, bool timedOut) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "settle")("ms", ms)("turns", turns)("timed_out", timedOut));
+}
+
 void Report::damageMismatch(uint32_t surface, size_t pixels) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "damage_mismatch")("surface", surface)("pixels", pixels));

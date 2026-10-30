@@ -922,6 +922,17 @@ int main(int argc, char** argv) {
       }
     };
     int idleTurns = 0;  // turns in a row that found nothing to do
+    // A window that changes size answers its configure with a frame JavaScript laid out at that
+    // size, as AppKit lays a window out during a live resize before the frame is shown: the new
+    // size's layout reaches JavaScript (onLayout, the dimensions), whose commits can size the
+    // tree again (an app shell measuring its room, then a panel group measuring its own). Until
+    // JavaScript is quiet, or kResizeSettle has passed so that a slow app never stalls the resize,
+    // the window presents nothing and popups are not placed again.
+    constexpr auto kResizeSettle = std::chrono::milliseconds(16);
+    std::optional<Clock::time_point> settleBy;
+    Clock::time_point settleFrom;
+    int quietTurns = 0;  // turns in a row in which JavaScript ran nothing and nothing mounted
+    int settleTurns = 0;
     try {
       // What runs JavaScript, timed for the report (Report::javascript).
       auto javascript = [](auto&& run) {
@@ -934,8 +945,9 @@ int main(int argc, char** argv) {
       while (true) {
         oxyos::Report::get().beginTurn();
         Beat::tickAll();
-        bool busy = javascript([&] { return loop->drain(); });
-        busy |= mounter.pull();
+        bool ranJs = javascript([&] { return loop->drain(); });
+        bool pulled = mounter.pull();
+        bool busy = ranJs || pulled;
         busy |= timers->fire(*timerManager);
         busy |= gestures->tick();
         // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
@@ -1246,6 +1258,24 @@ int main(int argc, char** argv) {
           shellSurfaces.changed();
           safeAreas.sync(tree);
         }
+        // Two quiet turns: what one turn's layout queues (onLayout) reaches JavaScript on the next.
+        if (resized) {
+          settleFrom = Clock::now();
+          settleBy = settleFrom + kResizeSettle;
+          quietTurns = settleTurns = 0;
+        } else if (settleBy) {
+          ++settleTurns;
+          quietTurns = ranJs || pulled || mounted ? 0 : quietTurns + 1;
+          bool timedOut = Clock::now() >= *settleBy;
+          if (quietTurns >= 2 || timedOut) {
+            settleBy.reset();
+            oxyos::Report::get().settled(
+                std::chrono::duration<double, std::milli>(Clock::now() - settleFrom).count(), settleTurns,
+                timedOut && quietTurns < 2);
+          }
+        }
+        bool settling = settleBy.has_value();
+        if (settling) busy = true;
         // Images load at the size they are drawn; a picture arriving draws its view again.
         if (resized || mounted) images.sync(display.scale);
         if (images.deliver()) {
@@ -1263,7 +1293,7 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
         }
-        popups.sync(lastPress);
+        if (!settling) popups.sync(lastPress);
         // The compositor is told about the focused input before the frame showing it, so its
         // state is in place when that frame is; the caret is only measured again when something
         // that moves it changed.
@@ -1297,7 +1327,7 @@ int main(int argc, char** argv) {
         }
         // Every configure is answered with a frame, even one that changes nothing it shows.
         if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
-        if (dirty && window->ready(oxyos::Window::kToplevel)) {
+        if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
           if (damage && damage->empty() && window->answered(oxyos::Window::kToplevel)) {
