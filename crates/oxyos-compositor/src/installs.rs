@@ -128,6 +128,8 @@ enum Done {
         text: String,
     },
     Sheet {
+        /// The client whose request it is: it goes, the sheet goes.
+        asker: ClientId,
         text: String,
         reply: mpsc::Sender<bool>,
     },
@@ -163,10 +165,12 @@ impl Back {
         });
     }
 
-    /// Shows a sheet and waits for the person's answer; false if it could not be shown.
-    fn sheet(&self, text: Value) -> bool {
+    /// Shows a sheet for `asker`'s request and waits for the person's answer; false if it could
+    /// not be shown, or `asker` went.
+    fn sheet(&self, asker: ClientId, text: Value) -> bool {
         let (reply, answer) = mpsc::channel();
         self.send(Done::Sheet {
+            asker,
             text: text.to_string(),
             reply,
         });
@@ -324,7 +328,7 @@ impl Installs {
                     serial,
                     text,
                 } => scene.system_text(client, serial, &text),
-                Done::Sheet { text, reply } => match scene.show_sheet(&text) {
+                Done::Sheet { asker, text, reply } => match scene.show_sheet(Some(asker), &text) {
                     Some(sheet) => {
                         self.sheets.insert(sheet, reply);
                     }
@@ -477,7 +481,7 @@ fn flow(
                 };
                 let sheet = json!({"kind": if plan.plan.update { "update" } else { "install" },
                                    "plan": plan.plan});
-                if !back.sheet(sheet) {
+                if !back.sheet(client, sheet) {
                     {
                         answer(json!({"cancelled": {}}));
                         return Ok(());
@@ -516,7 +520,7 @@ fn flow(
                 let sheet = json!({"kind": "uninstall", "id": id,
                                    "name": name_of(&installed.entry, &id),
                                    "version": installed.version});
-                if !back.sheet(sheet) {
+                if !back.sheet(client, sheet) {
                     {
                         answer(json!({"cancelled": {}}));
                         return Ok(());
@@ -584,7 +588,7 @@ fn flow(
                             continue;
                         };
                         let sheet = json!({"kind": "consent", "update": available});
-                        if !back.sheet(sheet) {
+                        if !back.sheet(client, sheet) {
                             continue;
                         }
                         if let Answer::Updated(mut given) = ask(
@@ -645,7 +649,10 @@ fn flow(
 /// decision kept by the service, then the answer.
 fn permission(socket: &Path, back: &Back, client: ClientId, serial: u32, capability: u8, id: &str) {
     let name = capability_name(capability).expect("checked");
-    let granted = back.sheet(json!({"kind": "permission", "id": id, "capability": name}));
+    let granted = back.sheet(
+        client,
+        json!({"kind": "permission", "id": id, "capability": name}),
+    );
     let kept = connect(socket, SHORT).and_then(|connection| {
         ask(
             &connection,

@@ -1020,6 +1020,7 @@ impl Scene {
         if new.shell {
             self.tell_controls(client);
             self.tell_notifications(client);
+            self.tell_sheets(client);
         }
         Ok(())
     }

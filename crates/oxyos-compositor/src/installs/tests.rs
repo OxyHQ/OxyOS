@@ -135,7 +135,7 @@ fn run(
     let (mut sheets, mut answers) = (Vec::new(), Vec::new());
     for done in received {
         match done {
-            Done::Sheet { text, reply } => {
+            Done::Sheet { text, reply, .. } => {
                 sheets.push(text);
                 reply.send(accepting).unwrap();
             }

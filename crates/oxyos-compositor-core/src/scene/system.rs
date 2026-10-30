@@ -12,7 +12,7 @@
 
 use super::{ClientId, Scene};
 use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk, MAX_SYSTEM_TEXT_BYTES};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Requests asked for and not yet taken.
 const MAX_PENDING: usize = 32;
@@ -46,12 +46,19 @@ pub struct CapabilityRequest {
     pub with_input: bool,
 }
 
+#[derive(Debug)]
+struct Sheet {
+    text: String,
+    asker: Option<ClientId>,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct System {
     receiving: BTreeMap<(ClientId, u32), (String, u16)>,
     asked: Vec<SystemRequest>,
-    /// Sheets the shell was sent and not answered nor dismissed.
-    sheets: BTreeSet<u32>,
+    /// Sheets asked for and not answered nor dismissed: what each says, and the client it is for
+    /// (it goes, the sheet goes). A shell that connects later is sent each.
+    sheets: BTreeMap<u32, Sheet>,
     next_sheet: u32,
     answered: Vec<SheetAnswered>,
     capabilities: Vec<CapabilityRequest>,
@@ -182,57 +189,62 @@ impl Scene {
             .collect()
     }
 
-    /// Sends the shell a sheet to show, described by `text`; its number, or none if no shell is
-    /// connected, the session is locked, or too many are asked.
-    pub fn show_sheet(&mut self, text: &str) -> Option<u32> {
-        if self.locked
-            || self.system.sheets.len() >= MAX_SHEETS
-            || text.len() > MAX_SYSTEM_TEXT_BYTES
-        {
-            return None;
-        }
-        let shells: Vec<ClientId> = self
-            .clients
-            .iter()
-            .filter(|(_, grants)| grants.shell)
-            .map(|(client, _)| *client)
-            .collect();
-        if shells.is_empty() {
+    /// A sheet to show, described by `text`, asked for `asker` (a client whose request it is, if
+    /// any: when it goes, the sheet is withdrawn and answered no). Sent to every shell connected
+    /// and to any that connects before it is answered; its number, or none if too many are asked.
+    /// While locked it waits: the shell shows none over the lock screen, and none is accepted.
+    pub fn show_sheet(&mut self, asker: Option<ClientId>, text: &str) -> Option<u32> {
+        if self.system.sheets.len() >= MAX_SHEETS || text.len() > MAX_SYSTEM_TEXT_BYTES {
             return None;
         }
         self.system.next_sheet = self.system.next_sheet.wrapping_add(1).max(1);
         let sheet = self.system.next_sheet;
-        self.system.sheets.insert(sheet);
-        let parts = chunks(text);
-        let count = parts.len();
-        for shell in shells {
-            for (index, text) in parts.iter().enumerate() {
-                self.emit(
-                    shell,
-                    Event::SheetText {
-                        sheet,
-                        index: index as u16,
-                        last: index + 1 == count,
-                        text: *text,
-                    },
-                );
-            }
+        self.system.sheets.insert(
+            sheet,
+            Sheet {
+                text: text.to_string(),
+                asker,
+            },
+        );
+        for shell in self.shell_clients() {
+            self.send_sheet(shell, sheet);
         }
         Some(sheet)
     }
 
-    /// Withdraws a sheet the shell was sent and not answered.
+    fn send_sheet(&mut self, shell: ClientId, sheet: u32) {
+        let Some(text) = self.system.sheets.get(&sheet).map(|s| s.text.clone()) else {
+            return;
+        };
+        let parts = chunks(&text);
+        let count = parts.len();
+        for (index, text) in parts.into_iter().enumerate() {
+            self.emit(
+                shell,
+                Event::SheetText {
+                    sheet,
+                    index: index as u16,
+                    last: index + 1 == count,
+                    text,
+                },
+            );
+        }
+    }
+
+    /// A shell given its grant: every sheet still asked for.
+    pub(super) fn tell_sheets(&mut self, shell: ClientId) {
+        let sheets: Vec<u32> = self.system.sheets.keys().copied().collect();
+        for sheet in sheets {
+            self.send_sheet(shell, sheet);
+        }
+    }
+
+    /// Withdraws a sheet not answered: the shells are told.
     pub fn dismiss_sheet(&mut self, sheet: u32) {
-        if !self.system.sheets.remove(&sheet) {
+        if self.system.sheets.remove(&sheet).is_none() {
             return;
         }
-        let shells: Vec<ClientId> = self
-            .clients
-            .iter()
-            .filter(|(_, grants)| grants.shell)
-            .map(|(client, _)| *client)
-            .collect();
-        for shell in shells {
+        for shell in self.shell_clients() {
             self.emit(shell, Event::SheetDismissed { sheet });
         }
     }
@@ -252,7 +264,7 @@ impl Scene {
         if accepted && (self.locked || !self.recent_input(client, serial)) {
             return Ok(());
         }
-        if self.system.sheets.remove(&sheet) {
+        if self.system.sheets.remove(&sheet).is_some() {
             self.system.answered.push(SheetAnswered { sheet, accepted });
         }
         Ok(())
@@ -299,6 +311,21 @@ impl Scene {
     }
 
     pub(super) fn forget_system_requests(&mut self, client: ClientId) {
+        // Its sheets go with it, answered no, so what waited for them ends.
+        let its: Vec<u32> = self
+            .system
+            .sheets
+            .iter()
+            .filter(|(_, sheet)| sheet.asker == Some(client))
+            .map(|(number, _)| *number)
+            .collect();
+        for sheet in its {
+            self.dismiss_sheet(sheet);
+            self.system.answered.push(SheetAnswered {
+                sheet,
+                accepted: false,
+            });
+        }
         let system = &mut self.system;
         system.receiving.retain(|(asker, _), _| *asker != client);
         system.asked.retain(|request| request.client != client);

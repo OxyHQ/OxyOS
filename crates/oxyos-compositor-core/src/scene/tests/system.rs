@@ -134,7 +134,7 @@ fn a_sheet_is_the_shells_alone_and_only_its_input_accepts_it() {
     let mut h = Harness::new();
     h.scene.grant(APP, store()).unwrap();
     h.clear_log();
-    let sheet = h.scene.show_sheet(r#"{"kind":"install"}"#).unwrap();
+    let sheet = h.scene.show_sheet(None, r#"{"kind":"install"}"#).unwrap();
     h.pump();
     assert_eq!(texts(&h.events_for(SHELL)), r#"{"kind":"install"}"#);
     assert!(
@@ -194,7 +194,7 @@ fn a_sheet_is_the_shells_alone_and_only_its_input_accepts_it() {
     .unwrap();
     assert!(h.scene.take_sheet_answers().is_empty());
     // A refusal stands without an input.
-    let other = h.scene.show_sheet(r#"{"kind":"uninstall"}"#).unwrap();
+    let other = h.scene.show_sheet(None, r#"{"kind":"uninstall"}"#).unwrap();
     assert_ne!(other, sheet);
     h.request(
         SHELL,
@@ -213,7 +213,7 @@ fn a_sheet_is_the_shells_alone_and_only_its_input_accepts_it() {
         }]
     );
     // Withdrawn, the shell is told.
-    let third = h.scene.show_sheet("{}").unwrap();
+    let third = h.scene.show_sheet(None, "{}").unwrap();
     h.clear_log();
     h.scene.dismiss_sheet(third);
     h.pump();
@@ -223,12 +223,11 @@ fn a_sheet_is_the_shells_alone_and_only_its_input_accepts_it() {
 }
 
 #[test]
-fn no_sheet_is_shown_or_accepted_while_locked() {
+fn no_sheet_is_accepted_while_locked() {
     let mut h = Harness::new();
-    let sheet = h.scene.show_sheet("{}").unwrap();
+    let sheet = h.scene.show_sheet(None, "{}").unwrap();
     let press = shell_press(&mut h);
     h.scene.lock();
-    assert_eq!(h.scene.show_sheet("{}"), None);
     h.request(
         SHELL,
         Request::SheetAnswer {
@@ -239,6 +238,89 @@ fn no_sheet_is_shown_or_accepted_while_locked() {
     )
     .unwrap();
     assert!(h.scene.take_sheet_answers().is_empty());
+}
+
+#[test]
+fn a_shell_that_connects_later_is_sent_each_sheet_still_asked() {
+    let mut h = Harness::new();
+    let asked = h.scene.show_sheet(None, r#"{"kind":"install"}"#).unwrap();
+    let answered = h.scene.show_sheet(None, r#"{"kind":"uninstall"}"#).unwrap();
+    h.request(
+        SHELL,
+        Request::SheetAnswer {
+            sheet: answered,
+            accepted: false,
+            serial: 0,
+        },
+    )
+    .unwrap();
+    // The shell started again: a new connection, granted.
+    const LATE: ClientId = 20;
+    h.scene
+        .connect(
+            LATE,
+            Grants {
+                shell: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    h.pump();
+    let sheets: Vec<u32> = h
+        .events_for(LATE)
+        .iter()
+        .filter_map(|event| match event {
+            Event::SheetText {
+                sheet, last: true, ..
+            } => Some(*sheet),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sheets,
+        [asked],
+        "the one still asked, once; not the one answered"
+    );
+    assert_eq!(texts(&h.events_for(LATE)), r#"{"kind":"install"}"#);
+}
+
+#[test]
+fn a_sheet_goes_with_the_client_it_was_asked_for() {
+    let mut h = Harness::new();
+    let mine = h.scene.show_sheet(Some(APP), "{}").unwrap();
+    let other = h.scene.show_sheet(Some(OTHER), "{}").unwrap();
+    h.clear_log();
+    h.scene.disconnect(APP);
+    h.pump();
+    assert!(h
+        .events_for(SHELL)
+        .contains(&Event::SheetDismissed { sheet: mine }));
+    assert_eq!(
+        h.scene.take_sheet_answers(),
+        [SheetAnswered {
+            sheet: mine,
+            accepted: false
+        }],
+        "answered no, so what waited for it ends"
+    );
+    // The other's still stands, and the shell may still answer it.
+    let press = shell_press(&mut h);
+    h.request(
+        SHELL,
+        Request::SheetAnswer {
+            sheet: other,
+            accepted: true,
+            serial: press,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        h.scene.take_sheet_answers(),
+        [SheetAnswered {
+            sheet: other,
+            accepted: true
+        }]
+    );
 }
 
 #[test]
