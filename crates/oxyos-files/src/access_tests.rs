@@ -1004,3 +1004,341 @@ fn the_service_answers_at_once_or_in_order_with_bytes_beside() {
     );
     assert_eq!(missing["error"], "not-found");
 }
+
+/// Each request a test server was sent: its line, its headers (names lowercase) and its body.
+type Sent = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<(String, String)>, Vec<u8>)>>>;
+
+/// A server for the transfers' tests, on a port of its own; returns its base URL and what it was
+/// sent, request by request.
+fn transfer_server() -> (String, Sent) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listen");
+    let address = listener.local_addr().expect("address");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = seen.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let kept = kept.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    return;
+                }
+                let mut headers = Vec::new();
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).is_err() {
+                        return;
+                    }
+                    let header = header.trim_end();
+                    if header.is_empty() {
+                        break;
+                    }
+                    let (name, value) = header.split_once(':').expect("header");
+                    headers.push((name.to_ascii_lowercase(), value.trim().to_string()));
+                }
+                let length = headers
+                    .iter()
+                    .find(|(name, _)| name == "content-length")
+                    .map_or(0, |(_, value)| value.parse().expect("length"));
+                let mut body = vec![0u8; length];
+                if reader.read_exact(&mut body).is_err() {
+                    return;
+                }
+                let range = headers
+                    .iter()
+                    .find(|(name, _)| name == "range")
+                    .map(|(_, value)| value.clone());
+                kept.lock()
+                    .expect("lock")
+                    .push((line.trim().to_string(), headers, body));
+                let target = line.split_whitespace().nth(1).unwrap_or("");
+                let path = target.split('?').next().unwrap_or("").to_string();
+                let mut stream = stream;
+                let reply = |stream: &mut std::net::TcpStream, head: &str, body: &[u8]| {
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {head}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(body);
+                };
+                match path.as_str() {
+                    "/report" => reply(
+                        &mut stream,
+                        "200 OK\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=\"Q3 report.txt\"",
+                        b"quarterly",
+                    ),
+                    "/pictures/photo%201" => {
+                        reply(&mut stream, "200 OK\r\nContent-Type: image/png", b"png")
+                    }
+                    "/missing" => reply(&mut stream, "404 Not Found", b"no"),
+                    // Twenty pieces of a kilobyte, 50 ms apart; a range from where it asks.
+                    "/slow" => {
+                        let from: usize = range
+                            .as_deref()
+                            .and_then(|range| range.strip_prefix("bytes="))
+                            .and_then(|range| range.trim_end_matches('-').parse().ok())
+                            .unwrap_or(0);
+                        let all: Vec<u8> = (0..20 * 1024).map(|n| (n / 1024) as u8 + b'a').collect();
+                        let status = if from > 0 { "206 Partial Content" } else { "200 OK" };
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            all.len() - from
+                        );
+                        for piece in all[from..].chunks(1024) {
+                            if stream.write_all(piece).is_err() {
+                                return;
+                            }
+                            let _ = stream.flush();
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                    }
+                    _ => reply(&mut stream, "201 Created\r\nX-Oxy: yes", b"stored"),
+                }
+            });
+        }
+    });
+    (format!("http://{address}"), seen)
+}
+
+#[test]
+fn files_are_downloaded_into_the_scope_and_uploaded_from_it() {
+    let place = Place::new("transfers");
+    let scope = application(&place);
+    let documents = scope.application().expect("app").documents.clone();
+    let (base, seen) = transfer_server();
+    let network = oxyos_net::Network::new().expect("network");
+    let told = std::sync::Mutex::new(Vec::new());
+    let progress = |value: Value| told.lock().expect("lock").push(value);
+    let download = |request: Value| {
+        crate::transfer::download(&network, &scope, &Default::default(), &request, &progress)
+    };
+
+    // Into a folder, named by the response; again, refused unless it may replace it.
+    let asked =
+        json!({ "url": format!("{base}/report"), "to": d(&documents), "toDirectory": true });
+    let got = download(asked.clone()).expect("download");
+    assert_eq!(got, format!("{}Q3%20report.txt", d(&documents)));
+    assert_eq!(
+        std::fs::read(documents.join("Q3 report.txt")).expect("file"),
+        b"quarterly"
+    );
+    assert_eq!(
+        told.lock().expect("lock").last(),
+        Some(&json!({ "bytesWritten": 9, "totalBytes": 9 }))
+    );
+    assert!(matches!(download(asked.clone()), Err(Error::Exists)));
+    let mut idempotent = asked;
+    idempotent["idempotent"] = true.into();
+    download(idempotent).expect("replaced");
+    // Named by the URL, its type's extension added; to a file, as it.
+    let got = download(json!({
+        "url": format!("{base}/pictures/photo%201?size=2"), "to": d(&documents), "toDirectory": true,
+    }))
+    .expect("by url");
+    assert_eq!(got, format!("{}photo%201.png", d(&documents)));
+    let to_file = u(&documents.join("named.bin"));
+    assert_eq!(
+        download(json!({ "url": format!("{base}/report"), "to": to_file })).expect("file"),
+        to_file
+    );
+    // A failure's status, and no file; nowhere the scope refuses.
+    let failed =
+        download(json!({ "url": format!("{base}/missing"), "to": u(&documents.join("x")) }));
+    assert!(
+        matches!(&failed, Err(Error::Network(reason)) if reason.contains("404")),
+        "{failed:?}"
+    );
+    assert!(!documents.join("x").exists());
+    assert!(matches!(
+        download(json!({ "url": format!("{base}/report"), "to": "file:///etc/report" })),
+        Err(Error::Refused(_))
+    ));
+    assert!(matches!(
+        download(json!({ "url": format!("{base}/report"), "to": u(&documents.join("no/x")) })),
+        Err(Error::NoDestination)
+    ));
+    assert_eq!(
+        crate::transfer::file_name("https://a/", None, None),
+        "downloadfile.bin"
+    );
+    assert_eq!(
+        crate::transfer::file_name(
+            "https://a/b",
+            Some("attachment; filename=\"plain.txt\"; filename*=UTF-8''A%C3%B1o.txt"),
+            None
+        ),
+        "Año.txt"
+    );
+    assert_eq!(
+        crate::transfer::file_name(
+            "https://a/x",
+            Some("attachment; filename=\"../../etc/passwd\""),
+            None
+        ),
+        "passwd.bin"
+    );
+
+    // Paused part way, it keeps what it wrote; resumed, it asks for the rest.
+    let live = std::sync::Arc::new(crate::transfer::Live::default());
+    let slow = u(&documents.join("slow.bin"));
+    let resume_data = std::thread::scope(|threads| {
+        let pausing = live.clone();
+        let paused = threads.spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            pausing.pause()
+        });
+        let ended = crate::transfer::download(
+            &network,
+            &scope,
+            &live,
+            &json!({ "url": format!("{base}/slow"), "to": slow }),
+            &|_| {},
+        );
+        assert_eq!(ended.expect("paused"), Value::Null);
+        paused.join().expect("pause").expect("resume data")
+    });
+    assert!(resume_data > 0 && resume_data < 20 * 1024, "{resume_data}");
+    let resumed = crate::transfer::download(
+        &network,
+        &scope,
+        &Default::default(),
+        &json!({ "url": format!("{base}/slow"), "to": slow, "resume": resume_data }),
+        &progress,
+    )
+    .expect("resumed");
+    assert_eq!(resumed, slow);
+    let all: Vec<u8> = (0..20 * 1024).map(|n| (n / 1024) as u8 + b'a').collect();
+    assert_eq!(
+        std::fs::read(documents.join("slow.bin")).expect("whole"),
+        all
+    );
+    assert!(seen.lock().expect("lock").iter().any(
+        |(_, headers, _)| headers.contains(&("range".into(), format!("bytes={resume_data}-")))
+    ));
+    // Cancelled, it fails as cancelled.
+    let live = crate::transfer::Live::default();
+    live.cancel();
+    assert!(matches!(
+        crate::transfer::download(
+            &network,
+            &scope,
+            &live,
+            &json!({ "url": format!("{base}/slow"), "to": u(&documents.join("c.bin")) }),
+            &|_| {},
+        ),
+        Err(Error::Cancelled)
+    ));
+
+    // Uploads: the file as the body, its length known; a form with its parameters.
+    told.lock().expect("lock").clear();
+    let notes = documents.join("notes.txt");
+    std::fs::write(&notes, "hello there").expect("notes");
+    let upload = |request: Value| {
+        crate::transfer::upload(&network, &scope, &Default::default(), &request, &progress)
+    };
+    let answered = upload(json!({
+        "uri": u(&notes), "url": format!("{base}/put"), "method": "PUT",
+        "headers": { "X-Part": "1" },
+    }))
+    .expect("upload");
+    assert_eq!(answered["status"], 201);
+    assert_eq!(answered["body"], "stored");
+    assert_eq!(answered["headers"]["x-oxy"], "yes");
+    {
+        let seen = seen.lock().expect("lock");
+        let (line, headers, body) = seen.last().expect("request");
+        assert_eq!(line, "PUT /put HTTP/1.1");
+        assert_eq!(body, b"hello there");
+        assert!(headers.contains(&("content-length".into(), "11".into())));
+        assert!(headers.contains(&("x-part".into(), "1".into())));
+        assert!(!headers.iter().any(|(name, _)| name == "content-type"));
+    }
+    assert_eq!(
+        told.lock().expect("lock").last(),
+        Some(&json!({ "bytesSent": 11, "totalBytes": 11 }))
+    );
+    upload(json!({
+        "uri": u(&notes), "url": format!("{base}/form"), "uploadType": 1,
+        "fieldName": "document", "parameters": { "owner": "ada" },
+    }))
+    .expect("multipart");
+    {
+        let seen = seen.lock().expect("lock");
+        let (_, headers, body) = seen.last().expect("request");
+        let content_type = &headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .expect("type")
+            .1;
+        let boundary = content_type
+            .strip_prefix("multipart/form-data; boundary=")
+            .expect("multipart");
+        assert_eq!(
+            String::from_utf8_lossy(body),
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"owner\"\r\nContent-Length: 3\r\n\r\nada\r\n\
+                 --{boundary}\r\nContent-Disposition: form-data; name=\"document\"; filename=\"notes.txt\"\r\n\
+                 Content-Type: text/plain\r\nContent-Length: 11\r\n\r\nhello there\r\n--{boundary}--\r\n"
+            )
+        );
+    }
+    assert!(matches!(
+        upload(json!({ "uri": "file:///etc/passwd", "url": format!("{base}/x") })),
+        Err(Error::Refused(_))
+    ));
+    assert!(matches!(
+        upload(json!({ "uri": u(&documents.join("none")), "url": format!("{base}/x") })),
+        Err(Error::NotFound)
+    ));
+}
+
+#[test]
+fn transfers_are_requested_answered_when_they_end_and_cancelled_by_id() {
+    let place = Place::new("service-transfers");
+    let scope = application(&place);
+    let documents = scope.application().expect("app").documents.clone();
+    let (base, _) = transfer_server();
+    let service = Service::new(scope).expect("service");
+    let (refused, _) = call(&service, json!({"op": "download", "url": base}), &[]);
+    assert_eq!(refused["error"], "invalid");
+    let request = json!({ "op": "download", "url": format!("{base}/slow"), "to": u(&documents.join("s.bin")) });
+    service.request(5, &request.to_string(), Vec::new());
+    // Its progress comes as events while the queue answers other requests.
+    let (places, _) = ask(&service, 6, json!({"op": "paths"}), Vec::new());
+    assert_eq!(places["ok"], true);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut progressed = false;
+    let answer = loop {
+        if let Some(reply) = service.take() {
+            let json: Value = serde_json::from_str(&reply.json).expect("json");
+            if reply.id == 0 && json["transfer"] == 5 {
+                assert!(json["progress"]["bytesWritten"].as_u64().is_some());
+                assert_eq!(json["progress"]["totalBytes"], 20 * 1024);
+                if !progressed {
+                    progressed = true;
+                    let (cancelled, _) = call(
+                        &service,
+                        json!({"op": "cancelTransfer", "transfer": 5}),
+                        &[],
+                    );
+                    assert_eq!(cancelled["ok"], true);
+                }
+            } else if reply.id == 5 {
+                break json;
+            }
+        }
+        assert!(Instant::now() < deadline, "no end");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert!(progressed);
+    assert_eq!(
+        (answer["ok"].clone(), answer["error"].clone()),
+        (false.into(), "cancelled".into())
+    );
+    let (paused, _) = call(&service, json!({"op": "pauseTransfer", "transfer": 5}), &[]);
+    assert_eq!(paused["error"], "invalid");
+}

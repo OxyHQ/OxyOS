@@ -16,6 +16,7 @@
 //! - [`watch`]: what changes in a folder or a file, typed and debounced as `expo-file-system`'s
 //!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
+//! - [`transfer`]: downloads into a file and uploads of one, through `oxyos-net`.
 //! - [`Service`] answers requests on the caller's thread (`expo-file-system`'s synchronous calls)
 //!   or in order on a thread of its own, and says the changes watched, through one descriptor the
 //!   Bloom host polls (`OxyOSFiles`).
@@ -29,6 +30,7 @@ pub mod mime;
 pub mod places;
 mod scope;
 pub mod service;
+pub mod transfer;
 pub mod trash;
 pub mod uri;
 pub mod watch;

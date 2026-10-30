@@ -20,6 +20,8 @@ base64 = "0.23"
 md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
+# Downloads and uploads of files.
+oxyos-net = { path = "../oxyos-net" }
 # An application's id, by the registry's own rule.
 oxyos-apps = { path = "../oxyos-apps" }
 

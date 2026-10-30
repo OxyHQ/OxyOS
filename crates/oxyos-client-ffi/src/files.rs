@@ -222,6 +222,45 @@ pub unsafe extern "C" fn oxyos_files_take(files: *mut OxyOSFiles) -> *mut OxyOSF
     }
 }
 
+/// Opens a file the scope allows for reading (`uri`, a `file://` URI of `length` bytes): a
+/// request's body, as `Networking` sends a multipart form's file. Its descriptor, the caller's
+/// to close, its size in `*size` (if not NULL); OXYOS_ERROR with the reason in `oxyos_last_error`.
+///
+/// # Safety
+/// `files` is a live pointer from `oxyos_files_new`; `uri` points to `length` readable bytes;
+/// `size` is NULL or writable.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_files_open_read(
+    files: *mut OxyOSFiles,
+    uri: *const c_char,
+    length: usize,
+    size: *mut u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(files) = (unsafe { self::files(files) }) else {
+        return fail("null files");
+    };
+    // SAFETY: forwarded caller contract.
+    let Ok(Some(uri)) = (unsafe { utf8(uri, length) }) else {
+        return fail("the URI is not UTF-8");
+    };
+    let opened = files
+        .service
+        .open_read(uri)
+        .and_then(|file| Ok((file.metadata()?.len(), file)));
+    match opened {
+        Ok((length, file)) => {
+            if !size.is_null() {
+                // SAFETY: a writable size (contract above).
+                unsafe { *size = length };
+            }
+            std::os::fd::IntoRawFd::into_raw_fd(file)
+        }
+        Err(error) => fail(format!("{uri}: {error}")),
+    }
+}
+
 /// Reborrows a reply.
 ///
 /// # Safety

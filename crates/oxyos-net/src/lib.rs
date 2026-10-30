@@ -9,19 +9,145 @@
 //!
 //! What a request answers is queued as [`Answer`]s, which the caller takes from its own thread
 //! ([`Network::answer`]); the network's descriptor is readable while any are queued. An aborted
-//! request's answers are dropped: a request cannot be stopped while it waits on the network, but
-//! nothing of it is delivered.
+//! request's answers are dropped and it stops at its next step (its body's next part sent, its
+//! response's next bytes read): while it waits on the network it cannot be stopped, but nothing of
+//! it is delivered. [`Network::fetch`] runs a request on the caller's thread instead, its answers
+//! to a function of the caller's (the file service's downloads and uploads).
+//!
+//! A body is parts ([`Body`]): bytes, or ranges of open files read as the request is sent (a
+//! multipart form's files, a file uploaded), never wholly in memory; its length is sent as
+//! `Content-Length`, as Android's OkHttp sends a body's whose length it knows. With
+//! `upload_progress`, what was sent is answered as it goes ([`Answer::Sent`]).
 
 use cookie_store::{CookieStore, RawCookie};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd};
+use std::os::unix::fs::FileExt;
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use ureq::tls::{RootCerts, TlsConfig};
-use ureq::Agent;
+use ureq::{Agent, SendBody};
 use url::Url;
+
+/// How often a request's progress is answered at most, as Android throttles it.
+const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
+/// A part of a request's body.
+#[derive(Clone, Debug)]
+pub enum Part {
+    Bytes(Arc<[u8]>),
+    /// `length` bytes of an open file from `offset`, read as they are sent.
+    File {
+        file: Arc<std::fs::File>,
+        offset: u64,
+        length: u64,
+    },
+}
+
+impl Part {
+    pub fn len(&self) -> u64 {
+        match self {
+            Part::Bytes(bytes) => bytes.len() as u64,
+            Part::File { length, .. } => *length,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// A request's body: its parts, one after another.
+#[derive(Clone, Debug, Default)]
+pub struct Body {
+    pub parts: Vec<Part>,
+}
+
+impl Body {
+    pub fn len(&self) -> u64 {
+        self.parts.iter().map(Part::len).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl From<Vec<u8>> for Body {
+    fn from(bytes: Vec<u8>) -> Self {
+        Body {
+            parts: vec![Part::Bytes(bytes.into())],
+        }
+    }
+}
+
+/// The error a cancelled request ends with.
+const CANCELLED: &str = "cancelled";
+
+/// A body as it is sent: its parts read in turn, what was sent counted.
+struct Sending<'a> {
+    parts: &'a [Part],
+    part: usize,
+    /// How far into the current part.
+    at: u64,
+    sent: u64,
+    total: u64,
+    cancel: &'a AtomicBool,
+    progress: Option<&'a dyn Fn(u64, u64) -> io::Result<()>>,
+    told: Option<Instant>,
+}
+
+impl Read for Sending<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::other(CANCELLED));
+        }
+        while let Some(part) = self.parts.get(self.part) {
+            let left = part.len() - self.at;
+            if left == 0 {
+                self.part += 1;
+                self.at = 0;
+                continue;
+            }
+            let room = buffer
+                .len()
+                .min(usize::try_from(left).unwrap_or(usize::MAX));
+            let read = match part {
+                Part::Bytes(bytes) => {
+                    let start = usize::try_from(self.at).unwrap_or(usize::MAX);
+                    buffer[..room].copy_from_slice(&bytes[start..start + room]);
+                    room
+                }
+                Part::File { file, offset, .. } => {
+                    let read = file.read_at(&mut buffer[..room], offset + self.at)?;
+                    if read == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "a file of the body ended before its length: it changed while sent",
+                        ));
+                    }
+                    read
+                }
+            };
+            self.at += read as u64;
+            self.sent += read as u64;
+            if let Some(progress) = self.progress {
+                let due = self
+                    .told
+                    .is_none_or(|told| told.elapsed() >= PROGRESS_EVERY);
+                if due || self.sent == self.total {
+                    self.told = Some(Instant::now());
+                    progress(self.sent, self.total)?;
+                }
+            }
+            return Ok(read);
+        }
+        Ok(0)
+    }
+}
 
 /// Redirects followed before a request fails, as browsers do.
 const MAX_REDIRECTS: usize = 20;
@@ -46,18 +172,25 @@ pub struct Request {
     pub method: String,
     pub url: String,
     pub headers: Vec<(String, String)>,
-    pub body: Option<Vec<u8>>,
+    pub body: Option<Body>,
     /// The whole request's deadline; none if `None`.
     pub timeout: Option<Duration>,
     /// Whether the process's cookies go with it and what it sets is kept.
     pub with_credentials: bool,
     /// Whether the body is answered as it arrives ([`Answer::Chunk`]) instead of whole.
     pub incremental: bool,
+    /// Whether what was sent of the body is answered as it goes ([`Answer::Sent`]).
+    pub upload_progress: bool,
+    /// Set to stop the request at its next step (it ends with the error "cancelled").
+    pub cancel: Arc<AtomicBool>,
 }
 
-/// What a request answered, in order: a response, then chunks or the data, then its end.
+/// What a request answered, in order: what it sent of its body, a response, then chunks or the
+/// data, then its end.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
+    /// What was sent of the body so far, and its length.
+    Sent { id: i64, sent: u64, total: u64 },
     /// The status and headers (duplicates joined with ", "), and the URL answered after
     /// redirects.
     Response {
@@ -90,7 +223,8 @@ pub enum Answer {
 impl Answer {
     pub fn id(&self) -> i64 {
         match self {
-            Answer::Response { id, .. }
+            Answer::Sent { id, .. }
+            | Answer::Response { id, .. }
             | Answer::Chunk { id, .. }
             | Answer::Data { id, .. }
             | Answer::Complete { id, .. } => *id,
@@ -104,6 +238,8 @@ struct Shared {
     /// Requests started and neither completed nor aborted: only their answers are queued. Locked
     /// before `answers`.
     heard: Mutex<HashSet<i64>>,
+    /// Each request started and not ended: what stops it.
+    cancels: Mutex<HashMap<i64, Arc<AtomicBool>>>,
     wake: Mutex<UnixStream>,
     cookies: Mutex<CookieStore>,
 }
@@ -113,7 +249,10 @@ impl Shared {
     fn answer(&self, answer: Answer) {
         let mut heard = self.heard.lock().expect("lock");
         let still = match answer {
-            Answer::Complete { id, .. } => heard.remove(&id),
+            Answer::Complete { id, .. } => {
+                self.cancels.lock().expect("lock").remove(&id);
+                heard.remove(&id)
+            }
             _ => heard.contains(&answer.id()),
         };
         if !still {
@@ -122,6 +261,14 @@ impl Shared {
         self.answers.lock().expect("lock").push_back(answer);
         let _ = self.wake.lock().expect("lock").write_all(&[1]);
     }
+}
+
+/// Why a request [`Network::fetch`] ran failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub error: String,
+    /// Whether that was its timeout.
+    pub timed_out: bool,
 }
 
 pub struct Network {
@@ -155,6 +302,7 @@ impl Network {
             shared: Arc::new(Shared {
                 answers: Mutex::new(VecDeque::new()),
                 heard: Mutex::new(HashSet::new()),
+                cancels: Mutex::new(HashMap::new()),
                 wake: Mutex::new(wake),
                 cookies: Mutex::new(CookieStore::default()),
             }),
@@ -168,10 +316,18 @@ impl Network {
         let shared = self.shared.clone();
         let id = request.id;
         self.shared.heard.lock().expect("lock").insert(id);
+        self.shared
+            .cancels
+            .lock()
+            .expect("lock")
+            .insert(id, request.cancel.clone());
         let spawned = std::thread::Builder::new()
             .name(format!("oxyos-net-{id}"))
             .spawn(move || {
-                let answer = |answer| shared.answer(answer);
+                let answer = |answer| {
+                    shared.answer(answer);
+                    Ok(())
+                };
                 match run(&agent, &shared.cookies, request, &answer) {
                     Ok(()) => answer(Answer::Complete {
                         id,
@@ -194,10 +350,28 @@ impl Network {
         }
     }
 
-    /// Delivers nothing more of a request.
+    /// Runs a request on the caller's thread, to its end, giving `answer` what it answers as it
+    /// goes (never its completion: what this returns). An error `answer` returns stops it, with
+    /// that reason; so does its `cancel` set, from another thread. Its cookies are the network's.
+    pub fn fetch(
+        &self,
+        request: Request,
+        answer: &dyn Fn(Answer) -> Result<(), String>,
+    ) -> Result<(), Failure> {
+        let answer = |given| answer(given).map_err(io::Error::other);
+        run(&self.agent, &self.shared.cookies, request, &answer).map_err(|error| Failure {
+            timed_out: matches!(error, ureq::Error::Timeout(_)),
+            error: error.to_string(),
+        })
+    }
+
+    /// Delivers nothing more of a request, and stops it at its next step.
     pub fn abort(&self, id: i64) {
         let mut heard = self.shared.heard.lock().expect("lock");
         heard.remove(&id);
+        if let Some(cancel) = self.shared.cancels.lock().expect("lock").remove(&id) {
+            cancel.store(true, Ordering::Relaxed);
+        }
         self.shared
             .answers
             .lock()
@@ -234,15 +408,26 @@ fn run(
     agent: &Agent,
     cookies: &Mutex<CookieStore>,
     request: Request,
-    answer: &dyn Fn(Answer),
+    answer: &dyn Fn(Answer) -> io::Result<()>,
 ) -> Result<(), ureq::Error> {
     let id = request.id;
+    let cancel = request.cancel.clone();
+    let cancelled = || -> Result<(), ureq::Error> {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(ureq::Error::Io(io::Error::other(CANCELLED)));
+        }
+        Ok(())
+    };
     let deadline = request.timeout.map(|timeout| Instant::now() + timeout);
     let mut url =
         Url::parse(&request.url).map_err(|error| ureq::Error::BadUri(error.to_string()))?;
     let mut method = request.method.clone();
     let mut headers = request.headers.clone();
-    let mut body = request.body.unwrap_or_default();
+    let mut body = request.body.clone();
+    // What was sent of the body, as it goes (each attempt sends it from its start).
+    let sent = |sent: u64, total: u64| answer(Answer::Sent { id, sent, total });
+    let progress: Option<&dyn Fn(u64, u64) -> io::Result<()>> =
+        request.upload_progress.then_some(&sent);
     let mut redirects = 0;
     let response = loop {
         // The jar's cookies stand in for any the request set, as on Android (OkHttp).
@@ -258,18 +443,19 @@ fn run(
         };
         let mut retries = 0;
         let response = loop {
+            cancelled()?;
             let mut builder = ureq::http::Request::builder()
                 .method(method.as_str())
                 .uri(url.as_str());
             for (name, value) in &headers {
-                if cookie.is_none() || !name.eq_ignore_ascii_case("cookie") {
+                let length = body.is_some() && name.eq_ignore_ascii_case("content-length");
+                if (cookie.is_none() || !name.eq_ignore_ascii_case("cookie")) && !length {
                     builder = builder.header(name.as_str(), value.as_str());
                 }
             }
             if let Some(cookie) = &cookie {
                 builder = builder.header("cookie", cookie.as_str());
             }
-            let http = builder.body(body.clone()).map_err(ureq::Error::from)?;
             let remaining = match deadline {
                 Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
                     Some(remaining) if !remaining.is_zero() => Some(remaining),
@@ -277,11 +463,42 @@ fn run(
                 },
                 None => None,
             };
-            let http = agent
-                .configure_request(http)
-                .timeout_global(remaining)
-                .build();
-            match agent.run(http) {
+            let answered = match &body {
+                // The body is read from its parts as it is sent, its length said first.
+                Some(body) => {
+                    let total = body.len();
+                    let mut sending = Sending {
+                        parts: &body.parts,
+                        part: 0,
+                        at: 0,
+                        sent: 0,
+                        total,
+                        cancel: &cancel,
+                        progress,
+                        told: None,
+                    };
+                    let http = builder
+                        .header("content-length", total)
+                        .body(SendBody::from_reader(&mut sending))
+                        .map_err(ureq::Error::from)?;
+                    agent.run(
+                        agent
+                            .configure_request(http)
+                            .timeout_global(remaining)
+                            .build(),
+                    )
+                }
+                None => {
+                    let http = builder.body(Vec::new()).map_err(ureq::Error::from)?;
+                    agent.run(
+                        agent
+                            .configure_request(http)
+                            .timeout_global(remaining)
+                            .build(),
+                    )
+                }
+            };
+            match answered {
                 // A connection lost before any response, most often a kept-alive one the server
                 // had closed, is tried again, as Android does (OkHttp's retryOnConnectionFailure).
                 Err(ureq::Error::Io(error)) if retries < CONNECTION_RETRIES && lost(&error) => {
@@ -327,7 +544,7 @@ fn run(
             || (matches!(status, 301 | 302) && method == "POST");
         if as_get {
             method = "GET".to_string();
-            body.clear();
+            body = None;
             headers.retain(|(name, _)| {
                 ![
                     "content-type",
@@ -372,7 +589,7 @@ fn run(
         status,
         headers: headers.clone(),
         url,
-    });
+    })?;
     let mut reader = response
         .into_body()
         .into_with_config()
@@ -382,6 +599,7 @@ fn run(
         let mut progress = 0;
         let mut buffer = vec![0u8; 16 * 1024];
         loop {
+            cancelled()?;
             let read = reader.read(&mut buffer).map_err(ureq::Error::from)?;
             if read == 0 {
                 break;
@@ -392,16 +610,17 @@ fn run(
                 bytes: buffer[..read].to_vec(),
                 progress,
                 total,
-            });
+            })?;
         }
     } else {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).map_err(ureq::Error::from)?;
+        cancelled()?;
         answer(Answer::Data {
             id,
             bytes,
             content_type,
-        });
+        })?;
     }
     Ok(())
 }

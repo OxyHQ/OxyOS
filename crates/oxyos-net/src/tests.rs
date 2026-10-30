@@ -81,6 +81,25 @@ fn server() -> String {
                         "",
                     ),
                     "/authorization" => reply(&mut stream, "200 OK", "", &authorization),
+                    // The body's length as sent, and the body.
+                    "/length" => {
+                        let text = format!("{length} {}", String::from_utf8_lossy(&body));
+                        reply(&mut stream, "200 OK", "", &text)
+                    }
+                    // Ten pieces of a kilobyte, a tenth of a second apart.
+                    "/trickle" => {
+                        let _ = write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: 10240\r\nConnection: close\r\n\r\n"
+                        );
+                        for _ in 0..10 {
+                            if stream.write_all(&[b'x'; 1024]).is_err() {
+                                return;
+                            }
+                            let _ = stream.flush();
+                            std::thread::sleep(Duration::from_millis(100));
+                        }
+                    }
                     _ => reply(&mut stream, "404 Not Found", "", "missing"),
                 }
             });
@@ -172,7 +191,7 @@ fn a_body_is_sent_and_redirects_end_where_they_lead() {
     let base = server();
     let network = Network::new().unwrap();
     let mut post = request(1, "POST", format!("{base}/echo"));
-    post.body = Some(b"hola".to_vec());
+    post.body = Some(b"hola".to_vec().into());
     network.send(post);
     assert_eq!(
         body(&answers(&network, 1, Duration::from_secs(5))),
@@ -263,7 +282,7 @@ fn each_hop_of_a_redirect_keeps_its_cookies_and_the_method_changes_as_browsers_d
     assert_eq!(body(&answers(&network, 1, Duration::from_secs(5))), "hop=1");
     // A POST redirected with 302 goes on as a GET without its body.
     let mut post = request(2, "POST", format!("{base}/goto?/echo"));
-    post.body = Some(b"hola".to_vec());
+    post.body = Some(b"hola".to_vec().into());
     network.send(post);
     assert_eq!(body(&answers(&network, 2, Duration::from_secs(5))), "GET ");
 }
@@ -335,7 +354,7 @@ fn a_connection_lost_before_the_response_is_tried_again_and_then_fails() {
     let network = Network::new().unwrap();
     // As on Android, even a POST: nothing was answered.
     let mut post = request(1, "POST", format!("{}/", dropping(2)));
-    post.body = Some(b"hola".to_vec());
+    post.body = Some(b"hola".to_vec().into());
     network.send(post);
     let got = answers(&network, 1, Duration::from_secs(5));
     assert_eq!(body(&got), "POST hola");
@@ -344,4 +363,91 @@ fn a_connection_lost_before_the_response_is_tried_again_and_then_fails() {
     network.send(request(2, "GET", format!("{}/", dropping(usize::MAX))));
     let (error, timed_out) = completed(&answers(&network, 2, Duration::from_secs(5)));
     assert!(error.is_some() && !timed_out);
+}
+
+#[test]
+fn a_body_of_parts_sends_its_files_ranges_with_its_length_and_progress() {
+    let base = server();
+    let network = Network::new().unwrap();
+    let path = std::env::temp_dir().join(format!("oxyos-net-part-{}", std::process::id()));
+    std::fs::write(&path, "0123456789").unwrap();
+    let file = Arc::new(std::fs::File::open(&path).unwrap());
+    let mut put = request(1, "PUT", format!("{base}/length"));
+    put.body = Some(Body {
+        parts: vec![
+            Part::Bytes(b"[".to_vec().into()),
+            Part::File {
+                file: file.clone(),
+                offset: 2,
+                length: 5,
+            },
+            Part::Bytes(b"]".to_vec().into()),
+        ],
+    });
+    // A length the application set is the body's own.
+    put.headers.push(("Content-Length".into(), "999".into()));
+    put.upload_progress = true;
+    network.send(put);
+    let got = answers(&network, 1, Duration::from_secs(5));
+    assert_eq!(body(&got), "7 [23456]");
+    let sent: Vec<_> = got
+        .iter()
+        .filter_map(|answer| match answer {
+            Answer::Sent { sent, total, .. } => Some((*sent, *total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent.last(), Some(&(7, 7)), "{sent:?}");
+    assert!(sent.windows(2).all(|pair| pair[0].0 < pair[1].0));
+    // A file shorter than its part says fails the request rather than send less.
+    let mut short = request(2, "POST", format!("{base}/length"));
+    short.body = Some(Body {
+        parts: vec![Part::File {
+            file,
+            offset: 8,
+            length: 5,
+        }],
+    });
+    network.send(short);
+    let (error, _) = completed(&answers(&network, 2, Duration::from_secs(5)));
+    assert!(error.is_some());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_fetch_answers_on_the_callers_thread_and_stops_when_cancelled() {
+    let base = server();
+    let network = Network::new().unwrap();
+    let mut get = request(1, "GET", format!("{base}/trickle"));
+    get.incremental = true;
+    let cancel = get.cancel.clone();
+    let received = std::cell::Cell::new(0u64);
+    let started = Instant::now();
+    let ended = network.fetch(get, &|answer| {
+        if let Answer::Chunk { progress, .. } = answer {
+            received.set(progress);
+            if progress >= 2048 {
+                cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        Ok(())
+    });
+    let failure = ended.unwrap_err();
+    assert_eq!(failure.error, format!("io: {CANCELLED}"));
+    assert!(received.get() < 10240 && started.elapsed() < Duration::from_millis(900));
+    // An answer refused stops it too, with its reason.
+    let mut get = request(2, "GET", format!("{base}/json"));
+    get.incremental = true;
+    let ended = network.fetch(get, &|answer| match answer {
+        Answer::Chunk { .. } => Err("the disk is full".into()),
+        _ => Ok(()),
+    });
+    assert!(ended.unwrap_err().error.contains("the disk is full"));
+    // Aborting a queued request stops it.
+    let mut slow = request(3, "GET", format!("{base}/trickle"));
+    slow.incremental = true;
+    let flag = slow.cancel.clone();
+    network.send(slow);
+    network.abort(3);
+    assert!(flag.load(Ordering::Relaxed));
 }

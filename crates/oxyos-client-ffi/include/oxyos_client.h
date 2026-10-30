@@ -835,6 +835,9 @@ typedef struct OxyOSNet OxyOSNet;
 #define OXYOS_NET_CHUNK 2
 #define OXYOS_NET_DATA 3
 #define OXYOS_NET_COMPLETE 4
+/* What was sent of the body so far (progress) and its length (total), as it goes, for a request
+ * with upload_progress. */
+#define OXYOS_NET_SENT 5
 
 /* Results of oxyos_net_answer. */
 #define OXYOS_NET_ANSWER 1
@@ -847,9 +850,22 @@ typedef struct OxyOSNetHeader {
   size_t value_length;
 } OxyOSNetHeader;
 
+/* A part of a body: `length` bytes at `bytes`, or, `fd` not -1, `length` bytes of the open file
+ * `fd` from `offset`, read as they are sent (never wholly in memory). */
+typedef struct OxyOSNetPart {
+  const uint8_t* bytes;
+  uint64_t length;
+  int fd;
+  uint64_t offset;
+} OxyOSNetPart;
+
 /* timeout_ms is the whole request's (0 for none); has_body says whether body is sent (a request
  * may send an empty body, or none); with_credentials, whether the jar's cookies go with it and
- * what it sets is kept; incremental, whether the body comes as chunks instead of whole. */
+ * what it sets is kept; incremental, whether the body comes as chunks instead of whole;
+ * upload_progress, whether what was sent is answered as it goes (OXYOS_NET_SENT). With part_count
+ * not 0 the body is its parts instead (a multipart form's files); their descriptors are the
+ * network's once oxyos_net_send is called, closed when the request ends, or at once if it cannot
+ * be sent. A body's length is sent as Content-Length. */
 typedef struct OxyOSNetRequest {
   int64_t id;
   const char* method;
@@ -864,9 +880,13 @@ typedef struct OxyOSNetRequest {
   uint8_t has_body;
   uint8_t with_credentials;
   uint8_t incremental;
+  uint8_t upload_progress;
+  const OxyOSNetPart* parts;
+  size_t part_count;
 } OxyOSNetRequest;
 
-/* RESPONSE: status, headers (duplicates joined with ", ") and the URL answered after redirects.
+/* SENT: progress (bytes sent so far) and total (the body's length).
+ * RESPONSE: status, headers (duplicates joined with ", ") and the URL answered after redirects.
  * CHUNK: bytes/length, progress (bytes so far) and total (-1 if unknown).
  * DATA: bytes/length, and content_type (NULL if none).
  * COMPLETE: error (NULL if it succeeded) and timed_out.
@@ -1182,6 +1202,11 @@ const char* oxyos_files_reply_json(const OxyOSFilesReply* reply, size_t* length)
 const uint8_t* oxyos_files_reply_bytes(const OxyOSFilesReply* reply, size_t* length);
 /* Frees a reply. NULL is ignored. */
 void oxyos_files_reply_free(OxyOSFilesReply* reply);
+/* Opens a file the scope allows for reading (`uri`, a file:// URI): a request's body, as Networking
+ * sends a multipart form's file part. Its descriptor, the caller's to close (or the network's, given
+ * as an OxyOSNetPart), its size in `*size` if not NULL; OXYOS_ERROR with the reason in
+ * oxyos_last_error. */
+int oxyos_files_open_read(OxyOSFiles* files, const char* uri, size_t length, uint64_t* size);
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,

@@ -13,7 +13,8 @@
 //! `{"ok": true, "value": ...}` with its bytes (what `read` read), or
 //! `{"ok": false, "error": CODE, "message": TEXT}` ([`Error::code`]). An event, a reply with id 0,
 //! is `{"watch": N}` for a coalesced watch, or `{"watch": N, "events": [EVENT], "ended": BOOL}`
-//! for a typed one, `EVENT` being `{type, uri, isDirectory, flags, newUri?, newIsDirectory?}`.
+//! for a typed one, `EVENT` being `{type, uri, isDirectory, flags, newUri?, newIsDirectory?}`;
+//! `{"transfer": ID, "progress": {...}}` for a download or an upload running as request `ID`.
 //!
 //! | `op` | Arguments | Value (bytes) |
 //! | --- | --- | --- |
@@ -46,13 +47,20 @@
 //! | `emptyTrash` | | the count removed |
 //! | `watchTrash`, `watchPlaces` | | the watch |
 //! | `unwatch` | `watch` | null |
+//! | `download` (requested) | `url`, `to`, `toDirectory`, `headers`, `idempotent`, `resume` | the file's URI, null if paused |
+//! | `upload` (requested) | `uri`, `url`, `method`, `headers`, `uploadType`, `fieldName`, `mimeType`, `parameters` | `{body, status, headers}` |
+//! | `cancelTransfer` | `transfer` (its request's id) | null |
+//! | `pauseTransfer` | `transfer` | `{resumeData}`: the bytes written, or null |
 
 use crate::access::{self, Encoding, Handles, Mode, Relocation};
 use crate::places::{self, Favourite};
 use crate::scope::Access;
+use crate::transfer::{self, Live};
 use crate::watch::{Change, Event, Watcher};
 use crate::{trash, uri, Error, Scope};
+use oxyos_net::Network;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd};
@@ -93,11 +101,14 @@ impl Shared {
     }
 }
 
-/// What every request runs against: the scope, the watches and the open files.
+/// What every request runs against: the scope, the watches, the open files and the transfers.
 struct Context {
     scope: Scope,
     watcher: Watcher,
     handles: Handles,
+    network: Network,
+    /// Downloads and uploads running, by their request's id.
+    transfers: Mutex<HashMap<u64, Arc<Live>>>,
 }
 
 /// The service: its thread runs requests; its queue holds what it answered and saw.
@@ -157,6 +168,8 @@ impl Service {
             scope,
             watcher,
             handles: Handles::default(),
+            network: Network::new()?,
+            transfers: Mutex::new(HashMap::new()),
         });
         let (requests, received) = mpsc::channel::<(u64, String, Vec<u8>)>();
         let thread = {
@@ -165,6 +178,9 @@ impl Service {
                 .name("oxyos-files".into())
                 .spawn(move || {
                     for (id, request, bytes) in received {
+                        if transfer(&context, &shared, id, &request) {
+                            continue;
+                        }
                         let (json, bytes) = answer(&context, &request, &bytes);
                         shared.push(Reply { id, json, bytes });
                     }
@@ -190,6 +206,12 @@ impl Service {
         if let Some(requests) = &self.requests {
             let _ = requests.send((id, request.to_string(), bytes));
         }
+    }
+
+    /// A file the scope allows opened for reading, at once: a request's body (`Networking`'s
+    /// multipart files).
+    pub fn open_read(&self, uri: &str) -> Result<std::fs::File, Error> {
+        access::open_read(&self.context.scope, uri)
     }
 
     /// The next answer or event, if any; never blocks.
@@ -219,6 +241,61 @@ impl AsFd for Service {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.readable.as_fd()
     }
+}
+
+/// Starts a download or an upload on a thread of its own, if `request` is one: it is answered
+/// when it ends, as `id`, its progress said as events (`{"transfer": ID, "progress": {...}}`).
+fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, request: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<Value>(request) else {
+        return false;
+    };
+    let op = parsed.get("op").and_then(Value::as_str);
+    if !matches!(op, Some("download" | "upload")) {
+        return false;
+    }
+    let live = Arc::new(Live::default());
+    context
+        .transfers
+        .lock()
+        .expect("lock")
+        .insert(id, live.clone());
+    let (context, replies) = (context.clone(), shared.clone());
+    let started = std::thread::Builder::new()
+        .name(format!("oxyos-files-transfer-{id}"))
+        .spawn(move || {
+            let shared = replies;
+            let progress = |progress: Value| {
+                shared.event(json!({ "transfer": id, "progress": progress }));
+            };
+            let run = if parsed["op"] == "download" {
+                transfer::download
+            } else {
+                transfer::upload
+            };
+            let ended = run(&context.network, &context.scope, &live, &parsed, &progress);
+            context.transfers.lock().expect("lock").remove(&id);
+            shared.push(Reply {
+                id,
+                json: ended_json(ended),
+                bytes: Vec::new(),
+            });
+        });
+    if let Err(error) = started {
+        shared.push(Reply {
+            id,
+            json: ended_json(Err(error.into())),
+            bytes: Vec::new(),
+        });
+    }
+    true
+}
+
+fn ended_json(ended: Result<Value, Error>) -> String {
+    match ended {
+        Ok(value) => json!({ "ok": true, "value": value }),
+        Err(error) => json!({ "ok": false, "error": error.code(), "message": error.to_string() }),
+    }
+    .to_string()
 }
 
 /// The answer to one request, as JSON, and its bytes.
@@ -500,6 +577,24 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
                 .map(trash::TrashDir::files)
                 .collect();
             value(context.watcher.watch(&folders, true)?.into())
+        }
+        "download" | "upload" => Err(Error::Invalid(format!(
+            "{op} is answered when it ends: it is requested, never called"
+        ))),
+        "cancelTransfer" => {
+            let id = number(request, "transfer")?;
+            if let Some(live) = context.transfers.lock().expect("lock").get(&id) {
+                live.cancel();
+            }
+            done()
+        }
+        "pauseTransfer" => {
+            let id = number(request, "transfer")?;
+            let live = context.transfers.lock().expect("lock").get(&id).cloned();
+            let Some(live) = live else {
+                return Err(Error::Invalid("the download is not running".into()));
+            };
+            value(json!({ "resumeData": live.pause() }))
         }
         "unwatch" => {
             let id = number(request, "watch")?;

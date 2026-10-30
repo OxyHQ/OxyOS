@@ -6,9 +6,10 @@
 //! NUL, and bodies are bytes.
 
 use super::fail;
-use oxyos_net::{Answer, Network, Request};
-use rustix::fd::{AsFd, AsRawFd};
+use oxyos_net::{Answer, Body, Network, Part, Request};
+use rustix::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::ffi::{c_char, c_int};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Answer kinds (`OxyOSNetAnswer.kind`).
@@ -16,6 +17,7 @@ pub const OXYOS_NET_RESPONSE: u32 = 1;
 pub const OXYOS_NET_CHUNK: u32 = 2;
 pub const OXYOS_NET_DATA: u32 = 3;
 pub const OXYOS_NET_COMPLETE: u32 = 4;
+pub const OXYOS_NET_SENT: u32 = 5;
 
 /// Results of `oxyos_net_answer`.
 pub const OXYOS_NET_ANSWER: c_int = 1;
@@ -29,6 +31,17 @@ pub struct OxyOSNetHeader {
     pub name_length: usize,
     pub value: *const c_char,
     pub value_length: usize,
+}
+
+/// A part of a request's body: `length` bytes at `bytes`, or (`fd` not -1) `length` bytes of the
+/// open file `fd` from `offset`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSNetPart {
+    pub bytes: *const u8,
+    pub length: u64,
+    pub fd: c_int,
+    pub offset: u64,
 }
 
 /// A request, as `oxyos_net_send` takes it.
@@ -50,6 +63,11 @@ pub struct OxyOSNetRequest {
     pub has_body: u8,
     pub with_credentials: u8,
     pub incremental: u8,
+    /// Whether what was sent of the body is answered as it goes (`OXYOS_NET_SENT`).
+    pub upload_progress: u8,
+    /// The body's parts, sent in place of `body` when `part_count` is not 0.
+    pub parts: *const OxyOSNetPart,
+    pub part_count: usize,
 }
 
 /// One answer, as `oxyos_net_answer` gives it. Which fields are meaningful depends on `kind`; see
@@ -228,6 +246,20 @@ pub unsafe extern "C" fn oxyos_net_send(
 /// As `oxyos_net_send`'s request.
 #[allow(unsafe_code)]
 unsafe fn convert(request: &OxyOSNetRequest) -> Result<Request, String> {
+    let parts: &[OxyOSNetPart] = match (request.parts.is_null(), request.part_count) {
+        (true, 0) => &[],
+        (true, _) => return Err("null parts".into()),
+        // SAFETY: the caller's parts point to `part_count` readable OxyOSNetParts.
+        (false, count) => unsafe { std::slice::from_raw_parts(request.parts, count) },
+    };
+    // The parts' descriptors are the network's from here, whatever comes of the request.
+    let files: Vec<Option<std::fs::File>> = parts
+        .iter()
+        .map(|part| {
+            // SAFETY: a descriptor the caller handed over, owned once.
+            (part.fd >= 0).then(|| std::fs::File::from(unsafe { OwnedFd::from_raw_fd(part.fd) }))
+        })
+        .collect();
     let headers: &[OxyOSNetHeader] = match (request.headers.is_null(), request.header_count) {
         (true, 0) => &[],
         (true, _) => return Err("null headers".into()),
@@ -246,10 +278,28 @@ unsafe fn convert(request: &OxyOSNetRequest) -> Result<Request, String> {
             }
         })
         .collect::<Result<_, String>>()?;
-    let body = if request.has_body != 0 {
+    let body = if !parts.is_empty() {
+        let mut body = Body::default();
+        for (part, file) in parts.iter().zip(files) {
+            body.parts.push(match file {
+                Some(file) => Part::File {
+                    file: Arc::new(file),
+                    offset: part.offset,
+                    length: part.length,
+                },
+                None => {
+                    let length = usize::try_from(part.length).map_err(|_| "a part too long")?;
+                    // SAFETY: a part's bytes are valid for its length.
+                    let bytes = unsafe { bytes(part.bytes, length) }.ok_or("null part")?;
+                    Part::Bytes(bytes.to_vec().into())
+                }
+            });
+        }
+        Some(body)
+    } else if request.has_body != 0 {
         // SAFETY: the body is valid for its length.
         let body = unsafe { bytes(request.body, request.body_length) };
-        Some(body.ok_or("null body")?.to_vec())
+        Some(Body::from(body.ok_or("null body")?.to_vec()))
     } else {
         None
     };
@@ -264,6 +314,8 @@ unsafe fn convert(request: &OxyOSNetRequest) -> Result<Request, String> {
         timeout: (request.timeout_ms > 0).then(|| Duration::from_millis(request.timeout_ms)),
         with_credentials: request.with_credentials != 0,
         incremental: request.incremental != 0,
+        upload_progress: request.upload_progress != 0,
+        cancel: Default::default(),
     })
 }
 
@@ -341,6 +393,11 @@ pub unsafe extern "C" fn oxyos_net_answer(net: *mut OxyOSNet, out: *mut OxyOSNet
         ..OxyOSNetAnswer::default()
     };
     match &answer {
+        Answer::Sent { sent, total, .. } => {
+            view.kind = OXYOS_NET_SENT;
+            view.progress = *sent;
+            view.total = i64::try_from(*total).unwrap_or(i64::MAX);
+        }
         Answer::Response { status, url, .. } => {
             view.kind = OXYOS_NET_RESPONSE;
             view.status = (*status).into();

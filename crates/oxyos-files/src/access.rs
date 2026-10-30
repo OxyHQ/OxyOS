@@ -471,6 +471,17 @@ pub fn list(scope: &Scope, uri: &str) -> Result<Value, Error> {
         .collect())
 }
 
+/// A file opened for reading as a request's body (a multipart form's file part): what a URI
+/// reaches, a file.
+pub fn open_read(scope: &Scope, uri: &str) -> Result<File, Error> {
+    let path = reach(scope, uri, Access::Read)?;
+    match metadata(&path)? {
+        None => Err(Error::NotFound),
+        Some(found) if found.is_dir() => Err(Error::NotAFile),
+        Some(_) => Ok(File::open(&path)?),
+    }
+}
+
 /// A file's content's digest, in lowercase hexadecimal.
 pub fn digest(scope: &Scope, uri: &str, algorithm: &str) -> Result<String, Error> {
     use sha2::Digest;

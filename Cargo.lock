@@ -1687,6 +1687,7 @@ dependencies = [
  "jiff",
  "md-5",
  "oxyos-apps",
+ "oxyos-net",
  "rustix",
  "serde_json",
  "sha1",
