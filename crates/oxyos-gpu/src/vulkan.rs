@@ -6,9 +6,13 @@
 
 #![allow(unsafe_code)]
 
-use super::{name, shader, Layer, Paint};
+use super::{name, shader, shader_images, Layer, Paint};
 use ash::vk;
 use std::fmt;
+
+mod import;
+pub use import::{DmaBufFormat, DmaBufPlane};
+use import::{Images, IMAGE_SLOTS};
 
 /// What kind of device composes: a GPU, or a CPU implementation of Vulkan (Mesa's lavapipe),
 /// which proves the Vulkan path but not GPU performance or hardware.
@@ -102,10 +106,13 @@ struct Push {
     clip_radius: u32,
     scale: u32,
     filter: u32,
+    /// A client's GPU buffer's slot in the shader's images, plus one; 0: pixels in the source
+    /// buffer (docs/adr/0031-gpu-buffers.mdx).
+    image: u32,
 }
 
-/// A layer table entry's size: 29 words.
-const PUSH_BYTES: usize = 29 * 4;
+/// A layer table entry's size: 30 words.
+const PUSH_BYTES: usize = 30 * 4;
 
 /// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
 /// output's size, the background and the layers' count. 8 words, within the 128 bytes every
@@ -196,6 +203,7 @@ impl Push {
             self.clip_radius,
             self.scale,
             self.filter,
+            self.image,
         ];
         let mut bytes = [0; PUSH_BYTES];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
@@ -295,6 +303,9 @@ struct Opened {
     dma_buf: bool,
     /// Whether a semaphore its submissions signal can be exported as a sync file.
     sync_file: bool,
+    /// Whether it imports clients' DMA-BUFs and samples them in place (docs/adr/0031): the
+    /// formats and modifiers it can, the foreign queue family, its render node.
+    images: Option<import::Capabilities>,
 }
 
 pub struct VulkanCompositor {
@@ -358,6 +369,11 @@ pub struct VulkanCompositor {
     completed_when: Option<std::os::fd::OwnedFd>,
     /// The device's time for each frame completed and not yet taken (`take_completed_ms`).
     completed_ms: Vec<f64>,
+    /// Clients' GPU buffers imported and sampled in place, where the device can (ADR 0031).
+    images: Option<Images>,
+    /// A copy of the last deferred submission's completion as a sync file, while it is pending:
+    /// what a client's buffer it read is released after (`completion_sync_file`).
+    pending_sync_file: Option<std::os::fd::OwnedFd>,
 }
 
 impl VulkanCompositor {
@@ -369,7 +385,7 @@ impl VulkanCompositor {
             .map_err(|error| Error(format!("no Vulkan loader: {error}")))?;
         let app = vk::ApplicationInfo::default()
             .application_name(c"oxyos-gpu")
-            .api_version(vk::API_VERSION_1_1);
+            .api_version(vk::API_VERSION_1_2);
         // SAFETY: the create info and what it points to outlive the call.
         let instance = unsafe {
             entry.create_instance(
@@ -424,8 +440,16 @@ impl VulkanCompositor {
             completion: None,
             completed_when: None,
             completed_ms: Vec::new(),
+            images: None,
+            pending_sync_file: None,
         };
-        this.build(opened.family)?;
+        this.build(opened.family, opened.images.is_some())?;
+        if let Some(capabilities) = opened.images {
+            match this.build_images(capabilities) {
+                Ok(images) => this.images = Some(images),
+                Err(error) => eprintln!("[gpu] clients' GPU buffers are not imported: {error}"),
+            }
+        }
         if opened.sync_file {
             this.completion = this.completion_semaphore().ok();
         }
@@ -551,17 +575,31 @@ impl VulkanCompositor {
         if sync_file {
             extensions.push(semaphore_fd.as_ptr());
         }
-        // SAFETY: `physical` belongs to the instance; the create info and the extension names
-        // (static strings) outlive the call.
-        let device = unsafe {
-            instance.create_device(
-                physical,
-                &vk::DeviceCreateInfo::default()
-                    .queue_create_infos(&queues)
-                    .enabled_extension_names(&extensions),
-                None,
-            )
-        }?;
+        // Clients' GPU buffers (ADR 0031): DMA-BUFs imported with their modifiers and sampled in
+        // place, from an array of images indexed per layer.
+        let images = if dma_buf {
+            import::Capabilities::of(instance, physical, &available, family)
+        } else {
+            None
+        };
+        if let Some(capabilities) = &images {
+            for name in capabilities.extensions() {
+                if !extensions.contains(&name.as_ptr()) {
+                    extensions.push(name.as_ptr());
+                }
+            }
+        }
+        let mut indexing = vk::PhysicalDeviceVulkan12Features::default()
+            .shader_sampled_image_array_non_uniform_indexing(true);
+        let mut info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queues)
+            .enabled_extension_names(&extensions);
+        if images.is_some() {
+            info = info.push_next(&mut indexing);
+        }
+        // SAFETY: `physical` belongs to the instance; the create info, what it chains and the
+        // extension names (static strings) outlive the call.
+        let device = unsafe { instance.create_device(physical, &info, None) }?;
         // SAFETY: the device was created with one queue in `family`; `physical` is live.
         let (queue, memory) = unsafe {
             (
@@ -580,19 +618,32 @@ impl VulkanCompositor {
             timestamp_bits,
             dma_buf,
             sync_file,
+            images,
         })
     }
 
     /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
-    fn build(&mut self, family: u32) -> Result<(), Error> {
+    fn build(&mut self, family: u32, images: bool) -> Result<(), Error> {
         let device = &self.device;
-        let bindings = [0, 1, 2].map(|binding| {
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(binding)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE)
-        });
+        let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2]
+            .map(|binding| {
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(binding)
+                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                    .descriptor_count(1)
+                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            })
+            .to_vec();
+        // Clients' GPU buffers, sampled in place (ADR 0031).
+        if images {
+            bindings.push(
+                vk::DescriptorSetLayoutBinding::default()
+                    .binding(3)
+                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .descriptor_count(IMAGE_SLOTS as u32)
+                    .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            );
+        }
         // SAFETY: the device is live; the create infos outlive each call. Each object is stored
         // in `self` as soon as it exists, so `Drop` destroys it.
         unsafe {
@@ -610,7 +661,7 @@ impl VulkanCompositor {
                     .push_constant_ranges(&ranges),
                 None,
             )?;
-            let code = shader();
+            let code = if images { shader_images() } else { shader() };
             let module = device
                 .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&code), None)?;
             let stage = vk::PipelineShaderStageCreateInfo::default()
@@ -626,9 +677,16 @@ impl VulkanCompositor {
             );
             device.destroy_shader_module(module, None);
             self.pipeline = pipelines.map_err(|(_, result)| Error::from(result))?[0];
-            let sizes = [vk::DescriptorPoolSize::default()
+            let mut sizes = vec![vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(3)];
+            if images {
+                sizes.push(
+                    vk::DescriptorPoolSize::default()
+                        .ty(vk::DescriptorType::SAMPLED_IMAGE)
+                        .descriptor_count(IMAGE_SLOTS as u32),
+                );
+            }
             self.pool = device.create_descriptor_pool(
                 &vk::DescriptorPoolCreateInfo::default()
                     .max_sets(1)
@@ -775,6 +833,8 @@ impl VulkanCompositor {
             self.device.reset_fences(&[self.fence])?;
         }
         self.submitted = false;
+        self.pending_sync_file = None;
+        self.finish_reading();
         self.last_host_ms.1 = waiting.elapsed().as_secs_f64() * 1e3;
         self.read_timestamps()
     }
@@ -948,11 +1008,39 @@ impl VulkanCompositor {
         };
         // A new submission overwrites the readback buffer.
         self.kept = None;
-        let layers: Vec<&Layer<'_>> = layers.iter().filter(|layer| layer.valid()).collect();
+        // A client's GPU buffer this device holds is sampled in place (ADR 0031); one it does
+        // not is drawn from the pixels the CPU read of it, if any.
+        let held = |image: u64| {
+            self.images
+                .as_ref()
+                .is_some_and(|images| images.image(image).is_some())
+        };
+        let owned: Vec<Layer<'_>> = layers
+            .iter()
+            .filter(|layer| layer.valid())
+            .filter_map(|layer| match layer.paint {
+                Paint::Imported { image, .. } if held(image) => Some(*layer),
+                Paint::Imported { .. } => layer.on_cpu(),
+                _ => Some(*layer),
+            })
+            .collect();
+        let layers: Vec<&Layer<'_>> = owned.iter().collect();
+        // The images the frame samples, a slot each.
+        let mut slots: Vec<u64> = Vec::new();
+        for layer in &layers {
+            if let Paint::Imported { image, .. } = layer.paint {
+                if !slots.contains(&image) && slots.len() < IMAGE_SLOTS {
+                    slots.push(image);
+                }
+            }
+        }
         let words = |layer: &Layer<'_>| u64::from(layer.extent.0) * u64::from(layer.extent.1);
+        let uploads = |layer: &Layer<'_>| {
+            layer.pixels().is_some() && !matches!(layer.paint, Paint::Imported { .. })
+        };
         let frame_words: u64 = layers
             .iter()
-            .filter(|layer| layer.pixels().is_some())
+            .filter(|layer| uploads(layer))
             .map(|layer| words(layer))
             .sum();
         let out_words = width as usize * height as usize;
@@ -983,7 +1071,7 @@ impl VulkanCompositor {
         let new_words: u64 = layers
             .iter()
             .filter(|layer| {
-                layer.pixels().is_some()
+                uploads(layer)
                     && kept(&self.resident, layer).is_none()
                     && updatable(&self.resident, layer).is_none()
             })
@@ -1005,6 +1093,19 @@ impl VulkanCompositor {
         };
         let family = self.family;
         self.bind_output(target);
+        let mut images = self.images.take();
+        if let Some(images) = &mut images {
+            self.bind_slots(images, &slots);
+        }
+        self.images = images;
+        let sampled: Vec<vk::Image> = slots
+            .iter()
+            .filter_map(|id| self.images.as_ref()?.image(*id))
+            .collect();
+        let foreign = self
+            .images
+            .as_ref()
+            .map_or(vk::QUEUE_FAMILY_EXTERNAL, |images| images.foreign_family());
         let [Some(source), _, Some(upload), Some(readback), Some(table_buffer)] = &self.buffers
         else {
             unreachable!("reserved");
@@ -1036,6 +1137,16 @@ impl VulkanCompositor {
                 Paint::Fill(color) => {
                     push.mode = 2;
                     push.color = color;
+                }
+                // Sampled in place from its slot (held: `owned` kept it only then).
+                Paint::Imported { image, opaque, .. } => {
+                    let Some(slot) = slots.iter().position(|&id| id == image) else {
+                        // Past the frame's slots: not drawn.
+                        layer_pushes.push(None);
+                        continue;
+                    };
+                    push.mode = if opaque { 0 } else { 1 };
+                    push.image = slot as u32 + 1;
                 }
                 Paint::Opaque(pixels) | Paint::Premultiplied(pixels) | Paint::Shadow(pixels, _) => {
                     push.mode = match layer.paint {
@@ -1216,6 +1327,56 @@ impl VulkanCompositor {
             if !copies.is_empty() {
                 device.cmd_copy_buffer(command, upload.buffer, source.buffer, &copies);
             }
+            // Clients' GPU buffers (ADR 0031): each acquired from the foreign queue that wrote
+            // it, as the shader samples it; released back after the composition.
+            let handover = |images: &[vk::Image], acquire: bool| {
+                let barriers: Vec<vk::ImageMemoryBarrier<'_>> = images
+                    .iter()
+                    .map(|&image| {
+                        let barrier = vk::ImageMemoryBarrier::default()
+                            .image(image)
+                            .subresource_range(import::color_range());
+                        if acquire {
+                            barrier
+                                .old_layout(vk::ImageLayout::GENERAL)
+                                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                                .src_queue_family_index(foreign)
+                                .dst_queue_family_index(family)
+                                .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                        } else {
+                            barrier
+                                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                                .new_layout(vk::ImageLayout::GENERAL)
+                                .src_queue_family_index(family)
+                                .dst_queue_family_index(foreign)
+                        }
+                    })
+                    .collect();
+                if barriers.is_empty() {
+                    return;
+                }
+                let (before, after) = if acquire {
+                    (
+                        vk::PipelineStageFlags::TOP_OF_PIPE,
+                        vk::PipelineStageFlags::COMPUTE_SHADER,
+                    )
+                } else {
+                    (
+                        vk::PipelineStageFlags::COMPUTE_SHADER,
+                        vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                    )
+                };
+                device.cmd_pipeline_barrier(
+                    command,
+                    before,
+                    after,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &barriers,
+                );
+            };
+            handover(&sampled, true);
             barrier(
                 vk::AccessFlags::TRANSFER_WRITE,
                 vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
@@ -1255,6 +1416,7 @@ impl VulkanCompositor {
                 );
                 // Regions do not overlap and nothing reads the output: they run together.
             }
+            handover(&sampled, false);
             if timing {
                 device.cmd_write_timestamp(
                     command,
@@ -1343,6 +1505,9 @@ impl VulkanCompositor {
             )?;
             self.submitted = true;
         }
+        if let Some(images) = self.images.as_mut() {
+            images.reading = slots;
+        }
         if let (Some(&semaphore), Some((_, loader))) = (
             self.completion
                 .as_ref()
@@ -1360,6 +1525,7 @@ impl VulkanCompositor {
                 Ok(fd) if fd >= 0 => {
                     // SAFETY: vkGetSemaphoreFdKHR returns a new descriptor the caller owns.
                     let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
+                    self.pending_sync_file = fd.try_clone().ok();
                     self.completed_when = Some(fd);
                 }
                 // -1: the submission is done already; nothing to wait on.
@@ -1790,6 +1956,7 @@ impl Drop for VulkanCompositor {
         for scanout in std::mem::take(&mut self.scanout).into_iter().flatten() {
             self.free(scanout.buffer);
         }
+        self.destroy_images();
         // SAFETY: no submission is pending (completed above); every handle was
         // created from this device or instance and is destroyed once, children first; null
         // handles are ignored.

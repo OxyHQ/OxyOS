@@ -12,6 +12,8 @@ ash = { version = "0.38", default-features = false, features = ["loaded", "std"]
 [dev-dependencies]
 # Polls a frame's completion as a sync file in the tests.
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }
+# DMA-BUFs of shared memory for the import tests (docs/adr/0031).
+oxyos-dmabuf = { path = "../oxyos-dmabuf" }
 
 [build-dependencies]
 # Compiles the WGSL compute shader to SPIR-V at build time.

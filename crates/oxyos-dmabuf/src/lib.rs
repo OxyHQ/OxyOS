@@ -199,9 +199,9 @@ struct UdmabufCreate {
 /// `UDMABUF_CREATE`, whose answer is the new DMA-BUF's descriptor.
 struct CreateUdmabuf(UdmabufCreate);
 
+#[allow(unsafe_code)]
 // SAFETY: the opcode is UDMABUF_CREATE (`_IOW('u', 0x42, struct udmabuf_create)`), which reads one
 // `struct udmabuf_create` (`UdmabufCreate` has its layout) and returns a new descriptor.
-#[allow(unsafe_code)]
 unsafe impl rustix::ioctl::Ioctl for CreateUdmabuf {
     type Output = OwnedFd;
     const IS_MUTATING: bool = false;
@@ -251,10 +251,15 @@ pub fn shared_dmabuf(size: u64) -> io::Result<(OwnedFd, DmaBuf)> {
     use rustix::fs::{MemfdFlags, SealFlags};
     let page = 4096;
     let size = size.div_ceil(page) * page;
-    let memfd =
-        rustix::fs::memfd_create("oxyos-dmabuf", MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING)?;
+    let memfd = rustix::fs::memfd_create(
+        "oxyos-dmabuf",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )?;
     rustix::fs::ftruncate(&memfd, size)?;
-    rustix::fs::fcntl_add_seals(&memfd, SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL)?;
+    rustix::fs::fcntl_add_seals(
+        &memfd,
+        SealFlags::SHRINK | SealFlags::GROW | SealFlags::SEAL,
+    )?;
     let buffer = udmabuf(memfd.as_fd(), size)?;
     Ok((memfd, buffer))
 }
@@ -315,9 +320,8 @@ impl Mapping {
         if count == 0 {
             return Ok(());
         }
-        let last = u64::from(offset)
-            + u64::from(stride) * u64::from(rows.end - 1)
-            + row_bytes as u64;
+        let last =
+            u64::from(offset) + u64::from(stride) * u64::from(rows.end - 1) + row_bytes as u64;
         if last > self.buffer.size || (row_bytes as u64) > u64::from(stride) {
             return Err(io::Error::other("rows beyond the DMA-BUF"));
         }
@@ -344,13 +348,16 @@ impl Mapping {
 impl Drop for Mapping {
     fn drop(&mut self) {
         // SAFETY: the mapping made in `new`, of the buffer's size; nothing refers to it after.
-        let _ = unsafe { rustix::mm::munmap(self.address.as_ptr().cast(), self.buffer.size as usize) };
+        let _ =
+            unsafe { rustix::mm::munmap(self.address.as_ptr().cast(), self.buffer.size as usize) };
     }
 }
 
 impl std::fmt::Debug for Mapping {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Mapping").field("size", &self.buffer.size).finish()
+        f.debug_struct("Mapping")
+            .field("size", &self.buffer.size)
+            .finish()
     }
 }
 
@@ -457,8 +464,7 @@ impl Timeline {
     }
 
     pub fn signal(&self, point: u64) -> io::Result<()> {
-        self.node
-            .syncobj_timeline_signal(&[self.handle], &[point])
+        self.node.syncobj_timeline_signal(&[self.handle], &[point])
     }
 
     /// The latest point signalled.

@@ -45,11 +45,26 @@ fn a_linear_plane_fits_within_its_buffer_with_a_stride_of_at_least_a_row() {
     let end = 1024 + 512 * 99 + 400;
     assert!(linear_plane_fits(end, 1024, 512, 400, 100));
     assert!(!linear_plane_fits(end - 1, 1024, 512, 400, 100));
-    assert!(!linear_plane_fits(u64::MAX, 0, 396, 400, 100), "stride under a row");
-    assert!(!linear_plane_fits(u64::MAX, 2, 512, 400, 100), "offset unaligned");
-    assert!(!linear_plane_fits(u64::MAX, 0, 514, 400, 100), "stride unaligned");
+    assert!(
+        !linear_plane_fits(u64::MAX, 0, 396, 400, 100),
+        "stride under a row"
+    );
+    assert!(
+        !linear_plane_fits(u64::MAX, 2, 512, 400, 100),
+        "offset unaligned"
+    );
+    assert!(
+        !linear_plane_fits(u64::MAX, 0, 514, 400, 100),
+        "stride unaligned"
+    );
     assert!(!linear_plane_fits(u64::MAX, 0, 512, 400, 0), "no rows");
-    assert!(!linear_plane_fits(1 << 40, u32::MAX - 3, u32::MAX - 3, 400, u32::MAX));
+    assert!(!linear_plane_fits(
+        1 << 40,
+        u32::MAX - 3,
+        u32::MAX - 3,
+        400,
+        u32::MAX
+    ));
 }
 
 #[test]
@@ -67,7 +82,10 @@ fn a_mapped_dmabuf_reads_the_rows_asked_for_and_nothing_beyond_it() {
     assert_eq!(&out[16..], &bytes[320..336]);
     let mut out = vec![0; 16];
     assert!(mapping.read_rows(8192 - 8, 64, 16, 0..1, &mut out).is_err());
-    assert!(mapping.read_rows(0, 64, 16, 0..2, &mut out).is_err(), "out too short");
+    assert!(
+        mapping.read_rows(0, 64, 16, 0..2, &mut out).is_err(),
+        "out too short"
+    );
 }
 
 #[test]
@@ -84,7 +102,9 @@ fn a_timeline_point_signals_its_eventfd_and_the_latest_signalled_is_known() {
     assert!(sync_file_signalled(two.as_fd()));
     assert_eq!(timeline.signalled().unwrap(), 2);
     // A point already signalled is readable at once.
-    assert!(sync_file_signalled(timeline.eventfd(1, false).unwrap().as_fd()));
+    assert!(sync_file_signalled(
+        timeline.eventfd(1, false).unwrap().as_fd()
+    ));
 }
 
 #[test]
@@ -117,6 +137,7 @@ fn sync_files_go_into_points_and_points_out_as_sync_files() {
     let other = Timeline::create(&node).unwrap();
     other.import_sync_file(5, fence.as_fd()).unwrap();
     assert_eq!(other.signalled().unwrap(), 5);
-    let merged = merge_sync_files(fence.as_fd(), other.export_sync_file(5).unwrap().as_fd()).unwrap();
+    let merged =
+        merge_sync_files(fence.as_fd(), other.export_sync_file(5).unwrap().as_fd()).unwrap();
     assert!(sync_file_signalled(merged.as_fd()));
 }
