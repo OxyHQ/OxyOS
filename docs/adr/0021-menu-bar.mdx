@@ -1,0 +1,75 @@
+---
+title: "ADR 0021: The menu bar"
+description: How an application's menus reach the menu bar at the top of the screen, as on a Mac — declared once with Bloom's Menubar, shown by the shell for the active window, chosen back in the application — and how their shortcuts work everywhere.
+order: 30
+---
+
+# ADR 0021: The menu bar
+
+Status: **accepted** (the global menu bar was chosen with the platform's author); steps to come. The `menu-bar` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0009](./0009-session-shell) (the shell and its top bar), [ADR 0013](./0013-launching-applications) (applications' names) and [ADR 0016](./0016-windows) (the active window).
+
+## Problem
+
+On a Mac, the bar at the top of the screen shows the active application's menus: its name in bold, then File, Edit, View and the rest, with each command's shortcut. The application declares them; the system draws them, and a command chosen there runs in the application. OxyOS's shell has the bar (its `TopBar` takes `menus` and calls back with a command's id), but nothing fills it: applications have no way to say what their menus are, and the shell shows a fixture's.
+
+Bloom already has a menu bar (`@oxy.so/bloom/menubar`, shadcn's): an application that wants menus declares them with it, and it draws them in the window. On the web, natively on a phone, and on a platform without a global bar that is right, and must not change.
+
+## Decision
+
+1. **The application declares its menus once, with Bloom's `Menubar`.** Its menus, items, check items, radio groups, separators, submenus, disabled states and shortcuts, and what each does (`onSelect`, `onCheckedChange`, `onValueChange`), as it does today. No other API, no platform test.
+2. **Bloom presents them by capability.**
+   - **Without `menu-bar`:** `Menubar` draws itself in the window, exactly as now.
+   - **With it:** `Menubar` draws nothing in the window. It gives the platform a description of its menus whenever they change, and runs an item when the platform says it was chosen. The description is plain data:
+
+   ```ts
+   interface PlatformMenuBar {
+     /** The window's menus now; replaces the last. An empty list: none. */
+     setMenus(menus: readonly PlatformMenu[]): void;
+     /** An item the person chose in the platform's bar, by the id Bloom gave it. */
+     onActivate(listener: (id: string) => void): () => void;
+   }
+   interface PlatformMenu { id: string; label: string; items: readonly PlatformMenuItem[] }
+   type PlatformMenuItem =
+     | { kind: 'item'; id: string; label: string; enabled: boolean; shortcut?: string;
+         checked?: boolean /* check and radio items */ }
+     | { kind: 'submenu'; id: string; label: string; enabled: boolean; items: readonly PlatformMenuItem[] }
+     | { kind: 'separator' };
+   ```
+
+   Ids are Bloom's own, stable while an item is mounted; labels are the items' text. A radio group is its items, each `checked` or not.
+3. **Shortcuts are Bloom's, on every platform.** An item's shortcut is declared as a key chord (`Mod+N`, `Mod+Shift+Z`; `Mod` is the platform's command modifier: ⌘ on a Mac, Ctrl elsewhere, OxyOS included). Bloom matches it against the window's keys and runs the item, with or without a bar showing it, so a command works the same on every platform. The bar only shows the chord. A focused text field keeps the keys it uses (Ctrl+C in a field copies, as ADR 0008's editing does), and the menu's item for them acts through the field.
+4. **On OxyOS the shell shows the active window's menus.**
+   - **The message.** The application's host sends its window's menus to the compositor as one message, in chunks, the way an accessibility snapshot is sent ([ADR 0003](./0003-accessibility-protocol)): each item's kind, parent, state, label and shortcut. A new message replaces the last.
+   - **What the shell is told.** The compositor tells the shell (its `shell` grant) the menus of the active window ([ADR 0016](./0016-windows)), and tells it again when they change or another window becomes active. The shell's top bar shows them after the application's own menu.
+   - **The application's own menu,** in bold, is the shell's. It holds the application's name from the registry (ADR 0013), About, Settings (when the application declares a `settings` item, see below), Hide and Quit (the application's close request, as the close bubble's). An application's first declared menu is not that menu.
+   - **Choosing an item.** The shell sends the item's id. The compositor gives it to the window's client only if that window's menus have that id; the host hands it to Bloom, which runs the item.
+   - **When nothing is active,** or the active window has no menus, the bar shows the shell's own menus.
+   - **What is never sent.** Menus carry labels and chords, never the application's data; the compositor and the shell never run an application's command themselves.
+5. **Elsewhere,** a desktop's native runtime gives the menus to the system's bar (a Mac's `NSMenu`), and the web and phones keep Bloom's in-window bar; each with its own adapter, the application unchanged ([ADR 0015](./0015-application-model)).
+
+## Steps
+
+1. **Bloom:**
+   - the capability and `PlatformMenuBar`;
+   - `Menubar` describing itself instead of drawing when it is reported;
+   - shortcuts as chords, matched on every platform;
+   - tests that the same declaration draws in the window without the capability and describes itself with it.
+2. **The protocol and the compositor:**
+   - an application's menus, in chunks with a commit;
+   - the shell told the active window's menus;
+   - the shell's choice delivered only for an id the window declared;
+   - the C ABI.
+
+   Tests: menus follow activation, an id not declared is refused, and a client without the `shell` grant hears nothing of other windows' menus.
+3. **The Bloom host and the shell.** The host's adapter. The shell's top bar shows the active window's menus, its application menu, checked items and chords. A scenario:
+   - a sample declares File and Edit with shortcuts;
+   - the shell's bar shows them while the sample is active, and its own menus while nothing is;
+   - choosing New runs the item in the sample (React receives it once);
+   - the sample's Ctrl+N does the same without the bar;
+   - a check item toggles in both.
+
+## Not in this decision
+
+- Menus' icons, and items whose content is not text.
+- A Help menu's search, and the services menu.
+- Context menus (they stay Bloom's, opened as popups, [ADR 0002](./0002-bloom-platform-surface-api)).
