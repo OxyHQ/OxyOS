@@ -35,9 +35,11 @@ DISTRIB_CODENAME=${OS_VERSION_CODENAME}
 DISTRIB_DESCRIPTION="${OS_NAME} ${OS_VERSION} (${OS_VERSION_CODENAME})"
 EOF
 
-# Write /etc/issue (shown at TTY login prompt)
+# Write /etc/issue (shown at TTY login prompt). The console's cursor is hidden while the boot
+# logo shows (vt.global_cursor_default=0, docs/adr/0017-boot-logo.mdx); agetty turns \e into
+# ESC, so the login prompt shows it again.
 cat > /etc/issue << EOF
-${OS_NAME} \n \l
+\e[?25h${OS_NAME} \n \l
 
 EOF
 

@@ -148,13 +148,18 @@ impl Display {
             .next()
             .ok_or_else(|| not_found("no connected output"))?;
         let info = card.get_connector(connector, false)?;
-        let crtc = info
+        let lit = info
+            .current_encoder()
+            .and_then(|encoder| card.get_encoder(encoder).ok())
+            .and_then(|encoder| encoder.crtc());
+        let possible: Vec<crtc::Handle> = info
             .encoders()
             .iter()
             .filter_map(|&encoder| card.get_encoder(encoder).ok())
             .flat_map(|encoder| resources.filter_crtcs(encoder.possible_crtcs()))
-            .next()
-            .ok_or_else(|| not_found("no CRTC for the output"))?;
+            .collect();
+        let crtc =
+            choose_crtc(lit, &possible).ok_or_else(|| not_found("no CRTC for the output"))?;
         let primary = card
             .plane_handles()?
             .into_iter()
@@ -569,6 +574,18 @@ fn cursor_image(card: &Card, size: (u32, u32), image: &PointerImage) -> io::Resu
         framebuffer,
         hotspot: image.hotspot,
     })
+}
+
+/// The CRTC to drive a connector with: the one already lighting it (the firmware's, or the boot
+/// logo's) when the connector may use it, as Plymouth and mutter choose, else the first it may
+/// use. The same mode on the same CRTC is taken without turning the output off; another CRTC is
+/// a full modeset, the output dark for a moment (docs/adr/0017-boot-logo.mdx).
+pub(crate) fn choose_crtc(
+    lit: Option<crtc::Handle>,
+    possible: &[crtc::Handle],
+) -> Option<crtc::Handle> {
+    lit.filter(|lit| possible.contains(lit))
+        .or_else(|| possible.first().copied())
 }
 
 fn property_handle(

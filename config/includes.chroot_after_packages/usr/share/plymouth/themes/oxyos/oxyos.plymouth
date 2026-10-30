@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=OxyOS
+Description=The Oxy mark, white, centred on black: the session's splash, from the kernel's first frame until the session's own (docs/adr/0017-boot-logo.mdx).
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/oxyos
+ScriptFile=/usr/share/plymouth/themes/oxyos/oxyos.script

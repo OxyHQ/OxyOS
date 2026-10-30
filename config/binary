@@ -9,8 +9,8 @@ LB_BINARY_FILESYSTEM="fat32"
 # Set apt/aptitude generic indices
 LB_APT_INDICES="false"
 
-# Set boot parameters
-LB_BOOTAPPEND_LIVE="boot=live components quiet splash username=user hostname=oxyos"
+# Set boot parameters: the boot logo's quiet console (docs/adr/0017-boot-logo.mdx)
+LB_BOOTAPPEND_LIVE="boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 username=user hostname=oxyos"
 
 # Set boot parameters
 LB_BOOTAPPEND_INSTALL=""

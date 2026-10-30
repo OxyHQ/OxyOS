@@ -15,6 +15,13 @@ apt-transport-https
 psmisc
 cryptsetup
 
+# Boot logo (docs/adr/0017-boot-logo.mdx): Plymouth draws the theme `oxyos` straight
+# through DRM/KMS, no display server. Not plymouth-themes: it brings plymouth-label (Pango,
+# Cairo, GLib) and themes the image does not use. fontconfig because Debian's initramfs hook
+# copies its configuration and runs fc-cache for every graphical theme, and fails without it.
+plymouth
+fontconfig
+
 # System services
 network-manager
 pipewire-audio

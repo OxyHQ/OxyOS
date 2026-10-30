@@ -42,8 +42,13 @@
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
 //! (`--pointer`, every shape its `Install.inf` names) closest to SIZE pixels (32 by default).
+//!
+//! Started at boot by a unit of `Type=notify` (docs/adr/0017-boot-logo.mdx), the session sends
+//! `READY=1` once its first frame, the splash, has flipped on the display; the unit then lets the
+//! boot logo go, which showed the same pixels until then.
 
 mod cursor_file;
+mod notify;
 
 use oxyos_compositor::{Authentication, Compositor, Gpu, Result};
 use oxyos_compositor_core::{Output, Scene};
@@ -71,6 +76,9 @@ const PAM_SERVICE: &str = "oxyos";
 const SHELL_RESTART: Duration = Duration::from_secs(1);
 
 fn main() -> Result<()> {
+    // Before any thread or child: nothing the session starts inherits the service manager's
+    // socket.
+    let notify = notify::Notify::take();
     let mut args = std::env::args_os().skip(1);
     let mut layout: Option<oxyos_input::Layout> = None;
     let mut command: Vec<OsString> = Vec::new();
@@ -186,6 +194,14 @@ fn main() -> Result<()> {
     compositor.authentication = Some(Box::new(pam));
     // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).
     compositor.show_splash();
+    // Its first frame on the display: the service manager that started the session lets the
+    // boot logo go (ADR 0017). Failing to tell it never ends the session.
+    if let Some(notify) = notify {
+        compositor.on_first_flip = Some(Box::new(move || match notify.ready() {
+            Ok(()) => eprintln!("[session] on screen: the service manager is told (READY=1)"),
+            Err(error) => eprintln!("[session] telling the service manager it is ready: {error}"),
+        }));
+    }
     compositor.card_device = Some(oxyos_seat::Device::of(&card)?);
     compositor.seat = Some(seat.clone());
     // On the GPU straight into the display's buffers where the device exports them.

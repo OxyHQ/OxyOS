@@ -31,11 +31,11 @@ Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot 
 | `binary` | `iso-hybrid`, syslinux (BIOS) + grub-efi (UEFI), Secure Boot `auto`, text debian-installer (`LB_DEBIAN_INSTALLER_GUI="false"`: the GTK installer runs an X.org server). |
 | `oxyos.conf` | OS identity (name, version, codename, URLs). `includes.chroot_after_packages/etc/oxyos/oxyos.conf` must be an identical copy; the check script enforces it. |
 
-Live command line: `boot=live components quiet splash username=user hostname=oxyos`.
+Live command line: `boot=live components quiet splash loglevel=3 vt.global_cursor_default=0 username=user hostname=oxyos`; an installed system's GRUB gets the same `quiet splash loglevel=3 vt.global_cursor_default=0` from the drop-in below. The failsafe entry keeps `nosplash`. Why each is there: [ADR 0017](./adr/0017-boot-logo).
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities and free firmware. `LB_FIRMWARE_CHROOT`/`LB_FIRMWARE_BINARY` add the firmware packages.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities and free firmware. `LB_FIRMWARE_CHROOT`/`LB_FIRMWARE_BINARY` add the firmware packages.
 
 `archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth` and `x11-common` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
@@ -52,10 +52,12 @@ Device and seat delegation for the future compositor belongs to the session auth
 
 | Path | Purpose |
 | --- | --- |
-| `hooks/live/0800-oxyos-branding.hook.chroot` | Writes `/etc/os-release`, `/etc/lsb-release`, `/etc/issue`, `/etc/issue.net` from `oxyos.conf`. |
+| `hooks/live/0800-oxyos-branding.hook.chroot` | Writes `/etc/os-release`, `/etc/lsb-release`, `/etc/issue`, `/etc/issue.net` from `oxyos.conf`. `/etc/issue` begins with `\e[?25h`: the login prompt shows the console's cursor the boot logo's command line hid. |
 | `hooks/live/0800-rm-log.hook.chroot` | Truncates `/var/log` before squashing. |
 | `hooks/{live,normal}/*` symlinks | Stock live-build hooks under `/usr/share/live/build/hooks/`. |
-| `includes.chroot_after_packages/etc/default/grub.d/oxyos.cfg` | `GRUB_INIT_TUNE` for installed systems, as a drop-in that keeps Debian's `/etc/default/grub`. |
+| `includes.chroot_after_packages/etc/default/grub.d/oxyos.cfg` | `GRUB_INIT_TUNE` and the boot logo's `GRUB_CMDLINE_LINUX_DEFAULT` for installed systems, as a drop-in that keeps Debian's `/etc/default/grub`. |
+| `includes.chroot_after_packages/etc/plymouth/plymouthd.conf` | The boot logo: theme `oxyos`, no show delay, `DeviceScale=1` ([ADR 0017](./adr/0017-boot-logo)). Replaces `plymouth`'s conffile after the packages; live-build's `update-initramfs` in `chroot_hacks` then puts the theme in the initramfs. |
+| `includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/` | The Plymouth script theme: the session's splash, the Oxy mark on black, drawn by `tools/oxyos-boot-logo` from the session's own code (regenerate it with `cargo run -p oxyos-boot-logo -- <this directory>`; `cargo test` fails when it is stale), and a passphrase field. |
 | `includes.chroot_after_packages/usr/share/X11/locale/` | The compose tables the compositor's keyboard composes dead keys with (`crates/oxyos-input`): `compose.dir`, `locale.alias` and the 16 UTF-8 tables they name, copied unchanged from Debian's `libx11-data` 2:1.8.12-1 (MIT, `usr/share/doc/oxyos-compose-tables/copyright`). The package itself is not installed. These are data files at the directory xkbcommon reads by default, with no X11 code. |
 | `includes.chroot_after_packages/usr/lib/oxyos/apt-setup` + unit | First boot: rewrites `sources.list` as deb822 `debian.sources`, then removes itself. |
 | `preseed/`, `includes.installer/preseed.cfg` | Firmware licence acceptance; no root login. |

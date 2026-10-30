@@ -196,6 +196,10 @@ pub struct Compositor {
     pub clock: Option<Duration>,
     /// The session's splash (splash.rs), over everything from `show_splash` to `end_splash`.
     splash: Option<transitions::Snapshot>,
+    /// Called once, when the first frame composed has flipped on the display: the session tells
+    /// its service manager it is on screen, and the boot logo is let go
+    /// (docs/adr/0017-boot-logo.mdx).
+    pub on_first_flip: Option<Box<dyn FnOnce()>>,
 }
 
 /// The session's authentication path (ADR 0010): it checks a lock surface's password off the
@@ -365,6 +369,7 @@ impl Compositor {
             recompose: true,
             clock: None,
             splash: None,
+            on_first_flip: None,
         }
     }
 
@@ -1102,6 +1107,9 @@ impl Compositor {
             Ok(Some(flip)) => {
                 if self.records {
                     self.flips.push((submitted, flip));
+                }
+                if let Some(first_flip) = self.on_first_flip.take() {
+                    first_flip();
                 }
                 (
                     u64::try_from(flip.as_nanos()).unwrap_or(u64::MAX),
