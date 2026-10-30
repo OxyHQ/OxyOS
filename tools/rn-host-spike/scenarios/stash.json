@@ -1,5 +1,5 @@
 {
-  "about": "Stash (OxyHQ/Stash), OxyOS's file manager: its own Expo Router root from its checkout (the bundle built with STASH_DIR), run as module Stash with its registry id, inside the runtime's Bloom platform adapter, which its own BloomProvider keeps: Bloom draws the window's controls (the `window` capability) and its sidebar. The Oxy SDK mounts and resolves signed out, so Oxy Files asks to sign in. Its view switch and its sidebar act on the accessibility tree as a screen reader would act on them.",
+  "about": "Stash (OxyHQ/Stash), OxyOS's file manager: its own Expo Router root from its checkout (the bundle built with STASH_DIR), run as module Stash with its registry id, inside the runtime's Bloom platform adapter, which its own BloomProvider keeps: Bloom draws the window's controls (the `window` capability), and the person's places (the adapter's `files`) open its window on the home of the run's own. Its toolbar is one row, its view switch and sidebar act through the assistive technology's actions and a press, and Oxy Files shows the Oxy SDK resolved signed out, asking to sign in.",
   "module": "Stash",
   "window": [
     1024,
@@ -9,9 +9,16 @@
     "id": "so.oxy.stash",
     "title": "Stash"
   },
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello"
+    }
+  },
   "steps": [
     {
-      "name": "Its first screen: Oxy Files, signed out, in a window whose controls Bloom draws",
+      "name": "Its first window: the home, from the person's places, in a window whose controls Bloom draws from the runtime's adapter; the toolbar one row (back and forward, the place's name, the view, the search)",
       "do": [
         "wait",
         1500
@@ -19,9 +26,10 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Oxy Files",
-          "Your files, on every device",
-          "Sign in with Oxy"
+          "Documents",
+          "notes.txt",
+          "Pictures",
+          "3 items"
         ],
         "focus_surface": 1,
         "at": {
@@ -40,10 +48,25 @@
             },
             {
               "role": "Button",
-              "name": "Oxy Files",
+              "name": "home",
               "state": [
                 "selected"
               ]
+            },
+            {
+              "role": "Button",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Oxy Files",
+              "state": []
             },
             {
               "role": "Button",
@@ -56,8 +79,18 @@
               "state": []
             },
             {
+              "role": "Toolbar"
+            },
+            {
+              "role": "Button",
+              "name": "Back",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
               "role": "Heading",
-              "name": "Oxy Files"
+              "name": "home"
             },
             {
               "role": "Radio",
@@ -72,24 +105,48 @@
               "state": []
             },
             {
-              "role": "Heading",
-              "name": "Your files, on every device"
+              "role": "Search",
+              "name": "Search"
             },
             {
-              "role": "Button",
-              "name": "Sign in with Oxy",
-              "state": []
+              "role": "List",
+              "name": "home"
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents"
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt"
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures"
             }
           ]
         },
         "a11y_order": {
           "window": [
+            "Favourites",
+            "home",
+            "Documents",
+            "Pictures",
+            "Oxy",
             "Oxy Files",
             "Photos",
+            "Locations",
             "Trash",
-            "Oxy Files",
-            "Your files, on every device",
-            "Sign in with Oxy"
+            "Back",
+            "Forward",
+            "home",
+            "as Icons",
+            "as List",
+            "Search",
+            "Documents",
+            "notes.txt",
+            "Pictures",
+            "3 items"
           ]
         }
       }
@@ -124,49 +181,65 @@
       }
     },
     {
-      "name": "Photos, from the sidebar",
+      "name": "Oxy Files, from the sidebar: the Oxy SDK resolved signed out, so it asks to sign in",
       "do": [
         "a11y-action",
         [
           "activate",
-          "Photos"
+          "Oxy Files"
         ]
       ],
       "allow_unchanged": true,
       "expect": {
+        "texts": [
+          "Your files, on every device",
+          "Sign in with Oxy"
+        ],
         "at": {
           "window": [
             {
               "role": "Button",
-              "name": "Photos",
+              "name": "Oxy Files",
               "state": [
                 "selected"
               ]
             },
             {
               "role": "Button",
-              "name": "Oxy Files",
+              "name": "home",
               "state": []
             },
             {
               "role": "Heading",
-              "name": "Photos"
+              "name": "Oxy Files"
+            },
+            {
+              "role": "Heading",
+              "name": "Your files, on every device"
+            },
+            {
+              "role": "Button",
+              "name": "Sign in with Oxy",
+              "state": []
             }
           ]
         }
       }
     },
     {
-      "name": "Trash, pressed in the sidebar",
+      "name": "Trash, pressed in the sidebar: the person's Trash, empty",
       "do": [
         "press",
         [
           67,
-          245
+          393
         ]
       ],
       "expect": {
         "focus_surface": 1,
+        "texts": [
+          "The Trash is empty"
+        ],
         "at": {
           "window": [
             {
@@ -178,7 +251,7 @@
             },
             {
               "role": "Button",
-              "name": "Photos",
+              "name": "Oxy Files",
               "state": []
             },
             {

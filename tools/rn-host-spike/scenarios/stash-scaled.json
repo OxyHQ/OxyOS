@@ -1,5 +1,5 @@
 {
-  "about": "Stash (scenarios/stash.json) on a 1600x1000 display at 1.25 (ADR 0018): the same first screen and the same press, its points in logical pixels of the window, drawn at the output's scale.",
+  "about": "Stash (scenarios/stash.json) on a 1600x1000 display at 1.25 (ADR 0018): the same first window, view switch, Oxy Files signed out and press on the Trash, its points in the window's logical pixels.",
   "module": "Stash",
   "window": [
     1024,
@@ -9,9 +9,17 @@
     "id": "so.oxy.stash",
     "title": "Stash"
   },
+  "outputs": "1600x1000@1.25",
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Pictures/": "",
+      "notes.txt": "hello"
+    }
+  },
   "steps": [
     {
-      "name": "Its first screen: Oxy Files, signed out, in a window whose controls Bloom draws",
+      "name": "Its first window: the home, from the person's places, in a window whose controls Bloom draws from the runtime's adapter; the toolbar one row (back and forward, the place's name, the view, the search)",
       "do": [
         "wait",
         1500
@@ -19,9 +27,10 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Oxy Files",
-          "Your files, on every device",
-          "Sign in with Oxy"
+          "Documents",
+          "notes.txt",
+          "Pictures",
+          "3 items"
         ],
         "focus_surface": 1,
         "at": {
@@ -40,10 +49,25 @@
             },
             {
               "role": "Button",
-              "name": "Oxy Files",
+              "name": "home",
               "state": [
                 "selected"
               ]
+            },
+            {
+              "role": "Button",
+              "name": "Documents",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Pictures",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Oxy Files",
+              "state": []
             },
             {
               "role": "Button",
@@ -56,8 +80,18 @@
               "state": []
             },
             {
+              "role": "Toolbar"
+            },
+            {
+              "role": "Button",
+              "name": "Back",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
               "role": "Heading",
-              "name": "Oxy Files"
+              "name": "home"
             },
             {
               "role": "Radio",
@@ -72,6 +106,115 @@
               "state": []
             },
             {
+              "role": "Search",
+              "name": "Search"
+            },
+            {
+              "role": "List",
+              "name": "home"
+            },
+            {
+              "role": "ListItem",
+              "name": "Documents"
+            },
+            {
+              "role": "ListItem",
+              "name": "notes.txt"
+            },
+            {
+              "role": "ListItem",
+              "name": "Pictures"
+            }
+          ]
+        },
+        "a11y_order": {
+          "window": [
+            "Favourites",
+            "home",
+            "Documents",
+            "Pictures",
+            "Oxy",
+            "Oxy Files",
+            "Photos",
+            "Locations",
+            "Trash",
+            "Back",
+            "Forward",
+            "home",
+            "as Icons",
+            "as List",
+            "Search",
+            "Documents",
+            "notes.txt",
+            "Pictures",
+            "3 items"
+          ]
+        }
+      }
+    },
+    {
+      "name": "As List: the view switch says so",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "as List"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Radio",
+              "name": "as List",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Radio",
+              "name": "as Icons",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Oxy Files, from the sidebar: the Oxy SDK resolved signed out, so it asks to sign in",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Oxy Files"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Your files, on every device",
+          "Sign in with Oxy"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Oxy Files",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "home",
+              "state": []
+            },
+            {
+              "role": "Heading",
+              "name": "Oxy Files"
+            },
+            {
               "role": "Heading",
               "name": "Your files, on every device"
             },
@@ -81,30 +224,23 @@
               "state": []
             }
           ]
-        },
-        "a11y_order": {
-          "window": [
-            "Oxy Files",
-            "Photos",
-            "Trash",
-            "Oxy Files",
-            "Your files, on every device",
-            "Sign in with Oxy"
-          ]
         }
       }
     },
     {
-      "name": "Trash, pressed in the sidebar",
+      "name": "Trash, pressed in the sidebar: the person's Trash, empty",
       "do": [
         "press",
         [
           67,
-          245
+          393
         ]
       ],
       "expect": {
         "focus_surface": 1,
+        "texts": [
+          "The Trash is empty"
+        ],
         "at": {
           "window": [
             {
@@ -116,7 +252,7 @@
             },
             {
               "role": "Button",
-              "name": "Photos",
+              "name": "Oxy Files",
               "state": []
             },
             {
@@ -127,6 +263,5 @@
         }
       }
     }
-  ],
-  "outputs": "1600x1000@1.25"
+  ]
 }
