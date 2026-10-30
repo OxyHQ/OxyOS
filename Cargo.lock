@@ -1559,6 +1559,7 @@ dependencies = [
 name = "oxyos-client"
 version = "0.1.0"
 dependencies = [
+ "oxyos-dmabuf",
  "oxyos-ipc",
  "oxyos-protocol",
  "rustix",
@@ -1571,6 +1572,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-apps",
  "oxyos-client",
+ "oxyos-dmabuf",
  "oxyos-gestures",
  "oxyos-image",
  "oxyos-intl",
@@ -1640,6 +1642,18 @@ dependencies = [
  "ash",
  "naga",
  "oxyos-dmabuf",
+ "rustix",
+]
+
+[[package]]
+name = "oxyos-gpu-client"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "oxyos-client",
+ "oxyos-dmabuf",
+ "oxyos-ipc",
+ "oxyos-protocol",
  "rustix",
 ]
 
