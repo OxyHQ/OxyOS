@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, type ImageSourcePropType } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
@@ -9,6 +9,14 @@ import { DOCK_HEIGHT, Dock } from "./components/Dock";
 import { Overview } from "./components/Overview";
 import { Launchpad } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
+import { AppSwitcher } from "./components/AppSwitcher";
+import {
+  chosen,
+  followSwitcher,
+  moveSwitcher,
+  openSwitcher,
+  type Switcher,
+} from "./switcher";
 import { inPlace, type ShellPlatform } from "./platform";
 export type { ShellCommand } from "./model";
 export type {
@@ -24,6 +32,7 @@ export function Shell({
   wallpaper,
   now,
   command,
+  commands,
   lock,
   platform = inPlace,
   dock = true,
@@ -33,6 +42,9 @@ export function Shell({
   wallpaper: ImageSourcePropType;
   now: Date;
   command?: ShellCommand;
+  /** The latest commands, each with a rising `id`: every one not handled yet is, in order (the
+      system shortcuts, which may come several at once, docs/adr/0024-system-shortcuts.mdx). */
+  commands?: readonly ShellCommand[];
   /** The session's lock, where the platform has one: the lock screen, and the menu's item. */
   lock?: ShellLock;
   /** Where the regions are drawn: separate surfaces on OxyOS, in place elsewhere. */
@@ -48,11 +60,12 @@ export function Shell({
     "desktop",
   );
   const [escapeRequest, setEscapeRequest] = useState(0);
-  useEffect(() => {
-    if (!command) return;
-    if (command.action === "dismiss") setEscapeRequest((value) => value + 1);
-    else setView(command.action);
-  }, [command]);
+  const [searchRequest, setSearchRequest] = useState(0);
+  // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
+  const [switcher, setSwitcher] = useState<Switcher | null>(null);
+  // Commands act on what is shown now, whichever render they arrive in.
+  const latest = useRef({ snapshot, actions, switcher, view });
+  latest.current = { snapshot, actions, switcher, view };
   const dismiss = () => setView("desktop");
   const toggle = (next: typeof view) =>
     setView((current) => (current === next ? "desktop" : next));
@@ -60,6 +73,70 @@ export function Shell({
     actions.activateApp(id);
     dismiss();
   };
+  // Each command once, in order: several may come in one render (Super+Tab released at once
+  // opens the switcher and ends it with its choice, as a Mac's quick ⌘Tab switches back).
+  const done = useRef(0);
+  useEffect(() => {
+    const pending = [...(commands ?? []), ...(command ? [command] : [])]
+      .filter((next) => next.id > done.current)
+      .sort((a, b) => a.id - b.id);
+    if (pending.length === 0) return;
+    done.current = pending[pending.length - 1].id;
+    const now = latest.current;
+    let current = now.switcher;
+    let view = now.view;
+    for (const next of pending) {
+      switch (next.action) {
+        case "dismiss":
+          setEscapeRequest((value) => value + 1);
+          break;
+        case "launcher":
+        case "overview":
+          view = next.action;
+          break;
+        // Super+Space: the launcher, its search taking what is typed; again, it closes.
+        case "search":
+          if (view === "launcher") {
+            view = "desktop";
+          } else {
+            view = "launcher";
+            setSearchRequest((value) => value + 1);
+          }
+          break;
+        case "switcher-next":
+        case "switcher-previous": {
+          const backwards = next.action === "switcher-previous";
+          current = current
+            ? moveSwitcher(current, backwards ? -1 : 1)
+            : openSwitcher(now.snapshot, backwards);
+          break;
+        }
+        // Its choice is quit or hidden; it stays, and follows what still runs.
+        case "switcher-quit":
+          if (current) now.actions.quitApp?.(chosen(current));
+          break;
+        case "switcher-hide":
+          if (current) now.actions.hideApp?.(chosen(current));
+          break;
+        case "switcher-done":
+          if (current) {
+            now.actions.activateApp(chosen(current));
+            view = "desktop";
+          }
+          current = null;
+          break;
+        case "switcher-cancel":
+          current = null;
+          break;
+      }
+    }
+    setSwitcher(current);
+    setView(view);
+  }, [command, commands]);
+  // An application quit while the switcher is open leaves it.
+  useEffect(() => {
+    setSwitcher((current) => current && followSwitcher(current, snapshot));
+  }, [snapshot]);
   const menuCommand = (id: string) => {
     if (id === "view.launcher") setView("launcher");
     else if (id === "view.overview") setView("overview");
@@ -116,6 +193,7 @@ export function Shell({
           <Launchpad
             open={view === "launcher"}
             escapeRequest={escapeRequest}
+            searchRequest={searchRequest}
             applications={snapshot.applications}
             folders={snapshot.folders}
             wallpaper={wallpaper}
@@ -123,6 +201,29 @@ export function Shell({
             dismiss={dismiss}
           />
         </Surface>
+        {switcher && (
+          <Surface
+            kind="overlay"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <AppSwitcher
+              switcher={switcher}
+              applications={snapshot.applications}
+              activate={(id) => {
+                setSwitcher(null);
+                activateApp(id);
+              }}
+            />
+          </Surface>
+        )}
         {dock && (
           <Surface kind="panel" edge="bottom" exclusive>
             <Dock

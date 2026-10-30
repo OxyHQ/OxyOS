@@ -13,7 +13,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   does not list fails it, which catches duplicated and leaked events;
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`
   (what the session's shell takes is its own, never leaked),
-  input routed to any other client;
+  input routed to any other client; and, given `launched`, what the applications the shell
+  launched received, by kind (exact; "close.requested" among them);
 - popups: how many popups of the application are shown after the step;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
@@ -130,7 +131,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "grab", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle"}
 
@@ -148,9 +149,12 @@ def director_args(step):
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
-    if kind == "key":
-        # A code, or a chord as a list of codes pressed in order (Shift+Right is [42, 106]).
-        return args + ["--key", "+".join(map(str, value)) if isinstance(value, list) else str(value)]
+    if kind in ("key", "key_down", "key_up"):
+        # A code, or a chord as a list of codes pressed in order (Shift+Right is [42, 106]);
+        # `key_down` holds them pressed (Super through the application switcher, ADR 0024) until
+        # a `key_up` releases them.
+        flag = "--" + kind.replace("_", "-")
+        return args + [flag, "+".join(map(str, value)) if isinstance(value, list) else str(value)]
     if kind == "drag":
         return args + ["--drag", ",".join(map(str, value))]
     if kind == "drag_output":
@@ -536,10 +540,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         leaked = delivered.pop("leaked", 0)
         # The session's shell takes its own input (its panels, the pointer leaving them).
         delivered.pop("shell", None)
+        # Applications the shell launched (ADR 0013): checked, exactly, only when the step says.
+        launched = delivered.pop("launched", {})
+        wanted = dict(expect["delivered"])
+        if "launched" in wanted and launched != wanted.pop("launched"):
+            fail(f"the launched applications were delivered {launched}, expected exactly {expect['delivered']['launched']}")
         if leaked:
             fail(f"{leaked} input events reached another client")
-        if delivered != expect["delivered"]:
-            fail(f"compositor delivered {delivered}, expected exactly {expect['delivered']}")
+        if delivered != wanted:
+            fail(f"compositor delivered {delivered}, expected exactly {wanted}")
     if "popup_events" in expect:
         # Popup lifecycle (open, reposition, close, dismissed) in this step, exactly.
         got = {}

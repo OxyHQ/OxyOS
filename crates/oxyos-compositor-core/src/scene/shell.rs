@@ -30,6 +30,9 @@ struct Window {
     names: Names,
     /// Its size, logical pixels: the proportions the shell shows it in (ADR 0022).
     size: Size,
+    /// How recently it was active, and whether it is hidden with its application (ADR 0024).
+    used: u32,
+    hidden: bool,
 }
 
 #[derive(Debug, Default)]
@@ -90,6 +93,23 @@ impl Scene {
             .applications
             .get(&client)
             .map(String::as_str)
+    }
+
+    /// What makes windows one application, as the shell sees them: a launched process's
+    /// registry id, else the id the window claims, else (it claims none) its client.
+    pub(super) fn application_identity(&self, key: SurfaceKey) -> (bool, String, Option<ClientId>) {
+        if let Some(id) = self.shell_windows.applications.get(&key.client) {
+            return (true, id.clone(), None);
+        }
+        match self
+            .shell_windows
+            .names
+            .get(&key)
+            .map(|names| names.app_id.as_str())
+        {
+            Some(id) if !id.is_empty() => (false, id.to_string(), None),
+            _ => (false, String::new(), Some(key.client)),
+        }
     }
 
     /// The number the shell knows a window by.
@@ -203,6 +223,27 @@ impl Scene {
             Request::RemoveWorkspace { workspace } => {
                 self.remove_workspace(workspace);
             }
+            Request::HideApplication { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.hide_application(key);
+                }
+            }
+            Request::QuitApplication { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.quit_application(key);
+                }
+            }
+            Request::FocusShellSurface { surface, serial } => {
+                if !self.focus_shell_surface(
+                    SurfaceKey {
+                        client,
+                        id: surface,
+                    },
+                    serial,
+                ) {
+                    return Err(ErrorCode::InvalidRole);
+                }
+            }
             _ => unreachable!("only the shell's requests are passed here"),
         }
         Ok(())
@@ -227,6 +268,7 @@ impl Scene {
                 if let Some(id) = launched {
                     names.app_id = id.clone();
                 }
+                let (used, hidden) = self.window_use(*key);
                 Some((
                     *number,
                     Window {
@@ -236,6 +278,8 @@ impl Scene {
                         launched: launched.is_some(),
                         names,
                         size: node.size,
+                        used,
+                        hidden,
                     },
                 ))
             })
@@ -304,6 +348,16 @@ impl Scene {
                             minimized: window.minimized,
                             focused: window.focused,
                             launched: window.launched,
+                        },
+                    );
+                }
+                if before.is_none_or(|b| (b.used, b.hidden) != (window.used, window.hidden)) {
+                    self.emit(
+                        client,
+                        Event::WindowUse {
+                            window: number,
+                            used: window.used,
+                            hidden: window.hidden,
                         },
                     );
                 }

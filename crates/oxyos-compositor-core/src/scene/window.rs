@@ -374,6 +374,8 @@ impl Scene {
                     active: true,
                 },
             );
+            // How recently each window was active orders the application switcher (ADR 0024).
+            self.used(new);
         }
         self.active = active;
     }

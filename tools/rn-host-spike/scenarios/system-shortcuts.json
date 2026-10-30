@@ -1,0 +1,191 @@
+{
+  "about": "System shortcuts (ADR 0024) on the OxyOS shell: Allo (sample/EditingProbe.tsx, a text field focused) and Inbox, launched from the dock. Super+Tab released at once switches back to the application used before; with Super held, Tab, Tab and Shift+Tab move the shell's application switcher (each choice framed, named, a selected button and said to the screen reader) and Super's release activates the choice. Super+H hides Inbox, which keeps its dock mark and comes back when the switcher activates it; Super+W asks it to close, so it goes and leaves the dock; Super+Space opens the launcher with its search taking what is typed; Super+M minimizes Allo into the dock, whose press brings it back; and, as a control, keys typed without Super are Allo's. Every step checks exactly what Allo's React tree and client receive (none of the Super chords, nor their text) and what the launched Inbox's client does. With the compositor not taking Super's chords, it fails.",
+  "module": "EditingProbe",
+  "window": [600, 360],
+  "shell": "OxyOSShell",
+  "app": {"id": "so.oxy.allo", "title": "Allo"},
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard",
+      "do": ["press", [300, 42]],
+      "expect": {
+        "focus_input": "line",
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "focus@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}}
+      }
+    },
+    {
+      "name": "Inbox from the dock: its window comes over Allo's, the active one, and the dock marks it running",
+      "do": ["press_output", [680, 693]],
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.out": 1, "leave": 1}},
+        "output_pixels": {"680,716": "#64717a", "738,716": "#64717a", "900,480": "#fff7f9"}
+      }
+    },
+    {
+      "name": "Super+Tab released at once: back to Allo, the application used before, with no switcher shown",
+      "do": ["key", [125, 15]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
+        "focus_surface": 1,
+        "output_pixels": {"900,480": "#ffffff", "650,385": "#ffffff", "680,716": "#64717a", "738,716": "#64717a"},
+        "in_shell": {"absent": ["Inbox", "Allo"]}
+      }
+    },
+    {
+      "name": "Super held: nothing yet, and nothing for Allo",
+      "do": ["key_down", [125]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"launched": {}}, "focus_surface": 1, "announcements": []}
+    },
+    {
+      "name": "Tab: the switcher, Allo then Inbox, the most recent first, on Inbox, the one used before",
+      "do": ["key", [15]],
+      "expect": {
+        "react": {},
+        "delivered": {"launched": {}},
+        "focus_surface": 1,
+        "announcements": [{"politeness": "assertive", "text": "Inbox"}],
+        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"},
+        "in_shell": {"texts": ["Inbox"], "absent": ["Allo"]},
+        "at": {"shell": [
+          {"role": "List", "name": "Cambiar de aplicación"},
+          {"role": "Button", "name": "Allo", "state": []},
+          {"role": "Button", "name": "Inbox", "state": ["selected"]}
+        ]}
+      }
+    },
+    {
+      "name": "Tab again: round the end to Allo",
+      "do": ["key", [15]],
+      "expect": {
+        "react": {},
+        "delivered": {"launched": {}},
+        "announcements": [{"politeness": "assertive", "text": "Allo"}],
+        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#e4e6ea"},
+        "in_shell": {"texts": ["Allo"], "absent": ["Inbox"]},
+        "at": {"shell": [{"role": "Button", "name": "Allo", "state": ["selected"]}, {"role": "Button", "name": "Inbox", "state": []}]}
+      }
+    },
+    {
+      "name": "Shift+Tab: back to Inbox",
+      "do": ["key", [42, 15]],
+      "expect": {
+        "react": {},
+        "delivered": {"launched": {}},
+        "announcements": [{"politeness": "assertive", "text": "Inbox"}],
+        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"}
+      }
+    },
+    {
+      "name": "Super released: Inbox is activated, its window in front, and the switcher goes",
+      "do": ["key_up", [125]],
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
+        "output_pixels": {"900,480": "#fff7f9", "650,385": "#f0e7eb"},
+        "at_absent": {"shell": [{"role": "List", "name": "Cambiar de aplicación"}]}
+      }
+    },
+    {
+      "name": "Super+H hides Inbox: its window goes, Allo is active, the dock keeps Inbox running",
+      "do": ["key", [125, 35]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
+        "focus_surface": 1,
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "680,716": "#64717a"},
+        "transitions": {"count": 1, "seen": [{"kind": "window", "change": "gone", "ended": true}]}
+      }
+    },
+    {
+      "name": "Super+Tab: the switcher activates Inbox, hidden, which comes back",
+      "do": ["key", [125, 15]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
+        "output_pixels": {"900,480": "#fff7f9", "680,716": "#64717a"},
+        "transitions": {"count": 1, "seen": [{"kind": "window", "change": "arrived", "ended": true}]}
+      }
+    },
+    {
+      "name": "Super+W asks Inbox's window to close: it goes, the dock no longer marks it, Allo is active",
+      "do": ["key", [125, 17]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.in": 1}, "launched": {"close.requested": 1}},
+        "focus_surface": 1,
+        "output_pixels": {"900,480": "#ffffff", "950,300": "#4270e2", "680,716": "#f7f9fc", "738,716": "#64717a"}
+      }
+    },
+    {
+      "name": "Super+Space opens the launcher, its search focused",
+      "do": ["key", [125, 57]],
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}},
+        "in_shell": {"react": {"focus@launcher-search": 1, "selectionChange@launcher-search": 1}, "texts": ["Buscar", "Inbox", "Allo", "Settings"]}
+      }
+    },
+    {
+      "name": "what is typed searches; Allo's field receives none of it",
+      "do": ["keyboard", "inb"],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "react": {"keyPress@launcher-search": 3, "change@launcher-search": 3, "selectionChange@launcher-search": 3},
+          "texts": ["Inbox"],
+          "absent": ["Settings"]
+        }
+      }
+    },
+    {
+      "name": "Super+Space again closes the launcher: Allo has the keyboard again",
+      "do": ["key", [125, 57]],
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.in": 1}},
+        "focus_surface": 1,
+        "at_absent": {"shell": [{"role": "Search", "name": "Buscar aplicaciones"}]}
+      }
+    },
+    {
+      "name": "Super+M minimizes Allo into the dock, which keeps it",
+      "do": ["key", [125, 50]],
+      "expect": {
+        "react": {},
+        "window_shown": false,
+        "delivered": {"1": {"focus.out": 1}},
+        "output_pixels": {"738,716": "#64717a"},
+        "transitions": {"count": 1, "seen": [{"kind": "window", "change": "minimized", "first": 255, "ended": true}]}
+      }
+    },
+    {
+      "name": "Allo in the dock restores it",
+      "do": ["press_output", [738, 693]],
+      "expect": {
+        "react": {},
+        "window_shown": true,
+        "focus_surface": 1,
+        "delivered": {"1": {"focus.in": 1}}
+      }
+    },
+    {
+      "name": "the control: keys typed without Super are Allo's",
+      "do": ["keyboard", "ok"],
+      "expect": {
+        "focus_input": "line",
+        "react": {"keyPress@line": 2, "change@line": 2, "selectionChange@line": 2},
+        "delivered": {"1": {"key.press": 2, "key.release": 2, "text_input": 2}},
+        "texts": ["Line: \"ok\" [2,2]"]
+      }
+    }
+  ]
+}

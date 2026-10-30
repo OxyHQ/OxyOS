@@ -41,6 +41,16 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_CLOSED 40
 #define OXYOS_EVENT_WORKSPACES 41
 #define OXYOS_EVENT_WINDOW_SIZE 80
+#define OXYOS_EVENT_SYSTEM_SHORTCUT 100
+#define OXYOS_EVENT_WINDOW_USE 101
+/* A SYSTEM_SHORTCUT's detail (docs/adr/0024-system-shortcuts.mdx). */
+#define OXYOS_SHORTCUT_SWITCHER_NEXT 1
+#define OXYOS_SHORTCUT_SWITCHER_PREVIOUS 2
+#define OXYOS_SHORTCUT_SWITCHER_QUIT 3
+#define OXYOS_SHORTCUT_SWITCHER_HIDE 4
+#define OXYOS_SHORTCUT_SWITCHER_DONE 5
+#define OXYOS_SHORTCUT_SWITCHER_CANCEL 6
+#define OXYOS_SHORTCUT_SEARCH 7
 #define OXYOS_EVENT_CLOSE_REQUESTED 42
 #define OXYOS_EVENT_PINCH 43
 #define OXYOS_EVENT_LOCK_STATE 44
@@ -151,6 +161,16 @@ typedef struct OxyOSClient OxyOSClient;
  *   OUTPUT_REMOVED  code: the output that went away.
  *   WINDOW_SIZE  code: the window; width, height: its size in logical pixels, when it is first
  *               told and whenever it changes (docs/adr/0022-window-views.mdx).
+ *   WINDOW_USE  code: the window; detail: how recently it was the active window (its latest
+ *               activation, a rising count; 0: never); flag: whether it is hidden with its
+ *               application (off the screen, not in the dock, until the application is
+ *               activated: focusing any of its windows). After the window's WINDOW_STATE.
+ *   SYSTEM_SHORTCUT  to a shell with the `shortcuts` grant (docs/adr/0024-system-shortcuts.mdx):
+ *               a shortcut the compositor took from the keyboard for the shell to show. detail:
+ *               OXYOS_SHORTCUT_* (the application switcher's moves, quit and hide of the
+ *               application it chose, its end on Super's release or its cancel; the launcher's
+ *               search); code: the output to show it on; serial: a user input of the shell's,
+ *               which oxyos_client_focus_shell_surface may cite.
  *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`.
  *   PINCH       serial; x, y as POINTER: the pointer, which a pinch does not move; detail:
  *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the
@@ -372,6 +392,14 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 #define OXYOS_MANAGE_ACTIVATE_WORKSPACE 5
 #define OXYOS_MANAGE_ADD_WORKSPACE 6
 #define OXYOS_MANAGE_REMOVE_WORKSPACE 7
+/* Hides the application of `window` (every window of it leaves the screen, not into the dock,
+ * until one of them is focused), or quits it (each of its windows is asked to close and may
+ * refuse) (docs/adr/0024-system-shortcuts.mdx). */
+#define OXYOS_MANAGE_HIDE_APPLICATION 8
+#define OXYOS_MANAGE_QUIT_APPLICATION 9
+/* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
+ * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
+int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
 /* The lock (ADR 0010). The lock surface of `output` (the `lock` grant): it covers the output and is
  * all that shows while locked; a configure answers. Locking the session (the `shell` grant). The
  * password typed in a lock surface (`length` bytes of UTF-8, at most 512), submitted for the
@@ -389,8 +417,9 @@ int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, si
  * Without the grant the compositor closes the connection. */
 int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char* key, const char* value);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
-/* Focuses (and restores, showing its workspace), closes (the application is asked), minimizes or
- * moves (to `workspace`) the window numbered `window`; activates, adds or removes a workspace. */
+/* Focuses (and restores, showing its workspace; a window hidden with its application brings back
+ * the others), closes (the application is asked), minimizes or moves (to `workspace`) the window
+ * numbered `window`, hides or quits its application; activates, adds or removes a workspace. */
 int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, uint32_t workspace);
 
 /* Limits where a surface takes pointer and touch input to a surface-local logical rectangle (an

@@ -1,0 +1,91 @@
+---
+title: "ADR 0024: System shortcuts"
+description: OxyOS's system keyboard shortcuts, a Mac's with Super as ⌘ — the application switcher, closing, quitting, minimizing and hiding, the windows of an application, full screen and search — who owns each, and why no application ever sees them.
+order: 33
+---
+
+# ADR 0024: System shortcuts
+
+Status: **accepted; implemented** (the scene, the protocol, the C ABI, the Bloom host and the shell). Builds on [ADR 0009](./0009-session-shell) (the shell and its `shortcuts` grant), [ADR 0010](./0010-lock-screen) (the lock and Ctrl+Super+Q), [ADR 0014](./0014-screen-reader) (keys taken before everything else), [ADR 0016](./0016-windows) (windows: minimize, zoom, the close request, the active window), [ADR 0018](./0018-several-displays) (a shell per display) and [ADR 0021](./0021-menu-bar) (applications' own shortcuts).
+
+## Problem
+
+A Mac is driven from the keyboard: ⌘Tab switches applications, ⌘W closes a window, ⌘Q quits, ⌘M minimizes, ⌘H hides, ⌘` goes through an application's windows, Ctrl+⌘F is full screen, ⌘Space searches. OxyOS had three of the system's own: Ctrl+Super+Q locks (ADR 0010), Super+F5 turns the screen reader on (ADR 0014), Ctrl+Alt+Fn and Ctrl+Alt+Backspace (the keymap's). There was no application switcher, and nothing to close, quit, minimize or hide from the keyboard.
+
+The scene had a mechanism for the shell's shortcuts (`Scene::set_shortcuts`): raw key codes, without modifiers, forwarded as keys to one shell surface. No program ever set it, the shell's sockets did not grant `shortcuts`, and a key code alone cannot say Super+Tab.
+
+Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` is Ctrl on OxyOS (ADR 0021). Whatever the system takes must never meet them.
+
+## Decision
+
+1. **Super is the system's ⌘; Ctrl is the applications'.** Super, and every key pressed while Super is held, belongs to the system: no application and no input method receives the press, its release, or the text it would type, even a key released after Super. A key pressed before Super (Ctrl, say) is the application's, press and release. Applications' chords are Ctrl's (ADR 0021), so the two can never collide; Super with a key that is no shortcut does nothing, and reaches nobody.
+
+2. **The shortcuts.**
+
+   | Keys | What happens | Who |
+   | --- | --- | --- |
+   | Super+Tab | Opens the application switcher on the application used before the active one; again, while Super is held, the next one. Super released at once switches straight back to it, with nothing shown, as a quick ⌘Tab. | Shell (`SwitcherNext`) |
+   | Super+Shift+Tab | Opens it on the last application; while held, the previous one. | Shell (`SwitcherPrevious`) |
+   | In the switcher: Tab, Shift+Tab, \`, Shift+\`, ← → | Next, previous, previous, next, previous, next. | Shell |
+   | In the switcher: Q, H | Quits, hides the application it has chosen; the switcher stays. | Shell (`SwitcherQuit`, `SwitcherHide`) |
+   | In the switcher: Esc | Closes it without a choice; Super still held, Tab opens it again. | Shell (`SwitcherCancel`) |
+   | Super released | Activates the switcher's choice: its window used last, shown (restored, or brought back with its application). | Shell (`SwitcherDone`) |
+   | Super+W | The active window's close request, as its close bubble's: the application may ask first or refuse. | Compositor |
+   | Super+Q | Quits the active application: the close request to each of its windows, on any workspace. | Compositor |
+   | Super+M | Minimizes the active window into the dock. | Compositor |
+   | Super+H | Hides the active application: its windows leave the screen, not into the dock, until it is activated. | Compositor |
+   | Super+\` (Super+Shift+\`) | The active application's next (previous) window on this workspace. Forwards, the active one goes behind the others, so presses go through them all. | Compositor |
+   | Super+Ctrl+F | Full screen on and off for the active window. | Compositor |
+   | Super+Space | The launcher with its search focused (Spotlight's place); again, it closes. | Shell (`Search`) |
+   | Ctrl+Super+Q, Super+F5, Ctrl+Alt+Fn, Ctrl+Alt+Backspace | Unchanged: the keymap's own (`oxyos-input`), before the scene. | Session |
+
+   An application is the windows the shell shows as one (ADR 0013): those of a process the session started for a registry entry, or claiming the same application id, or, claiming none, its client's alone.
+
+   **Not in this decision:** screenshots (Super+Shift+3 and 4; they need a capture of composed frames written to a file the user owns, and a picker for 4), Super+Alt+H (hide the others), Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Mission Control and Launchpad keys, tiling, and a window's own minimize-all or close-all variants.
+
+3. **Keys by their place.** The scene has no keymap: keys are Linux key codes and are matched by place, named as on the US layout, as Bloom matches applications' chords (ADR 0021). So the two can never meet on any layout, and \` is the key above Tab, left of 1 (º on the Spanish layout), as a Mac's ⌘\` is on most ISO keyboards. On a layout that moves letters (AZERTY), Super+W is the key where W is on a US keyboard; when the compositor's keymap reaches the scene, system shortcuts and Bloom's chords move to the layout's characters together.
+
+4. **The compositor owns what acts on windows.** Close, quit, minimize, hide, the application's windows and full screen are the scene's own (`scene/shortcuts.rs`), so they work whatever the shell is doing, stuck or gone, as a Mac's window server's do. They act on the active window (ADR 0016); with none active (nothing open, or the shell's overlay has the keyboard) they do nothing, and their keys still reach nobody. A menu open in a window is dismissed first, as a press elsewhere dismisses it.
+
+5. **The shell owns what needs a picture,** through its `shortcuts` grant, which the session gives its shell sockets with `shell` and `lock`. The compositor sends `SystemShortcut` (event 100: the shortcut, a serial, the output) to the shell of the active window's output (else the pointer's; else any shell holding the grant), and the whole switcher (Super+Tab to Super's release) to that one shell. The serial is a user input of the shell's, as a key press is. The switcher's keys are decided by the compositor; the shell only shows and acts: its overlay never takes the keyboard, so the active application stays active while it is shown, and a stuck shell cannot hold Super's keys.
+   - **The switcher** (`AppSwitcher`, `switcher.ts`): the running applications' icons in a row, the most recently used first, the chosen one framed and named. Its order comes from the compositor: `WindowUse` (event 101) tells each window's latest activation (a rising count, 0 never) and whether it is hidden with its application. Activating an application focuses its window used last; the compositor restores it, or brings back every window hidden with it.
+   - **The search:** Super+Space opens the launcher (Launchpad) and focuses its search field. A shell overlay takes no keyboard when it appears; the shell asks for it with `FocusShellSurface` (request 112), citing the shortcut's serial, and the compositor gives it only to the shell's own panel or overlay, only for an input the shell received lately.
+   - **Quit and hide by the shell:** `HideApplication` (110) and `QuitApplication` (111), by a window, which the switcher's Q and H and the application menu's Hide and Quit (ADR 0021) use, so the menu's Hide now hides the application and Quit asks every window of it.
+
+6. **Precedence**, first to last: the keymap's own (a terminal switch, the end of the session, the lock's Ctrl+Super+Q, the reader's Super+F5, before the scene sees a key); the screen reader's keys (ADR 0014; Ctrl+Alt with an arrow or Space, Super held or not); the system shortcuts; the input method (ADR 0008); the application, where Bloom's chords come before the focused field (ADR 0021). The input method never sees Super or a key pressed with it, so Super+Space is search, never an input source switch.
+
+7. **Locked, none acts.** While the session is locked no system shortcut acts and their keys reach nobody: not a letter of Super+W goes into the password. The lock's own keys are its: what is typed without Super, the reader's, and the keymap's. A switcher open when the session locks is cancelled.
+
+8. **Key repeat.** The compositor sends no repeats (libinput has none, and neither does the scene): a shortcut acts once per press. When key repeat comes, Tab and \` in the switcher and Super+\` repeat while held, as a Mac's do; the others never.
+
+## Results
+
+- **Protocol:** `SystemShortcut` (event 100) with the `SystemShortcut` wire enum (`SwitcherNext`, `SwitcherPrevious`, `SwitcherQuit`, `SwitcherHide`, `SwitcherDone`, `SwitcherCancel`, `Search`), `WindowUse` (101), `HideApplication` (request 110), `QuitApplication` (111) and `FocusShellSurface` (112). The C ABI: `OXYOS_EVENT_SYSTEM_SHORTCUT`, `OXYOS_SHORTCUT_*`, `OXYOS_EVENT_WINDOW_USE`, `OXYOS_MANAGE_HIDE_APPLICATION`, `OXYOS_MANAGE_QUIT_APPLICATION` and `oxyos_client_focus_shell_surface`.
+- **The scene** (`scene/shortcuts.rs`): `Scene::key` and `Scene::keyboard` ask `system_key` after the reader and before the input method; it keeps the modifiers held and the keys it took, so their releases are taken too, and the switcher's shell and output. Windows count their activations (`update_active`), are hidden with their application (`conceal`, the minimize's path with a `Gone` appearance) and shown again by `restore` (`Arrived`). `SetFullscreen`'s body is `set_fullscreen`, which Super+Ctrl+F uses. `Scene::set_shortcuts` and the shell's shortcut target are gone: no program used them.
+- **The Bloom host:** `OxyOSShellShortcut` events to JavaScript, in order; `OxyOSShell.hideApplication` and `quitApplication`; the state's windows carry `used` and `hidden`; a text field JavaScript focuses in a shell region asks for its surface's keyboard, once that surface is on the screen, citing the latest input.
+- **The shell** (`apps/shell`): `AppSwitcher` (Bloom's `Button` and `Text`; the row a `list` named "Cambiar de aplicación", each icon a button named by its application, the chosen one selected and announced to the screen reader; a press on an icon activates it), `switcher.ts` (the order, opening, moving and following applications that quit while it is open), `Shell`'s `commands`, every one handled once and in order (a quick Super+Tab sends the switcher's opening and its end together), and Launchpad's `searchRequest`.
+- **The development compositor:** `--key-down` and `--key-up` (scenarios' `key_down`, `key_up`) hold keys across steps; what the applications the shell launched receive is counted as `launched` (a step may expect it exactly), not as leaked; `close.requested` is counted as input.
+
+## Tests
+
+- **Scene** (`scene/tests/shortcuts.rs`, 14 tests): no key, text or composition of any Super chord reaches the application (Tab, Shift+Tab, \`, Space, Ctrl+F, a letter, Shift with a letter), while its Ctrl chord reaches it exactly; Ctrl pressed before Super reaches it, press and release, a key pressed with Super does not even released after it; Super+W asks the active window alone, nothing with none active; Super+Q asks every window of the application, by a claimed id across clients, by the registry's for a launched one, by its client without an id; Super+M minimizes into the dock and focus moves on; Super+H hides the application's shown windows (its minimized one stays in the dock), the shell told `hidden`, and focusing one brings both back, with `Gone` and `Arrived`; Super+\` goes through three windows and comes back, Shift goes back, minimized and other applications' windows skipped; Super+Ctrl+F on and off, Super+F nothing; the switcher's exact sequence of commands to the shell (Tab, Tab, Shift+Tab, \`, →, ←, Q, H, W and M doing nothing, Esc, Shift+Tab again, Super's release), no keys to the shell or the application; with no window, and dismissing an open menu; the shell of the active window's output on two outputs, and none without the grant; locked, nothing acts and the lock screen receives none of the keys, a switcher open at the lock cancelled; the input method never sees Super or its chords; `FocusShellSurface` refused with a serial the shell never had or the application's, granted with the shortcut's, refused for a background (`InvalidRole`) and from an application (`Unauthorized`); the shell's hide and quit by a window, activation counts, and a window gone taking its use. The tests that used `set_shortcuts` now use Super+Space, and the screen reader's precedence test holds Super.
+- **Protocol and C ABI:** every new message round-trips, the shortcut is a closed set, the table matches `native-foundation.mdx`, the header's constants and `oxyos_client_focus_shell_surface`, each event converted field by field.
+- **The shell** (`apps/shell/tests/switcher.test.ts`): the most recently used first by an application's latest window, unlaunched claims left out, opening forwards and backwards with and without an active application, moving round both ends, an application quit while open.
+- **Host scenario** `scenarios/system-shortcuts.json`, Allo (`EditingProbe`, its field focused) and Inbox launched from the dock, every step with exact `react` and `delivered` (Allo's) and, where it matters, `launched` (Inbox's):
+  1. Inbox from the dock comes in front, the dock marks both running;
+  2. Super+Tab released at once: Allo active again (focus on its window, its pixels in front, Inbox told `focus.out`), no switcher;
+  3. Super held, then Tab: the switcher, Allo then Inbox, Inbox chosen (its frame's pixels, a `list` and a selected `Inbox` button for the assistive technology, "Inbox" said); Tab: round to Allo (said); Shift+Tab: Inbox (said); Super released: Inbox in front, the switcher gone from the assistive technology's trees;
+  4. Super+H: Inbox's window goes (a `gone` transition), Allo active, the dock still marks Inbox; Super+Tab: Inbox comes back (`arrived`);
+  5. Super+W: Inbox is asked once (`close.requested`), goes, and the dock no longer marks it;
+  6. Super+Space: the launcher, its search focused (React's `focus@launcher-search`); "inb" typed goes to the search (`change@launcher-search` three times, only Inbox shown) and Allo receives nothing; Super+Space again closes it, Allo has the keyboard;
+  7. Super+M: Allo minimized into the dock; its dock icon restores it;
+  8. the control: "ok" typed without Super is Allo's (two keys, two texts, the field shows it).
+
+  React receives nothing of any Super chord in any step. With the compositor not taking Super's chords (`system_key` answering false), 60 expectations fail in 13 of its 17 steps (Inbox receives every chord's keys, no switcher, nothing hidden, closed, searched or minimized); the first two steps and the control pass. Every other host scenario that runs without a display passes with the same build and bundle (33), but `sample.json`, which fails the same way on `main` with Bloom's main branch: its first press lands below the Button, which Bloom's layout now draws higher.
+
+## Not in this decision
+
+- The shortcuts listed out of scope in decision 2, and user-defined shortcuts.
+- Telling applications that a window is hidden with its application (they are not told when minimized either).
+- A window a hidden application opens showing the application again, as a Mac's does; it opens shown, the others stay hidden.
+- The switcher on a real display and keyboard (KMS, libinput's Super keys on the ThinkPad); the scenario drives the scene, as every scenario without `--uinput` does.

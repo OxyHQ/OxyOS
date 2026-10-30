@@ -317,6 +317,9 @@ std::shared_ptr<TurboModule> createHostModule(
              {"focusWindow", OXYOS_MANAGE_FOCUS, true},
              {"closeWindow", OXYOS_MANAGE_CLOSE, true},
              {"minimizeWindow", OXYOS_MANAGE_MINIMIZE, true},
+             // The window's application (docs/adr/0024-system-shortcuts.mdx).
+             {"hideApplication", OXYOS_MANAGE_HIDE_APPLICATION, true},
+             {"quitApplication", OXYOS_MANAGE_QUIT_APPLICATION, true},
              {"moveWindowToWorkspace", OXYOS_MANAGE_MOVE, true},
              {"activateWorkspace", OXYOS_MANAGE_ACTIVATE_WORKSPACE, false},
              {"addWorkspace", OXYOS_MANAGE_ADD_WORKSPACE, false},

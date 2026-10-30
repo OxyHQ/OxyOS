@@ -96,6 +96,11 @@ pub enum Step {
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
+    /// Keys pressed in order and held, as a hand holds Super through the application switcher
+    /// (ADR 0024), until a `KeyUp` releases them.
+    KeyDown(Vec<u32>),
+    /// Held keys released, in order.
+    KeyUp(Vec<u32>),
     /// A press and release of Caps Lock: on the scene, the key as any other and the compositor's
     /// keymap's change of Caps Lock between them, as `oxyos-input` reports it; through the
     /// devices, the key itself.
@@ -187,6 +192,8 @@ impl Step {
                 hz,
             } => format!("drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz"),
             Step::Key(codes) => format!("key {}", chord(codes)),
+            Step::KeyDown(codes) => format!("key {} held", chord(codes)),
+            Step::KeyUp(codes) => format!("key {} released", chord(codes)),
             Step::MoveWindow { dx, dy } => format!("window moved by ({dx}, {dy})"),
             Step::ResizeWindow { width, height } => format!("window resized to {width}x{height}"),
             Step::MinimizeWindow => "window minimized".to_string(),
@@ -274,6 +281,8 @@ impl Step {
                 from.0, from.1, to.0, to.1
             ),
             Step::Key(codes) => format!("\"key\":{codes:?}"),
+            Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
+            Step::KeyUp(codes) => format!("\"key_up\":{codes:?}"),
             Step::MoveWindow { dx, dy } => format!("\"move_window\":[{dx},{dy}]"),
             Step::ResizeWindow { width, height } => {
                 format!("\"resize_window\":[{width},{height}]")
@@ -385,7 +394,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
@@ -553,14 +562,17 @@ impl Launch {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Type(text.to_string())
                 }
-                Some("--key") => {
+                Some(flag @ ("--key" | "--key-down" | "--key-up")) => {
                     let codes = args.next().and_then(|c| c.to_str()).ok_or(USAGE)?;
-                    Step::Key(
-                        codes
-                            .split('+')
-                            .map(str::parse)
-                            .collect::<std::result::Result<_, _>>()?,
-                    )
+                    let codes = codes
+                        .split('+')
+                        .map(str::parse)
+                        .collect::<std::result::Result<_, _>>()?;
+                    match flag {
+                        "--key" => Step::Key(codes),
+                        "--key-down" => Step::KeyDown(codes),
+                        _ => Step::KeyUp(codes),
+                    }
                 }
                 Some("--drag") => {
                     let n = numbers(args.next(), 4)?;
@@ -1087,16 +1099,21 @@ fn field_json(compositor: &Compositor) -> String {
 }
 
 /// The input routed during a step: for the application, counts per surface and kind; for the
-/// session's shell, its count (`shell`); for any other client, a count (`leaked`).
-fn delivered_json(compositor: &Compositor) -> String {
+/// session's shell, its count (`shell`); for the applications the shell launched, counts per kind
+/// (`launched`); for any other client, a count (`leaked`).
+fn delivered_json(session: &Session) -> String {
+    let compositor = &session.compositor;
     let mut counts: std::collections::BTreeMap<u32, std::collections::BTreeMap<&str, usize>> =
         Default::default();
+    let mut launched: std::collections::BTreeMap<&str, usize> = Default::default();
     let (mut shell, mut leaked) = (0, 0);
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {
             *counts.entry(surface).or_default().entry(kind).or_default() += 1;
         } else if client > ClientId::MAX / 2 && client < crate::ime::IME {
             shell += 1;
+        } else if session.launched_clients.contains(&client) {
+            *launched.entry(kind).or_default() += 1;
         } else {
             leaked += 1;
         }
@@ -1110,6 +1127,14 @@ fn delivered_json(compositor: &Compositor) -> String {
         .collect();
     if shell > 0 {
         fields.push(format!("\"shell\":{shell}"));
+    }
+    // What applications the shell launched received, whichever window (ADR 0013).
+    if !launched.is_empty() {
+        let kinds: Vec<String> = launched
+            .iter()
+            .map(|(k, n)| format!("\"{k}\":{n}"))
+            .collect();
+        fields.push(format!("\"launched\":{{{}}}", kinds.join(",")));
     }
     fields.push(format!("\"leaked\":{leaked}"));
     format!("{{{}}}", fields.join(","))
@@ -1448,6 +1473,13 @@ fn inject_through(
             }
             for code in codes.iter().rev() {
                 devices.key(*code as u16, false)?;
+                compositor.read_input();
+            }
+        }
+        Step::KeyDown(codes) | Step::KeyUp(codes) => {
+            let pressed = matches!(step, Step::KeyDown(_));
+            for code in codes {
+                devices.key(*code as u16, pressed)?;
                 compositor.read_input();
             }
         }
@@ -1958,6 +1990,12 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 compositor.scene.key(*code, false);
             }
         }
+        Step::KeyDown(codes) | Step::KeyUp(codes) => {
+            let pressed = matches!(step, Step::KeyDown(_));
+            for code in codes {
+                compositor.scene.key(*code, pressed);
+            }
+        }
         Step::MoveWindow { dx, dy } => compositor.scene.move_window_to(
             SurfaceKey {
                 client: CLIENT,
@@ -2288,7 +2326,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 step.json(),
                 monotonic_ns(),
                 focus_json(&session.compositor),
-                delivered_json(&session.compositor),
+                delivered_json(&session),
                 popups_json(&session.compositor),
             ));
             continue;
@@ -2407,7 +2445,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
-            delivered_json(&session.compositor),
+            delivered_json(&session),
             popups_json(&session.compositor),
             answer.window.x,
             answer.window.y,

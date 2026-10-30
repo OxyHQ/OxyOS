@@ -2420,10 +2420,12 @@ impl Compositor {
             let shell_listener = self.shell_listener.take().expect("polled");
             let accepted = self.accept_granting(
                 &shell_listener,
-                // The shell is the lock screen as well (ADR 0010).
+                // The shell is the lock screen as well (ADR 0010), and shows the system shortcuts
+                // that need a picture: the application switcher and the search (ADR 0024).
                 Some(Grants {
                     shell: true,
                     lock: true,
+                    shortcuts: true,
                     ..Grants::default()
                 }),
             );
@@ -2790,6 +2792,8 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         }
         // A command of its menus chosen in the shell's bar (ADR 0021).
         Event::MenuItemActivated { surface, .. } => (surface, "menu.activated"),
+        // Asked to close a window: the shell's, the close bubble's or Super+W's (ADR 0024).
+        Event::CloseRequested { surface } => (surface, "close.requested"),
         _ => return None,
     })
 }

@@ -646,6 +646,10 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
+    // The surface with the compositor's keyboard focus (0: none of this client's), and the text
+    // field a shell region's surface was last asked to take it for (docs/adr/0024-system-shortcuts.mdx).
+    uint32_t keyboardSurface = 0;
+    facebook::react::Tag focusAskedFor = -1;
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
@@ -796,6 +800,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> launchResults;
         std::vector<OxyOSEvent> preferenceResults;
         std::vector<OxyOSEvent> menuChoices;
+        std::vector<OxyOSEvent> systemShortcuts;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
@@ -804,6 +809,14 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
               if (event.kind == OXYOS_EVENT_PREFERENCE_RESULT) preferenceResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
+              if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
+              if (event.kind == OXYOS_EVENT_FOCUS) {
+                if (event.flag) {
+                  keyboardSurface = event.surface;
+                } else if (keyboardSurface == event.surface) {
+                  keyboardSurface = 0;
+                }
+              }
               // The shell asks the application to close its window: it finishes, as an Android
               // activity does when its task is closed.
               if (event.kind == OXYOS_EVENT_ACTIVATED) {
@@ -838,7 +851,9 @@ int main(int argc, char** argv) {
                   (event.kind == OXYOS_EVENT_KEY && event.flag) ||
                   (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail == OXYOS_ACTION_ACTIVATE) ||
                   // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
-                  event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) {
+                  event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
+                  // So is a system shortcut the shell shows: the search's field may cite it.
+                  event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) {
                 lastPress = event.serial;
               }
               report(event);
@@ -944,6 +959,39 @@ int main(int argc, char** argv) {
           oxyos::Report::get().deliver("menuActivated", choice.surface, "menu-bar", payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSMenuActivated", payload));
+        }
+        // The system shortcuts the shell shows (docs/adr/0024-system-shortcuts.mdx): the
+        // application switcher's and the search's, to JavaScript in order.
+        for (const auto& shortcut : systemShortcuts) {
+          static const char* actions[] = {"",
+                                          "switcher-next",
+                                          "switcher-previous",
+                                          "switcher-quit",
+                                          "switcher-hide",
+                                          "switcher-done",
+                                          "switcher-cancel",
+                                          "search"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_SEARCH ? actions[shortcut.detail] : "";
+          folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
+          oxyos::Report::get().input("shortcut.system", 0, payload);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSShellShortcut", payload));
+        }
+        // A text field JavaScript focused in one of the shell's regions (the launcher's search)
+        // takes the keyboard there: the shell asks for its surface's focus, citing the latest
+        // input, once the region has a surface and it is on the screen (a region shown in the
+        // same commit has neither yet). A press already gave it; the compositor ignores an input
+        // it did not give lately.
+        if (shellMode && editing.focused() != focusAskedFor) {
+          auto field = editing.focused();
+          auto surface = field >= 0 ? shellSurfaces.surfaceOf(field) : std::nullopt;
+          if (field < 0 || (surface && *surface == keyboardSurface)) {
+            focusAskedFor = field;
+          } else if (auto* shown = surface ? window->surface(*surface) : nullptr; shown && shown->shown) {
+            window->focusShellSurface(*surface, lastPress);
+            oxyos::Report::get().input("focus.asked", *surface);
+            focusAskedFor = field;
+          }
         }
         // What came of the lock screen's password (docs/adr/0010-lock-screen.mdx).
         if (authenticated) {

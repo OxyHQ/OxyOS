@@ -81,6 +81,7 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       target->states = event.flag;
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
       if (target && event.serial == target->inFlight) target->inFlight = 0;
+      if (event.detail == OXYOS_OUTCOME_PRESENTED && target) target->shown = true;
       if (event.detail == OXYOS_OUTCOME_PRESENTED && event.surface == kToplevel) ++presented_;
     } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES || event.kind == OXYOS_EVENT_CLIPBOARD_TYPE ||
                event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY) {
@@ -183,6 +184,10 @@ void Window::nameWindow(const std::string& title, const std::string& appId) {
       oxyos_client_name_window(client_, kToplevel, 1, appId.data(), appId.size()) != 0) {
     failed("cannot name the window");
   }
+}
+
+void Window::focusShellSurface(uint32_t id, uint64_t serial) {
+  if (oxyos_client_focus_shell_surface(client_, id, serial) != 0) failed("cannot focus a shell surface");
 }
 
 void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {

@@ -157,6 +157,16 @@ wire_enum! {
     ReaderCommand: u8 { Next = 1, Previous = 2, Activate = 3 }
 }
 wire_enum! {
+    /// A system shortcut the compositor took from the keyboard for the shell to show (ADR 0024):
+    /// the application switcher's moves (the next or the previous application; the first opens
+    /// it), quitting or hiding the application it has chosen, its end with the person's choice
+    /// (Super released) or without one (Escape, the lock), and the launcher's search.
+    SystemShortcut: u8 {
+        SwitcherNext = 1, SwitcherPrevious = 2, SwitcherQuit = 3, SwitcherHide = 4,
+        SwitcherDone = 5, SwitcherCancel = 6, Search = 7,
+    }
+}
+wire_enum! {
     /// What an entry of a window's menus is (ADR 0021): a menu of the bar (a root), a command, a
     /// submenu of commands, or a separator between them.
     MenuKind: u8 { Menu = 1, Item = 2, Submenu = 3, Separator = 4 }
