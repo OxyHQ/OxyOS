@@ -130,9 +130,9 @@ what the session last told the application of how to draw (dark, reduceMotion,
 reduceTransparency, accent) by the time the step settled, each key given; the `final`
 `preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.
 
-A scenario with `home` runs with a home of the run's own (docs/adr/0027-files.mdx), made afresh
-in its output directory: `HOME`, `XDG_DATA_HOME` and `XDG_CONFIG_HOME` inside it, never the
-developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
+A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
+afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
+inside it, never the developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
 text, or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour); each
 modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
 on every run. `home.later` is what another program does to it while the run goes on, each when the
@@ -338,7 +338,8 @@ def login_program(out, offscreen, login):
 
 
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes scenarios/network.json's probe calls (sample/NetworkProbe.tsx)."""
+    """The routes the probes of scenarios/network.json and file-system.json call
+    (sample/NetworkProbe.tsx, sample/FileSystemProbe.tsx)."""
 
     def log_message(self, *args):
         pass
@@ -380,8 +381,18 @@ class ProbeServer(BaseHTTPRequestHandler):
         elif self.path == "/slow":
             time.sleep(3)
             self.reply(200, "late")
+        elif self.path == "/report":
+            # A download into a folder takes the name the response gives it.
+            self.reply(200, "quarterly numbers", "text/plain",
+                       [("Content-Disposition", 'attachment; filename="Q3 report.txt"')])
         else:
             self.reply(404, "missing")
+
+    def do_PUT(self):
+        # An upload whose body is the file: its length as sent, and what arrived.
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode()
+        self.reply(200, f"PUT {length} {body}")
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
@@ -1372,11 +1383,12 @@ def main():
         env.update(login[3])
     home_root = None
     if "home" in scenario:
-        # A home of the run's own (docs/adr/0027-files.mdx), never the developer's.
+        # A home of the run's own (docs/adr/0028-file-access.mdx), never the developer's.
         home_root = make_home(out, scenario["home"])
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_CACHE_HOME"] = str(home_root / ".cache")
     if "locale" in scenario:
         env["LANG"] = env["LC_ALL"] = scenario["locale"]
     if "tz" in scenario:

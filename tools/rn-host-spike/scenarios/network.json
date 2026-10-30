@@ -1,8 +1,9 @@
 {
-  "about": "React Native's networking on OxyOS (network.h, sample/NetworkProbe.tsx): fetch and XMLHttpRequest against a local server regress.py runs (\"http\"), with JSON, text, status, headers, a POST body, a redirect, bytes as an ArrayBuffer (a blob read back), a multipart form, an abort, a timeout and a text body as it arrives, a character split between two reads. What OxyOS does not support yet fails visibly: a file in a multipart body. A refused connection fails as on Android.",
+  "about": "React Native's networking on OxyOS (network.h, sample/NetworkProbe.tsx): fetch and XMLHttpRequest against a local server regress.py runs (\"http\"), with JSON, text, status, headers, a POST body, a redirect, bytes as an ArrayBuffer (a blob read back), a multipart form, an abort, a timeout and a text body as it arrives, a character split between two reads. A multipart form's file is read from the scenario's home through the file service (docs/adr/0028-file-access.mdx); one outside the home is refused, visibly. A refused connection fails as on Android.",
   "module": "NetworkProbe",
   "window": [800, 520],
   "http": {"port": 18642},
+  "home": {"items": {"probe.txt": "a file from the home"}},
   "steps": [],
   "final": {
     "texts": [
@@ -14,7 +15,8 @@
       "fetch redirect: ok /json {\"hello\":\"OxyOS\",\"n\":3}",
       "fetch bytes: ok 256 0 255",
       "fetch form: ok POST multipart/form-data name=OxyOS",
-      "fetch form file: failed: Network request failed",
+      "fetch form file: ok POST multipart/form-data file=a file from the home",
+      "fetch form outside: failed: Network request failed",
       "fetch abort: failed: Aborted",
       "fetch refused: failed: Network request failed",
       "xhr header: ok 200 oxyos",
