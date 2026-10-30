@@ -119,6 +119,14 @@ struct Node {
     size: Size,
     /// Geometry of the latest configure, applied when a frame for it is displayed.
     pending: Option<(u64, (i32, i32), Size)>,
+    /// The geometry an edge resize wants while a configure is unanswered (ADR 0016): one
+    /// configure is in flight, and this one, the latest the pointer asked for, is sent once a
+    /// frame for that one is displayed. Any other configure replaces it.
+    wanted: Option<((i32, i32), Size)>,
+    /// The geometry (and full-screen state) of the configure a frame being presented answers,
+    /// kept when a newer configure replaces `pending` before that frame is on screen: the frame
+    /// is drawn, and then shown, at the size it was drawn for, never scaled to another.
+    answering: Option<(u64, (i32, i32), Size, bool)>,
     presentation: Presentation,
     scale_120: u32,
     output: OutputId,
@@ -210,13 +218,27 @@ impl Node {
         matches!(self.role, Role::Popup(_))
     }
 
+    /// The geometry the surface is going to have: what an edge resize wants next, else its
+    /// latest configure's, else what is displayed.
+    fn upcoming(&self) -> ((i32, i32), Size) {
+        self.wanted.unwrap_or_else(|| {
+            self.pending
+                .map_or((self.origin, self.size), |(_, origin, size)| (origin, size))
+        })
+    }
+
     /// Content and geometry as displayed, or (`in_flight`) as they will be once the frame
     /// between `begin_frame` and `end_frame` completes.
     fn view(&self, in_flight: bool) -> Option<(Frame, (i32, i32), Size)> {
         if in_flight {
             if let Some(frame) = self.presentation.presenting() {
-                let (origin, size) = match self.pending {
-                    Some((serial, origin, size)) if serial == frame.configure => (origin, size),
+                let (origin, size) = match (self.pending, self.answering) {
+                    (Some((serial, origin, size)), _) if serial == frame.configure => {
+                        (origin, size)
+                    }
+                    (_, Some((serial, origin, size, _))) if serial == frame.configure => {
+                        (origin, size)
+                    }
                     _ => (self.origin, self.size),
                 };
                 return Some((frame, origin, size));
@@ -568,7 +590,7 @@ impl Scene {
             return;
         };
         let fullscreen = node.fullscreen;
-        let mut size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let mut size = node.upcoming().1;
         if node.parent.is_none() {
             let origin = if fullscreen {
                 size = Size::new(target.rect.width, target.rect.height);
@@ -583,6 +605,9 @@ impl Scene {
             node.origin = origin;
             node.restore = restore;
             node.pending = node.pending.map(|(serial, _, s)| (serial, origin, s));
+            node.answering = node
+                .answering
+                .map(|(serial, _, s, fullscreen)| (serial, origin, s, fullscreen));
         }
         self.nodes.get_mut(&key).expect("present").output = target.id;
         self.reconfigure(key, None, size);
@@ -608,10 +633,7 @@ impl Scene {
             .map(|(key, _)| *key)
             .collect();
         for key in affected {
-            let (origin, size) = match self.nodes[&key].pending {
-                Some((_, origin, size)) => (origin, size),
-                None => (self.nodes[&key].origin, self.nodes[&key].size),
-            };
+            let (origin, size) = self.nodes[&key].upcoming();
             self.reconfigure(key, Some(origin), size);
         }
         Ok(())
@@ -1501,6 +1523,8 @@ impl Scene {
                 origin,
                 size,
                 pending: Some((serial, origin, size)),
+                wanted: None,
+                answering: None,
                 presentation,
                 scale_120,
                 output,
@@ -1576,6 +1600,15 @@ impl Scene {
         };
         let size = fit(size, scale_120);
         let node = self.nodes.get_mut(&key).expect("present");
+        // A frame answering the configure replaced is on its way to the screen: its geometry stays
+        // with it.
+        if let (Some(frame), Some((serial, origin, size))) =
+            (node.presentation.presenting(), node.pending)
+        {
+            if frame.configure == serial {
+                node.answering = Some((serial, origin, size, node.pending_fullscreen));
+            }
+        }
         node.scale_120 = scale_120;
         let discarded = node
             .presentation
@@ -1586,6 +1619,7 @@ impl Scene {
         let keep = node.pending.map_or(node.origin, |(_, origin, _)| origin);
         node.pending = Some((serial, origin.unwrap_or(keep), size));
         node.pending_fullscreen = node.fullscreen;
+        node.wanted = None;
         if let Some(frame) = discarded {
             self.discard(key, frame);
         }
@@ -2225,9 +2259,7 @@ impl Scene {
     /// Geometry once every pending configure is presented; used to place new children.
     fn global_rect_pending(&self, key: SurfaceKey) -> Option<Rect> {
         let node = self.nodes.get(&key)?;
-        let (origin, size) = node
-            .pending
-            .map_or((node.origin, node.size), |(_, o, s)| (o, s));
+        let (origin, size) = node.upcoming();
         let (x, y) = match node.parent {
             Some(parent) => {
                 let p = self.global_rect_pending(parent)?;
@@ -2310,9 +2342,12 @@ impl Scene {
     /// displayed: a window going full-screen is drawn so from its first full-screen frame.
     pub fn window_look(&self, key: SurfaceKey) -> Option<WindowLook> {
         let node = self.live(key)?;
-        let fullscreen = match (node.presentation.presenting(), node.pending) {
-            (Some(frame), Some((serial, ..))) if serial == frame.configure => {
+        let fullscreen = match (node.presentation.presenting(), node.pending, node.answering) {
+            (Some(frame), Some((serial, ..)), _) if serial == frame.configure => {
                 node.pending_fullscreen
+            }
+            (Some(frame), _, Some((serial, _, _, fullscreen))) if serial == frame.configure => {
+                fullscreen
             }
             _ => node.shown_fullscreen,
         };
@@ -2574,6 +2609,8 @@ impl Scene {
         }
         let size = node.limits.clamp(size);
         self.reconfigure(key, None, size);
+        // Maximized or tiled, its frame goes there animated (ADR 0016).
+        self.appeared(key, appearances::Change::Zoomed);
     }
 
     // ---- secure lock ---------------------------------------------------------------------
@@ -2794,15 +2831,20 @@ impl Scene {
             i64::from(origin.1) - i64::from(node.origin.1),
         );
         node.origin = origin;
+        let moved = |at: (i32, i32)| {
+            (
+                (i64::from(at.0) + delta.0) as i32,
+                (i64::from(at.1) + delta.1) as i32,
+            )
+        };
         if let Some((serial, pending, size)) = node.pending {
-            node.pending = Some((
-                serial,
-                (
-                    (i64::from(pending.0) + delta.0) as i32,
-                    (i64::from(pending.1) + delta.1) as i32,
-                ),
-                size,
-            ));
+            node.pending = Some((serial, moved(pending), size));
+        }
+        if let Some((wanted, size)) = node.wanted {
+            node.wanted = Some((moved(wanted), size));
+        }
+        if let Some((serial, answering, size, fullscreen)) = node.answering {
+            node.answering = Some((serial, moved(answering), size, fullscreen));
         }
         if let Some(output) = self.output_at(i64::from(origin.0), i64::from(origin.1)) {
             self.move_to_output(moving.surface, output.id);
@@ -2823,7 +2865,7 @@ impl Scene {
         };
         node.output = output;
         let rescale = node.scale_120 != scale && !node.dismissed;
-        let size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let size = node.upcoming().1;
         let children = node.children.clone();
         if rescale {
             self.reconfigure(key, None, size);
@@ -3289,10 +3331,22 @@ impl Scene {
         }
         let mut newly_mapped = Vec::new();
         let mut resized = Vec::new();
+        let mut answered = Vec::new();
         for key in keys {
             let node = self.nodes.get_mut(&key).expect("present");
             let previous = node.presentation.complete_present().expect("presenting");
             let shown = node.presentation.displayed().expect("just displayed");
+            // Answering a configure replaced while it was presented: shown where that one put it.
+            if let Some((serial, origin, size, fullscreen)) = node.answering.take() {
+                if shown.configure == serial {
+                    if (node.size != size || node.origin != origin) && !node.children.is_empty() {
+                        resized.push(key);
+                    }
+                    node.origin = origin;
+                    node.size = size;
+                    node.shown_fullscreen = fullscreen;
+                }
+            }
             if let Some((serial, origin, size)) = node.pending {
                 if shown.configure == serial {
                     if (node.size != size || node.origin != origin) && !node.children.is_empty() {
@@ -3302,6 +3356,12 @@ impl Scene {
                     node.size = size;
                     node.pending = None;
                     node.shown_fullscreen = node.pending_fullscreen;
+                    // The configure in flight is answered: the next an edge resize wants goes.
+                    if let Some(wanted) = node.wanted.take() {
+                        if wanted != (origin, size) {
+                            answered.push((key, wanted));
+                        }
+                    }
                 }
             }
             if !node.mapped {
@@ -3333,6 +3393,9 @@ impl Scene {
             }
         }
         self.deferred.extend(waiting);
+        for (key, (origin, size)) in answered {
+            self.reconfigure(key, Some(origin), size);
+        }
         // A parent's new geometry is on screen: re-place popups whose constrained geometry changed.
         for key in resized {
             self.reconstrain_children(key);

@@ -1,5 +1,5 @@
 {
-  "about": "An application window as ADR 0016 draws it (sample/WindowProbe.tsx: Bloom's SettingsLayout in a window, its controls Bloom's at the rail's top): the page told the window's state (active, zoomed, full screen) through Bloom's `window` capability and the host's adapter; the rail's top band moving the window (the compositor's BeginMove, from the press the application handles); the green bubble zooming it to the work area and restoring it; the compositor resizing it from the band beyond its edge; the yellow bubble minimizing it. Without the adapter's `window` the page says it has none and the bubbles are not drawn, so every step fails.",
+  "about": "An application window as ADR 0016 draws it (sample/WindowProbe.tsx: Bloom's SettingsLayout in a window, its controls Bloom's at the rail's top): the page told the window's state (active, zoomed, full screen) through Bloom's `window` capability and the host's adapter; the rail's top band moving the window (the compositor's BeginMove, from the press the application handles); the green bubble zooming it to the work area and restoring it, its frame animated between (a `zoomed` transition); the compositor resizing it from the band beyond its edge, and following a hand's paced drag of the other edge frame by frame (one configure in flight); the yellow bubble minimizing it. Without the adapter's `window` the page says it has none and the bubbles are not drawn, so every step fails.",
   "module": "WindowProbe",
   "window": [
     900,
@@ -71,7 +71,17 @@
         ],
         "texts": [
           "active yes, zoomed yes, full screen no"
-        ]
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true
+            }
+          ],
+          "frames_min": 5
+        }
       },
       "allow_unchanged": true
     },
@@ -93,7 +103,17 @@
         ],
         "texts": [
           "active yes, zoomed no, full screen no"
-        ]
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true
+            }
+          ],
+          "frames_min": 5
+        }
       },
       "allow_unchanged": true
     },
@@ -115,6 +135,42 @@
           1000,
           600
         ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Dragged at a hand's pace from its left edge, 50 motions at a mouse's 125 Hz, it follows the pointer frame by frame: one configure in flight, each answered by a frame shown, the right edge never moving, the last size the pointer's",
+      "do": [
+        "drag_paced",
+        [
+          87,
+          300,
+          287,
+          300,
+          50,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          290,
+          20,
+          800,
+          600
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 3,
+          "steady": [
+            "top",
+            "right",
+            "bottom"
+          ]
+        },
+        "transitions": {
+          "count": 0
+        }
       },
       "allow_unchanged": true
     },

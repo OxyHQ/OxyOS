@@ -40,6 +40,22 @@ void collect(const ViewTree& tree, Tag tag, const Affine& parent, std::unordered
   for (Tag child : it->second.children) collect(tree, child, map, at, views);
 }
 
+// The parts of `a` outside `b`: up to four bands.
+void outside(const Rect& a, const Rect& b, std::vector<Rect>& out) {
+  Rect common = Rect::intersect(a, b);
+  if (common.size.width <= 0 || common.size.height <= 0) {
+    out.push_back(a);
+    return;
+  }
+  auto band = [&](Float x0, Float y0, Float x1, Float y1) {
+    if (x1 > x0 && y1 > y0) out.push_back(Rect{{x0, y0}, {x1 - x0, y1 - y0}});
+  };
+  band(a.getMinX(), a.getMinY(), a.getMaxX(), common.getMinY());
+  band(a.getMinX(), common.getMaxY(), a.getMaxX(), a.getMaxY());
+  band(a.getMinX(), common.getMinY(), common.getMinX(), common.getMaxY());
+  band(common.getMaxX(), common.getMinY(), a.getMaxX(), common.getMaxY());
+}
+
 Rect bounding(const std::vector<Rect>& rects) {
   Float left = rects[0].getMinX(), top = rects[0].getMinY();
   Float right = rects[0].getMaxX(), bottom = rects[0].getMaxY();
@@ -83,8 +99,10 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     now[tag] = Seen{view.view, rect, view.children, svg ? svgPicture(tree, tag, display.scale) : view.picture};
   }
 
-  bool same = display_ && display_->width == display.width && display_->height == display.height &&
-              display_->scale == display.scale;
+  // A window resized at the same scale is compared view by view as at the same size: what the
+  // frame before has where both sizes overlap stays (renderer.h's drawDamaged).
+  bool same = display_ && display_->scale == display.scale;
+  bool resized = same && (display_->width != display.width || display_->height != display.height);
   std::vector<Rect> damage;
   // A view and everything under it, as `views` holds them.
   auto subtree = [&](const Views& views, Tag tag, auto& self) -> void {
@@ -143,9 +161,16 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
       if (!(then.at == seen.at) || !(then.view.layoutMetrics == seen.view.layoutMetrics)) {
         // A new frame alone: its own background and border, and the clip of its children, lie
-        // in its old and new rectangles; each child is compared where it is drawn.
-        damage.push_back(old->second.at);
-        damage.push_back(seen.at);
+        // in its old and new rectangles; each child is compared where it is drawn. A plain fill
+        // resized in place (a window's panels as it resizes) changes only where it gained or
+        // lost area.
+        if (then.at.origin == seen.at.origin && drawsFlat(then.view) && drawsFlat(seen.view)) {
+          outside(then.at, seen.at, damage);
+          outside(seen.at, then.at, damage);
+        } else {
+          damage.push_back(old->second.at);
+          damage.push_back(seen.at);
+        }
       }
     }
     for (const auto& [tag, seen] : seen_) {
@@ -154,7 +179,10 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   }
   std::vector<std::pair<Tag, ModalPresentation>> presented;
   for (Tag modal : modals(tree)) presented.emplace_back(modal, tree.presentation(modal));
-  if (same && (presented != presented_ || tree.leaving() != leaving_)) {
+  // A modal is laid out at the window's size and a leaving one's frame is the window's: resized,
+  // the window is drawn again whole while any shows.
+  if (same && (presented != presented_ || tree.leaving() != leaving_ ||
+               (resized && (!presented.empty() || !tree.leaving().empty())))) {
     damage.push_back(Rect{{0, 0}, {display.width, display.height}});
   }
   presented_ = std::move(presented);
@@ -199,11 +227,13 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     damage.insert(damage.end(), blurred.begin(), blurred.end());
   }
   seen_ = std::move(now);
+  Display previous = display_.value_or(display);
   display_ = display;
   edit_ = edit;
   if (!same) return std::nullopt;
-  // Inside the window, without empty rectangles or repeats.
+  // Inside the window, without empty rectangles or repeats; resized, with all it gained.
   Rect window{{0, 0}, {display.width, display.height}};
+  if (resized) outside(window, Rect{{0, 0}, {previous.width, previous.height}}, damage);
   std::vector<Rect> kept;
   for (const auto& rect : damage) {
     Rect inside = Rect::intersect(rect, window);

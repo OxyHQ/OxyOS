@@ -3,7 +3,9 @@
 //! minimized goes into the dock and comes back out of it, a switch of workspace slides the
 //! windows aside, a notification slides in. What a surface shows is never changed: it is drawn
 //! whole, scaled about its centre and moved, at an opacity. A surface going away is drawn from
-//! its last frame, which the compositor keeps until its transition ends.
+//! its last frame, which the compositor keeps until its transition ends. A window zoomed (or
+//! maximized, tiled, restored) has its frame go from one rectangle to the other, a Mac's zoom
+//! (docs/adr/0016-windows.mdx): its content, old or new, stretched into the rectangle between.
 
 use oxyos_compositor_core::{
     Appearance, AppearanceChange as Change, AppearanceKind as Kind, SurfaceKey,
@@ -14,13 +16,16 @@ use std::time::Duration;
 
 /// Where a motion moves a surface at its farthest from where it is: nowhere, a share of its own
 /// size (thousandths: a notification beside itself), by a distance (a workspace's windows by the
-/// output's width), or to a point (a window into the dock).
+/// output's width), or to a point (a window into the dock). A zoom's is from one rectangle to
+/// another (`Between`): the surface is drawn in the rectangle that far between them, whatever its
+/// own, so its width and height scale each by their own factor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shift {
     None,
     Own { x_permille: i32, y_permille: i32 },
     By { x: i32, y: i32 },
     To { x: i32, y: i32 },
+    Between { from: Rect, to: Rect },
 }
 
 /// How a surface arrives or goes: how long; the scale it starts from (arriving) or ends at
@@ -80,6 +85,11 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
                 ..motion(300, 1000)
             }
         }
+        // A Mac's zoom: the frame goes to its new rectangle, easing out, unfaded (`zoom`).
+        (_, Change::Zoomed) => Motion {
+            fades: false,
+            ..motion(250, 1000)
+        },
         (Kind::Window, Change::Arrived) => motion(180, 960),
         (Kind::Window, _) => motion(150, 960),
         // As a Mac's menus: at once, then fading out.
@@ -105,6 +115,9 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
 
 /// Transitions recorded until `take_seen`.
 const MAX_SEEN: usize = 64;
+/// How long past its end a zoom keeps the window in its new rectangle, its old frame stretched
+/// there, waiting for the client's frame of the new size; then the window is drawn where it is.
+const ZOOM_HOLD: Duration = Duration::from_secs(1);
 
 /// A surface's last frame, kept while it goes, with how it was drawn if a window (its corners and
 /// shadow go with it).
@@ -123,6 +136,24 @@ struct Running {
     kind: Kind,
     started: Duration,
     motion: Motion,
+}
+
+/// A window's frame zooming: where the surface was when it began (`at`), and whether it is now
+/// where it is going (`motion`'s `Shift::Between`'s end), its new frame shown, or somewhere else
+/// (moved or resized again: the zoom is over).
+struct Zoom {
+    running: Running,
+    at: Rect,
+    reached: bool,
+    superseded: bool,
+}
+
+impl Zoom {
+    fn ends(&self, now: Duration) -> bool {
+        let elapsed = now.saturating_sub(self.running.started);
+        let duration = self.running.motion.duration;
+        self.superseded || elapsed >= duration && (self.reached || elapsed >= duration + ZOOM_HOLD)
+    }
 }
 
 /// What a transition did, as the development compositor reports it: its kind, how the surface
@@ -166,8 +197,23 @@ impl Frame {
         shift_permille: 0,
     };
 
-    /// `rect` drawn at this scale about its centre, then moved along its shift.
+    /// `rect` drawn at this scale about its centre, then moved along its shift; with a zoom's
+    /// shift, the rectangle `shift_permille` of the way between its two, edge by edge.
     pub fn place(&self, rect: Rect) -> Rect {
+        if let Shift::Between { from, to } = self.shift {
+            let k = f64::from(self.shift_permille.min(1000)) / 1000.0;
+            let along = |a: i64, b: i64| (a as f64 + (b - a) as f64 * k).round() as i64;
+            let left = along(i64::from(from.x), i64::from(to.x));
+            let top = along(i64::from(from.y), i64::from(to.y));
+            let right = along(from.right(), to.right()).max(left + 1);
+            let bottom = along(from.bottom(), to.bottom()).max(top + 1);
+            return Rect::new(
+                left as i32,
+                top as i32,
+                (right - left) as u32,
+                (bottom - top) as u32,
+            );
+        }
         let scaled = |length: u32| {
             ((u64::from(length) * u64::from(self.scale_permille) + 500) / 1000) as u32
         };
@@ -195,6 +241,7 @@ impl Frame {
                 along(i64::from(x) - centre.0),
                 along(i64::from(y) - centre.1),
             ),
+            Shift::Between { .. } => unreachable!("placed above"),
         };
         Rect::new(
             rect.x + (rect.width as i32 - width as i32) / 2 + dx,
@@ -232,6 +279,17 @@ fn arriving_at(motion: &Motion, p: f64) -> Frame {
     }
 }
 
+/// Where a zoom is at `now`: its frame that far between its rectangles, held at the end.
+fn zoom_at(running: &Running, now: Duration) -> Frame {
+    let p = progress(now.saturating_sub(running.started), running.motion.duration);
+    Frame {
+        opacity: 255,
+        scale_permille: 1000,
+        shift: running.motion.shift,
+        shift_permille: (1000.0 * p).round() as u32,
+    }
+}
+
 /// Where a surface is `p` of the way from whole to the motion's far end: going.
 fn going_at(motion: &Motion, p: f64) -> Frame {
     let to = f64::from(motion.scale_permille);
@@ -247,12 +305,13 @@ fn going_at(motion: &Motion, p: f64) -> Frame {
     }
 }
 
-/// The transitions running: surfaces arriving, and surfaces going with their last frames, in
-/// the order they began going.
+/// The transitions running: surfaces arriving, surfaces going with their last frames, in the
+/// order they began going, and windows zooming.
 #[derive(Default)]
 pub struct Transitions {
     arriving: BTreeMap<SurfaceKey, Running>,
     going: Vec<(SurfaceKey, Running, Snapshot)>,
+    zooming: BTreeMap<SurfaceKey, Zoom>,
     next_id: u64,
     /// What each transition since the last `take_seen` did, by id.
     seen: BTreeMap<u64, Seen>,
@@ -304,7 +363,8 @@ impl Transitions {
     }
 
     /// A surface came or went (the scene's appearance), at `now`: its transition begins, with
-    /// `snapshot` (its last frame shown) for one going, where `place` puts its motion.
+    /// `snapshot` (its last frame shown) for one going, where `place` puts its motion. A window
+    /// zoomed begins with `zoom`, which needs its rectangles.
     pub fn appear(
         &mut self,
         appearance: Appearance,
@@ -312,6 +372,9 @@ impl Transitions {
         snapshot: Option<Snapshot>,
         place: &Place,
     ) {
+        if appearance.change == Change::Zoomed {
+            return;
+        }
         let motion = self.reduce(motions(appearance.kind, appearance.change, place));
         if appearance.arrived() {
             self.start_arriving(
@@ -399,6 +462,64 @@ impl Transitions {
         ));
     }
 
+    /// `key`'s frame zooms at `now` from `from`, where it is drawn, to `to`, where it is
+    /// configured; `at` is where the surface is now. Until the end it is drawn in the rectangle
+    /// between them (`zooming`), with whatever frame it shows: its old one, stretched toward
+    /// `to`, until its client shows one of the new size, then that one. It ends once it is at
+    /// `to` (`zoom_shown`), or a while after if its client never shows that frame; and as soon as
+    /// it is anywhere else. A zoom of a window zooming begins from where it is drawn then.
+    pub fn zoom(
+        &mut self,
+        key: SurfaceKey,
+        kind: Kind,
+        from: Rect,
+        at: Rect,
+        to: Rect,
+        now: Duration,
+    ) {
+        let motion = self.reduce(motions(kind, Change::Zoomed, &Place::default()));
+        self.zooming.remove(&key);
+        if motion.duration.is_zero() || from == to {
+            return;
+        }
+        let id = self.begin(kind, Change::Zoomed);
+        self.zooming.insert(
+            key,
+            Zoom {
+                running: Running {
+                    id,
+                    kind,
+                    started: now,
+                    motion: Motion {
+                        shift: Shift::Between { from, to },
+                        ..motion
+                    },
+                },
+                at,
+                reached: at == to,
+                superseded: false,
+            },
+        );
+    }
+
+    /// Where `key` is drawn at `now` if it is zooming.
+    pub fn zooming(&self, key: SurfaceKey, now: Duration) -> Option<Rect> {
+        let zoom = self.zooming.get(&key)?;
+        Some(zoom_at(&zoom.running, now).place(zoom.at))
+    }
+
+    /// Where the frame being composed has `key` (its own rectangle): a zoom ends once the window
+    /// is where it was going, and is over if it is anywhere else but where it began.
+    pub fn zoom_shown(&mut self, key: SurfaceKey, rect: Rect) {
+        if let Some(zoom) = self.zooming.get_mut(&key) {
+            let Shift::Between { to, .. } = zoom.running.motion.shift else {
+                return;
+            };
+            zoom.reached = rect == to;
+            zoom.superseded |= rect != to && rect != zoom.at;
+        }
+    }
+
     /// A frame of the compositor's own (the session's splash on one screen, `index`) fades out
     /// over what is shown, 400 ms; it goes as a panel does, so a lock would drop it.
     pub fn fade(&mut self, index: u32, snapshot: Snapshot, now: Duration) {
@@ -456,7 +577,7 @@ impl Transitions {
     /// Forgets the transitions that ended by `now`; true if any runs (or ended, its last frame
     /// still to compose).
     pub fn advance(&mut self, now: Duration) -> bool {
-        let before = self.arriving.len() + self.going.len();
+        let before = self.arriving.len() + self.going.len() + self.zooming.len();
         let mut ended = Vec::new();
         self.arriving.retain(|_, running| {
             let runs = now.saturating_sub(running.started) < running.motion.duration;
@@ -469,6 +590,14 @@ impl Transitions {
             let runs = now.saturating_sub(running.started) < running.motion.duration;
             if !runs {
                 ended.push(running.id);
+            }
+            runs
+        });
+        self.zooming.retain(|_, zoom| {
+            let runs = !zoom.ends(now);
+            // Moved or resized again, it did not end: it was interrupted.
+            if !runs && !zoom.superseded {
+                ended.push(zoom.running.id);
             }
             runs
         });
@@ -494,6 +623,7 @@ impl Transitions {
                 .zip(self.going(now))
                 .map(|((_, running, _), (_, _, at))| (running.id, at.opacity)),
         );
+        drawn.extend(self.zooming.values().map(|zoom| (zoom.running.id, 255)));
         for (id, opacity) in drawn {
             if let Some(seen) = self.seen.get_mut(&id) {
                 seen.first.get_or_insert(opacity);
@@ -512,10 +642,11 @@ impl Transitions {
     pub fn lock(&mut self) {
         self.going
             .retain(|(_, running, _)| running.kind == Kind::Lock);
+        self.zooming.clear();
     }
 
     pub fn is_empty(&self) -> bool {
-        self.arriving.is_empty() && self.going.is_empty()
+        self.arriving.is_empty() && self.going.is_empty() && self.zooming.is_empty()
     }
 }
 
@@ -810,6 +941,91 @@ mod tests {
             t.arriving(KEY, start + Duration::from_millis(300)),
             Frame::WHOLE
         );
+    }
+
+    #[test]
+    fn a_zoom_draws_the_frame_between_its_rectangles_easing_out() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let from = Rect::new(190, 60, 900, 600);
+        let to = Rect::new(0, 32, 1280, 688);
+        t.zoom(KEY, Kind::Window, from, from, to, start);
+        let at = |t: &Transitions, ms| t.zooming(KEY, start + Duration::from_millis(ms)).unwrap();
+        // Where it was; halfway in time 87.5 % of the way (1 - 0.5³), each edge by its own
+        // distance, so width and height scale each by their own factor; then where it goes.
+        assert_eq!(at(&t, 0), from);
+        assert_eq!(at(&t, 125), Rect::new(24, 36, 1232, 677));
+        assert_eq!(at(&t, 250), to);
+        // Its client has not shown the new size yet: it is held there, its old frame stretched.
+        t.zoom_shown(KEY, from);
+        assert!(t.advance(start + Duration::from_millis(300)));
+        assert_eq!(at(&t, 300), to);
+        // Shown at its new size, it ends.
+        t.zoom_shown(KEY, to);
+        assert!(
+            t.advance(start + Duration::from_millis(310)),
+            "its last frame"
+        );
+        assert!(t.is_empty());
+        assert_eq!(t.zooming(KEY, start), None);
+        let seen = t.take_seen();
+        assert_eq!(
+            (seen[0].kind, seen[0].change, seen[0].ended),
+            (Kind::Window, Change::Zoomed, true)
+        );
+    }
+
+    #[test]
+    fn a_zoom_ends_where_its_window_is_if_never_answered_or_moved() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let (from, to) = (Rect::new(10, 10, 100, 100), Rect::new(0, 0, 400, 300));
+        t.zoom(KEY, Kind::Window, from, from, to, start);
+        t.zoom_shown(KEY, from);
+        assert!(t.advance(start + Duration::from_millis(1249)));
+        assert!(!t.is_empty(), "held a second past its end");
+        t.advance(start + Duration::from_millis(1250));
+        assert!(t.is_empty());
+        // Moved by hand as it zooms: over at once, interrupted.
+        t.take_seen();
+        t.zoom(KEY, Kind::Window, from, from, to, start);
+        t.zoom_shown(KEY, Rect::new(50, 10, 100, 100));
+        t.advance(start + Duration::from_millis(20));
+        assert!(t.is_empty());
+        assert!(!t.take_seen()[0].ended);
+        // A zoom of a window zooming begins where it is drawn.
+        t.zoom(KEY, Kind::Window, from, from, to, start);
+        let between = t.zooming(KEY, start + Duration::from_millis(100)).unwrap();
+        t.zoom(
+            KEY,
+            Kind::Window,
+            between,
+            from,
+            from,
+            start + Duration::from_millis(100),
+        );
+        assert_eq!(
+            t.zooming(KEY, start + Duration::from_millis(100)),
+            Some(between)
+        );
+    }
+
+    #[test]
+    fn with_reduce_motion_a_window_zooms_at_once() {
+        let mut t = Transitions::default();
+        t.set_reduce_motion(true);
+        let now = Duration::from_secs(1);
+        t.zoom(
+            KEY,
+            Kind::Window,
+            Rect::new(10, 10, 100, 100),
+            Rect::new(10, 10, 100, 100),
+            Rect::new(0, 0, 400, 300),
+            now,
+        );
+        assert!(t.is_empty());
+        assert_eq!(t.zooming(KEY, now), None);
+        assert!(t.take_seen().is_empty());
     }
 
     #[test]

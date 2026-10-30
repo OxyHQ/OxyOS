@@ -1,6 +1,7 @@
 //! Surfaces arriving and going, animated (docs/adr/0011-transitions.mdx), through real sockets
 //! on the compositor's clock set by the test: what each composed frame shows of a window as it
-//! arrives and goes, and that locking shows nothing of it going.
+//! arrives and goes, and that locking shows nothing of it going; and a window's frame zooming
+//! (docs/adr/0016-windows.mdx).
 
 use oxyos_client::Client;
 use oxyos_compositor::{Compositor, DESKTOP};
@@ -322,4 +323,203 @@ fn a_window_minimized_shrinks_into_the_dock_and_a_workspace_slides_aside() {
     }
     assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
     assert!(s.compositor.transitions.is_empty());
+}
+
+/// What the zooming test tells its application: ask to zoom (or restore), or answer the latest
+/// configure with a frame of that size.
+enum Ask {
+    Zoom(bool),
+    Answer,
+}
+
+/// The application's frames after its first are this colour (XRGB8888 bytes B, G, R, X).
+const NEW: u32 = 0x0030_6090;
+
+/// A compositor on its test clock with a white 200×100 window whose application zooms and answers
+/// configures only when told.
+fn zoom_session(name: &str) -> (Session, mpsc::Sender<Ask>) {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-transitions-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("compositor");
+    let listener = Listener::bind(&socket).unwrap();
+    let output = Rect::new(0, 0, 640, 480);
+    let mut scene = Scene::new();
+    scene
+        .add_output(Output {
+            id: 1,
+            rect: output,
+            scale_120: 120,
+            refresh_mhz: 60_000,
+        })
+        .unwrap();
+    let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&directory).unwrap());
+    let mut compositor = Compositor::new(scene, uid);
+    compositor.clock = Some(Duration::from_secs(100));
+    let (ask, asked) = mpsc::channel::<Ask>();
+    std::thread::spawn(move || {
+        let mut client = Client::connect(&socket).unwrap();
+        client
+            .send(&Request::CreateToplevel {
+                surface: 1,
+                size: Size::new(200, 100),
+            })
+            .unwrap();
+        let mut colour = [0xff; 4];
+        let mut latest = None;
+        let mut answer = true;
+        loop {
+            if answer {
+                while latest.is_none() {
+                    match client.next_event().unwrap() {
+                        Some(Event::Configure { serial, rect, .. }) => {
+                            latest = Some((serial, rect))
+                        }
+                        Some(_) => {}
+                        None => return,
+                    }
+                }
+                let (serial, rect) = latest.take().unwrap();
+                let pixels = colour.repeat((rect.width * rect.height) as usize);
+                client
+                    .present(1, serial, Size::new(rect.width, rect.height), &pixels)
+                    .unwrap();
+                colour = [0x90, 0x60, 0x30, 0xff];
+            }
+            match asked.recv() {
+                Ok(Ask::Zoom(enabled)) => {
+                    client
+                        .send(&Request::SetMaximized {
+                            surface: 1,
+                            enabled,
+                        })
+                        .unwrap();
+                    answer = false;
+                }
+                Ok(Ask::Answer) => answer = true,
+                Err(_) => return,
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while compositor.surface_rect(1, 1).is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "the window was not shown in time"
+        );
+        compositor.serve(&listener).unwrap();
+    }
+    let (destroy, _) = mpsc::channel();
+    (
+        Session {
+            compositor,
+            listener,
+            destroy,
+            _directory: TempDir(directory),
+        },
+        ask,
+    )
+}
+
+impl Session {
+    /// Where the frame composed last shows `colour`: its leftmost, topmost, rightmost and
+    /// bottommost pixels along the output's middle row and column, as a rectangle.
+    fn drawn(&self, colour: u32) -> Option<Rect> {
+        let row: Vec<i32> = (0..640)
+            .filter(|&x| self.compositor.pixel(x, 240) == colour)
+            .collect();
+        let column: Vec<i32> = (0..480)
+            .filter(|&y| self.compositor.pixel(320, y) == colour)
+            .collect();
+        let (left, right) = (*row.first()?, *row.last()?);
+        let (top, bottom) = (*column.first()?, *column.last()?);
+        Some(Rect::new(
+            left,
+            top,
+            (right - left + 1) as u32,
+            (bottom - top + 1) as u32,
+        ))
+    }
+
+    /// Serves at `ms` on the test's clock, every frame composed within its damage, until `done`
+    /// (the application's request handled, its frame shown).
+    fn serve_until(&mut self, ms: u64, done: &dyn Fn(&Compositor) -> bool) {
+        self.compositor.clock = Some(Duration::from_secs(100) + Duration::from_millis(ms));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !done(&self.compositor) {
+            assert!(
+                Instant::now() < deadline,
+                "the application did not answer in time"
+            );
+            assert!(self.damage_covers_changes(ms), "at {ms} ms");
+        }
+    }
+}
+
+#[test]
+fn a_zoom_draws_the_frame_between_and_ends_exactly_at_the_work_area() {
+    let (mut s, ask) = zoom_session("zoom");
+    let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
+    let from = Rect::new(220, 190, 200, 100);
+    // Arrived and whole, white where it is.
+    assert!(s.damage_covers_changes(200));
+    assert!(s.compositor.transitions.is_empty());
+    assert_eq!(s.drawn(WHITE), Some(from));
+    // Zoomed: the configure goes, and its old frame is drawn stretched toward the work area (the
+    // whole output: there are no panels), each edge by its own distance.
+    let serial = s.compositor.scene.configure_serial(window).unwrap();
+    ask.send(Ask::Zoom(true)).unwrap();
+    s.serve_until(200, &|c| c.scene.configure_serial(window) > Some(serial));
+    assert_eq!(s.drawn(WHITE), Some(from), "it starts where it was");
+    let between = |s: &Session, ms: u64| {
+        s.compositor
+            .transitions
+            .zooming(window, Duration::from_secs(100) + Duration::from_millis(ms))
+            .unwrap()
+    };
+    assert!(s.damage_covers_changes(260));
+    let at = s.drawn(WHITE).unwrap();
+    assert_eq!(at, between(&s, 260));
+    assert!(
+        at.x < from.x && at.width > from.width && at.width < 640,
+        "{at:?}"
+    );
+    assert!(
+        at.y < from.y && at.height > from.height && at.height < 480,
+        "{at:?}"
+    );
+    // Its client shows the new size: that frame, drawn in the rectangle between.
+    ask.send(Ask::Answer).unwrap();
+    s.serve_until(260, &|c| {
+        c.surface_rect(1, 1) == Some(Rect::new(0, 0, 640, 480))
+    });
+    assert!(s.damage_covers_changes(320));
+    let at = s.drawn(NEW).unwrap();
+    assert_eq!(at, between(&s, 320));
+    assert!(at.width < 640 && at.height < 480, "{at:?}");
+    assert_eq!(s.drawn(WHITE), None);
+    // It ends exactly at the work area, and the transition with it.
+    for ms in [380, 450] {
+        assert!(s.damage_covers_changes(ms), "at {ms} ms");
+    }
+    assert_eq!(s.drawn(NEW), Some(Rect::new(0, 0, 640, 480)));
+    assert!(s.damage_covers_changes(480));
+    assert!(s.compositor.transitions.is_empty());
+    let seen = s.compositor.transitions.take_seen();
+    let zoom = seen
+        .iter()
+        .find(|seen| seen.change == oxyos_compositor_core::AppearanceChange::Zoomed)
+        .unwrap();
+    assert!(zoom.ended && zoom.frames >= 4, "{zoom:?}");
+    // With reduce motion, restored at once: drawn where it was until the client answers, then
+    // where it goes.
+    s.compositor.transitions.set_reduce_motion(true);
+    let serial = s.compositor.scene.configure_serial(window).unwrap();
+    ask.send(Ask::Zoom(false)).unwrap();
+    s.serve_until(600, &|c| c.scene.configure_serial(window) > Some(serial));
+    assert!(s.compositor.transitions.is_empty());
+    assert_eq!(s.drawn(NEW), Some(Rect::new(0, 0, 640, 480)));
+    ask.send(Ask::Answer).unwrap();
+    s.serve_until(600, &|c| c.surface_rect(1, 1) == Some(from));
+    assert_eq!(s.drawn(NEW), Some(from));
 }

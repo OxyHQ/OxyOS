@@ -173,9 +173,7 @@ impl Scene {
             .nodes
             .get_mut(&key)
             .expect("resized windows are present");
-        let (origin, size) = node
-            .pending
-            .map_or((node.origin, node.size), |(_, origin, size)| (origin, size));
+        let (origin, size) = node.upcoming();
         // A window resized by hand is no longer zoomed.
         node.maximized = false;
         node.unzoomed = None;
@@ -226,10 +224,21 @@ impl Scene {
                 resize.origin.1
             },
         );
-        let latest = node
+        if node.upcoming() == (origin, size) {
+            return;
+        }
+        // One configure in flight, as a Wayland compositor resizes: while the client has not
+        // shown a frame for the last one, only the latest geometry is kept, and sent when it
+        // does (`end_frame`). The window shows its last frame where it was meanwhile, so the
+        // edges not dragged stay put frame by frame. A configure of the size shown (a new state,
+        // the same scale again) holds nothing: a client may have nothing new to draw for it.
+        if node
             .pending
-            .map_or((node.origin, node.size), |(_, origin, size)| (origin, size));
-        if latest != (origin, size) {
+            .is_some_and(|(_, _, pending)| pending != node.size)
+        {
+            let node = self.nodes.get_mut(&resize.surface).expect("live");
+            node.wanted = Some((origin, size));
+        } else {
             self.reconfigure(resize.surface, Some(origin), size);
         }
     }
@@ -262,7 +271,7 @@ impl Scene {
         if node.fullscreen {
             return Ok(());
         }
-        let size = node.pending.map_or(node.size, |(_, _, size)| size);
+        let size = node.upcoming().1;
         let clamped = node.limits.clamp(size);
         if clamped != size {
             self.reconfigure(key, None, clamped);
@@ -285,9 +294,7 @@ impl Scene {
         if node.maximized == enabled || node.fullscreen || self.locked {
             return Ok(());
         }
-        let current = node
-            .pending
-            .map_or((node.origin, node.size), |(_, origin, size)| (origin, size));
+        let current = node.upcoming();
         let (origin, size) = if enabled {
             let area = self
                 .work_area(node.output)
@@ -306,6 +313,8 @@ impl Scene {
         node.maximized = enabled;
         node.unzoomed = enabled.then_some(current);
         self.reconfigure(key, Some(origin), size);
+        // Its frame goes from where it is to where it is configured, animated (ADR 0016).
+        self.appeared(key, super::appearances::Change::Zoomed);
         Ok(())
     }
 
@@ -382,5 +391,18 @@ impl Scene {
     /// Whether a window is zoomed.
     pub fn is_maximized(&self, key: SurfaceKey) -> bool {
         self.live(key).is_some_and(|node| node.maximized)
+    }
+
+    /// Where a surface is going to be once its configures are presented (global), as a zoom's
+    /// transition ends there.
+    pub fn upcoming_rect(&self, key: SurfaceKey) -> Option<Rect> {
+        self.live(key)?;
+        self.global_rect_pending(key)
+    }
+
+    /// The serial of the latest configure a surface was sent.
+    pub fn configure_serial(&self, key: SurfaceKey) -> Option<u64> {
+        self.live(key)
+            .map(|node| node.presentation.configuration().0)
     }
 }

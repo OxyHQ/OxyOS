@@ -236,9 +236,15 @@ RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, c
 // equal (background, opacity, borders, clipping), whatever new props object a re-render made.
 // A text input, whose drawing reads many of its props, is the same only with the same props.
 bool drawsTheSame(const facebook::react::ShadowView& before, const facebook::react::ShadowView& after);
+// Whether a view's own drawing is a plain fill or nothing, whatever its size: a View with no
+// corners, borders or transform. Such a view resized in place changes only where it gained or
+// lost area (damage.h); what it draws under its children and clips them to is the same elsewhere.
+bool drawsFlat(const facebook::react::ShadowView& view);
 // Draws only the window's `damage` (window-local logical rectangles) onto `canvas`, which holds
-// the previous frame at this size: each rectangle is drawn again as a whole frame draws it. The
-// stats are the whole window's. A canvas of another size is drawn whole.
+// the previous frame: each rectangle is drawn again as a whole frame draws it. The stats are the
+// whole window's. A canvas of another size (the window resized at the same scale: WindowDamage
+// gives no damage at a new scale) keeps its pixels where both sizes have them, anchored at the top
+// left, and the damage holds the rest.
 RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit,
                         const std::vector<facebook::react::Rect>& damage);
 // Draws a popup view's children, relative to the popup, onto a transparent canvas of `display`'s

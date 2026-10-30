@@ -108,7 +108,8 @@ Tests check:
 The regression on the ThinkPad is unchanged, as it must be: the Bloom host sends no damage yet.
 
 **The Bloom host's damage (decision 5).** The host keeps the window's frame between frames. `damage.h` works out what changed from the tree as drawn:
-- a view new, gone, moved or resized, where it was and where it is;
+- a view new, gone, moved or resized, where it was and where it is; a plain fill resized in place (`drawsFlat`: no corners, borders or transform), only where it gained or lost area;
+- the window resized at the same scale, what it gained, its frame kept where both sizes overlap ([ADR 0016](./0016-windows), step 6); at a new scale, all of it;
 - a view drawn with other props, with its subtree. `drawsTheSame` compares the props `drawView` reads (background, opacity, borders, clipping), because a re-render makes new props objects with the same values;
 - a view with new state or children in a new order, with its subtree;
 - the text input whose caret or selection moved.
