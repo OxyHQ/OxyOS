@@ -89,6 +89,8 @@ INIT = r"""#!/bin/busybox sh
 mount -t proc proc /proc
 mount -t sysfs sys /sys
 mount -t devtmpfs dev /dev
+# Loopback, for tests serving themselves over 127.0.0.1; the guest has no other network.
+ip link set lo up
 for module in $(cat /modules); do insmod /lib/$module.ko || echo "gpu-vm: $module did not load"; done
 mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=512000 host /root || { cat /modules; cat /proc/filesystems | grep 9p; dmesg | tail -20; }
 . /config

@@ -11,7 +11,7 @@ use oxyos_dmabuf::{RenderNode, Timeline};
 use oxyos_ipc::{Connection, Listener};
 use oxyos_protocol::{ErrorCode, Event, Format, Outcome, Rect, Request, Size};
 use rustix::fd::AsFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
@@ -58,7 +58,7 @@ fn serve_until(
 }
 
 /// A connection past its handshake, and the events that came with Welcome.
-fn connect(socket: &PathBuf) -> (Connection, Vec<Event>) {
+fn connect(socket: &Path) -> (Connection, Vec<Event>) {
     let connection = Connection::connect(socket).unwrap();
     connection.set_timeouts(Duration::from_secs(20)).unwrap();
     connection
@@ -452,12 +452,15 @@ fn a_frame_waits_for_its_acquire_point_composed_on_the_gpu_too() {
     }
 }
 
+/// What a refused client sends, given a DMA-BUF it may use.
+type Sends = fn(&Connection, &oxyos_dmabuf::DmaBuf);
+
 #[test]
 fn what_the_compositor_does_not_take_fails_the_connection() {
     if !gpu_path() {
         return;
     }
-    let cases: Vec<(&str, fn(&Connection, &oxyos_dmabuf::DmaBuf), ErrorCode)> = vec![
+    let cases: Vec<(&str, Sends, ErrorCode)> = vec![
         (
             "a memfd as a plane",
             |connection, _| {
