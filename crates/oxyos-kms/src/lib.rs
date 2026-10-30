@@ -25,11 +25,16 @@ pub use edid::{identity_safe, Edid};
 mod hotplug;
 pub use hotplug::Hotplug;
 
-/// A DMA-BUF imported through PRIME, as `add_planar_framebuffer` takes it.
+/// A DMA-BUF imported through PRIME, as `add_planar_framebuffer` takes it: up to four planes,
+/// each its buffer handle, pitch and offset, in a format with a modifier.
 struct Imported {
-    handle: drm::buffer::Handle,
+    handles: [Option<drm::buffer::Handle>; 4],
     size: (u32, u32),
-    pitch: u32,
+    format: DrmFourcc,
+    /// None: the framebuffer names no modifier (a linear buffer on a card without modifiers).
+    modifier: Option<u64>,
+    pitches: [u32; 4],
+    offsets: [u32; 4],
 }
 
 impl drm::buffer::PlanarBuffer for Imported {
@@ -37,20 +42,28 @@ impl drm::buffer::PlanarBuffer for Imported {
         self.size
     }
     fn format(&self) -> DrmFourcc {
-        DrmFourcc::Xrgb8888
+        self.format
     }
     fn modifier(&self) -> Option<drm_fourcc::DrmModifier> {
-        Some(drm_fourcc::DrmModifier::Linear)
+        self.modifier.map(drm_fourcc::DrmModifier::from)
     }
     fn pitches(&self) -> [u32; 4] {
-        [self.pitch, 0, 0, 0]
+        self.pitches
     }
     fn handles(&self) -> [Option<drm::buffer::Handle>; 4] {
-        [Some(self.handle), None, None, None]
+        self.handles
     }
     fn offsets(&self) -> [u32; 4] {
-        [0; 4]
+        self.offsets
     }
+}
+
+/// One plane of a DMA-BUF to scan out: its descriptor, where it starts and its pitch.
+#[derive(Clone, Copy, Debug)]
+pub struct DmabufPlane<'a> {
+    pub fd: BorrowedFd<'a>,
+    pub offset: u32,
+    pub pitch: u32,
 }
 
 /// An open DRM card. Its displays share it, and its events: the flips read for one CRTC wait here
@@ -58,6 +71,8 @@ impl drm::buffer::PlanarBuffer for Imported {
 pub struct Card {
     file: File,
     flips: RefCell<Vec<(drm::control::crtc::Handle, Duration)>>,
+    /// Its render node's device number, once looked up (`render_node`).
+    render: std::cell::OnceCell<Option<u64>>,
 }
 
 impl AsFd for Card {
@@ -207,6 +222,7 @@ impl Card {
         let card = Self {
             file: File::from(fd),
             flips: RefCell::new(Vec::new()),
+            render: std::cell::OnceCell::new(),
         };
         card.set_client_capability(ClientCapability::UniversalPlanes, true)?;
         card.set_client_capability(ClientCapability::Atomic, true)?;
@@ -223,17 +239,110 @@ impl Card {
         height: u32,
         pitch: u32,
     ) -> io::Result<drm::control::framebuffer::Handle> {
-        let handle = self.prime_fd_to_buffer(fd)?;
-        let buffer = Imported {
-            handle,
+        self.import_dmabuf_planes(
+            &[DmabufPlane {
+                fd,
+                offset: 0,
+                pitch,
+            }],
+            width,
+            height,
+            DrmFourcc::Xrgb8888,
+            0,
+        )
+    }
+
+    /// Imports a DMA-BUF of `width` × `height` in `format` with `modifier`, its planes as given
+    /// (up to four), as a framebuffer: a client's buffer scanned out directly
+    /// (docs/adr/0031-gpu-buffers.mdx, decision 8). The kernel checks the layout against the
+    /// buffer and the modifier against the card.
+    pub fn import_dmabuf_planes(
+        &self,
+        planes: &[DmabufPlane<'_>],
+        width: u32,
+        height: u32,
+        format: DrmFourcc,
+        modifier: u64,
+    ) -> io::Result<drm::control::framebuffer::Handle> {
+        if planes.is_empty() || planes.len() > 4 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a framebuffer has 1 to 4 planes",
+            ));
+        }
+        let mut imported = Imported {
+            handles: [None; 4],
             size: (width, height),
-            pitch,
+            format,
+            modifier: Some(modifier),
+            pitches: [0; 4],
+            offsets: [0; 4],
         };
-        let framebuffer =
-            self.add_planar_framebuffer(&buffer, drm::control::FbCmd2Flags::MODIFIERS);
-        // The framebuffer keeps its own reference to the buffer.
-        let _ = self.close_buffer(handle);
+        let mut handles = Vec::new();
+        let mut result = Ok(());
+        for (index, plane) in planes.iter().enumerate() {
+            match self.prime_fd_to_buffer(plane.fd) {
+                Ok(handle) => {
+                    imported.handles[index] = Some(handle);
+                    imported.pitches[index] = plane.pitch;
+                    imported.offsets[index] = plane.offset;
+                    handles.push(handle);
+                }
+                Err(error) => {
+                    result = Err(error);
+                    break;
+                }
+            }
+        }
+        // A card without modifiers (virtio-gpu's) takes a linear buffer without naming one.
+        let modifiers = self
+            .get_driver_capability(drm::DriverCapability::AddFB2Modifiers)
+            .is_ok_and(|value| value == 1);
+        let flags = if modifiers || modifier != 0 {
+            drm::control::FbCmd2Flags::MODIFIERS
+        } else {
+            imported.modifier = None;
+            drm::control::FbCmd2Flags::empty()
+        };
+        let framebuffer = result.and_then(|()| self.add_planar_framebuffer(&imported, flags));
+        // The framebuffer keeps its own references to the buffers (planes of one buffer share a
+        // handle, closed once).
+        handles.sort_by_key(|&handle| u32::from(handle));
+        handles.dedup();
+        for handle in handles {
+            let _ = self.close_buffer(handle);
+        }
         framebuffer
+    }
+
+    /// Removes a framebuffer made by `import_dmabuf_planes`.
+    pub fn remove_framebuffer(&self, framebuffer: drm::control::framebuffer::Handle) {
+        let _ = self.destroy_framebuffer(framebuffer);
+    }
+
+    /// The device number (`st_rdev`) of this card's render node, from sysfs
+    /// (`/sys/dev/char/MAJOR:MINOR/device/drm/renderD*/dev`); none when it has none.
+    pub fn render_node(&self) -> Option<u64> {
+        *self.render.get_or_init(|| {
+            let stat = rustix::fs::fstat(&self.file).ok()?;
+            let (major, minor) = (
+                rustix::fs::major(stat.st_rdev),
+                rustix::fs::minor(stat.st_rdev),
+            );
+            let drm = std::path::PathBuf::from(format!("/sys/dev/char/{major}:{minor}/device/drm"));
+            std::fs::read_dir(drm)
+                .ok()?
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("renderD"))
+                .find_map(|entry| {
+                    let dev = std::fs::read_to_string(entry.path().join("dev")).ok()?;
+                    let (major, minor) = dev.trim().split_once(':')?;
+                    Some(rustix::fs::makedev(
+                        major.parse().ok()?,
+                        minor.parse().ok()?,
+                    ))
+                })
+        })
     }
 
     /// The kernel driver's name (for example `i915`).
