@@ -1,0 +1,332 @@
+{
+  "about": "The idle lock (ADR 0010, step 4) with the session's shell and an application, at the default lock_after of five minutes. The development compositor's idle lock counts the seconds an `idle` step names as passed with no input, at once, on top of the real time the run takes (a minute is left for it). Four minutes lock nothing; a press in the window arms the lock again from it; five minutes with no input lock the session, as the shell's menu does, showing only the lock screen; locked, more time locks nothing again; unlocked by the password, five minutes from the unlock lock it again.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "lock_password": "oxyos.correcta",
+  "steps": [
+    {
+      "name": "four minutes with no input, short of the default lock_after (five): nothing locks",
+      "allow_unchanged": true,
+      "do": [
+        "idle",
+        240
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "window_shown": true,
+        "react": {}
+      }
+    },
+    {
+      "name": "a press in the window is the person's input: the idle lock is armed again from it",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        }
+      }
+    },
+    {
+      "name": "another four minutes: still unlocked, eight minutes after the start but four after the press",
+      "allow_unchanged": true,
+      "do": [
+        "idle",
+        240
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "window_shown": true,
+        "react": {}
+      }
+    },
+    {
+      "name": "one more minute, five with no input: the session locks, only the lock screen shown, its field focused",
+      "do": [
+        "idle",
+        60
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "window_shown": false,
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña"
+          ]
+        },
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "lock",
+              "arriving": true,
+              "first": 0,
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an hour more, locked: nothing locks again, nothing changes",
+      "allow_unchanged": true,
+      "do": [
+        "idle",
+        3600
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "window_shown": false,
+        "react": {}
+      }
+    },
+    {
+      "name": "the password unlocks: the panels and the window as they were",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "window_shown": true,
+        "react": {},
+        "in_shell": {
+          "never": [
+            "oxyos.correcta"
+          ]
+        },
+        "never": [
+          "oxyos.correcta"
+        ]
+      }
+    },
+    {
+      "name": "four minutes after the unlock: nothing locks",
+      "allow_unchanged": true,
+      "do": [
+        "idle",
+        240
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "window_shown": true,
+        "react": {}
+      }
+    },
+    {
+      "name": "five minutes after it: the session locks again",
+      "do": [
+        "idle",
+        60
+      ],
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "window_shown": false,
+        "react": {}
+      }
+    }
+  ]
+}

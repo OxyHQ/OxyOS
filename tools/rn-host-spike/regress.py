@@ -126,7 +126,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "grab", "key", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal"}
+             "expect_popup", "switch_terminal", "idle"}
 
 
 def director_args(step):
@@ -181,6 +181,9 @@ def director_args(step):
         return args + ["--a11y-action", f"{value[0]},{value[1]}"]
     if kind == "scale":
         return args + ["--scale", str(value)]
+    if kind == "idle":
+        # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
+        return args + ["--idle", str(value)]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
     if kind == "expect-popup":

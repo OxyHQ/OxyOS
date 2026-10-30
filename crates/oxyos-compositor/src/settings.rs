@@ -1,6 +1,6 @@
 //! The user's preferences while a session runs (docs/adr/0019-settings.mdx), for the program
 //! running the compositor: the session authority, and the preferences file's one writer. It
-//! applies them (reduce motion to the transitions), tells the scene what they are (every client
+//! applies them (reduce motion to the transitions, `lock_after` to the idle lock), tells the scene what they are (every client
 //! the ones it draws with, Settings every one) and takes the changes Settings asks for: each is
 //! validated, written to the file whole, applied and told, or refused with nothing changed.
 //!
@@ -8,8 +8,8 @@
 //! zone is (`oxyos-solar`), looked at again only when the sun next crosses it; where the time zone
 //! has no place (UTC) it is light.
 //!
-//! `lock_after` is kept and told, and nothing follows it yet: the session has no idle lock.
-//! `screen_reader` is the program's to follow ([`Settings::serve`] says it changed): it alone
+//! `lock_after` is the idle lock's (idle.rs): changed, its deadline is armed again from the
+//! change. `screen_reader` is the program's to follow ([`Settings::serve`] says it changed): it alone
 //! starts and stops its reader.
 
 use crate::Compositor;
@@ -95,6 +95,7 @@ impl Settings {
         compositor
             .transitions
             .set_reduce_motion(preferences.reduce_motion);
+        compositor.set_lock_after(preferences.lock_after);
         let drawing = DrawingPreferences {
             dark,
             reduce_motion: preferences.reduce_motion,
@@ -327,6 +328,36 @@ mod tests {
         assert_eq!(told(&mut compositor, APP).0, [(true, false)]);
         settings.serve(&mut compositor, sunrise + 86_400);
         assert!(told(&mut compositor, APP).0.is_empty());
+    }
+
+    #[test]
+    fn lock_after_is_the_idle_locks_and_a_change_arms_it_again() {
+        let minute = std::time::Duration::from_secs(60);
+        let mut compositor = compositor();
+        compositor.clock = Some(100 * minute);
+        let mut settings = Settings::new(Preferences::default(), None, None);
+        settings.apply(&mut compositor, DAY);
+        assert_eq!(compositor.idle.deadline(), Some(105 * minute));
+        // Four minutes on, Settings makes it one: a minute from the change.
+        compositor.clock = Some(104 * minute);
+        ask(&mut compositor, 1, "lock_after=1");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["lock_after"]);
+        assert_eq!(compositor.idle.deadline(), Some(105 * minute));
+        // Another preference changing does not arm it again.
+        compositor.clock = Some(104 * minute + minute / 2);
+        ask(&mut compositor, 2, "reduce_motion=true");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["reduce_motion"]);
+        assert_eq!(compositor.idle.deadline(), Some(105 * minute));
+        compositor.clock = Some(105 * minute - std::time::Duration::from_nanos(1));
+        compositor.follow_idle();
+        assert!(!compositor.scene.is_locked());
+        compositor.clock = Some(105 * minute);
+        compositor.follow_idle();
+        assert!(compositor.scene.is_locked());
+        // 0 takes it away.
+        ask(&mut compositor, 3, "lock_after=0");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(compositor.idle.deadline(), None);
     }
 
     #[test]

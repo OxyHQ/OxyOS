@@ -255,6 +255,7 @@ impl Scene {
     /// compositor shortcuts come first; then, while the input method serves a field, it receives the key and the key waits
     /// for its answer; otherwise the key, then its text, go to the focused surface.
     pub fn keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
+        self.user_input();
         if self.reader_key(key, pressed) {
             return;
         }

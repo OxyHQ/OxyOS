@@ -107,7 +107,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - a change is validated, written whole, applied (reduce motion to the transitions) and told; one that cannot be written is refused, and nothing changes;
      - an automatic appearance is dark while the sun is below the horizon where the system's time zone is (`oxyos_solar::night_at`), looked at again only when it next crosses it; it is light where the zone has no place.
 
-     `oxyos-session` uses it with the user's file, and starts or stops its reader when `screen_reader` changes. `lock_after` is kept and told, but nothing follows it: the session has no idle lock yet. The development compositor plays the session with `--preferences FILE` (never the developer's own file). For scenarios, whose entries are the developer's, it has a fixture, `--grant-settings ID`.
+     `oxyos-session` uses it with the user's file, and starts or stops its reader when `screen_reader` changes. `lock_after` is kept and told, and the idle lock follows it ([ADR 0010](./0010-lock-screen), step 4): a change arms it again from the change. The development compositor plays the session with `--preferences FILE` (never the developer's own file). For scenarios, whose entries are the developer's, it has a fixture, `--grant-settings ID`.
 
    Tests:
    - **The trust rule,** over a described filesystem: each way someone else could change the entry refuses it (the user's entry; an entry or directory its group or anyone may write; a link as the entry or on the way). Over the real one, a user's entry and a link to it are not trusted.

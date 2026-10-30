@@ -115,6 +115,9 @@ pub enum Step {
     /// (the console's keyboard, a desktop). Both switches must happen and the frame be shown
     /// again.
     SwitchTerminal(u16),
+    /// No input for this many seconds: the idle lock counts them as passed at once, as if the
+    /// person had left the machine alone that long (ADR 0010). Its own time; nothing waits.
+    Idle(u64),
 }
 
 /// The points of a drag on the output after its first: eight even steps to its last.
@@ -176,6 +179,7 @@ impl Step {
             Step::Scale(scale) => format!("output scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
+            Step::Idle(seconds) => format!("{seconds} s with no input"),
         }
     }
 
@@ -257,6 +261,7 @@ impl Step {
             Step::Scale(scale) => format!("\"scale\":{scale}"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
+            Step::Idle(seconds) => format!("\"idle\":{seconds}"),
         }
     }
 }
@@ -355,7 +360,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
                      -- COMMAND [ARGS]...";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
@@ -597,6 +602,10 @@ impl Launch {
                         custom,
                         selection,
                     }
+                }
+                Some("--idle") => {
+                    let seconds = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Idle(seconds.parse()?)
                 }
                 Some("--scale") => {
                     let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
@@ -1717,6 +1726,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             client: CLIENT,
             id: WINDOW,
         }),
+        // No input: the idle lock's time passes, and the next turn follows it.
+        Step::Idle(seconds) => compositor.idle.pass(Duration::from_secs(*seconds)),
         Step::Scale(scale) => compositor
             .scene
             .set_output_scale(OUTPUT_ID, *scale)
@@ -2355,6 +2366,8 @@ mod tests {
             "10,20,90,100",
             "--scale",
             "180",
+            "--idle",
+            "300",
             "--move-window",
             "-10,5",
             "--resize-window",
@@ -2379,7 +2392,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -2435,6 +2448,7 @@ mod tests {
                     to: (90, 100)
                 },
                 Step::Scale(180),
+                Step::Idle(300),
                 Step::MoveWindow { dx: -10, dy: 5 },
                 Step::ResizeWindow {
                     width: 800,
