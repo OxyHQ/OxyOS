@@ -116,7 +116,7 @@ void PopupHost::sync(uint64_t serial) {
   std::set<Tag> mounted;
   for (const auto& [tag, entry] : tree_.views()) {
     const auto& view = entry.view;
-    if (std::string(view.componentName ? view.componentName : "") != kPopupComponent) continue;
+    if (!view.componentName || std::strcmp(view.componentName, kPopupComponent) != 0) continue;
     mounted.insert(tag);
     if (auto open = popups_.find(tag); open != popups_.end()) {
       // An open popup follows its anchor and its content's size: place it again when either
