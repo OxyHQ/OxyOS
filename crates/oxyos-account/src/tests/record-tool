@@ -1,0 +1,4 @@
+#!/bin/sh
+# A passwd tool's stand-in for the tests (users.rs, `recording_tools`): run through a link named
+# for the tool, it writes down how it was run beside that link ($0.record), and succeeds.
+{ echo "args: $*"; echo "env: $(env | sort | tr '\n' ' ')"; echo "stdin: $(cat)"; } > "$0.record"

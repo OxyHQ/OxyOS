@@ -1,0 +1,73 @@
+# oxyos-accountd: the Oxy accounts set up on the machine (docs/adr/0020-oxy-account-login.mdx).
+# It runs as root, because it makes users and sets their verifiers with the system's tools
+# (useradd, chpasswd, userdel), and is confined to what that needs: its own state, the user
+# database, the homes it makes, and the network to Oxy's API.
+#
+# Not installed by the image yet (ADR 0020, step 2 brings the login program that uses it).
+
+[Unit]
+Description=OxyOS accounts
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0020-oxy-account-login.mdx
+After=network.target nss-user-lookup.target
+Wants=nss-user-lookup.target
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/oxyos-accountd
+Restart=on-failure
+RestartSec=1s
+UMask=0077
+
+# Its own: /var/lib/oxyos/accounts (0700) and the socket's directory, /run/oxyos/accountd.
+StateDirectory=oxyos/accounts
+StateDirectoryMode=0700
+RuntimeDirectory=oxyos/accountd
+RuntimeDirectoryMode=0755
+
+# The file system is read-only but for what it writes:
+# - /etc: useradd, chpasswd (through pam_unix) and userdel replace passwd, shadow, group and
+#   gshadow by renaming a new file over the old one in /etc, and take /etc/.pwd.lock; a single
+#   file cannot be bound writable for that, so the directory is;
+# - /home: the homes it makes and removes. ProtectHome=tmpfs hides every home, /root and
+#   /run/user, and BindPaths gives /home back alone;
+# - lastlog and faillog, where they exist: useradd resets a new uid's entries (LOG_INIT), so a
+#   uid used before does not show its last user's logins.
+# Nothing else: useradd makes no mail spool on Debian (CREATE_MAIL_SPOOL=no).
+ProtectSystem=strict
+ReadWritePaths=/etc -/var/log/lastlog -/var/log/faillog
+ProtectHome=tmpfs
+BindPaths=/home
+
+# Root, and only the capabilities making users needs: owning a home and its skeleton's files to
+# the new user, and reaching into a user's home to remove it.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_FSETID
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateIPC=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+
+# Its socket, and HTTPS to Oxy's API.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+# @system-service holds @chown, which making a home needs: so @privileged, which holds it too, is
+# not taken away.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

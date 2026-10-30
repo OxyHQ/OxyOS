@@ -1,0 +1,13 @@
+[package]
+name = "oxyos-accountd"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-account = { path = "../../crates/oxyos-account" }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+
+[lints]
+workspace = true
