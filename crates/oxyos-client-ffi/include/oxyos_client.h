@@ -44,6 +44,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_LOCK_STATE 44
 #define OXYOS_EVENT_AUTHENTICATION_RESULT 45
 #define OXYOS_EVENT_CAPS_LOCK 46
+#define OXYOS_EVENT_LAUNCH_RESULT 49
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -293,6 +294,10 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
  * returns. */
 int oxyos_client_create_lock_surface(OxyOSClient* client, uint32_t surface, uint32_t output);
 int oxyos_client_lock_session(OxyOSClient* client);
+/* The session's shell asks for the application `id` (1 to 128 bytes of UTF-8) of the session's
+ * registry (docs/adr/0013-launching-applications.mdx). A LAUNCH_RESULT answers: code, `serial`;
+ * flag, whether it was started. */
+int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, size_t length);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
 /* Focuses (and restores, showing its workspace), closes (the application is asked), minimizes or
  * moves (to `workspace`) the window numbered `window`; activates, adds or removes a workspace. */

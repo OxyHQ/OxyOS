@@ -167,3 +167,64 @@ fn a_dock_place_is_a_number_from_one() {
     assert_eq!(entry("3").unwrap().unwrap().pinned, Some(3));
     assert!(entry("0").is_err() && entry("true").is_err());
 }
+
+#[test]
+fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
+    let out = std::env::temp_dir().join(format!("oxyos-apps-launched-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let dir = Directory::new(
+        "launch",
+        &[(
+            "so.oxy.writer.desktop",
+            &format!(
+                "[Desktop Entry]\nType=Application\nName=Writer\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_COMPOSITOR_SOCKET ${{DISPLAY:-none}} > {}\"\n",
+                out.display()
+            ),
+        )],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]);
+    assert!(launcher.launch("so.oxy.none").is_err());
+    let pid = launcher.launch("so.oxy.writer").unwrap();
+    assert_eq!(launcher.application_of(pid), Some("so.oxy.writer"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(launcher.application_of(pid), None);
+    // It was told its id and the compositor, and no other display.
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        "so.oxy.writer /run/oxyos-test none"
+    );
+    let _ = std::fs::remove_file(&out);
+    // A Bloom application needs the session's host and a bundle.
+    let bloom = parse("so.oxy.allo", ALLO, Path::new("/apps"), &[])
+        .unwrap()
+        .unwrap();
+    assert!(command(&bloom, &launcher.runtime).is_err());
+    let runtime = Runtime {
+        bloom_host: Some("/opt/oxyos-bloom-host".into()),
+        bloom_bundle: Some("/opt/bundle/index.js".into()),
+        ..launcher.runtime.clone()
+    };
+    let command = command(&bloom, &runtime).unwrap();
+    assert_eq!(command.get_program(), "/opt/oxyos-bloom-host");
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        [
+            "/opt/bundle/index.js",
+            "EditingProbe",
+            "--window",
+            "960",
+            "600"
+        ]
+    );
+}

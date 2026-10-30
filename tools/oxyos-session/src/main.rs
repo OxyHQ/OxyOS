@@ -24,6 +24,11 @@
 //! that exits while the session is locked is started again, at most once a second: until it
 //! shows the lock screen, the compositor's covers are all there is to see.
 //!
+//! The shell's dock and launcher start applications (docs/adr/0013-launching-applications.mdx):
+//! the shell asks for an id, and the session starts it if its registry (`oxyos-apps`) lists it, a
+//! Bloom application with the Bloom host `OXYOS_BLOOM_HOST` names and the bundle
+//! `OXYOS_BLOOM_BUNDLE` names when its entry has none.
+//!
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
 //! (`--pointer`, every shape its `Install.inf` names) closest to SIZE pixels (32 by default).
@@ -240,8 +245,39 @@ fn main() -> Result<()> {
         ),
         None => None,
     };
+    // The applications the shell asks for (ADR 0013).
+    let env_path = |name| std::env::var_os(name).map(PathBuf::from);
+    let mut launcher = oxyos_apps::Launcher::new(
+        oxyos_apps::Runtime {
+            socket: socket.clone(),
+            bloom_host: env_path("OXYOS_BLOOM_HOST"),
+            bloom_bundle: env_path("OXYOS_BLOOM_BUNDLE"),
+            window: (960, 600),
+            env: Vec::new(),
+        },
+        oxyos_apps::directories(),
+        oxyos_apps::languages(),
+    );
     let mut shell_started = Instant::now();
     let ended = loop {
+        for id in launcher.reap() {
+            eprintln!("[session] {id} exited");
+        }
+        for request in compositor.scene.take_launches() {
+            let launched = match launcher.launch(&request.id) {
+                Ok(pid) => {
+                    eprintln!("[session] started {} ({pid})", request.id);
+                    true
+                }
+                Err(error) => {
+                    eprintln!("[session] not started: {error}");
+                    false
+                }
+            };
+            compositor
+                .scene
+                .launched(request.client, request.serial, launched);
+        }
         if let Some(status) = application
             .as_mut()
             .map(|application| application.try_wait())
@@ -287,6 +323,7 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    launcher.end(Duration::from_secs(2));
     if let Some(shell) = shell.as_mut() {
         end(shell)?;
     }

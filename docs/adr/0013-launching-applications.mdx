@@ -6,7 +6,7 @@ order: 22
 
 # ADR 0013: Launching applications
 
-Status: **accepted**; step 1 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
+Status: **accepted**; steps 1 and 2 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
 
 ## Problem
 
@@ -24,6 +24,7 @@ The dock and the launcher show a fixture's list, and pressing one launches nothi
 
    *Done.* `crates/oxyos-apps` reads entries (the `[Desktop Entry]` group, escapes, localized `Name[ll_CC]`/`Name[ll]` from the session's locale, `Exec` split as the specification quotes it with field codes refused, `NoDisplay`/`Hidden`, `X-OxyOS-Pinned` as the application's place in the dock from 1), the first directory's entry for an id winning; `oxyos_applications` gives them to the Bloom host as JSON, and its shell state carries them (`applications`, icons as a file or an SVG's drawing); the shell's dock and launcher show them, kept ones by their place first. An application with no icon is not shown: the shell draws only an application's own artwork. The development registry (`tools/rn-host-spike/applications`) lists what runs: Inbox (the sample's inbox) and Allo (text editing). Scenarios with a shell use it alone (`XDG_DATA_DIRS`), and their dock and launcher are the registry's.
 2. **Launching.** `LaunchApplication`/`LaunchResult` in the protocol and the C ABI; `take_launch`; `oxyos-session` and the development compositor starting entries; the shell's `activateApp` launching an application with no window. A scenario launches one from the dock and checks its window appears and the dock marks it running.
+   *Done.* `LaunchApplication` (request 58: the shell's serial and the id in chunks) and `LaunchResult` (event 49) in the protocol, `oxyos_client_launch` and `OXYOS_EVENT_LAUNCH_RESULT` in the C ABI. The scene accepts it from the `shell` grant alone, chunk by chunk, and hands it whole (`take_launches`) to the program running it, which answers (`launched`); a shell that goes takes its unanswered requests. `oxyos_apps::Launcher` starts an id only if the registry lists it: an `Exec` as given, a Bloom application with the session's Bloom host (`OXYOS_BLOOM_HOST`) and its bundle or the session's (`OXYOS_BLOOM_BUNDLE`), each with `OXYOS_COMPOSITOR_SOCKET`, its id and name, and no other display; it reaps what exits and stops the rest with the session. `oxyos-session` and the development compositor (with the shell's own host and bundle) use it. The shell's `activateApp` focuses an application's newest window, or asks for it when it has none. `scenarios/launch-application.json` presses Inbox in the dock: the session starts it, its window shows and the dock marks it running; with nothing started it fails.
 3. **Launch records.** Peer pids matched to launches; windows of a launched process carry the registry's id; tests with a process claiming another id.
 
 ## Not in this decision

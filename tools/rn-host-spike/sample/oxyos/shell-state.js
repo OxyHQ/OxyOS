@@ -46,6 +46,9 @@ export function useOxyOSShell() {
     removeWorkspace: (workspace) => native?.removeWorkspace(workspace),
     authentication,
     lockSession: () => native?.lockSession(),
+    // Asks the session for an application of its registry (ADR 0013): the request's serial (0:
+    // not sent); `OxyOSShellLaunch` says whether it was started.
+    launch: (id) => native?.launch(id) ?? 0,
     authenticate: (password) => native?.authenticate(password) ?? false,
   };
 }

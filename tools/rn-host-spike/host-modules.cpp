@@ -255,6 +255,11 @@ std::shared_ptr<TurboModule> createHostModule(
         return jsi::Value::undefined();
       });
     }
+    module->method("launch", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.launch: an application id");
+      return jsi::Value(static_cast<double>(services.shell.launch(args[0].asString(rt).utf8(rt))));
+    });
     module->method("lockSession", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
       ready(rt);
       services.shell.lock();

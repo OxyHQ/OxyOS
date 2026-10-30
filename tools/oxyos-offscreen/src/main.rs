@@ -100,6 +100,9 @@ struct Session {
     ime: Option<ime::Ime>,
     /// With `--launch`: the assistive technology the session plays (reader.rs).
     reader: reader::Reader,
+    /// With `--launch --shell`: the applications the shell asks for, started from the registry
+    /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
+    launcher: Option<oxyos_apps::Launcher>,
 }
 
 impl Session {
@@ -133,7 +136,28 @@ impl Session {
             _cleanup: cleanup,
             ime: None,
             reader: reader::Reader::default(),
+            launcher: None,
         })
+    }
+
+    /// Starts the applications the shell asked for that the registry lists, and answers it.
+    fn serve_launches(&mut self) {
+        let Some(launcher) = self.launcher.as_mut() else {
+            return;
+        };
+        launcher.reap();
+        for request in self.compositor.scene.take_launches() {
+            let launched = match launcher.launch(&request.id) {
+                Ok(_) => true,
+                Err(error) => {
+                    eprintln!("[launch] {error}");
+                    false
+                }
+            };
+            self.compositor
+                .scene
+                .launched(request.client, request.serial, launched);
+        }
     }
 
     /// Closes every connection, waits for the clients to exit, and checks that no scene
@@ -142,6 +166,10 @@ impl Session {
         let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
         for client in clients {
             self.compositor.disconnect(client);
+        }
+        // Applications the shell launched end with the session, as their connections did.
+        if let Some(launcher) = self.launcher.as_mut() {
+            launcher.end(std::time::Duration::from_secs(5));
         }
         for child in &mut children.0 {
             let status = child.wait()?;

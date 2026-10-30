@@ -140,6 +140,10 @@ void Window::openLockSurface(uint32_t id) {
   surfaces_[id] = Surface{};
 }
 
+bool Window::launch(uint32_t serial, const std::string& id) {
+  return oxyos_client_launch(client_, serial, id.data(), id.size()) == 0;
+}
+
 void Window::lockSession() {
   if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
 }

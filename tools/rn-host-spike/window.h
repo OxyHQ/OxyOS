@@ -84,6 +84,9 @@ class Window {
   // longer than 512 bytes). The compositor's AUTHENTICATION_RESULT answers.
   void openLockSurface(uint32_t id);
   void lockSession();
+  // The session's shell asks for an application of the registry (ADR 0013); a LAUNCH_RESULT with
+  // `serial` answers. False if it could not be sent.
+  bool launch(uint32_t serial, const std::string& id);
   bool authenticate(uint32_t id, const std::string& secret);
   // Where a surface takes input: a surface-local logical rectangle.
   void setInputRegion(uint32_t id, const OxyOSRect& region);

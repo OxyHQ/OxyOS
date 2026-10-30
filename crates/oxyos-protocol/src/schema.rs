@@ -164,6 +164,10 @@ messages! {
         // (`index` 0 begins it, `last` sends it) for assistive technologies.
         56 => AccessibleSelection { surface: u32, index: u32, start: u32, end: u32 },
         57 => AccessibilityAnnounce { surface: u32, index: u8, last: bool, politeness: Politeness, text: PreeditText },
+        // The session's shell (its `shell` grant) asks the session to start an application of
+        // its registry by id (ADR 0013), in chunks as SetAppId's; `serial`, the shell's own,
+        // names the request in LaunchResult. The session starts only what its registry lists.
+        58 => LaunchApplication { serial: u32, index: u8, last: bool, text: PreeditText },
     }
 }
 
@@ -253,6 +257,8 @@ messages! {
         // being sent, and an application's announcement, chunk by chunk as it was sent.
         47 => AccessibleSelection { client: u32, surface: u32, index: u32, start: u32, end: u32 },
         48 => AccessibilityAnnouncement { client: u32, surface: u32, index: u8, last: bool, politeness: Politeness, text: PreeditText },
+        // To the shell: whether the application its LaunchApplication `serial` named was started.
+        49 => LaunchResult { serial: u32, launched: bool },
     }
 }
 
