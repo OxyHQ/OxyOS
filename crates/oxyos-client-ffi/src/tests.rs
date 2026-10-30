@@ -460,6 +460,7 @@ fn a_session_through_the_c_abi() {
                     rect: Rect::new(0, 0, 2, 1),
                     scale_120: 120,
                     fullscreen: false,
+                    maximized: false,
                 },
                 None,
             )

@@ -121,6 +121,11 @@ struct Node {
     dismissed: bool,
     fullscreen: bool,
     restore: Option<((i32, i32), Size)>,
+    /// A toplevel zoomed to fill the work area (ADR 0016), and the frame it had before.
+    maximized: bool,
+    unzoomed: Option<((i32, i32), Size)>,
+    /// The sizes a toplevel can take.
+    limits: window::Limits,
     /// Local input region; `None` accepts input everywhere, an empty rectangle nowhere.
     input_region: Option<Rect>,
     /// Damage requested for the next Submit, in buffer pixels.
@@ -307,6 +312,12 @@ pub struct Scene {
     /// The owner that must answer the paste the request handled last (Scene::take_transfer).
     transfer: Option<ClientId>,
     moving: Option<Move>,
+    /// A window the compositor is resizing by its edges, and the edges the pointer is beside
+    /// when it is in a window's resize band (ADR 0016).
+    resizing: Option<window::Resize>,
+    resize_hover: Option<window::Edges>,
+    /// The active window (ADR 0016).
+    active: Option<SurfaceKey>,
     locked: bool,
     shortcuts: BTreeSet<u32>,
     shortcut_target: Option<SurfaceKey>,
@@ -944,6 +955,19 @@ impl Scene {
                 node.pointer_shape = shape;
                 Ok(())
             }
+            Request::SetSizeLimits {
+                surface,
+                min_width,
+                min_height,
+                max_width,
+                max_height,
+            } => self.set_size_limits(
+                key(surface),
+                Size::new(min_width, min_height),
+                Size::new(max_width, max_height),
+            ),
+            Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
+            Request::Minimize { surface } => self.minimize_request(key(surface)),
             Request::FocusWindow { .. }
             | Request::CloseWindow { .. }
             | Request::MinimizeWindow { .. }
@@ -1257,6 +1281,9 @@ impl Scene {
                 dismissed: false,
                 fullscreen: false,
                 restore: None,
+                maximized: false,
+                unzoomed: None,
+                limits: window::Limits::NONE,
                 input_region: None,
                 requested: Vec::new(),
                 unshown: None,
@@ -1303,6 +1330,7 @@ impl Scene {
             rect,
             scale_120: node.scale_120,
             fullscreen: node.fullscreen,
+            maximized: node.maximized,
         };
         self.emit(key.client, event);
     }
@@ -1864,6 +1892,12 @@ impl Scene {
         self.forget_text_input(key);
         self.forget_secrets(Some(key));
         self.forget_window(key);
+        if self.active == Some(key) {
+            self.active = None;
+        }
+        if self.resizing.is_some_and(|resize| resize.surface == key) {
+            self.resizing = None;
+        }
         if self.focus == Some(key) {
             self.focus = None;
             self.focus_next();
@@ -2113,6 +2147,7 @@ impl Scene {
             }
         }
         self.focus = key;
+        self.update_active();
         self.tell_clipboard();
         self.refresh_input_method();
     }
@@ -2272,6 +2307,7 @@ impl Scene {
         {
             return;
         }
+        let size = node.limits.clamp(size);
         self.reconfigure(key, None, size);
     }
 
@@ -2383,7 +2419,7 @@ impl Scene {
     }
 
     fn pointer_target(&self) -> Option<SurfaceKey> {
-        if self.moving.is_some() {
+        if self.moving.is_some() || self.resizing.is_some() || self.resize_hover.is_some() {
             return None;
         }
         if let Some(capture) = self.capture {
@@ -2424,6 +2460,15 @@ impl Scene {
             self.move_window(moving, x, y);
             return;
         }
+        if let Some(resize) = self.resizing {
+            self.resize_to_pointer(resize, x, y);
+            return;
+        }
+        self.resize_hover = if self.capture.is_none() {
+            self.resize_edges_at(x, y).map(|(_, edges)| edges)
+        } else {
+            None
+        };
         let target = self.pointer_target();
         self.set_pointer_focus(target);
         if let Some(target) = target {
@@ -2438,6 +2483,9 @@ impl Scene {
     pub fn pointer_shape(&self) -> PointerShape {
         if self.moving.is_some() {
             return PointerShape::Move;
+        }
+        if let Some(edges) = self.resizing.map(|r| r.edges).or(self.resize_hover) {
+            return edges.pointer_shape();
         }
         self.pointer_focus
             .and_then(|key| self.live(key))
@@ -2541,6 +2589,16 @@ impl Scene {
             self.buttons_down += 1;
             let hit = self.hit_test(self.pointer.0, self.pointer.1);
             self.last_user_serial = serial;
+            if self.resizing.is_some() {
+                return;
+            }
+            if self.buttons_down == 1 && self.capture.is_none() {
+                if let Some((window, edges)) = self.resize_edges_at(self.pointer.0, self.pointer.1)
+                {
+                    self.begin_resize(window, edges);
+                    return;
+                }
+            }
             if !self.grab.is_empty() && !hit.is_some_and(|h| self.in_grab(h)) {
                 // Outside press: dismiss the chain and consume the press and its release. Every
                 // held button's release is consumed, and the press invalidates older serials.
@@ -2572,6 +2630,12 @@ impl Scene {
             self.pointer_event(target, serial, PointerKind::Press, button);
         } else {
             self.buttons_down = self.buttons_down.saturating_sub(1);
+            if self.resizing.is_some() {
+                if self.buttons_down == 0 {
+                    self.end_resize();
+                }
+                return;
+            }
             if let Some(moving) = self.moving {
                 if self.buttons_down == 0 {
                     // The move owned the pointer; the window that started it gets no capture.
@@ -2631,6 +2695,7 @@ impl Scene {
         }
         self.swallowed_releases = self.buttons_down;
         self.moving = None;
+        self.resizing = None;
     }
 
     /// A wheel or touchpad scroll, in 1/256 logical pixels, for the surface under the pointer
@@ -3017,6 +3082,7 @@ pub use launch::LaunchRequest;
 mod appearances;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
+pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 
 #[cfg(test)]

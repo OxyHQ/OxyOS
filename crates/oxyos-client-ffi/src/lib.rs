@@ -79,6 +79,11 @@ pub const OXYOS_EVENT_CAPS_LOCK: u32 = 46;
 /// To the session's shell: whether the application it asked for was started (ADR 0013): code,
 /// its request's serial; flag, started.
 pub const OXYOS_EVENT_LAUNCH_RESULT: u32 = 49;
+/// A toplevel became, or stopped being, the active window (ADR 0016); `flag` says which.
+pub const OXYOS_EVENT_ACTIVATED: u32 = 51;
+/// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
+pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
+pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -287,6 +292,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             rect,
             scale_120,
             fullscreen,
+            maximized,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_CONFIGURE,
@@ -297,7 +303,15 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 width: rect.width,
                 height: rect.height,
                 scale_120,
-                flag: fullscreen.into(),
+                flag: if fullscreen {
+                    OXYOS_CONFIGURE_FULLSCREEN
+                } else {
+                    0
+                } | if maximized {
+                    OXYOS_CONFIGURE_MAXIMIZED
+                } else {
+                    0
+                },
                 ..out
             }
         }
@@ -594,6 +608,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_LAUNCH_RESULT,
                 code: serial,
                 flag: u8::from(launched),
+                ..out
+            }
+        }
+        Event::Activated { surface, active } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_ACTIVATED,
+                surface,
+                flag: u8::from(active),
                 ..out
             }
         }
@@ -951,6 +973,91 @@ pub unsafe extern "C" fn oxyos_client_set_pointer_shape(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::SetPointerShape { surface, shape }) }
+}
+
+/// Moves a toplevel with the pointer, from the press `serial` names (the press being handled),
+/// until its buttons are up: the compositor moves it, without the client (ADR 0016). 0 on
+/// success; a press that is not the latest, or not held, is ignored.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_begin_move(
+    client: *mut OxyOSClient,
+    surface: u32,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::BeginMove { surface, serial }) }
+}
+
+/// Makes a toplevel fill its output, or leave it. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_fullscreen(
+    client: *mut OxyOSClient,
+    surface: u32,
+    enabled: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetFullscreen { surface, enabled }) }
+}
+
+/// Zooms a toplevel to fill its output's work area, or restores the frame it had (ADR 0016).
+/// 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_maximized(
+    client: *mut OxyOSClient,
+    surface: u32,
+    enabled: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetMaximized { surface, enabled }) }
+}
+
+/// Minimizes a toplevel, as the shell does: into the dock (ADR 0016). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_minimize(client: *mut OxyOSClient, surface: u32) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::Minimize { surface }) }
+}
+
+/// The logical sizes a toplevel can take; a zero in a maximum is no bound. The compositor never
+/// configures it outside them (ADR 0016). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_size_limits(
+    client: *mut OxyOSClient,
+    surface: u32,
+    min_width: u32,
+    min_height: u32,
+    max_width: u32,
+    max_height: u32,
+) -> c_int {
+    let request = Request::SetSizeLimits {
+        surface,
+        min_width,
+        min_height,
+        max_width,
+        max_height,
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, request) }
 }
 
 /// Limits where a surface takes pointer and touch input to a surface-local logical rectangle

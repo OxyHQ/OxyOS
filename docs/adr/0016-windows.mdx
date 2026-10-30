@@ -87,6 +87,15 @@ AppShell gains `windowControls?: 'auto' | 'overlay'` (`auto`, the default, is de
    - the C ABI.
 
    Tests on the scene (limits held when resizing, the work area, activation through a popup, no move or resize when full-screen or locked) and through real sockets.
+
+   *Done.* `SetSizeLimits` (request 59: the minimum and maximum width and height, a zero no bound), `SetMaximized` (60), `Minimize` (61), `Activated` (event 51), and `maximized` beside `fullscreen` in `Configure`; in the C ABI, `oxyos_client_begin_move`, `oxyos_client_set_fullscreen`, `oxyos_client_set_maximized`, `oxyos_client_minimize`, `oxyos_client_set_size_limits`, `OXYOS_EVENT_ACTIVATED` and the CONFIGURE flag's bits (`OXYOS_CONFIGURE_FULLSCREEN`, `OXYOS_CONFIGURE_MAXIMIZED`). The scene (`scene/window.rs`):
+   - **Resizing.** Over a toplevel's band (6 px beyond each edge, the corners 12 px along them) the pointer is the resize shape for that edge or corner, and no window is entered. A press there raises and focuses the window, reaches no client and authorizes nothing, and each motion configures the window from the edges pressed, the others staying where they were, within its limits and never under 64×64. Whatever is drawn over the band and takes input there takes the press instead; a full-screen window has no band, and neither does anything under the lock or behind an open menu.
+   - **Limits.** Limits a window is outside of configure it at once, and the shell's resizes keep to them too.
+   - **Zoom** fills the output's work area (centred at the widest it can be if its limits are smaller) and restores the frame it had; a resize by hand ends it.
+   - **Minimize** is the shell's minimize, and does nothing under the lock.
+   - **The active window** is the toplevel whose window group has the focus; the shell's panels taking focus keep it, its overlays and the lock do not, and the window that goes is not told.
+
+   Tests on the scene cover each of these (the edges and their shapes, a drag from the right, the left and both corners within limits, the band under another window, full screen and the lock, zoom against a top panel and with a maximum width, minimizing and the lock, activation through a menu, a panel, an overlay, the lock and a window destroyed). Through real sockets they come with the Bloom host's adapter (step 4).
 2. **Corners and shadows in composition,** byte for byte on the CPU reference and the Vulkan device, and drawn only where they change (ADR 0005).
 3. **Bloom:** the capability, `useWindow`, `WindowControls`, `WindowDragRegion`, AppShell keeping the room, and `SettingsLayout`, with Bloom's tests for each shape (sidebar, toolbar, overlay, none).
 4. **The OxyOS adapter** in the Bloom host. A scenario on a sample window checks:

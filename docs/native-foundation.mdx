@@ -145,8 +145,11 @@ Input semantics:
 | Request | 56 | AccessibleSelection | 17 |
 | Request | 57 | AccessibilityAnnounce | 41 |
 | Request | 58 | LaunchApplication | 40 |
+| Request | 59 | SetSizeLimits | 21 |
+| Request | 60 | SetMaximized | 6 |
+| Request | 61 | Minimize | 5 |
 | Event | 1 | Welcome | 3 |
-| Event | 2 | Configure | 34 |
+| Event | 2 | Configure | 35 |
 | Event | 3 | PopupDone | 6 |
 | Event | 4 | Pointer | 26 |
 | Event | 5 | Key | 18 |
@@ -195,6 +198,7 @@ Input semantics:
 | Event | 48 | AccessibilityAnnouncement | 45 |
 | Event | 49 | LaunchResult | 6 |
 | Event | 50 | ScreenReaderCommand | 2 |
+| Event | 51 | Activated | 6 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
