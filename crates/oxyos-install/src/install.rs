@@ -1451,6 +1451,36 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         })
     }
 
+    /// The account's decision on `capability` of `id` (decision 8): granted or denied. Only a
+    /// capability the account's current version declares can be decided; another is refused, so a
+    /// decision never names what the application cannot ask for.
+    pub fn decide(
+        &self,
+        uid: u32,
+        id: &str,
+        capability: &str,
+        granted: bool,
+    ) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        {
+            let _memory = self.memory();
+            let mut mine = self
+                .user_install(&account, id)?
+                .ok_or(InstallError::NotInstalled)?;
+            let Some(decision) = mine.capabilities.get_mut(capability) else {
+                return Err(InstallError::NotPermitted);
+            };
+            *decision = if granted {
+                Decision::Granted
+            } else {
+                Decision::Denied
+            };
+            self.write_account(&account, &mine)?;
+        }
+        self.notify(&[uid]);
+        Ok(())
+    }
+
     fn settings(&self, account: &Account) -> Result<UserSettings, InstallError> {
         let path = self.layout.user(&account.name).join("settings.json");
         Ok(read_record(&path)

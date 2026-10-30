@@ -29,6 +29,7 @@ pub mod arrangement;
 pub mod controls;
 pub mod displays;
 pub mod idle;
+pub mod installs;
 pub mod login;
 pub mod motion;
 pub mod settings;

@@ -28,6 +28,14 @@ use std::path::{Path, PathBuf};
 pub struct Grants {
     /// `settings`: it changes the user's preferences (docs/adr/0019-settings.mdx).
     pub settings: bool,
+    /// `store`: it installs and removes applications (Atlas alone; docs/adr/0030-installing-
+    /// applications.mdx, decision 9).
+    pub store: bool,
+    /// `updates`: it sees and applies the account's updates (Settings and Atlas; decision 16).
+    pub updates: bool,
+    /// `privacy`: it sees and changes the account's decisions on its applications' capabilities
+    /// (Settings; decision 8).
+    pub privacy: bool,
 }
 
 impl Grants {
@@ -36,11 +44,17 @@ impl Grants {
     fn named(names: &[String]) -> Result<Self, Error> {
         let mut grants = Self::default();
         for name in names {
-            match name.as_str() {
-                "settings" if !grants.settings => grants.settings = true,
-                "settings" => return Err(Error("the grant \"settings\" is named twice".into())),
+            let grant = match name.as_str() {
+                "settings" => &mut grants.settings,
+                "store" => &mut grants.store,
+                "updates" => &mut grants.updates,
+                "privacy" => &mut grants.privacy,
                 other => return Err(Error(format!("{other:?} is not a system grant"))),
+            };
+            if *grant {
+                return Err(Error(format!("the grant {name:?} is named twice")));
             }
+            *grant = true;
         }
         Ok(grants)
     }

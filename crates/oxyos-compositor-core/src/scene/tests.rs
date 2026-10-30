@@ -6880,6 +6880,7 @@ mod displays;
 mod menus;
 mod notifications;
 mod shortcuts;
+mod system;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 
 /// The shell's overview: an overlay over the whole output.

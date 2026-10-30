@@ -269,6 +269,20 @@ messages! {
         // keydown has its `key`). That text is then never sent again as Text or in a text input
         // transaction; text no key typed (an input method's) still comes as before.
         150 => SetKeyText { enabled: bool },
+        // Installing applications (ADR 0030). A client with the `store`, `updates` or `privacy`
+        // grant asks the session: one request of the session's vocabulary as JSON text in chunks
+        // (`index` 0 begins it, `last` completes it), citing `input`, the serial of a user input
+        // it received (0 for none): the session refuses what changes anything without one. The
+        // answers come as SystemText naming `serial`.
+        160 => SystemRequest { serial: u32, input: u64, index: u16, last: bool, text: PreeditText },
+        // The session's shell (its `shell` grant): the person's answer to a system sheet
+        // (SheetText), citing `serial`, a press or a key the shell received; an acceptance
+        // without one is ignored.
+        161 => SheetAnswer { sheet: u32, accepted: bool, serial: u64 },
+        // An application asks to use a capability asked at first use (ADR 0030, decision 8:
+        // `capability` 1 notifications, 2 files, 3 camera, 4 microphone, 5 location), citing a
+        // user input; answered by CapabilityResult naming `serial`.
+        162 => RequestCapability { serial: u32, input: u64, capability: u8 },
     }
 }
 
@@ -472,6 +486,18 @@ messages! {
         // session's layout typed with it (its compose sequences included; empty for a modifier, an
         // editing key, a control character or a dead key).
         150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText },
+        // To a client with the `store`, `updates` or `privacy` grant: the session's answer to its
+        // SystemRequest `serial`, JSON text in chunks; `serial` 0 is the account's update state as
+        // it changes, unasked.
+        160 => SystemText { serial: u32, index: u16, last: bool, text: PreeditText },
+        // To the session's shell: a system sheet to show (install, remove, consent, permission),
+        // JSON text in chunks; `last` shows it. Only the shell sees it, and only a SheetAnswer
+        // citing an input the shell received answers it.
+        161 => SheetText { sheet: u32, index: u16, last: bool, text: PreeditText },
+        // To the session's shell: the sheet is no longer asked for (its asker went).
+        162 => SheetDismissed { sheet: u32 },
+        // To the application whose RequestCapability `serial` it answers.
+        163 => CapabilityResult { serial: u32, granted: bool },
     }
 }
 

@@ -458,6 +458,30 @@ impl Client {
         Ok(())
     }
 
+    /// Asks the session (the `store`, `updates` or `privacy` grant, ADR 0030) one request of its
+    /// vocabulary, `text` (JSON), in chunks, citing `input`, the serial of a user input this
+    /// connection received (0 for none); SystemText events naming `serial` answer.
+    pub fn system_request(&self, serial: u32, input: u64, text: &str) -> io::Result<()> {
+        if text.is_empty() || text.len() > oxyos_protocol::MAX_SYSTEM_TEXT_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a system request is 1 byte to MAX_SYSTEM_TEXT_BYTES of text",
+            ));
+        }
+        let chunks = TextChunk::split(text);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::SystemRequest {
+                serial,
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
+    }
+
     /// Posts a notification as `serial` (ADR 0026): its texts in chunks, each cut at a character
     /// to the protocol's limit, then the post; a `NotificationResult` with `serial` answers. Data
     /// longer than its limit is refused rather than cut (cut JSON is no JSON), as are more than
