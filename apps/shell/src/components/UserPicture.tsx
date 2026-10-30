@@ -1,11 +1,7 @@
 import React from "react";
 import { Image } from "react-native";
 import { Box } from "../primitives";
-import { OxyLogo } from "./OxyLogo";
-
-/** The picture of an account without one of its own: the Oxy mark, light on grey. */
-const DEFAULT_BACKGROUND = "#767576";
-const DEFAULT_MARK = "#c9c9cd";
+import { DEFAULT_USER_PICTURE } from "./default-user-picture";
 
 /**
  * A person's picture on the lock and login screens: their own when they have one, else the
@@ -28,14 +24,12 @@ export function UserPicture({
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: DEFAULT_BACKGROUND,
       }}
     >
-      {picture ? (
-        <Image source={{ uri: picture }} style={{ width: size, height: size }} />
-      ) : (
-        <OxyLogo width={size * 0.58} height={size * 0.58} fill={DEFAULT_MARK} />
-      )}
+      <Image
+        source={picture ? { uri: picture } : DEFAULT_USER_PICTURE}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+      />
     </Box>
   );
 }
