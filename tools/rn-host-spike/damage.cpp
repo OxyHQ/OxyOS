@@ -1,5 +1,6 @@
 #include "damage.h"
 
+#include "expo-blur.h"
 #include "svg.h"
 
 #include <react/renderer/components/scrollview/ScrollViewState.h>
@@ -176,6 +177,26 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
         if (auto it = seen_.find(tag); it != seen_.end()) damage.push_back(it->second.at);
       }
     }
+  }
+  if (same) {
+    // A blur view with a target (expo-blur.h) reads the target three of its radii around each of
+    // its pixels: a change that near it changes it too.
+    std::vector<Rect> blurred;
+    for (const auto& [tag, seen] : now) {
+      auto blur = expoBlurTarget(seen.view);
+      if (!blur) continue;
+      Float reach = 3 * blur->radius;
+      Rect around{{seen.at.origin.x - reach, seen.at.origin.y - reach},
+                  {seen.at.size.width + 2 * reach, seen.at.size.height + 2 * reach}};
+      for (const auto& rect : damage) {
+        Rect common = Rect::intersect(rect, around);
+        if (common.size.width > 0 && common.size.height > 0) {
+          blurred.push_back(seen.at);
+          break;
+        }
+      }
+    }
+    damage.insert(damage.end(), blurred.begin(), blurred.end());
   }
   seen_ = std::move(now);
   display_ = display;

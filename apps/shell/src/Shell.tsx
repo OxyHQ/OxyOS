@@ -125,7 +125,12 @@ export function Shell({
             desktop stays as it was beneath, as it is when the session unlocks. */}
         {lock?.locked && (
           <Surface kind="lock" style={StyleSheet.absoluteFill}>
-            <LockScreen lock={lock} wallpaper={wallpaper} now={now} />
+            <LockScreen
+              lock={lock}
+              wallpaper={wallpaper}
+              now={now}
+              Masked={platform.Masked}
+            />
           </Surface>
         )}
       </Box>

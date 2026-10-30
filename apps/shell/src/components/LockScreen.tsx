@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
-import { TextInput, type ImageSourcePropType } from "react-native";
+import React, { useEffect, useRef, useState, type ComponentRef, type ComponentType } from "react";
+import { StyleSheet, TextInput, View, type ImageSourcePropType } from "react-native";
+import { BlurTargetView } from "expo-blur";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -9,7 +10,9 @@ import Animated, {
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
 import { Wallpaper } from "./Wallpaper";
+import { LockClock } from "./LockClock";
 import type { ShellLock } from "../model";
+import type { MaskedProps } from "../platform";
 
 /** Linux-PAM's longest answer: the compositor takes no longer password (ADR 0010). */
 const MAX_PASSWORD_BYTES = 512;
@@ -37,10 +40,13 @@ export function LockScreen({
   lock,
   wallpaper,
   now,
+  Masked,
 }: {
   lock: ShellLock;
   wallpaper: ImageSourcePropType;
   now: Date;
+  /** The platform's masked view, for the clock's material (LockClock). */
+  Masked?: ComponentType<MaskedProps>;
 }) {
   const [password, setPassword] = useState("");
   const [checking, setChecking] = useState(false);
@@ -84,15 +90,7 @@ export function LockScreen({
     else setMessage("No se ha podido comprobar la contraseña");
   };
   const name = lock.user.fullName || lock.user.name;
-  const date = now.toLocaleDateString("es", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-  const time = now.toLocaleTimeString("es", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const wallpaperTarget = useRef<ComponentRef<typeof View>>(null);
   // What the last attempt said comes first; Caps Lock on is said while nothing else is.
   const hint =
     wait > 0
@@ -101,32 +99,16 @@ export function LockScreen({
         (checking ? "Comprobando…" : lock.capsLock ? "Bloq Mayús activado" : ""));
   return (
     <Box testID="shell-lock" className="flex-1 overflow-hidden bg-black">
-      <Box className="absolute inset-0">
+      {/* The wallpaper, which the clock's glyphs show blurred (expo-blur's target). */}
+      <BlurTargetView ref={wallpaperTarget} style={StyleSheet.absoluteFill}>
         <Wallpaper source={wallpaper} decorative />
-      </Box>
+      </BlurTargetView>
       <Box
         className="absolute inset-0"
         style={{ backgroundColor: "rgba(0,0,0,0.28)" }}
       />
       <Box className="items-center" style={{ marginTop: "9%" }}>
-        <Text
-          testID="shell-lock-date"
-          style={{ ...shadow, color: "rgba(255,255,255,0.92)", fontSize: 22, fontWeight: "600" }}
-        >
-          {date.charAt(0).toUpperCase() + date.slice(1)}
-        </Text>
-        <Text
-          testID="shell-lock-time"
-          style={{
-            ...shadow,
-            color: "rgba(255,255,255,0.92)",
-            fontSize: 112,
-            lineHeight: 124,
-            fontWeight: "700",
-          }}
-        >
-          {time}
-        </Text>
+        <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
       </Box>
       <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: "11%" }}>
         {/* The user's picture: their initials, which the name under it says in full. */}

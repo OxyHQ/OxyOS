@@ -34,7 +34,8 @@
       ],
       "react-native-gesture-handler": [
         "./node_modules/react-native-gesture-handler/lib/typescript/index.d.ts"
-      ]
+      ],
+      "expo-blur": ["./node_modules/expo-blur/build/index.d.ts"]
     }
   },
   "include": [

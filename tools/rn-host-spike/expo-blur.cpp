@@ -16,13 +16,30 @@ ExpoBlurViewProps::ExpoBlurViewProps(const PropsParserContext& context, const Ex
                                      const RawProps& rawProps)
     : ViewProps(context, sourceProps, rawProps),
       tint(convertRawProp(context, rawProps, "tint", sourceProps.tint, std::string("default"))),
-      intensity(convertRawProp(context, rawProps, "intensity", sourceProps.intensity, Float{50})) {}
+      intensity(convertRawProp(context, rawProps, "intensity", sourceProps.intensity, Float{50})),
+      blurTargetId(convertRawProp(context, rawProps, "blurTargetId", sourceProps.blurTargetId, 0)),
+      blurMethod(convertRawProp(context, rawProps, "blurMethod", sourceProps.blurMethod, std::string("none"))),
+      blurReductionFactor(
+          convertRawProp(context, rawProps, "blurReductionFactor", sourceProps.blurReductionFactor, Float{4})) {}
 
 }  // namespace facebook::react
 
 namespace oxyos {
 
 bool isExpoBlurView(const std::string& name) { return name == ExpoBlurViewComponentName; }
+
+std::optional<ExpoBlurTarget> expoBlurTarget(const ShadowView& view) {
+  if (!view.componentName || !isExpoBlurView(view.componentName)) return std::nullopt;
+  auto props = std::static_pointer_cast<const ExpoBlurViewProps>(view.props);
+  // As ExpoBlurView.configureBlurView: no target, or the method "none", blurs nothing; Dimezis'
+  // view is given the intensity divided by the reduction factor as its radius.
+  if (props->blurTargetId <= 0 || props->blurMethod == "none" || props->blurReductionFactor <= 0) {
+    return std::nullopt;
+  }
+  float radius = props->intensity / props->blurReductionFactor;
+  if (radius <= 0) return std::nullopt;
+  return ExpoBlurTarget{props->blurTargetId, radius};
+}
 
 std::optional<uint32_t> expoBlurTint(const ShadowView& view) {
   if (!view.componentName || !isExpoBlurView(view.componentName)) return std::nullopt;

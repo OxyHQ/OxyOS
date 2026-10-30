@@ -5,6 +5,7 @@
 #include "android-components.h"
 #include "damage.h"
 #include "expo-blur.h"
+#include "masked-view.h"
 #include "gesture-handler.h"
 #include "host-modules.h"
 #include "images.h"
@@ -391,6 +392,7 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<RNCMaskedViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSShellSurfaceComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaProviderComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
