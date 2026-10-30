@@ -78,6 +78,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_DISPLAY 133
 #define OXYOS_EVENT_DISPLAY_REMOVED 134
 #define OXYOS_EVENT_DISPLAY_CONFIRMATION 135
+#define OXYOS_EVENT_SYSTEM_TEXT 160
+#define OXYOS_EVENT_SHEET_TEXT 161
+#define OXYOS_EVENT_SHEET_DISMISSED 162
+#define OXYOS_EVENT_CAPABILITY_RESULT 163
 /* A DISPLAY's flag bits. */
 #define OXYOS_DISPLAY_PRIMARY 1
 #define OXYOS_DISPLAY_BUILTIN 2
@@ -331,6 +335,14 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag, OXYOS_DISPLAY_PRIMARY and _BUILTIN.
  *   DISPLAY_REMOVED  the display `code` is no longer shown.
  *   DISPLAY_CONFIRMATION  the display `code`'s mode is on trial and goes back unless
+ *   SYSTEM_TEXT        a chunk of the session's answer to the oxyos_client_system_request `code`
+ *                      (0: the account's update state, unasked), `detail` its index, `flag` 1 on the
+ *                      last; `text` the chunk (ADR 0030).
+ *   SHEET_TEXT         to the shell: a chunk of system sheet `code`, `detail` its index, `flag` 1 on
+ *                      the last (then show it); `text` the chunk.
+ *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
+ *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */
 typedef struct OxyOSEvent {
@@ -579,6 +591,12 @@ int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, si
  * `key=value`. A PREFERENCE_RESULT answers: code, `serial`; flag, whether the session took it.
  * Without the grant the compositor closes the connection. */
 int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char* key, const char* value);
+/* Installing applications (ADR 0030): a request of the session's vocabulary (JSON), citing a user
+ * input (0 for none); the shell's answer to a system sheet, citing the input that answered it; an
+ * application's request for a capability asked at first use. */
+int oxyos_client_system_request(OxyOSClient* client, uint32_t serial, uint64_t input, const char* text);
+int oxyos_client_sheet_answer(OxyOSClient* client, uint32_t sheet, bool accepted, uint64_t serial);
+int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64_t input, uint8_t capability);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

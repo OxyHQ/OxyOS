@@ -296,7 +296,10 @@ fn the_policy_is_read_strictly() {
                 host: "/usr/lib/oxyos/oxyos-bloom-host".into(),
                 bundle: "/usr/lib/oxyos/bundle/index.js".into(),
             },
-            grants: Grants { settings: true },
+            grants: Grants {
+                settings: true,
+                ..Grants::default()
+            },
         })
     );
     assert_eq!(
@@ -410,8 +413,42 @@ fn the_policy_is_read_strictly() {
             .unwrap()
             .get("so.oxy.settings")
             .map(|app| app.grants),
-        Some(Grants { settings: true })
+        Some(Grants {
+            settings: true,
+            ..Grants::default()
+        })
     );
+}
+
+#[test]
+fn the_policy_names_the_store_s_updates_and_privacy_grants() {
+    let entry = r#""entry":"/usr/share/oxyos/applications/so.oxy.x.desktop","exec":"/x""#;
+    let policy = |grants: &str| {
+        Policy::parse(&format!(
+            r#"{{"applications":{{"so.oxy.x":{{{entry},"grants":[{grants}]}}}}}}"#
+        ))
+    };
+    let grants = |list: &str| policy(list).unwrap().get("so.oxy.x").unwrap().grants;
+    assert_eq!(
+        grants(r#""store","updates""#),
+        Grants {
+            store: true,
+            updates: true,
+            ..Grants::default()
+        }
+    );
+    assert_eq!(
+        grants(r#""settings","updates","privacy""#),
+        Grants {
+            settings: true,
+            updates: true,
+            privacy: true,
+            ..Grants::default()
+        }
+    );
+    assert!(policy(r#""store","store""#).is_err(), "a grant twice");
+    assert!(policy(r#""Store""#).is_err(), "another spelling");
+    assert!(policy(r#""install""#).is_err(), "not a system grant");
 }
 
 #[test]
@@ -584,7 +621,10 @@ fn a_system_launch_runs_what_the_policy_names() {
     let pid = launcher.launch("so.oxy.settings").unwrap();
     assert_eq!(
         launcher.application_of(pid).map(|l| l.grants),
-        Some(Grants { settings: true })
+        Some(Grants {
+            settings: true,
+            ..Grants::default()
+        })
     );
     // A program the PATH finds is whatever the PATH finds: not started.
     write("so.oxy.searched", &shell);
@@ -650,7 +690,10 @@ fn a_system_launch_runs_what_the_policy_names() {
             host: host.clone(),
             bundle: bundle.clone(),
         },
-        grants: Grants { settings: true },
+        grants: Grants {
+            settings: true,
+            ..Grants::default()
+        },
     };
     let runtime = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1049,7 +1092,10 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
             host: host.to_path_buf(),
             bundle: bundle.clone(),
         },
-        grants: Grants { settings: true },
+        grants: Grants {
+            settings: true,
+            ..Grants::default()
+        },
     };
     let session = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1290,4 +1336,29 @@ fn the_registrys_sources_are_followed_even_before_they_are_there() {
     std::fs::remove_file(installed.join("so.oxy.inbox.desktop")).unwrap();
     assert!(watch.changed());
     assert!(!watch.changed());
+}
+
+#[test]
+fn the_host_is_told_what_an_installed_version_was_granted() {
+    let decisions: BTreeMap<String, String> = [
+        ("network", "granted"),
+        ("notifications", "undecided"),
+        ("files", "denied"),
+        ("oxy-account", "granted"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    assert_eq!(
+        launch_capabilities(&Origin::Installed { version_code: 3 }, &decisions),
+        ("installed", "network,oxy-account".to_string())
+    );
+    assert_eq!(
+        launch_capabilities(&Origin::System, &decisions),
+        ("system", String::new())
+    );
+    assert_eq!(
+        launch_capabilities(&Origin::Development, &BTreeMap::new()),
+        ("development", String::new())
+    );
 }

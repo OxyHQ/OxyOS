@@ -1,0 +1,18 @@
+{
+  "id": "so.oxy.permissionprobe",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "Permission",
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "PermissionProbe"
+  },
+  "architectures": [
+    "any"
+  ],
+  "capabilities": [
+    { "name": "notifications", "purpose": { "en": "To tell you.", "es": "Para avisarte." } }
+  ]
+}

@@ -6,7 +6,17 @@
 //! oxyos-pack pack DIR DESCRIPTION RUNTIME KEY
 //! oxyos-pack compile DIR HERMESC
 //! oxyos-pack entry DIR
+//! oxyos-pack store-keys DIR                 a development store's keys (root ×3, targets, snapshot, timestamp)
+//! oxyos-pack repository DIR STORE_KEYS      a new store repository, root 1 for those keys
+//! oxyos-pack publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY
 //! ```
+//!
+//! `publish` publishes a packed package as a release in the repository at DIR, as the store
+//! would once it approved it (docs/adr/0030-installing-applications.mdx, decisions 3 and 4): its
+//! files as objects, its manifest as a target with the store's statement (signed by STORE_KEYS'
+//! targets key), the developer's signature and DEVELOPER_KEY's public key, then the next
+//! targets, snapshot and timestamp (`oxyos_install::repository`, what the install service's tests
+//! publish with). For development and scenarios: the store's own keys are never on a machine.
 //!
 //! `pack` lists every file under DIR (but `manifest.json`, `manifest.sig` and `index.hbc` at its
 //! top) with its size and SHA-256, adds them and the runtime's numbers (RUNTIME, a runtime's
@@ -31,8 +41,19 @@ use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC | entry DIR";
+const USAGE: &str = "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC | entry DIR | store-keys DIR | repository DIR STORE_KEYS | publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY";
+
+/// The store's keys in a directory of seeds, as `store-keys` writes them.
+const STORE_KEY_FILES: [&str; 6] = [
+    "root-1",
+    "root-2",
+    "root-3",
+    "targets",
+    "snapshot",
+    "timestamp",
+];
+/// How long a published document is valid, in days.
+const VALID_DAYS: i64 = 365;
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -49,6 +70,14 @@ fn main() -> ExitCode {
         ),
         ["compile", dir, hermesc] => compile(Path::new(dir), Path::new(hermesc)),
         ["entry", dir] => entry(Path::new(dir)),
+        ["store-keys", dir] => store_keys(Path::new(dir)),
+        ["repository", dir, keys] => repository(Path::new(dir), Path::new(keys)),
+        ["publish", package, dir, keys, developer] => publish(
+            Path::new(package),
+            Path::new(dir),
+            Path::new(keys),
+            Path::new(developer),
+        ),
         _ => Err(USAGE.to_string()),
     };
     match result {
@@ -98,6 +127,66 @@ fn read_key(path: &Path) -> Result<SigningKey> {
             .map_err(|_| bad())?;
     }
     Ok(SigningKey::from_seed(&seed))
+}
+
+/// A development store's keys: a seed for each, in a new directory only its owner reads.
+fn store_keys(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(dir)
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
+    for name in STORE_KEY_FILES {
+        new_key(&dir.join(name))?;
+    }
+    Ok(())
+}
+
+fn read_store_keys(dir: &Path) -> Result<oxyos_install::repository::StoreKeys> {
+    let key = |name: &str| read_key(&dir.join(name));
+    Ok(oxyos_install::repository::StoreKeys {
+        root: vec![key("root-1")?, key("root-2")?, key("root-3")?],
+        root_threshold: 2,
+        targets: key("targets")?,
+        snapshot: key("snapshot")?,
+        timestamp: key("timestamp")?,
+    })
+}
+
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// A new repository at `dir`, root 1 for the store's keys in `keys`.
+fn repository(dir: &Path, keys: &Path) -> Result<()> {
+    let keys = read_store_keys(keys)?;
+    let repository = oxyos_install::repository::Repository::create(dir, &keys, now(), VALID_DAYS)
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
+    println!(
+        "{}: the anchor is {}",
+        dir.display(),
+        repository.anchor().display()
+    );
+    Ok(())
+}
+
+/// Publishes the packed `package` as a release of the repository at `dir`.
+fn publish(package: &Path, dir: &Path, keys: &Path, developer: &Path) -> Result<()> {
+    let keys = read_store_keys(keys)?;
+    let developer = read_key(developer)?.public_key();
+    let mut repository = oxyos_install::repository::Repository::open(dir, now(), VALID_DAYS)
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
+    let (id, version_code) = repository
+        .publish_package(package, &keys, &developer, &[])
+        .map_err(|error| format!("{}: {error}", package.display()))?;
+    println!(
+        "{id} {version_code} published: targets {}",
+        repository.versions[oxyos_install::repository::TARGETS]
+    );
+    Ok(())
 }
 
 /// A JSON document, read refusing a key written twice in any object: JSON allows it, and which

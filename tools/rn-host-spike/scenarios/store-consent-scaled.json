@@ -1,0 +1,176 @@
+{
+  "module": "StoreProbe",
+  "window": [
+    520,
+    340
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "about": "An update needing the account's consent (docs/adr/0030-installing-applications.mdx, decisions 10 and 16): Inbox 1 installed, the store publishes 2, which adds network and oxy-account. A check finds it waiting for consent; Update All leaves it and the sheet asks; Cancelar keeps 1; Actualizar switches to 2, the previous kept until 2 shows a window. At 1.25 on the ThinkPad's display (1600x1000).",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ],
+    "later": [
+      {
+        "id": "so.oxy.inbox",
+        "versionCode": 2,
+        "capabilities": [
+          "network",
+          "oxy-account"
+        ]
+      }
+    ]
+  },
+  "installd_final": {
+    "packages": {
+      "so.oxy.inbox": [
+        1,
+        2
+      ]
+    }
+  },
+  "steps": [
+    {
+      "name": "Check for updates",
+      "do": [
+        "press",
+        [
+          90,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 1"
+        ]
+      }
+    },
+    {
+      "name": "Status: 1 installed, 2 waiting for consent, in the one update state",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Updates: 1 so.oxy.inbox 2 awaitingConsent",
+          "Check: updateState · UpdateAll: - · Status: status v1 update 2"
+        ]
+      }
+    },
+    {
+      "name": "Update All: the sheet asks for the new access",
+      "do": [
+        "press",
+        [
+          250,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 3"
+        ]
+      }
+    },
+    {
+      "name": "Cancelar: version 1 stays",
+      "do": [
+        "press_output",
+        [
+          622,
+          471
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-refuse": 1,
+            "touchEnd@system-sheet-refuse": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Status: still 1",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Check: updateState · UpdateAll: updated awaitingConsent · Status: status v1 update 2"
+        ]
+      }
+    },
+    {
+      "name": "Update All again",
+      "do": [
+        "press",
+        [
+          250,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 5"
+        ]
+      }
+    },
+    {
+      "name": "Actualizar in the sheet: consented",
+      "do": [
+        "press_output",
+        [
+          750,
+          471
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-accept": 1,
+            "touchEnd@system-sheet-accept": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Status: 2, nothing waiting",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Check: updateState · UpdateAll: updated switched · Status: status v2",
+          "Updates: 0"
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

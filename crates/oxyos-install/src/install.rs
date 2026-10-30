@@ -1191,6 +1191,12 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
 
     /// Checks the store for updates of every application on the machine, once: a check asked for
     /// while one runs joins it and is answered when it ends. Watchers are told it start and end.
+    /// How many times the store was read since the service started: checks asked for while one
+    /// ran joined it and are not counted (said in the service's log).
+    pub fn checks_made(&self) -> u64 {
+        self.checks().generation
+    }
+
     pub fn check(&self) -> Result<(), InstallError> {
         {
             let mut checks = self.checks();
@@ -1449,6 +1455,36 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             .into(),
             reason: None,
         })
+    }
+
+    /// The account's decision on `capability` of `id` (decision 8): granted or denied. Only a
+    /// capability the account's current version declares can be decided; another is refused, so a
+    /// decision never names what the application cannot ask for.
+    pub fn decide(
+        &self,
+        uid: u32,
+        id: &str,
+        capability: &str,
+        granted: bool,
+    ) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        {
+            let _memory = self.memory();
+            let mut mine = self
+                .user_install(&account, id)?
+                .ok_or(InstallError::NotInstalled)?;
+            let Some(decision) = mine.capabilities.get_mut(capability) else {
+                return Err(InstallError::NotPermitted);
+            };
+            *decision = if granted {
+                Decision::Granted
+            } else {
+                Decision::Denied
+            };
+            self.write_account(&account, &mine)?;
+        }
+        self.notify(&[uid]);
+        Ok(())
     }
 
     fn settings(&self, account: &Account) -> Result<UserSettings, InstallError> {

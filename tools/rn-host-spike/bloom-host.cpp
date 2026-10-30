@@ -20,6 +20,7 @@
 #include "popup.h"
 #include "safe-area.h"
 #include "notifications.h"
+#include "system.h"
 #include "shell-state.h"
 #include "shell-surface.h"
 #include "svg.h"
@@ -983,6 +984,35 @@ int main(int argc, char** argv) {
         window->withdrawNotification(notification);
       };
     }
+    // Installing applications (docs/adr/0030-installing-applications.mdx): what this launch may use,
+    // the session's answers, the shell's sheets and capability results, assembled from chunks;
+    // requests cite the latest press, as the session requires of what changes anything.
+    auto launchCapabilities = oxyos::LaunchCapabilities::fromEnvironment();
+    oxyos::ChunkTexts systemTexts, sheetTexts;
+    uint32_t systemSerial = 0;
+    std::map<uint32_t, std::string> askedCapabilities;
+    services.system = {
+        .request = [&window, &lastPress, &systemSerial](const std::string& text) -> uint32_t {
+          ++systemSerial;
+          return window->systemRequest(systemSerial, lastPress, text) ? systemSerial : 0;
+        },
+        .answerSheet = [&window, &lastPress](uint32_t sheet, bool accepted) {
+          window->sheetAnswer(sheet, accepted, lastPress);
+        },
+        .requestCapability = [&window, &lastPress, &systemSerial,
+                              &askedCapabilities](const std::string& capability) -> uint32_t {
+          uint8_t code = oxyos::capabilityCode(capability);
+          if (code == 0) return 0;
+          ++systemSerial;
+          if (!window->requestCapability(systemSerial, lastPress, code)) return 0;
+          askedCapabilities[systemSerial] = capability;
+          return systemSerial;
+        },
+        .launch = [&launchCapabilities] { return launchCapabilities.describe(); },
+        .allows = [&launchCapabilities](const std::string& capability) {
+          return launchCapabilities.allows(capability);
+        },
+    };
     window->onClipboardChanged([&instance, &window] {
       instance->callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
@@ -1076,6 +1106,8 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> systemShortcuts;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets;
+        std::vector<OxyOSEvent> sheetsGone, capabilityResults;
         bool responded = false;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
@@ -1084,6 +1116,18 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
               if (event.kind == OXYOS_EVENT_PREFERENCE_RESULT) preferenceResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_SYSTEM_TEXT) {
+                if (auto text = systemTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
+                  systemAnswers.emplace_back(event.code, std::move(*text));
+                }
+              }
+              if (event.kind == OXYOS_EVENT_SHEET_TEXT) {
+                if (auto text = sheetTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
+                  sheets.emplace_back(event.code, std::move(*text));
+                }
+              }
+              if (event.kind == OXYOS_EVENT_SHEET_DISMISSED) sheetsGone.push_back(event);
+              if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_CONTROL_LEVEL && (event.flag & OXYOS_CONTROL_BEZEL)) {
@@ -1235,6 +1279,39 @@ int main(int argc, char** argv) {
                                            folly::dynamic::array("OxyOSDisplaysChanged", displays));
             if (!displays.isNull()) oxyos::Report::get().input("displays", oxyos::Window::kToplevel, displays);
           }
+        }
+        // Installing applications (ADR 0030): what the session answered, the shell's sheets, and
+        // capability results; a capability granted holds for this process from now on.
+        for (const auto& [serial, text] : systemAnswers) {
+          auto answer = folly::parseJson(text);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSystemAnswer",
+                                                               folly::dynamic::object("serial", serial)("answer", answer)));
+          oxyos::Report::get().input("system", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("answer", answer));
+        }
+        for (const auto& [sheet, text] : sheets) {
+          auto described = folly::parseJson(text);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSheet",
+                                                               folly::dynamic::object("sheet", sheet)("text", text)));
+          oxyos::Report::get().input("sheet", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("sheet", sheet)("kind", described["kind"]));
+        }
+        for (const auto& gone : sheetsGone) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSheetDismissed",
+                                                               folly::dynamic::object("sheet", gone.code)));
+        }
+        for (const auto& result : capabilityResults) {
+          auto asked = askedCapabilities.find(result.code);
+          std::string capability = asked == askedCapabilities.end() ? "" : asked->second;
+          if (asked != askedCapabilities.end()) askedCapabilities.erase(asked);
+          if (result.flag != 0 && !capability.empty()) launchCapabilities.grant(capability);
+          folly::dynamic told = folly::dynamic::object("serial", result.code)("granted", result.flag != 0)("capability", capability);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSCapabilityResult", told));
+          oxyos::Report::get().input("capability", oxyos::Window::kToplevel, told);
         }
         for (const auto& result : preferenceResults) {
           instance->callFunctionOnModule(

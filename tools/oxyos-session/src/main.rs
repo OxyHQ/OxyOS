@@ -411,6 +411,18 @@ fn main() -> Result<()> {
     });
     let installd =
         (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
+    // The store's, Settings' and applications' requests to install, update, remove and use
+    // capabilities (ADR 0030): over the same service, each confirmed in the shell's sheet.
+    let mut installs = if greeter {
+        None
+    } else {
+        let installs = oxyos_compositor::installs::Installs::new(
+            PathBuf::from(oxyos_install::ipc::SOCKET),
+            std::env::var_os("HOME").map(PathBuf::from),
+        )?;
+        compositor.wakers.push(installs.wake_fd()?);
+        Some(installs)
+    };
     let mut versions = Versions::default();
     let mut launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
@@ -456,6 +468,34 @@ fn main() -> Result<()> {
         if versions.awaiting() {
             for note in versions.shown(&compositor.pids_showing_windows()) {
                 installd.as_ref().inspect(|i| i.note(note));
+            }
+        }
+        if let Some(installs) = installs.as_mut() {
+            let askers: std::collections::BTreeMap<_, _> = compositor
+                .peers
+                .iter()
+                .map(|(client, peer)| (*client, asker(launcher.application_of(peer.pid as u32))))
+                .collect();
+            let unknown = oxyos_compositor::installs::Asker::Unknown;
+            for open in installs.serve(&mut compositor.scene, &|client| {
+                askers.get(&client).cloned().unwrap_or(unknown.clone())
+            }) {
+                let launched = match launcher.launch(&open.id) {
+                    Ok(pid) => {
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] not opened for the store: {error}");
+                        false
+                    }
+                };
+                installs.opened(&mut compositor.scene, &open, launched);
             }
         }
         for request in compositor.scene.take_launches() {
@@ -540,6 +580,9 @@ fn main() -> Result<()> {
                 application: launched.id.clone(),
                 grants: Grants {
                     settings: launched.grants.settings,
+                    store: launched.grants.store,
+                    updates: launched.grants.updates,
+                    privacy: launched.grants.privacy,
                     ..Grants::default()
                 },
             })
@@ -1110,5 +1153,21 @@ struct RemoveOnDrop(PathBuf);
 impl Drop for RemoveOnDrop {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// What a launched process is, for the capabilities it asks for (ADR 0030, decision 8).
+fn asker(launched: Option<&oxyos_apps::Launched>) -> oxyos_compositor::installs::Asker {
+    use oxyos_compositor::installs::Asker;
+    match launched {
+        None => Asker::Unknown,
+        Some(launched) => match launched.origin {
+            oxyos_apps::Origin::System => Asker::System,
+            oxyos_apps::Origin::Development => Asker::Development,
+            oxyos_apps::Origin::Installed { .. } => Asker::Installed {
+                id: launched.id.clone(),
+                decisions: launched.capabilities.clone(),
+            },
+        },
     }
 }

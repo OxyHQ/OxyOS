@@ -817,3 +817,32 @@ fn the_try_repository_offers_an_update_needing_consent() {
     assert!(!world.layout().version(ID, 12).exists());
     assert!(world.layout().version(ID, 13).is_dir());
 }
+
+/// An account decides a capability its version declares, kept in its own record; what the version
+/// does not declare, or another account's application, cannot be decided (decision 8).
+#[test]
+fn an_account_decides_the_capabilities_its_version_declares() {
+    let mut world = World::new("decide");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    let installer = world.installer();
+    let prepared = installer.prepare(ALICE, ID).unwrap();
+    installer.commit(&prepared, &mut |_| {}).unwrap();
+    let decision = |installer: &TestInstaller<FetcherClient>| {
+        installer.list(ALICE).unwrap()[0].capabilities.clone()
+    };
+    assert_eq!(decision(&installer)["network"], Decision::Granted);
+    assert_eq!(decision(&installer)["notifications"], Decision::Undecided);
+    installer.decide(ALICE, ID, "notifications", false).unwrap();
+    assert_eq!(decision(&installer)["notifications"], Decision::Denied);
+    installer.decide(ALICE, ID, "notifications", true).unwrap();
+    assert_eq!(decision(&installer)["notifications"], Decision::Granted);
+    assert!(matches!(
+        installer.decide(ALICE, ID, "camera", true),
+        Err(InstallError::NotPermitted)
+    ));
+    assert!(matches!(
+        installer.decide(BOB, ID, "notifications", true),
+        Err(InstallError::NotInstalled)
+    ));
+}

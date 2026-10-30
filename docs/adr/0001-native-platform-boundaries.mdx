@@ -22,7 +22,7 @@ This records decisions that the code in `crates/oxyos-protocol` and `crates/oxyo
 
 The compositor never waits on a client. Every policy operation completes from compositor state; a stalled or crashed client can lose its own content, never the compositor's move, focus, shortcut or lock behavior.
 
-Grants (`Grants { shell, lock, shortcuts }`) are attached by the session authority when it accepts a connection, from authenticated peer credentials. Requests cannot add grants. A Hello, a client name, an environment variable, an Oxy account or an Oxy token does not grant a role. Revocation dismisses the surfaces that depended on the grant.
+Grants (`Grants { shell, lock, shortcuts }`, and later the system grants an application's launch record gives: `settings`, ADR 0019; `store`, `updates` and `privacy`, ADR 0030) are attached by the session authority when it accepts a connection, from authenticated peer credentials. Requests cannot add grants. A Hello, a client name, an environment variable, an Oxy account or an Oxy token does not grant a role. Revocation dismisses the surfaces that depended on the grant.
 
 ## Ownership and dependency direction
 

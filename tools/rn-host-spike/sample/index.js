@@ -24,6 +24,7 @@ import WindowProbe from './WindowProbe';
 import AnimatedProbe from './AnimatedProbe';
 import MenuBarProbe from './MenuBarProbe';
 import ExpoProbe from './ExpoProbe';
+import StoreProbe from './StoreProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -46,3 +47,4 @@ AppRegistry.registerComponent('MenuBarProbe', () => MenuBarProbe);
 AppRegistry.registerComponent('IntlProbe', () => IntlProbe);
 AppRegistry.registerComponent('ShellProbe', () => ShellProbe);
 AppRegistry.registerComponent('ExpoProbe', () => ExpoProbe);
+AppRegistry.registerComponent('StoreProbe', () => StoreProbe);

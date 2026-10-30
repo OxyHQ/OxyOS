@@ -9,6 +9,8 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
+import { useSystemSheets } from './oxyos/system';
+import { readSheet } from '../../../apps/shell/src/sheet';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import type {
@@ -174,7 +176,10 @@ function ProbeShell({
   commands,
   controls = probeControls,
   notifications,
+  sheet,
 }: {
+  /** The session's system sheet to show now (ADR 0030). */
+  sheet?: React.ComponentProps<typeof Shell>['sheet'];
   platform?: React.ComponentProps<typeof Shell>['platform'];
   /** The machine as the session says it is (ADR 0025). */
   controls?: React.ComponentProps<typeof Shell>['controls'];
@@ -206,6 +211,7 @@ function ProbeShell({
             commands={commands}
             controls={controls}
             notifications={notifications}
+            sheet={sheet}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -224,6 +230,12 @@ export default function ShellProbe() {
  */
 export function ShellSession() {
   const shell = useOxyOSShell();
+  // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
+  const { sheets, answer } = useSystemSheets();
+  // One the shell cannot read is refused: it never confirms what it did not show.
+  React.useEffect(() => {
+    for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
+  }, [sheets, answer]);
   // OxyOS's platform, with the session's polite announcements (a banner's, ADR 0026).
   const announcing = React.useMemo(
     () => ({ ...oxyosShell, announce: (text: string, polite: boolean) => shell.announce(text, polite) }),
@@ -407,8 +419,16 @@ export function ShellSession() {
     remove: (id) => shell.removeNotification(Number(id)),
     setDoNotDisturb: shell.setDoNotDisturb,
   };
+  const first = dock ? sheets[0] : undefined;
+  const firstText = first ? readSheet(first.text) : null;
+  const names = Object.fromEntries(registry.map((app) => [app.id, app.name]));
+  const sheet =
+    first && firstText
+      ? { text: firstText, language: 'es' as const, names, answer: (accepted: boolean) => answer(first.sheet, accepted) }
+      : undefined;
   return (
     <ProbeShell
+      sheet={sheet}
       platform={announcing}
       shown={shown}
       act={act}

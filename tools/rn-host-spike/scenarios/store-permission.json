@@ -1,0 +1,131 @@
+{
+  "module": "StoreProbe",
+  "window": [
+    520,
+    340
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "about": "A capability asked at first use (docs/adr/0030-installing-applications.mdx, decision 8): an installed application (so.oxy.permissionprobe, declaring notifications) is opened by the store; its expo-notifications permission is undetermined; requestPermissionsAsync asks in the system's sheet; No permitir answers Expo's denied, the install service keeps it, and a post is refused, no banner.",
+  "installd": {
+    "publish": [
+      "so.oxy.permissionprobe"
+    ],
+    "installed": [
+      "so.oxy.permissionprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.permissionprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Probe: the store opens the installed probe",
+      "do": [
+        "press",
+        [
+          410,
+          140
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 1"
+        ]
+      }
+    },
+    {
+      "name": "Its permission, as the session gave its launch: undetermined",
+      "do": [
+        "wait",
+        1500
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Permission: undetermined"
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ask: requestPermissionsAsync, and the shell shows the sheet",
+      "do": [
+        "press_output",
+        [
+          440,
+          205
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Asked: 1"
+          ],
+          "react": {
+            "touchStart@ask": 1,
+            "touchEnd@ask": 1
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "No permitir, in the shell's sheet",
+      "do": [
+        "press_output",
+        [
+          622,
+          431
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-refuse": 1,
+            "touchEnd@system-sheet-refuse": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Post: Expo's denied, and the post refused, no banner",
+      "do": [
+        "press_output",
+        [
+          440,
+          255
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Permission: denied",
+            "Post: refused",
+            "Asked: 2"
+          ]
+        },
+        "in_shell": {
+          "absent": [
+            "Hello"
+          ]
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

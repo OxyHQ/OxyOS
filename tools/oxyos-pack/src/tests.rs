@@ -194,3 +194,94 @@ fn the_canonical_form_is_jcs() {
         "{\"a\":{\"A\":null,\"z\":true},\"b\":[1,\"é\\n\\u0001\\\"\\\\\"],\"€\":0,\"\u{10000}\":1}"
     );
 }
+
+/// A compiler standing in for `hermesc`: Hermes's magic, then the source.
+struct Stand;
+
+impl oxyos_install::compile::Compile for Stand {
+    fn compile(
+        &self,
+        _hermesc: &Path,
+        source: &std::fs::File,
+        out: &std::fs::File,
+    ) -> std::result::Result<(), String> {
+        use std::io::{Read, Write};
+        let (mut text, mut source) = (Vec::new(), source);
+        source.read_to_end(&mut text).map_err(|e| e.to_string())?;
+        let mut out = out;
+        out.write_all(&HERMES_BYTECODE_MAGIC)
+            .and_then(|()| out.write_all(&text))
+            .map_err(|e| e.to_string())
+    }
+}
+
+/// What `publish` publishes, the install service installs, and a later version is its update.
+#[test]
+fn the_install_service_installs_what_publish_published() {
+    use oxyos_install::accounts::{Account, Fixed};
+    use oxyos_install::fetch::{LocalRepository, ThreadFetcher};
+    use oxyos_install::install::{Installer, Machine};
+    use oxyos_install::state::Layout;
+    use std::os::unix::fs::MetadataExt;
+    let dir = Directory::new("publish");
+    dir.pack().unwrap();
+    let (keys, repo) = (dir.0.join("store-keys"), dir.0.join("repository"));
+    store_keys(&keys).unwrap();
+    repository(&repo, &keys).unwrap();
+    publish(&dir.0.join("package"), &repo, &keys, &dir.0.join("key")).unwrap();
+
+    // A machine: runtime 1 at api 1, this process's own account.
+    let runtimes = dir.0.join("runtimes");
+    std::fs::create_dir_all(runtimes.join("1")).unwrap();
+    std::fs::write(runtimes.join("1/runtime.json"), r#"{"abi":1,"api":1}"#).unwrap();
+    std::fs::write(runtimes.join("1/hermesc"), b"").unwrap();
+    let me = std::fs::metadata(&dir.0).unwrap();
+    let accounts = Fixed(vec![Account {
+        uid: me.uid(),
+        name: "me".into(),
+        gid: me.gid(),
+    }]);
+    let fetcher = ThreadFetcher::start(&dir.0, LocalRepository::new(&repo)).unwrap();
+    let installer = Installer::open(
+        Layout::new(&dir.0.join("state")),
+        &repo.join("metadata/1.root.json"),
+        fetcher.client(),
+        Stand,
+        accounts,
+        Machine::discover(&runtimes, oxyos_package::Architecture::X86_64),
+        now,
+    )
+    .unwrap();
+    let prepared = installer.prepare(me.uid(), "so.oxy.inbox").unwrap();
+    assert_eq!(prepared.plan.version_code, 1);
+    installer.commit(&prepared, &mut |_| {}).unwrap();
+    let entry = std::fs::read_to_string(
+        dir.0
+            .join("state/users/me/applications/so.oxy.inbox.desktop"),
+    )
+    .unwrap();
+    assert!(entry.contains("/so.oxy.inbox/1/index.hbc"), "{entry}");
+
+    // Version 2, packed and published over the same repository: the next metadata, an update.
+    let two = dir.0.join("package-2");
+    std::fs::create_dir_all(two.join("bundle")).unwrap();
+    std::fs::write(two.join("bundle/index.js"), "globalThis.x = 2;\n").unwrap();
+    std::fs::copy(dir.0.join("package/icon.png"), two.join("icon.png")).unwrap();
+    let description = std::fs::read_to_string(dir.0.join("description.json"))
+        .unwrap()
+        .replace("\"versionCode\": 1", "\"versionCode\": 2")
+        .replace("\"0.1.0\"", "\"0.2.0\"");
+    std::fs::write(dir.0.join("description-2.json"), description).unwrap();
+    pack(
+        &two,
+        &dir.0.join("description-2.json"),
+        &dir.0.join("runtime.json"),
+        &dir.0.join("key"),
+    )
+    .unwrap();
+    publish(&two, &repo, &keys, &dir.0.join("key")).unwrap();
+    installer.check().unwrap();
+    let state = installer.update_state(me.uid()).unwrap();
+    assert_eq!(state.updates.len(), 1);
+    assert_eq!(state.updates[0].to_version_code, 2);
+}

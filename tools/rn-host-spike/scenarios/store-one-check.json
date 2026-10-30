@@ -1,0 +1,70 @@
+{
+  "module": "StoreProbe",
+  "window": [
+    520,
+    340
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "about": "Two checks asked at once make one (docs/adr/0030-installing-applications.mdx, decision 16): the store asks twice together; the install service reads the store once, both get its state.",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ],
+    "later": [
+      {
+        "id": "so.oxy.inbox",
+        "versionCode": 2,
+        "capabilities": []
+      }
+    ]
+  },
+  "installd_final": {
+    "store_reads": 1
+  },
+  "steps": [
+    {
+      "name": "Check twice at once",
+      "do": [
+        "press",
+        [
+          90,
+          140
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 2"
+        ]
+      }
+    },
+    {
+      "name": "Status: both answered with the one state, the update found",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Updates: 1 so.oxy.inbox 2 available",
+          "Check: updateState · UpdateAll: - · Status: status v1 update 2"
+        ]
+      }
+    }
+  ]
+}

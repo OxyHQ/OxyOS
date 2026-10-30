@@ -279,6 +279,12 @@ pub const OXYOS_EVENT_DISPLAY_REMOVED: u32 = 134;
 /// To Settings: the display `code`'s mode is on trial, and goes back unless kept
 /// (`oxyos_client_confirm_displays`) within `detail` seconds; 0, it was kept or went back.
 pub const OXYOS_EVENT_DISPLAY_CONFIRMATION: u32 = 135;
+/// Installing applications (ADR 0030): a chunk of the session's answer, a chunk of a system
+/// sheet for the shell, a sheet withdrawn, and the answer to a capability request.
+pub const OXYOS_EVENT_SYSTEM_TEXT: u32 = 160;
+pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
+pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
+pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 /// A DISPLAY's `flag` bits.
 pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
 pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
@@ -1189,6 +1195,53 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::SystemText {
+            serial,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SYSTEM_TEXT,
+                code: serial,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
+        Event::SheetText {
+            sheet,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SHEET_TEXT,
+                code: sheet,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
+        Event::SheetDismissed { sheet } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SHEET_DISMISSED,
+                code: sheet,
+                ..out
+            }
+        }
+        Event::CapabilityResult { serial, granted } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CAPABILITY_RESULT,
+                code: serial,
+                flag: u8::from(granted),
+                ..out
+            }
+        }
         Event::Activated { surface, active } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_ACTIVATED,
@@ -1519,6 +1572,87 @@ pub unsafe extern "C" fn oxyos_client_set_preference(
         return fail("a preference is UTF-8");
     };
     status(client.set_preference(serial, key, value))
+}
+
+/// Asks the session one request of its vocabulary (ADR 0030; the `store`, `updates` or
+/// `privacy` grant): `text`, NUL-terminated UTF-8 JSON, citing `input`, the serial of a user input
+/// this connection received (0 for none). SYSTEM_TEXT events naming `serial` answer. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` a NUL-terminated string.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_system_request(
+    client: *mut OxyOSClient,
+    serial: u32,
+    input: u64,
+    text: *const c_char,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if text.is_null() {
+        return fail("null request");
+    }
+    // SAFETY: per the contract, a NUL-terminated string.
+    let Ok(text) = (unsafe { CStr::from_ptr(text) }).to_str() else {
+        return fail("a request is UTF-8");
+    };
+    status(client.system_request(serial, input, text))
+}
+
+/// The session's shell answers system sheet `sheet` (SHEET_TEXT): accepted or not, citing
+/// `serial`, the press or key that answered it. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_sheet_answer(
+    client: *mut OxyOSClient,
+    sheet: u32,
+    accepted: bool,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SheetAnswer {
+                sheet,
+                accepted,
+                serial,
+            },
+        )
+    }
+}
+
+/// An application asks to use `capability` (1 notifications, 2 files, 3 camera, 4 microphone,
+/// 5 location), citing `input`, a user input it received (0 for none). CAPABILITY_RESULT naming
+/// `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_request_capability(
+    client: *mut OxyOSClient,
+    serial: u32,
+    input: u64,
+    capability: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::RequestCapability {
+                serial,
+                input,
+                capability,
+            },
+        )
+    }
 }
 
 /// Locks the session (the session's shell, with the `shell` grant). 0 on success.

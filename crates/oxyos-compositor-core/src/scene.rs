@@ -72,6 +72,14 @@ pub struct Grants {
     /// Settings (ADR 0019): changes the user's preferences (`SetPreference`) and is told every
     /// one as it is kept. Given from launch records, by [`Scene::grant`].
     pub settings: bool,
+    /// Atlas (ADR 0030, decision 9): asks the session to install, update, remove and open
+    /// applications (`SystemRequest`), each confirmed by the person in the shell's sheet.
+    pub store: bool,
+    /// Settings and Atlas (ADR 0030, decision 16): see and apply the account's updates.
+    pub updates: bool,
+    /// Settings (ADR 0030, decision 8): see and change the account's decisions on its
+    /// applications' capabilities.
+    pub privacy: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,6 +434,9 @@ pub struct Scene {
     caps_lock: bool,
     /// Applications the shell asked for (ADR 0013).
     launches: launch::Launches,
+    /// What the store, Settings and applications asked the session, and the shell's sheets
+    /// (ADR 0030).
+    system: system::System,
     /// The user's preferences as the program running the compositor told them, and the changes
     /// Settings asked for (ADR 0019).
     preferences: preferences::Preferences,
@@ -976,6 +987,9 @@ impl Scene {
             input_method: granted.input_method && !held.input_method,
             screen_reader: granted.screen_reader && !held.screen_reader,
             settings: granted.settings && !held.settings,
+            store: granted.store && !held.store,
+            updates: granted.updates && !held.updates,
+            privacy: granted.privacy && !held.privacy,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -986,6 +1000,9 @@ impl Scene {
         grants.input_method |= new.input_method;
         grants.screen_reader |= new.screen_reader;
         grants.settings |= new.settings;
+        grants.store |= new.store;
+        grants.updates |= new.updates;
+        grants.privacy |= new.privacy;
         if new.accessibility {
             self.replay_accessibility(client);
         }
@@ -1003,6 +1020,7 @@ impl Scene {
         if new.shell {
             self.tell_controls(client);
             self.tell_notifications(client);
+            self.tell_sheets(client);
         }
         Ok(())
     }
@@ -1019,6 +1037,7 @@ impl Scene {
         self.forget_switcher(client);
         self.forget_menu_bar_client(client);
         self.forget_launches(client);
+        self.forget_system_requests(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
         self.forget_notification_client(client);
@@ -1083,6 +1102,12 @@ impl Scene {
         grants.input_method &= !revoked.input_method;
         grants.screen_reader &= !revoked.screen_reader;
         grants.settings &= !revoked.settings;
+        grants.store &= !revoked.store;
+        grants.updates &= !revoked.updates;
+        grants.privacy &= !revoked.privacy;
+        if !(grants.store || grants.updates || grants.privacy) {
+            self.forget_system_requests(client);
+        }
         if revoked.shell || revoked.shortcuts {
             self.forget_switcher(client);
         }
@@ -1428,6 +1453,23 @@ impl Scene {
                 last,
                 text,
             } => self.preference_request(client, serial, index, last, text),
+            Request::SystemRequest {
+                serial,
+                input,
+                index,
+                last,
+                text,
+            } => self.system_request(client, serial, input, index, last, text),
+            Request::SheetAnswer {
+                sheet,
+                accepted,
+                serial,
+            } => self.sheet_answer(client, sheet, accepted, serial),
+            Request::RequestCapability {
+                serial,
+                input,
+                capability,
+            } => self.capability_request(client, serial, input, capability),
             Request::SetDisplayMode { .. }
             | Request::SetDisplayScale { .. }
             | Request::SetDisplayOrigin { .. }
@@ -3814,6 +3856,8 @@ mod launch;
 pub use launch::LaunchRequest;
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
+mod system;
+pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
 mod displays;
 pub use displays::{
     DisplayChange, DisplayInfo, DisplayRequest, ModeInfo, MAX_DISPLAY_MODES,

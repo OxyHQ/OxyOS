@@ -1664,6 +1664,7 @@ dependencies = [
  "oxyos-controls",
  "oxyos-gpu",
  "oxyos-input",
+ "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-preferences",
@@ -1673,6 +1674,8 @@ dependencies = [
  "oxyos-vector",
  "oxyos-vt",
  "rustix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

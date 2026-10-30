@@ -231,6 +231,31 @@ fn a_watcher_is_told_what_another_connection_did() {
     atlas_thread.join().unwrap();
 }
 
+/// A watch stays open however long it is quiet: its send timeout is not its connection's receive
+/// timeout (a clone shares the socket).
+#[test]
+fn a_quiet_watch_is_not_closed() {
+    let mut world = World::new("socket-quiet-watch");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    let installer = Arc::new(world.installer());
+    let (client, server) = Connection::pair().unwrap();
+    let served = installer.clone();
+    let thread = std::thread::spawn(move || {
+        let _ = service::serve(&server, &served, |_, _| {});
+    });
+    client.send(&Request::WatchUpdates { uid: None }).unwrap();
+    let next = |c: &Connection| c.receive::<Answer>().unwrap().unwrap().unwrap();
+    assert_eq!(next(&client), Answer::Watching);
+    assert!(matches!(next(&client), Answer::UpdateState(_)));
+    std::thread::sleep(service::WATCH_SEND + std::time::Duration::from_millis(500));
+    // Still watching: a change is told.
+    install(&*installer, me(), ID).unwrap();
+    assert!(matches!(next(&client), Answer::UpdateState(_)));
+    drop(client);
+    thread.join().unwrap();
+}
+
 #[test]
 fn the_fetcher_writes_only_for_its_peer_and_only_what_it_may() {
     let world = World::new("fetcher");

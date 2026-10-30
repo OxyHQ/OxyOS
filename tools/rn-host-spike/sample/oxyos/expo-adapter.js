@@ -7,6 +7,7 @@
  * (expo-blur.h). Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
+import { launch, requestCapability } from './system';
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
@@ -367,11 +368,27 @@ Object.assign(ExpoNotificationPresenter, {
 
 // The session decides how notifications show (Do Not Disturb, the lock screen); an application the
 // session started may post, and there is nothing to ask.
+// Permissions (docs/adr/0030-installing-applications.mdx, decision 8): a system or development
+// application may post; an installed version only once its account granted `notifications`, asked
+// in the system's sheet at its first requestPermissionsAsync, kept by the install service. Denied,
+// expo-notifications' own answer says so, and the host refuses its posts.
 const granted = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' };
+const denied = { status: 'denied', granted: false, canAskAgain: false, expires: 'never' };
+const undetermined = { status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' };
+const notificationsAllowed = () => {
+  const launched = launch();
+  return !launched || !launched.narrowed || launched.capabilities.includes('notifications');
+};
+let notificationsAsked = false;
 const ExpoNotificationPermissionsModule = emitter();
 Object.assign(ExpoNotificationPermissionsModule, {
-  getPermissionsAsync: async () => granted,
-  requestPermissionsAsync: async () => granted,
+  getPermissionsAsync: async () =>
+    notificationsAllowed() ? granted : notificationsAsked ? denied : undetermined,
+  requestPermissionsAsync: async () => {
+    if (notificationsAllowed()) return granted;
+    notificationsAsked = true;
+    return (await requestCapability('notifications')) ? granted : denied;
+  },
 });
 
 const ExpoNotificationCategoriesModule = emitter();

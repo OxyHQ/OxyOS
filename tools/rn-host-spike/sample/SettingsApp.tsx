@@ -13,6 +13,8 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { Settings } from '../../../apps/settings/src/Settings';
 import { stringsFor } from '../../../apps/settings/src/strings';
+import { available, privacy, updates as systemUpdates, useUpdateState } from './oxyos/system';
+import type { PrivacyApplication, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
   PREFERENCE_KEYS,
   preferenceText,
@@ -201,8 +203,54 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
   };
 }
 
+/**
+ * Software Update and Privacy (docs/adr/0030-installing-applications.mdx, decisions 8 and 16): the
+ * install service's one update state, followed, and the account's applications' capabilities, as
+ * the session tells Settings with its `updates` and `privacy` grants. The OS's own row says this
+ * install updates with apt: no OxyOS install updates otherwise until ADR 0023's image updates exist.
+ */
+function useInstallModel() {
+  const state = useUpdateState();
+  const [failed, setFailed] = React.useState<string | null>(null);
+  // Without the `updates` grant the session refuses: the page says updates are not available here.
+  const [updatesAllowed, setUpdatesAllowed] = React.useState(available);
+  React.useEffect(() => {
+    if (available) systemUpdates.state().then((answer: any) => answer?.refused && setUpdatesAllowed(false));
+  }, []);
+  const [apps, setApps] = React.useState<PrivacyApplication[] | null | undefined>(available ? null : undefined);
+  const reload = React.useCallback(async () => {
+    const answer = await privacy.list();
+    if (answer && Array.isArray(answer.privacy)) setApps(answer.privacy);
+    else if (answer && answer.refused) setApps(undefined);
+  }, []);
+  React.useEffect(() => {
+    if (available) reload();
+  }, [reload]);
+  React.useEffect(() => {
+    if (available && state) reload();
+  }, [state, reload]);
+  const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
+    setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
+  const updates: UpdatesActions = {
+    checkForUpdates: () => systemUpdates.check().then(done),
+    update: (id) => systemUpdates.update([id]).then(done),
+    updateAll: () => systemUpdates.updateAll().then(done),
+  };
+  return {
+    updates: updatesAllowed ? { system: { kind: 'apt' as const }, state, failed } : undefined,
+    updatesActions: updatesAllowed ? updates : undefined,
+    privacy: apps,
+    privacyActions: available
+      ? { decide: (id: string, capability: string, granted: boolean) => privacy.decide(id, capability, granted).then(reload) }
+      : undefined,
+  };
+}
+
 export default function SettingsApp() {
-  const { snapshot, actions } = useSettingsModel();
+  const model = useSettingsModel();
+  const install = useInstallModel();
+  const snapshot = { ...model.snapshot, updates: install.updates, privacy: install.privacy };
+  const actions = { ...model.actions, updates: install.updatesActions, privacy: install.privacyActions };
   const strings = React.useMemo(() => stringsFor(Intl.DateTimeFormat().resolvedOptions().locale), []);
   return (
     <SafeAreaProvider>

@@ -359,6 +359,23 @@ fn requests() -> Vec<Request> {
             keep: true,
         },
         Request::SetKeyText { enabled: true },
+        Request::SystemRequest {
+            serial: 11,
+            input: 40,
+            index: 300,
+            last: true,
+            text: PreeditText::new(r#"{"state":{}}"#).unwrap(),
+        },
+        Request::SheetAnswer {
+            sheet: 2,
+            accepted: true,
+            serial: 41,
+        },
+        Request::RequestCapability {
+            serial: 12,
+            input: 42,
+            capability: 1,
+        },
     ]
 }
 
@@ -618,6 +635,23 @@ fn events() -> Vec<Event> {
             key: 30,
             pressed: true,
             text: PreeditText::new("é").unwrap(),
+        },
+        Event::SystemText {
+            serial: 11,
+            index: 300,
+            last: false,
+            text: PreeditText::new(r#"{"updateState":"#).unwrap(),
+        },
+        Event::SheetText {
+            sheet: 2,
+            index: 0,
+            last: true,
+            text: PreeditText::new(r#"{"kind":"install"}"#).unwrap(),
+        },
+        Event::SheetDismissed { sheet: 2 },
+        Event::CapabilityResult {
+            serial: 12,
+            granted: false,
         },
         Event::WindowState {
             window: 7,

@@ -1,0 +1,121 @@
+{
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "about": "Settings' Software Update (docs/adr/0030-installing-applications.mdx, decision 16) on a real oxyos-installd: the OS's row says this development install updates with apt (never a fake OS update); Inbox 1 is installed and the store publishes 2; Check for Updates reads the store once and lists Inbox 2 with its size (only what the machine lacks); Update All switches it, and the list is empty. At 1.25 on the ThinkPad's display (1600x1000).",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ],
+    "installed": [
+      "so.oxy.inbox"
+    ],
+    "later": [
+      {
+        "id": "so.oxy.inbox",
+        "versionCode": 2
+      }
+    ]
+  },
+  "installd_final": {
+    "packages": {
+      "so.oxy.inbox": [
+        1,
+        2
+      ]
+    },
+    "store_reads": 1
+  },
+  "steps": [
+    {
+      "name": "Software Update: the OS's row, and nothing checked yet",
+      "do": [
+        "press",
+        [
+          102,
+          475
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "This development install updates with apt.",
+          "Not checked yet",
+          "Check for Updates"
+        ],
+        "absent": [
+          "Your apps are up to date."
+        ]
+      }
+    },
+    {
+      "name": "Check for Updates",
+      "do": [
+        "press",
+        [
+          792,
+          275
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The update listed: Inbox 2, what it fetches, Update All",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Inbox",
+          "Version 0.2.0 · 0 bytes",
+          "Update All"
+        ]
+      }
+    },
+    {
+      "name": "Update All",
+      "do": [
+        "press",
+        [
+          820,
+          340
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Up to date: the list empty",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Your apps are up to date."
+        ],
+        "absent": [
+          "Version 0.2.0"
+        ]
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

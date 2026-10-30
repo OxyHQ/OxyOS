@@ -50,7 +50,7 @@ pub const SOCKET: &str = "/run/oxyos/installd/socket";
 /// How long a watcher's peer may take to read a change before the watch ends.
 pub const WATCH_SEND: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Request {
     Prepare {
@@ -134,6 +134,17 @@ pub enum Request {
         uid: Option<u32>,
     },
     AutomaticUpdates,
+    /// The account's decision on a capability its installed version declares (decision 8): from
+    /// the system's sheet at first use, or Settings' Privacy page. Kept in the account's record,
+    /// root's, so no process of the account grants itself one by writing a file.
+    #[serde(rename_all = "camelCase")]
+    Decide {
+        id: String,
+        capability: String,
+        granted: bool,
+        #[serde(default)]
+        uid: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +205,7 @@ pub enum Answer {
     Updated(Vec<Updated>),
     AutomaticSet,
     Automatic(Vec<AutomaticAnswer>),
+    Decided,
     Refused {
         reason: Reason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -446,12 +458,17 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 if let Err(e) = self.installer.check() {
                     return failed(&e, "checkUpdates", None);
                 }
+                // How often the store was read, in the log: two asking at once make one.
+                let read = Ok(format!(
+                    "checked; the store read {} times in all",
+                    self.installer.checks_made()
+                ));
                 match account {
-                    None => (
-                        Answer::Checked,
-                        outcome("checkUpdates", None, Ok("checked".into())),
+                    None => (Answer::Checked, outcome("checkUpdates", None, read)),
+                    Some(uid) => (
+                        self.state(uid, "checkUpdates").0,
+                        outcome("checkUpdates", None, read),
                     ),
-                    Some(uid) => self.state(uid, "checkUpdates"),
                 }
             }
             Request::UpdateState { uid } => {
@@ -463,7 +480,9 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 let Some(on) = self.watch_on.as_ref().and_then(|c| c.try_clone().ok()) else {
                     return refusal(Answer::refused(Reason::Failed), "watchUpdates", None);
                 };
-                let _ = on.set_timeout(WATCH_SEND);
+                // A send's timeout alone: the clone shares the socket, and a receive timeout here
+                // would close the watch once it had been quiet for that long.
+                let _ = on.set_send_timeout(WATCH_SEND);
                 // The answer goes first: the state follows it, now and at each change.
                 if let Err(e) = send(&Answer::Watching) {
                     return refusal(
@@ -519,6 +538,21 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                         outcome("setAutomatic", None, Ok(format!("{apps}"))),
                     ),
                     Err(e) => failed(&e, "setAutomatic", None),
+                }
+            }
+            Request::Decide {
+                id,
+                capability,
+                granted,
+                uid,
+            } => {
+                let uid = account!(uid, "decide", Some(&id));
+                match self.installer.decide(uid, &id, &capability, granted) {
+                    Ok(()) => (
+                        Answer::Decided,
+                        outcome("decide", Some(&id), Ok(format!("{capability} {granted}"))),
+                    ),
+                    Err(e) => failed(&e, "decide", Some(&id)),
                 }
             }
             Request::AutomaticUpdates => {

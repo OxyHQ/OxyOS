@@ -285,6 +285,18 @@ bool Window::setPreference(uint32_t serial, const std::string& key, const std::s
   return oxyos_client_set_preference(client_, serial, key.c_str(), value.c_str()) == 0;
 }
 
+bool Window::systemRequest(uint32_t serial, uint64_t input, const std::string& text) {
+  return oxyos_client_system_request(client_, serial, input, text.c_str()) == 0;
+}
+
+void Window::sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial) {
+  if (oxyos_client_sheet_answer(client_, sheet, accepted, serial) != 0) failed("cannot answer a sheet");
+}
+
+bool Window::requestCapability(uint32_t serial, uint64_t input, uint8_t capability) {
+  return oxyos_client_request_capability(client_, serial, input, capability) == 0;
+}
+
 bool Window::setDisplayMode(uint32_t serial, uint32_t output, uint32_t width, uint32_t height, uint32_t refreshMhz) {
   return oxyos_client_set_display_mode(client_, serial, output, width, height, refreshMhz) == 0;
 }
