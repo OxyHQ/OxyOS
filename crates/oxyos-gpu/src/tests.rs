@@ -1824,3 +1824,66 @@ fn changed_pixels_change_the_output_only_within_their_span() {
         }
     }
 }
+
+#[test]
+fn an_opaque_layer_at_its_own_size_is_its_pixels_as_drawn_from_any_other() {
+    // A window with rounded corners, partly off the output and clipped, over another: at its
+    // pixels' size each pixel is copied where it is covered whole; drawn from pixels twice the
+    // size by nearest neighbour (the general way) it must be the same, corners and all.
+    let (width, height) = (61u32, 43u32);
+    let words: Vec<u32> = (0..width * height)
+        .map(|i| 0xff00_0000 | (i.wrapping_mul(2_654_435_761) & 0x00ff_ffff))
+        .collect();
+    let doubled: Vec<u32> = (0..height * 2)
+        .flat_map(|y| {
+            let words = &words;
+            (0..width * 2).map(move |x| words[((y / 2) * width + x / 2) as usize])
+        })
+        .collect();
+    let (own, twice) = (pixels(&words), pixels(&doubled));
+    let window = |paint, extent, x: i32, opacity: u8, clip: Option<Rect>| Layer {
+        x,
+        y: 5,
+        width,
+        height,
+        extent,
+        paint,
+        source: None,
+        changed: None,
+        opacity,
+        radius: 9,
+        filter: Filter::Nearest,
+        clip,
+    };
+    let under = pixels(&vec![0xff20_4060; 80 * 60]);
+    let below = drawn(Paint::Opaque(&under), (80, 60), (80, 60));
+    for (x, opacity, clip) in [
+        (10, 255, None),
+        (-7, 255, None),
+        (
+            30,
+            255,
+            Some(Rect {
+                x: 35,
+                y: 0,
+                width: 20,
+                height: 30,
+            }),
+        ),
+        (10, 200, None),
+    ] {
+        let at_size = window(Paint::Opaque(&own), (width, height), x, opacity, clip);
+        let scaled = window(
+            Paint::Opaque(&twice),
+            (width * 2, height * 2),
+            x,
+            opacity,
+            clip,
+        );
+        assert_eq!(
+            compose_cpu(80, 60, 3, &[below, at_size]),
+            compose_cpu(80, 60, 3, &[below, scaled]),
+            "at {x}, opacity {opacity}, clip {clip:?}"
+        );
+    }
+}
