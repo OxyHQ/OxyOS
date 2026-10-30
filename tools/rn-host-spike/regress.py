@@ -85,6 +85,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
   rate, the compositor serving the application between them, as a touchpad scrolls a list):
   "presented_min", the fewest frames the window showed;
+- moved: for a `move_paced` step (the mouse moved over the window from one point to another in N
+  motions at a rate, no button held, the compositor serving the application between them, as a
+  hand moves across a list): "presented_min", the fewest frames the window showed;
+  "latency_max_ms", the longest from a motion to the frame that followed it;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
@@ -225,7 +229,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "move_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
 
@@ -259,6 +263,9 @@ def director_args(step):
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
+    if kind == "move_paced":
+        # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
+        return args + ["--move-paced", ",".join(map(str, value))]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
@@ -1156,6 +1163,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
                  f"{wanted['presented_min']}")
+    if "moved" in expect:
+        # A paced pointer motion (`move_paced`): the frames the window showed while the mouse
+        # moved over it, and how soon each followed its motion.
+        moved, wanted = result.get("moved") or {}, expect["moved"]
+        if moved.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {moved.get('presented', 0)} frames as the pointer moved, expected at least "
+                 f"{wanted['presented_min']}")
+        worst = (moved.get("latency_ms") or {}).get("max")
+        if "latency_max_ms" in wanted and (worst is None or worst > wanted["latency_max_ms"]):
+            fail(f"a frame came {worst} ms after the motion it followed, expected at most {wanted['latency_max_ms']}")
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
