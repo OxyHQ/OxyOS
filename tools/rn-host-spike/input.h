@@ -85,9 +85,11 @@ class PointerInput {
 
  private:
   void scroll(float dx, float dy);
-  // Moves the hover to the views under (x, y) of `content` (none for nullopt): pointer leave
-  // events for the views left, innermost first, then enter events for the views entered,
-  // outermost first, as W3C pointer events do. Pressability's hover is built on them.
+  // The pointer over (x, y) of `content` (none for nullopt: it left): a W3C pointermove to the view
+  // under it, or a pointerleave once it left, from which React Native's pointer events processor
+  // makes pointerover, pointerout, pointerenter and pointerleave for the views that listen, as
+  // it does for iOS's Fabric. Pressability's hover is built on them. The pointer's shape follows
+  // the views under it.
   void hover(const std::optional<SurfaceContent>& content, float x, float y);
 
   // A mouse button's W3C pointer event (pointerdown or pointerup) to the view under (x, y).
@@ -128,6 +130,7 @@ class PointerInput {
   SurfaceContent content_{};  // the surface the pointer is over
   std::vector<facebook::react::Tag> hovered_;  // views under the pointer, root first
   uint32_t hoveredSurface_ = 0;
+  std::optional<facebook::react::Point> hoveredAt_;  // where the last pointermove was, on the page
   bool down_ = false;
   // The mouse buttons held (W3C `buttons` bits) and the keyboard's modifiers.
   int buttons_ = 0;
