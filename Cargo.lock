@@ -1690,6 +1690,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-preferences"
+version = "0.1.0"
+
+[[package]]
 name = "oxyos-protocol"
 version = "0.1.0"
 
@@ -1723,6 +1727,7 @@ dependencies = [
  "oxyos-input",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
  "rustix",
