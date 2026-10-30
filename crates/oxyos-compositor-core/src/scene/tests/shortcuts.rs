@@ -682,6 +682,63 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
 }
 
 #[test]
+fn a_shell_asking_for_its_lock_screen_s_focus_as_the_session_unlocks_is_not_refused() {
+    // The shell's password field had the keys; the session unlocks, the keys go back to the
+    // window, and the shell, whose field is still focused, asks for its lock surface: its request
+    // crossed the unlock, which is no mistake of its own (it was disconnected for it, and the
+    // session could then never lock again).
+    // The session's shell draws the lock screen too: both grants, as the session gives them.
+    const SESSION_SHELL: ClientId = 9;
+    let mut h = Harness::new();
+    h.scene
+        .connect(
+            SESSION_SHELL,
+            Grants {
+                shell: true,
+                lock: true,
+                ..Grants::default()
+            },
+        )
+        .unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    h.scene.lock();
+    h.request(
+        SESSION_SHELL,
+        Request::CreateLockSurface {
+            surface: 7,
+            output: 1,
+        },
+    )
+    .unwrap();
+    h.present(key(SESSION_SHELL, 7));
+    assert_eq!(h.scene.focus(), Some(key(SESSION_SHELL, 7)));
+    keys(&mut h, &[KEY_A]);
+    let serial = h.scene.serial - 1;
+    h.scene.unlock();
+    assert_eq!(h.scene.focus(), Some(window));
+    assert_eq!(
+        h.request(
+            SESSION_SHELL,
+            Request::FocusShellSurface { surface: 7, serial }
+        ),
+        Ok(())
+    );
+    assert_eq!(h.scene.focus(), Some(window));
+    // A surface it never had is still its mistake.
+    assert_eq!(
+        h.request(
+            SESSION_SHELL,
+            Request::FocusShellSurface {
+                surface: 99,
+                serial
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+}
+
+#[test]
 fn the_shell_hides_and_quits_applications_by_a_window_and_is_told_their_use() {
     let mut h = Harness::new();
     let first = h.toplevel(APP, 1, 400, 300);

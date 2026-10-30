@@ -23,7 +23,7 @@
 //! application is activated again.
 
 use super::{appearances, ClientId, OutputId, Role, Scene, SurfaceKey};
-use oxyos_protocol::{DismissReason, Event, ShellKind, SystemShortcut};
+use oxyos_protocol::{DismissReason, ErrorCode, Event, ShellKind, SystemShortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
 const LEFT_SUPER: u32 = 125;
@@ -417,19 +417,27 @@ impl Scene {
     }
 
     /// A shell asks for the keyboard focus on one of its own panels or overlays, citing an input
-    /// it received lately; anything else is ignored.
-    pub(super) fn focus_shell_surface(&mut self, key: SurfaceKey, serial: u64) -> bool {
-        let Some(node) = self.live(key) else {
-            return false;
-        };
-        if !matches!(
-            node.role,
+    /// it received lately; without such an input, it is ignored. A surface it never had, or one of
+    /// a kind that never takes the keys (its background), is its mistake.
+    pub(super) fn focus_shell_surface(
+        &mut self,
+        key: SurfaceKey,
+        serial: u64,
+    ) -> Result<(), ErrorCode> {
+        let node = self.nodes.get(&key).ok_or(ErrorCode::UnknownSurface)?;
+        match node.role {
             Role::Shell {
                 kind: ShellKind::Panel | ShellKind::Overlay | ShellKind::Notification,
                 ..
-            }
-        ) {
-            return false;
+            } => {}
+            // The compositor gives the lock screen the keys while locked, and takes them back as it
+            // unlocks; a shell whose field still had them asks for them as the lock goes (its
+            // request crosses the unlock): nothing to do, as for a surface the compositor dismissed.
+            Role::Lock { .. } => return Ok(()),
+            _ => return Err(ErrorCode::InvalidRole),
+        }
+        if node.dismissed {
+            return Ok(());
         }
         let recent = self
             .inputs
@@ -438,6 +446,6 @@ impl Scene {
         if recent && self.focusable(key) && self.grab.is_empty() {
             self.activate(key);
         }
-        true
+        Ok(())
     }
 }
