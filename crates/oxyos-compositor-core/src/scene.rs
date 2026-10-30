@@ -1506,6 +1506,41 @@ impl Scene {
                 );
                 Ok(())
             }
+            // A GPU buffer (ADR 0031): the compositor checked and imported its planes; the scene
+            // knows it as any buffer, by its size and format.
+            Request::AttachDmabuf {
+                buffer,
+                format,
+                extent,
+                ..
+            } => {
+                if buffer == 0 || self.buffers.contains_key(&(client, buffer)) {
+                    return Err(ErrorCode::InvalidBuffer);
+                }
+                let owned = self.buffers.range((client, 0)..=(client, u64::MAX)).count();
+                if owned >= MAX_BUFFERS_PER_CLIENT {
+                    return Err(ErrorCode::QuotaExceeded);
+                }
+                self.buffers.insert(
+                    (client, buffer),
+                    BufferEntry {
+                        layout: BufferLayout {
+                            format,
+                            extent,
+                            stride: extent.width * format.bytes_per_pixel(),
+                            offset: 0,
+                        },
+                        destroyed: false,
+                    },
+                );
+                Ok(())
+            }
+            // The planes, timelines and synchronization are the compositor's (ADR 0031): it holds
+            // a frame until its acquire point signals and gives the scene the Submit then.
+            Request::AttachDmabufPlane { .. }
+            | Request::ImportTimeline { .. }
+            | Request::DestroyTimeline { .. }
+            | Request::SetSync { .. } => Ok(()),
             Request::DestroyBuffer { buffer } => {
                 match self.buffers.get_mut(&(client, buffer)) {
                     Some(entry) if !entry.destroyed => entry.destroyed = true,

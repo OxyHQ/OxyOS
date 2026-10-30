@@ -729,6 +729,12 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibilityRemoved { .. }
         | Event::ScreenReaderCommand { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
+        // GPU buffers (ADR 0031): not yet given to C callers.
+        Event::GpuDevice { .. }
+        | Event::GpuFormat { .. }
+        | Event::BufferFailed { .. }
+        | Event::GpuScanout { .. }
+        | Event::GpuScanoutFormat { .. } => return None,
         // What the clipboard holds, for the client with keyboard focus (ADR 0007).
         Event::ClipboardTypes { selection, count } => {
             out = OxyOSEvent {
