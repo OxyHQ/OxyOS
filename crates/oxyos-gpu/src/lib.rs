@@ -16,11 +16,43 @@ pub enum Paint<'a> {
     Premultiplied(&'a [u8]),
     /// One colour, 0x00RRGGBB.
     Fill(u32),
+    /// A shadow (docs/adr/0016-windows.mdx): its profile's premultiplied pixels
+    /// ([`ShadowProfile`]), each output pixel the profile's for its distance from the shape
+    /// casting it, never within what it is beneath.
+    Shadow(&'a [u8], Shadow),
+}
+
+/// Where a shadow is, relative to its layer's rectangle (output pixels): the rounded rectangle
+/// casting it, and the one it is beneath (a window), within which none of it is drawn and at
+/// whose edge only the part outside; and the size it is drawn at, in 256ths of its profile's (a
+/// window drawn smaller, in a transition, casts a smaller blur).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Shadow {
+    pub shape: Rect,
+    pub radius: u32,
+    pub clip: Rect,
+    pub clip_radius: u32,
+    pub scale: u32,
+}
+
+impl Shadow {
+    /// Whether its arithmetic stays in range: rectangles within 2²⁰ pixels and a scale the
+    /// profile may be drawn at.
+    fn valid(&self) -> bool {
+        let within = |rect: &Rect| {
+            rect.x.unsigned_abs() <= 1 << 20
+                && rect.y.unsigned_abs() <= 1 << 20
+                && rect.width <= 1 << 20
+                && rect.height <= 1 << 20
+        };
+        within(&self.shape) && within(&self.clip) && (1..=MAX_SHADOW_SCALE).contains(&self.scale)
+    }
 }
 
 /// One layer of a frame, bottom to top: its rectangle on the output in logical pixels (which
 /// may extend past the output) and its pixels at `extent`, scaled to the rectangle by nearest
-/// neighbour, at an opacity (a surface's transition, docs/adr/0011-transitions.mdx).
+/// neighbour, at an opacity (a surface's transition, docs/adr/0011-transitions.mdx), with its
+/// corners rounded (a window's, docs/adr/0016-windows.mdx).
 #[derive(Clone, Copy, Debug)]
 pub struct Layer<'a> {
     pub x: i32,
@@ -37,6 +69,10 @@ pub struct Layer<'a> {
     /// 0 (nothing) to 255 (as its pixels are): the premultiplied pixels are scaled by it before
     /// they are blended.
     pub opacity: u8,
+    /// Its corners' radius, in the rectangle's pixels (at most half its shorter side, and
+    /// `shape::MAX_RADIUS`): pixels outside the rounded rectangle are not drawn, and those on its
+    /// edge by the part of them inside, scaling the opacity. 0: square, as without it.
+    pub radius: u32,
 }
 
 /// The identity of a layer's pixels: the same key and version are the same pixels, so the
@@ -51,12 +87,15 @@ pub struct Source {
 impl Layer<'_> {
     fn pixels(&self) -> Option<&[u8]> {
         match self.paint {
-            Paint::Opaque(pixels) | Paint::Premultiplied(pixels) => Some(pixels),
+            Paint::Opaque(pixels) | Paint::Premultiplied(pixels) | Paint::Shadow(pixels, _) => {
+                Some(pixels)
+            }
             Paint::Fill(_) => None,
         }
     }
 
-    /// Whether the pixels cover the extent (4 bytes each).
+    /// Whether the pixels cover the extent (4 bytes each), and a shadow's profile is one row
+    /// of at most `MAX_PROFILE` entries.
     fn valid(&self) -> bool {
         let needed = u64::from(self.extent.0) * u64::from(self.extent.1) * 4;
         self.width > 0
@@ -64,12 +103,25 @@ impl Layer<'_> {
             && self.pixels().is_none_or(|pixels| {
                 self.extent.0 > 0 && self.extent.1 > 0 && pixels.len() as u64 >= needed
             })
+            && match self.paint {
+                Paint::Shadow(_, shadow) => {
+                    shadow.valid()
+                        && self.extent.1 == 1
+                        && self.extent.0 as usize <= shape::MAX_PROFILE
+                }
+                _ => true,
+            }
+    }
+
+    /// The radius its corners are drawn with.
+    fn corner_radius(&self) -> u32 {
+        shape::radius_on(self.radius, self.width, self.height)
     }
 }
 
 /// A rectangle of the output, in its pixels: a frame's damage, what changed since the previous
 /// frame composed into the same place (docs/adr/0005-damage.mdx).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -131,12 +183,23 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
         let y0 = layer.y.max(0);
         let x1 = (i64::from(layer.x) + i64::from(layer.width)).min(i64::from(width));
         let y1 = (i64::from(layer.y) + i64::from(layer.height)).min(i64::from(height));
+        let radius = layer.corner_radius();
         for y in i64::from(y0)..y1 {
             let ly = (y - i64::from(layer.y)) as u64;
             let sy = ly * u64::from(layer.extent.1) / u64::from(layer.height);
             for x in i64::from(x0)..x1 {
                 let lx = (x - i64::from(layer.x)) as u64;
                 let index = y as usize * width as usize + x as usize;
+                // How much of the pixel the layer covers: all of it, but at its rounded corners
+                // and, a shadow, within what it is beneath.
+                let mut coverage =
+                    shape::corner_coverage(lx as u32, ly as u32, layer.width, layer.height, radius);
+                if let Paint::Shadow(_, shadow) = layer.paint {
+                    coverage = coverage * (255 - beneath(lx as u32, ly as u32, &shadow)) / 255;
+                }
+                if coverage == 0 {
+                    continue;
+                }
                 let source_index = || {
                     let sx = lx * u64::from(layer.extent.0) / u64::from(layer.width);
                     (sy * u64::from(layer.extent.0) + sx) as usize
@@ -149,10 +212,27 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
                         let source = pixel(pixels, source_index());
                         (source & 0x00ff_ffff, source >> 24)
                     }
+                    Paint::Shadow(profile, shadow) => {
+                        let entry = shape::shadow_entry(
+                            lx as u32,
+                            ly as u32,
+                            &shadow.shape,
+                            shape::radius_on(
+                                shadow.radius,
+                                shadow.shape.width,
+                                shadow.shape.height,
+                            ),
+                            shadow.scale,
+                            layer.extent.0,
+                        );
+                        let source = pixel(profile, entry as usize);
+                        (source & 0x00ff_ffff, source >> 24)
+                    }
                 };
-                // Scaled by the layer's opacity, then source-over: at 255 an opaque pixel is
-                // copied and a premultiplied one blended, as without an opacity.
-                let opacity = u32::from(layer.opacity);
+                // Scaled by the layer's opacity at this pixel (its opacity by its coverage), then
+                // source-over: at 255 an opaque pixel is copied and a premultiplied one blended,
+                // as without an opacity.
+                let opacity = u32::from(layer.opacity) * coverage / 255;
                 let keep = 255 - alpha * opacity / 255;
                 let under = out[index];
                 let channel = |shift: u32| {
@@ -167,7 +247,23 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
     out
 }
 
+/// How much of a shadow's pixel (`x`, `y`) what it is beneath covers, 0 to 255.
+fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
+    let clip = &shadow.clip;
+    let (cx, cy) = (
+        i64::from(x) - i64::from(clip.x),
+        i64::from(y) - i64::from(clip.y),
+    );
+    if cx < 0 || cy < 0 || cx >= i64::from(clip.width) || cy >= i64::from(clip.height) {
+        return 0;
+    }
+    let radius = shape::radius_on(shadow.clip_radius, clip.width, clip.height);
+    shape::corner_coverage(cx as u32, cy as u32, clip.width, clip.height, radius)
+}
+
 pub mod frame_file;
+pub mod shape;
+pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};
 mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::ScanoutTarget;

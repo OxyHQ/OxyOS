@@ -106,13 +106,15 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
 /// Transitions recorded until `take_seen`.
 const MAX_SEEN: usize = 64;
 
-/// A surface's last frame, kept while it goes.
+/// A surface's last frame, kept while it goes, with how it was drawn if a window (its corners and
+/// shadow go with it).
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub rect: Rect,
     pub extent: Size,
     pub format: Format,
     pub pixels: Vec<u8>,
+    pub look: Option<oxyos_compositor_core::WindowLook>,
 }
 
 struct Running {
@@ -534,6 +536,7 @@ mod tests {
             extent: Size::new(200, 100),
             format: Format::Xrgb8888,
             pixels: vec![0; 200 * 100 * 4],
+            look: None,
         }
     }
 

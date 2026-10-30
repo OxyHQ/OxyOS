@@ -120,6 +120,10 @@ struct Node {
     hidden: bool,
     dismissed: bool,
     fullscreen: bool,
+    /// Whether the latest configure was full-screen, and whether the frame displayed answers a
+    /// full-screen one: what is drawn full-screen, as `pending` and `size` are what is drawn.
+    pending_fullscreen: bool,
+    shown_fullscreen: bool,
     restore: Option<((i32, i32), Size)>,
     /// A toplevel zoomed to fill the work area (ADR 0016), and the frame it had before.
     maximized: bool,
@@ -257,6 +261,13 @@ pub enum RenderItem {
     },
     /// Compositor-drawn opaque cover for an output without a ready lock surface.
     Cover { output: OutputId, rect: Rect },
+}
+
+/// How a window is drawn (`Scene::window_look`): whether it is the active window
+/// (`Scene::active_window`, the one told `Activated`) or one of its dialogs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowLook {
+    pub active: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1280,6 +1291,8 @@ impl Scene {
                 hidden: false,
                 dismissed: false,
                 fullscreen: false,
+                pending_fullscreen: false,
+                shown_fullscreen: false,
                 restore: None,
                 maximized: false,
                 unzoomed: None,
@@ -1354,6 +1367,7 @@ impl Scene {
         // Without an explicit origin the latest requested one is kept, not the displayed one.
         let keep = node.pending.map_or(node.origin, |(_, origin, _)| origin);
         node.pending = Some((serial, origin.unwrap_or(keep), size));
+        node.pending_fullscreen = node.fullscreen;
         if let Some(frame) = discarded {
             self.discard(key, frame);
         }
@@ -2059,6 +2073,26 @@ impl Scene {
             out.extend(covers);
         }
         out
+    }
+
+    /// How `key` is drawn as a window (docs/adr/0016-windows.mdx), if it is one the compositor
+    /// rounds and shadows: a toplevel or a dialog, not drawn full-screen. Between `begin_frame`
+    /// and `end_frame`, as the frame being composed draws it (as `frame_list`); otherwise as
+    /// displayed: a window going full-screen is drawn so from its first full-screen frame.
+    pub fn window_look(&self, key: SurfaceKey) -> Option<WindowLook> {
+        let node = self.live(key)?;
+        let fullscreen = match (node.presentation.presenting(), node.pending) {
+            (Some(frame), Some((serial, ..))) if serial == frame.configure => {
+                node.pending_fullscreen
+            }
+            _ => node.shown_fullscreen,
+        };
+        if !matches!(node.role, Role::Toplevel | Role::Dialog) || fullscreen {
+            return None;
+        }
+        Some(WindowLook {
+            active: self.active == Some(self.root_of(key)),
+        })
     }
 
     /// A surface whose buffer may be scanned out directly: a fullscreen window covering the
@@ -2965,6 +2999,7 @@ impl Scene {
                     node.origin = origin;
                     node.size = size;
                     node.pending = None;
+                    node.shown_fullscreen = node.pending_fullscreen;
                 }
             }
             if !node.mapped {

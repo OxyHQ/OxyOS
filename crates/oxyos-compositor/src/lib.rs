@@ -6,7 +6,7 @@
 //! Two programs drive it: the development compositor (`oxyos-offscreen`), which scripts input and
 //! checks every frame, and the session (`oxyos-session`).
 
-use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey};
+use oxyos_compositor_core::{ClientId, Grants, RenderItem, Scene, SurfaceKey, WindowLook};
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
     AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request,
@@ -20,8 +20,12 @@ use std::time::{Duration, Instant};
 
 pub mod splash;
 pub mod transitions;
+pub mod window;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+
+/// How each window of a frame is drawn (docs/adr/0016-windows.mdx), by surface.
+pub type Looks = HashMap<SurfaceKey, WindowLook>;
 
 /// The desktop's colour, where no surface is.
 pub const DESKTOP: u32 = 0x10_14_18;
@@ -75,6 +79,10 @@ pub struct Compositor {
     pub own_uid: u32,
     pub framebuffer: Vec<u32>,
     pub composed: Vec<RenderItem>,
+    /// How the windows of the frame composed last were drawn: a change is damage (ADR 0016).
+    looks: Looks,
+    /// The windows' shadows (window.rs).
+    shadows: window::Shadows,
     pub frames: usize,
     /// Input events routed to clients, kept while `log_input` is set: (client, surface, kind).
     pub input_log: Vec<(ClientId, u32, &'static str)>,
@@ -206,8 +214,9 @@ pub trait Authentication {
     fn answer(&mut self) -> Option<(AuthOutcome, u32)>;
 }
 
-/// One layer's content as a frame composes it: a surface's pixels (`key`), a cover, or a
-/// surface going; `rect` is where the surface is, `placed` where its transition draws it.
+/// One layer's content as a frame composes it: a surface's pixels (`key`), a cover, a surface
+/// going, or a window's shadow; `rect` is where the surface is, `placed` where its transition
+/// draws it, with its corners' radius.
 struct Content {
     key: Option<SurfaceKey>,
     rect: Rect,
@@ -218,6 +227,10 @@ struct Content {
     source: Option<oxyos_gpu::Source>,
     changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
     opacity: u8,
+    radius: u32,
+    shadow: Option<(std::rc::Rc<oxyos_gpu::ShadowProfile>, oxyos_gpu::Shadow)>,
+    /// A window's look, kept with its last frame for its transition going.
+    look: Option<WindowLook>,
 }
 
 impl Content {
@@ -232,7 +245,38 @@ impl Content {
             source: None,
             changed: None,
             opacity: 255,
+            radius: 0,
+            shadow: None,
+            look: None,
         }
+    }
+
+    /// The shadow of the window at `rect`, placed at `placed`, drawn with `look`, at `opacity`;
+    /// and its corners' radius.
+    fn shadow(
+        shadows: &window::Shadows,
+        look: WindowLook,
+        rect: Rect,
+        placed: Rect,
+        opacity: u8,
+    ) -> (Self, u32) {
+        let (profile, source) = shadows.of(look);
+        let drawn = window::drawn(look, rect, placed, profile);
+        let shadow = Self {
+            key: None,
+            rect: drawn.shadow_rect,
+            placed: drawn.shadow_rect,
+            extent: Size::new(profile.entries(), 1),
+            format: None,
+            pixels: Vec::new(),
+            source: Some(*source),
+            changed: None,
+            opacity,
+            radius: 0,
+            shadow: Some((profile.clone(), drawn.shadow)),
+            look: None,
+        };
+        (shadow, drawn.radius)
     }
 }
 
@@ -268,6 +312,9 @@ impl Compositor {
             own_uid,
             framebuffer: vec![DESKTOP; (output.width * output.height) as usize],
             composed: Vec::new(),
+            looks: Looks::new(),
+            // The shadows' profiles are the first two versions numbered.
+            shadows: window::Shadows::new(0),
             frames: 0,
             input_log: Vec::new(),
             log_input: false,
@@ -298,7 +345,7 @@ impl Compositor {
             reads: Vec::new(),
             damaged: Vec::new(),
             versions: HashMap::new(),
-            next_version: 0,
+            next_version: 2,
             shown_versions: HashMap::new(),
             terminal: None,
             seat: None,
@@ -604,6 +651,14 @@ impl Compositor {
         };
         let started = self.scene.begin_frame();
         let list = self.scene.frame_list();
+        // Toplevels and dialogs are drawn with corners and a shadow (ADR 0016).
+        let looks: Looks = list
+            .iter()
+            .filter_map(|item| match *item {
+                RenderItem::Surface { key, .. } => Some((key, self.scene.window_look(key)?)),
+                RenderItem::Cover { .. } => None,
+            })
+            .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
         // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
         let now = self.now();
@@ -630,7 +685,12 @@ impl Compositor {
             self.transitions.lock();
         }
         let animating = self.transitions.advance(now);
-        if started == 0 && list == self.composed && !animating && !self.recompose {
+        if started == 0
+            && list == self.composed
+            && looks == self.looks
+            && !animating
+            && !self.recompose
+        {
             self.scene.end_frame(0, Clock::Synthetic);
             if pointer_moved {
                 self.present_pointer();
@@ -655,8 +715,14 @@ impl Compositor {
             ),
             _ => None,
         };
-        let changed_damage =
-            (!self.recompose).then(|| output_damage(&self.composed, &list, &drawn));
+        let changed_damage = (!self.recompose).then(|| {
+            output_damage(
+                (&self.composed, &self.looks),
+                (&list, &looks),
+                &self.shadows,
+                &drawn,
+            )
+        });
         let output_rect = oxyos_gpu::Rect {
             x: self.output.x,
             y: self.output.y,
@@ -664,22 +730,27 @@ impl Compositor {
             height: self.output.height,
         };
         let area = |rects: &[oxyos_gpu::Rect]| {
-            rects
+            let within: Vec<oxyos_gpu::Rect> = rects
                 .iter()
                 .filter_map(|rect| rect.intersect(&output_rect))
-                .map(|rect| u64::from(rect.width) * u64::from(rect.height))
-                .sum::<u64>()
+                .collect();
+            union_area(&within)
         };
         // Each surface's pixels, read from its shared buffer, and the covers.
-        // Where this frame draws surfaces in transition: their rectangle and where they are placed.
+        // Where this frame draws surfaces in transition: their rectangle and where they are placed,
+        // a window's with its shadow.
         let mut transition_drawn: Vec<oxyos_gpu::Rect> = Vec::new();
-        let mut in_transition = |rect: Rect, placed: Rect| {
-            for r in [rect, placed] {
-                transition_drawn.push(oxyos_gpu::Rect {
-                    x: r.x,
-                    y: r.y,
-                    width: r.width,
-                    height: r.height,
+        let shadows = &self.shadows;
+        let mut in_transition = |rect: Rect, placed: Rect, look: Option<WindowLook>| {
+            for at in [rect, placed] {
+                transition_drawn.push(match look {
+                    Some(look) => window::extent(look, rect, at, shadows),
+                    None => oxyos_gpu::Rect {
+                        x: at.x,
+                        y: at.y,
+                        width: at.width,
+                        height: at.height,
+                    },
                 });
             }
         };
@@ -723,12 +794,21 @@ impl Compositor {
                         }
                         // A lock surface fading in does so over the lock's cover.
                         let arriving = self.transitions.arriving(key, now);
+                        let look = looks.get(&key).copied();
+                        let placed = arriving.place(rect);
                         if self.transitions.is_arriving(key) {
-                            in_transition(rect, arriving.place(rect));
+                            in_transition(rect, placed, look);
                         }
                         if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
                             contents.push(Content::cover(rect));
                         }
+                        // A window's shadow beneath it, and its corners.
+                        let radius = look.map_or(0, |look| {
+                            let (shadow, radius) =
+                                Content::shadow(shadows, look, rect, placed, arriving.opacity);
+                            contents.push(shadow);
+                            radius
+                        });
                         contents.push(Content {
                             key: Some(key),
                             rect,
@@ -739,6 +819,9 @@ impl Compositor {
                             source,
                             changed,
                             opacity: arriving.opacity,
+                            radius,
+                            shadow: None,
+                            look,
                         })
                     }
                     None => unreadable.push(key.client),
@@ -758,11 +841,21 @@ impl Compositor {
                 source: None,
                 changed: None,
                 opacity: 255,
+                radius: 0,
+                shadow: None,
+                look: None,
             });
         }
         // Surfaces going, over what stays, from their last frames.
         for (snapshot, _, at) in self.transitions.going(now) {
-            in_transition(snapshot.rect, at.place(snapshot.rect));
+            let placed = at.place(snapshot.rect);
+            in_transition(snapshot.rect, placed, snapshot.look);
+            let radius = snapshot.look.map_or(0, |look| {
+                let (shadow, radius) =
+                    Content::shadow(shadows, look, snapshot.rect, placed, at.opacity);
+                contents.push(shadow);
+                radius
+            });
             contents.push(Content {
                 key: None,
                 rect: snapshot.rect,
@@ -773,6 +866,9 @@ impl Compositor {
                 source: None,
                 changed: None,
                 opacity: at.opacity,
+                radius,
+                shadow: None,
+                look: None,
             });
         }
         if self.records {
@@ -803,14 +899,17 @@ impl Compositor {
                 width: content.placed.width,
                 height: content.placed.height,
                 extent: (content.extent.width, content.extent.height),
-                paint: match content.format {
-                    Some(oxyos_protocol::Format::Xrgb8888) => {
+                paint: match (&content.shadow, content.format) {
+                    (Some((profile, shadow)), _) => {
+                        oxyos_gpu::Paint::Shadow(profile.pixels(), *shadow)
+                    }
+                    (None, Some(oxyos_protocol::Format::Xrgb8888)) => {
                         oxyos_gpu::Paint::Opaque(&content.pixels)
                     }
-                    Some(oxyos_protocol::Format::Argb8888) => {
+                    (None, Some(oxyos_protocol::Format::Argb8888)) => {
                         oxyos_gpu::Paint::Premultiplied(&content.pixels)
                     }
-                    None => oxyos_gpu::Paint::Fill(0),
+                    (None, None) => oxyos_gpu::Paint::Fill(0),
                 },
                 source: content.source,
                 changed: content
@@ -818,6 +917,7 @@ impl Compositor {
                     .as_ref()
                     .map(|(from, rects)| (*from, rects.as_slice())),
                 opacity: content.opacity,
+                radius: content.radius,
             })
             .collect();
         // Frames older than those composed are never shown again.
@@ -875,6 +975,7 @@ impl Compositor {
             self.fail(client, ErrorCode::InvalidBuffer);
         }
         self.composed = self.scene.frame_list();
+        self.looks = looks;
         self.recompose = false;
         self.frames += 1;
         // On a display, the frame completes when it is on screen, at the kernel's flip time, in
@@ -901,6 +1002,7 @@ impl Compositor {
                         extent: content.extent,
                         format: content.format?,
                         pixels: content.pixels,
+                        look: content.look,
                     },
                 ))
             })
@@ -1616,13 +1718,15 @@ pub fn on_output(damage: &Rect, rect: Rect, extent: Size) -> oxyos_gpu::Rect {
     }
 }
 
-/// What changed on the output from one composed frame to the next (ADR 0005): a surface's
-/// rectangle when it is new or gone, its damage (`drawn`, on the output) or else its rectangle
-/// when it shows a new frame, its old and new rectangles when it moved, resized or changed
-/// places in the stacking, and covers that came or went.
+/// What changed on the output from one composed frame to the next (ADR 0005), from each frame's
+/// list and how its windows were drawn: a surface where it is drawn (a window with its shadow,
+/// ADR 0016) when it is new or gone, its damage (`drawn`, on the output) or else its rectangle
+/// when it shows a new frame, where it was and is drawn when it moved, resized, changed places in
+/// the stacking or changed its look (became active, full-screen), and covers that came or went.
 pub fn output_damage(
-    before: &[RenderItem],
-    after: &[RenderItem],
+    before: (&[RenderItem], &Looks),
+    after: (&[RenderItem], &Looks),
+    shadows: &window::Shadows,
     drawn: &dyn Fn(SurfaceKey, Rect, Size) -> Option<Vec<oxyos_gpu::Rect>>,
 ) -> Vec<oxyos_gpu::Rect> {
     let rect = |rect: Rect| oxyos_gpu::Rect {
@@ -1631,44 +1735,60 @@ pub fn output_damage(
         width: rect.width,
         height: rect.height,
     };
-    let surfaces = |list: &[RenderItem]| -> Vec<(SurfaceKey, Rect, oxyos_compositor_core::Frame)> {
+    type Shown = (
+        SurfaceKey,
+        Rect,
+        oxyos_compositor_core::Frame,
+        Option<WindowLook>,
+    );
+    let surfaces = |(list, looks): (&[RenderItem], &Looks)| -> Vec<Shown> {
         list.iter()
             .filter_map(|item| match *item {
-                RenderItem::Surface { key, rect, frame } => Some((key, rect, frame)),
+                RenderItem::Surface { key, rect, frame } => {
+                    Some((key, rect, frame, looks.get(&key).copied()))
+                }
                 RenderItem::Cover { .. } => None,
             })
             .collect()
     };
+    // Where a surface is drawn: a window with its shadow.
+    let extent = |at: Rect, look: Option<WindowLook>| match look {
+        Some(look) => window::extent(look, at, at, shadows),
+        None => rect(at),
+    };
     let (old, new) = (surfaces(before), surfaces(after));
     let mut damage = Vec::new();
-    for &(key, now, frame) in &new {
+    for &(key, now, frame, look) in &new {
         match old.iter().find(|(old_key, ..)| *old_key == key) {
-            None => damage.push(rect(now)),
-            Some(&(_, then, _)) if then != now => damage.extend([rect(then), rect(now)]),
-            Some(&(.., then_frame)) if then_frame != frame => match drawn(key, now, frame.extent) {
-                Some(drawn) => damage.extend(drawn),
-                None => damage.push(rect(now)),
-            },
+            None => damage.push(extent(now, look)),
+            Some(&(_, then, _, then_look)) if then != now || then_look != look => {
+                damage.extend([extent(then, then_look), extent(now, look)])
+            }
+            Some(&(_, _, then_frame, _)) if then_frame != frame => {
+                match drawn(key, now, frame.extent) {
+                    Some(drawn) => damage.extend(drawn),
+                    None => damage.push(rect(now)),
+                }
+            }
             Some(_) => {}
         }
     }
-    for &(key, then, _) in &old {
+    for &(key, then, _, look) in &old {
         if !new.iter().any(|(new_key, ..)| *new_key == key) {
-            damage.push(rect(then));
+            damage.push(extent(then, look));
         }
     }
     // Surfaces in both whose order among themselves changed show differently where they meet.
-    let order = |list: &[(SurfaceKey, Rect, oxyos_compositor_core::Frame)],
-                 other: &[(SurfaceKey, Rect, oxyos_compositor_core::Frame)]| {
+    let order = |list: &[Shown], other: &[Shown]| {
         list.iter()
             .filter(|(key, ..)| other.iter().any(|(other_key, ..)| other_key == key))
-            .map(|&(key, rect, _)| (key, rect))
+            .map(|&(key, rect, _, look)| (key, extent(rect, look)))
             .collect::<Vec<_>>()
     };
     let (old_order, new_order) = (order(&old, &new), order(&new, &old));
     for (then, now) in old_order.iter().zip(&new_order) {
         if then.0 != now.0 {
-            damage.extend([rect(then.1), rect(now.1)]);
+            damage.extend([then.1, now.1]);
         }
     }
     let covers = |list: &[RenderItem]| -> Vec<RenderItem> {
@@ -1677,7 +1797,7 @@ pub fn output_damage(
             .copied()
             .collect()
     };
-    let (old_covers, new_covers) = (covers(before), covers(after));
+    let (old_covers, new_covers) = (covers(before.0), covers(after.0));
     for (these, others) in [(&old_covers, &new_covers), (&new_covers, &old_covers)] {
         for cover in these.iter().filter(|cover| !others.contains(cover)) {
             if let RenderItem::Cover { rect: cover, .. } = cover {
@@ -1686,6 +1806,37 @@ pub fn output_damage(
         }
     }
     damage
+}
+
+/// How many pixels `rects` cover together, each counted once however many hold it: over the
+/// grid their edges make, the cells some rectangle holds.
+fn union_area(rects: &[oxyos_gpu::Rect]) -> u64 {
+    let edges = |start: fn(&oxyos_gpu::Rect) -> i64, length: fn(&oxyos_gpu::Rect) -> i64| {
+        let mut edges: Vec<i64> = rects
+            .iter()
+            .flat_map(|rect| [start(rect), start(rect) + length(rect)])
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        edges
+    };
+    let xs = edges(|r| i64::from(r.x), |r| i64::from(r.width));
+    let ys = edges(|r| i64::from(r.y), |r| i64::from(r.height));
+    let mut area = 0;
+    for x in xs.windows(2) {
+        for y in ys.windows(2) {
+            let held = rects.iter().any(|r| {
+                i64::from(r.x) <= x[0]
+                    && x[1] <= i64::from(r.x) + i64::from(r.width)
+                    && i64::from(r.y) <= y[0]
+                    && y[1] <= i64::from(r.y) + i64::from(r.height)
+            });
+            if held {
+                area += ((x[1] - x[0]) * (y[1] - y[0])) as u64;
+            }
+        }
+    }
+    area
 }
 
 /// The image of an animated pointer's `steps` at time `now`: the animation loops from time zero,
@@ -1831,7 +1982,13 @@ mod tests {
     }
 
     fn output_damage(before: &[RenderItem], after: &[RenderItem]) -> Vec<oxyos_gpu::Rect> {
-        super::output_damage(before, after, &|_, _, _| None)
+        let none = Looks::new();
+        super::output_damage(
+            (before, &none),
+            (after, &none),
+            &window::Shadows::new(0),
+            &|_, _, _| None,
+        )
     }
 
     #[test]
@@ -1842,8 +1999,14 @@ mod tests {
         let drawn = |_: SurfaceKey, rect: Rect, extent: Size| {
             Some(vec![on_output(&Rect::new(2, 3, 4, 1), rect, extent)])
         };
+        let none = Looks::new();
         assert_eq!(
-            super::output_damage(&before, &after, &drawn),
+            super::output_damage(
+                (&before, &none),
+                (&after, &none),
+                &window::Shadows::new(0),
+                &drawn
+            ),
             [oxyos_gpu::Rect {
                 x: 2,
                 y: 3,
@@ -1862,6 +2025,60 @@ mod tests {
                 height: 5
             }
         );
+    }
+
+    #[test]
+    fn a_window_is_damaged_with_its_shadow_and_when_its_look_changes() {
+        let shadows = window::Shadows::new(0);
+        let list = [surface(1, 100, 1)];
+        let window = SurfaceKey { client: 1, id: 1 };
+        let rect = Rect::new(100, 0, 10, 10);
+        let looks = |active| Looks::from([(window, WindowLook { active })]);
+        let damage = |before: (&[RenderItem], &Looks), after: (&[RenderItem], &Looks)| {
+            super::output_damage(before, after, &shadows, &|_, _, _| None)
+        };
+        let (active, inactive) = (looks(true), looks(false));
+        let with_shadow =
+            |look: bool| window::extent(WindowLook { active: look }, rect, rect, &shadows);
+        // Nothing changed, nothing damaged.
+        assert_eq!(damage((&list, &active), (&list, &active)), []);
+        // Only its look: where both shadows are.
+        assert_eq!(
+            damage((&list, &active), (&list, &inactive)),
+            [with_shadow(true), with_shadow(false)]
+        );
+        // Gone and new: with its shadow; a window full-screen (no look) or back, both.
+        assert_eq!(
+            damage((&list, &active), (&[], &Looks::new())),
+            [with_shadow(true)]
+        );
+        assert_eq!(
+            damage((&[], &Looks::new()), (&list, &inactive)),
+            [with_shadow(false)]
+        );
+        assert_eq!(
+            damage((&list, &Looks::new()), (&list, &active)),
+            [at(100), with_shadow(true)]
+        );
+        // A new frame of it: its own rectangle, not its shadow.
+        assert_eq!(
+            damage((&list, &active), (&[surface(1, 100, 2)], &active)),
+            [at(100)]
+        );
+    }
+
+    #[test]
+    fn overlapping_damage_is_counted_once() {
+        let rect = |x, y, width, height| oxyos_gpu::Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        assert_eq!(union_area(&[]), 0);
+        assert_eq!(union_area(&[rect(0, 0, 10, 10), rect(0, 0, 10, 10)]), 100);
+        assert_eq!(union_area(&[rect(0, 0, 10, 10), rect(5, 5, 10, 10)]), 175);
+        assert_eq!(union_area(&[rect(0, 0, 4, 4), rect(10, 10, 2, 3)]), 22);
     }
 
     #[test]

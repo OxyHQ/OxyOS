@@ -92,7 +92,22 @@ struct Push {
     count_x: u32,
     count_y: u32,
     opacity: u32,
+    radius: u32,
+    shadow_x: i32,
+    shadow_y: i32,
+    shadow_width: u32,
+    shadow_height: u32,
+    shadow_radius: u32,
+    clip_x: i32,
+    clip_y: i32,
+    clip_width: u32,
+    clip_height: u32,
+    clip_radius: u32,
+    scale: u32,
 }
+
+/// The push constants' size: 28 words, within the 128 bytes every device has.
+const PUSH_BYTES: usize = 28 * 4;
 
 impl Push {
     /// The whole layer in one dispatch.
@@ -123,7 +138,7 @@ impl Push {
         })
     }
 
-    fn bytes(&self) -> [u8; 64] {
+    fn bytes(&self) -> [u8; PUSH_BYTES] {
         let words = [
             self.x as u32,
             self.y as u32,
@@ -141,8 +156,20 @@ impl Push {
             self.count_x,
             self.count_y,
             self.opacity,
+            self.radius,
+            self.shadow_x as u32,
+            self.shadow_y as u32,
+            self.shadow_width,
+            self.shadow_height,
+            self.shadow_radius,
+            self.clip_x as u32,
+            self.clip_y as u32,
+            self.clip_width,
+            self.clip_height,
+            self.clip_radius,
+            self.scale,
         ];
-        let mut bytes = [0; 64];
+        let mut bytes = [0; PUSH_BYTES];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
             chunk.copy_from_slice(&word.to_ne_bytes());
         }
@@ -467,7 +494,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(64)];
+                .size(PUSH_BYTES as u32)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -801,6 +828,7 @@ impl VulkanCompositor {
                 out_width: width,
                 out_height: height,
                 opacity: u32::from(layer.opacity),
+                radius: layer.corner_radius(),
                 ..Push::default()
             };
             match layer.paint {
@@ -808,8 +836,28 @@ impl VulkanCompositor {
                     push.mode = 2;
                     push.color = color;
                 }
-                Paint::Opaque(pixels) | Paint::Premultiplied(pixels) => {
-                    push.mode = u32::from(matches!(layer.paint, Paint::Premultiplied(_)));
+                Paint::Opaque(pixels) | Paint::Premultiplied(pixels) | Paint::Shadow(pixels, _) => {
+                    push.mode = match layer.paint {
+                        Paint::Opaque(_) => 0,
+                        Paint::Premultiplied(_) => 1,
+                        _ => 3,
+                    };
+                    if let Paint::Shadow(_, shadow) = layer.paint {
+                        let (shape, clip) = (shadow.shape, shadow.clip);
+                        push.shadow_x = shape.x;
+                        push.shadow_y = shape.y;
+                        push.shadow_width = shape.width;
+                        push.shadow_height = shape.height;
+                        push.shadow_radius =
+                            crate::shape::radius_on(shadow.radius, shape.width, shape.height);
+                        push.clip_x = clip.x;
+                        push.clip_y = clip.y;
+                        push.clip_width = clip.width;
+                        push.clip_height = clip.height;
+                        push.clip_radius =
+                            crate::shape::radius_on(shadow.clip_radius, clip.width, clip.height);
+                        push.scale = shadow.scale;
+                    }
                     let length = words(layer);
                     let updated = updatable(&self.resident, layer);
                     let offset = match (kept(&self.resident, layer), updated) {

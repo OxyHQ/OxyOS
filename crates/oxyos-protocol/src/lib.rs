@@ -42,6 +42,10 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.
 pub const MAX_COORDINATE: i32 = 1 << 20;
+/// The radius of every window's corners (a toplevel's or a dialog's, not full-screen), in logical
+/// pixels: the compositor cuts them from the window's pixels (docs/adr/0016-windows.mdx), and a
+/// client keeps what it draws concentric with them.
+pub const WINDOW_RADIUS: u32 = 16;
 
 /// Picks the highest version both peers support.
 pub fn negotiate(min_version: u16, max_version: u16) -> Result<u16, ErrorCode> {

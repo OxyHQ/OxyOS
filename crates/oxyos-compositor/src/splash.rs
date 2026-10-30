@@ -40,6 +40,7 @@ pub fn splash(size: Size) -> Option<Snapshot> {
         extent: size,
         format: Format::Xrgb8888,
         pixels,
+        look: None,
     })
 }
 

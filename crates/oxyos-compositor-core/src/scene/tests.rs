@@ -6051,3 +6051,107 @@ fn the_active_window_follows_focus_through_popups_and_panels_but_not_overlays_or
     assert_eq!(h.scene.active_window(), Some(second));
     assert_eq!(activations(&h), vec![(OTHER, 1, true)]);
 }
+
+#[test]
+fn windows_are_drawn_as_windows_and_the_active_one_so() {
+    let mut h = Harness::new();
+    let active = Some(WindowLook { active: true });
+    let inactive = Some(WindowLook { active: false });
+    let window = h.toplevel(APP, 1, 800, 600);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    assert_eq!(h.scene.focus(), Some(other));
+    assert_eq!(
+        (h.scene.window_look(window), h.scene.window_look(other)),
+        (inactive, active)
+    );
+    h.scene.activate(window);
+    assert_eq!(
+        (h.scene.window_look(window), h.scene.window_look(other)),
+        (active, inactive)
+    );
+    // A dialog is one, active with the focus, and so is its window, through it.
+    h.request(
+        APP,
+        Request::CreateDialog {
+            surface: 2,
+            parent: 1,
+            size: Size::new(300, 200),
+        },
+    )
+    .unwrap();
+    let dialog = key(APP, 2);
+    h.present(dialog);
+    assert_eq!(h.scene.focus(), Some(dialog));
+    assert_eq!(
+        (h.scene.window_look(dialog), h.scene.window_look(window)),
+        (active, active)
+    );
+    assert_eq!(h.scene.window_look(other), inactive);
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    // A menu is no window; its window stays active while it has the focus.
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        3,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(10, 10, 20, 20), 100, 80),
+    );
+    assert_eq!(h.scene.focus(), Some(popup));
+    assert_eq!(
+        (h.scene.window_look(popup), h.scene.window_look(window)),
+        (None, active)
+    );
+    // The shell's surfaces are not windows.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1, 40),
+            exclusive: 32,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    assert_eq!(h.scene.window_look(key(SHELL, 1)), None);
+    // Full-screen, from the frame that draws it so: before, it is still drawn as a window.
+    h.request(
+        OTHER,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: true,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(h.scene.window_look(other), inactive);
+    h.submit(other);
+    h.scene.begin_frame();
+    assert_eq!(h.scene.window_look(other), None, "the frame composed");
+    h.scene.end_frame(1, Clock::Synthetic);
+    assert_eq!(h.scene.window_look(other), None);
+    // Back from it, a window again from its windowed frame.
+    h.request(
+        OTHER,
+        Request::SetFullscreen {
+            surface: 1,
+            enabled: false,
+        },
+    )
+    .unwrap();
+    h.frame();
+    assert_eq!(h.scene.window_look(other), None);
+    h.present(other);
+    assert!(h.scene.window_look(other).is_some());
+    // The active window is the one told it is (`active_window`): locked, none is.
+    assert_eq!(h.scene.active_window(), Some(window));
+    h.scene.lock();
+    assert_eq!(h.scene.active_window(), None);
+    assert_eq!(
+        (h.scene.window_look(window), h.scene.window_look(other)),
+        (inactive, inactive)
+    );
+}
