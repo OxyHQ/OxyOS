@@ -1,0 +1,125 @@
+{
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "about": "Settings' Privacy (docs/adr/0030-installing-applications.mdx, decision 8) on a real oxyos-installd: the installed permission probe's notifications, not asked yet; the switch turns them on, kept by the service; the probe launched afterwards from Launchpad (its next launch) has them: expo-notifications says granted.",
+  "installd": {
+    "publish": [
+      "so.oxy.permissionprobe"
+    ],
+    "installed": [
+      "so.oxy.permissionprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.permissionprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Privacy: the probe's notifications, not asked yet",
+      "do": [
+        "press",
+        [
+          71,
+          515
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notifications",
+          "Not asked yet"
+        ]
+      }
+    },
+    {
+      "name": "The switch: on",
+      "do": [
+        "press",
+        [
+          830,
+          157
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Decided: kept by the install service",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "absent": [
+          "Not asked yet"
+        ]
+      }
+    },
+    {
+      "name": "Super+Space opens Launchpad",
+      "do": [
+        "key",
+        [
+          125,
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its search finds the probe",
+      "do": [
+        "type",
+        "Permission"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Return launches it: its next launch, the decision applied",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "expo-notifications says granted",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Permission: granted"
+          ]
+        }
+      }
+    }
+  ]
+}

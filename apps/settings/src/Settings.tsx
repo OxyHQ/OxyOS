@@ -774,7 +774,7 @@ function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
       </GroupedSection>
       <GroupedSection>
         <GroupedSectionItem
-          title={rows.length === 0 && state && !state.checking ? words.upToDate : words.applications}
+          title={rows.length === 0 && state?.checkedAt && !state.checking ? words.upToDate : words.applications}
           description={checked}
           testID="software-update-status"
         />
