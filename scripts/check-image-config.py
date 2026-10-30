@@ -152,12 +152,10 @@ def check_image_settings():
     # live-build's firmware detection installs whatever has a file under /lib/firmware, drivers
     # and their dependencies included (Cairo and the X11 client libraries, through astronomy
     # camera drivers): the manifest names the firmware instead.
-    firmware = subprocess.run(
-        ["sh", "-c", '. "$1" && printf %s "$LB_FIRMWARE_CHROOT"', "sh", str(CONFIG / "binary")],
-        capture_output=True, text=True, env={},
-    ).stdout
-    if firmware != "false":
-        violations.append(f'config/binary: LB_FIRMWARE_CHROOT is "{firmware}", must be "false" (the manifest names the firmware)')
+    for setting in ("LB_FIRMWARE_CHROOT", "LB_FIRMWARE_BINARY"):
+        firmware = sourced(CONFIG / "binary", setting)
+        if firmware != "false":
+            violations.append(f'config/binary: {setting} is "{firmware}", must be "false" (the manifest names the firmware)')
     source = CONFIG / "oxyos.conf"
     installed = CONFIG / "includes.chroot_after_packages" / "etc" / "oxyos" / "oxyos.conf"
     if source.read_bytes() != installed.read_bytes():
