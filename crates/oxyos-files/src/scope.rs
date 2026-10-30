@@ -7,7 +7,8 @@
 //! `$XDG_DATA_HOME/ID`, and its cache, `$XDG_CACHE_HOME/ID`) or in its bundle's folder, which
 //! it reads and never changes. A Trash is reached only through the Trash's operations, so what it
 //! holds always matches its `.trashinfo` files. The home, a volume's root and the application's
-//! folders themselves can be listed, never renamed, moved, deleted or put in the Trash.
+//! folders themselves can be listed, never renamed, moved, deleted or put in the Trash, and neither
+//! can a folder holding one of them or a Trash.
 //!
 //! This is the platform's rule for what applications reach, checked on canonical paths so that a
 //! link cannot lead out of it. It is not a sandbox: without one (#35, #36) any program running as
@@ -237,6 +238,21 @@ impl Scope {
         self.roots(volumes).iter().any(|(_, folder)| folder == path)
     }
 
+    /// Whether the item `item` holds a root's folder or a Trash.
+    fn holds_root(&self, item: &Path, volumes: &[Volume]) -> bool {
+        let trashes = std::iter::once(self.home_trash()).chain(volumes.iter().flat_map(|volume| {
+            [
+                volume.path.join(".Trash"),
+                volume.path.join(format!(".Trash-{}", self.uid)),
+            ]
+        }));
+        self.roots(volumes)
+            .into_iter()
+            .map(|(_, folder)| folder)
+            .chain(trashes)
+            .any(|folder| folder != item && folder.starts_with(item))
+    }
+
     /// Whether `canonical` is a Trash or inside one: the home's, or a volume's (`.Trash` and
     /// `.Trash-UID` at its root).
     fn in_trash(&self, canonical: &Path, volumes: &[Volume]) -> bool {
@@ -320,6 +336,14 @@ impl Scope {
             ));
         }
         self.allowed(&item, access, &volumes)?;
+        // Nor through a folder holding one, or a Trash: deleting, moving or replacing it would
+        // change them too.
+        if self.holds_root(&item, &volumes) {
+            return Err(Error::Refused(format!(
+                "{} holds a Trash, a volume or the application's folders, which stay where they are",
+                item.display()
+            )));
+        }
         Ok(item)
     }
 

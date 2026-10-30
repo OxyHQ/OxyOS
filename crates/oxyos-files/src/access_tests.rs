@@ -149,6 +149,10 @@ fn an_application_has_folders_of_its_own_and_reads_its_bundle() {
         access::delete(&scope, &d(&home)),
         access::delete(&scope, &d(&place.path("media/ada/USB Stick"))),
         access::rename(&scope, &d(&app.documents), true, "Other").map(|_| ()),
+        // Nor a folder holding them, or a Trash.
+        access::delete(&scope, &d(&home.join(".local"))),
+        access::delete(&scope, &d(&home.join(".cache"))),
+        scope.item(text(&home.join(".local/share"))).map(|_| ()),
     ] {
         assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
     }
