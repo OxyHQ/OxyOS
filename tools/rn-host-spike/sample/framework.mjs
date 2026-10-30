@@ -101,6 +101,10 @@ fs.writeFileSync(entry, [
 // contract.
 const out = path.join(runtime, 'framework.new');
 fs.rmSync(out, { recursive: true, force: true });
+// A build that fails leaves nothing beside the runtime's framework.
+process.on('exit', (code) => {
+  if (code !== 0) fs.rmSync(out, { recursive: true, force: true });
+});
 const built = execFileSync('node', ['bundle.mjs', path.relative(here, entry), out], {
   cwd: here,
   env: { ...process.env, OXYOS_FRAMEWORK_BUILD: '1', HERMESC: '' },
