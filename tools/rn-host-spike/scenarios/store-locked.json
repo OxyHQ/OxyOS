@@ -1,0 +1,91 @@
+{
+  "module": "StoreProbe",
+  "window": [
+    520,
+    340
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.storeprobe",
+    "title": "Store"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "about": "Nothing confirms a sheet but the person's press in it (docs/adr/0030-installing-applications.mdx, decision 9): the store's request made before any press, citing no input it received, is refused; with the sheet asked, the session locked (five minutes with no input, the idle lock's default), a press where Instalar was confirms nothing; nothing is installed.",
+  "lock_password": "oxyos.correcta",
+  "installd": {
+    "publish": [
+      "so.oxy.inbox"
+    ]
+  },
+  "installd_final": {
+    "packages": {}
+  },
+  "steps": [
+    {
+      "name": "The request made before any press was refused: it cited no input",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Unasked: refused needsInput"
+        ]
+      }
+    },
+    {
+      "name": "Install: the shell shows the sheet",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 2"
+        ]
+      }
+    },
+    {
+      "name": "Five minutes with no input: the session locks",
+      "do": [
+        "idle",
+        300
+      ],
+      "expect": {
+        "shell": {
+          "locked": true
+        }
+      }
+    },
+    {
+      "name": "A press where Instalar was: the lock screen's, confirming nothing",
+      "do": [
+        "press_output",
+        [
+          750,
+          431
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@shell-lock": 1,
+            "touchEnd@shell-lock": 1
+          }
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

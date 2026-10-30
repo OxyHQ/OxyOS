@@ -2,7 +2,7 @@
   "module": "StoreProbe",
   "window": [
     520,
-    320
+    340
   ],
   "shell": "OxyOSShell",
   "app": {

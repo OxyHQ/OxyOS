@@ -962,6 +962,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
                       "expect": expect["in_shell"]}
         check_step(index, shell_step, result, shell_report or [], start, failures, refresh_hz=refresh_hz)
+    if "in_launched" in expect and screenshot is not None:
+        # An application the session launched (a store's open, the shell's dock), from its own
+        # report beside the director's (`.launched`): its texts and React deliveries.
+        path = pathlib.Path(screenshot).parent / "host-report.jsonl.launched"
+        launched = ([json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+                    if path.exists() else [])
+        launched_step = {"name": f"{step.get('name', step['do'][0])}, in the launched application",
+                         "do": step["do"], "expect": expect["in_launched"]}
+        check_step(index, launched_step, result, launched, start, failures, refresh_hz=refresh_hz)
     if "a11y_events" in expect:
         # Accessibility events JavaScript sent (focus moves), as `event@testID` counts.
         got = {}

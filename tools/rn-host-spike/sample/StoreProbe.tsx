@@ -58,6 +58,10 @@ export default function StoreProbe() {
     show(pending);
     pending.then((a) => setOutcomes((all) => ({ ...all, [action]: said(a) })));
   };
+  // Asked before the person did anything: it cites no input, and the session refuses it.
+  React.useEffect(() => {
+    store.install(ID).then((a) => setOutcomes((all) => ({ ...all, mount: said(a) })));
+  }, []);
   const listed = state
     ? `${state.updates.length}${state.updates.map((u: any) => ` ${u.id} ${u.toVersionCode} ${u.status}`).join('')}`
     : 'unknown';
@@ -79,6 +83,7 @@ export default function StoreProbe() {
       <Line y={230}>{`Updates: ${listed}`}</Line>
       <Line y={250}>{`Asked: ${asked}`}</Line>
       <Line y={270}>{`Install: ${outcomes.install ?? '-'} · Uninstall: ${outcomes.uninstall ?? '-'} · Open: ${outcomes.open ?? '-'}`}</Line>
+      <Line y={310}>{`Unasked: ${outcomes.mount ?? '-'}`}</Line>
       <Line y={290}>{`Check: ${outcomes.check ?? '-'} · UpdateAll: ${outcomes.updateAll ?? '-'} · Status: ${outcomes.status ?? '-'}`}</Line>
     </View>
   );

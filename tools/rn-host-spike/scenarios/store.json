@@ -3,7 +3,7 @@
   "module": "StoreProbe",
   "window": [
     520,
-    220
+    340
   ],
   "app": {
     "id": "so.oxy.storeprobe"
