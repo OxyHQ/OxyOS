@@ -104,10 +104,11 @@ struct Push {
     clip_height: u32,
     clip_radius: u32,
     scale: u32,
+    filter: u32,
 }
 
-/// The push constants' size: 28 words, within the 128 bytes every device has.
-const PUSH_BYTES: usize = 28 * 4;
+/// The push constants' size: 29 words, within the 128 bytes every device has.
+const PUSH_BYTES: usize = 29 * 4;
 
 impl Push {
     /// The whole layer in one dispatch.
@@ -121,13 +122,13 @@ impl Push {
         }
     }
 
-    /// The part of the layer within `region` (output pixels), if any.
+    /// The part of what it dispatches within `region` (output pixels), if any.
     fn within(self, region: &crate::Rect) -> Option<Self> {
         let part = region.intersect(&crate::Rect {
-            x: self.x,
-            y: self.y,
-            width: self.width,
-            height: self.height,
+            x: self.x + self.base_x as i32,
+            y: self.y + self.base_y as i32,
+            width: self.count_x,
+            height: self.count_y,
         })?;
         Some(Self {
             base_x: (part.x - self.x) as u32,
@@ -168,6 +169,7 @@ impl Push {
             self.clip_height,
             self.clip_radius,
             self.scale,
+            self.filter,
         ];
         let mut bytes = [0; PUSH_BYTES];
         for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
@@ -841,6 +843,10 @@ impl VulkanCompositor {
                 out_height: height,
                 opacity: u32::from(layer.opacity),
                 radius: layer.corner_radius(),
+                filter: match layer.filter {
+                    crate::Filter::Nearest => 0,
+                    crate::Filter::Box => 1,
+                },
                 ..Push::default()
             };
             match layer.paint {
@@ -940,14 +946,19 @@ impl VulkanCompositor {
                     push.src_offset = offset as u32;
                 }
             }
-            layer_pushes.push(push);
+            // The whole layer, or the part of it within its clip (none: nothing is dispatched).
+            let push = push.whole();
+            layer_pushes.push(match layer.clip {
+                Some(clip) => push.within(&clip),
+                None => Some(push),
+            });
         }
         self.last_uploaded = uploaded * 4;
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
         // Every layer whole, or, region by region, the background and the parts of the layers
         // within it.
         let pushes: Vec<Push> = match &regions {
-            None => layer_pushes.iter().map(|push| push.whole()).collect(),
+            None => layer_pushes.iter().flatten().copied().collect(),
             Some(regions) => regions
                 .iter()
                 .flat_map(|region| {
@@ -964,8 +975,12 @@ impl VulkanCompositor {
                         ..Push::default()
                     }
                     .whole();
-                    std::iter::once(background)
-                        .chain(layer_pushes.iter().filter_map(|push| push.within(region)))
+                    std::iter::once(background).chain(
+                        layer_pushes
+                            .iter()
+                            .flatten()
+                            .filter_map(|push| push.within(region)),
+                    )
                 })
                 .collect(),
         };

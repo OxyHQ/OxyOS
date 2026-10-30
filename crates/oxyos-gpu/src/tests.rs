@@ -35,6 +35,8 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         },
         Layer {
             x: 70,
@@ -47,6 +49,8 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         },
         Layer {
             x: 100,
@@ -59,6 +63,8 @@ fn layers<'a>(window: &'a [u8], popup: &'a [u8]) -> Vec<Layer<'a>> {
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         },
     ]
 }
@@ -105,6 +111,8 @@ fn invalid_layers_are_skipped() {
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         },
         Layer {
             x: 0,
@@ -117,6 +125,8 @@ fn invalid_layers_are_skipped() {
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         },
     ];
     assert_eq!(compose_cpu(4, 4, 7, &layers), vec![7; 16]);
@@ -514,6 +524,8 @@ fn changed_rows_alone_are_uploaded() {
             changed,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         }
     }
     let first = pixels(&words(1));
@@ -595,6 +607,8 @@ fn dot(paint: Paint<'_>, opacity: u8) -> Layer<'_> {
         changed: None,
         opacity,
         radius: 0,
+        filter: Filter::Nearest,
+        clip: None,
     }
 }
 
@@ -745,6 +759,8 @@ fn rounded_square(radius: u32, opacity: u8) -> Vec<u32> {
             changed: None,
             opacity,
             radius,
+            filter: Filter::Nearest,
+            clip: None,
         }],
     )
 }
@@ -839,6 +855,8 @@ fn shadow_frame(profile: &ShadowProfile, radius: u32, beneath: (i32, i32), scale
             changed: None,
             opacity: 255,
             radius: 0,
+            filter: Filter::Nearest,
+            clip: None,
         }],
     )
 }
@@ -922,6 +940,8 @@ fn shadowed<'a>(
         changed: None,
         opacity,
         radius: 0,
+        filter: Filter::Nearest,
+        clip: None,
     };
     layers[0].radius = radius;
     layers[1].radius = radius / 2;
@@ -989,7 +1009,7 @@ fn a_frame_file_keeps_corners_and_shadows_and_reads_the_second_format() {
     let layers = shadowed(&window, &popup, &profile, 16, 200, 246);
     let mut bytes = Vec::new();
     frame_file::write(&mut bytes, 120, 90, 0x00e0_e0e0, &layers).unwrap();
-    assert_eq!(&bytes[..9], b"OXYFRAME3");
+    assert_eq!(&bytes[..9], b"OXYFRAME4");
     let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
     assert_eq!(
         frame.layers().iter().map(|l| l.radius).collect::<Vec<_>>(),
@@ -1020,4 +1040,293 @@ fn a_frame_file_keeps_corners_and_shadows_and_reads_the_second_format() {
     let index = second.len() - 8 - 4 - 2;
     second[index] = 3;
     assert!(frame_file::read(&mut second.as_slice()).is_err());
+}
+
+/// A window's pixels drawn smaller, as the overview draws it (docs/adr/0022-window-views.mdx).
+fn reduced(paint: Paint<'_>, extent: (u32, u32), size: (u32, u32), filter: Filter) -> Layer<'_> {
+    Layer {
+        x: 0,
+        y: 0,
+        width: size.0,
+        height: size.1,
+        extent,
+        paint,
+        source: None,
+        changed: None,
+        opacity: 255,
+        radius: 0,
+        filter,
+        clip: None,
+    }
+}
+
+/// Drawn at a quarter of its size, a one-pixel checkerboard is grey with the box filter: each
+/// output pixel is the mean of the 4 × 4 pixels it covers, worked by hand. Nearest neighbour
+/// picks one of them, black or white: the pixelation the filter is for.
+#[test]
+fn a_box_filter_averages_the_pixels_each_output_pixel_covers() {
+    let board = pixels(
+        &(0..16 * 16)
+            .map(|i| {
+                if (i % 16 + i / 16) % 2 == 0 {
+                    0xff_ff_ff_ff
+                } else {
+                    0xff_00_00_00
+                }
+            })
+            .collect::<Vec<u32>>(),
+    );
+    let boxed = compose_cpu(
+        4,
+        4,
+        0,
+        &[reduced(
+            Paint::Opaque(&board),
+            (16, 16),
+            (4, 4),
+            Filter::Box,
+        )],
+    );
+    // 8 white and 8 black: (8 × 255 + 8) / 16 = 128.
+    assert_eq!(boxed, vec![0x0080_8080; 16]);
+    let nearest = compose_cpu(
+        4,
+        4,
+        0,
+        &[reduced(
+            Paint::Opaque(&board),
+            (16, 16),
+            (4, 4),
+            Filter::Nearest,
+        )],
+    );
+    assert!(nearest.iter().all(|&p| p == 0x00ff_ffff || p == 0));
+
+    // Premultiplied pixels are averaged with their alpha: opaque red and nothing make red at
+    // half alpha, blended over the background as such.
+    let half = pixels(&[0xff_ff_00_00, 0x0000_0000]);
+    let out = compose_cpu(
+        1,
+        1,
+        0x0000_00ff,
+        &[reduced(
+            Paint::Premultiplied(&half),
+            (2, 1),
+            (1, 1),
+            Filter::Box,
+        )],
+    );
+    // Alpha (255 + 1) / 2 = 128 and red 128; the blue background kept at 255 - 128 = 127/255.
+    assert_eq!(out, vec![0x0080_007f]);
+
+    // Past MAX_TAPS a footprint is read at MAX_TAPS evenly spread pixels, each the middle of its
+    // share: of 32 in a row, the 2nd, 6th, ... 30th, whose greys average 128 here.
+    let ramp = pixels(
+        &(0..32u32)
+            .map(|x| 0xff00_0000 | (x * 8))
+            .collect::<Vec<u32>>(),
+    );
+    let out = compose_cpu(
+        1,
+        1,
+        0,
+        &[reduced(Paint::Opaque(&ramp), (32, 1), (1, 1), Filter::Box)],
+    );
+    let taps: Vec<u32> = (0..8).map(|i| (2 * i + 1) * 2 * 8).collect();
+    assert_eq!(out, vec![(taps.iter().sum::<u32>() + 4) / 8]);
+
+    // At its own size the filter reads the one pixel nearest neighbour does.
+    let (window, _) = frame();
+    let size = (64, 48);
+    assert_eq!(
+        compose_cpu(
+            96,
+            72,
+            7,
+            &[reduced(Paint::Opaque(&window), (64, 48), size, Filter::Box)]
+        ),
+        compose_cpu(
+            96,
+            72,
+            7,
+            &[reduced(
+                Paint::Opaque(&window),
+                (64, 48),
+                size,
+                Filter::Nearest
+            )]
+        )
+    );
+}
+
+/// A clipped layer touches nothing outside its clip, and inside it is drawn as without one.
+#[test]
+fn a_clipped_layer_is_drawn_only_within_its_clip() {
+    let (window, popup) = frame();
+    let whole = compose_cpu(120, 90, 0x0011_2233, &layers(&window, &popup));
+    let clip = Rect {
+        x: 20,
+        y: 10,
+        width: 40,
+        height: 30,
+    };
+    let clipped: Vec<Layer<'_>> = layers(&window, &popup)
+        .into_iter()
+        .map(|layer| Layer {
+            clip: Some(clip),
+            ..layer
+        })
+        .collect();
+    let out = compose_cpu(120, 90, 0x0011_2233, &clipped);
+    for y in 0..90 {
+        for x in 0..120 {
+            let inside = clip.intersect(&Rect {
+                x,
+                y,
+                width: 1,
+                height: 1,
+            });
+            let index = (y * 120 + x) as usize;
+            let expected = if inside.is_some() {
+                whole[index]
+            } else {
+                0x0011_2233
+            };
+            assert_eq!(out[index], expected, "at {x}, {y}");
+        }
+    }
+}
+
+/// Layers reduced with the box filter, opaque and premultiplied, at every scale the overview
+/// draws windows at and some it never does, clipped and not, whole and from damage: the Vulkan
+/// composition matches the reference byte for byte.
+#[test]
+fn vulkan_matches_the_reference_filtered_and_clipped() {
+    let mut gpu = match VulkanCompositor::new() {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    let window: Vec<u32> = (0..320 * 200)
+        .map(|i: u32| (i.wrapping_mul(2_654_435_761) >> 8) | 0xff00_0000)
+        .collect();
+    let window = pixels(&window);
+    // Premultiplied: each channel at most its alpha.
+    let translucent: Vec<u32> = (0..320 * 200)
+        .map(|i: u32| {
+            let alpha = i.wrapping_mul(40_503) >> 24;
+            let channel = |shift: u32| ((i >> shift) & 0xff) * alpha / 255;
+            (alpha << 24) | (channel(16) << 16) | (channel(8) << 8) | channel(0)
+        })
+        .collect();
+    let translucent = pixels(&translucent);
+    for (width, height) in [
+        (160, 100),
+        (75, 47),
+        (37, 23),
+        (13, 9),
+        (320, 200),
+        (401, 260),
+    ] {
+        for clip in [
+            None,
+            Some(Rect {
+                x: 9,
+                y: 5,
+                width: 50,
+                height: 31,
+            }),
+        ] {
+            let layers = [
+                Layer {
+                    x: 3,
+                    y: 2,
+                    clip,
+                    ..reduced(
+                        Paint::Opaque(&window),
+                        (320, 200),
+                        (width, height),
+                        Filter::Box,
+                    )
+                },
+                Layer {
+                    x: 11,
+                    y: 7,
+                    radius: 6,
+                    opacity: 200,
+                    clip,
+                    ..reduced(
+                        Paint::Premultiplied(&translucent),
+                        (320, 200),
+                        (width, height),
+                        Filter::Box,
+                    )
+                },
+            ];
+            let cpu = compose_cpu(180, 120, 0x0011_2233, &layers);
+            let vulkan = gpu.compose(180, 120, 0x0011_2233, &layers).unwrap();
+            assert_eq!(vulkan, cpu, "{width}x{height} clipped {clip:?}");
+            let damage = [Rect {
+                x: 20,
+                y: 15,
+                width: 60,
+                height: 40,
+            }];
+            let damaged = gpu
+                .compose_damaged(180, 120, 0x0011_2233, &layers, &damage)
+                .unwrap();
+            assert_eq!(damaged, cpu, "{width}x{height} clipped {clip:?}, damaged");
+        }
+    }
+}
+
+#[test]
+fn a_frame_file_keeps_filters_and_clips_and_reads_the_third_format() {
+    let (window, popup) = frame();
+    let mut layers = layers(&window, &popup);
+    layers[0].filter = Filter::Box;
+    layers[1].clip = Some(Rect {
+        x: 72,
+        y: 41,
+        width: 9,
+        height: 12,
+    });
+    let mut bytes = Vec::new();
+    frame_file::write(&mut bytes, 120, 90, 0x0011_2233, &layers).unwrap();
+    let frame = frame_file::read(&mut bytes.as_slice()).unwrap();
+    let read = frame.layers();
+    assert_eq!(
+        read.iter().map(|l| (l.filter, l.clip)).collect::<Vec<_>>(),
+        layers
+            .iter()
+            .map(|l| (l.filter, l.clip))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        compose_cpu(120, 90, 0x0011_2233, &read),
+        compose_cpu(120, 90, 0x0011_2233, &layers)
+    );
+    // A file from before filters: the same without them, every layer nearest and unclipped.
+    let mut third = b"OXYFRAME3".to_vec();
+    for value in [2u32, 2, 0, 1] {
+        third.extend(value.to_le_bytes());
+    }
+    third.extend(0i32.to_le_bytes());
+    third.extend(0i32.to_le_bytes());
+    for value in [2u32, 2, 0, 0] {
+        third.extend(value.to_le_bytes());
+    }
+    third.extend([2, 255]);
+    // Radius, the shadow's shape and clip with theirs, and its scale.
+    third.extend([0u8; 12 * 4]);
+    third.extend(0x00ab_cdefu32.to_le_bytes());
+    third.extend(0u64.to_le_bytes());
+    let frame = frame_file::read(&mut third.as_slice()).unwrap();
+    assert_eq!(
+        (frame.layers()[0].filter, frame.layers()[0].clip),
+        (Filter::Nearest, None)
+    );
+    assert_eq!(compose_cpu(2, 2, 0, &frame.layers()), vec![0x00ab_cdef; 4]);
 }
