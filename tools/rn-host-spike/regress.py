@@ -30,8 +30,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - window_shown: whether the application's window is on the screen (a minimized one is not);
 - transitions: what the compositor animated in the step (ADR 0011): "frames_min", the fewest
   frames composed while a transition ran; "seen", the transitions it must have run, each matched
-  by a distinct one having every key given ("kind": window, popup, overlay, panel, lock;
-  "arriving"; "first" and "last", the opacities of the first and last frames drawn; "ended");
+  by a distinct one having every key given ("kind": window, popup, overlay, panel,
+  notification, lock; "change": arrived, gone, minimized, restored, workspace_in_forward,
+  workspace_in_back, workspace_out_forward, workspace_out_back; "arriving"; "first" and "last",
+  the opacities of the first and last frames drawn; "ended");
   "count", how many it ran, exactly;
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;

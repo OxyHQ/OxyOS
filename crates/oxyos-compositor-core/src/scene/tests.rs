@@ -4905,19 +4905,12 @@ fn caps_lock_is_told_to_the_focused_surface_and_to_each_that_gains_focus() {
 
 #[test]
 fn surfaces_arrive_with_their_first_frame_and_go_when_gone_not_when_hidden() {
-    use super::appearances::{Appearance, Kind};
+    use super::appearances::{Appearance, Change, Kind};
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);
-    let gone = |key, kind| Appearance {
-        key,
-        kind,
-        arrived: false,
-    };
-    let came = |key, kind| Appearance {
-        key,
-        kind,
-        arrived: true,
-    };
+    let with = |key, kind, change| Appearance { key, kind, change };
+    let gone = |key, kind| with(key, kind, Change::Gone);
+    let came = |key, kind| with(key, kind, Change::Arrived);
     // Its first frame, in the frame that composes it first.
     assert_eq!(h.scene.take_appearances(), vec![came(window, Kind::Window)]);
     // A popup arrives and, dismissed, goes.
@@ -4931,17 +4924,42 @@ fn surfaces_arrive_with_their_first_frame_and_go_when_gone_not_when_hidden() {
     assert_eq!(h.scene.take_appearances(), vec![came(popup, Kind::Popup)]);
     h.click(w.x + 380, w.y + 290);
     assert_eq!(h.scene.take_appearances(), vec![gone(popup, Kind::Popup)]);
-    // Minimized it goes; restored it arrives.
+    // Minimized it goes into the dock; restored it comes out of it.
     h.scene.minimize(window);
-    assert_eq!(h.scene.take_appearances(), vec![gone(window, Kind::Window)]);
+    assert_eq!(
+        h.scene.take_appearances(),
+        vec![with(window, Kind::Window, Change::Minimized)]
+    );
     h.scene.restore(window);
-    assert_eq!(h.scene.take_appearances(), vec![came(window, Kind::Window)]);
-    // Hidden with its workspace or under the lock, it neither arrives nor goes.
+    assert_eq!(
+        h.scene.take_appearances(),
+        vec![with(window, Kind::Window, Change::Restored)]
+    );
+    // A switch of workspace moves it aside: out to the left going to a later workspace, in from
+    // the left coming back to an earlier one.
     h.request(SHELL, Request::AddWorkspace {}).unwrap();
+    assert!(h.scene.take_appearances().is_empty());
     h.request(SHELL, Request::ActivateWorkspace { workspace: 1 })
         .unwrap();
+    assert_eq!(
+        h.scene.take_appearances(),
+        vec![with(
+            window,
+            Kind::Window,
+            Change::WorkspaceOut { forward: true }
+        )]
+    );
     h.request(SHELL, Request::ActivateWorkspace { workspace: 0 })
         .unwrap();
+    assert_eq!(
+        h.scene.take_appearances(),
+        vec![with(
+            window,
+            Kind::Window,
+            Change::WorkspaceIn { forward: false }
+        )]
+    );
+    // Under the lock it neither arrives nor goes.
     h.scene.lock();
     let lock = h.lock_surface(1);
     assert_eq!(h.scene.take_appearances(), vec![came(lock, Kind::Lock)]);
@@ -5342,4 +5360,40 @@ fn announcements_reach_assistive_technologies_alone_and_not_from_behind_the_lock
             "Contraseña incorrecta".to_string()
         )]
     );
+}
+
+#[test]
+fn the_dock_is_the_shells_bottom_panel() {
+    let mut h = Harness::new();
+    assert_eq!(h.scene.dock(), None);
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 1,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1920, 28),
+            exclusive: 28,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 1));
+    assert_eq!(h.scene.dock(), None, "a top panel is no dock");
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 2,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Bottom,
+            output: 1,
+            size: Size::new(1920, 56),
+            exclusive: 56,
+        },
+    )
+    .unwrap();
+    // Until it shows, it is no dock either.
+    assert_eq!(h.scene.dock(), None);
+    h.present(key(SHELL, 2));
+    assert_eq!(h.scene.dock(), Some(Rect::new(0, 1080 - 56, 1920, 56)));
 }

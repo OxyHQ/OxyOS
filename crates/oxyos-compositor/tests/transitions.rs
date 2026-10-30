@@ -269,3 +269,49 @@ fn a_transition_is_composed_from_its_damage_alone() {
         "frames composed from their damage: {damaged}"
     );
 }
+
+#[test]
+fn a_window_minimized_shrinks_into_the_dock_and_a_workspace_slides_aside() {
+    let (mut s, centre) = session("minimize");
+    let window = oxyos_compositor_core::SurfaceKey { client: 1, id: 1 };
+    assert_eq!(s.at(200, centre), WHITE);
+    // Minimized: it shrinks toward the dock (without a shell, the output's bottom edge's centre)
+    // as it fades, from its damage alone, and is gone at 300 ms.
+    s.compositor.scene.minimize(window);
+    for ms in [200, 230, 280, 350, 420] {
+        assert!(s.damage_covers_changes(ms), "minimizing, at {ms} ms");
+    }
+    assert!(s.damage_covers_changes(500));
+    assert_eq!(s.compositor.pixel(centre.0, centre.1), DESKTOP);
+    assert!(s.compositor.transitions.is_empty());
+    // Restored: back out of the dock to where it was.
+    s.compositor.scene.restore(window);
+    for ms in [600, 640, 700, 780, 900] {
+        assert!(s.damage_covers_changes(ms), "restoring, at {ms} ms");
+    }
+    assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
+    // Another workspace: the window slides out to the left, whole (never faded), and is gone.
+    let workspace = s.compositor.scene.add_workspace().unwrap();
+    assert!(s.compositor.scene.activate_workspace(workspace));
+    assert!(s.damage_covers_changes(1000));
+    assert_eq!(
+        s.compositor.pixel(centre.0, centre.1),
+        WHITE,
+        "not moved yet"
+    );
+    assert!(s.damage_covers_changes(1030));
+    let moved_left = (0..640)
+        .filter(|&x| s.compositor.pixel(x, centre.1) == WHITE)
+        .max()
+        .unwrap();
+    assert!(moved_left < centre.0, "{moved_left}");
+    assert!(s.damage_covers_changes(1400));
+    assert_eq!(s.compositor.pixel(centre.0, centre.1), DESKTOP);
+    // Back: it slides in from the left to where it was.
+    assert!(s.compositor.scene.activate_workspace(0));
+    for ms in [1500, 1560, 1650, 1900] {
+        assert!(s.damage_covers_changes(ms), "sliding in, at {ms} ms");
+    }
+    assert_eq!(s.compositor.pixel(centre.0, centre.1), WHITE);
+    assert!(s.compositor.transitions.is_empty());
+}

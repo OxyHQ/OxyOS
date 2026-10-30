@@ -10,7 +10,7 @@
 //! application answered it with new pixels.
 
 use super::*;
-use oxyos_compositor_core::TextTransaction;
+use oxyos_compositor_core::{AppearanceChange, TextTransaction};
 use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle};
 
 /// Time the application's frames must stay unchanged to count as settled.
@@ -1079,10 +1079,20 @@ fn transitions_json(compositor: &mut Compositor) -> String {
         .iter()
         .map(|seen| {
             let opacity = |o: Option<u8>| o.map_or("null".to_string(), |o| o.to_string());
+            let change = match seen.change {
+                AppearanceChange::Arrived => "arrived",
+                AppearanceChange::Gone => "gone",
+                AppearanceChange::Minimized => "minimized",
+                AppearanceChange::Restored => "restored",
+                AppearanceChange::WorkspaceIn { forward: true } => "workspace_in_forward",
+                AppearanceChange::WorkspaceIn { forward: false } => "workspace_in_back",
+                AppearanceChange::WorkspaceOut { forward: true } => "workspace_out_forward",
+                AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
+            };
             format!(
-                "{{\"kind\":\"{}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{}}}",
+                "{{\"kind\":\"{}\",\"change\":\"{change}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{}}}",
                 format!("{:?}", seen.kind).to_lowercase(),
-                seen.arriving,
+                seen.arriving(),
                 opacity(seen.first),
                 opacity(seen.last),
                 seen.frames,

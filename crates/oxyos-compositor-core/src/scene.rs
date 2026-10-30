@@ -1740,7 +1740,7 @@ impl Scene {
             self.dismiss(*child, reason);
         }
         if shown {
-            self.appeared(key, false);
+            self.appeared(key, appearances::Change::Gone);
         }
         self.emit(
             key.client,
@@ -1818,7 +1818,7 @@ impl Scene {
         }
         if !self.nodes[&key].dismissed {
             if self.nodes[&key].mapped && !self.nodes[&key].hidden {
-                self.appeared(key, false);
+                self.appeared(key, appearances::Change::Gone);
             }
             // Without a PopupDone: the client asked for this.
             let node = self.nodes.get_mut(&key).expect("present");
@@ -2181,7 +2181,7 @@ impl Scene {
         }
         let children = node.children.clone();
         if node.mapped {
-            self.appeared(key, false);
+            self.appeared(key, appearances::Change::Minimized);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
         for child in children {
@@ -2202,7 +2202,7 @@ impl Scene {
             if node.hidden {
                 node.hidden = false;
                 if node.mapped {
-                    self.appeared(key, true);
+                    self.appeared(key, appearances::Change::Restored);
                 }
                 self.activate(key);
                 self.refresh_pointer_focus();
@@ -2299,7 +2299,7 @@ impl Scene {
             .map(|(key, _)| *key)
             .collect();
         for key in lock_surfaces {
-            self.appeared(key, false);
+            self.appeared(key, appearances::Change::Gone);
         }
         self.forget_secrets(None);
         self.pointer_cancel();
@@ -2838,7 +2838,7 @@ impl Scene {
             }
         }
         for key in arriving {
-            self.appeared(key, true);
+            self.appeared(key, appearances::Change::Arrived);
         }
         started
     }
@@ -2986,7 +2986,7 @@ pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
 pub use lock::Secret;
 mod appearances;
-pub use appearances::{Appearance, Kind as AppearanceKind};
+pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 
 #[cfg(test)]
 mod tests;

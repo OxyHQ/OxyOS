@@ -63,6 +63,18 @@
           "1": {
             "focus.out": 1
           }
+        },
+        "transitions": {
+          "frames_min": 3,
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "first": 255,
+              "ended": true
+            }
+          ]
         }
       }
     },
@@ -89,6 +101,18 @@
           "1": {
             "focus.in": 1
           }
+        },
+        "transitions": {
+          "frames_min": 3,
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "first": 0,
+              "ended": true
+            }
+          ]
         }
       }
     }

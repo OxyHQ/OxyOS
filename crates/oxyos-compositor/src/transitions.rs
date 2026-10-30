@@ -1,39 +1,105 @@
 //! Surfaces arriving and going, animated (docs/adr/0011-transitions.mdx): a window grows a
-//! little and fades in, a menu fades out, the launcher settles, the lock screen fades. What a
-//! surface shows is never changed: it is drawn whole, scaled about its centre, at an opacity.
-//! A surface going away is drawn from its last frame, which the compositor keeps until its
-//! transition ends.
+//! little and fades in, a menu fades out, the launcher settles, the lock screen fades; a window
+//! minimized goes into the dock and comes back out of it, a switch of workspace slides the
+//! windows aside, a notification slides in. What a surface shows is never changed: it is drawn
+//! whole, scaled about its centre and moved, at an opacity. A surface going away is drawn from
+//! its last frame, which the compositor keeps until its transition ends.
 
-use oxyos_compositor_core::{AppearanceKind as Kind, SurfaceKey};
+use oxyos_compositor_core::{
+    Appearance, AppearanceChange as Change, AppearanceKind as Kind, SurfaceKey,
+};
 use oxyos_protocol::{Format, Rect, Size};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-/// How a surface of a kind arrives or goes: how long, and the scale it starts from (arriving)
-/// or ends at (going), in thousandths. A zero duration: at once.
+/// Where a motion moves a surface at its farthest from where it is: nowhere, a share of its own
+/// size (thousandths: a notification beside itself), by a distance (a workspace's windows by the
+/// output's width), or to a point (a window into the dock).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shift {
+    None,
+    Own { x_permille: i32, y_permille: i32 },
+    By { x: i32, y: i32 },
+    To { x: i32, y: i32 },
+}
+
+/// How a surface arrives or goes: how long; the scale it starts from (arriving) or ends at
+/// (going), in thousandths; where it is moved; and whether it fades. A zero duration: at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Motion {
     pub duration: Duration,
     pub scale_permille: u32,
+    pub shift: Shift,
+    pub fades: bool,
 }
 
 const fn motion(ms: u64, scale_permille: u32) -> Motion {
     Motion {
         duration: Duration::from_millis(ms),
         scale_permille,
+        shift: Shift::None,
+        fades: true,
     }
 }
 
-/// The ADR's motions: (arriving, going).
-pub fn motions(kind: Kind) -> (Motion, Motion) {
-    match kind {
-        Kind::Window => (motion(180, 960), motion(150, 960)),
+/// What a motion needs to know of the output: its rectangle, and where the dock is (the
+/// shell's bottom panel's centre), if there is one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Place {
+    pub output: Rect,
+    pub dock: Option<(i32, i32)>,
+}
+
+/// The ADR's motions for a surface of `kind` arriving or going by `change`.
+pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
+    // Into the dock (its centre; without one, the output's bottom edge's) and out of it, a
+    // Mac's minimize: shrinking to a tenth as it moves there, fading at the end.
+    let dock = place.dock.unwrap_or((
+        place.output.x + place.output.width as i32 / 2,
+        place.output.y + place.output.height as i32,
+    ));
+    let width = place.output.width as i32;
+    match (kind, change) {
+        (_, Change::Minimized | Change::Restored) => Motion {
+            shift: Shift::To {
+                x: dock.0,
+                y: dock.1,
+            },
+            ..motion(300, 100)
+        },
+        // A workspace's windows slide by the output's width, a Mac's spaces: the later
+        // workspace's from the right, the one left to the left; they do not fade.
+        (_, Change::WorkspaceIn { forward } | Change::WorkspaceOut { forward }) => {
+            let leaving = matches!(change, Change::WorkspaceOut { .. });
+            Motion {
+                shift: Shift::By {
+                    x: if forward == leaving { -width } else { width },
+                    y: 0,
+                },
+                fades: false,
+                ..motion(300, 1000)
+            }
+        }
+        (Kind::Window, Change::Arrived) => motion(180, 960),
+        (Kind::Window, _) => motion(150, 960),
         // As a Mac's menus: at once, then fading out.
-        Kind::Popup => (motion(0, 1000), motion(150, 1000)),
-        Kind::Overlay => (motion(200, 1040), motion(150, 1040)),
-        Kind::Panel => (motion(250, 1000), motion(0, 1000)),
-        Kind::Lock => (motion(250, 1000), motion(250, 1000)),
-        Kind::Candidates => (motion(0, 1000), motion(0, 1000)),
+        (Kind::Popup, Change::Arrived) => motion(0, 1000),
+        (Kind::Popup, _) => motion(150, 1000),
+        (Kind::Overlay, Change::Arrived) => motion(200, 1040),
+        (Kind::Overlay, _) => motion(150, 1040),
+        (Kind::Panel, Change::Arrived) => motion(250, 1000),
+        (Kind::Panel, _) => motion(0, 1000),
+        // A notification slides in from beside itself at the right edge, a Mac's, and fades out.
+        (Kind::Notification, Change::Arrived) => Motion {
+            shift: Shift::Own {
+                x_permille: 1100,
+                y_permille: 0,
+            },
+            ..motion(250, 1000)
+        },
+        (Kind::Notification, _) => motion(200, 1000),
+        (Kind::Lock, _) => motion(250, 1000),
+        (Kind::Candidates, _) => motion(0, 1000),
     }
 }
 
@@ -57,46 +123,80 @@ struct Running {
     motion: Motion,
 }
 
-/// What a transition did, as the development compositor reports it: its kind, whether it was a
-/// surface arriving, the opacities of the first and last frames drawn in it, how many frames
-/// those were, and whether it ran to its end (not interrupted: a window restored as it went,
-/// going dropped by the lock).
+/// What a transition did, as the development compositor reports it: its kind, how the surface
+/// came or went, the opacities of the first and last frames drawn in it, how many frames those
+/// were, and whether it ran to its end (not interrupted: a window restored as it went, going
+/// dropped by the lock).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Seen {
     pub kind: Kind,
-    pub arriving: bool,
+    pub change: Change,
     pub first: Option<u8>,
     pub last: Option<u8>,
     pub frames: u32,
     pub ended: bool,
 }
 
+impl Seen {
+    pub fn arriving(&self) -> bool {
+        matches!(
+            self.change,
+            Change::Arrived | Change::Restored | Change::WorkspaceIn { .. }
+        )
+    }
+}
+
 /// Where a surface is in its transition: the opacity (0 to 255) and scale (thousandths) to draw
-/// it at now.
+/// it at now, and how far along its shift it is (thousandths).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Frame {
     pub opacity: u8,
     pub scale_permille: u32,
+    pub shift: Shift,
+    pub shift_permille: u32,
 }
 
 impl Frame {
     pub const WHOLE: Frame = Frame {
         opacity: 255,
         scale_permille: 1000,
+        shift: Shift::None,
+        shift_permille: 0,
     };
 
-    /// `rect` drawn at this scale about its centre.
+    /// `rect` drawn at this scale about its centre, then moved along its shift.
     pub fn place(&self, rect: Rect) -> Rect {
-        if self.scale_permille == 1000 {
-            return rect;
-        }
         let scaled = |length: u32| {
             ((u64::from(length) * u64::from(self.scale_permille) + 500) / 1000) as u32
         };
-        let (width, height) = (scaled(rect.width).max(1), scaled(rect.height).max(1));
+        let (width, height) = if self.scale_permille == 1000 {
+            (rect.width, rect.height)
+        } else {
+            (scaled(rect.width).max(1), scaled(rect.height).max(1))
+        };
+        let along = |distance: i64| (distance * i64::from(self.shift_permille) / 1000) as i32;
+        let centre = (
+            i64::from(rect.x) + i64::from(rect.width) / 2,
+            i64::from(rect.y) + i64::from(rect.height) / 2,
+        );
+        let (dx, dy) = match self.shift {
+            Shift::None => (0, 0),
+            Shift::Own {
+                x_permille,
+                y_permille,
+            } => (
+                along(i64::from(rect.width) * i64::from(x_permille) / 1000),
+                along(i64::from(rect.height) * i64::from(y_permille) / 1000),
+            ),
+            Shift::By { x, y } => (along(i64::from(x)), along(i64::from(y))),
+            Shift::To { x, y } => (
+                along(i64::from(x) - centre.0),
+                along(i64::from(y) - centre.1),
+            ),
+        };
         Rect::new(
-            rect.x + (rect.width as i32 - width as i32) / 2,
-            rect.y + (rect.height as i32 - height as i32) / 2,
+            rect.x + (rect.width as i32 - width as i32) / 2 + dx,
+            rect.y + (rect.height as i32 - height as i32) / 2 + dy,
             width,
             height,
         )
@@ -112,6 +212,39 @@ fn progress(elapsed: Duration, duration: Duration) -> f64 {
     1.0 - (1.0 - t).powi(3)
 }
 
+/// Where a surface is `p` of the way from `from` (the motion's far end) to whole: arriving.
+fn arriving_at(motion: &Motion, p: f64) -> Frame {
+    if p >= 1.0 {
+        return Frame::WHOLE;
+    }
+    let from = f64::from(motion.scale_permille);
+    Frame {
+        opacity: if motion.fades {
+            (255.0 * p).round() as u8
+        } else {
+            255
+        },
+        scale_permille: (from + (1000.0 - from) * p).round() as u32,
+        shift: motion.shift,
+        shift_permille: (1000.0 * (1.0 - p)).round() as u32,
+    }
+}
+
+/// Where a surface is `p` of the way from whole to the motion's far end: going.
+fn going_at(motion: &Motion, p: f64) -> Frame {
+    let to = f64::from(motion.scale_permille);
+    Frame {
+        opacity: if motion.fades {
+            (255.0 * (1.0 - p)).round() as u8
+        } else {
+            255
+        },
+        scale_permille: (1000.0 + (to - 1000.0) * p).round() as u32,
+        shift: motion.shift,
+        shift_permille: (1000.0 * p).round() as u32,
+    }
+}
+
 /// The transitions running: surfaces arriving, and surfaces going with their last frames, in
 /// the order they began going.
 #[derive(Default)]
@@ -125,7 +258,7 @@ pub struct Transitions {
 
 impl Transitions {
     /// A new transition's id, recorded as begun.
-    fn begin(&mut self, kind: Kind, arriving: bool) -> u64 {
+    fn begin(&mut self, kind: Kind, change: Change) -> u64 {
         // A session nobody asks keeps only the latest.
         while self.seen.len() >= MAX_SEEN {
             self.seen.pop_first();
@@ -135,7 +268,7 @@ impl Transitions {
             self.next_id,
             Seen {
                 kind,
-                arriving,
+                change,
                 first: None,
                 last: None,
                 frames: 0,
@@ -145,15 +278,64 @@ impl Transitions {
         self.next_id
     }
 
+    /// A surface came or went (the scene's appearance), at `now`: its transition begins, with
+    /// `snapshot` (its last frame shown) for one going, where `place` puts its motion.
+    pub fn appear(
+        &mut self,
+        appearance: Appearance,
+        now: Duration,
+        snapshot: Option<Snapshot>,
+        place: &Place,
+    ) {
+        let motion = motions(appearance.kind, appearance.change, place);
+        if appearance.arrived() {
+            self.start_arriving(
+                appearance.key,
+                appearance.kind,
+                appearance.change,
+                motion,
+                now,
+            );
+        } else {
+            self.start_going(
+                appearance.key,
+                appearance.kind,
+                appearance.change,
+                motion,
+                now,
+                snapshot,
+            );
+        }
+    }
+
+    /// `key` arrives with its first frame, as the ADR's motion for its kind.
     pub fn arrive(&mut self, key: SurfaceKey, kind: Kind, now: Duration) {
-        // A surface arriving again (restored) stops going.
+        let motion = motions(kind, Change::Arrived, &Place::default());
+        self.start_arriving(key, kind, Change::Arrived, motion, now);
+    }
+
+    /// `key` goes (destroyed, dismissed), drawn from `snapshot` (its last frame shown); without
+    /// one it was not shown, and nothing is drawn.
+    pub fn go(&mut self, key: SurfaceKey, kind: Kind, now: Duration, snapshot: Option<Snapshot>) {
+        let motion = motions(kind, Change::Gone, &Place::default());
+        self.start_going(key, kind, Change::Gone, motion, now, snapshot);
+    }
+
+    fn start_arriving(
+        &mut self,
+        key: SurfaceKey,
+        kind: Kind,
+        change: Change,
+        motion: Motion,
+        now: Duration,
+    ) {
+        // A surface arriving again (restored, shown with its workspace) stops going.
         self.going.retain(|(going, _, _)| *going != key);
-        let motion = motions(kind).0;
         if motion.duration.is_zero() {
             self.arriving.remove(&key);
             return;
         }
-        let id = self.begin(kind, true);
+        let id = self.begin(kind, change);
         self.arriving.insert(
             key,
             Running {
@@ -165,16 +347,21 @@ impl Transitions {
         );
     }
 
-    /// `key` goes, drawn from `snapshot` (its last frame shown); without one it was not shown,
-    /// and nothing is drawn.
-    pub fn go(&mut self, key: SurfaceKey, kind: Kind, now: Duration, snapshot: Option<Snapshot>) {
+    fn start_going(
+        &mut self,
+        key: SurfaceKey,
+        kind: Kind,
+        change: Change,
+        motion: Motion,
+        now: Duration,
+        snapshot: Option<Snapshot>,
+    ) {
         self.arriving.remove(&key);
-        let motion = motions(kind).1;
         let Some(snapshot) = snapshot.filter(|_| !motion.duration.is_zero()) else {
             return;
         };
         self.going.retain(|(going, _, _)| *going != key);
-        let id = self.begin(kind, false);
+        let id = self.begin(kind, change);
         self.going.push((
             key,
             Running {
@@ -195,7 +382,7 @@ impl Transitions {
             id: u32::MAX,
         };
         self.going.retain(|(going, _, _)| *going != key);
-        let id = self.begin(Kind::Panel, false);
+        let id = self.begin(Kind::Panel, Change::Gone);
         self.going.push((
             key,
             Running {
@@ -214,11 +401,7 @@ impl Transitions {
             return Frame::WHOLE;
         };
         let p = progress(now.saturating_sub(running.started), running.motion.duration);
-        let from = f64::from(running.motion.scale_permille);
-        Frame {
-            opacity: (255.0 * p).round() as u8,
-            scale_permille: (from + (1000.0 - from) * p).round() as u32,
-        }
+        arriving_at(&running.motion, p)
     }
 
     /// Whether `key` is arriving.
@@ -238,15 +421,7 @@ impl Transitions {
     pub fn going(&self, now: Duration) -> impl Iterator<Item = (&Snapshot, Kind, Frame)> {
         self.going.iter().map(move |(_, running, snapshot)| {
             let p = progress(now.saturating_sub(running.started), running.motion.duration);
-            let to = f64::from(running.motion.scale_permille);
-            (
-                snapshot,
-                running.kind,
-                Frame {
-                    opacity: (255.0 * (1.0 - p)).round() as u8,
-                    scale_permille: (1000.0 + (to - 1000.0) * p).round() as u32,
-                },
-            )
+            (snapshot, running.kind, going_at(&running.motion, p))
         })
     }
 
@@ -316,6 +491,15 @@ impl Transitions {
     }
 }
 
+impl Default for Place {
+    fn default() -> Self {
+        Place {
+            output: Rect::new(0, 0, 1, 1),
+            dock: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -341,7 +525,9 @@ mod tests {
             at(&t, 0),
             Frame {
                 opacity: 0,
-                scale_permille: 960
+                scale_permille: 960,
+                shift: Shift::None,
+                shift_permille: 1000,
             }
         );
         // Halfway in time, 87.5 % of the way (1 - 0.5³).
@@ -349,7 +535,9 @@ mod tests {
             at(&t, 90),
             Frame {
                 opacity: 223,
-                scale_permille: 995
+                scale_permille: 995,
+                shift: Shift::None,
+                shift_permille: 125,
             }
         );
         assert_eq!(at(&t, 180), Frame::WHOLE);
@@ -443,7 +631,7 @@ mod tests {
             [
                 Seen {
                     kind: Kind::Window,
-                    arriving: true,
+                    change: Change::Arrived,
                     first: Some(0),
                     last: Some(223),
                     frames: 2,
@@ -451,7 +639,7 @@ mod tests {
                 },
                 Seen {
                     kind: Kind::Window,
-                    arriving: false,
+                    change: Change::Gone,
                     first: Some(207),
                     last: Some(207),
                     frames: 1,
@@ -459,7 +647,7 @@ mod tests {
                 },
                 Seen {
                     kind: Kind::Window,
-                    arriving: true,
+                    change: Change::Arrived,
                     first: None,
                     last: None,
                     frames: 0,
@@ -473,8 +661,8 @@ mod tests {
     #[test]
     fn a_surface_is_scaled_about_its_centre() {
         let frame = Frame {
-            opacity: 255,
             scale_permille: 960,
+            ..Frame::WHOLE
         };
         assert_eq!(
             frame.place(Rect::new(100, 100, 200, 100)),
@@ -484,5 +672,133 @@ mod tests {
             Frame::WHOLE.place(Rect::new(1, 2, 3, 4)),
             Rect::new(1, 2, 3, 4)
         );
+    }
+
+    const OUTPUT: Rect = Rect::new(0, 0, 1280, 720);
+    const PLACE: Place = Place {
+        output: OUTPUT,
+        dock: Some((640, 692)),
+    };
+
+    fn appearance(change: Change) -> Appearance {
+        Appearance {
+            key: KEY,
+            kind: Kind::Window,
+            change,
+        }
+    }
+
+    #[test]
+    fn a_window_minimized_goes_into_the_dock_and_comes_back_out() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        t.appear(
+            appearance(Change::Minimized),
+            start,
+            Some(snapshot()),
+            &PLACE,
+        );
+        let at = |t: &Transitions, ms| {
+            let (snapshot, _, frame) = t.going(start + Duration::from_millis(ms)).next().unwrap();
+            (frame.opacity, frame.place(snapshot.rect))
+        };
+        // Where it was, whole; then shrinking toward the dock; at the end a tenth of its size
+        // on the dock's centre, faded.
+        assert_eq!(at(&t, 0), (255, Rect::new(100, 100, 200, 100)));
+        let (opacity, halfway) = at(&t, 150);
+        assert!(opacity < 64, "{opacity}");
+        let centre = |r: Rect| (r.x + r.width as i32 / 2, r.y + r.height as i32 / 2);
+        assert!(halfway.width < 60 && centre(halfway).1 > 600, "{halfway:?}");
+        let (_, end) = at(&t, 299);
+        assert_eq!((end.width, end.height), (20, 10));
+        let (x, y) = centre(end);
+        assert!((x - 640).abs() <= 1 && (y - 692).abs() <= 1, "{end:?}");
+        // Restored, it comes back the same way: from the dock, a tenth of its size, unseen.
+        t.appear(appearance(Change::Restored), start, None, &PLACE);
+        assert_eq!(t.going(start).count(), 0);
+        let from = t.arriving(KEY, start);
+        assert_eq!((from.opacity, from.scale_permille), (0, 100));
+        let placed = from.place(Rect::new(100, 100, 200, 100));
+        assert_eq!(centre(placed), (640, 692));
+        assert_eq!(
+            t.arriving(KEY, start + Duration::from_millis(300)),
+            Frame::WHOLE
+        );
+    }
+
+    #[test]
+    fn a_switch_of_workspace_slides_windows_by_the_outputs_width() {
+        let rect = Rect::new(100, 100, 200, 100);
+        let going = |forward| {
+            let mut t = Transitions::default();
+            let start = Duration::from_secs(1);
+            t.appear(
+                appearance(Change::WorkspaceOut { forward }),
+                start,
+                Some(snapshot()),
+                &PLACE,
+            );
+            let at = |ms| t.going(start + Duration::from_millis(ms)).next().unwrap().2;
+            (at(0), at(300).place(rect), at(299))
+        };
+        // To a later workspace the window leaves to the left; to an earlier one, to the right;
+        // whole and unfaded as it goes.
+        let (first, last, end) = going(true);
+        assert_eq!(first.place(rect), rect);
+        assert_eq!(last, Rect::new(100 - 1280, 100, 200, 100));
+        assert_eq!((end.opacity, end.scale_permille), (255, 1000));
+        assert_eq!(going(false).1, Rect::new(100 + 1280, 100, 200, 100));
+        // The workspace switched to: its windows come in from the right going forward.
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        t.appear(
+            appearance(Change::WorkspaceIn { forward: true }),
+            start,
+            None,
+            &PLACE,
+        );
+        let from = t.arriving(KEY, start);
+        assert_eq!(from.opacity, 255);
+        assert_eq!(from.place(rect), Rect::new(100 + 1280, 100, 200, 100));
+        assert_eq!(
+            t.arriving(KEY, start + Duration::from_millis(300)),
+            Frame::WHOLE
+        );
+    }
+
+    #[test]
+    fn a_notification_slides_in_from_beside_itself_and_fades_out() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let notification = Appearance {
+            key: KEY,
+            kind: Kind::Notification,
+            change: Change::Arrived,
+        };
+        t.appear(notification, start, None, &PLACE);
+        let rect = Rect::new(900, 40, 360, 80);
+        let from = t.arriving(KEY, start);
+        // Its own width and a tenth beyond where it rests: off the output's right edge.
+        assert_eq!(from.place(rect), Rect::new(900 + 396, 40, 360, 80));
+        assert_eq!(from.opacity, 0);
+        assert_eq!(
+            t.arriving(KEY, start + Duration::from_millis(250)),
+            Frame::WHOLE
+        );
+        t.appear(
+            Appearance {
+                change: Change::Gone,
+                ..notification
+            },
+            start,
+            Some(snapshot()),
+            &PLACE,
+        );
+        let gone = t
+            .going(start + Duration::from_millis(100))
+            .next()
+            .unwrap()
+            .2;
+        assert!(gone.opacity < 255 && gone.place(rect) == rect);
     }
 }

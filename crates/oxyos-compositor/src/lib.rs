@@ -567,15 +567,24 @@ impl Compositor {
         // Surfaces arriving start their transitions in this frame; those going are drawn from
         // their last frame composed (ADR 0011). Locked, nothing of the session is drawn going.
         let now = self.now();
+        // A window minimized goes into the dock, the shell's bottom panel, and comes back out
+        // of it; a workspace's windows slide by the output's width.
+        let place = transitions::Place {
+            output: self.output,
+            dock: self.scene.dock().map(|dock| {
+                (
+                    dock.x + dock.width as i32 / 2,
+                    dock.y + dock.height as i32 / 2,
+                )
+            }),
+        };
         for appearance in self.scene.take_appearances() {
-            if appearance.arrived {
-                self.transitions
-                    .arrive(appearance.key, appearance.kind, now);
+            let snapshot = if appearance.arrived() {
+                None
             } else {
-                let snapshot = self.shown.remove(&appearance.key);
-                self.transitions
-                    .go(appearance.key, appearance.kind, now, snapshot);
-            }
+                self.shown.remove(&appearance.key)
+            };
+            self.transitions.appear(appearance, now, snapshot, &place);
         }
         if self.scene.is_locked() {
             self.transitions.lock();
