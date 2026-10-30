@@ -2455,7 +2455,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             socket.clone(),
             std::env::var_os("HOME").map(PathBuf::from),
         )?;
-        session.compositor.wakers.push(installs.wake_fd()?);
+        let waker = installs.wake_fd()?;
+        session.installs_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
         session.installs = Some(installs);
     }
     session.installed_fixture = launch.installed_fixture.clone();

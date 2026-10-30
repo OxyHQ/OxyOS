@@ -131,6 +131,8 @@ struct Session {
     grants: Vec<(String, oxyos_apps::Grants)>,
     /// `--installd SOCKET`: the session's side of installing (ADR 0030).
     installs: Option<oxyos_compositor::installs::Installs>,
+    /// The descriptor its turn is woken by, among the compositor's wakers, given back at the end.
+    installs_waker: Option<std::os::fd::RawFd>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
@@ -207,6 +209,7 @@ impl Session {
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
+            installs_waker: None,
             controls: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -410,6 +413,12 @@ impl Session {
         let stats = self.compositor.scene.stats();
         if stats.surfaces != 0 || stats.clients != 0 || stats.registered_buffers != 0 {
             return Err(format!("scene resources left: {stats:?}").into());
+        }
+        // The install service's side, its threads waited for and its waker given back.
+        self.installs = None;
+        if let Some(waker) = self.installs_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
         let fds = open_descriptors()?;
         if fds != self.baseline_fds {

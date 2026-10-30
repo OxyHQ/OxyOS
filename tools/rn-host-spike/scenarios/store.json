@@ -1,0 +1,80 @@
+{
+  "about": "Installing through the session (docs/adr/0030-installing-applications.mdx, decisions 9 and 16): a store with the store and updates grants (sample/StoreProbe.tsx) asks through OxyOSSystem; each request, citing the press that asked it, crosses the host, the compositor (which checks the grant and the input) and the session's side (oxyos_compositor::installs, which reads it strictly), and is answered to the store alone. With no install service on this machine every answer says so, as the session tells it, never a fake install.",
+  "module": "StoreProbe",
+  "window": [
+    520,
+    220
+  ],
+  "app": {
+    "id": "so.oxy.storeprobe"
+  },
+  "grants": {
+    "so.oxy.storeprobe": [
+      "store",
+      "updates"
+    ]
+  },
+  "installd": null,
+  "steps": [
+    {
+      "name": "Install, pressed: the session's answer comes back to the store, that the install service is not there",
+      "do": [
+        "press",
+        [
+          90,
+          40
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Store: available",
+          "Answer 1: failed unavailable",
+          "Progress: 0"
+        ],
+        "react": {
+          "touchStart@install": 1,
+          "touchEnd@install": 1
+        }
+      }
+    },
+    {
+      "name": "Check for updates, pressed (the updates grant): answered the same way, and no update is invented",
+      "do": [
+        "press",
+        [
+          90,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer 2: failed unavailable",
+          "Updates: unknown"
+        ],
+        "react": {
+          "touchStart@check": 1,
+          "touchEnd@check": 1
+        }
+      }
+    },
+    {
+      "name": "Status, a read: answered too",
+      "do": [
+        "press",
+        [
+          410,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer 3: failed unavailable"
+        ],
+        "react": {
+          "touchStart@status": 1,
+          "touchEnd@status": 1
+        }
+      }
+    }
+  ]
+}

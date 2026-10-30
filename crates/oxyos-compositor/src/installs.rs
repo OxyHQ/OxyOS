@@ -188,6 +188,20 @@ pub struct Installs {
     /// The update state last told, for a client that asks before it changes.
     state: Option<String>,
     watching: bool,
+    /// Its threads stop when it goes, and are waited for, so nothing of it outlives it.
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Installs {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        // A flow waiting for a sheet is answered no, and ends.
+        self.sheets.clear();
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl Installs {
@@ -211,6 +225,8 @@ impl Installs {
             decided: BTreeMap::new(),
             state: None,
             watching: false,
+            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            threads: Vec::new(),
         })
     }
 
@@ -225,12 +241,16 @@ impl Installs {
     pub fn serve(&mut self, scene: &mut Scene, asker: &dyn Fn(ClientId) -> Asker) -> Vec<Open> {
         let mut buffer = [0u8; 64];
         while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
+        self.threads.retain(|thread| !thread.is_finished());
         if !self.watching {
             self.watching = true;
-            let (socket, back) = (self.socket.clone(), self.back.clone());
-            let _ = std::thread::Builder::new()
+            let (socket, back, stop) = (self.socket.clone(), self.back.clone(), self.stop.clone());
+            if let Ok(thread) = std::thread::Builder::new()
                 .name("installs-watch".into())
-                .spawn(move || watch(socket, back));
+                .spawn(move || watch(socket, back, stop))
+            {
+                self.threads.push(thread);
+            }
         }
         for request in scene.take_system_requests() {
             let refuse = |scene: &mut Scene, reason: &str| {
@@ -258,9 +278,12 @@ impl Installs {
             }
             let (socket, home, back) = (self.socket.clone(), self.home.clone(), self.back.clone());
             let (client, serial) = (request.client, request.serial);
-            let _ = std::thread::Builder::new()
+            if let Ok(thread) = std::thread::Builder::new()
                 .name("installs".into())
-                .spawn(move || flow(&socket, home.as_deref(), &back, client, serial, ask));
+                .spawn(move || flow(&socket, home.as_deref(), &back, client, serial, ask))
+            {
+                self.threads.push(thread);
+            }
         }
         for answered in scene.take_sheet_answers() {
             if let Some(reply) = self.sheets.remove(&answered.sheet) {
@@ -645,23 +668,33 @@ fn permission(socket: &Path, back: &Back, client: ClientId, serial: u32, capabil
 }
 
 /// The account's update state, watched on one connection and sent to the compositor's turn as it
-/// changes; a lost connection is made again.
-fn watch(socket: PathBuf, back: Back) {
+/// changes; a lost connection is made again. It ends once `stop` is set.
+fn watch(socket: PathBuf, back: Back, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    let stopped = || stop.load(std::sync::atomic::Ordering::SeqCst);
     let mut said = false;
-    loop {
+    while !stopped() {
         let watched = (|| -> std::io::Result<()> {
             let connection = Connection::connect(&socket)?;
             connection.send(&Request::WatchUpdates { uid: None })?;
-            loop {
-                match connection.receive::<Answer>()? {
-                    Some(Some(Answer::Watching)) => {}
-                    Some(Some(state @ Answer::UpdateState(_))) => {
+            // Waited for a little at a time, so it ends soon after it is told to.
+            connection.set_timeout(Duration::from_millis(200))?;
+            while !stopped() {
+                match connection.receive::<Answer>() {
+                    Ok(Some(Some(Answer::Watching))) | Ok(Some(None)) => {}
+                    Ok(Some(Some(state @ Answer::UpdateState(_)))) => {
                         back.send(Done::State(to_json(&state).to_string()));
                     }
-                    Some(_) => {}
-                    None => return Err(std::io::Error::other("closed")),
+                    Ok(Some(Some(_))) => {}
+                    Ok(None) => return Err(std::io::Error::other("closed")),
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(error) => return Err(error),
                 }
             }
+            Ok(())
         })();
         if let Err(error) = watched {
             if !said {
@@ -672,7 +705,12 @@ fn watch(socket: PathBuf, back: Back) {
                 said = true;
             }
         }
-        std::thread::sleep(Duration::from_secs(2));
+        for _ in 0..20 {
+            if stopped() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 

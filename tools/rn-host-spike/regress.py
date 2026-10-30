@@ -1331,6 +1331,19 @@ class Machine:
             (target / entry.name).write_text("\n".join(lines) + "\n")
         return into
 
+def install_arguments(scenario, out):
+    """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
+    install service the session asks (`installd`: a socket, or null for one that is not there),
+    docs/adr/0030-installing-applications.mdx."""
+    arguments = []
+    for app, grants in scenario.get("grants", {}).items():
+        arguments += ["--grant", f"{app}={','.join(grants)}"]
+    if "installd" in scenario:
+        # None: a socket no service is at (a short path: a Unix socket's is at most 107 bytes).
+        arguments += ["--installd", scenario["installd"] or "/nonexistent/oxyos-installd.socket"]
+    return arguments
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
@@ -1411,6 +1424,7 @@ def main():
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
         command += ["--grant-settings", scenario["settings"]["app"]]
+    command += install_arguments(scenario, out)
     if "controls" in scenario:
         # The machine the hardware keys and the Control Center act on (ADR 0025), played as the
         # scenario describes it, in a file of the run's own the session writes back.
