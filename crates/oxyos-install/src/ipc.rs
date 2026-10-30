@@ -1,44 +1,54 @@
 //! The install service's socket, `/run/oxyos/installd/socket` (docs/adr/0030-installing-
-//! applications.mdx, decision 5): `SOCK_SEQPACKET`, one JSON message per packet of at most 64 KiB,
-//! the peer's credentials from the kernel (`SO_PEERCRED`), as `oxyos-accountd`'s (ADR 0020).
+//! applications.mdx, decisions 5, 10 and 16): `SOCK_SEQPACKET`, one JSON message per packet of at
+//! most 64 KiB, the peer's credentials from the kernel (`SO_PEERCRED`), as `oxyos-accountd`'s.
 //!
-//! - **Who acts for whom.** A user's process acts for its own account alone; a request naming
-//!   another account (`uid`) is refused. Root acts for the account it names, and must name one
-//!   to install or remove; its `list` without one lists nothing. A process of no account (no
-//!   `passwd` entry) may do nothing but check for updates.
+//! - **Every request is an account's.** A user's process acts for its own account alone, and a
+//!   request naming another account (`uid`) is refused. Root acts for the account it names, and
+//!   must name one; without one it may only check, and run the automatic updates.
 //! - **Every answer follows the message it answers**, and the service never closes a connection
-//!   with a message unread. A connection lasts until its peer closes it, so a session keeps one
-//!   for its versions' holds, which end with it.
+//!   with a message unread. A connection lasts until its peer closes it: a session keeps one for
+//!   its versions' holds and its watch, which end with it.
 //! - **The conversation:**
 //!
 //!   ```text
-//!   → {"prepare": {"id", "uid"?}}           ← {"plan": {"planId", …}}
-//!   → {"commit": {"planId"}}                ← {"progress": …}…, then {"committed": {…}}
-//!   → {"uninstall": {"id", "uid"?}}         ← {"uninstalled": {"id", "dataDirectories"}}
-//!   → {"list": {"uid"?}}                    ← {"applications": […]}
-//!   → {"hold": {"id", "versionCode"}}       ← "held"
-//!   → {"release": {"id", "versionCode"}}    ← "released"
-//!   → {"shown": {"id", "versionCode"}}      ← "noted"
-//!   → {"exited": {"id", "versionCode", "shown"}}  ← "noted" | "rolledBack"
-//!   → "checkUpdates"                        ← {"updates": […]}
-//!   ← {"refused": {"reason", "detail"?}}    for any of them
+//!   → {"prepare": {"id", "uid"?}}                    ← {"plan": {"planId", …}}
+//!   → {"commit": {"planId"}}                         ← {"progress": …}…, then {"committed": {…}}
+//!   → {"uninstall": {"id", "uid"?}}                  ← {"uninstalled": {"id", "dataDirectories"}}
+//!   → {"list": {"uid"?}}                             ← {"applications": […]}
+//!   → {"hold"|"release"|"shown": {"id", "versionCode", "uid"?}}  ← "held" | "released" | "noted"
+//!   → {"exited": {"id", "versionCode", "shown", "uid"?}}         ← "noted" | "rolledBack"
+//!   → {"checkUpdates": {"uid"?}}                     ← {"updateState": {…}} (root: "checked")
+//!   → {"updateState": {"uid"?}}                      ← {"updateState": {…}}
+//!   → {"watchUpdates": {"uid"?}}                     ← "watching", then {"updateState": {…}} now
+//!                                                      and at every change, unasked
+//!   → {"update": {"ids", "uid"?}}                    ← {"updated": [{"id", "versionCode",
+//!   → {"updateAll": {"uid"?}}                            "outcome", "reason"}]}
+//!   → {"consent": {"id", "versionCode", "uid"?}}     ← {"updated": [{…}]}
+//!   → {"setAutomatic": {"apps", "uid"?}}             ← "automaticSet"
+//!   → "automaticUpdates"                             ← {"automatic": [{"uid", "updated"}]} (root)
+//!   ← {"refused": {"reason", "detail"?}}             for any of them
 //!   ```
 //!
 //!   A plan is the connection's: `commit` names the last one `prepare` answered on it. The person
-//!   confirmed it in the system's sheet (ADR 0030, decision 9): the session commits it.
+//!   confirmed it in the system's sheet (decision 9), which is the account's consent; so is
+//!   `consent`. A watching connection is sent its account's state unasked, between answers.
 
 use crate::accounts::Accounts;
 use crate::compile::Compile;
 use crate::fetch::Fetch;
 use crate::install::{
-    Committed, InstallError, Installer, Listed, Plan, Prepared, Progress, Update,
+    Committed, InstallError, Installer, Listed, Plan, Prepared, Progress, UpdateState, Updated,
 };
 use crate::socket::{Connection, Peer};
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::time::Duration;
 
 /// Where the service listens.
 pub const SOCKET: &str = "/run/oxyos/installd/socket";
+
+/// How long a watcher's peer may take to read a change before the watch ends.
+pub const WATCH_SEND: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -65,24 +75,65 @@ pub enum Request {
     Hold {
         id: String,
         version_code: u64,
+        #[serde(default)]
+        uid: Option<u32>,
     },
     #[serde(rename_all = "camelCase")]
     Release {
         id: String,
         version_code: u64,
+        #[serde(default)]
+        uid: Option<u32>,
     },
     #[serde(rename_all = "camelCase")]
     Shown {
         id: String,
         version_code: u64,
+        #[serde(default)]
+        uid: Option<u32>,
     },
     #[serde(rename_all = "camelCase")]
     Exited {
         id: String,
         version_code: u64,
         shown: bool,
+        #[serde(default)]
+        uid: Option<u32>,
     },
-    CheckUpdates,
+    CheckUpdates {
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    UpdateState {
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    WatchUpdates {
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    Update {
+        ids: Vec<String>,
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    UpdateAll {
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Consent {
+        id: String,
+        version_code: u64,
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    SetAutomatic {
+        apps: bool,
+        #[serde(default)]
+        uid: Option<u32>,
+    },
+    AutomaticUpdates,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +164,14 @@ pub struct PlanAnswer {
     pub plan: Plan,
 }
 
+/// What the automatic updates did for an account.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AutomaticAnswer {
+    pub uid: u32,
+    pub updated: Vec<Updated>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Answer {
@@ -129,7 +188,12 @@ pub enum Answer {
     Released,
     Noted,
     RolledBack,
-    Updates(Vec<Update>),
+    Checked,
+    UpdateState(UpdateState),
+    Watching,
+    Updated(Vec<Updated>),
+    AutomaticSet,
+    Automatic(Vec<AutomaticAnswer>),
     Refused {
         reason: Reason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,21 +241,31 @@ pub struct Outcome {
     pub result: Result<String, String>,
 }
 
-/// One connection's conversation: its last plan and the versions it holds.
+/// One connection's conversation: its last plan, the versions it holds and its watches.
 pub struct Conversation<'a, F, C, A> {
     installer: &'a Installer<F, C, A>,
     peer: Peer,
+    /// A handle to send its watches' changes on.
+    watch_on: Option<Connection>,
     plan: Option<(String, Prepared)>,
-    holds: Vec<(String, u64)>,
+    holds: Vec<(u32, String, u64)>,
+    watches: Vec<u64>,
 }
 
 impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
-    pub fn new(installer: &'a Installer<F, C, A>, peer: Peer) -> Self {
+    /// A conversation with `peer`; `watch_on` is a handle on its connection, for watches.
+    pub fn new(
+        installer: &'a Installer<F, C, A>,
+        peer: Peer,
+        watch_on: Option<Connection>,
+    ) -> Self {
         Self {
             installer,
             peer,
+            watch_on,
             plan: None,
             holds: Vec::new(),
+            watches: Vec::new(),
         }
     }
 
@@ -206,11 +280,6 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
         }
     }
 
-    /// Whether the peer may say what a version of `id` does (a session of an account that has it).
-    fn runs(&self, id: &str) -> bool {
-        self.installer.has(self.peer.uid, id)
-    }
-
     /// Answers a message (`None`: one that could not be read). `send` carries the progress
     /// answers before the last one.
     pub fn answer(
@@ -218,30 +287,21 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
         request: Option<Request>,
         send: &mut dyn FnMut(&Answer) -> io::Result<()>,
     ) -> (Answer, Outcome) {
-        let outcome = |request, id: Option<&str>, result: Result<String, String>| Outcome {
-            request,
-            id: id.map(str::to_string),
-            result,
-        };
-        let refusal = |answer: Answer, name, id: Option<&str>| {
-            let detail = format!("{answer:?}");
-            (answer, outcome(name, id, Err(detail)))
-        };
-        let failed = |error: &InstallError, name, id: Option<&str>| {
-            (
-                Answer::from(error),
-                outcome(name, id, Err(error.to_string())),
-            )
-        };
         let Some(request) = request else {
             return refusal(Answer::refused(Reason::InvalidRequest), "unreadable", None);
         };
+        // The account a request acts for, or its refusal.
+        macro_rules! account {
+            ($uid:expr, $name:expr, $id:expr) => {
+                match self.account($uid) {
+                    Ok(uid) => uid,
+                    Err(answer) => return refusal(answer, $name, $id),
+                }
+            };
+        }
         match request {
             Request::Prepare { id, uid } => {
-                let uid = match self.account(uid) {
-                    Ok(uid) => uid,
-                    Err(answer) => return refusal(answer, "prepare", Some(&id)),
-                };
+                let uid = account!(uid, "prepare", Some(&id));
                 match self.installer.prepare(uid, &id) {
                     Ok(prepared) => {
                         let plan_id = random_id();
@@ -280,10 +340,7 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 }
             }
             Request::Uninstall { id, uid } => {
-                let uid = match self.account(uid) {
-                    Ok(uid) => uid,
-                    Err(answer) => return refusal(answer, "uninstall", Some(&id)),
-                };
+                let uid = account!(uid, "uninstall", Some(&id));
                 match self.installer.uninstall(uid, &id) {
                     Ok(data_directories) => (
                         Answer::Uninstalled {
@@ -296,18 +353,7 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 }
             }
             Request::List { uid } => {
-                let uid = match (self.peer.uid, uid) {
-                    (0, None) => {
-                        return (
-                            Answer::Applications(Vec::new()),
-                            outcome("list", None, Ok("nothing".into())),
-                        )
-                    }
-                    _ => match self.account(uid) {
-                        Ok(uid) => uid,
-                        Err(answer) => return refusal(answer, "list", None),
-                    },
-                };
+                let uid = account!(uid, "list", None);
                 match self.installer.list(uid) {
                     Ok(listed) => {
                         let n = listed.len();
@@ -319,13 +365,15 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                     Err(e) => failed(&e, "list", None),
                 }
             }
-            Request::Hold { id, version_code } => {
-                if !self.runs(&id) {
-                    return refusal(Answer::refused(Reason::NotPermitted), "hold", Some(&id));
-                }
-                match self.installer.hold(&id, version_code) {
+            Request::Hold {
+                id,
+                version_code,
+                uid,
+            } => {
+                let uid = account!(uid, "hold", Some(&id));
+                match self.installer.hold(uid, &id, version_code) {
                     Ok(()) => {
-                        self.holds.push((id.clone(), version_code));
+                        self.holds.push((uid, id.clone(), version_code));
                         (
                             Answer::Held,
                             outcome("hold", Some(&id), Ok(format!("{version_code}"))),
@@ -334,16 +382,18 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                     Err(e) => failed(&e, "hold", Some(&id)),
                 }
             }
-            Request::Release { id, version_code } => {
-                let Some(at) = self
-                    .holds
-                    .iter()
-                    .position(|(i, c)| *i == id && *c == version_code)
-                else {
+            Request::Release {
+                id,
+                version_code,
+                uid,
+            } => {
+                let uid = account!(uid, "release", Some(&id));
+                let held = (uid, id.clone(), version_code);
+                let Some(at) = self.holds.iter().position(|h| *h == held) else {
                     return refusal(Answer::refused(Reason::NotInstalled), "release", Some(&id));
                 };
                 self.holds.remove(at);
-                match self.installer.release(&id, version_code) {
+                match self.installer.release(uid, &id, version_code) {
                     Ok(()) => (
                         Answer::Released,
                         outcome("release", Some(&id), Ok(format!("{version_code}"))),
@@ -351,11 +401,13 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                     Err(e) => failed(&e, "release", Some(&id)),
                 }
             }
-            Request::Shown { id, version_code } => {
-                if !self.runs(&id) {
-                    return refusal(Answer::refused(Reason::NotPermitted), "shown", Some(&id));
-                }
-                match self.installer.shown(&id, version_code) {
+            Request::Shown {
+                id,
+                version_code,
+                uid,
+            } => {
+                let uid = account!(uid, "shown", Some(&id));
+                match self.installer.shown(uid, &id, version_code) {
                     Ok(()) => (
                         Answer::Noted,
                         outcome("shown", Some(&id), Ok(format!("{version_code}"))),
@@ -367,11 +419,10 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 id,
                 version_code,
                 shown,
+                uid,
             } => {
-                if !self.runs(&id) {
-                    return refusal(Answer::refused(Reason::NotPermitted), "exited", Some(&id));
-                }
-                match self.installer.exited(&id, version_code, shown) {
+                let uid = account!(uid, "exited", Some(&id));
+                match self.installer.exited(uid, &id, version_code, shown) {
                     Ok(true) => (
                         Answer::RolledBack,
                         outcome(
@@ -387,26 +438,176 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                     Err(e) => failed(&e, "exited", Some(&id)),
                 }
             }
-            Request::CheckUpdates => match self.installer.check_updates() {
-                Ok(updates) => {
-                    let n = updates.len();
-                    (
-                        Answer::Updates(updates),
-                        outcome("checkUpdates", None, Ok(format!("{n} applications"))),
-                    )
+            Request::CheckUpdates { uid } => {
+                let account = match (self.peer.uid, uid) {
+                    (0, None) => None,
+                    _ => Some(account!(uid, "checkUpdates", None)),
+                };
+                if let Err(e) = self.installer.check() {
+                    return failed(&e, "checkUpdates", None);
                 }
-                Err(e) => failed(&e, "checkUpdates", None),
-            },
+                match account {
+                    None => (
+                        Answer::Checked,
+                        outcome("checkUpdates", None, Ok("checked".into())),
+                    ),
+                    Some(uid) => self.state(uid, "checkUpdates"),
+                }
+            }
+            Request::UpdateState { uid } => {
+                let uid = account!(uid, "updateState", None);
+                self.state(uid, "updateState")
+            }
+            Request::WatchUpdates { uid } => {
+                let uid = account!(uid, "watchUpdates", None);
+                let Some(on) = self.watch_on.as_ref().and_then(|c| c.try_clone().ok()) else {
+                    return refusal(Answer::refused(Reason::Failed), "watchUpdates", None);
+                };
+                let _ = on.set_timeout(WATCH_SEND);
+                // The answer goes first: the state follows it, now and at each change.
+                if let Err(e) = send(&Answer::Watching) {
+                    return refusal(
+                        Answer::Refused {
+                            reason: Reason::Failed,
+                            detail: Some(e.to_string()),
+                        },
+                        "watchUpdates",
+                        None,
+                    );
+                }
+                let watcher = Box::new(move |state: &UpdateState| {
+                    on.send(&Answer::UpdateState(state.clone())).is_ok()
+                });
+                match self.installer.watch(uid, watcher) {
+                    Ok(watch) => {
+                        self.watches.push(watch);
+                        // "watching" was sent; this turn answers nothing more.
+                        (
+                            Answer::Watching,
+                            outcome("watchUpdates", None, Ok(format!("uid {uid}"))),
+                        )
+                    }
+                    Err(e) => failed(&e, "watchUpdates", None),
+                }
+            }
+            Request::Update { ids, uid } => {
+                let uid = account!(uid, "update", None);
+                self.updated(self.installer.update(uid, Some(&ids)), "update")
+            }
+            Request::UpdateAll { uid } => {
+                let uid = account!(uid, "updateAll", None);
+                self.updated(self.installer.update(uid, None), "updateAll")
+            }
+            Request::Consent {
+                id,
+                version_code,
+                uid,
+            } => {
+                let uid = account!(uid, "consent", Some(&id));
+                self.updated(
+                    self.installer
+                        .consent(uid, &id, version_code)
+                        .map(|u| vec![u]),
+                    "consent",
+                )
+            }
+            Request::SetAutomatic { apps, uid } => {
+                let uid = account!(uid, "setAutomatic", None);
+                match self.installer.set_automatic(uid, apps) {
+                    Ok(()) => (
+                        Answer::AutomaticSet,
+                        outcome("setAutomatic", None, Ok(format!("{apps}"))),
+                    ),
+                    Err(e) => failed(&e, "setAutomatic", None),
+                }
+            }
+            Request::AutomaticUpdates => {
+                if self.peer.uid != 0 {
+                    return refusal(
+                        Answer::refused(Reason::NotPermitted),
+                        "automaticUpdates",
+                        None,
+                    );
+                }
+                match self.installer.automatic() {
+                    Ok(done) => {
+                        let n = done.len();
+                        (
+                            Answer::Automatic(
+                                done.into_iter()
+                                    .map(|(uid, updated)| AutomaticAnswer { uid, updated })
+                                    .collect(),
+                            ),
+                            outcome("automaticUpdates", None, Ok(format!("{n} accounts"))),
+                        )
+                    }
+                    Err(e) => failed(&e, "automaticUpdates", None),
+                }
+            }
         }
     }
 
-    /// The conversation ended: what it held is released. [`serve`] calls it however the
-    /// connection ended.
-    pub fn end(&mut self) {
-        for (id, code) in std::mem::take(&mut self.holds) {
-            let _ = self.installer.release(&id, code);
+    fn state(&self, uid: u32, name: &'static str) -> (Answer, Outcome) {
+        match self.installer.update_state(uid) {
+            Ok(state) => {
+                let n = state.updates.len();
+                (
+                    Answer::UpdateState(state),
+                    outcome(name, None, Ok(format!("{n} updates"))),
+                )
+            }
+            Err(e) => failed(&e, name, None),
         }
     }
+
+    fn updated(
+        &self,
+        result: Result<Vec<Updated>, InstallError>,
+        name: &'static str,
+    ) -> (Answer, Outcome) {
+        match result {
+            Ok(updated) => {
+                let what = updated
+                    .iter()
+                    .map(|u| format!("{} {}", u.id, u.outcome))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                (Answer::Updated(updated), outcome(name, None, Ok(what)))
+            }
+            Err(e) => failed(&e, name, None),
+        }
+    }
+
+    /// The conversation ended: what it held is released and its watches end. [`serve`] calls it
+    /// however the connection ended.
+    pub fn end(&mut self) {
+        for watch in std::mem::take(&mut self.watches) {
+            self.installer.unwatch(watch);
+        }
+        for (uid, id, code) in std::mem::take(&mut self.holds) {
+            let _ = self.installer.release(uid, &id, code);
+        }
+    }
+}
+
+fn outcome(request: &'static str, id: Option<&str>, result: Result<String, String>) -> Outcome {
+    Outcome {
+        request,
+        id: id.map(str::to_string),
+        result,
+    }
+}
+
+fn refusal(answer: Answer, name: &'static str, id: Option<&str>) -> (Answer, Outcome) {
+    let detail = format!("{answer:?}");
+    (answer, outcome(name, id, Err(detail)))
+}
+
+fn failed(error: &InstallError, name: &'static str, id: Option<&str>) -> (Answer, Outcome) {
+    (
+        Answer::from(error),
+        outcome(name, id, Err(error.to_string())),
+    )
 }
 
 /// Runs one connection's conversation to its end; each turn's outcome goes to `log`.
@@ -416,15 +617,19 @@ pub fn serve<F: Fetch, C: Compile, A: Accounts>(
     mut log: impl FnMut(&Peer, &Outcome),
 ) -> io::Result<()> {
     let peer = connection.peer()?;
-    let mut conversation = Conversation::new(installer, peer);
+    let mut conversation = Conversation::new(installer, peer, connection.try_clone().ok());
     let result = (|| loop {
         let Some(request) = connection.receive::<Request>()? else {
             return Ok(());
         };
+        let watching = matches!(request, Some(Request::WatchUpdates { .. }));
         let (answer, outcome) =
             conversation.answer(request, &mut |progress| connection.send(progress));
         log(&peer, &outcome);
-        connection.send(&answer)?;
+        // A watch's "watching" was sent before its first state; anything else is answered now.
+        if !(watching && answer == Answer::Watching) {
+            connection.send(&answer)?;
+        }
     })();
     conversation.end();
     result

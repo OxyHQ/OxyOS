@@ -18,7 +18,12 @@
 //! with the network alone (`oxyos-app-fetch.service`). It writes the repository's files into the
 //! descriptors the service hands it, for root alone. `--repository` is `file:///…` in this step.
 //!
-//! Both log on standard error, the journal's.
+//! `oxyos-installd --client [--socket PATH] REQUEST`: sends one request (JSON, as the socket's
+//! protocol writes it, `crates/oxyos-install/src/ipc.rs`) as the user running it, and prints each
+//! answer on a line, until the answer to it (a watch: until interrupted). For trying the service
+//! by hand, and the update timer's `"automaticUpdates"`.
+//!
+//! The services log on standard error, the journal's.
 
 use oxyos_install::accounts::Passwd;
 use oxyos_install::compile::Hermesc;
@@ -36,10 +41,12 @@ use std::sync::Arc;
 const MAX_CONNECTIONS: usize = 32;
 
 const USAGE: &str = "usage: oxyos-installd [--state DIRECTORY] [--anchor FILE] [--runtimes DIRECTORY] \
-[--socket PATH] [--fetcher PATH] [--passwd FILE]\n       oxyos-installd --fetch [--repository URL] [--socket PATH]";
+[--socket PATH] [--fetcher PATH] [--passwd FILE]\n       oxyos-installd --fetch [--repository URL] [--socket PATH]\n       \
+oxyos-installd --client [--socket PATH] REQUEST";
 
 struct Options {
     fetcher_mode: bool,
+    client: Option<String>,
     state: PathBuf,
     anchor: PathBuf,
     runtimes: PathBuf,
@@ -52,6 +59,7 @@ struct Options {
 fn options() -> Result<Options, String> {
     let mut options = Options {
         fetcher_mode: false,
+        client: None,
         state: STATE_DIRECTORY.into(),
         anchor: install::ANCHOR.into(),
         runtimes: install::RUNTIMES.into(),
@@ -69,6 +77,10 @@ fn options() -> Result<Options, String> {
         };
         match argument.as_str() {
             "--fetch" => options.fetcher_mode = true,
+            "--client" => options.client = Some(String::new()),
+            request if options.client.as_deref() == Some("") && !request.starts_with("--") => {
+                options.client = Some(request.to_string())
+            }
             "--state" => options.state = value()?.into(),
             "--anchor" => options.anchor = value()?.into(),
             "--runtimes" => options.runtimes = value()?.into(),
@@ -91,6 +103,33 @@ fn log(peer: &Peer, outcome: &Outcome) {
             "oxyos-installd: {who}: {} {id} refused: {why}",
             outcome.request
         ),
+    }
+}
+
+fn client(options: &Options, request: &str) -> Result<(), String> {
+    let request: serde_json::Value =
+        serde_json::from_str(request).map_err(|e| format!("the request is not JSON: {e}"))?;
+    let watching = request.get("watchUpdates").is_some();
+    let socket = options.socket.clone().unwrap_or_else(|| ipc::SOCKET.into());
+    let connection = oxyos_install::socket::Connection::connect(&socket)
+        .map_err(|e| format!("{}: {e}", socket.display()))?;
+    connection.send(&request).map_err(|e| e.to_string())?;
+    loop {
+        match connection.receive::<serde_json::Value>() {
+            Ok(Some(Some(answer))) => {
+                println!("{answer}");
+                let progress = answer.get("progress").is_some();
+                if !progress && !watching {
+                    return match answer.get("refused") {
+                        Some(_) => Err("refused".into()),
+                        None => Ok(()),
+                    };
+                }
+            }
+            Ok(Some(None)) => return Err("an answer that is not JSON".into()),
+            Ok(None) => return Err("the service closed the connection".into()),
+            Err(e) => return Err(e.to_string()),
+        }
     }
 }
 
@@ -208,7 +247,12 @@ fn service(options: &Options) -> Result<(), String> {
 
 fn main() -> ExitCode {
     let result = options().and_then(|options| {
-        if options.fetcher_mode {
+        if let Some(request) = &options.client {
+            if request.is_empty() {
+                return Err(format!("--client needs a request\n{USAGE}"));
+            }
+            client(&options, request)
+        } else if options.fetcher_mode {
             fetcher(&options)
         } else {
             service(&options)

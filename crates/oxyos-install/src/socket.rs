@@ -96,6 +96,14 @@ impl Connection {
         Ok((Self { fd: a }, Self { fd: b }))
     }
 
+    /// Another handle on the same connection: what a watcher sends on from another thread
+    /// (each packet is sent whole, so two senders never mix their messages).
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self {
+            fd: self.fd.try_clone()?,
+        })
+    }
+
     pub fn peer(&self) -> io::Result<Peer> {
         let credentials = rustix::net::sockopt::socket_peercred(&self.fd)?;
         Ok(Peer {

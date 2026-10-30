@@ -16,27 +16,36 @@
 //!   manifest, its signature, and `index.hbc` compiled from the entry's JavaScript), its tree
 //!   checked whole, then renamed into place. Fetching and compiling run without the state's lock,
 //!   so a session's `hold` or `shown` never waits for a download.
-//! - **Switching** is the installed record renamed over the old one, then the entry. The previous
-//!   version is kept until the new one has shown a window; one that exits before its first
-//!   window twice is rolled back and never tried again. A version a session holds is never
-//!   removed, and the current one is not switched away from while held.
-//! - **Consent:** an update that declares a capability shown at install that the current version
-//!   does not, or that is signed by a rotated key, is staged until every account that has the
-//!   application approves it.
-//! - **Accounts:** the bytes are the machine's, each account's install its own record. Removing
-//!   the last account's install removes the application; objects nothing names are collected.
+//! - **Each account its own** (decisions 6 and 10): the objects, the version trees with their
+//!   bytecode, and the pinned key are the machine's, once; which version an account runs, the one
+//!   before, one staged for it, its consents, its rollbacks and its entry are the account's
+//!   (`users/<user>/`). No account holds another's update back.
+//! - **Switching** is the account's record renamed over the old one, then its entry. The version
+//!   before is kept until the new one has shown a window in one of the account's sessions; one
+//!   that exits before its first window twice is rolled back for that account and never offered
+//!   to it again. A version a session holds is never removed, and that account's current version
+//!   is not switched away from while it holds it.
+//! - **Consent:** an update that declares a capability shown at install that the account's
+//!   current version does not, or that is signed by a rotated key, is staged for the account
+//!   until the account consents.
+//! - **One update state** (decision 16): a check reads the store's metadata and verifies each
+//!   update's manifest once for the machine; each account's state (what it can update, the size
+//!   to fetch, release notes, what needs its consent) is computed from it and the account's
+//!   records. A check asked for while one runs joins it. Watchers are told each change.
+//! - **Removal and collection:** a version tree goes once no account's current, previous or staged
+//!   version names it and no session holds it; objects once no tree links them.
 
 use crate::accounts::{Account, Accounts};
 use crate::compile::Compile;
 use crate::fetch::{Fetch, FetchError};
 use crate::state::{
     self, read_record, write_record, Consent, Decision, Installed, Layout, Staged, UserInstall,
-    Version, FORMAT,
+    FORMAT,
 };
 use crate::tuf::{self, TufError};
 use oxyos_package::json::Value;
 use oxyos_package::{
-    lineage_accepts, Architecture, Capability, DeveloperSignature, Lineage, Manifest, PublicKey,
+    lineage_accepts, Architecture, DeveloperSignature, Lineage, Manifest, PublicKey,
     ReleaseStatement, Runtime, Sha256, SignedRelease, HERMES_BYTECODE_MAGIC,
 };
 use serde::{Deserialize, Serialize};
@@ -46,7 +55,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Seek};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 
 /// The image's trusted root of the store's metadata.
 pub const ANCHOR: &str = "/usr/share/oxyos/store/root.json";
@@ -200,6 +209,9 @@ struct Release {
     signature: DeveloperSignature,
     developer_key: PublicKey,
     lineage: Lineage,
+    /// What is new, by language: the store's text, signed with the targets by TUF, not by the
+    /// developer.
+    notes: BTreeMap<String, String>,
 }
 
 /// The releases of `id` in `targets` this machine can run, the highest first.
@@ -253,18 +265,31 @@ fn releases(client: &tuf::Client, id: &str, machine: &Machine, bad: &[u64]) -> V
             signature: release.1,
             developer_key: release.2,
             lineage: release.3,
+            notes: release.4,
         });
     }
     found.sort_by(|a, b| b.statement.version_code.cmp(&a.statement.version_code));
     found
 }
 
+/// Release notes' bounds: languages, and bytes in each.
+const MAX_NOTE_LANGUAGES: usize = 32;
+const MAX_NOTE: usize = 4096;
+
+/// The pieces of a target's `custom.oxyos`.
+type Custom = (
+    ReleaseStatement,
+    DeveloperSignature,
+    PublicKey,
+    Lineage,
+    BTreeMap<String, String>,
+);
+
 /// A target's `custom.oxyos`: the store's signed statement (verified with the targets role's
-/// keys), the developer's signature, the developer's key and its lineage.
-fn parse_custom(
-    custom: &Value,
-    store_keys: &[PublicKey],
-) -> Result<(ReleaseStatement, DeveloperSignature, PublicKey, Lineage), InstallError> {
+/// keys), the developer's signature, the developer's key and its lineage, and the release notes
+/// by language (`releaseNotes`, the store's: TUF signs them with the targets, the developer does
+/// not).
+fn parse_custom(custom: &Value, store_keys: &[PublicKey]) -> Result<Custom, InstallError> {
     let oxyos = member(custom, "oxyos").ok_or_else(|| InstallError::Release("no oxyos".into()))?;
     let text = |key| match member(oxyos, key) {
         Some(Value::String(s)) => Ok(s.as_str()),
@@ -278,7 +303,27 @@ fn parse_custom(
         None => Lineage::default(),
         Some(_) => return Err(InstallError::Release("lineage is not text".into())),
     };
-    Ok((statement, signature, developer_key, lineage))
+    let mut notes = BTreeMap::new();
+    match member(oxyos, "releaseNotes") {
+        None => {}
+        Some(Value::Object(members)) if members.len() <= MAX_NOTE_LANGUAGES => {
+            for (language, text) in members {
+                let valid_language = !language.is_empty()
+                    && language.len() <= 35
+                    && language
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-');
+                match text {
+                    Value::String(text) if valid_language && text.len() <= MAX_NOTE => {
+                        notes.insert(language.clone(), text.clone());
+                    }
+                    _ => return Err(InstallError::Release("a release note".into())),
+                }
+            }
+        }
+        Some(_) => return Err(InstallError::Release("releaseNotes".into())),
+    }
+    Ok((statement, signature, developer_key, lineage, notes))
 }
 
 /// A capability as an install sheet shows it.
@@ -303,12 +348,21 @@ pub struct Plan {
     /// Bytes to fetch: the files the machine does not have.
     pub download: u64,
     pub capabilities: Vec<PlannedCapability>,
-    /// Capabilities shown at install the current version does not declare.
+    /// Capabilities shown at install the account's current version does not declare.
     pub new_capabilities: Vec<String>,
-    /// Signed by a rotated key of the developer's lineage.
+    /// Signed by another key of the developer's lineage than the account's current version.
     pub key_rotation: bool,
-    /// The machine already has a version of it.
+    /// The account has a version of it.
     pub update: bool,
+}
+
+/// A release verified: its manifest, and the developer key the machine pins with it.
+#[derive(Clone, Debug)]
+struct Verified {
+    release: Release,
+    manifest_bytes: Vec<u8>,
+    manifest: Manifest,
+    pinned: PublicKey,
 }
 
 /// A plan with what it was made from, kept by the conversation until it is committed.
@@ -316,11 +370,7 @@ pub struct Plan {
 pub struct Prepared {
     pub plan: Plan,
     uid: u32,
-    release: Release,
-    manifest_bytes: Vec<u8>,
-    manifest: Manifest,
-    /// The key the machine pins once it is installed.
-    pinned: PublicKey,
+    verified: Verified,
 }
 
 /// How a commit is going.
@@ -331,17 +381,16 @@ pub enum Progress {
     Compiling,
 }
 
-/// What a commit came to.
+/// What a commit came to, for its account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Committed {
     pub id: String,
     pub version_code: u64,
-    /// It is the current version now.
+    /// It is the account's current version now.
     pub switched: bool,
-    /// What it waits for, if staged: other accounts' approval, or the current version to stop
-    /// running (`None` with `switched` false).
-    pub awaiting_consent: Option<Consent>,
+    /// It waits for the account's running copy to stop: its next launch runs it.
+    pub at_next_launch: bool,
 }
 
 /// An account's application, as `list` gives it.
@@ -351,29 +400,92 @@ pub struct Listed {
     pub id: String,
     pub version: String,
     pub version_code: u64,
+    /// The account's entry for it.
     pub entry: String,
     pub capabilities: BTreeMap<String, Decision>,
-    /// A newer version staged, and what it waits for.
-    pub staged: Option<u64>,
-    pub awaiting_consent: Option<Consent>,
+    /// A version staged for the account, and what it waits for.
+    pub staged: Option<Staged>,
 }
 
-/// What a check for updates did for an application.
+/// What an update came to for an account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Update {
+pub struct Updated {
     pub id: String,
     pub version_code: Option<u64>,
-    /// `upToDate`, `switched`, `staged`, `awaitingConsent` or `failed`.
+    /// `switched`, `atNextLaunch`, `awaitingConsent`, `upToDate` or `failed`.
     pub outcome: String,
     pub reason: Option<String>,
 }
 
-/// What the service keeps in memory: the versions sessions hold.
+/// What an update of an application is, for an account (decision 16).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AvailableUpdate {
+    pub id: String,
+    pub name: String,
+    pub names: BTreeMap<String, String>,
+    pub from_version: String,
+    pub from_version_code: u64,
+    pub to_version: String,
+    pub to_version_code: u64,
+    /// Bytes to fetch: only the objects the machine lacks.
+    pub download: u64,
+    /// What is new, by language: the store's text (TUF signs it with the targets; the developer
+    /// does not).
+    pub release_notes: BTreeMap<String, String>,
+    /// `available`, `awaitingConsent` (the account's consent, `consent` says for what) or
+    /// `atNextLaunch` (applied once the account's running copy stops).
+    pub status: String,
+    pub consent: Option<Consent>,
+}
+
+/// An account's update state (decision 16): what Settings' Software Update and Atlas's Updates
+/// both show.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateState {
+    /// A check is running.
+    pub checking: bool,
+    /// When the store was last read, as TUF writes a time; none since the service started.
+    pub checked_at: Option<String>,
+    /// The last check's failure, if it failed.
+    pub check_failed: Option<String>,
+    /// The account's automatic updates of its applications (on by default).
+    pub automatic: bool,
+    pub updates: Vec<AvailableUpdate>,
+}
+
+/// `users/<user>/settings.json`: the account's own options.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UserSettings {
+    format: u32,
+    automatic: bool,
+}
+
+/// What the service keeps in memory: the versions sessions hold, by account.
 #[derive(Default)]
 struct Memory {
-    holds: BTreeMap<(String, u64), usize>,
+    holds: BTreeMap<(u32, String, u64), usize>,
 }
+
+/// The last check, and whether one runs.
+#[derive(Default)]
+struct Checks {
+    running: bool,
+    /// Bumped as each check ends, so a joiner knows its check ended.
+    generation: u64,
+    checked_at: Option<i64>,
+    failed: Option<String>,
+    /// For each application on the machine, its releases newer than some account's current
+    /// version, verified, newest first.
+    candidates: BTreeMap<String, Vec<Verified>>,
+}
+
+/// A watcher of an account's update state: told the state at each change; `false` from it ends
+/// the watch.
+pub type Watcher = Box<dyn Fn(&UpdateState) -> bool + Send>;
 
 /// The install service's logic.
 pub struct Installer<F, C, A> {
@@ -391,6 +503,9 @@ pub struct Installer<F, C, A> {
     /// The store's metadata, refreshed by one caller at a time, apart from the records' lock so
     /// a session's `hold` or `shown` never waits for the network.
     metadata: Mutex<()>,
+    checks: Mutex<Checks>,
+    checked: Condvar,
+    watchers: Mutex<Vec<(u64, u32, Watcher)>>,
 }
 
 /// An account's data directories, relative to its home: what the session removes when the
@@ -402,10 +517,38 @@ pub fn data_directories(id: &str) -> Vec<String> {
     ]
 }
 
+/// What an account's update to `to` needs its consent for, from its current version `from`.
+fn consent_needed(from: &Facts, to: &Manifest, to_key: &str) -> Option<Consent> {
+    let declared: BTreeSet<&str> = from
+        .manifest
+        .capabilities
+        .iter()
+        .map(|c| c.capability.name())
+        .collect();
+    let capabilities: Vec<String> = to
+        .capabilities
+        .iter()
+        .filter(|c| !c.capability.asked_at_first_use() && !declared.contains(c.capability.name()))
+        .map(|c| c.capability.name().to_string())
+        .collect();
+    let key_rotation = from.key_id != to_key;
+    (key_rotation || !capabilities.is_empty()).then_some(Consent {
+        capabilities,
+        key_rotation,
+    })
+}
+
+/// A version's facts, from its tree: its manifest and the key that signed it.
+#[derive(Clone, Debug)]
+struct Facts {
+    manifest: Manifest,
+    key_id: String,
+}
+
 impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
     /// The installer over `layout`'s directory, trusting the store root at `anchor`. Recovers
-    /// from a crash: what was being fetched or assembled is removed, entries are written again
-    /// from the records, and what nothing names is collected.
+    /// from a crash: what was being fetched or assembled is removed, every account's entry is
+    /// written again from its record, and what nothing names is collected.
     pub fn open(
         layout: Layout,
         anchor: &Path,
@@ -427,6 +570,9 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             chown: rustix::process::geteuid().is_root(),
             state: Mutex::new(Memory::default()),
             metadata: Mutex::new(()),
+            checks: Mutex::new(Checks::default()),
+            checked: Condvar::new(),
+            watchers: Mutex::new(Vec::new()),
         };
         installer.recover()?;
         Ok(installer)
@@ -447,6 +593,12 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn checks(&self) -> std::sync::MutexGuard<'_, Checks> {
+        self.checks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn account(&self, uid: u32) -> Result<Account, InstallError> {
         self.accounts.account(uid).ok_or(InstallError::NotPermitted)
     }
@@ -462,17 +614,14 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         account: &Account,
         id: &str,
     ) -> Result<Option<UserInstall>, InstallError> {
-        let path = self
-            .layout
-            .users()
-            .join(&account.name)
-            .join(format!("{id}.json"));
+        valid_id(id)?;
+        let path = self.layout.user(&account.name).join(format!("{id}.json"));
         read_record(&path).map_err(io_at(&path))
     }
 
-    /// The accounts (uids) that have `id`.
-    fn holders(&self, id: &str) -> Result<Vec<u32>, InstallError> {
-        let mut uids = Vec::new();
+    /// Every account's install of `id`.
+    fn installs(&self, id: &str) -> Result<Vec<UserInstall>, InstallError> {
+        let mut installs = Vec::new();
         let users = self.layout.users();
         for entry in fs::read_dir(&users).map_err(io_at(&users))?.flatten() {
             if !entry.file_type().is_ok_and(|t| t.is_dir()) {
@@ -480,119 +629,90 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             }
             let path = entry.path().join(format!("{id}.json"));
             if let Some(record) = read_record::<UserInstall>(&path).map_err(io_at(&path))? {
-                uids.push(record.uid);
+                installs.push(record);
             }
         }
-        Ok(uids)
+        Ok(installs)
+    }
+
+    /// The account's applications' ids.
+    fn ids_of(&self, account: &Account) -> Vec<String> {
+        let mut ids: Vec<String> = fs::read_dir(self.layout.user(&account.name))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .filter(|n| !n.starts_with('.') && valid_id(n).is_ok())
+                    .map(str::to_string)
+            })
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// The applications on the machine.
+    fn machine_ids(&self) -> Result<Vec<String>, InstallError> {
+        let dir = self.layout.installed();
+        let mut ids: Vec<String> = fs::read_dir(&dir)
+            .map_err(io_at(&dir))?
+            .flatten()
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .filter(|n| !n.starts_with('.'))
+                    .map(str::to_string)
+            })
+            .collect();
+        ids.sort();
+        Ok(ids)
+    }
+
+    fn facts(&self, id: &str, code: u64) -> Result<Facts, InstallError> {
+        let dir = self.layout.version(id, code);
+        let bytes = fs::read(dir.join("manifest.json")).map_err(io_at(&dir))?;
+        let signature = fs::read(dir.join("manifest.sig")).map_err(io_at(&dir))?;
+        Ok(Facts {
+            manifest: Manifest::parse(&bytes)?,
+            key_id: DeveloperSignature::parse(&signature)?
+                .key_id
+                .as_str()
+                .to_string(),
+        })
     }
 
     fn client(&self) -> Result<tuf::Client, InstallError> {
         Ok(tuf::Client::open(&self.layout.store(), &self.anchor)?)
     }
 
-    /// What installing (or updating) `id` for the account `uid` would do: the store's metadata
-    /// refreshed, the newest release for this machine found, and its manifest fetched and
-    /// verified. Nothing changes but the store's metadata.
-    pub fn prepare(&self, uid: u32, id: &str) -> Result<Prepared, InstallError> {
-        let account = self.account(uid)?;
-        let _metadata = self.metadata.lock().unwrap_or_else(|p| p.into_inner());
-        let installed = self.installed(id)?;
-        let mut client = self.client()?;
-        client.refresh(&self.fetch, (self.now)())?;
-        let bad = installed
-            .as_ref()
-            .map(|i| i.bad.clone())
-            .unwrap_or_default();
-        let release = releases(&client, id, &self.machine, &bad)
-            .into_iter()
-            .next()
-            .ok_or(InstallError::NoRelease)?;
-        if let Some(installed) = &installed {
-            if release.statement.version_code < installed.current.version_code {
-                return Err(InstallError::Downgrade);
-            }
-        }
-        let manifest_bytes = client.fetch_target(&self.fetch, &release.path)?;
-        let (manifest, pinned) = self.verify(&release, &manifest_bytes, installed.as_ref())?;
-        let key_rotation = installed
-            .as_ref()
-            .is_some_and(|i| i.pinned_key != pinned.encode());
-        let current_capabilities: BTreeSet<String> = installed
-            .as_ref()
-            .map(|i| i.current.capabilities.iter().cloned().collect())
-            .unwrap_or_default();
-        let has_it = self.user_install(&account, id)?.is_some();
-        let update = installed
-            .as_ref()
-            .is_some_and(|i| i.current.version_code != manifest.version_code);
-        let new_capabilities = if installed.is_some() && has_it {
-            manifest
-                .capabilities
-                .iter()
-                .filter(|c| !c.capability.asked_at_first_use())
-                .map(|c| c.capability.name().to_string())
-                .filter(|name| !current_capabilities.contains(name))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let mut download = 0;
+    /// The bytes the machine would fetch for `manifest`: the objects it lacks, each once.
+    fn download(&self, manifest: &Manifest) -> u64 {
         let mut seen = BTreeSet::new();
-        for file in &manifest.files {
-            if seen.insert(file.sha256.0) && !self.layout.object(&file.sha256).exists() {
-                download += file.size;
-            }
-        }
-        let plan = Plan {
-            id: manifest.id.clone(),
-            name: manifest.name.as_str().to_string(),
-            names: manifest
-                .names
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().to_string()))
-                .collect(),
-            version: manifest.version.clone(),
-            version_code: manifest.version_code,
-            runtime_abi: manifest.runtime.abi,
-            download,
-            capabilities: manifest
-                .capabilities
-                .iter()
-                .map(|c| PlannedCapability {
-                    name: c.capability.name().to_string(),
-                    purpose: c
-                        .purpose
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.as_str().to_string()))
-                        .collect(),
-                    asked_at_first_use: c.capability.asked_at_first_use(),
-                })
-                .collect(),
-            new_capabilities,
-            key_rotation: key_rotation && has_it,
-            update,
-        };
-        Ok(Prepared {
-            plan,
-            uid,
-            release,
-            manifest_bytes,
-            manifest,
-            pinned,
-        })
+        manifest
+            .files
+            .iter()
+            .filter(|f| seen.insert(f.sha256.0) && !self.layout.object(&f.sha256).exists())
+            .map(|f| f.size)
+            .sum()
     }
 
-    /// The manifest of `release`, verified, and the key the machine pins with it.
+    /// Verifies `release`'s manifest, fetched from the store: the key the machine pins with it.
     fn verify(
         &self,
-        release: &Release,
-        manifest_bytes: &[u8],
+        client: &tuf::Client,
+        release: Release,
         installed: Option<&Installed>,
-    ) -> Result<(Manifest, PublicKey), InstallError> {
-        let manifest = Manifest::parse(manifest_bytes)?;
+    ) -> Result<Verified, InstallError> {
+        let manifest_bytes = client.fetch_target(&self.fetch, &release.path)?;
+        let manifest = Manifest::parse(&manifest_bytes)?;
         release
             .statement
-            .matches(&manifest, manifest_bytes, &release.signature)?;
+            .matches(&manifest, &manifest_bytes, &release.signature)?;
+        // Key continuity is the application's on this machine: an account installing later is
+        // never handed another key than the one pinned, or the one its lineage hands over to.
         let pinned = match installed {
             None => release.developer_key,
             Some(installed) => {
@@ -612,198 +732,849 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 "the statement names another developer key".into(),
             ));
         }
-        release.signature.verify(manifest_bytes, &pinned)?;
+        release.signature.verify(&manifest_bytes, &pinned)?;
         if self.machine.runtime_for(&manifest.runtime).is_none() {
             return Err(InstallError::NoRelease);
         }
-        Ok((manifest, pinned))
+        Ok(Verified {
+            release,
+            manifest_bytes,
+            manifest,
+            pinned,
+        })
+    }
+
+    /// What installing (or updating) `id` for the account `uid` would do: the store's metadata
+    /// refreshed, the newest release for this machine the account has not rolled back found, and
+    /// its manifest fetched and verified. Nothing changes but the store's metadata.
+    pub fn prepare(&self, uid: u32, id: &str) -> Result<Prepared, InstallError> {
+        let account = self.account(uid)?;
+        valid_id(id)?;
+        let _metadata = self
+            .metadata
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let installed = self.installed(id)?;
+        let mine = self.user_install(&account, id)?;
+        let mut client = self.client()?;
+        client.refresh(&self.fetch, (self.now)())?;
+        let bad = mine.as_ref().map(|u| u.bad.clone()).unwrap_or_default();
+        let release = releases(&client, id, &self.machine, &bad)
+            .into_iter()
+            .next()
+            .ok_or(InstallError::NoRelease)?;
+        if let Some(mine) = &mine {
+            if release.statement.version_code < mine.current {
+                return Err(InstallError::Downgrade);
+            }
+        }
+        let verified = self.verify(&client, release, installed.as_ref())?;
+        let manifest = &verified.manifest;
+        let (new_capabilities, key_rotation, update) = match &mine {
+            Some(mine) if mine.current != manifest.version_code => {
+                let from = self.facts(id, mine.current)?;
+                let consent =
+                    consent_needed(&from, manifest, verified.release.signature.key_id.as_str());
+                (
+                    consent
+                        .as_ref()
+                        .map(|c| c.capabilities.clone())
+                        .unwrap_or_default(),
+                    consent.is_some_and(|c| c.key_rotation),
+                    true,
+                )
+            }
+            _ => (Vec::new(), false, false),
+        };
+        let plan = Plan {
+            id: manifest.id.clone(),
+            name: manifest.name.as_str().to_string(),
+            names: names_of(manifest),
+            version: manifest.version.clone(),
+            version_code: manifest.version_code,
+            runtime_abi: manifest.runtime.abi,
+            download: self.download(manifest),
+            capabilities: manifest
+                .capabilities
+                .iter()
+                .map(|c| PlannedCapability {
+                    name: c.capability.name().to_string(),
+                    purpose: c
+                        .purpose
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.as_str().to_string()))
+                        .collect(),
+                    asked_at_first_use: c.capability.asked_at_first_use(),
+                })
+                .collect(),
+            new_capabilities,
+            key_rotation,
+            update,
+        };
+        Ok(Prepared {
+            plan,
+            uid,
+            verified,
+        })
     }
 
     /// Installs or updates as `prepared` says, for its account: the person confirmed it in the
-    /// system's sheet. `progress` is told how it goes.
+    /// system's sheet, which is the account's consent. `progress` is told how it goes.
     pub fn commit(
         &self,
         prepared: &Prepared,
         progress: &mut dyn FnMut(Progress),
     ) -> Result<Committed, InstallError> {
         let account = self.account(prepared.uid)?;
-        let id = prepared.manifest.id.as_str();
-        let code = prepared.manifest.version_code;
-        // Is the version here already, or does it need assembling?
-        let needs_version = {
+        let result = self.apply(&account, &prepared.verified, true, progress);
+        self.notify(&[account.uid]);
+        let (switched, at_next_launch) = match result? {
+            Applied::Switched => (true, false),
+            Applied::AtNextLaunch => (false, true),
+            Applied::AwaitingConsent => (false, false),
+        };
+        Ok(Committed {
+            id: prepared.verified.manifest.id.clone(),
+            version_code: prepared.verified.manifest.version_code,
+            switched,
+            at_next_launch,
+        })
+    }
+
+    /// Makes `verified` the account's version: assembled once for the machine if it is not
+    /// there, then switched to for the account, or staged for it (its consent, unless
+    /// `consented`; or its running copy).
+    fn apply(
+        &self,
+        account: &Account,
+        verified: &Verified,
+        consented: bool,
+        progress: &mut dyn FnMut(Progress),
+    ) -> Result<Applied, InstallError> {
+        let id = verified.manifest.id.as_str();
+        let code = verified.manifest.version_code;
+        {
             let _memory = self.memory();
-            let installed = self.installed(id)?;
-            if let Some(installed) = &installed {
-                if code < installed.current.version_code {
+            if let Some(mine) = self.user_install(account, id)? {
+                if code < mine.current {
                     return Err(InstallError::Downgrade);
                 }
-                if installed.bad.contains(&code) {
+                if mine.bad.contains(&code) {
                     return Err(InstallError::RolledBack);
                 }
             }
-            !self.layout.version(id, code).is_dir()
-        };
-        let assembled = if needs_version {
-            Some(self.assemble(prepared, progress)?)
-        } else {
+        }
+        let assembled = if self.layout.version(id, code).is_dir() {
             None
+        } else {
+            Some(self.assemble(verified, progress)?)
         };
         let mut memory = self.memory();
         if let Some(assembled) = assembled {
             self.place(&assembled, id, code)?;
         }
-        let installed = self.installed(id)?;
-        let version = version_of(
-            &prepared.manifest,
-            &prepared.manifest_bytes,
-            &prepared.release,
-        );
-        let committed = match installed {
+        // The machine's pinned key follows the lineage the release was verified through.
+        let pinned = verified.pinned.encode();
+        if self.installed(id)?.is_none_or(|i| i.pinned_key != pinned) {
+            self.write_installed(&Installed {
+                format: FORMAT,
+                id: id.to_string(),
+                pinned_key: pinned,
+            })?;
+        }
+        let applied = match self.user_install(account, id)? {
             None => {
-                let record = Installed {
+                let mut mine = UserInstall {
                     format: FORMAT,
                     id: id.to_string(),
-                    pinned_key: prepared.pinned.encode(),
-                    current: version,
+                    uid: account.uid,
+                    user: account.name.clone(),
+                    current: code,
+                    shown: false,
+                    unshown_exits: 0,
                     previous: None,
                     staged: None,
                     bad: Vec::new(),
+                    capabilities: BTreeMap::new(),
                 };
-                self.write_installed(&record)?;
-                self.write_entry(&record)?;
-                Committed {
-                    id: id.to_string(),
-                    version_code: code,
-                    switched: true,
-                    awaiting_consent: None,
-                }
+                decide_capabilities(&mut mine, &verified.manifest);
+                self.write_account(account, &mine)?;
+                Applied::Switched
             }
-            Some(installed) if installed.current.version_code == code => Committed {
-                id: id.to_string(),
-                version_code: code,
-                switched: true,
-                awaiting_consent: None,
-            },
-            Some(mut installed) => {
-                if code < installed.current.version_code {
-                    return Err(InstallError::Downgrade);
-                }
-                let staged = match installed.staged.take() {
-                    Some(staged) if staged.version.version_code == code => staged,
-                    _ => Staged {
-                        consent: consent_needed(&installed, &version, &prepared.pinned),
-                        version,
-                        pinned_key: prepared.pinned.encode(),
-                    },
+            Some(mut mine) if mine.current == code => {
+                decide_capabilities(&mut mine, &verified.manifest);
+                self.write_account(account, &mine)?;
+                Applied::Switched
+            }
+            Some(mut mine) => {
+                let from = self.facts(id, mine.current)?;
+                let consent = if consented {
+                    None
+                } else {
+                    consent_needed(
+                        &from,
+                        &verified.manifest,
+                        verified.release.signature.key_id.as_str(),
+                    )
                 };
-                installed.staged = Some(staged);
-                self.approve(&mut installed, Some(prepared.uid))?;
-                let switched = self.try_switch(&mut installed, &memory)?;
-                let awaiting_consent = installed.staged.as_ref().and_then(|s| s.consent.clone());
-                self.write_installed(&installed)?;
-                if switched {
-                    self.write_entry(&installed)?;
-                }
-                Committed {
-                    id: id.to_string(),
+                mine.staged = Some(Staged {
                     version_code: code,
-                    switched,
-                    awaiting_consent,
-                }
+                    consent,
+                });
+                let applied = self.try_switch(account, &mut mine, &memory)?;
+                self.write_account(account, &mine)?;
+                applied
             }
         };
-        // The account's install, and its decisions: what is shown at install is granted by
-        // the sheet, what is asked at first use waits for its first use.
-        let mut user = self.user_install(&account, id)?.unwrap_or(UserInstall {
-            format: FORMAT,
-            id: id.to_string(),
-            uid: account.uid,
-            user: account.name.clone(),
-            capabilities: BTreeMap::new(),
-        });
-        for c in &prepared.manifest.capabilities {
-            let decision = if c.capability.asked_at_first_use() {
-                Decision::Undecided
-            } else {
-                Decision::Granted
-            };
-            user.capabilities
-                .entry(c.capability.name().to_string())
-                .or_insert(decision);
-        }
-        self.write_user(&account, &user)?;
         self.collect(&mut memory)?;
-        Ok(committed)
+        Ok(applied)
     }
 
-    /// Records the account `uid`'s approval of the staged version, if one; it no longer waits
-    /// for consent once every account that has the application approved.
-    fn approve(&self, installed: &mut Installed, uid: Option<u32>) -> Result<(), InstallError> {
-        let holders = self.holders(&installed.id)?;
-        if let Some(staged) = installed.staged.as_mut() {
-            if let Some(consent) = staged.consent.as_mut() {
-                if let Some(uid) = uid.filter(|uid| !consent.approved.contains(uid)) {
-                    consent.approved.push(uid);
-                    consent.approved.sort_unstable();
-                }
-                if holders.iter().all(|h| consent.approved.contains(h)) {
-                    staged.consent = None;
-                }
-            }
+    /// Switches the account to its staged version if it waits for no consent and none of the
+    /// account's sessions holds its current version.
+    fn try_switch(
+        &self,
+        account: &Account,
+        mine: &mut UserInstall,
+        memory: &Memory,
+    ) -> Result<Applied, InstallError> {
+        let Some(staged) = mine.staged.clone() else {
+            return Ok(Applied::Switched);
+        };
+        if staged.consent.is_some() {
+            return Ok(Applied::AwaitingConsent);
+        }
+        let held = memory
+            .holds
+            .get(&(account.uid, mine.id.clone(), mine.current))
+            .is_some_and(|n| *n > 0);
+        if held {
+            return Ok(Applied::AtNextLaunch);
+        }
+        let to = self.facts(&mine.id, staged.version_code)?;
+        mine.previous = Some(mine.current);
+        mine.current = staged.version_code;
+        mine.shown = false;
+        mine.unshown_exits = 0;
+        mine.staged = None;
+        decide_capabilities(mine, &to.manifest);
+        Ok(Applied::Switched)
+    }
+
+    fn write_installed(&self, installed: &Installed) -> Result<(), InstallError> {
+        let dir = self.layout.installed();
+        write_record(
+            &dir,
+            &format!("{}.json", installed.id),
+            installed,
+            0o644,
+            None,
+        )
+        .map_err(io_at(&dir))
+    }
+
+    /// An account's directory (or its entries'), made root's with the account's group, 0750.
+    fn account_directory(&self, dir: &Path, account: &Account) -> Result<(), InstallError> {
+        state::ensure_directory(dir, 0o750).map_err(io_at(dir))?;
+        if self.chown {
+            rustix::fs::chown(
+                dir,
+                Some(rustix::fs::Uid::from_raw(0)),
+                Some(rustix::fs::Gid::from_raw(account.gid)),
+            )
+            .map_err(|e| InstallError::Io(format!("{}: {e}", dir.display())))?;
         }
         Ok(())
     }
 
-    /// Switches to the staged version if it waits for no consent and no session holds the
-    /// current one. The previous version is the current one until the new one shows a window.
-    fn try_switch(&self, installed: &mut Installed, memory: &Memory) -> Result<bool, InstallError> {
-        let ready = installed
-            .staged
-            .as_ref()
-            .is_some_and(|s| s.consent.is_none());
-        let held = memory
-            .holds
-            .get(&(installed.id.clone(), installed.current.version_code))
-            .is_some_and(|n| *n > 0);
-        if !ready || held {
-            return Ok(false);
-        }
-        let Some(staged) = installed.staged.take() else {
-            return Ok(false);
-        };
-        let new_capabilities: Vec<String> = staged
-            .version
-            .capabilities
-            .iter()
-            .filter(|c| !installed.current.capabilities.contains(c))
-            .cloned()
-            .collect();
-        installed.previous = Some(installed.current.clone());
-        installed.current = staged.version;
-        installed.pinned_key = staged.pinned_key;
-        // Every account's decisions gain the new capabilities: granted if shown at install
-        // (every account approved them), undecided if asked at first use.
-        for uid in self.holders(&installed.id)? {
-            let Some(account) = self.accounts.account(uid) else {
-                continue;
-            };
-            if let Some(mut user) = self.user_install(&account, &installed.id)? {
-                for name in &new_capabilities {
-                    let first_use = Capability::parse(name)
-                        .map(|c| c.asked_at_first_use())
-                        .unwrap_or(true);
-                    user.capabilities
-                        .entry(name.clone())
-                        .or_insert(if first_use {
-                            Decision::Undecided
-                        } else {
-                            Decision::Granted
-                        });
+    /// Writes an account's record, then its entry for its current version: each renamed whole
+    /// over the old one, root's with the account's group, 0640.
+    fn write_account(&self, account: &Account, mine: &UserInstall) -> Result<(), InstallError> {
+        let dir = self.layout.user(&account.name);
+        self.account_directory(&dir, account)?;
+        let owner = self.chown.then_some((0, account.gid));
+        write_record(&dir, &format!("{}.json", mine.id), mine, 0o640, owner)
+            .map_err(io_at(&dir))?;
+        self.write_entry(account, mine)
+    }
+
+    /// The account's entry of its current version (`users/<user>/applications/<id>.desktop`):
+    /// what the registry lists for it. It asks for no grant: no entry can.
+    fn write_entry(&self, account: &Account, mine: &UserInstall) -> Result<(), InstallError> {
+        let version_dir = self.layout.version(&mine.id, mine.current);
+        let facts = self.facts(&mine.id, mine.current)?;
+        let text = entry_text(&facts.manifest, &version_dir, facts.manifest.runtime.abi);
+        let dir = self.layout.user_applications(&account.name);
+        self.account_directory(&dir, account)?;
+        let owner = self.chown.then_some((0, account.gid));
+        state::write_file(
+            &dir,
+            &format!("{}.desktop", mine.id),
+            text.as_bytes(),
+            0o640,
+            owner,
+        )
+        .map_err(io_at(&dir))
+    }
+
+    fn remove_account_files(&self, account: &Account, id: &str) -> Result<bool, InstallError> {
+        let mut removed = false;
+        for (dir, name) in [
+            (
+                self.layout.user_applications(&account.name),
+                format!("{id}.desktop"),
+            ),
+            (self.layout.user(&account.name), format!("{id}.json")),
+        ] {
+            match fs::remove_file(dir.join(&name)) {
+                Ok(()) => {
+                    removed = true;
+                    state::sync_directory(&dir).map_err(io_at(&dir))?;
                 }
-                self.write_user(&account, &user)?;
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(io_at(&dir)(e)),
             }
         }
-        Ok(true)
+        Ok(removed)
+    }
+
+    /// Removes the account's install of `id`: the data directories the session should remove
+    /// (relative to the home). The versions it named go once no other account names them.
+    pub fn uninstall(&self, uid: u32, id: &str) -> Result<Vec<String>, InstallError> {
+        let account = self.account(uid)?;
+        valid_id(id)?;
+        {
+            let mut memory = self.memory();
+            if self.user_install(&account, id)?.is_none() {
+                return Err(InstallError::NotInstalled);
+            }
+            self.remove_account_files(&account, id)?;
+            self.collect(&mut memory)?;
+        }
+        self.notify(&[uid]);
+        Ok(data_directories(id))
+    }
+
+    /// The account's applications.
+    pub fn list(&self, uid: u32) -> Result<Vec<Listed>, InstallError> {
+        let account = self.account(uid)?;
+        let _memory = self.memory();
+        let mut listed = Vec::new();
+        for id in self.ids_of(&account) {
+            let Some(mine) = self.user_install(&account, &id)? else {
+                continue;
+            };
+            let facts = self.facts(&id, mine.current)?;
+            listed.push(Listed {
+                version: facts.manifest.version,
+                version_code: mine.current,
+                entry: self
+                    .layout
+                    .user_applications(&account.name)
+                    .join(format!("{id}.desktop"))
+                    .display()
+                    .to_string(),
+                capabilities: mine.capabilities,
+                staged: mine.staged,
+                id,
+            });
+        }
+        Ok(listed)
+    }
+
+    /// Whether the account `uid` has `id`.
+    pub fn has(&self, uid: u32, id: &str) -> bool {
+        self.accounts
+            .account(uid)
+            .and_then(|account| self.user_install(&account, id).ok().flatten())
+            .is_some()
+    }
+
+    /// A session of the account `uid` runs version `code` of `id`: it is never removed, and the
+    /// account's current version is not switched away from, until it is released.
+    pub fn hold(&self, uid: u32, id: &str, code: u64) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        let mut memory = self.memory();
+        let mine = self
+            .user_install(&account, id)?
+            .ok_or(InstallError::NotInstalled)?;
+        let names = [
+            Some(mine.current),
+            mine.previous,
+            mine.staged.map(|s| s.version_code),
+        ];
+        if !names.contains(&Some(code)) || !self.layout.version(id, code).is_dir() {
+            return Err(InstallError::NotInstalled);
+        }
+        *memory.holds.entry((uid, id.to_string(), code)).or_insert(0) += 1;
+        Ok(())
+    }
+
+    /// A session of the account `uid` no longer runs version `code` of `id`. The account's staged
+    /// version waiting only for it is switched to.
+    pub fn release(&self, uid: u32, id: &str, code: u64) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        valid_id(id)?;
+        {
+            let mut memory = self.memory();
+            let key = (uid, id.to_string(), code);
+            match memory.holds.get_mut(&key) {
+                Some(n) if *n > 1 => *n -= 1,
+                Some(_) => {
+                    memory.holds.remove(&key);
+                }
+                None => return Err(InstallError::NotInstalled),
+            }
+            if let Some(mut mine) = self.user_install(&account, id)? {
+                if mine.staged.is_some()
+                    && self.try_switch(&account, &mut mine, &memory)? == Applied::Switched
+                {
+                    self.write_account(&account, &mine)?;
+                }
+            }
+            self.collect(&mut memory)?;
+        }
+        self.notify(&[uid]);
+        Ok(())
+    }
+
+    /// A session of the account `uid` showed a window of version `code` of `id`: the account's
+    /// version before it is no longer kept for a rollback.
+    pub fn shown(&self, uid: u32, id: &str, code: u64) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        let mut memory = self.memory();
+        let mut mine = self
+            .user_install(&account, id)?
+            .ok_or(InstallError::NotInstalled)?;
+        if mine.current == code && !mine.shown {
+            mine.shown = true;
+            mine.previous = None;
+            self.write_account(&account, &mine)?;
+            self.collect(&mut memory)?;
+        }
+        Ok(())
+    }
+
+    /// A launch of version `code` of `id` by the account `uid` exited, having shown a window or
+    /// not. A new version that exits before its first window [`UNSHOWN_EXITS`] times is rolled
+    /// back for the account to its version before and never offered to it again: `true` if so.
+    pub fn exited(&self, uid: u32, id: &str, code: u64, shown: bool) -> Result<bool, InstallError> {
+        if shown {
+            self.shown(uid, id, code)?;
+            return Ok(false);
+        }
+        let account = self.account(uid)?;
+        let rolled_back = {
+            let mut memory = self.memory();
+            let mut mine = self
+                .user_install(&account, id)?
+                .ok_or(InstallError::NotInstalled)?;
+            if mine.current != code || mine.shown {
+                return Ok(false);
+            }
+            mine.unshown_exits += 1;
+            let rolled_back = mine.unshown_exits >= UNSHOWN_EXITS && mine.previous.is_some();
+            if let (true, Some(previous)) = (rolled_back, mine.previous) {
+                mine.bad.push(code);
+                mine.current = previous;
+                mine.previous = None;
+                mine.shown = true;
+                mine.unshown_exits = 0;
+            }
+            self.write_account(&account, &mine)?;
+            if rolled_back {
+                self.collect(&mut memory)?;
+            }
+            rolled_back
+        };
+        if rolled_back {
+            self.notify(&[uid]);
+        }
+        Ok(rolled_back)
+    }
+
+    /// Checks the store for updates of every application on the machine, once: a check asked for
+    /// while one runs joins it and is answered when it ends. Watchers are told it start and end.
+    pub fn check(&self) -> Result<(), InstallError> {
+        {
+            let mut checks = self.checks();
+            if checks.running {
+                let generation = checks.generation;
+                while checks.running && checks.generation == generation {
+                    checks = self
+                        .checked
+                        .wait(checks)
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                }
+                return match &checks.failed {
+                    Some(reason) => Err(InstallError::Fetch(reason.clone())),
+                    None => Ok(()),
+                };
+            }
+            checks.running = true;
+        }
+        self.notify_all();
+        let result = self.run_check();
+        {
+            let mut checks = self.checks();
+            checks.running = false;
+            checks.generation += 1;
+            match &result {
+                Ok(candidates) => {
+                    checks.candidates = candidates.clone();
+                    checks.checked_at = Some((self.now)());
+                    checks.failed = None;
+                }
+                Err(e) => checks.failed = Some(e.to_string()),
+            }
+        }
+        self.checked.notify_all();
+        self.notify_all();
+        result.map(|_| ())
+    }
+
+    /// The store's metadata refreshed, and for each application on the machine its releases newer
+    /// than some account's current version (and not every such account's rolled back),
+    /// verified, newest first.
+    fn run_check(&self) -> Result<BTreeMap<String, Vec<Verified>>, InstallError> {
+        let _metadata = self
+            .metadata
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut client = self.client()?;
+        client.refresh(&self.fetch, (self.now)())?;
+        let mut candidates = BTreeMap::new();
+        for id in self.machine_ids()? {
+            let installed = self.installed(&id)?;
+            let installs = self.installs(&id)?;
+            let mut verified = Vec::new();
+            for release in releases(&client, &id, &self.machine, &[]) {
+                let code = release.statement.version_code;
+                let wanted = installs
+                    .iter()
+                    .any(|mine| code > mine.current && !mine.bad.contains(&code));
+                if !wanted {
+                    continue;
+                }
+                // A release that does not verify is left out; the store's next one may.
+                if let Ok(v) = self.verify(&client, release, installed.as_ref()) {
+                    verified.push(v);
+                }
+                if verified.len() >= 3 {
+                    break;
+                }
+            }
+            if !verified.is_empty() {
+                candidates.insert(id, verified);
+            }
+        }
+        Ok(candidates)
+    }
+
+    /// The release the account `uid` would update `id` to, from the last check.
+    fn candidate_for(&self, mine: &UserInstall) -> Option<Verified> {
+        self.checks()
+            .candidates
+            .get(&mine.id)?
+            .iter()
+            .find(|v| {
+                let code = v.manifest.version_code;
+                code > mine.current && !mine.bad.contains(&code)
+            })
+            .cloned()
+    }
+
+    /// The account's update state (decision 16), from the last check and its records.
+    pub fn update_state(&self, uid: u32) -> Result<UpdateState, InstallError> {
+        let account = self.account(uid)?;
+        let (checking, checked_at, check_failed) = {
+            let checks = self.checks();
+            (
+                checks.running,
+                checks.checked_at.map(crate::time::format_utc),
+                checks.failed.clone(),
+            )
+        };
+        let mut updates = Vec::new();
+        let memory = self.memory();
+        for id in self.ids_of(&account) {
+            let Some(mine) = self.user_install(&account, &id)? else {
+                continue;
+            };
+            let from = self.facts(&id, mine.current)?;
+            let available =
+                |to: &Manifest, notes: BTreeMap<String, String>, status: &str, consent| {
+                    AvailableUpdate {
+                        id: id.clone(),
+                        name: to.name.as_str().to_string(),
+                        names: names_of(to),
+                        from_version: from.manifest.version.clone(),
+                        from_version_code: mine.current,
+                        to_version: to.version.clone(),
+                        to_version_code: to.version_code,
+                        download: self.download(to),
+                        release_notes: notes,
+                        status: status.to_string(),
+                        consent,
+                    }
+                };
+            if let Some(staged) = &mine.staged {
+                let to = self.facts(&id, staged.version_code)?;
+                let notes = self
+                    .checks()
+                    .candidates
+                    .get(&id)
+                    .and_then(|c| {
+                        c.iter()
+                            .find(|v| v.manifest.version_code == staged.version_code)
+                    })
+                    .map(|v| v.release.notes.clone())
+                    .unwrap_or_default();
+                let status = if staged.consent.is_some() {
+                    "awaitingConsent"
+                } else {
+                    "atNextLaunch"
+                };
+                updates.push(available(
+                    &to.manifest,
+                    notes,
+                    status,
+                    staged.consent.clone(),
+                ));
+                continue;
+            }
+            if let Some(v) = self.candidate_for(&mine) {
+                let consent =
+                    consent_needed(&from, &v.manifest, v.release.signature.key_id.as_str());
+                let status = if consent.is_some() {
+                    "awaitingConsent"
+                } else if memory
+                    .holds
+                    .get(&(uid, id.clone(), mine.current))
+                    .is_some_and(|n| *n > 0)
+                {
+                    "atNextLaunch"
+                } else {
+                    "available"
+                };
+                updates.push(available(
+                    &v.manifest,
+                    v.release.notes.clone(),
+                    status,
+                    consent,
+                ));
+            }
+        }
+        drop(memory);
+        Ok(UpdateState {
+            checking,
+            checked_at,
+            check_failed,
+            automatic: self.settings(&account)?.automatic,
+            updates,
+        })
+    }
+
+    /// Updates the account's applications `ids` (all with an update, for `None`) to the last
+    /// check's releases, checking first if there has been no check: those needing the account's
+    /// consent are staged for it and answered `awaitingConsent`; a running one is updated at its
+    /// next launch.
+    pub fn update(&self, uid: u32, ids: Option<&[String]>) -> Result<Vec<Updated>, InstallError> {
+        let account = self.account(uid)?;
+        if self.checks().checked_at.is_none() {
+            self.check()?;
+        }
+        let ids: Vec<String> = match ids {
+            Some(ids) => ids.to_vec(),
+            None => self.ids_of(&account),
+        };
+        let mut outcomes = Vec::new();
+        for id in ids {
+            let outcome = |code, outcome: &str, reason: Option<String>| Updated {
+                id: id.clone(),
+                version_code: code,
+                outcome: outcome.into(),
+                reason,
+            };
+            let mine = match self.user_install(&account, &id) {
+                Ok(Some(mine)) => mine,
+                Ok(None) => {
+                    outcomes.push(outcome(None, "failed", Some("not installed".into())));
+                    continue;
+                }
+                Err(e) => {
+                    outcomes.push(outcome(None, "failed", Some(e.to_string())));
+                    continue;
+                }
+            };
+            let Some(verified) = self.candidate_for(&mine) else {
+                outcomes.push(outcome(Some(mine.current), "upToDate", None));
+                continue;
+            };
+            let code = verified.manifest.version_code;
+            outcomes.push(match self.apply(&account, &verified, false, &mut |_| {}) {
+                Ok(Applied::Switched) => outcome(Some(code), "switched", None),
+                Ok(Applied::AtNextLaunch) => outcome(Some(code), "atNextLaunch", None),
+                Ok(Applied::AwaitingConsent) => outcome(Some(code), "awaitingConsent", None),
+                Err(e) => outcome(Some(code), "failed", Some(e.to_string())),
+            });
+        }
+        self.notify(&[uid]);
+        Ok(outcomes)
+    }
+
+    /// The account consents to its staged version `code` of `id` (it confirmed the system's
+    /// sheet): switched to for the account, or at its next launch while it runs.
+    pub fn consent(&self, uid: u32, id: &str, code: u64) -> Result<Updated, InstallError> {
+        let account = self.account(uid)?;
+        let applied = {
+            let mut memory = self.memory();
+            let mut mine = self
+                .user_install(&account, id)?
+                .ok_or(InstallError::NotInstalled)?;
+            match mine.staged.as_mut() {
+                Some(staged) if staged.version_code == code => staged.consent = None,
+                _ => return Err(InstallError::Stale),
+            }
+            let applied = self.try_switch(&account, &mut mine, &memory)?;
+            self.write_account(&account, &mine)?;
+            self.collect(&mut memory)?;
+            applied
+        };
+        self.notify(&[uid]);
+        Ok(Updated {
+            id: id.to_string(),
+            version_code: Some(code),
+            outcome: match applied {
+                Applied::Switched => "switched",
+                Applied::AtNextLaunch => "atNextLaunch",
+                Applied::AwaitingConsent => "awaitingConsent",
+            }
+            .into(),
+            reason: None,
+        })
+    }
+
+    fn settings(&self, account: &Account) -> Result<UserSettings, InstallError> {
+        let path = self.layout.user(&account.name).join("settings.json");
+        Ok(read_record(&path)
+            .map_err(io_at(&path))?
+            .unwrap_or(UserSettings {
+                format: FORMAT,
+                automatic: true,
+            }))
+    }
+
+    /// The account's automatic updates of its applications, on or off (decision 16).
+    pub fn set_automatic(&self, uid: u32, automatic: bool) -> Result<(), InstallError> {
+        let account = self.account(uid)?;
+        {
+            let _memory = self.memory();
+            let dir = self.layout.user(&account.name);
+            self.account_directory(&dir, &account)?;
+            write_record(
+                &dir,
+                "settings.json",
+                &UserSettings {
+                    format: FORMAT,
+                    automatic,
+                },
+                0o640,
+                self.chown.then_some((0, account.gid)),
+            )
+            .map_err(io_at(&dir))?;
+        }
+        self.notify(&[uid]);
+        Ok(())
+    }
+
+    /// What the update timer runs: a check, then each account with automatic updates on updated
+    /// as `update` would (what needs consent waits for it). The accounts updated, by uid.
+    pub fn automatic(&self) -> Result<Vec<(u32, Vec<Updated>)>, InstallError> {
+        self.check()?;
+        let mut done = Vec::new();
+        let users = self.layout.users();
+        let mut uids: Vec<u32> = Vec::new();
+        for entry in fs::read_dir(&users).map_err(io_at(&users))?.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            for id in fs::read_dir(entry.path()).into_iter().flatten().flatten() {
+                let path = id.path();
+                if path.extension().is_some_and(|e| e == "json") && !path.ends_with("settings.json")
+                {
+                    if let Ok(Some(mine)) = read_record::<UserInstall>(&path) {
+                        if mine.user == name && !uids.contains(&mine.uid) {
+                            uids.push(mine.uid);
+                        }
+                    }
+                }
+            }
+        }
+        for uid in uids {
+            let Ok(account) = self.account(uid) else {
+                continue;
+            };
+            if self.settings(&account)?.automatic {
+                done.push((uid, self.update(uid, None)?));
+            }
+        }
+        Ok(done)
+    }
+
+    /// Watches the account `uid`'s update state: `watcher` is told it now and at each change. Its
+    /// id, for [`Self::unwatch`].
+    pub fn watch(&self, uid: u32, watcher: Watcher) -> Result<u64, InstallError> {
+        let state = self.update_state(uid)?;
+        if !watcher(&state) {
+            return Err(InstallError::Io("the watcher ended".into()));
+        }
+        let mut watchers = self
+            .watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let id = watchers.iter().map(|(id, _, _)| id + 1).max().unwrap_or(1);
+        watchers.push((id, uid, watcher));
+        Ok(id)
+    }
+
+    pub fn unwatch(&self, id: u64) {
+        self.watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|(w, _, _)| *w != id);
+    }
+
+    /// Tells the watchers of these accounts their state. Called with no lock of the records held.
+    fn notify(&self, uids: &[u32]) {
+        let mut watchers = self
+            .watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut states: BTreeMap<u32, Option<UpdateState>> = BTreeMap::new();
+        watchers.retain(|(_, uid, watcher)| {
+            if !uids.contains(uid) {
+                return true;
+            }
+            let state = states
+                .entry(*uid)
+                .or_insert_with(|| self.update_state(*uid).ok());
+            match state {
+                Some(state) => watcher(state),
+                None => true,
+            }
+        });
+    }
+
+    fn notify_all(&self) {
+        let uids: Vec<u32> = self
+            .watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .map(|(_, uid, _)| *uid)
+            .collect();
+        self.notify(&uids);
     }
 
     /// Fetches what the machine lacks, assembles and compiles the version in a hidden directory
@@ -813,16 +1584,16 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
     /// it into place under the lock, with the record that names it.
     fn assemble(
         &self,
-        prepared: &Prepared,
+        verified: &Verified,
         progress: &mut dyn FnMut(Progress),
     ) -> Result<PathBuf, InstallError> {
-        let manifest = &prepared.manifest;
+        let manifest = &verified.manifest;
         let package_dir = self.layout.packages().join(&manifest.id);
         state::ensure_directory(&package_dir, 0o755).map_err(io_at(&package_dir))?;
         let assembling =
             package_dir.join(format!(".{}.new-{}", manifest.version_code, random_token()));
         state::ensure_directory(&assembling, 0o755).map_err(io_at(&assembling))?;
-        let result = self.assemble_into(prepared, &assembling, progress);
+        let result = self.assemble_into(verified, &assembling, progress);
         if let Err(e) = result {
             // What it fetched goes with it: the objects it named are linked by nothing now.
             let _ = fs::remove_dir_all(&assembling);
@@ -849,12 +1620,12 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
 
     fn assemble_into(
         &self,
-        prepared: &Prepared,
+        verified: &Verified,
         assembling: &Path,
         progress: &mut dyn FnMut(Progress),
     ) -> Result<(), InstallError> {
-        let manifest = &prepared.manifest;
-        let total: u64 = prepared.plan.download;
+        let manifest = &verified.manifest;
+        let total: u64 = self.download(manifest);
         let mut done = 0;
         progress(Progress::Fetching { done, total });
         for file in &manifest.files {
@@ -887,14 +1658,14 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         state::write_file(
             assembling,
             "manifest.json",
-            &prepared.manifest_bytes,
+            &verified.manifest_bytes,
             0o444,
             None,
         )?;
         state::write_file(
             assembling,
             "manifest.sig",
-            &prepared.release.signature.to_canonical(),
+            &verified.release.signature.to_canonical(),
             0o444,
             None,
         )?;
@@ -983,338 +1754,8 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         Ok(path)
     }
 
-    fn write_installed(&self, installed: &Installed) -> Result<(), InstallError> {
-        let dir = self.layout.installed();
-        write_record(
-            &dir,
-            &format!("{}.json", installed.id),
-            installed,
-            0o644,
-            None,
-        )
-        .map_err(io_at(&dir))
-    }
-
-    fn write_user(&self, account: &Account, user: &UserInstall) -> Result<(), InstallError> {
-        let dir = self.layout.users().join(&account.name);
-        state::ensure_directory(&dir, 0o750).map_err(io_at(&dir))?;
-        let owner = self.chown.then_some((0, account.gid));
-        if let Some((uid, gid)) = owner {
-            rustix::fs::chown(
-                &dir,
-                Some(rustix::fs::Uid::from_raw(uid)),
-                Some(rustix::fs::Gid::from_raw(gid)),
-            )
-            .map_err(|e| InstallError::Io(format!("{}: {e}", dir.display())))?;
-        }
-        write_record(&dir, &format!("{}.json", user.id), user, 0o640, owner).map_err(io_at(&dir))
-    }
-
-    /// The entry of the current version (`applications/<id>.desktop`): what the registry lists
-    /// for the accounts that have the application. It asks for no grant: no entry can.
-    fn write_entry(&self, installed: &Installed) -> Result<(), InstallError> {
-        let version_dir = self
-            .layout
-            .version(&installed.id, installed.current.version_code);
-        let manifest_path = version_dir.join("manifest.json");
-        let bytes = fs::read(&manifest_path).map_err(io_at(&manifest_path))?;
-        let manifest = Manifest::parse(&bytes)?;
-        let text = entry_text(&manifest, &version_dir, installed.current.runtime_abi);
-        let dir = self.layout.applications();
-        state::write_file(
-            &dir,
-            &format!("{}.desktop", installed.id),
-            text.as_bytes(),
-            0o644,
-            None,
-        )
-        .map_err(io_at(&dir))
-    }
-
-    /// Removes the account's install of `id`: the data directories the session should remove
-    /// (relative to the home). The application goes once no account has it.
-    pub fn uninstall(&self, uid: u32, id: &str) -> Result<Vec<String>, InstallError> {
-        let account = self.account(uid)?;
-        valid_id(id)?;
-        let mut memory = self.memory();
-        let dir = self.layout.users().join(&account.name);
-        let path = dir.join(format!("{id}.json"));
-        match fs::remove_file(&path) {
-            Ok(()) => state::sync_directory(&dir).map_err(io_at(&dir))?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                return Err(InstallError::NotInstalled)
-            }
-            Err(e) => return Err(io_at(&path)(e)),
-        }
-        // A staged version waiting for this account's approval waits for one account fewer.
-        if let Some(mut installed) = self.installed(id)? {
-            if installed.staged.is_some() && !self.holders(id)?.is_empty() {
-                self.approve(&mut installed, None)?;
-                let switched = self.try_switch(&mut installed, &memory)?;
-                self.write_installed(&installed)?;
-                if switched {
-                    self.write_entry(&installed)?;
-                }
-            }
-        }
-        self.collect(&mut memory)?;
-        Ok(data_directories(id))
-    }
-
-    /// The account's applications.
-    pub fn list(&self, uid: u32) -> Result<Vec<Listed>, InstallError> {
-        let account = self.account(uid)?;
-        let _memory = self.memory();
-        let dir = self.layout.users().join(&account.name);
-        let mut listed = Vec::new();
-        let Ok(entries) = fs::read_dir(&dir) else {
-            return Ok(listed);
-        };
-        let mut names: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        names.sort();
-        for path in names {
-            let Some(id) = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".json"))
-            else {
-                continue;
-            };
-            if id.starts_with('.') {
-                continue;
-            }
-            let (Some(user), Some(installed)) = (
-                read_record::<UserInstall>(&path).map_err(io_at(&path))?,
-                self.installed(id)?,
-            ) else {
-                continue;
-            };
-            listed.push(Listed {
-                id: id.to_string(),
-                version: installed.current.version.clone(),
-                version_code: installed.current.version_code,
-                entry: self
-                    .layout
-                    .applications()
-                    .join(format!("{id}.desktop"))
-                    .display()
-                    .to_string(),
-                capabilities: user.capabilities,
-                staged: installed.staged.as_ref().map(|s| s.version.version_code),
-                awaiting_consent: installed.staged.and_then(|s| s.consent),
-            });
-        }
-        Ok(listed)
-    }
-
-    /// Whether the account `uid` has `id` (root has every application).
-    pub fn has(&self, uid: u32, id: &str) -> bool {
-        if uid == 0 {
-            return true;
-        }
-        self.accounts
-            .account(uid)
-            .and_then(|account| self.user_install(&account, id).ok().flatten())
-            .is_some()
-    }
-
-    /// A session runs version `code` of `id`: it is never removed, and the current version is not
-    /// switched away from, until it is released.
-    pub fn hold(&self, id: &str, code: u64) -> Result<(), InstallError> {
-        valid_id(id)?;
-        let mut memory = self.memory();
-        if !self.layout.version(id, code).is_dir() {
-            return Err(InstallError::NotInstalled);
-        }
-        *memory.holds.entry((id.to_string(), code)).or_insert(0) += 1;
-        Ok(())
-    }
-
-    /// A session no longer runs version `code` of `id`. A staged version waiting only for it
-    /// is switched to.
-    pub fn release(&self, id: &str, code: u64) -> Result<(), InstallError> {
-        valid_id(id)?;
-        let mut memory = self.memory();
-        let key = (id.to_string(), code);
-        match memory.holds.get_mut(&key) {
-            Some(n) if *n > 1 => *n -= 1,
-            Some(_) => {
-                memory.holds.remove(&key);
-            }
-            None => return Err(InstallError::NotInstalled),
-        }
-        if let Some(mut installed) = self.installed(id)? {
-            if self.try_switch(&mut installed, &memory)? {
-                self.write_installed(&installed)?;
-                self.write_entry(&installed)?;
-            }
-        }
-        self.collect(&mut memory)
-    }
-
-    /// A session showed a window of version `code` of `id`: the version before it is no longer
-    /// kept for a rollback.
-    pub fn shown(&self, id: &str, code: u64) -> Result<(), InstallError> {
-        let mut memory = self.memory();
-        let Some(mut installed) = self.installed(id)? else {
-            return Err(InstallError::NotInstalled);
-        };
-        if installed.current.version_code == code && !installed.current.shown {
-            installed.current.shown = true;
-            installed.previous = None;
-            self.write_installed(&installed)?;
-            self.collect(&mut memory)?;
-        }
-        Ok(())
-    }
-
-    /// A launch of version `code` of `id` exited, having shown a window or not. A new version
-    /// that exits before its first window [`UNSHOWN_EXITS`] times is rolled back to the version
-    /// before and never tried again here: `true` if it was.
-    pub fn exited(&self, id: &str, code: u64, shown: bool) -> Result<bool, InstallError> {
-        if shown {
-            self.shown(id, code)?;
-            return Ok(false);
-        }
-        let mut memory = self.memory();
-        let Some(mut installed) = self.installed(id)? else {
-            return Err(InstallError::NotInstalled);
-        };
-        if installed.current.version_code != code || installed.current.shown {
-            return Ok(false);
-        }
-        installed.current.unshown_exits += 1;
-        let rolled_back =
-            installed.current.unshown_exits >= UNSHOWN_EXITS && installed.previous.is_some();
-        if rolled_back {
-            if let Some(previous) = installed.previous.take() {
-                installed.bad.push(code);
-                installed.current = previous;
-            }
-        }
-        self.write_installed(&installed)?;
-        if rolled_back {
-            self.write_entry(&installed)?;
-            self.collect(&mut memory)?;
-        }
-        Ok(rolled_back)
-    }
-
-    /// Looks for a newer release of every application on the machine: one that needs no consent
-    /// is assembled and switched to (or staged while its current version runs), one that needs
-    /// it is assembled and staged until every account approves.
-    pub fn check_updates(&self) -> Result<Vec<Update>, InstallError> {
-        let ids: Vec<String> = {
-            let _memory = self.memory();
-            let dir = self.layout.installed();
-            let mut ids: Vec<String> = fs::read_dir(&dir)
-                .map_err(io_at(&dir))?
-                .flatten()
-                .filter_map(|e| {
-                    e.file_name()
-                        .to_str()
-                        .and_then(|n| n.strip_suffix(".json"))
-                        .filter(|n| !n.starts_with('.'))
-                        .map(str::to_string)
-                })
-                .collect();
-            ids.sort();
-            ids
-        };
-        let mut updates = Vec::new();
-        for id in ids {
-            updates.push(match self.update_one(&id) {
-                Ok(update) => update,
-                Err(e) => Update {
-                    id: id.clone(),
-                    version_code: None,
-                    outcome: "failed".into(),
-                    reason: Some(e.to_string()),
-                },
-            });
-        }
-        Ok(updates)
-    }
-
-    fn update_one(&self, id: &str) -> Result<Update, InstallError> {
-        let Some(installed) = self.installed(id)? else {
-            return Err(InstallError::NotInstalled);
-        };
-        let Some(&uid) = self.holders(id)?.first() else {
-            return Err(InstallError::NotInstalled);
-        };
-        let up_to_date = Update {
-            id: id.to_string(),
-            version_code: Some(installed.current.version_code),
-            outcome: "upToDate".into(),
-            reason: None,
-        };
-        let prepared = match self.prepare(uid, id) {
-            Err(InstallError::NoRelease) => return Ok(up_to_date),
-            other => other?,
-        };
-        let code = prepared.plan.version_code;
-        let already_staged = installed
-            .staged
-            .as_ref()
-            .is_some_and(|s| s.version.version_code == code);
-        if code == installed.current.version_code || already_staged {
-            return Ok(Update {
-                outcome: if already_staged { "staged" } else { "upToDate" }.into(),
-                version_code: Some(code),
-                ..up_to_date
-            });
-        }
-        let assembled = if self.layout.version(id, code).is_dir() {
-            None
-        } else {
-            Some(self.assemble(&prepared, &mut |_| {})?)
-        };
-        let mut memory = self.memory();
-        if let Some(assembled) = assembled {
-            self.place(&assembled, id, code)?;
-        }
-        let Some(mut installed) = self.installed(id)? else {
-            return Err(InstallError::Stale);
-        };
-        if code <= installed.current.version_code {
-            return Err(InstallError::Stale);
-        }
-        let version = version_of(
-            &prepared.manifest,
-            &prepared.manifest_bytes,
-            &prepared.release,
-        );
-        let consent = consent_needed(&installed, &version, &prepared.pinned);
-        installed.staged = Some(Staged {
-            consent,
-            version,
-            pinned_key: prepared.pinned.encode(),
-        });
-        let switched = self.try_switch(&mut installed, &memory)?;
-        let awaiting = installed.staged.as_ref().and_then(|s| s.consent.clone());
-        self.write_installed(&installed)?;
-        if switched {
-            self.write_entry(&installed)?;
-        }
-        self.collect(&mut memory)?;
-        Ok(Update {
-            id: id.to_string(),
-            version_code: Some(code),
-            outcome: if switched {
-                "switched"
-            } else if awaiting.is_some() {
-                "awaitingConsent"
-            } else {
-                "staged"
-            }
-            .into(),
-            reason: None,
-        })
-    }
-
-    /// After a crash: what was being fetched or assembled goes, entries are written again from
-    /// the records, and what nothing names is collected.
+    /// After a crash: what was being fetched or assembled goes, every account's entry is
+    /// written again from its record, and what nothing names is collected.
     fn recover(&self) -> Result<(), InstallError> {
         let mut memory = self.memory();
         let staging = self.layout.staging();
@@ -1329,26 +1770,43 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 }
             }
         }
-        for dir in [self.layout.installed(), self.layout.applications()] {
-            for entry in fs::read_dir(&dir).map_err(io_at(&dir))?.flatten() {
+        let remove_new = |dir: &Path| {
+            for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
                 if entry.file_name().to_string_lossy().starts_with('.') {
                     let _ = fs::remove_file(entry.path());
                 }
             }
-        }
-        let installed_dir = self.layout.installed();
-        for entry in fs::read_dir(&installed_dir)
-            .map_err(io_at(&installed_dir))?
-            .flatten()
-        {
-            let path = entry.path();
-            if let Some(installed) = read_record::<Installed>(&path).map_err(io_at(&path))? {
-                // An entry is listed only for a version that is there to run.
-                if self.write_entry(&installed).is_err() {
+        };
+        remove_new(&self.layout.installed());
+        let users = self.layout.users();
+        for user in fs::read_dir(&users).map_err(io_at(&users))?.flatten() {
+            let Some(name) = user.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            remove_new(&user.path());
+            remove_new(&self.layout.user_applications(&name));
+            for record in fs::read_dir(user.path()).into_iter().flatten().flatten() {
+                let path = record.path();
+                let Some(id) = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .filter(|n| valid_id(n).is_ok())
+                else {
+                    continue;
+                };
+                let Some(mine) = read_record::<UserInstall>(&path).map_err(io_at(&path))? else {
+                    continue;
+                };
+                let account = self.accounts.account(mine.uid).filter(|a| a.name == name);
+                // An entry is listed only for a version that is there to run, of an account that
+                // is there.
+                let written = account.is_some_and(|a| self.write_entry(&a, &mine).is_ok());
+                if !written {
                     let _ = fs::remove_file(
                         self.layout
-                            .applications()
-                            .join(format!("{}.desktop", installed.id)),
+                            .user_applications(&name)
+                            .join(format!("{id}.desktop")),
                     );
                 }
             }
@@ -1356,35 +1814,40 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         self.collect(&mut memory)
     }
 
-    /// Removes what nothing names: an application no account has (its record, entry and the
-    /// versions no session holds), versions neither current, previous nor staged that no session
-    /// holds, and objects no version links (their link count is one).
+    /// Removes what nothing names: a version tree no account's current, previous or staged
+    /// version names and no session holds, an application's record once no account has it, and
+    /// objects no tree links (their link count is one).
     fn collect(&self, memory: &mut Memory) -> Result<(), InstallError> {
         let packages = self.layout.packages();
         for package in fs::read_dir(&packages).map_err(io_at(&packages))?.flatten() {
-            let Some(id) = package.file_name().to_str().map(str::to_string) else {
+            let Some(id) = package
+                .file_name()
+                .to_str()
+                .filter(|n| valid_id(n).is_ok())
+                .map(str::to_string)
+            else {
                 continue;
             };
-            let installed = self.installed(&id).ok().flatten();
-            let wanted = !self.holders(&id)?.is_empty();
-            let keep: BTreeSet<u64> = match (&installed, wanted) {
-                (Some(i), true) => std::iter::once(i.current.version_code)
-                    .chain(i.previous.as_ref().map(|p| p.version_code))
-                    .chain(i.staged.as_ref().map(|s| s.version.version_code))
-                    .collect(),
-                _ => BTreeSet::new(),
-            };
-            if !wanted && installed.is_some() {
-                for (dir, name) in [
-                    (self.layout.installed(), format!("{id}.json")),
-                    (self.layout.applications(), format!("{id}.desktop")),
-                ] {
-                    match fs::remove_file(dir.join(&name)) {
-                        Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                            return Err(io_at(&dir)(e))
-                        }
-                        _ => state::sync_directory(&dir).map_err(io_at(&dir))?,
-                    }
+            let installs = self.installs(&id)?;
+            let mut keep: BTreeSet<u64> = BTreeSet::new();
+            for mine in &installs {
+                keep.insert(mine.current);
+                keep.extend(mine.previous);
+                keep.extend(mine.staged.as_ref().map(|s| s.version_code));
+            }
+            keep.extend(
+                memory
+                    .holds
+                    .keys()
+                    .filter(|(_, held, _)| *held == id)
+                    .map(|(_, _, code)| *code),
+            );
+            if installs.is_empty() {
+                let dir = self.layout.installed();
+                match fs::remove_file(dir.join(format!("{id}.json"))) {
+                    Ok(()) => state::sync_directory(&dir).map_err(io_at(&dir))?,
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(io_at(&dir)(e)),
                 }
             }
             let mut left = 0;
@@ -1394,8 +1857,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                     left += 1;
                     continue;
                 };
-                let held = memory.holds.contains_key(&(id.clone(), code));
-                if keep.contains(&code) || held {
+                if keep.contains(&code) {
                     left += 1;
                     continue;
                 }
@@ -1422,41 +1884,35 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
     }
 }
 
-/// What consent an update needs from the accounts that have the application.
-fn consent_needed(installed: &Installed, version: &Version, pinned: &PublicKey) -> Option<Consent> {
-    let capabilities: Vec<String> = version
-        .capabilities
-        .iter()
-        .filter(|name| {
-            !installed.current.capabilities.contains(name)
-                && Capability::parse(name).is_ok_and(|c| !c.asked_at_first_use())
-        })
-        .cloned()
-        .collect();
-    let key_rotation = installed.pinned_key != pinned.encode();
-    (key_rotation || !capabilities.is_empty()).then_some(Consent {
-        capabilities,
-        key_rotation,
-        approved: Vec::new(),
-    })
+/// What applying a version did for an account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Applied {
+    Switched,
+    AtNextLaunch,
+    AwaitingConsent,
 }
 
-fn version_of(manifest: &Manifest, bytes: &[u8], release: &Release) -> Version {
-    Version {
-        version_code: manifest.version_code,
-        version: manifest.version.clone(),
-        runtime_abi: manifest.runtime.abi,
-        runtime_api: manifest.runtime.api,
-        manifest_sha256: Sha256::of(bytes).hex(),
-        developer_key_id: release.signature.key_id.as_str().to_string(),
-        capabilities: manifest
-            .capabilities
-            .iter()
-            .map(|c| c.capability.name().to_string())
-            .collect(),
-        shown: false,
-        unshown_exits: 0,
+/// The account's decisions gain what `manifest` declares and they lack: shown at install,
+/// granted (the person confirmed it, or consented to it); asked at first use, undecided.
+fn decide_capabilities(mine: &mut UserInstall, manifest: &Manifest) {
+    for c in &manifest.capabilities {
+        let decision = if c.capability.asked_at_first_use() {
+            Decision::Undecided
+        } else {
+            Decision::Granted
+        };
+        mine.capabilities
+            .entry(c.capability.name().to_string())
+            .or_insert(decision);
     }
+}
+
+fn names_of(manifest: &Manifest) -> BTreeMap<String, String> {
+    manifest
+        .names
+        .iter()
+        .map(|(k, v)| (k.clone(), v.as_str().to_string()))
+        .collect()
 }
 
 /// A package id this service keeps files under: the package format's own rule.

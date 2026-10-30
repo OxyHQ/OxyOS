@@ -113,7 +113,8 @@ fn an_account_installs_lists_and_removes_its_own_only() {
             &connection,
             &Request::Hold {
                 id: ID.into(),
-                version_code: 12
+                version_code: 12,
+                uid: None,
             }
         ),
         Answer::Held
@@ -123,7 +124,8 @@ fn an_account_installs_lists_and_removes_its_own_only() {
             &connection,
             &Request::Shown {
                 id: ID.into(),
-                version_code: 12
+                version_code: 12,
+                uid: None,
             }
         ),
         Answer::Noted
@@ -134,18 +136,26 @@ fn an_account_installs_lists_and_removes_its_own_only() {
             &connection,
             &Request::Hold {
                 id: "so.oxy.other".into(),
-                version_code: 1
+                version_code: 1,
+                uid: None,
             }
         ),
-        Answer::refused(Reason::NotPermitted)
+        Answer::Refused {
+            reason: Reason::NotInstalled,
+            detail: Some("not installed for this account".into())
+        }
     );
     // An update staged while held; the connection closing releases the hold, and it is switched.
     world.repo.add(&Pkg::notes(13));
     world.repo.publish();
-    let Answer::Updates(updates) = ask(&connection, &Request::CheckUpdates) else {
-        panic!("no updates")
+    let Answer::UpdateState(state) = ask(&connection, &Request::CheckUpdates { uid: None }) else {
+        panic!("no state")
     };
-    assert_eq!(updates[0].outcome, "staged");
+    assert_eq!(state.updates[0].status, "atNextLaunch");
+    let Answer::Updated(updated) = ask(&connection, &Request::UpdateAll { uid: None }) else {
+        panic!("not updated")
+    };
+    assert_eq!(updated[0].outcome, "atNextLaunch");
     // Something that is not a request is answered, and the conversation goes on.
     connection
         .send(&serde_json::json!({"format": "c:"}))
@@ -156,8 +166,69 @@ fn an_account_installs_lists_and_removes_its_own_only() {
     );
     drop(connection);
     thread.join().unwrap();
-    assert_eq!(world.installed(ID).unwrap().current.version_code, 13);
+    assert_eq!(world.current("me", ID), Some(13));
     let _ = installer;
+}
+
+#[test]
+fn a_watcher_is_told_what_another_connection_did() {
+    let mut world = World::new("socket-watch");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    let installer = Arc::new(world.installer());
+    install(&*installer, me(), ID).unwrap();
+    world.repo.add(&Pkg::notes(13));
+    world.repo.publish();
+    let connect = || {
+        let (client, server) = Connection::pair().unwrap();
+        let served = installer.clone();
+        let thread = std::thread::spawn(move || {
+            let _ = service::serve(&server, &served, |_, _| {});
+        });
+        (client, thread)
+    };
+    let (settings, settings_thread) = connect();
+    let (atlas, atlas_thread) = connect();
+    // Settings watches: "watching", then the state now (nothing checked yet).
+    settings.send(&Request::WatchUpdates { uid: None }).unwrap();
+    let next = |c: &Connection| c.receive::<Answer>().unwrap().unwrap().unwrap();
+    assert_eq!(next(&settings), Answer::Watching);
+    let Answer::UpdateState(first) = next(&settings) else {
+        panic!("no state")
+    };
+    assert!(first.updates.is_empty() && first.checked_at.is_none());
+    // Atlas checks: Settings is told the check started, then what it found.
+    let Answer::UpdateState(found) = ask(&atlas, &Request::CheckUpdates { uid: None }) else {
+        panic!("no state")
+    };
+    assert_eq!(found.updates[0].to_version_code, 13);
+    let mut told = Vec::new();
+    loop {
+        let Answer::UpdateState(state) = next(&settings) else {
+            panic!("not a state")
+        };
+        let done = !state.checking && !state.updates.is_empty();
+        told.push(state);
+        if done {
+            break;
+        }
+    }
+    assert!(told[0].checking, "told the check started");
+    // Atlas updates it: Settings' list empties at once.
+    ask(
+        &atlas,
+        &Request::Update {
+            ids: vec![ID.into()],
+            uid: None,
+        },
+    );
+    let Answer::UpdateState(after) = next(&settings) else {
+        panic!("not a state")
+    };
+    assert!(after.updates.is_empty(), "{after:?}");
+    drop((settings, atlas));
+    settings_thread.join().unwrap();
+    atlas_thread.join().unwrap();
 }
 
 #[test]

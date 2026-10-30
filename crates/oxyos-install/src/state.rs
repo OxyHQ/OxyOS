@@ -5,12 +5,19 @@
 //!   version and account that has them;
 //! - `packages/<id>/<versionCode>/`: a version's tree, hard links into `objects/`, its manifest,
 //!   its developer's signature and its compiled `index.hbc`, assembled whole in a hidden
-//!   directory beside it before anything names it;
-//! - `installed/<id>.json`: the application's versions (current, previous, staged), its pinned
-//!   key and the releases this machine will not try again;
-//! - `users/<user>/<id>.json`: an account's install and its decisions on capabilities, owned by
-//!   root with the account's group, 0640 (the directory 0750), so no other account reads it;
-//! - `applications/<id>.desktop`: the entry of the current version, for the registry;
+//!   directory beside it before anything names it, once for the machine;
+//! - `installed/<id>.json`: what is the machine's about an application: the developer's key it
+//!   pinned, which its lineage moves, so an account installing later is never handed another;
+//!   a version's own facts are its manifest's, read from its tree;
+//! - `users/<user>/<id>.json`: an account's install: its current version, the one before (kept
+//!   until the current one shows a window), one staged for it, the releases it rolled back, and
+//!   its decisions on capabilities;
+//! - `users/<user>/applications/<id>.desktop`: the entry of that account's current version, for
+//!   the registry;
+//!
+//!   both owned by root with the account's group, 0640, in directories of 0750, so no other
+//!   account reads them. An account's cost is a record and an entry, never another copy of the
+//!   files or the bytecode;
 //! - `store/`: the store's TUF metadata as last verified;
 //! - `staging/`: files being fetched and versions being compiled, the service's alone (0700).
 //!
@@ -113,8 +120,13 @@ impl Layout {
     pub fn users(&self) -> PathBuf {
         self.root.join("users")
     }
-    pub fn applications(&self) -> PathBuf {
-        self.root.join("applications")
+    /// An account's directory: its records.
+    pub fn user(&self, user: &str) -> PathBuf {
+        self.users().join(user)
+    }
+    /// An account's entries.
+    pub fn user_applications(&self, user: &str) -> PathBuf {
+        self.user(user).join("applications")
     }
     pub fn store(&self) -> PathBuf {
         self.root.join("store")
@@ -142,7 +154,6 @@ impl Layout {
             (self.packages(), 0o755),
             (self.installed(), 0o755),
             (self.users(), 0o755),
-            (self.applications(), 0o755),
             (self.store(), 0o755),
             (self.staging(), 0o700),
         ] {
@@ -152,51 +163,27 @@ impl Layout {
     }
 }
 
-/// A version of an application on the machine.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Version {
-    pub version_code: u64,
-    pub version: String,
-    pub runtime_abi: u32,
-    pub runtime_api: u32,
-    /// The manifest's SHA-256, in hex.
-    pub manifest_sha256: String,
-    /// The developer key that signed it.
-    pub developer_key_id: String,
-    /// The capabilities it declares, by name.
-    pub capabilities: Vec<String>,
-    /// Whether any session has shown a window of it.
-    pub shown: bool,
-    /// Launches that exited before showing a window, while it was never shown.
-    pub unshown_exits: u32,
-}
-
-/// Why a staged version waits.
+/// Why a version staged for an account waits for that account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Consent {
-    /// Capabilities shown at install that the current version does not declare.
+    /// Capabilities shown at install that the account's current version does not declare.
     pub capabilities: Vec<String>,
-    /// It is signed by a new key of the developer's lineage.
+    /// It is signed by another key of the developer's lineage than the account's current one.
     pub key_rotation: bool,
-    /// The accounts that approved it, by uid; it is switched to once every account that has the
-    /// application has.
-    pub approved: Vec<u32>,
 }
 
-/// A version assembled and verified but not yet current.
+/// A version assembled for an account but not yet its current one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Staged {
-    pub version: Version,
-    /// The key the machine pins once it is switched to.
-    pub pinned_key: String,
-    /// What it waits for; none: only for the current version to stop running.
+    pub version_code: u64,
+    /// What it waits for: the account's consent; none, only for the account's running copy of
+    /// its current version to stop.
     pub consent: Option<Consent>,
 }
 
-/// `installed/<id>.json`.
+/// `installed/<id>.json`: what is the machine's about an application.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Installed {
@@ -204,12 +191,6 @@ pub struct Installed {
     pub id: String,
     /// The developer's key the machine pinned (base64url), as the lineage moved it.
     pub pinned_key: String,
-    pub current: Version,
-    /// The version before, kept until the current one has shown a window.
-    pub previous: Option<Version>,
-    pub staged: Option<Staged>,
-    /// Releases (by version code) the machine will not try again: rolled back.
-    pub bad: Vec<u64>,
 }
 
 /// What an account decided of a capability.
@@ -222,7 +203,7 @@ pub enum Decision {
     Undecided,
 }
 
-/// `users/<user>/<id>.json`.
+/// `users/<user>/<id>.json`: an account's install.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserInstall {
@@ -230,6 +211,17 @@ pub struct UserInstall {
     pub id: String,
     pub uid: u32,
     pub user: String,
+    /// The version the account runs.
+    pub current: u64,
+    /// Whether a session of the account has shown a window of it.
+    pub shown: bool,
+    /// The account's launches of it that exited before a window, while it never showed one.
+    pub unshown_exits: u32,
+    /// The version before, kept until the current one has shown a window.
+    pub previous: Option<u64>,
+    pub staged: Option<Staged>,
+    /// Releases (by version code) the account rolled back: never offered to it again.
+    pub bad: Vec<u64>,
     pub capabilities: BTreeMap<String, Decision>,
 }
 

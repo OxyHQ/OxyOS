@@ -83,6 +83,8 @@ pub struct Pkg {
     /// Who signs the store's statement.
     pub store: u8,
     pub lineage: Lineage,
+    /// Release notes by language, the store's.
+    pub notes: Vec<(&'static str, &'static str)>,
 }
 
 impl Pkg {
@@ -108,6 +110,7 @@ impl Pkg {
             published_key: DEVELOPER,
             store: TARGETS_KEY,
             lineage: Lineage::default(),
+            notes: vec![("en", "Faster."), ("es", "Más rápida.")],
         }
     }
 
@@ -209,6 +212,17 @@ impl Pkg {
         ];
         if !self.lineage.0.is_empty() {
             members.push(("lineage", text(self.lineage.to_canonical())));
+        }
+        if !self.notes.is_empty() {
+            members.push((
+                "releaseNotes",
+                json::object(
+                    self.notes
+                        .iter()
+                        .map(|(language, text)| (*language, json::string(text)))
+                        .collect(),
+                ),
+            ));
         }
         json::object(vec![("oxyos", json::object(members))])
     }
@@ -538,7 +552,22 @@ impl World {
     }
 
     pub fn user(&self, user: &str, id: &str) -> Option<UserInstall> {
-        read_record(&self.layout().users().join(user).join(format!("{id}.json"))).unwrap()
+        read_record(&self.layout().user(user).join(format!("{id}.json"))).unwrap()
+    }
+
+    /// The version the account `user` runs.
+    pub fn current(&self, user: &str, id: &str) -> Option<u64> {
+        self.user(user, id).map(|u| u.current)
+    }
+
+    /// The account's entry.
+    pub fn entry(&self, user: &str, id: &str) -> String {
+        read(
+            &self
+                .layout()
+                .user_applications(user)
+                .join(format!("{id}.desktop")),
+        )
     }
 
     /// The files under the state directory but the store's metadata, sorted: what a refusal
