@@ -244,6 +244,29 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   is arithmetic, not memory; a session never composes on it. The session now logs every ten
   seconds how long the GPU took to compose its frames (`[compositor] the GPU composed …`).
 
+## The host on the GPU
+
+The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./adr/0031-gpu-buffers),
+step 3). Measured with `perf.py --renderer cpu` and `--renderer gpu`, two runs each, in
+`tools/gpu-vm` (16 vCPUs of this machine), on lavapipe: its "GPU" is the same CPU, shared with the
+compositor and the host, so these numbers say what the host's own thread saves and what the GPU path
+costs around it, never a GPU's speed. p50 / p95 in ms.
+
+| interaction | host draw, CPU painter | host draw, GPU painter | host frame work, CPU | host frame work, GPU |
+|---|---|---|---|---|
+| live resize | 2.76 / 5.97 | 0.61 / 2.24 | 10.65 / 14.6 | 36.66 / 401.7 |
+| zoom | 0.18 / 0.29 | 0.11 / 0.28 | 1.66 / 13.6 | 8.36 / 20.6 |
+| overview (the shell) | 0.14 / 6.35 | 0.06 / 0.63 | 0.77 / 8.8 | 6.2 / 45.1 |
+| Settings scroll | 0.65 / 0.84 | 0.20 / 0.36 | 2.76 / 4.9 | 8.35 / 12.8 |
+
+- **The host's thread draws 2–10 times less.** It records operations, and the device works the
+  pixels out.
+- **Its frame work grows here.** The frame before is waited for, lavapipe's drawing runs on the same
+  cores, and a live resize allocates, exports and attaches an image (and a timeline) for every new
+  size: 402 ms at the 95th percentile. That allocation is the GPU path's own cost to remove
+  (images reused across sizes), measured on the ThinkPad first.
+- **Memory.** Each host holds 50–110 MiB more resident: the Vulkan driver and its heap of canvases.
+
 ## What remains
 
 - **The GPU path's two changes are not yet seen on a display**: the session's log on the
