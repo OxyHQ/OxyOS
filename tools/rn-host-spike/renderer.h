@@ -24,6 +24,11 @@ struct Display {
   float width;
   float height;
   float scale;
+  // What a window shows where its views draw nothing, premultiplied ARGB: the system theme's,
+  // as Android's DayNight windowBackground (docs/adr/0019-settings.mdx's appearance).
+  uint32_t background = kLightWindowBackground;
+  static constexpr uint32_t kLightWindowBackground = 0xffffffffu;
+  static constexpr uint32_t kDarkWindowBackground = 0xff121212u;
 };
 
 // A decoded image an Image view shows (images.h): `width` × `height` premultiplied RGBA pixels,

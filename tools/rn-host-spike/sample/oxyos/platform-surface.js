@@ -207,11 +207,47 @@ function createKeyboard() {
 
 const keyboard = nativeKeyboard?.getConstants()?.available ? createKeyboard() : undefined;
 
+// The session's appearance (docs/adr/0019-settings.mdx) beyond light and dark, which React Native's
+// own Appearance carries: the accent colour, which seeds Bloom's palette, and reduce transparency.
+// Only with a connection to the compositor, whose first events say them.
+const nativePreferences = TurboModuleRegistry.get('OxyOSPreferences');
+
+function appearanceOf(drawing) {
+  return { accent: drawing.accent || null, reduceTransparency: !!drawing.reduceTransparency };
+}
+
+function createAppearance() {
+  const drawing = nativePreferences?.getState();
+  if (!drawing) return undefined;
+  // One state object per change, so a store snapshot changes only when the appearance does.
+  let state = appearanceOf(drawing);
+  const listeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSPreferencesChanged', (next) => {
+    state = appearanceOf(next);
+    for (const listener of listeners) listener();
+  });
+  return {
+    getState: () => state,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const appearance = createAppearance();
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
-  capabilities: new Set(['popup-surface', ...(window ? ['window'] : []), ...(menuBar ? ['menu-bar'] : [])]),
+  capabilities: new Set([
+    'popup-surface',
+    ...(window ? ['window'] : []),
+    ...(menuBar ? ['menu-bar'] : []),
+    ...(appearance ? ['appearance'] : []),
+  ]),
   PopupSurface,
   window,
   menuBar,
   keyboard,
+  appearance,
 };

@@ -477,7 +477,9 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       window->resized();
-      display = oxyos::Display{window->width(), window->height(), window->scale()};
+      display = oxyos::Display{window->width(), window->height(), window->scale(),
+                               window->drawing().dark ? oxyos::Display::kDarkWindowBackground
+                                                      : oxyos::Display::kLightWindowBackground};
       // An application's window is named as its launcher says (the session's launch records;
       // the development compositor's scenarios), for the shell.
       const char* title = std::getenv("OXYOS_APP_TITLE");
@@ -888,6 +890,11 @@ int main(int argc, char** argv) {
           };
           if (now.dark != toldDrawing->dark) {
             emit("appearanceChanged", folly::dynamic::object("colorScheme", now.dark ? "dark" : "light"));
+            // The window's own background follows, drawn again whole.
+            display.background =
+                now.dark ? oxyos::Display::kDarkWindowBackground : oxyos::Display::kLightWindowBackground;
+            windowCanvas = oxyos::Canvas{};
+            dirty = true;
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
           emit("OxyOSPreferencesChanged", services.settings.drawing());
@@ -958,7 +965,7 @@ int main(int argc, char** argv) {
         }
         bool resized = window->resized();
         if (resized) {
-          display = oxyos::Display{window->width(), window->height(), window->scale()};
+          display = oxyos::Display{window->width(), window->height(), window->scale(), display.background};
           pointer.setScale(display.scale);
           auto laying = Clock::now();
           layOut();
