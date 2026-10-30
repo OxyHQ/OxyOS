@@ -554,6 +554,15 @@ fn present_in(
     damage: &[Rect],
     modifiers: &[u64],
 ) -> Result<u64> {
+    let started = std::time::Instant::now();
+    let mut times = super::PresentTimes::default();
+    let mut since = started;
+    let mut lap = || {
+        let now = std::time::Instant::now();
+        let ms = (now - since).as_secs_f64() * 1e3;
+        since = now;
+        ms
+    };
     if chain
         .buffers
         .iter()
@@ -575,6 +584,7 @@ fn present_in(
             Swapchain::drop_buffer(&paint.gpu, client, buffer);
         }
     }
+    times.freed_ms = lap();
     let fits =
         |buffer: &Buffer| (buffer.width, buffer.height, buffer.format) == (width, height, format);
     let index = match chain
@@ -584,7 +594,9 @@ fn present_in(
     {
         Some(index) => index,
         None if chain.buffers.iter().filter(|buffer| fits(buffer)).count() < BUFFERS => {
+            times.new_image = true;
             let image = paint.gpu.image(width, height, modifiers)?;
+            times.image_ms = lap();
             let planes: Vec<_> = image
                 .planes
                 .iter()
@@ -592,7 +604,9 @@ fn present_in(
                 .collect();
             let id =
                 client.attach_dmabuf(format, image.modifier, Size::new(width, height), &planes)?;
+            times.attach_ms = lap();
             let timeline = client.create_timeline()?;
+            times.timeline_ms = lap();
             chain.buffers.push(Buffer {
                 image,
                 width,
@@ -632,6 +646,7 @@ fn present_in(
             index
         }
     };
+    times.release_ms += lap();
     // What this buffer lacks: everything when new or when the history does not reach back, else
     // the damage of every frame since it was written, and this one's.
     let whole = vec![Rect::new(0, 0, width, height)];
@@ -671,8 +686,12 @@ fn present_in(
             (x0 < x1 && y0 < y1).then(|| Rect::new(x0 as i32, y0 as i32, x1 - x0, y1 - y0))
         })
         .collect();
+    lap();
     paint.begin()?;
+    times.wait_ms = lap();
     paint.begin_commands()?;
+    times.record_ms = lap();
+    times.operations = paint.dispatches.len() as u32;
     let buffer = &chain.buffers[index];
     let gpu = &paint.gpu;
     let device = &gpu.device;
@@ -780,6 +799,7 @@ fn present_in(
         .map(|(semaphore, _)| *semaphore)
         .collect();
     paint.submit(&signal)?;
+    times.submit_ms = lap();
     let buffer = &chain.buffers[index];
     let (acquire, release) = (buffer.released_at + 1, buffer.released_at + 2);
     // The frame's completion is its acquire point: as a sync file, or signalled once done.
@@ -805,6 +825,7 @@ fn present_in(
             client.timeline_signal(buffer.timeline, acquire)?;
         }
     }
+    times.sync_ms = lap();
     let told = (!damage.is_empty()).then_some(damage);
     let sequence = client.submit_buffer_synced(
         surface,
@@ -816,6 +837,9 @@ fn present_in(
             release: (buffer.timeline, release),
         }),
     )?;
+    times.send_ms = lap();
+    times.total_ms = (std::time::Instant::now() - started).as_secs_f64() * 1e3;
+    paint.last_present = times;
     let buffer = &mut chain.buffers[index];
     buffer.released_at = release;
     buffer.written = sequence;

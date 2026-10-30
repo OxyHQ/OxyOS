@@ -8,10 +8,21 @@
 @group(0) @binding(1) var<storage, read> ops: array<u32>;
 
 struct Frame {
-    // Where the operation's record starts in `ops`.
+    // One operation: where its record starts in `ops`.
     op: u32,
+    // A run of operations on one canvas, worked out tile by tile (`tiles`): where its bins start in
+    // the heap, and how many tiles of 16 x 16 pixels a row of the canvas has.
+    bins: u32,
+    tiles_x: u32,
+    // The first tile the run's grid covers.
+    origin_x: u32,
+    origin_y: u32,
+    unused: u32,
 }
 var<push_constant> frame: Frame;
+
+// The record of the operation a pixel is being worked out for.
+var<private> current: u32;
 
 // Header words of every record.
 const KIND: u32 = 0u;
@@ -29,13 +40,13 @@ const OPACITY: u32 = 17u;
 const ARGS: u32 = 18u;
 
 fn word_at(at: u32) -> u32 {
-    return ops[frame.op + at];
+    return ops[current + at];
 }
 fn int_at(at: u32) -> i32 {
-    return bitcast<i32>(ops[frame.op + at]);
+    return bitcast<i32>(ops[current + at]);
 }
 fn real_at(at: u32) -> f32 {
-    return bitcast<f32>(ops[frame.op + at]);
+    return bitcast<f32>(ops[current + at]);
 }
 
 // x / y rounded as the CPU rounds it: a device's division may be an ulp or two off (Vulkan allows
@@ -572,8 +583,45 @@ fn copy_op(px: u32, py: u32) {
     heap[pixel_index(px, py)] = heap[word_at(ARGS) + py * word_at(ARGS + 1u) + px];
 }
 
+// The operation `current` for pixel (px, py) of its canvas.
+fn run(px: u32, py: u32) {
+    switch word_at(KIND) {
+        case 1u: { fill_op(px, py); }
+        case 2u: { image_op(px, py); }
+        case 3u: { layer_op(px, py); }
+        case 4u: { glyphs_op(px, py); }
+        case 5u: { smooth_op(px, py); }
+        case 6u: { levels_op(px, py); }
+        case 8u: { from_levels(px, py); }
+        case 9u: { mask_op(px, py); }
+        case 10u: { clear_op(px, py); }
+        case 11u: { copy_op(px, py); }
+        default: {}
+    }
+}
+
+// A run of operations on one canvas in one dispatch, a workgroup per tile of 16 x 16 pixels: each
+// pixel works out, in order, the operations its tile's bin lists that touch it, so the run needs no
+// barrier between its operations (each pixel is one invocation's) and a tile reads only its own.
+@compute @workgroup_size(16, 16)
+fn tiles(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_id) local: vec3<u32>) {
+    let tile = group.y * frame.tiles_x + group.x;
+    let first = heap[frame.bins + tile];
+    let end = heap[frame.bins + tile + 1u];
+    let px = (frame.origin_x + group.x) * 16u + local.x;
+    let py = (frame.origin_y + group.y) * 16u + local.y;
+    for (var at = first; at < end; at++) {
+        current = heap[at];
+        if (px < word_at(X0) || py < word_at(Y0) || px >= word_at(X1) || py >= word_at(Y1)) {
+            continue;
+        }
+        run(px, py);
+    }
+}
+
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    current = frame.op;
     let kind = word_at(KIND);
     if (kind == 7u) {
         // A blur's lines: every line and plane, not pixels.
@@ -587,17 +635,5 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     if (px >= word_at(X1) || py >= word_at(Y1)) {
         return;
     }
-    switch kind {
-        case 1u: { fill_op(px, py); }
-        case 2u: { image_op(px, py); }
-        case 3u: { layer_op(px, py); }
-        case 4u: { glyphs_op(px, py); }
-        case 5u: { smooth_op(px, py); }
-        case 6u: { levels_op(px, py); }
-        case 8u: { from_levels(px, py); }
-        case 9u: { mask_op(px, py); }
-        case 10u: { clear_op(px, py); }
-        case 11u: { copy_op(px, py); }
-        default: {}
-    }
+    run(px, py);
 }

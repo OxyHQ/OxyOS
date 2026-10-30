@@ -3854,6 +3854,25 @@ fn the_painters_structs_match_the_header() {
     layout!(OxyOSPaintLayer, [canvas, layer_scale, origin, inverse]);
     layout!(OxyOSPaintGlyph, [x, y, mask]);
     layout!(OxyOSPaintSmooth, [source, sigma, rect, bounds, radii]);
+    use crate::paint::OxyOSPaintPresentTimes;
+    layout!(
+        OxyOSPaintPresentTimes,
+        [
+            new_image,
+            freed_ms,
+            image_ms,
+            attach_ms,
+            timeline_ms,
+            release_ms,
+            wait_ms,
+            record_ms,
+            submit_ms,
+            sync_ms,
+            send_ms,
+            total_ms,
+            operations
+        ]
+    );
 }
 
 /// A painter through the C ABI: a canvas cleared, a rounded fill into it and read back, as the

@@ -631,6 +631,58 @@ pub unsafe extern "C" fn oxyos_paint_present(
     }
 }
 
+/// Where the last present's time went, in milliseconds (`oxyos_paint::PresentTimes`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OxyOSPaintPresentTimes {
+    pub new_image: bool,
+    pub freed_ms: f64,
+    pub image_ms: f64,
+    pub attach_ms: f64,
+    pub timeline_ms: f64,
+    pub release_ms: f64,
+    pub wait_ms: f64,
+    pub record_ms: f64,
+    pub submit_ms: f64,
+    pub sync_ms: f64,
+    pub send_ms: f64,
+    pub total_ms: f64,
+    pub operations: u32,
+}
+
+/// Writes where the last present's time went into `out`.
+///
+/// # Safety
+/// `paint` is a live pointer from `oxyos_paint_new`; `out` is writable.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_paint_last_present(
+    paint: *mut OxyOSPaint,
+    out: *mut OxyOSPaintPresentTimes,
+) -> c_int {
+    // SAFETY: per the contract.
+    let (Some(paint), Some(out)) = (unsafe { (painter(paint), out.as_mut()) }) else {
+        return fail("no painter or output");
+    };
+    let times = paint.paint.last_present();
+    *out = OxyOSPaintPresentTimes {
+        new_image: times.new_image,
+        freed_ms: times.freed_ms,
+        image_ms: times.image_ms,
+        attach_ms: times.attach_ms,
+        timeline_ms: times.timeline_ms,
+        release_ms: times.release_ms,
+        wait_ms: times.wait_ms,
+        record_ms: times.record_ms,
+        submit_ms: times.submit_ms,
+        sync_ms: times.sync_ms,
+        send_ms: times.send_ms,
+        total_ms: times.total_ms,
+        operations: times.operations,
+    };
+    0
+}
+
 /// Frees a surface's GPU buffers (it is destroyed).
 ///
 /// # Safety

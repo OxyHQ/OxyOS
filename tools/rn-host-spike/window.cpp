@@ -1,6 +1,9 @@
 #include "window.h"
 
+#include "report.h"
+
 #include <algorithm>
+#include <chrono>
 #include <poll.h>
 #include <cstdlib>
 #include <iostream>
@@ -222,6 +225,7 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   // protocol's XRGB8888 / premultiplied ARGB8888 layout.
   uint32_t format = id == kToplevel ? OXYOS_FORMAT_XRGB8888 : OXYOS_FORMAT_ARGB8888;
   int64_t sequence = -1;
+  auto started = std::chrono::steady_clock::now();
   if (canvas.gpu) {
     // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
     sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
@@ -243,6 +247,19 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   }
   if (sequence < 0 && disconnected()) return;
   if (sequence < 0) failed("cannot present");
+  // Where the frame's present went (the host's report).
+  OxyOSPaintPresentTimes times{};
+  bool onGpu = canvas.gpu && gpuPaint() && oxyos_paint_last_present(gpuPaint(), &times) == 0;
+  folly::dynamic parts = folly::dynamic::object;
+  if (onGpu) {
+    parts = folly::dynamic::object("new_image", times.new_image)("freed_ms", times.freed_ms)("image_ms", times.image_ms)(
+        "attach_ms", times.attach_ms)("timeline_ms", times.timeline_ms)("release_ms", times.release_ms)(
+        "wait_ms", times.wait_ms)("record_ms", times.record_ms)("submit_ms", times.submit_ms)("sync_ms", times.sync_ms)(
+        "send_ms", times.send_ms)("total_ms", times.total_ms)("operations", times.operations);
+  } else {
+    parts["total_ms"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  }
+  Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
               << " for configure " << target.configure << "\n";

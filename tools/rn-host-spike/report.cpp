@@ -161,6 +161,17 @@ void Report::renderCheck(uint32_t surface, int largest, size_t beyondThree, size
       "beyond_three", beyondThree)("pixels", pixels));
 }
 
+void Report::present(uint32_t surface, int width, int height, bool gpu, const folly::dynamic& parts) {
+  if (!file_) return;
+  folly::dynamic line = parts;
+  line["kind"] = "present";
+  line["surface"] = surface;
+  line["width"] = width;
+  line["height"] = height;
+  line["gpu"] = gpu;
+  write(std::move(line));
+}
+
 void Report::input(const char* event, uint32_t surface, const folly::dynamic& extra) {
   if (!file_) return;
   folly::dynamic line = extra;

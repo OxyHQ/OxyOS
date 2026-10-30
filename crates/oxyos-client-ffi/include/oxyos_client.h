@@ -1400,6 +1400,28 @@ int64_t oxyos_paint_present(OxyOSPaint* paint, OxyOSClient* client, uint32_t sur
                             uint32_t canvas, uint32_t format, const OxyOSRect* damage, size_t count);
 void oxyos_paint_forget_surface(OxyOSPaint* paint, OxyOSClient* client, uint32_t surface);
 
+/* Where the last present's time went, in milliseconds: buffers of another size freed, an image made
+ * and exported, attached, its timeline made, a release waited for, the frame before waited for,
+ * the frame's operations recorded, the copy recorded and submitted, the acquire point given its
+ * fence, the frame sent; whether it made an image, and how many operations the frame ran. 0, or
+ * OXYOS_ERROR. */
+typedef struct OxyOSPaintPresentTimes {
+  bool new_image;
+  double freed_ms;
+  double image_ms;
+  double attach_ms;
+  double timeline_ms;
+  double release_ms;
+  double wait_ms;
+  double record_ms;
+  double submit_ms;
+  double sync_ms;
+  double send_ms;
+  double total_ms;
+  uint32_t operations;
+} OxyOSPaintPresentTimes;
+int oxyos_paint_last_present(OxyOSPaint* paint, OxyOSPaintPresentTimes* out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -56,6 +56,29 @@ impl From<std::io::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
+/// Where the last present's time went, in milliseconds (the host's report says it for each frame):
+/// buffers of another size freed, an image made and exported, attached, its timeline made, a
+/// release waited for, the frame before waited for, the frame's operations recorded, the copy
+/// recorded and submitted, the acquire point given its fence, the frame sent; and whether it made
+/// an image.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PresentTimes {
+    pub new_image: bool,
+    pub freed_ms: f64,
+    pub image_ms: f64,
+    pub attach_ms: f64,
+    pub timeline_ms: f64,
+    pub release_ms: f64,
+    pub wait_ms: f64,
+    pub record_ms: f64,
+    pub submit_ms: f64,
+    pub sync_ms: f64,
+    pub send_ms: f64,
+    pub total_ms: f64,
+    /// The frame's operations (dispatches), the copy's submission aside.
+    pub operations: u32,
+}
+
 /// Device pixels an operation may touch, [x0, x1) × [y0, y1), within its canvas.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Pixels {
@@ -174,6 +197,34 @@ struct Buffer {
     coherent: bool,
 }
 
+/// What runs on the device: one operation, or a run of operations on one canvas worked out tile by
+/// tile in one dispatch (its bins in the heap, its grid of tiles from `origin`).
+enum Step {
+    One(usize),
+    Tiles {
+        bins: u32,
+        origin: (u32, u32),
+        grid: (u32, u32),
+    },
+}
+
+/// Operations a tile can work out among others: each writes only its own pixel of its canvas.
+fn tiled(kind: u32) -> bool {
+    [
+        Kind::Fill as u32,
+        Kind::Image as u32,
+        Kind::Layer as u32,
+        Kind::Glyphs as u32,
+        Kind::Smooth as u32,
+        Kind::Mask as u32,
+        Kind::Clear as u32,
+    ]
+    .contains(&kind)
+}
+
+/// Pixels of a tile's side.
+const TILE: u32 = 16;
+
 /// One dispatch: its record and its grid.
 struct Dispatch {
     record: u32,
@@ -183,6 +234,10 @@ struct Dispatch {
 pub struct Paint {
     pub(crate) gpu: present::Gpu,
     pipeline: vk::Pipeline,
+    /// The same shader's `tiles` entry: runs of operations, tile by tile.
+    tiles: vk::Pipeline,
+    /// What the recorded operations run as, worked out when they are submitted.
+    steps: Vec<Step>,
     layout: vk::PipelineLayout,
     set_layout: vk::DescriptorSetLayout,
     pool: vk::DescriptorPool,
@@ -207,6 +262,8 @@ pub struct Paint {
     frame: u64,
     /// What is presented: each surface's buffers.
     surfaces: HashMap<u32, present::Swapchain>,
+    /// Where the last present's time went.
+    pub(crate) last_present: PresentTimes,
 }
 
 fn words_of(slice: &[u8]) -> Vec<u32> {
@@ -228,6 +285,8 @@ impl Paint {
         let mut paint = Self {
             gpu,
             pipeline: vk::Pipeline::null(),
+            tiles: vk::Pipeline::null(),
+            steps: Vec::new(),
             layout: vk::PipelineLayout::null(),
             set_layout: vk::DescriptorSetLayout::null(),
             pool: vk::DescriptorPool::null(),
@@ -260,6 +319,7 @@ impl Paint {
             masks: HashMap::new(),
             frame: 0,
             surfaces: HashMap::new(),
+            last_present: PresentTimes::default(),
         };
         paint.build()?;
         paint.heap = paint.host_buffer(16 << 20)?;
@@ -307,7 +367,7 @@ impl Paint {
             let layouts = [self.set_layout];
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(4)];
+                .size(24)];
             self.layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
                     .set_layouts(&layouts)
@@ -316,20 +376,25 @@ impl Paint {
             )?;
             let module = device
                 .create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&code), None)?;
-            let pipelines = device.create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[vk::ComputePipelineCreateInfo::default()
+            let entry = |name: &'static std::ffi::CStr| {
+                vk::ComputePipelineCreateInfo::default()
                     .stage(
                         vk::PipelineShaderStageCreateInfo::default()
                             .stage(vk::ShaderStageFlags::COMPUTE)
                             .module(module)
-                            .name(c"main"),
+                            .name(name),
                     )
-                    .layout(self.layout)],
+                    .layout(self.layout)
+            };
+            let pipelines = device.create_compute_pipelines(
+                vk::PipelineCache::null(),
+                &[entry(c"main"), entry(c"tiles")],
                 None,
             );
             device.destroy_shader_module(module, None);
-            self.pipeline = pipelines.map_err(|(_, result)| Error::from(result))?[0];
+            let pipelines = pipelines.map_err(|(_, result)| Error::from(result))?;
+            self.pipeline = pipelines[0];
+            self.tiles = pipelines[1];
             let sizes = [vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(2)];
@@ -1012,7 +1077,97 @@ impl Paint {
         Ok(())
     }
 
-    /// Records every operation into the command buffer, in order, each after the one before.
+    /// What the recorded operations run as: runs of consecutive operations a tile can work out on
+    /// one canvas, binned by tile into the heap (each tile's operations in order), and the others
+    /// one by one. A step reads what the steps before it wrote (a barrier between each).
+    fn plan(&mut self) -> Result<()> {
+        self.steps.clear();
+        let mut index = 0;
+        while index < self.dispatches.len() {
+            let record = self.dispatches[index].record as usize;
+            let (kind, canvas) = (self.recorded[record], self.recorded[record + 1]);
+            let mut end = index + 1;
+            if tiled(kind) {
+                while end < self.dispatches.len() {
+                    let next = self.dispatches[end].record as usize;
+                    if !tiled(self.recorded[next]) || self.recorded[next + 1] != canvas {
+                        break;
+                    }
+                    end += 1;
+                }
+            }
+            if end - index < 2 {
+                self.steps.push(Step::One(index));
+                index = end;
+                continue;
+            }
+            // The run's tiles: those its operations' pixels cover.
+            let boxes: Vec<(u32, u32, u32, u32)> = (index..end)
+                .map(|at| {
+                    let r = self.dispatches[at].record as usize;
+                    (
+                        self.recorded[r + 4] / TILE,
+                        self.recorded[r + 5] / TILE,
+                        self.recorded[r + 6].div_ceil(TILE),
+                        self.recorded[r + 7].div_ceil(TILE),
+                    )
+                })
+                .collect();
+            let bounds = |at: usize| boxes[at - index];
+            let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+            for at in index..end {
+                let (a, b, c, d) = bounds(at);
+                (x0, y0, x1, y1) = (x0.min(a), y0.min(b), x1.max(c), y1.max(d));
+            }
+            let (width, height) = (x1 - x0, y1 - y0);
+            let tiles = (width * height) as usize;
+            let mut counts = vec![0u32; tiles];
+            for at in index..end {
+                let (a, b, c, d) = bounds(at);
+                for y in b..d {
+                    for x in a..c {
+                        counts[((y - y0) * width + (x - x0)) as usize] += 1;
+                    }
+                }
+            }
+            let listed: u32 = counts.iter().sum();
+            let at = self.allocate(tiles as u64 + 1 + u64::from(listed))?;
+            let base = at.offset as u32;
+            // Each tile's range of the list (absolute heap words), then the list: records in order.
+            let mut words = Vec::with_capacity(tiles + 1 + listed as usize);
+            let mut next = base + tiles as u32 + 1;
+            for count in &counts {
+                words.push(next);
+                next += count;
+            }
+            words.push(next);
+            let records: Vec<u32> = (index..end).map(|at| self.dispatches[at].record).collect();
+            let mut fill: Vec<u32> = words[..tiles].to_vec();
+            words.resize(tiles + 1 + listed as usize, 0);
+            for item in index..end {
+                let (a, b, c, d) = bounds(item);
+                let record = records[item - index];
+                for y in b..d {
+                    for x in a..c {
+                        let tile = ((y - y0) * width + (x - x0)) as usize;
+                        words[(fill[tile] - base) as usize] = record;
+                        fill[tile] += 1;
+                    }
+                }
+            }
+            self.heap_words(&at).copy_from_slice(&words);
+            self.retire(at);
+            self.steps.push(Step::Tiles {
+                bins: base,
+                origin: (x0, y0),
+                grid: (width, height),
+            });
+            index = end;
+        }
+        Ok(())
+    }
+
+    /// Records the steps into the command buffer, in order, each after the one before.
     fn commands(&self) {
         let device = &self.gpu.device;
         let barrier = vk::MemoryBarrier::default()
@@ -1029,7 +1184,6 @@ impl Paint {
                 &[],
                 &[],
             );
-            device.cmd_bind_pipeline(self.command, vk::PipelineBindPoint::COMPUTE, self.pipeline);
             device.cmd_bind_descriptor_sets(
                 self.command,
                 vk::PipelineBindPoint::COMPUTE,
@@ -1038,15 +1192,33 @@ impl Paint {
                 &[self.set],
                 &[],
             );
-            for dispatch in &self.dispatches {
+            for step in &self.steps {
+                let (pipeline, constants, groups) = match *step {
+                    Step::One(index) => {
+                        let dispatch = &self.dispatches[index];
+                        (
+                            self.pipeline,
+                            [dispatch.record, 0, 0, 0, 0, 0],
+                            dispatch.groups,
+                        )
+                    }
+                    Step::Tiles { bins, origin, grid } => {
+                        (self.tiles, [0, bins, grid.0, origin.0, origin.1, 0], grid)
+                    }
+                };
+                let bytes: Vec<u8> = constants
+                    .iter()
+                    .flat_map(|word| word.to_ne_bytes())
+                    .collect();
+                device.cmd_bind_pipeline(self.command, vk::PipelineBindPoint::COMPUTE, pipeline);
                 device.cmd_push_constants(
                     self.command,
                     self.layout,
                     vk::ShaderStageFlags::COMPUTE,
                     0,
-                    &dispatch.record.to_ne_bytes(),
+                    &bytes,
                 );
-                device.cmd_dispatch(self.command, dispatch.groups.0, dispatch.groups.1, 1);
+                device.cmd_dispatch(self.command, groups.0, groups.1, 1);
                 device.cmd_pipeline_barrier(
                     self.command,
                     vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1066,6 +1238,7 @@ impl Paint {
 
     /// Writes the records, and begins the command buffer with their dispatches.
     fn begin_commands(&mut self) -> Result<()> {
+        self.plan()?;
         if self.recorded.len() as u64 > self.records.words {
             let bigger = self.host_buffer((self.recorded.len() as u64 * 2).max(1 << 16))?;
             let old = std::mem::replace(&mut self.records, bigger);
@@ -1185,6 +1358,11 @@ impl Paint {
         present::present(self, client, surface, configure, canvas, format, damage)
     }
 
+    /// Where the last present's time went.
+    pub fn last_present(&self) -> PresentTimes {
+        self.last_present
+    }
+
     /// Forgets a surface's buffers (it is destroyed).
     pub fn forget_surface(&mut self, client: &mut Client, surface: u32) {
         if let Some(chain) = self.surfaces.remove(&surface) {
@@ -1219,6 +1397,7 @@ impl Drop for Paint {
             device.destroy_command_pool(self.commands, None);
             device.destroy_descriptor_pool(self.pool, None);
             device.destroy_pipeline(self.pipeline, None);
+            device.destroy_pipeline(self.tiles, None);
             device.destroy_pipeline_layout(self.layout, None);
             device.destroy_descriptor_set_layout(self.set_layout, None);
         }
