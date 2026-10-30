@@ -40,46 +40,43 @@ wireless-tools
 ntfs-3g
 dosfstools
 
-# Hardware: the firmware and microcode live-build's detection (LB_FIRMWARE_CHROOT) chose for
-# Trixie, named here so that only firmware is installed. Left out: indi-dsi, libfishcamp1t64
-# and libsbig4t64 (astronomy camera drivers, which pull Cairo and the X11 client libraries),
-# dahdi-firmware-nonfree (telephony cards), and firmware-b43-installer and
-# firmware-b43legacy-installer (they download firmware from the internet as they install).
+# Hardware: firmware and microcode for laptops and desktops, named here rather than chosen by
+# live-build's detection (LB_FIRMWARE_CHROOT), which installs every package with a file under
+# /lib/firmware: astronomy camera drivers (indi-dsi, libfishcamp1t64, libsbig4t64, which pull
+# Cairo and the X11 client libraries), telephony cards (dahdi-firmware-nonfree) and the b43
+# installers (they download firmware from the internet as they install). Server and data-centre
+# firmware is left out too, and scripts/check-image-config.py refuses it (SERVER_FIRMWARE):
+# NICs (bnx2, bnx2x, cavium, myricom, netronome, netxen), switch ASICs (marvell-prestera), HBAs
+# (qlogic), BMC graphics (ast) and data-centre GPUs (nvidia-tesla-*-gsp).
 firmware-linux-free
 firmware-linux
 firmware-linux-nonfree
 firmware-misc-nonfree
 amd64-microcode
 intel-microcode
-wireless-regdb
-bluez-firmware
-atmel-firmware
+# Graphics: AMD, Intel (and its IPU cameras), NVIDIA's consumer GPUs.
 firmware-amd-graphics
-firmware-ast
-firmware-ath9k-htc
-firmware-atheros
-firmware-bnx2
-firmware-bnx2x
-firmware-brcm80211
-firmware-carl9170
-firmware-cavium
-firmware-cirrus
 firmware-intel-graphics
-firmware-intel-misc
-firmware-intel-sound
-firmware-ipw2x00
-firmware-ivtv
-firmware-iwlwifi
-firmware-libertas
-firmware-marvell-prestera
-firmware-mediatek
-firmware-myricom
-firmware-netronome
-firmware-netxen
 firmware-nvidia-graphics
-firmware-nvidia-tesla-535-gsp
-firmware-qlogic
+# Wireless and Bluetooth.
+wireless-regdb
+firmware-iwlwifi
 firmware-realtek
-firmware-siano
-firmware-sof-signed
+firmware-atheros
+firmware-ath9k-htc
+firmware-carl9170
+firmware-mediatek
+firmware-brcm80211
+firmware-libertas
+firmware-ipw2x00
 firmware-zd1211
+atmel-firmware
+bluez-firmware
+# Audio, and the other Intel devices of a laptop.
+firmware-sof-signed
+firmware-intel-sound
+firmware-intel-misc
+firmware-cirrus
+# TV tuners and capture cards a desktop may have.
+firmware-ivtv
+firmware-siano

@@ -6,7 +6,8 @@ It reads what `tools/image/build.sh audit` extracts from an image (the live root
 and file list, the ISO's file list, the initramfs's file list and the boot logo from both):
 
 - no installed package is a display server, Wayland compositor, greeter, toolkit runtime or
-  desktop application (check-image-config.py's own list), and no file is one either;
+  desktop application (check-image-config.py's own list), and no file is one either, and no
+  package is server firmware (its SERVER_FIRMWARE);
 - every installed package is in the manifest or in its dependency closure (Pre-Depends,
   Depends and Recommends, as the build installs them) from what live-build adds itself
   (debootstrap's required and important packages, the kernel, the firmware), and every
@@ -237,6 +238,9 @@ def audit_image(audit, gate):
                 residue.append(f"package {name}: {RESIDUE[name]}; {chain(name)}")
             else:
                 violations.append(f"forbidden package installed: {name} {packages[name].get('Version', '')}; {chain(name)}")
+
+        if CONFIG_CHECK.SERVER_FIRMWARE.search(name):
+            violations.append(f"server firmware installed: {name}; {chain(name)}")
 
     # 2. The dependency closure.
     selected = sorted(n for n, r in reasons.items() if r == "LB_FIRMWARE_CHROOT" and n in packages

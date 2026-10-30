@@ -19,7 +19,7 @@ An image pipeline returns together with the native session, not before it. It mu
 - audit the dependency closure and the final package contents for X11, XWayland and Wayland: `scripts/check-image-contents.py --gate` on the built image ([Contents audit](#contents-audit));
 - carry signing/provenance and the resolved repository licence and asset review.
 
-Having the tests and the audit does not make the console base publishable: it still has no session. How an image gets onto a disk is [ADR 0022](./adr/0022-installing-oxyos).
+Having the tests and the audit does not make the console base publishable: it still has no session. How an image gets onto a disk is [ADR 0023](./adr/0023-installing-oxyos).
 
 Do not install `oxyos-platform-probe` as a compositor, session, greeter or boot check.
 
@@ -37,7 +37,14 @@ Live command line: `boot=live components quiet splash loglevel=3 vt.global_curso
 
 ### Package manifest
 
-`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode. The firmware is named in the manifest (`LB_FIRMWARE_CHROOT="false"`, which the check script enforces): live-build's own detection installs every package with a file under `/lib/firmware`, and in a built image that brought astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`) and through them Cairo, `libxcb-render0` and `libxcb-shm0`. The manifest keeps every firmware package the detection chose but those, the telephony cards' `dahdi-firmware-nonfree` and the two `b43` installers, which download firmware from the internet as they install. `LB_FIRMWARE_BINARY` still puts firmware in the debian-installer's pool.
+`package-lists/live.list.chroot` is the authoritative target-runtime manifest; there is no metapackage. It holds the live tooling, core system tools, the boot logo (`plymouth` and the `fontconfig` its initramfs hook needs; not `plymouth-themes` or `plymouth-label`, [ADR 0017](./adr/0017-boot-logo)), NetworkManager, **PipeWire** (`pipewire-audio`, the one audio stack), UPower, BlueZ, command-line utilities, and the firmware and microcode.
+
+**Firmware: laptops and desktops.** OxyOS runs on laptops and desktops, so the image carries the firmware of their hardware and not a server's. The manifest names it (`LB_FIRMWARE_CHROOT="false"`, which the check script enforces):
+- **in:** the CPU microcode (Intel, AMD); graphics: AMD, Intel (with its IPU cameras) and NVIDIA's consumer GPUs (`firmware-nvidia-graphics`); Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, MediaTek, Broadcom, Marvell, and the older USB and PCI adapters, with `wireless-regdb`; audio: Intel SOF and DSPs, Cirrus Logic amplifiers; Intel's other devices; TV tuners and capture cards; `firmware-misc-nonfree` for everything else small.
+- **out, refused:** firmware only servers and data centres have, matched by `SERVER_FIRMWARE` in `scripts/check-image-config.py` (in the manifest) and by the built image's audit. That covers network adapters (`firmware-bnx2`, `-bnx2x`, `-cavium`, `-myricom`, `-netronome`, `-netxen`, `-liquidio`), switch ASICs (`-marvell-prestera`), storage HBAs (`-qlogic`), BMC graphics (`-ast`) and data-centre GPUs (`-nvidia-tesla-*-gsp`). `archives/no-server-firmware.pref.chroot` pins them to -1 during the build: `firmware-libertas` recommends `firmware-marvell-prestera`, and a hard dependency on one fails the build.
+- **out, not firmware:** what live-build's own detection would add, since it installs every package with a file under `/lib/firmware`. In a built image that was astronomy camera drivers (`indi-dsi`, `libfishcamp1t64`, `libsbig4t64`), and through them Cairo, `libxcb-render0` and `libxcb-shm0`; the telephony cards' `dahdi-firmware-nonfree`; and the two `b43` installers, which download firmware from the internet as they install.
+
+`LB_FIRMWARE_BINARY` still puts the detection's firmware, servers' included, in the debian-installer's pool on the ISO (not in the live system), until the installer leaves the image ([ADR 0023](./adr/0023-installing-oxyos), step 4).
 
 `archives/no-display-stack.pref.chroot` pins X.org, XWayland, labwc, greetd, LXDM, `xauth` and `x11-common` to priority -1 during the build, so a hard dependency on them fails the build instead of shipping silently. It has no `.pref.binary` counterpart and does not restrict apt on an installed system.
 
@@ -69,7 +76,7 @@ New hooks are POSIX `sh` (`set -e`, `P:` progress lines) and must pass `sh -n`; 
 
 ## Building and testing locally
 
-For development only: the result is the console base system, not OxyOS, and it is never published. Nothing here runs in CI; `scripts/check-image-config.py` fails a workflow that builds or publishes an image. How an image will get onto a disk, and the gate it passes first, is [ADR 0022](./adr/0022-installing-oxyos).
+For development only: the result is the console base system, not OxyOS, and it is never published. Nothing here runs in CI; `scripts/check-image-config.py` fails a workflow that builds or publishes an image. How an image will get onto a disk, and the gate it passes first, is [ADR 0023](./adr/0023-installing-oxyos).
 
 ### Building
 

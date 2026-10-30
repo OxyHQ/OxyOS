@@ -25,6 +25,13 @@ FORBIDDEN_PACKAGE = re.compile(
     r"|x11|xcb|wayland|gtk|gdk|webkit|appindicator|qt5|qt6"
 )
 
+# Firmware only servers and data centres have: OxyOS runs on laptops and desktops
+# (docs/iso-build.mdx, "Package manifest"). Consumer hardware's firmware is in the manifest.
+SERVER_FIRMWARE = re.compile(
+    r"^firmware-(bnx2|bnx2x|cavium|myricom|netronome|netxen|qlogic|marvell-prestera|ast|"
+    r"nvidia-tesla-[0-9]+-gsp|liquidio)$"
+)
+
 # Executables, configuration paths and environment of the retired session.
 STALE_REFERENCE = re.compile(
     r"oxyos-shell|labwc|xwayland|greetd|seatd|lxdm|tauri|webkit|/etc/X11|xorg\.conf|"
@@ -66,6 +73,8 @@ def check_packages():
             for name in line.split("#", 1)[0].split():
                 if FORBIDDEN_PACKAGE.search(name):
                     violations.append(f"{path.relative_to(ROOT)}:{number}: retired package {name}")
+                if SERVER_FIRMWARE.search(name):
+                    violations.append(f"{path.relative_to(ROOT)}:{number}: server firmware {name}; OxyOS runs on laptops and desktops")
     return violations
 
 
