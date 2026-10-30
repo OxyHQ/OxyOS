@@ -41,3 +41,21 @@ fn a_truncated_blob_is_rejected() {
         assert!(parse_in_formats(&blob[..length]).is_err(), "{length}");
     }
 }
+
+#[test]
+fn the_crtc_already_lighting_the_output_is_kept() {
+    let crtc = |raw| drm::control::from_u32::<drm::control::crtc::Handle>(raw).unwrap();
+    let possible = [crtc(41), crtc(58), crtc(75)];
+    // The boot logo's (or the firmware's) CRTC, so the first frame is no full modeset.
+    assert_eq!(
+        display::choose_crtc(Some(crtc(58)), &possible),
+        Some(crtc(58))
+    );
+    // Nothing lit, or lit by a CRTC the connector may not use: the first it may.
+    assert_eq!(display::choose_crtc(None, &possible), Some(crtc(41)));
+    assert_eq!(
+        display::choose_crtc(Some(crtc(92)), &possible),
+        Some(crtc(41))
+    );
+    assert_eq!(display::choose_crtc(Some(crtc(58)), &[]), None);
+}
