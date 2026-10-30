@@ -12,14 +12,15 @@
 use oxyos_client::{Accessible, Client, Field, Menu, Poll};
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Event, Format, Gravity,
-    MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, Rect, Request, SecretChunk, ShellKind,
-    Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
+    MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
+    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::path::Path;
 
+pub mod accounts;
 pub mod apps;
 pub mod gestures;
 pub mod images;
@@ -1142,6 +1143,26 @@ pub unsafe extern "C" fn oxyos_client_authenticate(
     secret: *const c_char,
     length: usize,
 ) -> c_int {
+    // SAFETY: forwarded caller contract; no account.
+    unsafe { oxyos_client_authenticate_account(client, surface, std::ptr::null(), secret, length) }
+}
+
+/// As `oxyos_client_authenticate`, for the account `account` (its Unix user's name, a
+/// NUL-terminated string of at most 31 bytes; null for the session's own user): a login screen's
+/// password (docs/adr/0020-oxy-account-login.mdx). 0 on success; nothing is sent on an error.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `account` is null or NUL-terminated;
+/// `secret` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_authenticate_account(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
     // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         return fail("null client");
@@ -1160,6 +1181,24 @@ pub unsafe extern "C" fn oxyos_client_authenticate(
     let Ok(secret) = std::str::from_utf8(bytes) else {
         return fail("a password is UTF-8");
     };
+    let account =
+        if account.is_null() {
+            None
+        } else {
+            // SAFETY: per the contract, a non-null `account` is NUL-terminated.
+            let account = unsafe { CStr::from_ptr(account) };
+            match account.to_str().ok().filter(|name| {
+                !name.is_empty() && name.len() <= oxyos_protocol::MAX_USER_NAME_BYTES
+            }) {
+                Some(name) => Some(name),
+                None => return fail("an account is a user name of 1 to 31 bytes of UTF-8"),
+            }
+        };
+    if let Some(user) = account.and_then(PreeditText::new) {
+        if let Err(error) = client.send(&Request::AuthenticateAccount { surface, user }) {
+            return fail(error);
+        }
+    }
     for secret in SecretChunk::split(secret) {
         if let Err(error) = client.send(&Request::AuthenticateSecret { surface, secret }) {
             return fail(error);

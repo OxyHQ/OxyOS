@@ -1,6 +1,7 @@
 //! The lock's password through the compositor (docs/adr/0010-lock-screen.mdx): a lock surface
 //! submits it, the authentication path answers off the compositor's turn, and only its
-//! `Accepted` unlocks.
+//! `Accepted` unlocks; at a login screen (docs/adr/0020-oxy-account-login.mdx) it signs in
+//! instead, and the account the lock surface named reaches the path.
 
 use oxyos_compositor::{Authentication, Compositor};
 use oxyos_compositor_core::scene::Secret;
@@ -10,17 +11,20 @@ use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 
 const LOCKER: u32 = 7;
 
-/// Accepts "right" only, answering a turn after it was asked; counts what it was given.
+/// Accepts "right" only, answering a turn after it was asked; counts what it was given and keeps
+/// the accounts it was asked for.
 struct Fixture {
     asked: Option<bool>,
     ready: OwnedFd,
     _signal: OwnedFd,
     attempts: std::rc::Rc<std::cell::Cell<u32>>,
+    accounts: std::rc::Rc<std::cell::RefCell<Vec<Option<String>>>>,
 }
 
 impl Authentication for Fixture {
-    fn attempt(&mut self, secret: Secret) -> Option<(AuthOutcome, u32)> {
+    fn attempt(&mut self, account: Option<&str>, secret: Secret) -> Option<(AuthOutcome, u32)> {
         self.attempts.set(self.attempts.get() + 1);
+        self.accounts.borrow_mut().push(account.map(str::to_owned));
         self.asked = Some(&secret[..] == b"right");
         None
     }
@@ -38,7 +42,14 @@ impl Authentication for Fixture {
     }
 }
 
+type Accounts = std::rc::Rc<std::cell::RefCell<Vec<Option<String>>>>;
+
 fn compositor() -> (Compositor, std::rc::Rc<std::cell::Cell<u32>>) {
+    let (compositor, attempts, _) = compositor_with_accounts();
+    (compositor, attempts)
+}
+
+fn compositor_with_accounts() -> (Compositor, std::rc::Rc<std::cell::Cell<u32>>, Accounts) {
     let output = Rect::new(0, 0, 640, 480);
     let mut scene = Scene::new();
     scene
@@ -61,13 +72,15 @@ fn compositor() -> (Compositor, std::rc::Rc<std::cell::Cell<u32>>) {
     let mut compositor = Compositor::new(scene, 0);
     let (ready, signal) = rustix::pipe::pipe().unwrap();
     let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let accounts = Accounts::default();
     compositor.authentication = Some(Box::new(Fixture {
         asked: None,
         ready,
         _signal: signal,
         attempts: attempts.clone(),
+        accounts: accounts.clone(),
     }));
-    (compositor, attempts)
+    (compositor, attempts, accounts)
 }
 
 fn submit(compositor: &mut Compositor, password: &str) {
@@ -144,4 +157,40 @@ fn without_an_authentication_path_nothing_unlocks() {
     compositor.authenticate();
     assert_eq!(results(&mut compositor), [AuthOutcome::Rejected]);
     assert!(compositor.scene.is_locked());
+}
+
+#[test]
+fn at_a_login_screen_an_acceptance_signs_in_and_never_unlocks() {
+    let (mut compositor, _, accounts) = compositor_with_accounts();
+    compositor.login = true;
+    compositor.scene.lock();
+    compositor
+        .scene
+        .handle(
+            LOCKER,
+            Request::CreateLockSurface {
+                surface: 1,
+                output: 1,
+            },
+        )
+        .unwrap();
+    let name = |surface| Request::AuthenticateAccount {
+        surface,
+        user: oxyos_protocol::PreeditText::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap(),
+    };
+    compositor.scene.handle(LOCKER, name(1)).unwrap();
+    submit(&mut compositor, "wrong");
+    compositor.authenticate();
+    compositor.authenticate();
+    assert_eq!(results(&mut compositor), [AuthOutcome::Rejected]);
+    assert!(!compositor.signed_in);
+    compositor.scene.handle(LOCKER, name(1)).unwrap();
+    submit(&mut compositor, "right");
+    compositor.authenticate();
+    compositor.authenticate();
+    assert_eq!(results(&mut compositor), [AuthOutcome::Accepted]);
+    assert!(compositor.signed_in);
+    assert!(compositor.scene.is_locked(), "a login screen never unlocks");
+    let account = Some("oxy-aaaaaaaaaaaaaaaaaaaa".to_owned());
+    assert_eq!(*accounts.borrow(), [account.clone(), account]);
 }

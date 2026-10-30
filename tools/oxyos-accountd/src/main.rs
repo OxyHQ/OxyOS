@@ -3,11 +3,14 @@
 //! It runs as root, because it makes users and sets their verifiers, and nothing else runs with
 //! it; `oxyos-accountd.service` confines it to what that needs.
 //!
-//! This is its first step: setting an account up (`oxyos-account`'s `setup`), for the setup client
-//! on its socket. Only root and the login program's user may enroll.
+//! It sets accounts up (`oxyos-account`'s `setup`) for the setup client on its socket, and lists
+//! the enrolled ones for the login screen and the login program (`oxyos-login`, ADR 0020 step 2).
+//! Only root and the login program's user may do either.
 //!
-//! `oxyos-accountd [--state DIRECTORY] [--socket PATH] [--api URL] [--enroller USER]`:
+//! `oxyos-accountd [--state DIRECTORY] [--pictures DIRECTORY] [--socket PATH] [--api URL]
+//! [--enroller USER]`:
 //! - `--state`: the enrolled accounts, `/var/lib/oxyos/accounts` by default;
+//! - `--pictures`: the accounts' pictures, `/var/lib/oxyos/pictures` by default;
 //! - `--socket`: where it listens, `/run/oxyos/accountd/socket` by default;
 //! - `--api`: Oxy's API, `https://api.oxy.so` by default (plain HTTP only to this machine, for a
 //!   development server);
@@ -20,7 +23,7 @@
 use oxyos_account::api::HttpApi;
 use oxyos_account::ipc::{self, Enrollers, Listener, Outcome, Peer};
 use oxyos_account::setup::Setup;
-use oxyos_account::store::{Store, STATE_DIRECTORY};
+use oxyos_account::store::{Store, PICTURES_DIRECTORY, STATE_DIRECTORY};
 use oxyos_account::users::{passwd_entry, SystemUsers};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -34,6 +37,7 @@ const MAX_REFUSALS: usize = 4;
 
 struct Options {
     state: PathBuf,
+    pictures: PathBuf,
     socket: PathBuf,
     api: String,
     enroller: String,
@@ -42,6 +46,7 @@ struct Options {
 fn options() -> Result<Options, String> {
     let mut options = Options {
         state: STATE_DIRECTORY.into(),
+        pictures: PICTURES_DIRECTORY.into(),
         socket: ipc::SOCKET.into(),
         api: oxyos_account::api::OXY_API.into(),
         enroller: "oxyos-login".into(),
@@ -55,14 +60,15 @@ fn options() -> Result<Options, String> {
         };
         match argument.as_str() {
             "--state" => options.state = value()?.into(),
+            "--pictures" => options.pictures = value()?.into(),
             "--socket" => options.socket = value()?.into(),
             "--api" => options.api = value()?,
             "--enroller" => options.enroller = value()?,
             _ => {
                 return Err(format!(
                     "unknown argument {argument}\n\
-                     usage: oxyos-accountd [--state DIRECTORY] [--socket PATH] [--api URL] \
-                     [--enroller USER]"
+                     usage: oxyos-accountd [--state DIRECTORY] [--pictures DIRECTORY] \
+                     [--socket PATH] [--api URL] [--enroller USER]"
                 ))
             }
         }
@@ -82,6 +88,13 @@ fn log(peer: &Peer, outcome: &Outcome) {
             eprintln!("oxyos-accountd: {who}: setup waits for the authenticator's code")
         }
         Outcome::InvalidRequest => eprintln!("oxyos-accountd: {who}: not a request"),
+        Outcome::Listed { accounts, broken } => {
+            eprintln!("oxyos-accountd: {who} listed {accounts} accounts");
+            for file in broken {
+                eprintln!("oxyos-accountd: not an account, left out: {file}");
+            }
+        }
+        Outcome::Unlisted(error) => eprintln!("oxyos-accountd: {who}: the accounts: {error}"),
     }
 }
 
@@ -104,7 +117,8 @@ fn run() -> Result<(), String> {
     }
     let api = HttpApi::new(&options.api)?;
     let store = Store::open(&options.state)
-        .map_err(|error| format!("{}: {error}", options.state.display()))?;
+        .map_err(|error| format!("{}: {error}", options.state.display()))?
+        .with_pictures(&options.pictures);
     let setup = Arc::new(Setup::new(api, SystemUsers::new(), store));
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;

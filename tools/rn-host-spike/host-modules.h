@@ -101,7 +101,9 @@ struct ShellService {
   // Asks the session for an application of its registry (ADR 0013): the request's serial, 0 if it
   // could not be sent. `OxyOSShellLaunch` answers.
   std::function<uint32_t(const std::string& id)> launch;
-  std::function<bool(const std::string& secret)> authenticate;
+  // At the login screen (docs/adr/0020-oxy-account-login.mdx) the password is for `account`, an
+  // enrolled account's Unix user; empty, the session's own user.
+  std::function<bool(const std::string& secret, const std::string& account)> authenticate;
   // Chooses the entry `index` of the commit `serial` of window `window`'s menus, as the shell was
   // told them (docs/adr/0021-menu-bar.mdx); the compositor delivers it only if they are still the
   // active window's.

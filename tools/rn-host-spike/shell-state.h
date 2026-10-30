@@ -33,7 +33,8 @@ class ShellState {
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
   //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }],
-  //   output, outputs: [{ id, x, y, width, height, scale, primary }] }
+  //   output, outputs: [{ id, x, y, width, height, scale, primary }],
+  //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API) }
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
   // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
@@ -91,6 +92,7 @@ class ShellState {
   folly::dynamic applications_ = folly::dynamic::array();
   void readApplications();
   folly::dynamic wallpaperUri() const;
+  static std::string oxyApi();
   // The session's user, from the account database: the login name, and the full name of its
   // GECOS field (empty if it has none).
   std::string user_, fullName_;

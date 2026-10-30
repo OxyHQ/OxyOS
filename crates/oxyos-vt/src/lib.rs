@@ -52,6 +52,26 @@ struct VtStat {
     _state: u16,
 }
 
+/// Shows terminal `number` (`VT_ACTIVATE` on the console, root's): the login program shows the
+/// terminal its login screen and sessions are on before it opens one there, as a login manager
+/// does, so logind makes that session the seat's active one (docs/adr/0020-oxy-account-login.mdx).
+pub fn show(number: u16) -> io::Result<()> {
+    let console = open(
+        "/dev/tty0",
+        OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    // SAFETY: VT_ACTIVATE takes the terminal's number as an integer.
+    #[allow(unsafe_code)]
+    unsafe {
+        ioctl(
+            &console,
+            IntegerSetter::<VT_ACTIVATE>::new_usize(usize::from(number)),
+        )?
+    };
+    Ok(())
+}
+
 /// A process whose controlling terminal is `/dev/tty{number}` (a getty, a shell), from
 /// `/proc/*/stat`: the terminal's session, which `TIOCGSID` reports only to its own members.
 fn controlling_process(number: u16) -> io::Result<Option<(u32, String)>> {

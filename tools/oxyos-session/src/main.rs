@@ -58,10 +58,19 @@
 //! Started at boot by a unit of `Type=notify` (docs/adr/0017-boot-logo.mdx), the session sends
 //! `READY=1` once its first frame, the splash, has flipped on a display; the unit then lets the
 //! boot logo go, which showed the same pixels until then.
+//!
+//! `oxyos-session --greeter --shell PROGRAM,ARG...` is the login screen
+//! (docs/adr/0020-oxy-account-login.mdx), as the login program (`oxyos-login`) runs it in a logind
+//! session of class `greeter`, as its own user: the same compositor on the seat, locked from the
+//! start, the shell (the Bloom host's `OxyOSLogin`) its one client and the lock surfaces it makes
+//! all there is to see. A password typed there is for the account the lock surface names, and
+//! goes to the login program (`OXYOS_LOGIN_SOCKET`, `/run/oxyos/login/greeter`), never to PAM
+//! from here: accepted, the splash is shown and the login screen ends, and the login program
+//! starts the person's session. Nothing is launched, sleep is not held, and the first frame on a
+//! display is told to the login program, which tells the service manager.
 
 mod cursor_file;
 mod displays;
-mod notify;
 
 use oxyos_compositor::settings::{self, Settings};
 use oxyos_compositor::{Authentication, Compositor, Gpu, LaunchRecord, Result};
@@ -78,9 +87,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] \
-                     [--shell PROGRAM,ARG...] [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...] \
-                     (COMMAND is required without a shell)";
+const USAGE: &str = "usage: oxyos-session [--greeter] [--layout LAYOUT] \
+                     [--pointer FILE.cur|SCHEME[,SIZE]] [--shell PROGRAM,ARG...] \
+                     [--reader PROGRAM [--reader-on]] [-- COMMAND [ARGS]...] \
+                     (COMMAND is required without a shell; --greeter takes a shell and no COMMAND)";
+/// Once someone signed in at the login screen, it shows the splash this long before it ends.
+const SIGNED_IN_SPLASH: Duration = Duration::from_millis(250);
 /// The shells' panels set the work areas within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 /// The PAM service the lock checks passwords under (`/etc/pam.d/oxyos`).
@@ -91,7 +103,7 @@ const SHELL_RESTART: Duration = Duration::from_secs(1);
 fn main() -> Result<()> {
     // Before any thread or child: nothing the session starts inherits the service manager's
     // socket.
-    let notify = notify::Notify::take();
+    let notify = oxyos_seat::notify::Notify::take();
     let mut args = std::env::args_os().skip(1);
     let mut layout: Option<oxyos_input::Layout> = None;
     let mut command: Vec<OsString> = Vec::new();
@@ -99,8 +111,10 @@ fn main() -> Result<()> {
     let mut pointer: Option<(PathBuf, u32)> = None;
     let mut reader_program: Option<OsString> = std::env::var_os("OXYOS_READER");
     let mut reader_on = false;
+    let mut greeter = false;
     while let Some(arg) = args.next() {
         match arg.to_str() {
+            Some("--greeter") => greeter = true,
             Some("--pointer") => {
                 let value = args
                     .next()
@@ -143,24 +157,48 @@ fn main() -> Result<()> {
     if reader_on && reader_program.is_none() {
         return Err(USAGE.into());
     }
+    // The login screen is its shell alone.
+    if greeter && (shell_command.is_none() || !command.is_empty()) {
+        return Err(USAGE.into());
+    }
     // The user's preferences; what the file does not say (or is not there) is the default.
     let mut settings = Settings::session();
     // The screen reader the user keeps on starts with the session, when there is one to start.
     let reader_on = reader_on || settings.preferences().screen_reader && reader_program.is_some();
 
     // The lock's authentication path first: without one the session never starts, as it could
-    // lock and never unlock.
-    let pam = oxyos_auth::Authenticator::for_session(PAM_SERVICE)?;
-    eprintln!(
-        "[session] the lock checks {}'s password with PAM ({PAM_SERVICE})",
-        pam.user().to_string_lossy()
-    );
-    let pam = Pam(oxyos_auth::Checker::spawn(pam)?);
+    // lock and never unlock. The login screen's is the login program.
+    let mut login_program = None;
+    let authentication: Box<dyn Authentication> = if greeter {
+        let socket = std::env::var_os("OXYOS_LOGIN_SOCKET")
+            .map_or_else(|| PathBuf::from(oxyos_auth::greeter::SOCKET), PathBuf::from);
+        let connection = oxyos_auth::greeter::Greeter::connect(&socket)
+            .map_err(|error| format!("the login program at {}: {error}", socket.display()))?;
+        eprintln!(
+            "[session] the login screen: passwords go to the login program ({})",
+            socket.display()
+        );
+        login_program = Some(connection.on_screen()?);
+        Box::new(oxyos_compositor::login::LoginProgram(connection))
+    } else {
+        let pam = oxyos_auth::Authenticator::for_session(PAM_SERVICE)?;
+        eprintln!(
+            "[session] the lock checks {}'s password with PAM ({PAM_SERVICE})",
+            pam.user().to_string_lossy()
+        );
+        let user = pam.user().to_owned();
+        Box::new(Pam {
+            checker: oxyos_auth::Checker::spawn(pam)?,
+            user,
+        })
+    };
     let seat = Rc::new(oxyos_seat::Seat::take()?);
     eprintln!("[session] logind session on terminal {:?}", seat.vt());
-    // Sleep waits for the lock to be on screen.
-    if let Err(error) = seat.hold_sleep() {
-        eprintln!("[session] holding sleep back: {error}; sleep will not wait for the lock");
+    // Sleep waits for the lock to be on screen; the login screen has nothing to protect.
+    if !greeter {
+        if let Err(error) = seat.hold_sleep() {
+            eprintln!("[session] holding sleep back: {error}; sleep will not wait for the lock");
+        }
     }
     let (card, card_path) = open_card(&seat)?;
     let own_uid = rustix::process::getuid().as_raw();
@@ -172,7 +210,12 @@ fn main() -> Result<()> {
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
     compositor.reads_back = false;
-    compositor.authentication = Some(Box::new(pam));
+    compositor.authentication = Some(authentication);
+    if greeter {
+        // Locked before any client connects: nothing but the login screen is ever shown.
+        compositor.login = true;
+        compositor.scene.lock();
+    }
     compositor.card_device = Some(oxyos_seat::Device::of(&card_path)?);
     compositor.seat = Some(seat.clone());
     // On the GPU straight into the displays' buffers where the device exports them.
@@ -231,6 +274,13 @@ fn main() -> Result<()> {
             Ok(()) => eprintln!("[session] on screen: the service manager is told (READY=1)"),
             Err(error) => eprintln!("[session] telling the service manager it is ready: {error}"),
         }));
+    } else if let Some(login_program) = login_program {
+        // The login screen runs outside the login program's unit: the login program tells it.
+        compositor.on_first_flip = Some(Box::new(move || {
+            if let Err(error) = login_program.tell() {
+                eprintln!("[session] telling the login program it is on screen: {error}");
+            }
+        }));
     }
 
     // The socket applications connect to, in the user's runtime directory.
@@ -280,6 +330,7 @@ fn main() -> Result<()> {
     if let Some(shell_command) = &shell_command {
         shells = start_shells(&mut compositor, &listener, &shell_socket, shell_command)?;
     }
+    let mut signed_in: Option<Instant> = None;
     // The screen reader's socket, only when the session has one (ADR 0014).
     let reader_socket = runtime.join(format!("oxyos-{}-reader", std::process::id()));
     let _reader_socket = RemoveOnDrop(reader_socket.clone());
@@ -339,14 +390,20 @@ fn main() -> Result<()> {
             eprintln!("[session] {id} exited");
         }
         for request in compositor.scene.take_launches() {
-            let launched = match launcher.launch(&request.id) {
-                Ok(pid) => {
-                    eprintln!("[session] started {} ({pid})", request.id);
-                    true
-                }
-                Err(error) => {
-                    eprintln!("[session] not started: {error}");
-                    false
+            let launched = if greeter {
+                // The login screen starts nothing.
+                eprintln!("[session] not started: the login screen launches nothing");
+                false
+            } else {
+                match launcher.launch(&request.id) {
+                    Ok(pid) => {
+                        eprintln!("[session] started {} ({pid})", request.id);
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] not started: {error}");
+                        false
+                    }
                 }
             };
             compositor
@@ -430,6 +487,14 @@ fn main() -> Result<()> {
             eprintln!("[session] ending");
             break Ok(());
         }
+        // Signed in at the login screen: once the splash is shown, it ends.
+        if compositor.signed_in {
+            let since = *signed_in.get_or_insert_with(Instant::now);
+            if since.elapsed() >= SIGNED_IN_SPLASH {
+                eprintln!("[session] signed in: the login screen ends");
+                break Ok(());
+            }
+        }
         if let Err(error) = compositor.serve(&listener) {
             break Err(error);
         }
@@ -457,7 +522,8 @@ fn main() -> Result<()> {
 }
 
 /// Starts the session's shells on `socket`, granting `shell`, one on each output, and serves the
-/// session until each one's panels have set its output's work area (it differs from the output).
+/// session until each one's panels have set its output's work area (it differs from the output);
+/// the login screen's, until each output shows its lock surface.
 fn start_shells(
     compositor: &mut Compositor,
     listener: &Listener,
@@ -488,17 +554,31 @@ fn start_shells(
             return Err("the shells' panels were not shown in time".into());
         }
         compositor.serve(listener)?;
-        let shown = compositor.scene.outputs().iter().all(|output| {
-            compositor
-                .scene
-                .work_area(output.id)
-                .is_some_and(|area| area != output.rect)
-        });
+        let shown = if compositor.login {
+            lock_shown(compositor)
+        } else {
+            compositor.scene.outputs().iter().all(|output| {
+                compositor
+                    .scene
+                    .work_area(output.id)
+                    .is_some_and(|area| area != output.rect)
+            })
+        };
         if shown {
             eprintln!("[session] the shells' panels are shown");
             return Ok(shells);
         }
     }
+}
+
+/// Whether every output shows its lock surface (the login screen), none the compositor's cover.
+fn lock_shown(compositor: &Compositor) -> bool {
+    compositor.scene.is_locked()
+        && !compositor
+            .scene
+            .render_list()
+            .iter()
+            .any(|item| matches!(item, oxyos_compositor_core::RenderItem::Cover { .. }))
 }
 
 /// The session's shell of `output`, on `socket`.
@@ -549,8 +629,12 @@ fn spawn_reader(socket: &std::path::Path, program: &OsString) -> Result<std::pro
         .spawn()?)
 }
 
-/// The session's authentication path (ADR 0010): PAM, off the compositor's thread, throttled.
-struct Pam(oxyos_auth::Checker);
+/// The session's authentication path (ADR 0010): PAM, off the compositor's thread, throttled,
+/// for the session's own user.
+struct Pam {
+    checker: oxyos_auth::Checker,
+    user: std::ffi::CString,
+}
 
 /// Whole seconds, rounded up: a wait of 0.2 s is still a wait.
 fn seconds(wait: Duration) -> u32 {
@@ -560,11 +644,16 @@ fn seconds(wait: Duration) -> u32 {
 impl Authentication for Pam {
     fn attempt(
         &mut self,
+        account: Option<&str>,
         mut secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)> {
+        // The lock checks the session's own user's password, never another account's.
+        if account.is_some_and(|account| account.as_bytes() != self.user.to_bytes()) {
+            return Some((AuthOutcome::Rejected, 0));
+        }
         // The password's memory moves to PAM's side whole, and is overwritten there.
         let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
-        match self.0.attempt(secret, Instant::now()) {
+        match self.checker.attempt(secret, Instant::now()) {
             oxyos_auth::Attempt::Checking => None,
             oxyos_auth::Attempt::Busy => Some((AuthOutcome::Busy, 0)),
             oxyos_auth::Attempt::Throttled(wait) => Some((AuthOutcome::Throttled, seconds(wait))),
@@ -572,11 +661,11 @@ impl Authentication for Pam {
     }
 
     fn as_fd(&self) -> BorrowedFd<'_> {
-        self.0.as_fd()
+        self.checker.as_fd()
     }
 
     fn answer(&mut self) -> Option<(AuthOutcome, u32)> {
-        let answer = self.0.answer(Instant::now())?;
+        let answer = self.checker.answer(Instant::now())?;
         let outcome = match answer.outcome {
             oxyos_auth::Outcome::Accepted => AuthOutcome::Accepted,
             oxyos_auth::Outcome::Rejected => AuthOutcome::Rejected,

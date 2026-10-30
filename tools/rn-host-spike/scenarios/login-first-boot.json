@@ -1,0 +1,57 @@
+{
+  "about": "The login screen at the first boot (docs/adr/0020-oxy-account-login.mdx, step 2): no account is enrolled, so it opens on adding one; offline (Oxy's API is a refused port), setup says it needs the network and does nothing else: no account, no password field, nobody signed in, and no way back to an empty list. Reintentar looks again, offline still.",
+  "shell": "OxyOSLogin",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [],
+    "record": []
+  },
+  "steps": [
+    {
+      "name": "Reintentar: still offline, and nothing else is offered",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Reintentar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false,
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Añadir una cuenta de Oxy",
+            "Para añadir una cuenta hace falta conexión a internet",
+            "Reintentar"
+          ],
+          "absent": [
+            "Volver",
+            "Introduce la contraseña"
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "in_shell": {
+      "texts": [
+        "Para añadir una cuenta hace falta conexión a internet"
+      ],
+      "absent": [
+        "Volver"
+      ]
+    }
+  }
+}

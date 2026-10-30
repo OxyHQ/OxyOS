@@ -2,6 +2,9 @@
 //! session takes it to check, and the surface is told what came of it. The scene holds the
 //! password only until the session takes it, in memory overwritten when it goes; it never
 //! decides whether a password is right, and nothing here unlocks.
+//!
+//! At a login screen (ADR 0020) the lock surface also names the account the password is for
+//! (`AuthenticateAccount`); the authentication path decides what it may check.
 
 use super::{ClientId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{AuthOutcome, ErrorCode, Event, SecretChunk, MAX_SECRET_BYTES};
@@ -12,12 +15,24 @@ use zeroize::Zeroizing;
 /// so it never moves and leaves no copy behind as it grows.
 pub type Secret = Zeroizing<Vec<u8>>;
 
+/// A password a lock surface submitted, for the session to check.
+#[derive(Debug)]
+pub struct Submitted {
+    pub surface: SurfaceKey,
+    /// The account it is for, at a login screen (`AuthenticateAccount`); the session's own user
+    /// without one.
+    pub account: Option<String>,
+    pub secret: Secret,
+}
+
 #[derive(Debug, Default)]
 pub(super) struct Authentication {
     /// The password each lock surface is giving, chunk by chunk.
     receiving: BTreeMap<SurfaceKey, Secret>,
+    /// The account each lock surface's next password is for.
+    accounts: BTreeMap<SurfaceKey, String>,
     /// A password submitted and not yet taken by the session.
-    submitted: Option<(SurfaceKey, Secret)>,
+    submitted: Option<Submitted>,
     /// The lock surface whose password the session is checking, until it answers.
     checking: Option<SurfaceKey>,
 }
@@ -49,6 +64,16 @@ impl Scene {
             Request::Authenticate { surface } => {
                 self.lock_surface(key(surface))?;
                 self.submit_secret(key(surface));
+                Ok(())
+            }
+            Request::AuthenticateAccount { surface, user } => {
+                self.lock_surface(key(surface))?;
+                // Named while unlocked, it is for no password.
+                if self.locked {
+                    self.authentication
+                        .accounts
+                        .insert(key(surface), user.as_str().to_owned());
+                }
                 Ok(())
             }
             _ => unreachable!("not a lock request"),
@@ -88,6 +113,8 @@ impl Scene {
             .receiving
             .remove(&key)
             .unwrap_or_default();
+        // An account named is for this password alone.
+        let account = self.authentication.accounts.remove(&key);
         if !self.locked {
             return;
         }
@@ -97,12 +124,16 @@ impl Scene {
             return;
         }
         self.authentication.checking = Some(key);
-        self.authentication.submitted = Some((key, secret));
+        self.authentication.submitted = Some(Submitted {
+            surface: key,
+            account,
+            secret,
+        });
     }
 
     /// The password a lock surface submitted, for the session to check off the compositor's
     /// thread, then answer with [`Scene::authenticated`]. Until it does, others are `Busy`.
-    pub fn take_authentication(&mut self) -> Option<(SurfaceKey, Secret)> {
+    pub fn take_authentication(&mut self) -> Option<Submitted> {
         self.authentication.submitted.take()
     }
 
@@ -148,11 +179,12 @@ impl Scene {
         match key {
             Some(key) => {
                 self.authentication.receiving.remove(&key);
+                self.authentication.accounts.remove(&key);
                 if self
                     .authentication
                     .submitted
                     .as_ref()
-                    .is_some_and(|(submitted, _)| *submitted == key)
+                    .is_some_and(|submitted| submitted.surface == key)
                 {
                     self.authentication.submitted = None;
                     self.authentication.checking = None;
@@ -160,6 +192,7 @@ impl Scene {
             }
             None => {
                 self.authentication.receiving.clear();
+                self.authentication.accounts.clear();
                 if self.authentication.submitted.take().is_some() {
                     self.authentication.checking = None;
                 }

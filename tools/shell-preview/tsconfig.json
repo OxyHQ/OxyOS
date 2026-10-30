@@ -42,6 +42,8 @@
     "src",
     "vite.config.ts",
     "../../apps/shell/src",
-    "../../apps/shell/tests"
+    "../../apps/shell/tests",
+    "../../apps/login/src",
+    "../../apps/login/tests"
   ]
 }

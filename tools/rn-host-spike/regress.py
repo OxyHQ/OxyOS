@@ -30,6 +30,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting);
+- shaken: a view (by testID) committed left and right of its place in the step, and back at the
+  end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
@@ -103,6 +105,16 @@ A scenario with `outputs` ("WxH[@SCALE],..."; ADR 0018) runs on those outputs, a
 session arranges its displays (left to right, top-aligned, the first the primary), with a shell
 on each; steps' points are in the global space.
 
+A scenario with `login` is a login screen (docs/adr/0020-oxy-account-login.mdx): the development
+compositor runs its `shell` module (`OxyOSLogin`) locked, with no application, and hands its
+passwords to the login program on its development path (`oxyos-login --dev`, beside the offscreen
+compositor), which checks them with PAM from a configuration of the run's own (`pam_exec` accepts
+`login.password` alone) and records the session it would start instead of starting it. The
+accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's API is a refused port,
+so the machine is offline. `login.record`: what the login program must have recorded once the run
+ended, each line beginning so, in order (none: nobody signed in). A step's `shell.signed_in` says
+whether the login screen was told someone signed in.
+
 A scenario's `final` expectations (texts / absent / focus_input) are checked on the last frames,
 once every step has run; a scenario may have no steps at all.
 
@@ -115,6 +127,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --host BIN --bundle DIR [--out D
 import argparse
 import json
 import re
+import shutil
 import struct
 import zlib
 import os
@@ -202,6 +215,62 @@ def director_args(step):
     if kind == "expect-popup":
         return ["--expect-popup"]
     raise ValueError(f"unknown step {kind}")
+
+
+def serve_accounts(path, accounts):
+    """The accounts' service as the login screen and the login program ask it (`list` over
+    SOCK_SEQPACKET, crates/oxyos-account's ipc.rs), answering `accounts` to anyone."""
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    listener.bind(str(path))
+    listener.listen(16)
+
+    def serve():
+        while True:
+            connection, _ = listener.accept()
+            with connection:
+                try:
+                    if json.loads(connection.recv(16384)) == "list":
+                        connection.send(json.dumps({"accounts": accounts}).encode())
+                except (OSError, ValueError):
+                    pass
+
+    threading.Thread(target=serve, daemon=True).start()
+    return listener
+
+
+def login_program(out, offscreen, login):
+    """The login program on its development path, its PAM configuration, the accounts' stand-in
+    and a refused port for Oxy's API: (process, greeter socket, record, environment)."""
+    pam = out / "pam"
+    pam.mkdir(exist_ok=True)
+    script = pam / "check-password"
+    script.write_text("#!/bin/sh\n[ \"$(tr -d '\\000')\" = '%s' ]\n" % login["password"])
+    script.chmod(0o700)
+    (pam / "oxyos-login").write_text(
+        f"auth [success=1 default=ignore] pam_exec.so quiet expose_authtok {script}\n"
+        "auth requisite pam_deny.so\nauth required pam_permit.so\n"
+        "account required pam_permit.so\nsession required pam_permit.so\n")
+    # Sockets in a short directory of their own: a socket's path holds at most 107 bytes.
+    sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
+    accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
+    record.unlink(missing_ok=True)
+    serve_accounts(accountd, login.get("accounts", []))
+    program = pathlib.Path(offscreen).resolve().parent / "oxyos-login"
+    process = subprocess.Popen(
+        [str(program), "--dev", "--pam-confdir", str(pam), "--record", str(record),
+         "--socket", str(greeter), "--accountd", str(accountd)],
+        stdout=subprocess.DEVNULL, stderr=open(out / "login.log", "w"))
+    deadline = time.monotonic() + 10
+    while not greeter.exists():
+        if process.poll() is not None or time.monotonic() > deadline:
+            raise SystemExit(f"the login program did not start; see {out / 'login.log'}")
+        time.sleep(0.02)
+    # Offline: Oxy's API is a port held bound without listening, so connecting is refused.
+    refusing = socket.socket()
+    refusing.bind(("127.0.0.1", 0))
+    env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd),
+           "OXYOS_OXY_API": f"http://127.0.0.1:{refusing.getsockname()[1]}/"}
+    return process, greeter, record, env, (refusing, sockets)
 
 
 class ProbeServer(BaseHTTPRequestHandler):
@@ -521,6 +590,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                if " update x" not in event and " touches move x" not in event]
         if got != expect["gesture_states"]:
             fail(f"gesture handlers changed states {got}, expected exactly {expect['gesture_states']}")
+    if "shaken" in expect:
+        # A view shaken in the step (a wrong password's field): committed to the left and the right
+        # of where it stays, and back there at the end.
+        moves = [entry["translateX"] for line in report
+                 if line["kind"] == "committed" and line["target"] == expect["shaken"] and start <= line["t"] <= end
+                 for entry in line["props"].get("transform", []) if "translateX" in entry]
+        if not moves or min(moves) > -5 or max(moves) < 5 or moves[-1] != 0:
+            fail(f"{expect['shaken']} moved {[round(x, 1) for x in moves]}, not a shake")
     if "in_shell" in expect:
         # The session's shell's own texts, React deliveries and gestures, from its report.
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
@@ -834,9 +911,16 @@ def main():
         command += ["--kms", options.kms]
     if options.dump_frames:
         command += ["--dump-frames", options.dump_frames]
+    login = None
+    if "login" in scenario:
+        # A login screen: no application, its passwords the login program's.
+        login = login_program(out, options.offscreen, scenario["login"])
+        command += ["--login", str(login[1])]
     for step in scenario["steps"]:
         command += director_args(step)
-    command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width), str(height)]
+    if login is None:
+        command += ["--", options.host, str(bundle), scenario.get("module", "OxyBloom"), "--window", str(width),
+                    str(height)]
     # Steps checked one by one below: refuse a scenario whose steps the director would not run.
     if not all(isinstance(step.get("do"), list) for step in scenario["steps"]):
         raise SystemExit("every step needs `do`: [kind, value]")
@@ -875,14 +959,24 @@ def main():
         env["OXYOS_WALLPAPER"] = str(pathlib.Path(__file__).resolve().parents[2] / wallpaper["folder"])
         env["TZ"] = wallpaper["tz"]
         env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
+    if login is not None:
+        env.update(login[3])
     run = subprocess.run(command, env=env, capture_output=True, text=True)
     (out / "director.log").write_text(run.stdout + run.stderr)
+    recorded = []
+    if login is not None:
+        login[0].terminate()
+        login[0].wait(timeout=20)
+        recorded = login[2].read_text().splitlines() if login[2].exists() else []
+        shutil.rmtree(login[4][1], ignore_errors=True)
     if run.returncode != 0:
         print(f"FAIL: the director failed ({run.returncode}); see {out / 'director.log'}")
         print("\n".join(run.stderr.strip().splitlines()[-5:]))
         return 1
     summary = json.loads(next(line for line in run.stdout.splitlines() if line.startswith('{"mode"')))
-    report = [json.loads(line) for line in report_path.read_text().splitlines() if line.strip()]
+    # A login screen has no application, and so no application's report.
+    report = ([json.loads(line) for line in report_path.read_text().splitlines() if line.strip()]
+              if report_path.exists() else [])
     shell_path = report_path.with_name(report_path.name + ".shell")
     shell_report = ([json.loads(line) for line in shell_path.read_text().splitlines() if line.strip()]
                     if shell_path.exists() else [])
@@ -901,13 +995,21 @@ def main():
     for line in report:
         if line["kind"] == "damage_mismatch":
             failures.append(f"the host's frame drawn from its damage differs in {line['pixels']} pixels")
+    if login is not None:
+        # What the login program would have started, in order: each line begins as expected.
+        wanted = scenario["login"].get("record", [])
+        if len(recorded) != len(wanted) or any(not line.startswith(w) for line, w in zip(recorded, wanted)):
+            failures.append(f"the login program recorded {recorded}, expected lines beginning {wanted}")
+        password = scenario["login"]["password"]
+        if any(password in line for line in recorded):
+            failures.append("the password is in the login program's record")
     if "final" in scenario:
-        last = max(line["t"] for line in report)
+        last = max(line["t"] for line in report + shell_report)
         # The output after the last step (or at launch, without steps), the window where it was then.
         window = (summary["steps"][-1] if summary["steps"] else summary)["window"]
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last, "window": window}, report, start, failures,
-                   screenshot=out / f"launch-{len(scenario['steps']) + 1}.png",
+                   screenshot=out / f"launch-{len(scenario['steps']) + 1}.png", shell_report=shell_report,
                    preferences=out / "preferences" if "settings" in scenario else None)
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.

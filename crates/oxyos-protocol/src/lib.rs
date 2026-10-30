@@ -29,6 +29,9 @@ pub const VERSION: u16 = 2;
 pub const MAX_PACKET_BYTES: usize = 64;
 /// The longest password a lock surface may give (ADR 0010), as Linux-PAM's longest answer.
 pub const MAX_SECRET_BYTES: usize = 512;
+/// The longest account a login screen's lock surface names (AuthenticateAccount, ADR 0020): a Unix
+/// user's name, at most 31 bytes as utmp and systemd take one.
+pub const MAX_USER_NAME_BYTES: usize = 31;
 /// The text around the caret a field may describe (TextInputSurrounding, ADR 0008), in bytes.
 pub const MAX_SURROUNDING_BYTES: usize = 4000;
 /// Most nodes in one surface's accessibility snapshot (ADR 0003).

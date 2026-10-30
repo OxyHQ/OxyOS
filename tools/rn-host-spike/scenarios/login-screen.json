@@ -1,0 +1,283 @@
+{
+  "about": "The login screen (docs/adr/0020-oxy-account-login.mdx, step 2): the Bloom host's OxyOSLogin as the login screen's one client, the development compositor locked from the start with no application, as `oxyos-session --greeter` runs it. The accounts are the accounts' service's `list` (a stand-in here); a password goes from the lock surface through the compositor, for the account chosen, to the login program on its development path (`oxyos-login --dev`), whose worker checks it with PAM from the run's own configuration (pam_exec accepts oxyos.correcta alone) and throttles as the lock does. Wrong passwords are rejected by PAM and shake the field; the fifth in a row makes the next wait 30 s. Adding an account offline says setup needs the network and does nothing else. Another account has a field and a throttle of its own; its right password is accepted, the compositor shows the splash and the login program records the session it would start for that account (never starting one). The password is in no report, nothing the compositor holds and not the record.",
+  "shell": "OxyOSLogin",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Ada Lovelace"
+      },
+      {
+        "accountId": "0123456789abcdef01234568",
+        "user": "oxy-bbbbbbbbbbbbbbbbbbbb",
+        "uid": 1002,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [
+      "session would start for oxy-bbbbbbbbbbbbbbbbbbbb (user session): "
+    ]
+  },
+  "steps": [
+    {
+      "name": "the login screen lists the enrolled accounts, the first chosen, and takes its password: the lock screen's look, all the compositor shows",
+      "do": [
+        "type",
+        "mal"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false,
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Ada Lovelace",
+            "Bea Ramos",
+            "•••",
+            "Añadir cuenta"
+          ],
+          "never": [
+            "mal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Enter: the login program's PAM rejects it; the field shakes and says so, and nobody is signed in",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Contraseña incorrecta"
+          ],
+          "shaken": "login-field",
+          "never": [
+            "mal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a wrong password again (2 in a row), typed with Enter in one turn: rejected",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Contraseña incorrecta"
+          ],
+          "shaken": "login-field"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a wrong password again (3 in a row), typed with Enter in one turn: rejected",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Contraseña incorrecta"
+          ],
+          "shaken": "login-field"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "a wrong password again (4 in a row), typed with Enter in one turn: rejected",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Contraseña incorrecta"
+          ],
+          "shaken": "login-field"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the fifth in a row: the login program's throttle makes the next wait 30 s, and the field says so",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Vuelve a intentarlo en"
+          ],
+          "shaken": "login-field"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Añadir cuenta, offline: setup says it needs the network and does nothing else",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Añadir cuenta"
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Añadir una cuenta de Oxy",
+            "Para añadir una cuenta hace falta conexión a internet",
+            "Reintentar",
+            "Volver"
+          ],
+          "absent": [
+            "Ada Lovelace",
+            "Introduce la contraseña"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reintentar: still offline, still nothing",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Reintentar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Para añadir una cuenta hace falta conexión a internet"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Volver: the accounts again",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Volver"
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Ada Lovelace",
+            "Bea Ramos"
+          ],
+          "absent": [
+            "Añadir una cuenta de Oxy"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Bea chosen: a field of her own, not held back by Ada's wait",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Bea Ramos"
+        ]
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña"
+          ],
+          "absent": [
+            "Vuelve a intentarlo en",
+            "Contraseña incorrecta"
+          ]
+        }
+      }
+    },
+    {
+      "name": "her password, right: accepted, the login screen shows the splash and the login program would start her session",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "in_shell": {
+          "never": [
+            "oxyos.correcta"
+          ]
+        },
+        "never": [
+          "oxyos.correcta"
+        ]
+      }
+    }
+  ]
+}

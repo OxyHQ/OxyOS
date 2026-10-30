@@ -242,6 +242,10 @@ fn requests() -> Vec<Request> {
             secret: SecretChunk::new("correct horse").unwrap(),
         },
         Request::Authenticate { surface: 5 },
+        Request::AuthenticateAccount {
+            surface: 5,
+            user: PreeditText::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap(),
+        },
         Request::AccessibleSelection {
             surface: 1,
             index: 1,

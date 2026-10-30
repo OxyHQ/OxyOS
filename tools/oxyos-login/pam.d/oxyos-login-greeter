@@ -1,0 +1,11 @@
+# The login screen's own session (docs/adr/0020-oxy-account-login.mdx): the login program's user,
+# `oxyos-login`, signs in with no password and gets a logind session of class `greeter` on the
+# seat (pam_systemd). No other user may use this service. Installed as
+# /etc/pam.d/oxyos-login-greeter.
+auth required pam_deny.so
+account required pam_succeed_if.so quiet user = oxyos-login
+@include common-account
+session required pam_limits.so
+session required pam_env.so readenv=1
+session required pam_env.so readenv=1 envfile=/etc/default/locale
+session required pam_systemd.so

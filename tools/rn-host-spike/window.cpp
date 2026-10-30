@@ -175,8 +175,9 @@ void Window::lockSession() {
   if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
 }
 
-bool Window::authenticate(uint32_t id, const std::string& secret) {
-  return oxyos_client_authenticate(client_, id, secret.data(), secret.size()) == 0;
+bool Window::authenticate(uint32_t id, const std::string& secret, const std::string& account) {
+  return oxyos_client_authenticate_account(client_, id, account.empty() ? nullptr : account.c_str(), secret.data(),
+                                           secret.size()) == 0;
 }
 
 void Window::nameWindow(const std::string& title, const std::string& appId) {

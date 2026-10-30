@@ -23,6 +23,15 @@
 //!   ```
 //!
 //!   Closing the connection abandons a setup; nothing of it is kept.
+//! - **The accounts** (step 2, for the login screen and the login program, the same peers):
+//!
+//!   ```text
+//!   → "list"
+//!   ← {"accounts": [{"accountId", "user", "uid", "name", "picture"?}]}  and the connection ends
+//!   ```
+//!
+//!   `name` is what the screen calls the account (its display name, else its username), and
+//!   `picture` a file of the pictures' directory. Nothing secret is listed.
 //! - Messages are received into buffers overwritten afterwards; their secrets are [`Secret`]s.
 
 use crate::api::{DeviceCredential, OxyApi, Profile};
@@ -64,6 +73,34 @@ pub enum Request {
     SecondFactor {
         code: Secret,
     },
+    List,
+}
+
+/// An enrolled account as `list` gives it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    pub account_id: String,
+    pub user: String,
+    pub uid: u32,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
+}
+
+impl From<&crate::store::Listed> for Account {
+    fn from(listed: &crate::store::Listed) -> Self {
+        Account {
+            account_id: listed.account.as_str().to_owned(),
+            user: listed.user.as_str().to_owned(),
+            uid: listed.uid,
+            name: listed.name.clone(),
+            picture: listed
+                .picture
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +140,7 @@ pub enum Answer {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         retry_after_seconds: Option<u64>,
     },
+    Accounts(Vec<Account>),
 }
 
 impl Answer {
@@ -186,6 +224,13 @@ pub enum Outcome {
     Refused(SetupError),
     SecondFactorRequired,
     InvalidRequest,
+    /// The accounts were listed: how many, and the files that are no account's.
+    Listed {
+        accounts: usize,
+        broken: Vec<String>,
+    },
+    /// The accounts could not be read.
+    Unlisted(String),
 }
 
 impl<'a, A: OxyApi, U: Users> Conversation<'a, A, U> {
@@ -231,6 +276,24 @@ impl<'a, A: OxyApi, U: Users> Conversation<'a, A, U> {
                         )
                     }
                     Err(error) => (Turn::End((&error).into()), Outcome::Refused(error)),
+                }
+            }
+            (Some(Request::List), false, _) => {
+                self.started = true;
+                match self.setup.store().list() {
+                    Ok((accounts, broken)) => (
+                        Turn::End(Answer::Accounts(
+                            accounts.iter().map(Account::from).collect(),
+                        )),
+                        Outcome::Listed {
+                            accounts: accounts.len(),
+                            broken,
+                        },
+                    ),
+                    Err(error) => (
+                        Turn::End(Answer::refused(Reason::Failed)),
+                        Outcome::Unlisted(error.to_string()),
+                    ),
                 }
             }
             (Some(Request::SecondFactor { code }), true, Some(pending)) => {
@@ -405,5 +468,36 @@ pub fn serve<A: OxyApi, U: Users>(
             Turn::Continue(answer) => connection.send(&answer)?,
             Turn::End(answer) => return connection.send(&answer),
         }
+    }
+}
+
+/// How long the login screen and the login program wait for the accounts.
+pub const LIST_WAIT: Duration = Duration::from_secs(5);
+
+/// The enrolled accounts, from the service at `socket`: for the login screen (they are what it
+/// shows) and the login program (only an enrolled account's user may sign in). Fails if the
+/// service does not answer, or refuses.
+pub fn list(socket: &Path) -> io::Result<Vec<Account>> {
+    let connection = Connection::connect(socket)?;
+    connection.set_timeout(LIST_WAIT)?;
+    connection.send(&Request::List)?;
+    match connection.receive::<Answer>()? {
+        Some(Some(Answer::Accounts(accounts))) => Ok(accounts),
+        Some(Some(Answer::Refused { reason, .. })) => Err(io::Error::new(
+            if reason == Reason::NotPermitted {
+                io::ErrorKind::PermissionDenied
+            } else {
+                io::ErrorKind::Other
+            },
+            format!("the accounts were refused: {reason:?}"),
+        )),
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "not an answer to list",
+        )),
+        None => Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "the service closed the connection",
+        )),
     }
 }

@@ -4808,9 +4808,10 @@ fn a_lock_surfaces_password_goes_to_the_session_and_its_answer_back() {
     let surface = h.lock_surface(1);
     let password = "correct horse battery staple, ñandú";
     h.give_password(surface, password).unwrap();
-    let (from, secret) = h.scene.take_authentication().unwrap();
-    assert_eq!(from, surface);
-    assert_eq!(&secret[..], password.as_bytes());
+    let submitted = h.scene.take_authentication().unwrap();
+    assert_eq!(submitted.surface, surface);
+    assert_eq!(submitted.account, None);
+    assert_eq!(&submitted.secret[..], password.as_bytes());
     assert!(h.scene.take_authentication().is_none());
     // Another password while that one is checked is busy, and goes nowhere.
     h.give_password(surface, "another").unwrap();
@@ -4832,6 +4833,59 @@ fn a_lock_surfaces_password_goes_to_the_session_and_its_answer_back() {
     // The next one is checked.
     h.give_password(surface, password).unwrap();
     assert!(h.scene.take_authentication().is_some());
+}
+
+#[test]
+fn a_login_screens_password_carries_its_account_once() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    let account = |user: &str| Request::AuthenticateAccount {
+        surface: 1,
+        user: oxyos_protocol::PreeditText::new(user).unwrap(),
+    };
+    h.request(LOCKER, account("oxy-aaaaaaaaaaaaaaaaaaaa"))
+        .unwrap();
+    h.give_password(surface, "first").unwrap();
+    let submitted = h.scene.take_authentication().unwrap();
+    assert_eq!(
+        submitted.account.as_deref(),
+        Some("oxy-aaaaaaaaaaaaaaaaaaaa")
+    );
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // The next password names none: it is the session's own user's, not the last account's.
+    h.give_password(surface, "second").unwrap();
+    assert_eq!(h.scene.take_authentication().unwrap().account, None);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // Only a lock surface names one, and one named while unlocked is for nothing.
+    assert_eq!(
+        h.request(
+            APP,
+            Request::AuthenticateAccount {
+                surface: window.id,
+                user: oxyos_protocol::PreeditText::new("root").unwrap(),
+            }
+        ),
+        Err(ErrorCode::InvalidRole)
+    );
+    h.scene.unlock();
+    h.request(LOCKER, account("oxy-bbbbbbbbbbbbbbbbbbbb"))
+        .unwrap();
+    h.scene.lock();
+    h.give_password(surface, "third").unwrap();
+    assert_eq!(h.scene.take_authentication().unwrap().account, None);
+    // It goes with the lock surface.
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    h.request(LOCKER, account("oxy-cccccccccccccccccccc"))
+        .unwrap();
+    h.request(LOCKER, Request::Destroy { surface: 1 }).unwrap();
+    let surface = h.lock_surface(2);
+    h.give_password(surface, "fourth").unwrap();
+    assert_eq!(h.scene.take_authentication().unwrap().account, None);
 }
 
 #[test]
@@ -4867,7 +4921,7 @@ fn only_a_lock_surface_while_locked_gives_a_password() {
     h.scene.lock();
     h.request(LOCKER, Request::Authenticate { surface: 1 })
         .unwrap();
-    let (_, secret) = h.scene.take_authentication().unwrap();
+    let secret = h.scene.take_authentication().unwrap().secret;
     assert!(
         secret.is_empty(),
         "the half given before the unlock is gone"
@@ -4886,7 +4940,7 @@ fn a_password_longer_than_pam_takes_is_a_protocol_error() {
     );
     h.give_password(surface, &longest).unwrap();
     assert_eq!(
-        h.scene.take_authentication().unwrap().1.len(),
+        h.scene.take_authentication().unwrap().secret.len(),
         longest.len()
     );
 }
@@ -4912,7 +4966,7 @@ fn a_lock_surface_that_goes_takes_its_password_with_it() {
         .unwrap();
     let surface = h.lock_surface(2);
     h.give_password(surface, "again").unwrap();
-    assert_eq!(h.scene.take_authentication().unwrap().0, surface);
+    assert_eq!(h.scene.take_authentication().unwrap().surface, surface);
     // A password being checked when its surface goes is still answered by the session, to no
     // one, and the next is checked.
     h.request(LOCKER, Request::Destroy { surface: 2 }).unwrap();

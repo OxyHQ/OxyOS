@@ -1234,7 +1234,8 @@ impl Scene {
             } => self.preference_request(client, serial, index, last, text),
             Request::LockSession {}
             | Request::AuthenticateSecret { .. }
-            | Request::Authenticate { .. } => self.lock_request(client, request),
+            | Request::Authenticate { .. }
+            | Request::AuthenticateAccount { .. } => self.lock_request(client, request),
             Request::InputMethodKeyHandled { .. }
             | Request::InputMethodDelete { .. }
             | Request::InputMethodCommitText { .. }
@@ -3490,7 +3491,7 @@ pub use workspaces::MAX_WORKSPACES;
 mod shell;
 pub use shell::{MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod lock;
-pub use lock::Secret;
+pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod preferences;

@@ -1,0 +1,46 @@
+# oxyos-login: OxyOS's own login program on the seat (docs/adr/0020-oxy-account-login.mdx,
+# decision 4). It follows the boot logo (docs/adr/0017-boot-logo.mdx): Plymouth lets go of the card
+# before it starts, its login screen takes the card through logind and draws the splash Plymouth
+# showed, and Plymouth quits once that frame is on screen (READY=1, sent by the login program when
+# its login screen says so). The login screen and every session run in logind sessions of their
+# own on seat0's first terminal.
+#
+# Root, as a login manager is: it checks other users' passwords, opens their sessions and becomes
+# them. It confines nothing it starts; each session is its user's.
+#
+# Not installed by the image (the session is not in the image yet: AGENTS.md's image rules).
+
+[Unit]
+Description=OxyOS login
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0020-oxy-account-login.mdx
+After=systemd-user-sessions.service systemd-logind.service plymouth-start.service oxyos-accountd.service
+After=getty@tty1.service plymouth-quit.service
+Wants=oxyos-accountd.service
+# The first terminal is the login screen's, not a console login's; Plymouth is quit only with
+# its splash kept, never by plymouth-quit.service.
+Conflicts=getty@tty1.service plymouth-quit.service
+OnFailure=plymouth-quit.service
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStartPre=-/usr/bin/plymouth deactivate
+ExecStart=/usr/libexec/oxyos/oxyos-login
+# Passed on to the login screen and every session, the rest of the environment is not:
+# Environment=OXYOS_WALLPAPER=/usr/share/oxyos/wallpapers/solar-gradients OXYOS_READER=/usr/libexec/oxyos/oxyos-reader
+ExecStartPost=-/usr/bin/plymouth quit --retain-splash
+Restart=always
+RestartSec=1s
+# The login screen's socket: /run/oxyos/login/greeter, the login screen's user's alone.
+RuntimeDirectory=oxyos/login
+RuntimeDirectoryMode=0755
+# Stopping it asks its workers to end their sessions; whatever remains of the unit's own
+# processes after the timeout is killed.
+KillMode=mixed
+TimeoutStopSec=15s
+
+[Install]
+Alias=display-manager.service
+WantedBy=graphical.target

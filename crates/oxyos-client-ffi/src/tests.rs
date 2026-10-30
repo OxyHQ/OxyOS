@@ -696,7 +696,7 @@ fn null_arguments_fail_instead_of_crashing() {
 fn the_header_matches_the_network_abi() {
     use net::*;
     for (name, value) in [
-        ("OXYOS_NET_RESPONSE", OXYOS_NET_RESPONSE.into()),
+        ("OXYOS_NET_RESPONSE", i64::from(OXYOS_NET_RESPONSE)),
         ("OXYOS_NET_CHUNK", OXYOS_NET_CHUNK.into()),
         ("OXYOS_NET_DATA", OXYOS_NET_DATA.into()),
         ("OXYOS_NET_COMPLETE", OXYOS_NET_COMPLETE.into()),
@@ -970,15 +970,15 @@ fn a_malformed_request_is_refused_and_sends_nothing() {
 #[test]
 fn the_header_matches_the_image_abi() {
     use images::*;
-    assert_eq!(define("OXYOS_IMAGE_ANSWER"), OXYOS_IMAGE_ANSWER.into());
-    assert_eq!(define("OXYOS_IMAGE_EMPTY"), OXYOS_IMAGE_EMPTY.into());
+    assert_eq!(define("OXYOS_IMAGE_ANSWER"), i64::from(OXYOS_IMAGE_ANSWER));
+    assert_eq!(define("OXYOS_IMAGE_EMPTY"), i64::from(OXYOS_IMAGE_EMPTY));
     assert_eq!(
         define("OXYOS_IMAGE_FIT_WITHIN"),
-        OXYOS_IMAGE_FIT_WITHIN.into()
+        i64::from(OXYOS_IMAGE_FIT_WITHIN)
     );
     assert_eq!(
         define("OXYOS_IMAGE_FIT_COVERING"),
-        OXYOS_IMAGE_FIT_COVERING.into()
+        i64::from(OXYOS_IMAGE_FIT_COVERING)
     );
     let answer = fields("OxyOSImageAnswer");
     assert_eq!(
@@ -2619,6 +2619,76 @@ fn a_password_goes_in_chunks_then_is_submitted() {
         assert_eq!(given, password);
         assert_eq!(requests[chunks + 1], Request::Authenticate { surface: 4 });
         assert_eq!(requests[chunks + 2], Request::LockSession {});
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_login_screens_password_names_its_account_first() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-login-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..4)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let account = CString::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap();
+    let too_long = CString::new("a".repeat(32)).unwrap();
+    let password = "correct";
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // are as long as said, the accounts NUL-terminated.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_create_lock_surface(client, 4, 1), 0);
+        // An account no user could have: nothing is sent.
+        assert_eq!(
+            oxyos_client_authenticate_account(
+                client,
+                4,
+                too_long.as_ptr(),
+                password.as_ptr().cast(),
+                password.len()
+            ),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_authenticate_account(
+                client,
+                4,
+                account.as_ptr(),
+                password.as_ptr().cast(),
+                password.len()
+            ),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        assert_eq!(
+            requests[1],
+            Request::AuthenticateAccount {
+                surface: 4,
+                user: PreeditText::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap()
+            }
+        );
+        assert_eq!(
+            requests[2],
+            Request::AuthenticateSecret {
+                surface: 4,
+                secret: SecretChunk::new(password).unwrap()
+            }
+        );
+        assert_eq!(requests[3], Request::Authenticate { surface: 4 });
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();

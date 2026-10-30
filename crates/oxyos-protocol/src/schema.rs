@@ -202,6 +202,11 @@ messages! {
         // the surface's next Submit. The shell never receives a window's pixels.
         90 => ClearWindowViews { surface: u32 },
         91 => PlaceWindowView { surface: u32, window: u32, rect: Rect, clip: Rect, radius: u32, opacity: u8 },
+        // A login screen (ADR 0020): the account a lock surface's next password is for, by its
+        // Unix user's name (at most 31 bytes), given before the password's chunks while locked;
+        // without it the password is the session's own user's. The authentication path decides
+        // what it may check; a session checks only its own user's.
+        100 => AuthenticateAccount { surface: u32, user: PreeditText },
         // The session's shell (its `shell` grant, ADR 0024): hides the application of a window (all
         // its windows leave the screen, not into the dock, until the application is activated:
         // FocusWindow of any of them shows them again), or quits it (each of its windows is asked
