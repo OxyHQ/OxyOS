@@ -1718,6 +1718,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
         .spawn()?]);
+    // Its own launch, as the session records one, when the scenario names the application;
+    // unless the scenario has it be a process the session did not start
+    // (`OXYOS_APP_UNRECORDED`), whose id is then only its claim.
+    if let (Ok(id), None) = (
+        std::env::var("OXYOS_APP_ID"),
+        std::env::var_os("OXYOS_APP_UNRECORDED"),
+    ) {
+        session.app = Some((children.0[0].id(), id));
+    }
     children.0.extend(shell);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 

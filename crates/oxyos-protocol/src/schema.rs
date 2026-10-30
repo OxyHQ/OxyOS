@@ -231,7 +231,9 @@ messages! {
         // To the session's shell (ADR 0009): each window, by a number the compositor gives it
         // (never a surface id), as it appears and changes, its title and application id in chunks
         // as SetTitle's, its closing; and the workspaces and the active one.
-        37 => WindowState { window: u32, workspace: u32, minimized: bool, focused: bool },
+        // `launched`: the session started the window's process, so its application id is the
+        // registry's (ADR 0013); otherwise it is the application's own claim.
+        37 => WindowState { window: u32, workspace: u32, minimized: bool, focused: bool, launched: bool },
         38 => WindowTitle { window: u32, index: u8, last: bool, text: PreeditText },
         39 => WindowAppId { window: u32, index: u8, last: bool, text: PreeditText },
         40 => WindowClosed { window: u32 },

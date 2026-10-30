@@ -6,6 +6,7 @@ import { Box, Scroll } from "../primitives";
 import { AppIcon } from "../apps";
 import type { ShellSnapshot } from "../model";
 import { OxyLogo } from "./OxyLogo";
+import { belongsTo } from "../model";
 
 /** The shelf's height: the work area ends above it, and the launcher's overlay with it. */
 export const DOCK_HEIGHT = 56;
@@ -27,7 +28,7 @@ export function Dock({
   const [rowWidth, setRowWidth] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
   const apps = snapshot.applications.filter(
-    (app) => app.pinned || snapshot.windows.some((win) => win.appId === app.id),
+    (app) => app.pinned || snapshot.windows.some((win) => belongsTo(win, app.id)),
   );
   // The tooltip shares the shelf coordinate space; scrolling never detaches it from its icon.
   const rowContentWidth =
@@ -110,7 +111,7 @@ export function Dock({
             >
               <AppIcon app={app} size={42} circular />
             </Button>
-            {snapshot.windows.some((win) => win.appId === app.id) && (
+            {snapshot.windows.some((win) => belongsTo(win, app.id)) && (
               <Box className="absolute bottom-[2px] h-0.5 w-2.5 rounded-full bg-[#64717a]" />
             )}
           </Box>

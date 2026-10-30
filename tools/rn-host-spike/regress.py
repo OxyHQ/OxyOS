@@ -632,6 +632,9 @@ def main():
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
             env[name] = scenario["app"][key]
+    # An application the session did not start (ADR 0013): its id is only its claim.
+    if scenario.get("app", {}).get("recorded") is False:
+        env["OXYOS_APP_UNRECORDED"] = "1"
     # A local server for the scenario's probe, for as long as the run lasts, and the port after
     # it held bound without listening, so that connecting there is refused at once and nothing
     # else can answer (an unbound port may instead drop the connection, as WSL's firewall does).

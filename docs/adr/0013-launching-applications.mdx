@@ -6,7 +6,7 @@ order: 22
 
 # ADR 0013: Launching applications
 
-Status: **accepted**; steps 1 and 2 implemented. Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
+Status: **accepted; implemented** (steps 1 to 3). Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
 
 ## Problem
 
@@ -26,6 +26,8 @@ The dock and the launcher show a fixture's list, and pressing one launches nothi
 2. **Launching.** `LaunchApplication`/`LaunchResult` in the protocol and the C ABI; `take_launch`; `oxyos-session` and the development compositor starting entries; the shell's `activateApp` launching an application with no window. A scenario launches one from the dock and checks its window appears and the dock marks it running.
    *Done.* `LaunchApplication` (request 58: the shell's serial and the id in chunks) and `LaunchResult` (event 49) in the protocol, `oxyos_client_launch` and `OXYOS_EVENT_LAUNCH_RESULT` in the C ABI. The scene accepts it from the `shell` grant alone, chunk by chunk, and hands it whole (`take_launches`) to the program running it, which answers (`launched`); a shell that goes takes its unanswered requests. `oxyos_apps::Launcher` starts an id only if the registry lists it: an `Exec` as given, a Bloom application with the session's Bloom host (`OXYOS_BLOOM_HOST`) and its bundle or the session's (`OXYOS_BLOOM_BUNDLE`), each with `OXYOS_COMPOSITOR_SOCKET`, its id and name, and no other display; it reaps what exits and stops the rest with the session. `oxyos-session` and the development compositor (with the shell's own host and bundle) use it. The shell's `activateApp` focuses an application's newest window, or asks for it when it has none. `scenarios/launch-application.json` presses Inbox in the dock: the session starts it, its window shows and the dock marks it running; with nothing started it fails.
 3. **Launch records.** Peer pids matched to launches; windows of a launched process carry the registry's id; tests with a process claiming another id.
+
+   *Done.* The compositor keeps each connection's pid (its credentials) and, once it has said Hello, asks the program running it whether it started that process (`Compositor::name_clients`); `oxyos-session` and the development compositor answer from their launchers (the development compositor also for the application it starts itself). The scene's `set_application` makes a client's windows that application's, whatever `SetAppId` claims, and `WindowState` carries `launched` (`OXYOS_WINDOW_LAUNCHED` in the C ABI). The shell counts a window as a registry application's only if it was launched (`belongsTo`): the dock's running mark, the overview's icon and focusing an application's newest window. `scenarios/launch-records.json` has an application the session did not start claim to be Inbox: the dock does not mark Inbox running, and pressing it starts the real one, which it then does; with windows trusted by their claim it fails.
 
 ## Not in this decision
 

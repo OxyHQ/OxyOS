@@ -129,13 +129,16 @@ export function ShellSession() {
   const now = useMinuteClock();
   const state = shell.state;
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
-  const windows = state.windows.map((window: { id: number; appId: string; title: string; workspace: number; minimized: boolean }) => ({
-    id: String(window.id),
-    appId: window.appId,
-    title: window.title,
-    workspaceId: String(window.workspace),
-    minimized: window.minimized,
-  }));
+  const windows = state.windows.map(
+    (window: { id: number; appId: string; title: string; workspace: number; minimized: boolean; launched: boolean }) => ({
+      id: String(window.id),
+      appId: window.appId,
+      title: window.title,
+      workspaceId: String(window.workspace),
+      minimized: window.minimized,
+      launched: window.launched,
+    }),
+  );
   // The session's applications (ADR 0013): those kept in the dock by their place, then the others
   // by name, as the registry gives them. One without artwork is left out: the shell draws only an
   // application's own.
@@ -162,7 +165,7 @@ export function ShellSession() {
     // The application's newest window, if it has one; else the session starts it (ADR 0013).
     activateApp: (id) => {
       const newest = state.windows
-        .filter((window: { appId: string }) => window.appId === id)
+        .filter((window: { appId: string; launched: boolean }) => window.launched && window.appId === id)
         .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
       if (newest) shell.focusWindow(newest.id);
       else shell.launch(id);

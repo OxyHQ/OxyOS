@@ -24,6 +24,8 @@ struct Window {
     workspace: u32,
     minimized: bool,
     focused: bool,
+    /// Its process is one the session started: its application id is the registry's.
+    launched: bool,
     names: Names,
 }
 
@@ -41,6 +43,9 @@ pub(super) struct ShellWindows {
     /// A title or application id (`true`) being received: its text so far and the next index.
     receiving: BTreeMap<(SurfaceKey, bool), (String, u8)>,
     told: BTreeMap<ClientId, Told>,
+    /// The application of each client whose process the session started (ADR 0013): its
+    /// windows' id, whatever they claim.
+    applications: BTreeMap<ClientId, String>,
 }
 
 impl Scene {
@@ -60,6 +65,26 @@ impl Scene {
 
     pub(super) fn forget_shell_client(&mut self, client: ClientId) {
         self.shell_windows.told.remove(&client);
+        self.shell_windows.applications.remove(&client);
+    }
+
+    /// `client`'s process is one the session started for the application `id` (its launch
+    /// record, ADR 0013): its windows are that application's, whatever they claim, and the
+    /// shell is told so.
+    pub fn set_application(&mut self, client: ClientId, id: &str) {
+        if self.clients.contains_key(&client) {
+            self.shell_windows
+                .applications
+                .insert(client, id.to_string());
+        }
+    }
+
+    /// The application `client`'s launch record names, if the session started it.
+    pub fn application(&self, client: ClientId) -> Option<&str> {
+        self.shell_windows
+            .applications
+            .get(&client)
+            .map(String::as_str)
     }
 
     /// The number the shell knows a window by.
@@ -186,18 +211,25 @@ impl Scene {
             .iter()
             .filter_map(|(key, number)| {
                 let node = self.live(*key).filter(|node| node.mapped)?;
+                let mut names = self
+                    .shell_windows
+                    .names
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_default();
+                // A launched process's windows are its registry application's.
+                let launched = self.shell_windows.applications.get(&key.client);
+                if let Some(id) = launched {
+                    names.app_id = id.clone();
+                }
                 Some((
                     *number,
                     Window {
                         workspace: node.workspace,
                         minimized: node.hidden,
                         focused: focused == Some(*key),
-                        names: self
-                            .shell_windows
-                            .names
-                            .get(key)
-                            .cloned()
-                            .unwrap_or_default(),
+                        launched: launched.is_some(),
+                        names,
                     },
                 ))
             })
@@ -225,8 +257,13 @@ impl Scene {
             for (&number, window) in &now {
                 let before = told.windows.get(&number);
                 if before.is_none_or(|b| {
-                    (b.workspace, b.minimized, b.focused)
-                        != (window.workspace, window.minimized, window.focused)
+                    (b.workspace, b.minimized, b.focused, b.launched)
+                        != (
+                            window.workspace,
+                            window.minimized,
+                            window.focused,
+                            window.launched,
+                        )
                 }) {
                     self.emit(
                         client,
@@ -235,6 +272,7 @@ impl Scene {
                             workspace: window.workspace,
                             minimized: window.minimized,
                             focused: window.focused,
+                            launched: window.launched,
                         },
                     );
                 }

@@ -447,6 +447,7 @@ fn events() -> Vec<Event> {
             workspace: 1,
             minimized: false,
             focused: true,
+            launched: false,
         },
         Event::WindowTitle {
             window: 7,

@@ -53,6 +53,9 @@ typedef struct OxyOSClient OxyOSClient;
 /* A window's state bits (OxyOSEvent.flag of a WINDOW_STATE event). */
 #define OXYOS_WINDOW_MINIMIZED 1
 #define OXYOS_WINDOW_FOCUSED 2
+/* The session started the window's process: its application id is the registry's, not its claim
+ * (docs/adr/0013-launching-applications.mdx). */
+#define OXYOS_WINDOW_LAUNCHED 4
 
 /* Pointer kinds (OxyOSEvent.detail of a pointer event). */
 #define OXYOS_POINTER_ENTER 1

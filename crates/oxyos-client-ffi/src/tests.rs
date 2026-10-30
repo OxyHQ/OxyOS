@@ -1631,6 +1631,7 @@ fn the_header_matches_the_window_management_abi() {
         ("OXYOS_PINCH_CANCEL", OXYOS_PINCH_CANCEL.into()),
         ("OXYOS_WINDOW_MINIMIZED", OXYOS_WINDOW_MINIMIZED.into()),
         ("OXYOS_WINDOW_FOCUSED", OXYOS_WINDOW_FOCUSED.into()),
+        ("OXYOS_WINDOW_LAUNCHED", OXYOS_WINDOW_LAUNCHED.into()),
         ("OXYOS_MANAGE_FOCUS", OXYOS_MANAGE_FOCUS.into()),
         ("OXYOS_MANAGE_CLOSE", OXYOS_MANAGE_CLOSE.into()),
         ("OXYOS_MANAGE_MINIMIZE", OXYOS_MANAGE_MINIMIZE.into()),
@@ -1656,6 +1657,7 @@ fn the_header_matches_the_window_management_abi() {
         workspace: 0,
         minimized: false,
         focused: false,
+        launched: false,
     };
     assert_eq!(u32::from(state.opcode()), OXYOS_EVENT_WINDOW_STATE);
     assert_eq!(
@@ -1721,6 +1723,7 @@ fn window_events_convert_field_by_field() {
         workspace: 2,
         minimized: true,
         focused: true,
+        launched: false,
     })
     .unwrap();
     assert_eq!(
