@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Runs a command in a disposable virtual machine that has what this machine may lack for GPU
+buffers: DMA-BUF (udmabuf, the system dma-heap), a render node with DRM syncobj timelines
+(virtio-gpu) and vgem's fences (docs/adr/0031-gpu-buffers.mdx, "Testing").
+
+The guest is Debian Trixie's own kernel, booted under KVM, on this machine's root file system
+shared read-only (9p), so the command runs the binaries just built, with this machine's
+userspace (Mesa's lavapipe included). The command's working directory and `--writable`
+directories are shared read-write; /tmp is the guest's. Nothing on this machine is changed: no
+module is loaded here, no device appears here.
+
+    tools/gpu-vm/gpu-vm [--writable DIR]... [--memory MiB] [--cpus N] -- COMMAND...
+
+The kernel package is downloaded once (apt-get download, no root) into
+~/.cache/oxyos-gpu-vm. The exit status is the command's.
+"""
+
+import argparse
+import json
+import lzma
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+KERNEL_PACKAGE = "linux-image-6.12.111+deb13-amd64-unsigned"
+KERNEL_VERSION = "6.12.111+deb13-amd64"
+CACHE = Path.home() / ".cache" / "oxyos-gpu-vm"
+
+# Modules loaded in the guest, in an order that satisfies their dependencies (`modules`
+# resolves the rest from modinfo): the shared root (9p), then the devices under test.
+WANTED = ["9pnet_virtio", "9p", "virtio-gpu", "vgem"]
+
+
+def run(*command, **kwargs):
+    return subprocess.run(command, check=True, **kwargs)
+
+
+def fetch():
+    """The kernel and busybox, extracted once."""
+    debs = CACHE / "debs"
+    debs.mkdir(parents=True, exist_ok=True)
+    root = CACHE / "kernel"
+    if not (root / "boot" / f"vmlinuz-{KERNEL_VERSION}").exists():
+        if not list(debs.glob(f"{KERNEL_PACKAGE}_*.deb")):
+            run("apt-get", "download", KERNEL_PACKAGE, cwd=debs)
+        root.mkdir(exist_ok=True)
+        run("dpkg-deb", "-x", str(next(debs.glob(f"{KERNEL_PACKAGE}_*.deb"))), str(root))
+    busybox = CACHE / "busybox" / "bin" / "busybox"
+    if not busybox.exists():
+        if not list(debs.glob("busybox-static_*.deb")):
+            run("apt-get", "download", "busybox-static", cwd=debs)
+        run("dpkg-deb", "-x", str(next(debs.glob("busybox-static_*.deb"))), str(CACHE / "busybox-root"))
+        busybox.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(CACHE / "busybox-root" / "usr" / "bin" / "busybox", busybox)
+    return root / "boot" / f"vmlinuz-{KERNEL_VERSION}", root / "usr" / "lib" / "modules" / KERNEL_VERSION, busybox
+
+
+def modules(tree: Path):
+    """The modules WANTED needs, dependencies first, as (name, path)."""
+    by_name = {}
+    for path in tree.rglob("*.ko.xz"):
+        by_name[path.name[: -len(".ko.xz")].replace("-", "_")] = path
+    order, seen = [], set()
+
+    def visit(name):
+        key = name.replace("-", "_")
+        if key in seen:
+            return
+        seen.add(key)
+        path = by_name[key]
+        depends = subprocess.run(
+            ["modinfo", "-F", "depends", str(path)], check=True, capture_output=True, text=True
+        ).stdout.strip()
+        for dependency in filter(None, depends.split(",")):
+            visit(dependency)
+        order.append((key, path))
+
+    for name in WANTED:
+        visit(name)
+    return order
+
+
+INIT = r"""#!/bin/busybox sh
+/bin/busybox --install -s /bin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+for module in $(cat /modules); do insmod /lib/$module.ko || echo "gpu-vm: $module did not load"; done
+mount -t 9p -o trans=virtio,version=9p2000.L,ro,msize=512000 host /root || { cat /modules; cat /proc/filesystems | grep 9p; dmesg | tail -20; }
+. /config
+mount -t proc proc /root/proc
+mount -t sysfs sys /root/sys
+mount -t devtmpfs dev /root/dev
+mount -t tmpfs tmp /root/tmp
+mount -t tmpfs run /root/run
+n=0
+for dir in $WRITABLE; do
+  n=$((n + 1))
+  mkdir -p "/root$dir" 2>/dev/null
+  mount -t 9p -o trans=virtio,version=9p2000.L,msize=512000 rw$n "/root$dir"
+done
+mkdir -p /root/dev/shm && mount -t tmpfs shm /root/dev/shm
+chroot /root /bin/sh -c "cd \"$WORKDIR\" && exec /bin/sh \"$JOB/run.sh\"" > /dev/console 2>&1
+echo $? > /status
+cat /status > "/root$JOB/status"
+sync
+poweroff -f
+"""
+
+
+def initramfs(work: Path, busybox: Path, order, config: str) -> Path:
+    root = work / "initramfs"
+    for sub in ["bin", "lib", "proc", "sys", "dev", "root", "mnt"]:
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    shutil.copy(busybox, root / "bin" / "busybox")
+    for name, path in order:
+        (root / "lib" / f"{name}.ko").write_bytes(lzma.decompress(path.read_bytes()))
+    (root / "modules").write_text("\n".join(name for name, _ in order) + "\n")
+    (root / "config").write_text(config)
+    init = root / "init"
+    init.write_text(INIT)
+    init.chmod(0o755)
+    image = work / "initramfs.cpio"
+    files = subprocess.run(
+        ["find", "."], cwd=root, check=True, capture_output=True
+    ).stdout
+    with open(image, "wb") as out:
+        subprocess.run(["cpio", "-o", "-H", "newc", "--quiet"], cwd=root, input=files, stdout=out, check=True)
+    return image
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--writable", action="append", default=[], help="a directory shared read-write")
+    parser.add_argument("--memory", type=int, default=8192, help="MiB")
+    parser.add_argument("--cpus", type=int, default=8)
+    parser.add_argument("--env", action="append", default=[], help="NAME=VALUE for the command")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        parser.error("no command")
+    if not os.access("/dev/kvm", os.R_OK | os.W_OK):
+        sys.exit("gpu-vm: /dev/kvm is not usable here")
+    kernel, tree, busybox = fetch()
+    order = modules(tree)
+    workdir = Path.cwd().resolve()
+    writable = [workdir] + [Path(d).resolve() for d in args.writable]
+    with tempfile.TemporaryDirectory(prefix="oxyos-gpu-vm-", dir=CACHE) as scratch:
+        work = Path(scratch)
+        job = work / "job"
+        job.mkdir()
+        environment = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": "/tmp",
+            "XDG_RUNTIME_DIR": "/run",
+        }
+        for name in ["VK_ICD_FILENAMES", "LD_LIBRARY_PATH", "RUST_BACKTRACE", "XLOCALEDIR"]:
+            if name in os.environ:
+                environment[name] = os.environ[name]
+        for pair in args.env:
+            name, _, value = pair.partition("=")
+            environment[name] = value
+        exports = "".join(f"export {name}={shlex.quote(value)}\n" for name, value in environment.items())
+        (job / "run.sh").write_text(exports + "exec " + shlex.join(command) + "\n")
+        config = (
+            f"WORKDIR={shlex.quote(str(workdir))}\n"
+            f"JOB={shlex.quote(str(job))}\n"
+            f"WRITABLE={shlex.quote(' '.join(str(d) for d in writable + [job]))}\n"
+        )
+        image = initramfs(work, busybox, order, config)
+        qemu = [
+            "qemu-system-x86_64",
+            "-enable-kvm",
+            "-cpu", "host",
+            "-m", str(args.memory),
+            "-smp", str(args.cpus),
+            "-nographic",
+            "-no-reboot",
+            "-kernel", str(kernel),
+            "-initrd", str(image),
+            "-append", "console=ttyS0 quiet loglevel=3 panic=-1",
+            "-device", "virtio-gpu-pci",
+            "-virtfs", "local,path=/,mount_tag=host,security_model=none,readonly=on",
+        ]
+        for index, directory in enumerate(writable + [job], start=1):
+            qemu += ["-virtfs", f"local,path={directory},mount_tag=rw{index},security_model=none"]
+        subprocess.run(qemu, stdin=subprocess.DEVNULL)
+        status = job / "status"
+        if not status.exists():
+            sys.exit("gpu-vm: the guest ended without the command's status")
+        sys.exit(int(status.read_text().strip() or "1"))
+
+
+if __name__ == "__main__":
+    main()

@@ -1621,6 +1621,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-dmabuf"
+version = "0.1.0"
+dependencies = [
+ "drm",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-gestures"
 version = "0.1.0"
 
