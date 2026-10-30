@@ -704,27 +704,116 @@ fn hermes_compiles_the_bundle_when_the_tests_have_it() {
     assert_eq!(world.files(), before);
 }
 
-/// Writes a store repository for trying the service on a machine, as root, by hand: run with
-/// `OXYOS_WRITE_REPOSITORY=DIRECTORY cargo test -p oxyos-install write_a_repository --
-/// --ignored`. DIRECTORY gets the repository (`metadata/`, `targets/`, `objects/`), whose
-/// `metadata/1.root.json` is the anchor to trust: Notes 12, and 13 asking for the account's
-/// capability, so an update needs consent. Its metadata expires within the year after
-/// 2026-10-30.
-#[test]
-#[ignore]
-fn write_a_repository() {
+/// What a repository for trying the service by hand holds: Notes 12 alone (`First`), or 12 and
+/// then 13, which asks for `oxy-account`, so an account on 12 is offered an update that needs its
+/// consent (`Update`). Written to the same directory, `Update` rewrites `First`'s documents
+/// byte for byte (fixed keys, fixed expiries) and adds the next version of each role, as the store
+/// publishes a release: a machine that installed 12 from `First` reads 13 as an update.
+#[derive(Clone, Copy)]
+pub(crate) enum TryRepository {
+    First,
+    Update,
+}
+
+pub(crate) fn write_try_repository(directory: &Path, stage: TryRepository) -> Repo {
+    let mut repo = Repo::new(directory);
+    repo.add(&Pkg::notes(12));
+    repo.publish();
+    if let TryRepository::Update = stage {
+        let mut v13 = Pkg::notes(13);
+        v13.capabilities = vec!["network", "notifications", "oxy-account"];
+        repo.add(&v13);
+        repo.publish();
+    }
+    repo
+}
+
+fn write_try(stage: TryRepository) {
     let Some(directory) = std::env::var_os("OXYOS_WRITE_REPOSITORY").map(PathBuf::from) else {
         panic!("OXYOS_WRITE_REPOSITORY names no directory");
     };
-    let mut repo = Repo::new(&directory);
-    repo.add(&Pkg::notes(12));
-    let mut v13 = Pkg::notes(13);
-    v13.capabilities = vec!["network", "notifications", "oxy-account"];
-    repo.add(&v13);
-    repo.publish();
+    let repo = write_try_repository(&directory, stage);
     eprintln!(
         "wrote {}; the anchor is {}",
         directory.display(),
         repo.anchor().display()
     );
+}
+
+/// Writes a store repository for trying the service on a machine, as root, by hand: run with
+/// `OXYOS_WRITE_REPOSITORY=DIRECTORY cargo test -p oxyos-install write_a_repository --
+/// --ignored`. DIRECTORY gets the repository (`metadata/`, `targets/`, `objects/`),
+/// whose `metadata/1.root.json` is the anchor to trust, with Notes 12. Its metadata expires
+/// within the year after 2026-10-30.
+#[test]
+#[ignore]
+fn write_a_repository() {
+    write_try(TryRepository::First);
+}
+
+/// Publishes Notes 13, which asks for `oxy-account`, in the repository `write_a_repository`
+/// wrote: run with the same `OXYOS_WRITE_REPOSITORY` and `write_an_update -- --ignored`
+/// once a machine has installed 12, and its next check offers 13, waiting for the account's
+/// consent.
+#[test]
+#[ignore]
+fn write_an_update() {
+    write_try(TryRepository::Update);
+}
+
+/// What the two writers make, in order, over one directory, is what a machine reads: 12
+/// installed from the first, then 13 offered by the update, waiting for consent, and switched
+/// once given.
+#[test]
+fn the_try_repository_offers_an_update_needing_consent() {
+    let mut world = World::new("try-repository");
+    let directory = world.scratch.0.join("try");
+    let first = write_try_repository(&directory, TryRepository::First);
+    let before: Vec<_> = [
+        "metadata/1.root.json",
+        "metadata/1.targets.json",
+        "metadata/1.snapshot.json",
+    ]
+    .iter()
+    .map(|p| fs::read(directory.join(p)).unwrap())
+    .collect();
+    world.repo = first;
+    world.fetcher = world.repo.fetcher(&world.scratch.0);
+    let installer = world.installer();
+    let prepared = installer.prepare(ALICE, ID).unwrap();
+    assert_eq!(prepared.plan.version_code, 12);
+    installer.commit(&prepared, &mut |_| {}).unwrap();
+    installer.shown(ALICE, ID, 12).unwrap();
+    assert!(installer.update_state(ALICE).unwrap().updates.is_empty());
+
+    world.repo = write_try_repository(&directory, TryRepository::Update);
+    let after: Vec<_> = [
+        "metadata/1.root.json",
+        "metadata/1.targets.json",
+        "metadata/1.snapshot.json",
+    ]
+    .iter()
+    .map(|p| fs::read(directory.join(p)).unwrap())
+    .collect();
+    assert_eq!(
+        before, after,
+        "the update rewrote the first stage's documents differently"
+    );
+    installer.check().unwrap();
+    let state = installer.update_state(ALICE).unwrap();
+    assert_eq!(state.updates.len(), 1, "{state:?}");
+    assert_eq!(state.updates[0].to_version_code, 13);
+    assert_eq!(state.updates[0].status, "awaitingConsent");
+    let updated = installer.update(ALICE, None).unwrap();
+    assert_eq!(updated[0].outcome, "awaitingConsent");
+    assert_eq!(
+        installer.consent(ALICE, ID, 13).unwrap().outcome,
+        "switched"
+    );
+    assert!(world.entry("alice", ID).contains("/13/index.hbc"));
+    // 12 is kept until 13 has shown a window, then collected.
+    assert!(world.layout().version(ID, 12).is_dir());
+    installer.shown(ALICE, ID, 13).unwrap();
+    assert!(!world.layout().version(ID, 12).exists());
+    assert!(world.layout().version(ID, 13).is_dir());
 }

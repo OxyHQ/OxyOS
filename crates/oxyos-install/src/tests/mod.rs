@@ -31,8 +31,10 @@ pub fn now() -> i64 {
     NOW
 }
 
-pub const ALICE: u32 = 1001;
-pub const BOB: u32 = 1002;
+/// The tests' accounts: uids no real user has (a CI runner's own uid is 1001), so a request
+/// "for another account" is never the test process's own.
+pub const ALICE: u32 = 2_000_001;
+pub const BOB: u32 = 2_000_002;
 pub const APPLICATION: &str = "0192f1e0-7c3a-7d2e-8a41-5b6c7d8e9f01";
 
 pub fn key(seed: u8) -> SigningKey {
@@ -470,6 +472,11 @@ pub fn machine(dir: &Path, hermesc: Option<&Path>) -> Machine {
 }
 
 pub fn accounts() -> Fixed {
+    let me = rustix::process::getuid().as_raw();
+    assert!(
+        me != ALICE && me != BOB,
+        "the tests run as one of their own accounts' uids"
+    );
     Fixed(vec![
         Account {
             uid: ALICE,
