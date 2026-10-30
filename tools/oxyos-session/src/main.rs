@@ -12,13 +12,15 @@
 //!   when logind asks and before the machine sleeps; only a password PAM accepts for the session's
 //!   user, under the service `oxyos`, unlocks it.
 //!
-//! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...] -- COMMAND
-//! [ARGS]...` runs COMMAND
+//! `oxyos-session [--layout LAYOUT] [--pointer FILE.cur[,SIZE]] [--shell PROGRAM,ARG...] [-- COMMAND
+//! [ARGS]...]` runs COMMAND
 //! with `OXYOS_COMPOSITOR_SOCKET` naming the compositor. With `--shell`, the session's shell
 //! (ADR 0009) starts first: PROGRAM with its ARGs, then `--shell OUTPUT`, on a socket of its own
-//! that grants `shell` and `lock` (the shell is the lock screen as well); COMMAND starts once the
-//! shell's panels have set the work area its window is placed in. The session ends when either
-//! exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then asked to stop). A shell
+//! that grants `shell` and `lock` (the shell is the lock screen as well); COMMAND, if given,
+//! starts once the shell's panels have set the work area its window is placed in. With a shell
+//! COMMAND may be left out: the session is the desktop alone. Without one it is required. The
+//! session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then
+//! asked to stop). A shell
 //! that exits while the session is locked is started again, at most once a second: until it
 //! shows the lock screen, the compositor's covers are all there is to see.
 //!
@@ -43,7 +45,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage: oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] \
-                     [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...";
+                     [--shell PROGRAM,ARG...] [-- COMMAND [ARGS]...] (COMMAND is required without a shell)";
 /// The shell's panels set the work area within this budget, or the session does not start.
 const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const OUTPUT_ID: u32 = 1;
@@ -93,7 +95,8 @@ fn main() -> Result<()> {
             _ => return Err(USAGE.into()),
         }
     }
-    if command.is_empty() {
+    // A session shows something: its shell, an application, or both.
+    if command.is_empty() && shell_command.is_none() {
         return Err(USAGE.into());
     }
 
@@ -226,15 +229,25 @@ fn main() -> Result<()> {
     };
     // The session is on screen: the mark fades out over it.
     compositor.end_splash();
-    let mut application = Command::new(&command[0])
-        .args(&command[1..])
-        .env("OXYOS_COMPOSITOR_SOCKET", &socket)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .spawn()?;
+    let mut application = match command.first() {
+        Some(program) => Some(
+            Command::new(program)
+                .args(&command[1..])
+                .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+                .env_remove("DISPLAY")
+                .env_remove("WAYLAND_DISPLAY")
+                .spawn()?,
+        ),
+        None => None,
+    };
     let mut shell_started = Instant::now();
     let ended = loop {
-        if let Some(status) = application.try_wait()? {
+        if let Some(status) = application
+            .as_mut()
+            .map(|application| application.try_wait())
+            .transpose()?
+            .flatten()
+        {
             eprintln!(
                 "[session] {} exited ({status})",
                 command[0].to_string_lossy()
@@ -271,7 +284,9 @@ fn main() -> Result<()> {
             break Err(error);
         }
     };
-    end(&mut application)?;
+    if let Some(application) = application.as_mut() {
+        end(application)?;
+    }
     if let Some(shell) = shell.as_mut() {
         end(shell)?;
     }
