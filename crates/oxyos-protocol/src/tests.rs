@@ -284,6 +284,9 @@ fn events() -> Vec<Event> {
             serial: 3,
             launched: true,
         },
+        Event::ScreenReaderCommand {
+            command: ReaderCommand::Activate,
+        },
         Event::LockState { locked: true },
         Event::CapsLock {
             surface: 5,

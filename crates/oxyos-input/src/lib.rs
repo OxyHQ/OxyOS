@@ -55,6 +55,9 @@ pub enum Action {
     /// The session's lock (Ctrl+Super+Q, the key that types `q`, as macOS's Ctrl+Cmd+Q, ADR
     /// 0010), which no application sees as a key.
     Lock,
+    /// The screen reader turned on or off (Super+F5, ADR 0014), which no application sees as a
+    /// key: the session starts its screen reader, or stops it.
+    ToggleReader,
     /// Caps Lock came on (`true`) or went off, after the key that did it.
     CapsLock(bool),
     /// A touchpad pinch (two or more fingers spreading, closing or turning; libinput tells it from
@@ -94,9 +97,10 @@ pub enum Typed {
     Terminate,
     /// A press of the session's lock (see [`Action::Lock`]).
     Lock,
-    /// The release of a key the compose table, a terminal switch, the lock or the end of the
-    /// session took:
-    /// nothing for anyone.
+    /// A press of the screen reader's switch (see [`Action::ToggleReader`]).
+    ToggleReader,
+    /// The release of a key the compose table, a terminal switch, the lock, the screen reader's
+    /// switch or the end of the session took: nothing for anyone.
     Nothing,
 }
 
@@ -310,14 +314,24 @@ impl Keyboard {
 
     /// Whether Control and Super, and no other modifier, are held: with `q`, the lock.
     fn locks(&self) -> bool {
-        let held = |name| {
-            self.state
-                .mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
-        };
-        held(xkb::MOD_NAME_CTRL)
-            && held(xkb::MOD_NAME_LOGO)
-            && !held(xkb::MOD_NAME_ALT)
-            && !held(xkb::MOD_NAME_SHIFT)
+        self.held(xkb::MOD_NAME_CTRL)
+            && self.held(xkb::MOD_NAME_LOGO)
+            && !self.held(xkb::MOD_NAME_ALT)
+            && !self.held(xkb::MOD_NAME_SHIFT)
+    }
+
+    /// Whether Super, and no other modifier, is held: with F5, the screen reader's switch, as
+    /// macOS's Cmd+F5 turns VoiceOver on and off.
+    fn toggles_reader(&self) -> bool {
+        self.held(xkb::MOD_NAME_LOGO)
+            && !self.held(xkb::MOD_NAME_CTRL)
+            && !self.held(xkb::MOD_NAME_ALT)
+            && !self.held(xkb::MOD_NAME_SHIFT)
+    }
+
+    fn held(&self, name: &str) -> bool {
+        self.state
+            .mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
     }
 
     /// Whether Caps Lock is on: the keymap's Lock modifier is locked.
@@ -362,6 +376,9 @@ impl Keyboard {
             } else if name == "q" && self.locks() {
                 self.taken.push(code);
                 Typed::Lock
+            } else if name == "F5" && self.toggles_reader() {
+                self.taken.push(code);
+                Typed::ToggleReader
             } else {
                 match self
                     .compose
@@ -596,6 +613,7 @@ impl Input {
                         }
                         Typed::Terminate => actions.push(Action::Terminate),
                         Typed::Lock => actions.push(Action::Lock),
+                        Typed::ToggleReader => actions.push(Action::ToggleReader),
                         Typed::Nothing => {}
                     }
                     if self.keyboard.caps_locked() != caps {

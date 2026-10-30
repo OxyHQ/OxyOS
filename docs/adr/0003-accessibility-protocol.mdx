@@ -6,7 +6,7 @@ order: 12
 
 # ADR 0003: Accessibility in the OxyOS display protocol
 
-Status: **accepted; implemented** (protocol, compositor, the Bloom host's publication, actions and announcements), but for a screen reader that speaks. Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33), [#34](https://github.com/OxyHQ/OxyOS/issues/34). Builds on [ADR 0001](./0001-native-platform-boundaries).
+Status: **accepted; implemented** (protocol, compositor, the Bloom host's publication, actions and announcements); the screen reader that speaks is [ADR 0014](./0014-screen-reader). Issues: [#33](https://github.com/OxyHQ/OxyOS/issues/33), [#34](https://github.com/OxyHQ/OxyOS/issues/34). Builds on [ADR 0001](./0001-native-platform-boundaries).
 
 ## Problem
 
@@ -75,6 +75,6 @@ The display protocol carries accessibility, as it carries buffers. The composito
 
 - The screen reader is an ordinary protocol client with a grant, like the shell. It can be written for OxyOS without D-Bus. An AT-SPI bridge remains possible as such a client if Orca support is wanted later.
 - Applications other than the Bloom host publish nothing until they implement the messages. A surface without a snapshot is presented to the assistive technology as empty, never guessed from pixels.
-- Not done: a screen reader client that speaks (it needs a speech engine chosen), so nothing is heard yet; what the development compositor's reader would say is checked instead. Text navigation by character, word or line is the screen reader's own, over a field's value and selection; the protocol carries both.
+- The screen reader that speaks is OxyOS's own, `tools/oxyos-reader`, with eSpeak NG ([ADR 0014](./0014-screen-reader)); the development compositor's reader still checks what an assistive technology holds and would say. Text navigation by character, word or line is the screen reader's own, over a field's value and selection; the protocol carries both.
 - `scenarios/accessibility-actions.json` (`sample/A11yProbe.tsx`) works the actions and announcements through what the reader holds and would say: increment, decrement and a custom action by its label change a level a polite live region announces; an announcement is heard at once; a list scrolls on and back by a page and offers each only while it can; a field's selection is set in bytes and held; a dialog's first node dismisses it; a label the node does not have, a direction it cannot scroll, a selection inside a character and an increment of a button are refused. Without the host reading `accessibilityActions` it fails at its first step.
 - `scenarios/desktop-accessibility.json` works the desktop as a screen reader would, through the trees the development compositor's assistive technology receives (not the compositor's own state) and its actions alone: the dock opens the launcher, its search and applications are read, the Oxy menu locks the session, the lock screen is all it holds, a wrong password is an alert, and unlocking gives it the window and the panels back. Taking out the lock's hiding fails it.

@@ -17,8 +17,8 @@ pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
     Anchor, AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase,
     Gravity, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
-    PreeditText, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
-    MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints,
+    TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.

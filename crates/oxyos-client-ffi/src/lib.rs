@@ -486,7 +486,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibleSelection { .. }
         | Event::AccessibilityAnnouncement { .. }
         | Event::AccessibilityCommitted { .. }
-        | Event::AccessibilityRemoved { .. } => return None,
+        | Event::AccessibilityRemoved { .. }
+        | Event::ScreenReaderCommand { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
         // What the clipboard holds, for the client with keyboard focus (ADR 0007).
         Event::ClipboardTypes { selection, count } => {

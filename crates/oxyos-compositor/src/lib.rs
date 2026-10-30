@@ -60,6 +60,13 @@ pub struct Compositor {
     /// `shell` (docs/adr/0009-session-shell.mdx) and `lock` (it is the lock screen too, ADR 0010), as a shipping session will grant it from its
     /// launch records (#35).
     pub shell_listener: Option<Listener>,
+    /// The screen reader's socket (docs/adr/0014-screen-reader.mdx): a same-user peer connecting
+    /// there is granted `accessibility` and `screen_reader`. The session listens there only for
+    /// the reader it starts.
+    pub reader_listener: Option<Listener>,
+    /// The user pressed the screen reader's switch (Super+F5) since the program running the
+    /// compositor last took it (`take_reader_toggle`).
+    reader_toggled: bool,
     pub next_client: ClientId,
     /// Peers of the shell socket are numbered down from here, so the clients the development
     /// compositor launches keep their numbers whatever order they connect in (the two above are
@@ -254,6 +261,8 @@ impl Compositor {
             scene,
             peers: HashMap::new(),
             shell_listener: None,
+            reader_listener: None,
+            reader_toggled: false,
             next_client: 0,
             next_shell_client: ClientId::MAX - 2,
             own_uid,
@@ -316,6 +325,12 @@ impl Compositor {
     /// nothing else. A shipping session derives grants from its launch records (#35).
     pub fn grants_for(&self, credentials: Credentials) -> Option<Grants> {
         (credentials.uid == self.own_uid).then(Grants::default)
+    }
+
+    /// Whether the user pressed the screen reader's switch since the last call (ADR 0014): the
+    /// program running the compositor starts its reader, or stops it.
+    pub fn take_reader_toggle(&mut self) -> bool {
+        std::mem::take(&mut self.reader_toggled)
     }
 
     pub fn accept(&mut self, listener: &Listener) -> Result<()> {
@@ -1173,6 +1188,7 @@ impl Compositor {
                 } => self.scene.keyboard(code, pressed, text.as_deref()),
                 oxyos_input::Action::Terminate => self.ending = true,
                 oxyos_input::Action::Lock => self.scene.lock(),
+                oxyos_input::Action::ToggleReader => self.reader_toggled = true,
                 oxyos_input::Action::CapsLock(on) => self.scene.set_caps_lock(on),
                 oxyos_input::Action::SwitchTerminal(number) => {
                     if let Some(seat) = &self.seat {
@@ -1392,14 +1408,15 @@ impl Compositor {
         // Poll the listener, every client and, with a frame on its way, the display (its flip);
         // never block on any one of them.
         let shell = usize::from(self.shell_listener.is_some());
+        let reader = usize::from(self.reader_listener.is_some());
         let readable: Vec<bool> = {
-            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 3);
+            let mut fds: Vec<PollFd<'_>> = Vec::with_capacity(clients.len() + 4);
             fds.push(PollFd::from_borrowed_fd(listener.as_fd(), PollFlags::IN));
-            if let Some(shell_listener) = &self.shell_listener {
-                fds.push(PollFd::from_borrowed_fd(
-                    shell_listener.as_fd(),
-                    PollFlags::IN,
-                ));
+            for extra in [&self.shell_listener, &self.reader_listener]
+                .into_iter()
+                .flatten()
+            {
+                fds.push(PollFd::from_borrowed_fd(extra.as_fd(), PollFlags::IN));
             }
             for client in &clients {
                 // A client with events waiting for room in its socket wakes the turn when it has
@@ -1462,8 +1479,21 @@ impl Compositor {
             self.shell_listener = Some(shell_listener);
             accepted?;
         }
+        if reader == 1 && readable[1 + shell] {
+            let reader_listener = self.reader_listener.take().expect("polled");
+            let accepted = self.accept_granting(
+                &reader_listener,
+                Some(Grants {
+                    accessibility: true,
+                    screen_reader: true,
+                    ..Grants::default()
+                }),
+            );
+            self.reader_listener = Some(reader_listener);
+            accepted?;
+        }
         for (index, client) in clients.iter().enumerate() {
-            if readable[index + 1 + shell] {
+            if readable[index + 1 + shell + reader] {
                 self.receive(*client);
             }
         }

@@ -1,0 +1,46 @@
+---
+title: "ADR 0014: The screen reader"
+description: OxyOS's own screen reader — an assistive technology that speaks — its speech engine, how the session starts it, and how its keys reach it alone.
+order: 23
+---
+
+# ADR 0014: The screen reader
+
+Status: **accepted; first step implemented**. Builds on [ADR 0003](./0003-accessibility-protocol) (the accessibility protocol and its `accessibility` grant), [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority) and [ADR 0010](./0010-lock-screen) (what the lock hides).
+
+## Problem
+
+ADR 0003 gave applications a way to publish their accessibility trees and an assistive technology a way to read them and act on them, but nothing speaks: the development compositor's reader only records what it would say. A person who cannot see the screen cannot use OxyOS. A Mac has VoiceOver, on from the keyboard (Cmd+F5), with keys of its own that move through what is on screen and activate it; OxyOS needs its own, without AT-SPI or D-Bus (ADR 0003), with a voice from Debian, and with keys no application can take or see.
+
+## Decision
+
+1. **The screen reader is an assistive-technology client** (`tools/oxyos-reader`), as ADR 0003 foresaw: a client of the display protocol holding the `accessibility` grant, which gives it every surface's tree (and, locked, only the lock screen's) and lets it act on nodes, and the new `screen_reader` grant, which gives it its keys. The session grants both on a socket of its own, as it grants the shell on the shell's; no request adds them. At most one client holds `screen_reader`.
+2. **The voice is eSpeak NG, run by the reader.** What Debian trixie has, checked in its archive:
+   - *Piper* (neural, the best-sounding open voices) is not packaged: Debian's `piper` is a gaming-mouse configuration tool. Its voices are models downloaded from the network, which OxyOS never does.
+   - *eSpeak NG* (`espeak-ng` 1.52.0, in main) is a formant synthesizer: robotic, but instant, small, in every language OxyOS speaks (Spanish and English among them), and what screen readers use (NVDA's default, Orca's through Speech Dispatcher). Its voices are in the package (`espeak-ng-data`).
+   - *Speech Dispatcher* (0.12, with `speech-dispatcher-espeak-ng`) puts a daemon, its configuration and its output modules between the reader and eSpeak NG, to share a voice among many speaking programs. OxyOS has one: the reader. It can come later, behind the same trait, if more voices are wanted.
+
+   The reader runs `espeak-ng -v VOICE` for each utterance, the text on its standard input, and stops it by ending the process. eSpeak NG plays through libpcaudio, which reaches the session's PipeWire through PipeWire's PulseAudio server (`pipewire-pulse`, part of `pipewire-audio`, already in the image's manifest): PipeWire stays the one audio stack. Nothing is downloaded, at build or at run time.
+3. **The image gains `espeak-ng`** in `config/package-lists/live.list.chroot` (bringing `espeak-ng-data`, `libespeak-ng1`, `libpcaudio0`, `libsonic0`) when the reader goes into the image with the session, which is not this decision: the image is a console base until the session's acceptance tests exist ([Base image configuration](../iso-build)).
+4. **What it says.** An element is said as VoiceOver says it: its name, its value, its state, its role (“Nota, hola ñandú, campo de texto”; “Recordar, no marcada, casilla”), in the session's language: Spanish when `LC_ALL`, `LC_MESSAGES` or `LANG` is Spanish, English otherwise. It says the element an application focuses, and its cursor takes it; what applications announce, polite ones after what it is saying and assertive ones at once; and live regions as they change, as the development compositor's reader did. Moving the cursor interrupts what it is saying, as VoiceOver does.
+5. **Its keys reach it alone.** Ctrl+Alt+Right and Ctrl+Alt+Left move its cursor to the next and the previous element that has something to say (named elements and leaves; unnamed containers are passed over), through each surface's tree in reading order and on into the next surface's; Ctrl+Alt+Space activates the element under it (an `Activate` action, ADR 0003; what that does is the application's to say). While a client holding `screen_reader` is connected, the scene takes those keys from the keyboard before anything else: before the input method, the shell's shortcuts and the focused surface, and while locked (the reader reads the lock screen). It sends each press to the reader as `ScreenReaderCommand` (event 50: `Next`, `Previous` or `Activate`) and takes its release too, even if the reader has gone meanwhile; the modifiers themselves still reach the application, as with any chord. Right Alt is not the reader's: on many layouts, Spanish among them, it is AltGr, which types. With no reader connected, the keys are ordinary keys.
+6. **Super+F5 turns it on and off**, as Cmd+F5 turns VoiceOver on: the keymap's F5 with Super and no other modifier (`oxyos-input`'s `Action::ToggleReader`), which no application sees. The session starts its reader (`--reader PROGRAM` or `OXYOS_READER`) or stops it. It is off unless the session is started with `--reader-on`; with no reader named, Super+F5 does nothing.
+7. **Speech is behind a trait** (`crates/oxyos-speech`'s `Backend`): eSpeak NG; a record of each utterance with its time on `CLOCK_MONOTONIC` (`OXYOS_SPEECH=record:PATH`), for scenarios; and one in memory, for tests. The queue (`Speaker`) and what is said of an element (`describe`) are the backend's callers, and are tested without a voice.
+
+## Results
+
+- `ScreenReaderCommand` (event 50) and `ReaderCommand` in the protocol; the C ABI never delivers it (the Bloom host is no reader).
+- `Grants::screen_reader`; `scene/reader.rs` takes Ctrl+Alt with Right, Left or Space (left or right Ctrl, left Alt) from `Scene::key` and `Scene::keyboard` before the input method and the shell's shortcuts, and remembers each press it took so its release is taken too. Tests: the three commands reach the reader and nothing of them the application but the modifiers; without both modifiers, with AltGr, or with an assistive technology that lacks the grant, they are the application's; they come before the input method and a shortcut on the same key, and work while locked; one reader at a time; a release whose press the reader took is not the application's after the reader goes.
+- `oxyos-input`: Super+F5 is `Action::ToggleReader` (tested on the US and Spanish layouts; F5 alone and Ctrl+Super+F5 are the application's). The compositor keeps it for the program running it (`take_reader_toggle`) and accepts the reader on `reader_listener`.
+- `crates/oxyos-speech`: the language from the locale; `describe` (tested in Spanish and English for buttons, text fields, checkboxes, switches, dimmed, collapsed and selected elements, live text, unnamed images and containers); `Speaker` (a polite utterance waits; an assertive one stops what is said and drops what waits); `Espeak`, `Record` and `Memory`.
+- `tools/oxyos-reader`: the client. It keeps the trees, its cursor and what was focused, says “Lector de pantalla activado” as it starts, and speaks as above. Tests over the events it receives: moving through an application's elements and stopping at the ends, focus said once and taking the cursor, its activation asked of the application, announcements whole from their chunks and live regions with their politeness, a surface gone taking the cursor with it.
+- `oxyos-session --reader PROGRAM [--reader-on]`; `oxyos-offscreen --reader PROGRAM [--reader-locale LOCALE]`, which starts the reader before the application with its voice a record (`speech.jsonl`); `regress.py` checks what it said in each step (`spoken`).
+- `scenarios/screen-reader.json`, in Spanish on `sample/A11yProbe.tsx`, through the real reader process and the compositor's keys: Ctrl+Alt+Right says “Volumen, regulador”, “Nivel 5”, “Guardar, botón”; Ctrl+Alt+Space activates Guardar, whose announcement “Guardado” is said at once; Ctrl+Alt+Left goes back; the level's live region is said politely; Nota, focused by the application, is said with its value; and the cursor moves on from it. React sees none of the reader's keys. With the scene not taking them, it fails: nothing is said and Guardar is never activated.
+- eSpeak NG itself is tested only where it is installed (it says something and is stopped); CI has none, so what CI checks is the record.
+
+## Not in this decision
+
+- Packaging the reader and `espeak-ng` into the image (decision 3), and the reader's preferences (voice, rate, verbosity); a setting to start it at login.
+- Reading text by character, word and line, and echoing what is typed; the rotor, headings and landmarks; hints (“para activar, pulsa Ctrl+Alt+Espacio”).
+- A highlight of the element under the cursor on screen.
+- Braille.

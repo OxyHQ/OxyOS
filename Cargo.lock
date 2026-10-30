@@ -1694,6 +1694,16 @@ name = "oxyos-protocol"
 version = "0.1.0"
 
 [[package]]
+name = "oxyos-reader"
+version = "0.1.0"
+dependencies = [
+ "oxyos-client",
+ "oxyos-protocol",
+ "oxyos-speech",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-seat"
 version = "0.1.0"
 dependencies = [
@@ -1724,6 +1734,14 @@ name = "oxyos-solar"
 version = "0.1.0"
 dependencies = [
  "jiff",
+]
+
+[[package]]
+name = "oxyos-speech"
+version = "0.1.0"
+dependencies = [
+ "oxyos-protocol",
+ "rustix",
 ]
 
 [[package]]

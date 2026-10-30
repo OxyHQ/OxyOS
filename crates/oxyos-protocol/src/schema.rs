@@ -4,8 +4,8 @@
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, Rect,
-    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
+    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
+    Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -261,6 +261,9 @@ messages! {
         48 => AccessibilityAnnouncement { client: u32, surface: u32, index: u8, last: bool, politeness: Politeness, text: PreeditText },
         // To the shell: whether the application its LaunchApplication `serial` named was started.
         49 => LaunchResult { serial: u32, launched: bool },
+        // To the screen reader (its `screen_reader` grant, ADR 0014): a command of its keys, which
+        // the compositor took from the keyboard (Ctrl+Alt with an arrow or Space).
+        50 => ScreenReaderCommand { command: ReaderCommand },
     }
 }
 
