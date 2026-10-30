@@ -24,7 +24,7 @@
       "expect": {
         "focus_input": "line",
         "output_pixels": {
-          "709,716": "#f7f9fc"
+          "738,716": "#f7f9fc"
         }
       }
     },
@@ -33,15 +33,15 @@
       "do": [
         "press_output",
         [
-          709,
+          738,
           693
         ]
       ],
       "expect": {
         "react": {},
         "output_pixels": {
-          "709,716": "#64717a",
-          "664,259": "#f0e7eb"
+          "664,259": "#f0e7eb",
+          "738,716": "#64717a"
         }
       }
     }

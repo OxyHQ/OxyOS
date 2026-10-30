@@ -32,8 +32,12 @@
   "oxyos": {
     "description": "OxyOS's own applications' icons, given by the project's owner.",
     "files": [
-      "files.png",
       "settings.png"
     ]
+  },
+  "stash": {
+    "repository": "OxyHQ/Stash",
+    "path": "packages/frontend/assets/images/icon-512.png",
+    "revision": "65d072d16ea1d19c74e4b397e673f998a63aa490"
   }
 }
