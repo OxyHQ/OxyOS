@@ -132,12 +132,24 @@ wire_enum! {
     }
 }
 wire_enum! {
-    /// Which text of an accessible node a chunk belongs to.
-    AccessibleField: u8 { Name = 1, Value = 2 }
+    /// Which text of an accessible node a chunk belongs to: its name, its value, or the labels
+    /// of its custom actions (one per line, in order: `Custom` action `n` is line `n`).
+    AccessibleField: u8 { Name = 1, Value = 2, Actions = 3 }
 }
 wire_enum! {
-    /// What an assistive technology asks an application to do with a node.
-    AccessibleAction: u8 { Activate = 1, Focus = 2 }
+    /// What an assistive technology asks an application to do with a node, as Android's
+    /// accessibility actions: activate (a double tap) and focus any node; increment, decrement,
+    /// scroll forward and backward, dismiss and set the selection a node that offers them
+    /// (`AccessibleActions`); a custom action by its index among the node's.
+    AccessibleAction: u8 {
+        Activate = 1, Focus = 2, Increment = 3, Decrement = 4, ScrollForward = 5,
+        ScrollBackward = 6, Dismiss = 7, Custom = 8, SetSelection = 9,
+    }
+}
+wire_enum! {
+    /// How an announcement interrupts an assistive technology: after what it is saying
+    /// (`Polite`), or at once (`Assertive`), as Android's live regions.
+    Politeness: u8 { Polite = 1, Assertive = 2 }
 }
 wire_enum! {
     /// What a text field is for (ADR 0008).
@@ -271,7 +283,11 @@ impl AccessibleState {
     pub const BUSY: u16 = 1 << 6;
     /// The node with the application's accessibility focus.
     pub const FOCUSED: u16 = 1 << 7;
-    const ALL: u16 = (1 << 8) - 1;
+    /// A live region (Android's `accessibilityLiveRegion`): an assistive technology announces
+    /// what changes in it, after what it is saying or at once.
+    pub const LIVE_POLITE: u16 = 1 << 8;
+    pub const LIVE_ASSERTIVE: u16 = 1 << 9;
+    const ALL: u16 = (1 << 10) - 1;
 
     /// The state with these bits, if every bit is known.
     pub const fn new(bits: u16) -> Option<Self> {
@@ -298,6 +314,52 @@ impl Wire for AccessibleState {
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
         Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible state"))
+    }
+}
+
+/// The actions a node offers beyond activate and focus, as bits (Android's
+/// `AccessibilityNodeInfo` actions). Unknown bits are invalid.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AccessibleActions(u16);
+
+impl AccessibleActions {
+    /// An adjustable node's value up or down.
+    pub const INCREMENT: u16 = 1 << 0;
+    pub const DECREMENT: u16 = 1 << 1;
+    /// A scrollable node, by a page.
+    pub const SCROLL_FORWARD: u16 = 1 << 2;
+    pub const SCROLL_BACKWARD: u16 = 1 << 3;
+    /// What closes the node's dialog or popup (Android's back on it).
+    pub const DISMISS: u16 = 1 << 4;
+    /// A text field's selection, in bytes of its value.
+    pub const SET_SELECTION: u16 = 1 << 5;
+    const ALL: u16 = (1 << 6) - 1;
+
+    /// The actions with these bits, if every bit is known.
+    pub const fn new(bits: u16) -> Option<Self> {
+        if bits & !Self::ALL == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn contains(self, bit: u16) -> bool {
+        self.0 & bit == bit
+    }
+}
+
+impl Wire for AccessibleActions {
+    const SIZE: usize = 2;
+    fn put(&self, out: &mut Vec<u8>) {
+        self.0.put(out);
+    }
+    fn get(bytes: &[u8]) -> io::Result<Self> {
+        Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible actions"))
     }
 }
 

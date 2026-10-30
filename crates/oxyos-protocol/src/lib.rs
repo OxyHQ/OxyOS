@@ -14,11 +14,11 @@ mod wire;
 
 pub use schema::{Event, Request};
 pub use wire::{
-    AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor,
-    AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase, Gravity,
-    Outcome, PanelEdge, PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect,
-    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
+    Anchor, AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase,
+    Gravity, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
+    PreeditText, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, TouchKind,
+    MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -36,6 +36,8 @@ pub const MAX_ACCESSIBLE_NODES: u32 = 4096;
 pub const MAX_ACCESSIBLE_TEXT_BYTES: usize = 1024;
 /// `parent` of an accessible node that is a root of its surface's tree.
 pub const NO_ACCESSIBLE_PARENT: u32 = u32::MAX;
+/// The longest announcement (`AccessibilityAnnounce`, ADR 0003), in bytes.
+pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

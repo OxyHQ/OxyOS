@@ -166,7 +166,7 @@ Before the painter's fast paths, a window frame took about 57 ms and latency was
 Both give exactly what sampling gave: every regression frame is byte-identical before and after. GPU composition is #32's.
 
 **Accessibility.** Accessibility crosses processes through the display protocol ([ADR 0003](./adr/0003-accessibility-protocol)), the way pixels do. The host builds each surface's accessibility tree from React Native's accessibility props, as Android exposes a view hierarchy to TalkBack (`accessibility.h`):
-- **Elements:** a view that is `accessible`, has a role or a label, or is a text input. Its name is its label, or else the text it contains.
+- **Elements:** a view that is `accessible`, has a role or a label, or is a text input. Its name is its label, or else the text it contains. A scroll view that can still move is an element too (`scrollview`), named by its label alone, as Android's scrolling containers are nodes.
 - **Merging and hiding:** text inside an accessible element is part of it. `accessibilityElementsHidden` and `importantForAccessibility="no-hide-descendants"` hide a subtree.
 - **Popups:** a popup's content belongs to the popup's surface.
 
@@ -174,11 +174,20 @@ The host publishes each surface's snapshot to the compositor whenever it changes
 - its nodes, in reading order with parents first;
 - each node's role and state, in the protocol's sets;
 - surface-local rectangles;
-- names, and a text input's value (never a secure field's).
+- names, and a text input's value (never a secure field's);
+- what each node offers beyond activate and focus, as Android's node info: `accessibilityActions` increment and decrement, a scroll view's scrolling on and back while it can, the first node of a modal or a popup (dismiss), an editable text input (its selection); and any other `accessibilityActions`, by label, as custom actions;
+- a focused, editable text input's selection, in bytes of its value (never a secure field's);
+- live regions (`accessibilityLiveRegion` polite or assertive, on a view or on loose text).
 
 Only a client granted `accessibility`, the screen reader, receives the snapshots, with global rectangles. Its actions come back to the host:
 - **activate:** React Native's accessibility click, which Pressability turns into `onPress`, as TalkBack's activation on Android. Its serial is the user's activation, so a menu it opens grabs like one opened from the keyboard.
 - **focus:** moves the host's accessibility focus.
+- **increment, decrement and custom actions:** React Native's accessibility action by name (`onAccessibilityAction`), as Android's delegate sends `topAccessibilityAction`. A node whose `accessibilityActions` include `activate` gets that action, not a click, on activation, as on Android.
+- **scroll forward and backward:** the scroll view moves by its viewport, through the wheel's path (its offset, its `onScroll`).
+- **dismiss:** a modal's topmost close request (`onRequestClose`, as Escape), or a popup's dismissal (`onDismiss`, as the compositor's).
+- **set selection:** the input takes focus and selects the range, kept within its text at characters.
+
+`AccessibilityInfo.announceForAccessibility` reaches the screen reader through the compositor, at once (assertive); a live region's text, as it changes, is announced by the screen reader itself, as TalkBack announces Android's live regions. `scenarios/accessibility-actions.json` (`sample/A11yProbe.tsx`) works each of these through the screen reader's actions and what it would say, and checks that what a node does not offer is refused.
 
 The director plays the screen reader in the regression. With the menu closed, it activates "Open menu" by name, then moves focus to "Archive" and activates it. The steps check what the screen reader holds, as it received the trees from the compositor: the menu, its focused first row, the expanded trigger, then the chosen row and the trigger focused again.
 

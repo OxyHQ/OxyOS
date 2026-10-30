@@ -366,35 +366,54 @@ void PointerInput::scroll(float dx, float dy) {
     const auto& view = tree_.views().at(*at).view;
     std::string name = view.componentName ? view.componentName : "";
     if (name == "AndroidTextInput" && scrollText_ && scrollText_(*at, dx, dy)) return;
-    if (name != "ScrollView" || !view.state) continue;
-    auto props = std::dynamic_pointer_cast<const ScrollViewProps>(view.props);
-    if (props && !props->scrollEnabled) continue;
-    const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);
-    Size viewport = view.layoutMetrics.frame.size;
-    Size content = state->getData().getContentSize();
-    Point current = offsets_.count(*at) ? offsets_[*at] : state->getData().contentOffset;
-    Point next{std::clamp(current.x + dx, 0.0f, std::max(0.0f, content.width - viewport.width)),
-               std::clamp(current.y + dy, 0.0f, std::max(0.0f, content.height - viewport.height))};
-    if (next == current) continue;
-    offsets_[*at] = next;
-    auto data = state->getData();
-    data.contentOffset = next;
-    state->updateState(std::move(data));
-    if (auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter)) {
-      ScrollEvent event;
-      event.contentSize = content;
-      event.contentOffset = next;
-      event.containerSize = viewport;
-      event.zoomScale = 1;
-      emitter->onScroll(event);
-    }
-    Report::get().deliver("scroll", content_.surface, view, folly::dynamic::object("x", next.x)("y", next.y));
-    if (std::getenv("OXYOS_HOST_TRACE")) {
-      std::cerr << "[input] scroll view " << *at << " to " << next.x << "," << next.y << " of " << content.width
-                << "x" << content.height << "\n";
-    }
-    return;
+    if (scrollView(*at, dx, dy, content_.surface)) return;
   }
+}
+
+std::optional<std::pair<facebook::react::Point, facebook::react::Point>> PointerInput::scrollRange(Tag tag) const {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end()) return std::nullopt;
+  const auto& view = it->second.view;
+  if (std::string(view.componentName ? view.componentName : "") != "ScrollView" || !view.state) return std::nullopt;
+  auto props = std::dynamic_pointer_cast<const ScrollViewProps>(view.props);
+  if (props && !props->scrollEnabled) return std::nullopt;
+  const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);
+  Size viewport = view.layoutMetrics.frame.size;
+  Size content = state->getData().getContentSize();
+  auto known = offsets_.find(tag);
+  Point current = known != offsets_.end() ? known->second : state->getData().contentOffset;
+  return std::make_pair(current, Point{std::max(0.0f, content.width - viewport.width),
+                                       std::max(0.0f, content.height - viewport.height)});
+}
+
+bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
+  auto range = scrollRange(tag);
+  if (!range) return false;
+  auto [current, end] = *range;
+  Point next{std::clamp(current.x + dx, 0.0f, end.x), std::clamp(current.y + dy, 0.0f, end.y)};
+  if (next == current) return false;
+  const auto& view = tree_.views().at(tag).view;
+  const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);
+  Size viewport = view.layoutMetrics.frame.size;
+  Size content = state->getData().getContentSize();
+  offsets_[tag] = next;
+  auto data = state->getData();
+  data.contentOffset = next;
+  state->updateState(std::move(data));
+  if (auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter)) {
+    ScrollEvent event;
+    event.contentSize = content;
+    event.contentOffset = next;
+    event.containerSize = viewport;
+    event.zoomScale = 1;
+    emitter->onScroll(event);
+  }
+  Report::get().deliver("scroll", surface, view, folly::dynamic::object("x", next.x)("y", next.y));
+  if (std::getenv("OXYOS_HOST_TRACE")) {
+    std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"
+              << content.height << "\n";
+  }
+  return true;
 }
 
 void PointerInput::dispatch(Phase phase, float x, float y) {

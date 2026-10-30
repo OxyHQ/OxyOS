@@ -6,11 +6,14 @@
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
 #include <react/renderer/components/text/ParagraphState.h>
+#include <react/renderer/components/view/BaseViewEventEmitter.h>
 #include <react/renderer/components/view/ViewProps.h>
 #include <react/renderer/components/view/accessibilityPropsConversions.h>
 #include <react/renderer/core/ConcreteState.h>
 
+#include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <unordered_map>
 
 using namespace facebook::react;
@@ -77,9 +80,33 @@ struct Walk {
   const ViewTree& tree;
   Rect origin;   // the root's frame: node rectangles are relative to it
   Tag focus = -1;
+  const AccessibilityHooks* hooks = nullptr;
   bool pending = false;  // inside the focused view, before its first node
+  bool dismissable = false;  // inside a modal or a popup, before its first node
   std::vector<AccessibleNode> out;
 };
+
+// React Native's accessibility actions (`accessibilityActions`) as Android's node info takes
+// them: increment and decrement are the node's own, "activate" its activation; any other is a
+// custom action, by its label (its name without one). iOS's magic tap and escape have no node
+// action on Android and are left out.
+void declaredActions(const ViewProps& props, AccessibleNode& node) {
+  for (const auto& action : props.accessibilityActions) {
+    if (action.name == "increment") {
+      node.actions |= OXYOS_OFFERS_INCREMENT;
+    } else if (action.name == "decrement") {
+      node.actions |= OXYOS_OFFERS_DECREMENT;
+    } else if (action.name == "activate") {
+      node.activateAction = true;
+    } else if (action.name != "magicTap" && action.name != "escape") {
+      auto label = action.label.value_or(action.name);
+      // One label per line in the snapshot.
+      std::replace(label.begin(), label.end(), '\n', ' ');
+      node.customNames.push_back(action.name);
+      node.customLabels.push_back(label);
+    }
+  }
+}
 
 void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
   auto it = w.tree.views().find(tag);
@@ -91,10 +118,18 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
   if (props && hidden(*props)) return;
   bool focusedHere = tag == w.focus;
   if (focusedHere) w.pending = true;
+  // A modal's or a popup's first node is where an assistive technology dismisses it.
+  bool dismissableHere = isModal(name) || (isRoot && name == kPopupComponent);
+  bool wasDismissable = w.dismissable;
+  if (dismissableHere) w.dismissable = true;
   auto add = [&](AccessibleNode node) {
     if (w.pending) {
       node.state["focused"] = true;
       w.pending = false;
+    }
+    if (w.dismissable) {
+      node.actions |= OXYOS_OFFERS_DISMISS;
+      w.dismissable = false;
     }
     node.tag = tag;
     node.parent = parent;
@@ -110,17 +145,36 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
   std::string role;
   if (props) role = props->role != Role::None ? toString(props->role) : props->accessibilityRole;
   if (textInput && role.empty()) role = "textinput";
+  // How far a scroll view can still move back and on, if it scrolls at all.
+  uint16_t scrolls = 0;
+  if (name == "ScrollView" && w.hooks && w.hooks->scrollRange) {
+    if (auto range = w.hooks->scrollRange(tag)) {
+      auto [at, end] = *range;
+      if (at.x > 0 || at.y > 0) scrolls |= OXYOS_OFFERS_SCROLL_BACKWARD;
+      if (at.x < end.x || at.y < end.y) scrolls |= OXYOS_OFFERS_SCROLL_FORWARD;
+    }
+  }
   bool element = props && (props->accessible || !role.empty() || !props->accessibilityLabel.empty() ||
-                           props->importantForAccessibility == ImportantForAccessibility::Yes);
+                           props->importantForAccessibility == ImportantForAccessibility::Yes || scrolls);
   if (element) {
+    if (scrolls && role.empty()) role = "scrollview";
     AccessibleNode node{.role = role, .name = props->accessibilityLabel, .id = props->testId,
                         .state = stateOf(*props)};
+    if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Polite) node.state["live"] = "polite";
+    if (props->accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) node.state["live"] = "assertive";
+    declaredActions(*props, node);
+    node.actions |= scrolls;
     if (textInput) {
       auto input = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
       if (node.name.empty()) node.name = input->placeholder;
-      // A secure field's text never leaves the application.
-      if (!input->secureTextEntry) node.value = inputText(view);
-    } else if (node.name.empty()) {
+      // A secure field's text never leaves the application, nor its selection.
+      if (!input->secureTextEntry) {
+        node.value = inputText(view);
+        if (input->editable) node.actions |= OXYOS_OFFERS_SET_SELECTION;
+        if (w.hooks && w.hooks->selection) node.selection = w.hooks->selection(tag);
+      }
+    } else if (node.name.empty() && !scrolls) {
+      // A scroll view is named by its label alone: its content is read as its own nodes.
       collectText(w.tree, tag, node.name);
     }
     int index = add(std::move(node));
@@ -131,12 +185,22 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
     }
   } else if (!merged && name == "Paragraph") {
     auto text = paragraphText(view);
-    if (!text.empty()) add(AccessibleNode{.role = "text", .name = text});
+    if (!text.empty()) {
+      AccessibleNode node{.role = "text", .name = text};
+      // Loose text can be a live region (Android's `accessibilityLiveRegion` on a TextView).
+      if (props && props->accessibilityLiveRegion == AccessibilityLiveRegion::Polite) node.state["live"] = "polite";
+      if (props && props->accessibilityLiveRegion == AccessibilityLiveRegion::Assertive) {
+        node.state["live"] = "assertive";
+      }
+      add(std::move(node));
+    }
   } else {
     for (Tag child : it->second.children) walk(w, child, false, merged, parent, depth);
   }
-  // A focused view with no node inside it gives focus to nothing.
+  // A focused view with no node inside it gives focus to nothing; a modal with none offers
+  // nothing to dismiss.
   if (focusedHere) w.pending = false;
+  if (dismissableHere && w.dismissable) w.dismissable = wasDismissable;
 }
 
 // React Native's role names (`role`, `accessibilityRole`) as the protocol's roles. A role the
@@ -179,13 +243,30 @@ uint16_t protocolState(const folly::dynamic& state) {
     if (checked == "checked") bits |= OXYOS_STATE_CHECKED;
     if (checked == "mixed") bits |= OXYOS_STATE_MIXED;
   }
+  if (state.count("live")) bits |= state["live"].asString() == "assertive" ? OXYOS_STATE_LIVE_ASSERTIVE : OXYOS_STATE_LIVE_POLITE;
   return bits;
+}
+
+// The actions a node offers, by name, for the host's report.
+folly::dynamic offeredNames(uint16_t actions) {
+  folly::dynamic names = folly::dynamic::array;
+  for (auto [bit, name] : std::initializer_list<std::pair<uint16_t, const char*>>{
+           {OXYOS_OFFERS_INCREMENT, "increment"},
+           {OXYOS_OFFERS_DECREMENT, "decrement"},
+           {OXYOS_OFFERS_SCROLL_FORWARD, "scroll-forward"},
+           {OXYOS_OFFERS_SCROLL_BACKWARD, "scroll-backward"},
+           {OXYOS_OFFERS_DISMISS, "dismiss"},
+           {OXYOS_OFFERS_SET_SELECTION, "select"}}) {
+    if (actions & bit) names.push_back(name);
+  }
+  return names;
 }
 
 }  // namespace
 
-std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Tag focus) {
-  Walk w{.tree = tree, .origin = windowFrame(tree, root).value_or(Rect{}), .focus = focus};
+std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Tag focus,
+                                             const AccessibilityHooks* hooks) {
+  Walk w{.tree = tree, .origin = windowFrame(tree, root).value_or(Rect{}), .focus = focus, .hooks = hooks};
   walk(w, root, true, false, -1, 0);
   return std::move(w.out);
 }
@@ -197,13 +278,18 @@ folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes) {
     if (!node.value.empty()) entry["value"] = node.value;
     if (!node.id.empty()) entry["id"] = node.id;
     if (!node.state.empty()) entry["state"] = node.state;
+    if (node.actions) entry["actions"] = offeredNames(node.actions);
+    if (!node.customLabels.empty()) {
+      entry["custom"] = folly::dynamic::array(node.customLabels.begin(), node.customLabels.end());
+    }
+    if (node.selection) entry["selection"] = folly::dynamic::array(node.selection->first, node.selection->second);
     list.push_back(std::move(entry));
   }
   return list;
 }
 
 void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
-  auto nodes = accessibilityTree(tree_, root, focus_);
+  auto nodes = accessibilityTree(tree_, root, focus_, &hooks_);
   for (auto& node : nodes) {
     node.rect.origin.x += at.x;
     node.rect.origin.y += at.y;
@@ -221,9 +307,18 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
   Report::get().accessibility(surface, reported);
 
   std::vector<OxyOSAccessibleNode> wire;
-  std::vector<Tag> tags;
+  std::vector<Published> published;
+  // The custom actions' labels, one per line, alive until the snapshot is sent.
+  std::vector<std::string> labels;
   wire.reserve(nodes.size());
+  labels.reserve(nodes.size());
   for (const auto& node : nodes) {
+    std::string lines;
+    for (const auto& label : node.customLabels) lines += (lines.empty() ? "" : "\n") + label;
+    labels.push_back(std::move(lines));
+  }
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const auto& node = nodes[i];
     auto rounded = [](float v) { return static_cast<int32_t>(std::lround(v)); };
     wire.push_back(OxyOSAccessibleNode{
         .parent = node.parent < 0 ? OXYOS_NO_ACCESSIBLE_PARENT : static_cast<uint32_t>(node.parent),
@@ -235,37 +330,86 @@ void AccessibilityBridge::publish(uint32_t surface, Tag root, Point at) {
         .height = static_cast<uint32_t>(std::max(0L, std::lround(node.rect.size.height))),
         .name = node.name.c_str(),
         .value = node.value.c_str(),
+        .actions = node.actions,
+        .custom_actions = labels[i].c_str(),
+        .has_selection = static_cast<uint8_t>(node.selection.has_value()),
+        .selection_start = static_cast<uint32_t>(node.selection ? node.selection->first : 0),
+        .selection_end = static_cast<uint32_t>(node.selection ? node.selection->second : 0),
     });
-    tags.push_back(node.tag);
+    published.push_back(Published{.tag = node.tag, .customNames = node.customNames,
+                                  .activateAction = node.activateAction});
   }
   window_.publishAccessibility(surface, wire);
-  nodes_[surface] = std::move(tags);
+  nodes_[surface] = std::move(published);
 }
 
 bool AccessibilityBridge::act(const OxyOSEvent& event) {
   auto it = nodes_.find(event.surface);
   if (it == nodes_.end() || event.code >= it->second.size()) return false;
-  Tag tag = it->second[event.code];
+  const Published& node = it->second[event.code];
+  Tag tag = node.tag;
   auto view = tree_.views().find(tag);
   if (view == tree_.views().end()) return false;
-  if (event.detail == OXYOS_ACTION_ACTIVATE) {
-    // React Native's accessibility click: no pointerType, the node itself as target, which
-    // Pressability answers with onPress (as TalkBack's activation on Android).
-    view->second.view.eventEmitter->dispatchEvent("click", folly::dynamic::object());
-    std::string within;
-    auto path = ancestry(tree_, tag);
-    for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
-      auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
-      if (props && !props->testId.empty()) within = props->testId;
-    }
-    Report::get().deliver("click", event.surface, view->second.view, folly::dynamic::object("within", within));
+  const auto& shadow = view->second.view;
+  std::string within;
+  auto path = ancestry(tree_, tag);
+  for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
+    auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
+    if (props && !props->testId.empty()) within = props->testId;
+  }
+  // React Native's accessibility action by name (`onAccessibilityAction`), as Android's delegate
+  // sends topAccessibilityAction.
+  auto named = [&](const std::string& name) {
+    auto emitter = std::dynamic_pointer_cast<const BaseViewEventEmitter>(shadow.eventEmitter);
+    if (!emitter) return false;
+    emitter->onAccessibilityAction(name);
+    Report::get().deliver("accessibilityAction", event.surface, shadow,
+                          folly::dynamic::object("actionName", name)("within", within));
     return false;
+  };
+  switch (event.detail) {
+    case OXYOS_ACTION_ACTIVATE:
+      if (node.activateAction) return named("activate");
+      // React Native's accessibility click: no pointerType, the node itself as target, which
+      // Pressability answers with onPress (as TalkBack's activation on Android).
+      shadow.eventEmitter->dispatchEvent("click", folly::dynamic::object());
+      Report::get().deliver("click", event.surface, shadow, folly::dynamic::object("within", within));
+      return false;
+    case OXYOS_ACTION_FOCUS:
+      if (focus_ == tag) return false;
+      focus_ = tag;
+      return true;
+    case OXYOS_ACTION_INCREMENT:
+      return named("increment");
+    case OXYOS_ACTION_DECREMENT:
+      return named("decrement");
+    case OXYOS_ACTION_CUSTOM:
+      if (event.width >= node.customNames.size()) return false;
+      return named(node.customNames[event.width]);
+    case OXYOS_ACTION_SCROLL_FORWARD:
+    case OXYOS_ACTION_SCROLL_BACKWARD: {
+      // By its viewport, as Android's scroll views scroll forward and backward.
+      if (!hooks_.scroll) return false;
+      Size page = shadow.layoutMetrics.frame.size;
+      bool horizontal = false;
+      if (auto range = hooks_.scrollRange ? hooks_.scrollRange(tag) : std::nullopt) {
+        horizontal = range->second.y == 0 && range->second.x > 0;
+      }
+      float sign = event.detail == OXYOS_ACTION_SCROLL_FORWARD ? 1 : -1;
+      hooks_.scroll(tag, horizontal ? sign * page.width : 0, horizontal ? 0 : sign * page.height, event.surface);
+      return false;
+    }
+    case OXYOS_ACTION_DISMISS:
+      if (hooks_.dismiss) hooks_.dismiss(event.surface, tag);
+      return false;
+    case OXYOS_ACTION_SET_SELECTION:
+      if (hooks_.select) {
+        hooks_.select(tag, static_cast<size_t>(std::max(0, event.x)), static_cast<size_t>(std::max(0, event.y)));
+      }
+      return false;
+    default:
+      return false;
   }
-  if (event.detail == OXYOS_ACTION_FOCUS && focus_ != tag) {
-    focus_ = tag;
-    return true;
-  }
-  return false;
 }
 
 }  // namespace oxyos

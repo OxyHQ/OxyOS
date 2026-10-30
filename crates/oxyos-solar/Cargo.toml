@@ -1,0 +1,13 @@
+[package]
+name = "oxyos-solar"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The system's time zone, by name.
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+
+[lints]
+workspace = true

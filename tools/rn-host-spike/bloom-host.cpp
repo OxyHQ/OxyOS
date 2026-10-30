@@ -519,6 +519,31 @@ int main(int argc, char** argv) {
       }
       return oxyos::Placement{.surface = surface, .frame = *frame};
     });
+    // What an assistive technology's actions beyond activation and focus do (ADR 0003): scroll a
+    // scroll view as the wheel does, close the node's modal (as Escape does) or popup (as the
+    // compositor's dismissal does), select in an input; and what a node's snapshot shows of them.
+    accessibility.use({
+        .scrollRange = [&pointer](facebook::react::Tag tag) { return pointer.scrollRange(tag); },
+        .scroll = [&pointer](facebook::react::Tag tag, float dx, float dy, uint32_t surface) {
+          return pointer.scrollView(tag, dx, dy, surface);
+        },
+        .dismiss = [&](uint32_t surface, facebook::react::Tag tag) {
+          for (auto at : oxyos::ancestry(tree, tag)) {
+            const auto& view = tree.views().at(at).view;
+            if (oxyos::isModal(view.componentName ? view.componentName : "")) return modalHost.requestClose();
+          }
+          if (!popups.content(surface)) return false;
+          OxyOSEvent closed{};
+          closed.kind = OXYOS_EVENT_POPUP_DONE;
+          closed.surface = surface;
+          popups.dismissed(closed);
+          return true;
+        },
+        .select = [&editing](facebook::react::Tag tag, size_t start, size_t end) {
+          return editing.setSelection(tag, start, end);
+        },
+        .selection = [&editing](facebook::react::Tag tag) { return editing.selection(tag); },
+    });
     // The pointer's shape over each surface, as the views under it want it.
     pointer.showsShapes([&window](uint32_t surface, uint8_t shape) { window->setPointerShape(surface, shape); });
     pointer.scrollsText([&editing](facebook::react::Tag view, float dx, float dy) {
@@ -582,6 +607,12 @@ int main(int argc, char** argv) {
           window->pasteText(lastPress, std::move(done));
         },
         .hasText = [&window] { return window->clipboardHasText(); },
+    };
+    // An announcement is what the application says now: it interrupts what is being said, as
+    // an announcement event does TalkBack's queue.
+    services.announce = [&window](const std::string& text) {
+      window->announce(oxyos::Window::kToplevel, OXYOS_ASSERTIVE, text);
+      oxyos::Report::get().input("announce", oxyos::Window::kToplevel, folly::dynamic::object("text", text));
     };
     if (shellMode) {
       services.shell = {
@@ -648,7 +679,8 @@ int main(int argc, char** argv) {
         busy |= worklets.tick();
         busy |= reanimated.tick();
         busy |= networking.deliver();
-        bool shellChanged = false, closeRequested = false;
+        // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx).
+        bool shellChanged = shellMode && shellState.tick(), closeRequested = false;
         std::optional<OxyOSEvent> authenticated;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.

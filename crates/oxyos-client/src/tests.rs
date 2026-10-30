@@ -208,17 +208,24 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
             parent: oxyos_protocol::NO_ACCESSIBLE_PARENT,
             role: AccessibleRole::Menu,
             state: AccessibleState::default(),
+            actions: AccessibleActions::new(AccessibleActions::DISMISS).unwrap(),
             rect: Rect::new(0, 0, 200, 100),
             name: "Message actions",
             value: "",
+            custom: "Archivar\nResponder",
+            selection: None,
         },
         Accessible {
             parent: 0,
             role: AccessibleRole::TextInput,
             state: AccessibleState::new(AccessibleState::FOCUSED).unwrap(),
+            actions: AccessibleActions::new(AccessibleActions::SET_SELECTION).unwrap(),
             rect: Rect::new(8, 8, 184, 40),
             name: "Reply",
             value: &long,
+            custom: "",
+            // Past the value as it is sent, and backwards: kept within it, in order.
+            selection: Some((u32::MAX, 3)),
         },
     ];
     client.publish_accessibility(3, &nodes).unwrap();
@@ -260,6 +267,26 @@ fn an_accessibility_snapshot_is_sent_in_order_with_its_text_bounded() {
         }
     }
     assert_eq!(value, "ñ".repeat(512));
+    // At characters: byte 3 is inside the second ñ.
+    assert!(requests.contains(&Request::AccessibleSelection {
+        surface: 3,
+        index: 1,
+        start: 2,
+        end: 1024,
+    }));
+    let labels: String = requests
+        .iter()
+        .filter_map(|request| match request {
+            Request::AccessibleText {
+                index: 0,
+                field: AccessibleField::Actions,
+                text,
+                ..
+            } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, "Archivar\nResponder");
     let too_many = vec![nodes[0]; MAX_ACCESSIBLE_NODES as usize + 1];
     assert_eq!(
         client
@@ -649,4 +676,41 @@ fn a_transactions_parts_are_collected_until_done() {
         })
     );
     assert_eq!(completed[7], None);
+}
+
+#[test]
+fn an_announcement_is_sent_in_chunks_within_its_limit() {
+    let (client, server) = connected();
+    let long = "é".repeat(600); // 1200 bytes: cut to 1024 at a character boundary
+    client
+        .announce(4, oxyos_protocol::Politeness::Assertive, &long)
+        .unwrap();
+    let mut text = String::new();
+    let mut indices = Vec::new();
+    loop {
+        let (request, _) = server.recv_request().unwrap();
+        let Request::AccessibilityAnnounce {
+            surface: 4,
+            index,
+            last,
+            politeness: oxyos_protocol::Politeness::Assertive,
+            text: chunk,
+        } = request
+        else {
+            panic!("{request:?}");
+        };
+        indices.push(index);
+        text.push_str(chunk.as_str());
+        if last {
+            break;
+        }
+    }
+    assert_eq!(text, "é".repeat(512));
+    assert_eq!(indices, (0..32).collect::<Vec<u8>>());
+    // Nothing to say, nothing sent: the next request is the one after it.
+    client
+        .announce(4, oxyos_protocol::Politeness::Polite, "")
+        .unwrap();
+    client.send(&Request::Goodbye {}).unwrap();
+    assert_eq!(server.recv_request().unwrap().0, Request::Goodbye {});
 }

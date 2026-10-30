@@ -98,8 +98,10 @@ typedef struct OxyOSClient OxyOSClient;
  *   PREEDIT     serial; text: the composition (empty ends it), NUL-terminated; detail: the
  *               composing cursor, a byte offset into text.
  *   ACCESSIBILITY_ACTION  serial; code: the node's index in the surface's snapshot; detail:
- *               OXYOS_ACTION_*. An assistive technology asks the application to perform it; an
- *               activation's serial may be cited by a popup's grab, as a key press's may.
+ *               OXYOS_ACTION_*; width: a CUSTOM action's index among the node's; x, y: a
+ *               SET_SELECTION's range, in bytes of the node's value. An assistive technology asks
+ *               the application to perform it; any action's serial but a focus move's may be
+ *               cited by a popup's grab, as a key press's may.
  *   CLIPBOARD_TYPES  serial: the content's selection (for oxyos_client_paste); detail: how many
  *               types follow. Sent to the client with keyboard focus when the clipboard changes
  *               or focus reaches it.
@@ -183,9 +185,29 @@ typedef struct OxyOSEvent {
 #define OXYOS_STATE_COLLAPSED 32
 #define OXYOS_STATE_BUSY 64
 #define OXYOS_STATE_FOCUSED 128
+/* A live region: what changes in it is announced, after what is being said or at once. */
+#define OXYOS_STATE_LIVE_POLITE 256
+#define OXYOS_STATE_LIVE_ASSERTIVE 512
 /* Actions an assistive technology asks for (OxyOSEvent.detail of an ACCESSIBILITY_ACTION). */
 #define OXYOS_ACTION_ACTIVATE 1
 #define OXYOS_ACTION_FOCUS 2
+#define OXYOS_ACTION_INCREMENT 3
+#define OXYOS_ACTION_DECREMENT 4
+#define OXYOS_ACTION_SCROLL_FORWARD 5
+#define OXYOS_ACTION_SCROLL_BACKWARD 6
+#define OXYOS_ACTION_DISMISS 7
+#define OXYOS_ACTION_CUSTOM 8
+#define OXYOS_ACTION_SET_SELECTION 9
+/* What a node offers beyond activate and focus (OxyOSAccessibleNode.actions, bits). */
+#define OXYOS_OFFERS_INCREMENT 1
+#define OXYOS_OFFERS_DECREMENT 2
+#define OXYOS_OFFERS_SCROLL_FORWARD 4
+#define OXYOS_OFFERS_SCROLL_BACKWARD 8
+#define OXYOS_OFFERS_DISMISS 16
+#define OXYOS_OFFERS_SET_SELECTION 32
+/* How an announcement interrupts (oxyos_client_announce). */
+#define OXYOS_POLITE 1
+#define OXYOS_ASSERTIVE 2
 /* The parent of a root node. */
 #define OXYOS_NO_ACCESSIBLE_PARENT 0xFFFFFFFF
 
@@ -209,8 +231,9 @@ typedef struct OxyOSPositioner {
 
 /* One node of a surface's accessibility snapshot: its parent's index (OXYOS_NO_ACCESSIBLE_PARENT
  * for a root), role (OXYOS_ROLE_*), states (OXYOS_STATE_* bits), surface-local logical rectangle,
- * and name and value (UTF-8, NUL-terminated; NULL for none). A secure field's value is never
- * published. */
+ * and name and value (UTF-8, NUL-terminated; NULL for none); what it offers (OXYOS_OFFERS_* bits)
+ * and its custom actions' labels, one per line (NULL for none); a text field's selection, in bytes
+ * of its value, when `has_selection`. A secure field's value and selection are never published. */
 typedef struct OxyOSAccessibleNode {
   uint32_t parent;
   uint8_t role;
@@ -221,6 +244,11 @@ typedef struct OxyOSAccessibleNode {
   uint32_t height;
   const char* name;
   const char* value;
+  uint16_t actions;
+  const char* custom_actions;
+  uint8_t has_selection;
+  uint32_t selection_start;
+  uint32_t selection_end;
 } OxyOSAccessibleNode;
 
 const char* oxyos_last_error(void);
@@ -303,6 +331,12 @@ int oxyos_client_reposition(OxyOSClient* client, uint32_t surface, const OxyOSPo
  * text longer than the protocol allows is cut at a character boundary. 0 on success. */
 int oxyos_client_publish_accessibility(OxyOSClient* client, uint32_t surface, const OxyOSAccessibleNode* nodes,
                                      size_t count);
+/* Announces `length` bytes of UTF-8 to assistive technologies, as Android's
+ * announceForAccessibility and live regions: OXYOS_POLITE after what they are saying,
+ * OXYOS_ASSERTIVE at once. Longer text than the protocol takes (1024 bytes) is cut at a character
+ * boundary. 0 on success. */
+int oxyos_client_announce(OxyOSClient* client, uint32_t surface, uint8_t politeness, const char* text,
+                          size_t length);
 int oxyos_client_destroy_surface(OxyOSClient* client, uint32_t surface);
 
 /* Presents pixels (rows of width * 4 bytes) on a surface in answer to the configure with serial
@@ -735,6 +769,20 @@ int oxyos_gestures_output(OxyOSGestures* gestures, OxyOSGestureOutput* out);
 /* The pointers of the last touch event taken: those that changed, or (`all` 1) all the handler is
  * told of. Writes up to `capacity` to `out`; returns how many there are. */
 size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGestureTouch* out, size_t capacity);
+
+/* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
+ * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and
+ * clockwise from north. */
+typedef struct OxyOSSolarAnchor {
+  uint32_t frame;
+  double elevation;
+  double azimuth;
+} OxyOSSolarAnchor;
+/* The frame of `anchors` showing the sun at `unix_seconds` where the system's time zone is, and when
+ * (unix seconds) it next changes. 0 on success; 1 where the time zone has no place (UTC): there is no
+ * sun, and the caller shows its own frame; OXYOS_ERROR for anchors that are none. */
+int oxyos_solar_frame(const OxyOSSolarAnchor* anchors, size_t count, int64_t unix_seconds, uint32_t* frame,
+                      int64_t* next_change);
 
 /* Intl (crates/oxyos-intl, on ICU4X). Locales are BCP 47 tags; options are ECMA-402 options as
  * "name=value" pairs joined by ';' (only those the application gave; booleans as true/false).

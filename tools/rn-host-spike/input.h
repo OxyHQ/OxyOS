@@ -15,6 +15,7 @@
 #include <map>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace oxyos {
@@ -71,6 +72,12 @@ class PointerInput {
   // A gesture handler activated and cancels React Native's touch: it is sent touchcancel and
   // nothing more of this touch, as Android's JSTouchDispatcher does when a native gesture starts.
   void cancelResponder();
+  // A scroll view's offset and the furthest it goes (its content past its viewport), as the
+  // wheel last left it; nullopt for a view that is not a scroll view that scrolls.
+  std::optional<std::pair<facebook::react::Point, facebook::react::Point>> scrollRange(facebook::react::Tag tag) const;
+  // Scrolls the scroll view `tag` (on `surface`) by (dx, dy), as far as it goes, and sends its
+  // scroll event, as the wheel does; true if it moved.
+  bool scrollView(facebook::react::Tag tag, float dx, float dy, uint32_t surface);
 
  private:
   void scroll(float dx, float dy);

@@ -37,7 +37,7 @@ Expected result:
 | `crates/oxyos-compositor-core/src/presentation.rs` | Per-surface queued/in-flight/displayed state |
 | `crates/oxyos-ipc` | `SOCK_SEQPACKET` transport, kernel peer credentials, one-descriptor-per-message passing, sealed shared-memory import read with `pread`, non-blocking event send and receive |
 | `crates/oxyos-client` | The client side every application process uses: handshake, requests, shared-memory buffers reused once released (dropped on resize and with their surface), frames with damage (only what a reused buffer missed is written into it), non-blocking event polling |
-| `crates/oxyos-client-ffi` | C ABI over `oxyos-client`, `oxyos-net`, `oxyos-image` and `oxyos-intl` (`include/oxyos_client.h`) for native runtimes in C/C++, such as the Bloom host, which links it as its one Rust library; tests check the header against the Rust layouts |
+| `crates/oxyos-client-ffi` | C ABI over `oxyos-client`, `oxyos-net`, `oxyos-image`, `oxyos-intl` and `oxyos-solar` (`include/oxyos_client.h`) for native runtimes in C/C++, such as the Bloom host, which links it as its one Rust library; tests check the header against the Rust layouts |
 | `crates/oxyos-vector` | Vector graphics for applications, what react-native-svg draws in the Bloom host: shapes with SVG's geometry (path data, arcs included, rectangles, ellipses, lines), fills with either rule and strokes with caps, joins and dashes, rasterized with anti-aliasing into a premultiplied picture |
 | `crates/oxyos-image` | Images for applications, the decoding behind React Native's `Image` in the Bloom host: PNG and JPEG into premultiplied sRGB from their ICC profile, reduced by averaging to the size drawn, each load on a thread of its own |
 | `crates/oxyos-intl` | `Intl` for applications, what the Bloom host installs into Hermes (which has none on Linux): BCP 47 canonicalization, ECMA-402's lookup of the locale to format in (the system's from `LC_ALL`, `LC_MESSAGES`, `LANG`), and `DateTimeFormat` and `NumberFormat` (decimal, percent, currency) with their parts and resolved options, on ICU4X with CLDR's data and the system's time zones. An option it does not implement yet is refused, never ignored |
@@ -47,6 +47,7 @@ Expected result:
 | `crates/oxyos-input` | Device input: the seat's devices through libinput (udev, seat0) as pointer motion, buttons, scroll in logical pixels, touchpad pinches (the fingers' spread and turn, which the compositor sends the surface under the pointer as a Pinch event) and keys, and the keymap through xkbcommon, which turns keys into the text the compositor sends applications. Dead keys and compose sequences compose with the locale's compose table. It also finds the keys that type a character on a layout, with Shift or the layout's AltGr held, a dead key and its vowel included |
 | `crates/oxyos-vt` | The terminal the display is on, taken as a display server takes it: graphics mode; with device input, the console's keyboard off; and switches by request (`VT_PROCESS`), so the compositor lets go of DRM master and the devices when the kernel switches away and takes them back on return. It refuses a terminal another session has (a login prompt), and dropping it gives everything back |
 | `crates/oxyos-seat` | The compositor's seat through systemd-logind ([ADR 0006](./adr/0006-seat)): control of the caller's session, its DRM card and input devices from `TakeDevice`, logind's pauses and resumes as events, and terminal switches with `SwitchTo`; for the lock ([ADR 0010](./adr/0010-lock-screen)), logind's `Lock` and the machine about to sleep, a delay inhibitor that holds sleep until the lock is on screen, and the session's `LockedHint` |
+| `crates/oxyos-solar` | Where the sun is (NOAA's general solar position) from the clock and the system time zone's place (`zone1970.tab`, never a location service), and which frame of a solar wallpaper shows it ([ADR 0012](./adr/0012-solar-wallpaper)) |
 | `crates/oxyos-auth` | The lock's authentication ([ADR 0010](./adr/0010-lock-screen)): a password checked by Linux-PAM for the session's own user (found by the real user id, never `$USER`), on a thread of its own, one at a time, with the throttle (five rejections free, then 30 s doubling to 15 min). Passwords are overwritten in memory and never printed. Tested against the system's real PAM modules with a configuration of the tests' own (`pam_start_confdir`) |
 | `tools/oxyos-kms-probe` | Reads what each card offers, as JSON; read-only, it leaves a running session alone |
 | `tools/oxyos-kms-show` | Shows frames dumped by `oxyos-offscreen --launch --dump-frames` on a real output, one per refresh, and reports the flip intervals and missed refreshes. `--gpu` composes on Vulkan straight into DMA-BUF scanout buffers. Needs DRM master (a free virtual terminal) |
@@ -100,10 +101,10 @@ Input semantics:
 | Request | 15 | AttachBuffer | 29 |
 | Request | 16 | DestroyBuffer | 9 |
 | Request | 17 | AccessibilityBegin | 9 |
-| Request | 18 | AccessibleNode | 32 |
+| Request | 18 | AccessibleNode | 34 |
 | Request | 19 | AccessibleText | 43 |
 | Request | 20 | AccessibilityCommit | 5 |
-| Request | 21 | AccessibilityAction | 14 |
+| Request | 21 | AccessibilityAction | 26 |
 | Request | 22 | Damage | 21 |
 | Request | 23 | ClipboardOffer | 13 |
 | Request | 24 | ClipboardType | 38 |
@@ -138,6 +139,8 @@ Input semantics:
 | Request | 53 | LockSession | 1 |
 | Request | 54 | AuthenticateSecret | 38 |
 | Request | 55 | Authenticate | 5 |
+| Request | 56 | AccessibleSelection | 17 |
+| Request | 57 | AccessibilityAnnounce | 41 |
 | Event | 1 | Welcome | 3 |
 | Event | 2 | Configure | 34 |
 | Event | 3 | PopupDone | 6 |
@@ -151,9 +154,9 @@ Input semantics:
 | Event | 11 | Scroll | 21 |
 | Event | 12 | Text | 46 |
 | Event | 13 | Preedit | 47 |
-| Event | 14 | AccessibilityAction | 18 |
+| Event | 14 | AccessibilityAction | 30 |
 | Event | 15 | AccessibilityTree | 17 |
-| Event | 16 | AccessibleNode | 36 |
+| Event | 16 | AccessibleNode | 38 |
 | Event | 17 | AccessibleText | 47 |
 | Event | 18 | AccessibilityCommitted | 9 |
 | Event | 19 | AccessibilityRemoved | 9 |
@@ -184,6 +187,8 @@ Input semantics:
 | Event | 44 | LockState | 2 |
 | Event | 45 | AuthenticationResult | 10 |
 | Event | 46 | CapsLock | 6 |
+| Event | 47 | AccessibleSelection | 21 |
+| Event | 48 | AccessibilityAnnouncement | 45 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Three carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
@@ -223,19 +228,19 @@ Without `--kms` and `--input`, this is the headless development path: no DRM/KMS
 
 ## The session
 
-`oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] [--shell PROGRAM,ARG...] -- COMMAND [ARGS]...` runs the compositor on the seat of the caller's logind session, as its user: start it from a login on a text terminal.
+`oxyos-session [--layout LAYOUT] [--pointer FILE.cur|SCHEME[,SIZE]] [--shell PROGRAM,ARG...] [-- COMMAND [ARGS]...]` runs the compositor on the seat of the caller's logind session, as its user: start it from a login on a text terminal.
 - **Display:** the first card with a connected output, at that output's size.
 - **Composition:** on the GPU straight into the display's scanout buffers where Vulkan exports DMA-BUF, otherwise on the CPU, only what changed ([ADR 0005](./adr/0005-damage)). Frames are never read back, and no per-frame measurement is kept.
 - **Input:** the seat's devices through logind and libinput, with the system's keyboard (`/etc/default/keyboard`: its layout, variant and options, as the console and a login use them, so the lock takes the password typed there) or `--layout`'s, and its dead keys.
 - **The pointer:** shown on the display's cursor plane, in the shape the surface under it asks for (`SetPointerShape`; the move shape while the compositor moves a window). Its images are the display's own arrow, or a Windows cursor file's or cursor scheme folder's (`--pointer`: each role its `Install.inf` names, the 32-bit image closest to SIZE pixels, 32 by default; an animated cursor's (`.ani`) steps, each its frame for its duration, looping with the clock). Moving the pointer, changing its shape or an animated cursor's next step commits the frame already shown again, with no composition. A display without a cursor plane shows no pointer, and the session says so.
 - **Switching:** Ctrl+Alt+Fn switches terminals, and logind's switches are followed ([ADR 0006](./adr/0006-seat)).
 - **The lock** ([ADR 0010](./adr/0010-lock-screen)): Ctrl+Super+Q (the key that types `q`), the shell's `LockSession`, logind's `Lock` (`loginctl lock-session`) and the machine about to sleep lock the session at once: only lock surfaces, or the compositor's covers, are shown and reached. Sleep waits for the lock to be on screen (a logind delay inhibitor). A lock surface's password is checked by PAM under the service `oxyos` (`tools/oxyos-session/pam.d/oxyos`, installed as `/etc/pam.d/oxyos`: the system's `common-auth` and `common-account`) as the session's user, off the compositor's thread; only an acceptance unlocks. logind's `Unlock` is not followed.
-- **The application:** COMMAND runs with `OXYOS_COMPOSITOR_SOCKET` naming the compositor's socket, in `XDG_RUNTIME_DIR`.
+- **The application:** COMMAND runs with `OXYOS_COMPOSITOR_SOCKET` naming the compositor's socket, in `XDG_RUNTIME_DIR`. With a shell it may be left out: the session is then the desktop alone, and lasts as long as its shell.
 - **The start:** the Oxy mark, white on black, from the session's first frame until its shell is on screen; it fades out over the shell ([ADR 0011](./adr/0011-transitions)).
 - **The shell:** with `--shell`, the session's shell ([ADR 0009](./adr/0009-session-shell)) starts first: PROGRAM with its ARGs and `--shell OUTPUT`, on a socket of its own that grants `shell` and `lock` (it is the lock screen as well). A shell that exits while the session is locked is started again, at most once a second; the session stays locked meanwhile. COMMAND starts once the shell's panels have set the work area, so its window is placed between them. For the Bloom host: `--shell HOST,BUNDLE,OxyOSShell`.
 - **The end:** the session ends when COMMAND or the shell exits, on Ctrl+Alt+Backspace (XKB's `terminate:ctrl_alt_bksp`), or on SIGINT or SIGTERM. The application is asked to stop (SIGTERM, then SIGKILL after two seconds), and the display, devices and seat are given back.
 
-It is a session program, not yet a desktop. It runs one application, beside the shell when given one; the shell's applications are still a fixture, so it launches nothing. Locked, the shell draws the lock screen ([ADR 0010](./adr/0010-lock-screen)); until it has, and if it is gone, the compositor's covers are shown. There is no login of its own. It is not in the image: the image rules require boot acceptance tests and a package audit first ([Base image configuration](./iso-build)).
+It is a session program, not yet a desktop. It runs its shell, an application, or both; the shell's applications are still a fixture, so it launches nothing. Locked, the shell draws the lock screen ([ADR 0010](./adr/0010-lock-screen)); until it has, and if it is gone, the compositor's covers are shown. There is no login of its own. It is not in the image: the image rules require boot acceptance tests and a package audit first ([Base image configuration](./iso-build)).
 
 ## Core state transitions
 
