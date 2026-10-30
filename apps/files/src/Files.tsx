@@ -278,7 +278,6 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
       current = false;
     };
     // `location` is named by `key`; the computer's list follows the places.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fs, key, reload, location?.kind === "computer" ? places : null]);
 
   // The window follows the disk: what changes there, by this window or any other program, is read
@@ -306,7 +305,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
       watching.current = false;
       stop?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // One watch per place (`key` names it), not per render.
   }, [fs, key]);
 
   // A new place starts with nothing selected and no search.
@@ -371,6 +370,19 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
   const refresh = React.useCallback(() => {
     if (!watching.current) setReload((n) => n + 1);
   }, []);
+  // The name being typed, kept here so that a press elsewhere keeps it as Return does (Finder's
+  // rename ends either way), and only once.
+  const renameText = React.useRef("");
+  const renamingNow = React.useRef<string | null>(null);
+  renamingNow.current = renaming;
+  const startRename = React.useCallback((entry: FileEntry) => {
+    renameText.current = entry.name;
+    setRenaming(entry.path);
+  }, []);
+  const cancelRename = React.useCallback(() => {
+    renamingNow.current = null;
+    setRenaming(null);
+  }, []);
   const newFolder = React.useCallback(async () => {
     if (!location || location.kind !== "folder") return;
     const name = freeName(strings.untitledFolder, shownListing?.entries.map((e) => e.name) ?? []);
@@ -378,11 +390,11 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
       const made = await fs.createFolder(location.path, name);
       refresh();
       setSelection(selectOnly(made.path));
-      setRenaming(made.path);
+      startRename(made);
     } catch (error) {
       setProblem(strings.errors[errorCode(error)]);
     }
-  }, [fs, location, shownListing, strings, refresh]);
+  }, [fs, location, shownListing, strings, refresh, startRename]);
   const moveToTrash = React.useCallback(
     async (entries: readonly FileEntry[]) => {
       if (inTrash || atComputer || entries.length === 0) return;
@@ -432,6 +444,12 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
     },
     [fs, shown, strings, refresh],
   );
+  const commitRename = () => {
+    const path = renamingNow.current;
+    if (!path) return;
+    renamingNow.current = null;
+    rename(path, renameText.current);
+  };
   const moveInto = React.useCallback(
     async (paths: readonly string[], folder: string) => {
       report(await fs.move(paths, folder));
@@ -471,7 +489,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         return true;
       case "Enter":
         if (!canRename) return false;
-        setRenaming(selected[0].path);
+        startRename(selected[0]);
         return true;
       case " ":
         if (command || event.altKey) return false;
@@ -503,7 +521,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
   useWindowKeys(
     (event) => {
       if (event.key !== "Escape") return false;
-      setRenaming(null);
+      cancelRename();
       return true;
     },
     { enabled: renaming !== null, whileTyping: true },
@@ -514,7 +532,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
   const collapseOnRelease = React.useRef<string | null>(null);
   const onItemPointerDown = (entry: FileEntry, event: PointerEvent) => {
     const { button, shiftKey } = event.nativeEvent;
-    if (renaming && renaming !== entry.path) setRenaming(null);
+    if (renaming && renaming !== entry.path) commitRename();
     if (button === 2) {
       // A context menu is for the selection, which the item joins if it is not in it. The item's
       // menu opens as the press reaches its trigger, which keeps it from the list's.
@@ -540,10 +558,14 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         : null;
     setSelection((s) => clickSelect(s, shownPaths, entry.path, { extend: shiftKey, toggle }));
   };
+  // A band started with Shift or Ctrl adds to the selection, as a click with them does.
+  const bandAdds = React.useRef(false);
   const onBackgroundPointerDown = (event: PointerEvent) => {
-    if (renaming) setRenaming(null);
+    if (renaming) commitRename();
     const { button, shiftKey } = event.nativeEvent;
-    if (button === 0 && !shiftKey && !isCommandKey(event.nativeEvent)) setSelection(NO_SELECTION);
+    const adding = shiftKey || isCommandKey(event.nativeEvent);
+    bandAdds.current = adding;
+    if (button === 0 && !adding) setSelection(NO_SELECTION);
     if (button === 2) setSelection(NO_SELECTION);
   };
 
@@ -616,7 +638,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         onStartShouldSetPanResponder: () => true,
         onPanResponderGrant: (event) => {
           const point = at(event);
-          bandStart.current = { ...point, before: live.current.selection, adding: false };
+          bandStart.current = { ...point, before: live.current.selection, adding: bandAdds.current };
         },
         onPanResponderMove: (event) => {
           const point = at(event);
@@ -632,7 +654,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         onPanResponderTerminate: () => setBand(null),
         onPanResponderTerminationRequest: () => false,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Made once: what it reads between renders is in `live` and the refs.
     [],
   );
 
@@ -661,14 +683,14 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         onPanResponderTerminate: () => showDrag(null),
         onPanResponderTerminationRequest: () => false,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // What it reads between renders is in `live` and the refs.
     [moveInto],
   );
 
   // ---- Commands, for the menu bar and the context menus ----
   const commands = {
     open: () => open(selected),
-    rename: () => canRename && setRenaming(selected[0].path),
+    rename: () => canRename && startRename(selected[0]),
     trash: () => moveToTrash(selected),
     putBack: () => putBack(selected),
     deleteNow: () => selected.length > 0 && setConfirm("delete"),
@@ -936,7 +958,10 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
                                     trash={inTrash}
                                     responder={itemResponder}
                                     onPointerDown={onItemPointerDown}
-                                    onRename={rename}
+                                    onRename={commitRename}
+                                    onRenameText={(text) => {
+                                      renameText.current = text;
+                                    }}
                                     onAction={(action) => onItemAction(action, entry)}
                                     menu={itemMenu}
                                   />
@@ -959,7 +984,10 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
                                   trash={inTrash}
                                   responder={itemResponder}
                                   onPointerDown={onItemPointerDown}
-                                  onRename={rename}
+                                  onRename={commitRename}
+                                  onRenameText={(text) => {
+                                    renameText.current = text;
+                                  }}
                                   onAction={(action) => onItemAction(action, entry)}
                                   menu={itemMenu}
                                 />
@@ -1094,7 +1122,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
         {atComputer ? null : (
           <>
             <ContextMenuSeparator />
-            <ContextMenuItem disabled={selected.length > 1} onPress={() => setRenaming(entry.path)}>
+            <ContextMenuItem disabled={selected.length > 1} onPress={() => startRename(entry)}>
               {strings.menus.rename}
             </ContextMenuItem>
             <ContextMenuItem onPress={commands.trash}>{strings.menus.moveToTrash}</ContextMenuItem>
@@ -1111,7 +1139,7 @@ export function Files({ fs, strings, locale, initial }: FilesProps) {
       setSelection((s) => clickSelect(s, shownPaths, entry.path, { toggle: true }));
     else if (action === "rename" && !inTrash && !atComputer) {
       setSelection(selectOnly(entry.path));
-      setRenaming(entry.path);
+      startRename(entry);
     } else if (action === "trash") {
       if (inTrash) putBack([entry]);
       else moveToTrash(isSelected(selection, entry.path) ? selected : [entry]);
@@ -1317,6 +1345,7 @@ function Item({
   responder,
   onPointerDown,
   onRename,
+  onRenameText,
   onAction,
   menu,
 }: {
@@ -1333,7 +1362,8 @@ function Item({
   trash: boolean;
   responder: (entry: FileEntry) => ReturnType<typeof PanResponder.create>;
   onPointerDown: (entry: FileEntry, event: PointerEvent) => void;
-  onRename: (path: string, name: string) => void;
+  onRenameText: (text: string) => void;
+  onRename: () => void;
   onAction: (action: string) => void;
   menu: (entry: FileEntry) => React.ReactNode;
 }) {
@@ -1377,7 +1407,8 @@ function Item({
     <RenameField
       entry={entry}
       centred={mode === "icons"}
-      onDone={(next) => onRename(entry.path, next)}
+      onChange={onRenameText}
+      onDone={onRename}
       strings={strings}
     />
   ) : null;
@@ -1488,30 +1519,32 @@ function Item({
 function RenameField({
   entry,
   centred,
+  onChange,
   onDone,
   strings,
 }: {
   entry: FileEntry;
   centred: boolean;
-  onDone: (name: string) => void;
+  onChange: (text: string) => void;
+  /** Return or leaving the field: the window keeps the name typed, once. */
+  onDone: () => void;
   strings: Strings;
 }) {
   const theme = useTheme();
   const [text, setText] = React.useState(entry.name);
   const input = React.useRef<ComponentRef<typeof TextInput> | null>(null);
-  const done = React.useRef(false);
-  const finish = () => {
-    if (done.current) return;
-    done.current = true;
-    onDone(text);
+  const change = (next: string) => {
+    setText(next);
+    onChange(next);
   };
+  const finish = () => onDone();
   return (
     <TextInput
       testID="rename"
       autoFocus
       ref={input}
       value={text}
-      onChangeText={setText}
+      onChangeText={change}
       // The name without its extension selected first, as Finder selects it.
       onFocus={() => {
         const { start, end } = nameSelection(entry.name, entry.folder);

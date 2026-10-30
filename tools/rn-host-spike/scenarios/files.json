@@ -557,6 +557,55 @@
       }
     },
     {
+      "name": "Return again: the field, with the folder's new name",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Name",
+              "value": "Code"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed over",
+      "do": [
+        "type",
+        "Nope"
+      ],
+      "expect": {
+        "focus_input": "rename"
+      }
+    },
+    {
+      "name": "Escape cancels the rename: the window's key while the field has the keyboard, which keeps nothing",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "focus_input": null,
+        "home": {
+          "Code": true,
+          "Nope": false
+        },
+        "texts": [
+          "Code"
+        ],
+        "absent": [
+          "Nope"
+        ]
+      }
+    },
+    {
       "name": "Ctrl+Shift+N (File > New Folder) makes an untitled folder and renames it",
       "do": [
         "key",
@@ -596,12 +645,19 @@
       }
     },
     {
-      "name": "kept: the folder is Archive, first by name; another program then puts a file in the home, and the window shows it",
+      "name": "a press elsewhere keeps the name, as Return does: the folder is Archive, first by name; another program then puts a file in the home, and the window shows it",
       "do": [
-        "key",
-        28
+        "press",
+        [
+          600,
+          400
+        ]
       ],
       "expect": {
+        "react_presses": {
+          "pointerDown@items": 1,
+          "pointerUp@items": 1
+        },
         "home": {
           "Archive": true,
           "untitled folder": false
