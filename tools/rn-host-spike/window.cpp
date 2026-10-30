@@ -1,5 +1,6 @@
 #include "window.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -80,7 +81,13 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       target->configure = event.serial;
       target->states = event.flag;
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
-      if (target && event.serial == target->inFlight) target->inFlight = 0;
+      if (target && event.serial == target->inFlight) {
+        target->inFlight = 0;
+        if (event.detail == OXYOS_OUTCOME_PRESENTED) {
+          target->shownWidth = target->inFlightWidth;
+          target->shownHeight = target->inFlightHeight;
+        }
+      }
       if (event.detail == OXYOS_OUTCOME_PRESENTED && target) target->shown = true;
       if (event.detail == OXYOS_OUTCOME_PRESENTED && event.surface == kToplevel) ++presented_;
     } else if (event.kind == OXYOS_EVENT_CLIPBOARD_TYPES || event.kind == OXYOS_EVENT_CLIPBOARD_TYPE ||
@@ -188,7 +195,23 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
               << " for configure " << target.configure << "\n";
   }
   target.inFlight = static_cast<uint64_t>(sequence);
+  target.inFlightWidth = target.width;
+  target.inFlightHeight = target.height;
   target.presentedFor = target.configure;
+}
+
+std::optional<std::pair<float, float>> Window::extent(uint32_t id) const {
+  auto it = surfaces_.find(id);
+  if (it == surfaces_.end()) return std::nullopt;
+  const Surface& s = it->second;
+  bool shown = s.shownWidth > 0 && s.shownHeight > 0, flying = s.inFlight != 0;
+  if (shown && flying) {
+    return std::pair{std::min(s.shownWidth, s.inFlightWidth), std::min(s.shownHeight, s.inFlightHeight)};
+  }
+  if (shown) return std::pair{s.shownWidth, s.shownHeight};
+  if (flying) return std::pair{s.inFlightWidth, s.inFlightHeight};
+  if (s.width > 0 && s.height > 0) return std::pair{s.width, s.height};
+  return std::nullopt;
 }
 
 void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial) {

@@ -570,6 +570,18 @@
       }
     },
     {
+      "name": "the shell grows the window back: the menu's anchor stays within the frame shown until the larger frame is, then the menu is at its trigger",
+      "do": ["resize-window", [1024, 640]],
+      "expect": {
+        "popups": 1,
+        "window_rect": [28, 20, 1024, 640],
+        "frame_px": {"window": [1024, 640]},
+        "popup_events": {"reposition@message-actions": 4},
+        "react": {},
+        "popup_rect": [645, 382, 266, 338]
+      }
+    },
+    {
       "name": "the menu still works after the move and resize",
       "do": ["press-popup", [60, 110]],
       "expect": {

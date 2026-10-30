@@ -88,6 +88,21 @@ std::optional<std::pair<uint32_t, Rect>> PopupHost::anchored(Tag anchor) const {
   auto [surface, origin] = parent_ ? parent_(anchor) : std::pair<uint32_t, Point>{Window::kToplevel, {}};
   frame->origin.x -= origin.x;
   frame->origin.y -= origin.y;
+  // The anchor is the part of the view the parent surface shows: the compositor refuses an anchor
+  // reaching beyond the parent (InvalidPositioner, as xdg-shell's), and a view may: a trigger
+  // scrolled partly away, or at a pane's edge as the window resizes. The parent's size is the one
+  // the compositor has (Window::extent: its shown frame's, not the latest configure's), so a
+  // window growing with a menu open keeps the anchor within the frame shown until the larger one
+  // is, and the popup is placed again then. One shown nowhere is a pixel at the nearest edge.
+  if (auto extent = window_.extent(surface)) {
+    auto clip = [](Float start, Float length, Float limit) {
+      Float from = std::clamp(start, Float{0}, limit - 1), to = std::min(start + length, limit);
+      return std::pair{from, std::max(to - from, Float{1})};
+    };
+    auto [x, width] = clip(frame->origin.x, frame->size.width, extent->first);
+    auto [y, height] = clip(frame->origin.y, frame->size.height, extent->second);
+    *frame = Rect{{x, y}, {width, height}};
+  }
   return std::pair{surface, *frame};
 }
 
