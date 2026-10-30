@@ -168,6 +168,8 @@ pub struct Compositor {
     transition_drawn: Vec<oxyos_gpu::Rect>,
     /// The damage of the last frame composed (`None`: whole), for tests and records.
     pub last_damage: Option<Vec<oxyos_gpu::Rect>>,
+    /// Frames composed while a transition ran, as the development compositor reports them.
+    pub transition_frames: u64,
     /// The next frame is composed, and whole: the first, or after the display came back or the
     /// splash was shown.
     recompose: bool,
@@ -299,6 +301,7 @@ impl Compositor {
             shown: HashMap::new(),
             transition_drawn: Vec::new(),
             last_damage: None,
+            transition_frames: 0,
             recompose: true,
             clock: None,
             splash: None,
@@ -587,6 +590,10 @@ impl Compositor {
         }
         self.composing_since = monotonic();
         self.composing_locked = self.scene.is_locked();
+        if animating {
+            self.transition_frames += 1;
+        }
+        self.transitions.record(now);
         // What changed on the output since the frame composed last (ADR 0005); everything when
         // there was none, or after the display came back.
         let scene = &self.scene;

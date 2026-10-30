@@ -94,6 +94,24 @@
           "texts": [
             "Introduce la contraseña"
           ]
+        },
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "lock",
+              "arriving": true,
+              "first": 0,
+              "ended": true
+            },
+            {
+              "kind": "popup",
+              "arriving": false,
+              "frames": 0,
+              "ended": false
+            }
+          ],
+          "count": 2
         }
       }
     },
@@ -331,6 +349,18 @@
           "never": [
             "oxyos.correcta"
           ]
+        },
+        "transitions": {
+          "frames_min": 3,
+          "seen": [
+            {
+              "kind": "lock",
+              "arriving": false,
+              "first": 255,
+              "ended": true
+            }
+          ],
+          "count": 1
         }
       }
     },

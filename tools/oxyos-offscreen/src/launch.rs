@@ -1068,6 +1068,32 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
 }
 
 /// The application's popups now shown, as [x, y, width, height] on the output.
+/// The transitions a step ran (docs/adr/0011-transitions.mdx): the frames composed while any
+/// ran, and for each its kind, whether a surface arrived, the opacities of the first and last
+/// frames drawn in it, how many those were and whether it ran to its end. Taken: the next step
+/// reports its own.
+fn transitions_json(compositor: &mut Compositor) -> String {
+    let seen: Vec<String> = compositor
+        .transitions
+        .take_seen()
+        .iter()
+        .map(|seen| {
+            let opacity = |o: Option<u8>| o.map_or("null".to_string(), |o| o.to_string());
+            format!(
+                "{{\"kind\":\"{}\",\"arriving\":{},\"first\":{},\"last\":{},\"frames\":{},\"ended\":{}}}",
+                format!("{:?}", seen.kind).to_lowercase(),
+                seen.arriving,
+                opacity(seen.first),
+                opacity(seen.last),
+                seen.frames,
+                seen.ended
+            )
+        })
+        .collect();
+    let frames = std::mem::take(&mut compositor.transition_frames);
+    format!("{{\"frames\":{frames},\"seen\":[{}]}}", seen.join(","))
+}
+
 fn popups_json(compositor: &Compositor) -> String {
     let popups: Vec<String> = shown(compositor)
         .into_iter()
@@ -1744,6 +1770,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        // What a step's transitions are is what the step started.
+        transitions_json(&mut session.compositor);
         // What the reader says in a step is what the step made it say.
         session.reader.absorb(&mut session.compositor);
         session.reader.take_announcements();
@@ -1809,7 +1837,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\"}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -1825,6 +1853,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             session.compositor.scene.pointer_shape(),
+            transitions_json(&mut session.compositor),
         ));
         snapshots.push(snapshot(
             &session.compositor,
@@ -1836,6 +1865,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
 
     let frames = session.compositor.frames;
+    // How much of the output each frame composed (1 when whole): transitions damage their
+    // surfaces alone (ADR 0011).
+    let damaged = median(&session.compositor.damaged).unwrap_or(1.0);
+    let whole = session
+        .compositor
+        .damaged
+        .iter()
+        .filter(|&&share| share >= 1.0)
+        .count();
     // Input devices close with the session: their descriptors are not leaks; nor is the lock's
     // fixture's.
     session.compositor.input = None;
@@ -1941,7 +1979,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.finish(&mut children)?;
     drop(seat);
     println!(
-        "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
+        "{{\"mode\":\"offscreen-cpu\",\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         launch.command[0],
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,

@@ -37,6 +37,9 @@ pub fn motions(kind: Kind) -> (Motion, Motion) {
     }
 }
 
+/// Transitions recorded until `take_seen`.
+const MAX_SEEN: usize = 64;
+
 /// A surface's last frame, kept while it goes.
 #[derive(Clone, Debug)]
 pub struct Snapshot {
@@ -47,9 +50,25 @@ pub struct Snapshot {
 }
 
 struct Running {
+    /// Which transition this is, for what is recorded of it (`Seen`).
+    id: u64,
     kind: Kind,
     started: Duration,
     motion: Motion,
+}
+
+/// What a transition did, as the development compositor reports it: its kind, whether it was a
+/// surface arriving, the opacities of the first and last frames drawn in it, how many frames
+/// those were, and whether it ran to its end (not interrupted: a window restored as it went,
+/// going dropped by the lock).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Seen {
+    pub kind: Kind,
+    pub arriving: bool,
+    pub first: Option<u8>,
+    pub last: Option<u8>,
+    pub frames: u32,
+    pub ended: bool,
 }
 
 /// Where a surface is in its transition: the opacity (0 to 255) and scale (thousandths) to draw
@@ -99,9 +118,33 @@ fn progress(elapsed: Duration, duration: Duration) -> f64 {
 pub struct Transitions {
     arriving: BTreeMap<SurfaceKey, Running>,
     going: Vec<(SurfaceKey, Running, Snapshot)>,
+    next_id: u64,
+    /// What each transition since the last `take_seen` did, by id.
+    seen: BTreeMap<u64, Seen>,
 }
 
 impl Transitions {
+    /// A new transition's id, recorded as begun.
+    fn begin(&mut self, kind: Kind, arriving: bool) -> u64 {
+        // A session nobody asks keeps only the latest.
+        while self.seen.len() >= MAX_SEEN {
+            self.seen.pop_first();
+        }
+        self.next_id += 1;
+        self.seen.insert(
+            self.next_id,
+            Seen {
+                kind,
+                arriving,
+                first: None,
+                last: None,
+                frames: 0,
+                ended: false,
+            },
+        );
+        self.next_id
+    }
+
     pub fn arrive(&mut self, key: SurfaceKey, kind: Kind, now: Duration) {
         // A surface arriving again (restored) stops going.
         self.going.retain(|(going, _, _)| *going != key);
@@ -110,9 +153,11 @@ impl Transitions {
             self.arriving.remove(&key);
             return;
         }
+        let id = self.begin(kind, true);
         self.arriving.insert(
             key,
             Running {
+                id,
                 kind,
                 started: now,
                 motion,
@@ -129,9 +174,11 @@ impl Transitions {
             return;
         };
         self.going.retain(|(going, _, _)| *going != key);
+        let id = self.begin(kind, false);
         self.going.push((
             key,
             Running {
+                id,
                 kind,
                 started: now,
                 motion,
@@ -148,9 +195,11 @@ impl Transitions {
             id: u32::MAX,
         };
         self.going.retain(|(going, _, _)| *going != key);
+        let id = self.begin(Kind::Panel, false);
         self.going.push((
             key,
             Running {
+                id,
                 kind: Kind::Panel,
                 started: now,
                 motion: motion(400, 1000),
@@ -205,12 +254,55 @@ impl Transitions {
     /// still to compose).
     pub fn advance(&mut self, now: Duration) -> bool {
         let before = self.arriving.len() + self.going.len();
-        self.arriving
-            .retain(|_, running| now.saturating_sub(running.started) < running.motion.duration);
-        self.going.retain(|(_, running, _)| {
-            now.saturating_sub(running.started) < running.motion.duration
+        let mut ended = Vec::new();
+        self.arriving.retain(|_, running| {
+            let runs = now.saturating_sub(running.started) < running.motion.duration;
+            if !runs {
+                ended.push(running.id);
+            }
+            runs
         });
+        self.going.retain(|(_, running, _)| {
+            let runs = now.saturating_sub(running.started) < running.motion.duration;
+            if !runs {
+                ended.push(running.id);
+            }
+            runs
+        });
+        for id in ended {
+            if let Some(seen) = self.seen.get_mut(&id) {
+                seen.ended = true;
+            }
+        }
         before > 0
+    }
+
+    /// Records the frame composed at `now`: what each transition running draws (after
+    /// `advance`). A surface arriving that ended is whole in this frame, one going gone.
+    pub fn record(&mut self, now: Duration) {
+        let mut drawn: Vec<(u64, u8)> = self
+            .arriving
+            .iter()
+            .map(|(key, running)| (running.id, self.arriving(*key, now).opacity))
+            .collect();
+        drawn.extend(
+            self.going
+                .iter()
+                .zip(self.going(now))
+                .map(|((_, running, _), (_, _, at))| (running.id, at.opacity)),
+        );
+        for (id, opacity) in drawn {
+            if let Some(seen) = self.seen.get_mut(&id) {
+                seen.first.get_or_insert(opacity);
+                seen.last = Some(opacity);
+                seen.frames += 1;
+            }
+        }
+    }
+
+    /// What each transition since the last call did, in the order they began.
+    pub fn take_seen(&mut self) -> Vec<Seen> {
+        std::mem::take(&mut self.seen).into_values().collect()
     }
 
     /// Drops every surface going but the lock's: locked, nothing of the session is drawn.
@@ -321,6 +413,61 @@ mod tests {
         t.arrive(KEY, Kind::Window, now + Duration::from_millis(50));
         assert_eq!(t.going(now).count(), 0);
         assert_eq!(t.arriving(KEY, now + Duration::from_millis(50)).opacity, 0);
+    }
+
+    #[test]
+    fn what_each_transition_drew_is_recorded() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        let frame = |t: &mut Transitions, ms| {
+            let now = start + Duration::from_millis(ms);
+            t.advance(now);
+            t.record(now);
+        };
+        t.arrive(KEY, Kind::Window, start);
+        for ms in [0, 90, 180] {
+            frame(&mut t, ms);
+        }
+        // A window restored as it went: its going is interrupted, not ended.
+        let other = SurfaceKey { client: 2, id: 1 };
+        t.go(
+            other,
+            Kind::Window,
+            start + Duration::from_millis(190),
+            Some(snapshot()),
+        );
+        frame(&mut t, 200);
+        t.arrive(other, Kind::Window, start + Duration::from_millis(210));
+        assert_eq!(
+            t.take_seen(),
+            [
+                Seen {
+                    kind: Kind::Window,
+                    arriving: true,
+                    first: Some(0),
+                    last: Some(223),
+                    frames: 2,
+                    ended: true,
+                },
+                Seen {
+                    kind: Kind::Window,
+                    arriving: false,
+                    first: Some(207),
+                    last: Some(207),
+                    frames: 1,
+                    ended: false,
+                },
+                Seen {
+                    kind: Kind::Window,
+                    arriving: true,
+                    first: None,
+                    last: None,
+                    frames: 0,
+                    ended: false,
+                },
+            ]
+        );
+        assert!(t.take_seen().is_empty());
     }
 
     #[test]
