@@ -1038,13 +1038,14 @@ std::shared_ptr<TurboModule> createHostModule(
   } else if (name == "RNCAsyncStorage") {
     // @react-native-async-storage/async-storage (application.h, crates/oxyos-app-storage): kept in
     // the application's data directory, by its id, on a thread of its own; each callback as its
-    // Android module calls it. Without an id there is nowhere to keep anything: every call fails.
+    // Android module calls it. Without an id the session gave it there is nowhere to keep anything:
+    // every call fails.
     auto ask = [&services, invoker](jsi::Runtime& rt, folly::dynamic request, const jsi::Value* callback,
                                     std::function<void(jsi::Runtime&, jsi::Function&, const folly::dynamic&)> answer) {
       if (!callback || !callback->isObject() || !callback->asObject(rt).isFunction(rt)) return;
       auto done = std::make_shared<jsi::Function>(callback->asObject(rt).asFunction(rt));
       if (services.application.dataDirectory.empty()) {
-        answer(rt, *done, folly::dynamic::object("error", "OxyOS keeps nothing for this application: it was started without an application id"));
+        answer(rt, *done, folly::dynamic::object("error", "OxyOS keeps nothing for this application: the session did not start it with an application id"));
         return;
       }
       if (!services.storage) services.storage = std::make_unique<AsyncStorage>(services.application.dataDirectory);

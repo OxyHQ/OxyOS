@@ -1179,7 +1179,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     for app, files in expect.get("app_data", {}).items():
         # What the application kept, as JSON, once the run ended.
         for name, content in files.items():
-            path = preferences.parent / "xdg-data" / "oxyos" / "app-data" / app / name
+            path = preferences.parent / "xdg-data" / "oxyos" / "apps" / app / name
             kept = json.loads(path.read_text()) if path.exists() else None
             if kept != content:
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
@@ -1364,7 +1364,7 @@ def main():
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
     env["XDG_CACHE_HOME"] = str(out / "xdg-cache")
     for app, files in scenario.get("app_data", {}).items():
-        directory = out / "xdg-data" / "oxyos" / "app-data" / app
+        directory = out / "xdg-data" / "oxyos" / "apps" / app
         directory.mkdir(parents=True, exist_ok=True)
         for name, content in files.items():
             (directory / name).write_text(json.dumps(content))
