@@ -220,6 +220,18 @@ fn the_shell_is_told_the_active_windows_menus_as_activation_follows() {
     h.click(10, 10);
     assert_eq!(h.scene.focus(), Some(key(SHELL, 1)));
     assert_eq!(bars(&logged(&mut h), SHELL), []);
+    // Minimized while the top bar has focus, it is no longer active: the bar is none. Restored,
+    // it is active again.
+    h.scene.minimize(inbox);
+    assert_eq!(h.scene.active_window(), None);
+    let events = logged(&mut h);
+    assert_eq!(bars(&events, SHELL), [(0, 0, vec![])]);
+    assert!(to(&events, APP).contains(&Event::Activated {
+        surface: 1,
+        active: false
+    }));
+    h.scene.restore(inbox);
+    assert_eq!(bars(&logged(&mut h), SHELL), [(a, 2, entries(shorter))]);
     // Locked, no window is active; unlocked, the bar comes back.
     h.scene.lock();
     assert_eq!(bars(&logged(&mut h), SHELL), [(0, 0, vec![])]);

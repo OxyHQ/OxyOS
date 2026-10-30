@@ -2473,6 +2473,8 @@ impl Scene {
             self.set_focus(None);
             self.focus_next();
         }
+        // Minimized while the shell's top bar had focus: no longer the active window.
+        self.update_active();
         self.refresh_pointer_focus();
     }
 

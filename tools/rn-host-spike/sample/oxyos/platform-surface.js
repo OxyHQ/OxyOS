@@ -8,6 +8,11 @@
  * the native host draws it in a popup surface of its own, placed by the compositor from the
  * anchor's frame and Bloom's placement (side, align, offsets). The compositor's dismissal comes
  * back as `onDismiss`.
+ *
+ * An application's window also has the `menu-bar` capability (docs/adr/0021-menu-bar.mdx): Bloom
+ * gives `menuBar.setMenus` its menus whenever they change and the session's shell shows them in its
+ * bar while the window is active; a command chosen there comes back through `onActivate` with the
+ * id Bloom gave it.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
@@ -101,9 +106,93 @@ function createWindow() {
 
 const window = windowConstants?.available ? createWindow() : undefined;
 
+// The protocol's kinds and flags, and its limits: menus past them are not sent (the compositor
+// would refuse the window's menus whole).
+const MENU = { menu: 1, item: 2, submenu: 3, separator: 4 };
+const DISABLED = 1;
+const CHECKABLE = 2;
+const CHECKED = 4;
+const MAX_ENTRIES = 256;
+const MAX_DEPTH = 4;
+// How many commits' ids are kept: a choice made just before Bloom described the menus again still
+// names an item by the id it had then, which Bloom keeps while the item is mounted.
+const COMMITS_KEPT = 8;
+
+/** Bloom's menus as the protocol's entries, in order, and each entry's id. */
+function flatten(menus) {
+  const entries = [];
+  const ids = [];
+  const add = (entry, id) => {
+    if (entries.length >= MAX_ENTRIES) return -1;
+    entries.push(entry);
+    ids.push(id);
+    return entries.length - 1;
+  };
+  const walk = (items, parent, depth) => {
+    for (const item of items) {
+      if (item.kind === 'separator') {
+        add({ parent, kind: MENU.separator, flags: 0, label: '', shortcut: '' }, null);
+        continue;
+      }
+      // Every entry but a separator is named; one with no label cannot be shown.
+      if (!item.label) continue;
+      const disabled = item.enabled === false ? DISABLED : 0;
+      if (item.kind === 'submenu') {
+        if (depth >= MAX_DEPTH) continue;
+        const index = add({ parent, kind: MENU.submenu, flags: disabled, label: item.label, shortcut: '' }, item.id);
+        if (index >= 0) walk(item.items ?? [], index, depth + 1);
+        continue;
+      }
+      const check = typeof item.checked === 'boolean' ? CHECKABLE | (item.checked ? CHECKED : 0) : 0;
+      add({ parent, kind: MENU.item, flags: disabled | check, label: item.label, shortcut: item.shortcut ?? '' }, item.id);
+    }
+  };
+  for (const menu of menus) {
+    if (!menu.label) continue;
+    const index = add({ parent: -1, kind: MENU.menu, flags: 0, label: menu.label, shortcut: '' }, menu.id);
+    if (index >= 0) walk(menu.items ?? [], index, 2);
+  }
+  return { entries, ids };
+}
+
+const nativeMenuBar = TurboModuleRegistry.get('OxyOSMenuBar');
+
+function createMenuBar() {
+  // Each commit's ids by index (the compositor and the shell see indices alone), newest last.
+  const commits = [];
+  let last = null;
+  const listeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSMenuActivated', ({ serial, index }) => {
+    const commit = commits.find((kept) => kept.serial === serial);
+    const id = commit?.ids[index];
+    if (id == null) return;
+    for (const listener of [...listeners]) listener(id);
+  });
+  return {
+    setMenus(menus) {
+      const { entries, ids } = flatten(menus ?? []);
+      // The same menus again are not sent again.
+      const described = JSON.stringify([entries, ids]);
+      if (described === last) return;
+      last = described;
+      const serial = nativeMenuBar.setMenus(entries);
+      if (!serial) return;
+      commits.push({ serial, ids });
+      if (commits.length > COMMITS_KEPT) commits.shift();
+    },
+    onActivate(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const menuBar = nativeMenuBar?.getConstants()?.available ? createMenuBar() : undefined;
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
-  capabilities: new Set(window ? ['popup-surface', 'window'] : ['popup-surface']),
+  capabilities: new Set(['popup-surface', ...(window ? ['window'] : []), ...(menuBar ? ['menu-bar'] : [])]),
   PopupSurface,
   window,
+  menuBar,
 };

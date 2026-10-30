@@ -6,6 +6,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@oxy.so/bloom/dropdown-menu";
 import { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
@@ -13,7 +19,69 @@ import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 import Svg, { Rect, Circle } from "react-native-svg";
 import { Box } from "../primitives";
 import { OxyLogo } from "./OxyLogo";
-import type { ShellMenu } from "../model";
+import type { ShellMenu, ShellMenuItem } from "../model";
+
+/** A menu's entries as Bloom's rows: commands (with their check and chord), submenus and
+    separators. A choice calls `onCommand` with the entry's id; the menu closes. */
+function MenuEntries({
+  items,
+  onCommand,
+}: {
+  items: readonly ShellMenuItem[];
+  onCommand: (id: string) => void;
+}) {
+  return (
+    <>
+      {items.map((item) => {
+        if (item.kind === "separator") {
+          return (
+            <React.Fragment key={item.id}>
+              <DropdownMenuSeparator />
+            </React.Fragment>
+          );
+        }
+        if (item.kind === "submenu") {
+          return (
+            <DropdownMenuSub key={item.id}>
+              <DropdownMenuSubTrigger disabled={item.enabled === false}>
+                {item.label}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <MenuEntries items={item.items} onCommand={onCommand} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          );
+        }
+        const chord = item.shortcut ? (
+          <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
+        ) : undefined;
+        if (item.checked !== undefined) {
+          return (
+            <DropdownMenuCheckboxItem
+              key={item.id}
+              checked={item.checked}
+              disabled={item.enabled === false}
+              trailing={chord}
+              onCheckedChange={() => onCommand(item.id)}
+            >
+              {item.label}
+            </DropdownMenuCheckboxItem>
+          );
+        }
+        return (
+          <DropdownMenuItem
+            key={item.id}
+            disabled={item.enabled === false}
+            trailing={chord}
+            onPress={() => onCommand(item.id)}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        );
+      })}
+    </>
+  );
+}
 
 function ControlsIcon({
   width = 15,
@@ -119,7 +187,7 @@ export function TopBar({
           </DropdownMenuContent>
         </DropdownMenu>
         {menus.map((menu, index) => (
-          <DropdownMenu key={menu.label}>
+          <DropdownMenu key={`${index}:${menu.label}`}>
             <DropdownMenuTrigger asChild>
               <Button
                 appearance="plain"
@@ -148,15 +216,7 @@ export function TopBar({
               className="rounded-lg"
               style={{ borderRadius: 8 }}
             >
-              {menu.items.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  disabled={item.enabled === false}
-                  onPress={() => onCommand(item.id)}
-                >
-                  {item.label}
-                </DropdownMenuItem>
-              ))}
+              <MenuEntries items={menu.items} onCommand={onCommand} />
             </DropdownMenuContent>
           </DropdownMenu>
         ))}

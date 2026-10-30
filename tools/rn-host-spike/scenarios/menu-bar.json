@@ -1,0 +1,258 @@
+{
+  "about": "An application's menus in the session's menu bar (ADR 0021, step 3): the sample (sample/MenuBarProbe.tsx, launched as Allo) declares File (New Ctrl+N, Open… Ctrl+O, a separator, an Open Recent submenu) and Edit (Undo Ctrl+Z, disabled; a separator; Wrap Lines, a check item) through the platform's `menuBar` (sample/oxyos/platform-surface.js). While its window is active, the shell's top bar shows its application's own menu in bold (the registry's name), then File and Edit with their chords; choosing New there runs it in the application exactly once (the compositor delivers one MENU_ITEM_ACTIVATED, the host one event to JavaScript, and the page counts one document), and Wrap Lines toggles from the bar and shows its check the next time Edit opens. Minimized, no window is active and the bar shows the shell's own menus; restored from the dock, the application's again. Bloom's own Menubar and its Ctrl+N chord are Bloom's step of the ADR, not released yet: the sample gives the adapter the ADR's description itself, and Ctrl+N without the bar is not checked here. Without the adapter's `menuBar` the bar shows the shell's own menus and every step fails.",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the window is active: the shell's bar shows its application's menu, then File and Edit",
+      "do": [
+        "press",
+        [
+          300,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "menu bar: the platform’s",
+          "new documents: 0",
+          "wrap lines: off"
+        ],
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ],
+          "absent": [
+            "Ver"
+          ]
+        },
+        "react": {
+          "touchStart@menu-probe": 1,
+          "touchEnd@menu-probe": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "File opens under it with the application's commands and their chords, as Ctrl",
+      "do": [
+        "press_output",
+        [
+          100,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "New",
+            "Ctrl+N",
+            "Open…",
+            "Ctrl+O",
+            "Open Recent"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "window_shown": true
+      }
+    },
+    {
+      "name": "choosing New runs it in the application, once",
+      "do": [
+        "press_output",
+        [
+          120,
+          63
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "new documents: 1"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Edit: Undo disabled with its chord, Wrap Lines unchecked",
+      "do": [
+        "press_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Ctrl+Z",
+            "Wrap Lines"
+          ]
+        },
+        "output_pixels": {
+          "144,118": "#ffffff"
+        },
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "choosing Wrap Lines turns it on in the application",
+      "do": [
+        "press_output",
+        [
+          194,
+          116
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "wrap lines: on",
+          "new documents: 1"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Edit again: the application committed its menus anew, and Wrap Lines is checked",
+      "do": [
+        "press_output",
+        [
+          137,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Wrap Lines"
+          ]
+        },
+        "output_pixels": {
+          "144,118": "#5c645f"
+        },
+        "pixel_tolerance": 16,
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "choosing it again turns it off",
+      "do": [
+        "press_output",
+        [
+          194,
+          116
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "wrap lines: off",
+          "new documents: 1"
+        ],
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "minimized, no window is active: the bar shows the shell's own menus",
+      "do": [
+        "minimize_window",
+        true
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "in_shell": {
+          "texts": [
+            "OxyOS",
+            "Ver"
+          ],
+          "absent": [
+            "File",
+            "Edit"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "restored from the dock, its menus are the bar's again",
+      "do": [
+        "press_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": true,
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ],
+          "absent": [
+            "Ver"
+          ]
+        },
+        "texts": [
+          "new documents: 1",
+          "wrap lines: off"
+        ],
+        "react": {}
+      }
+    }
+  ]
+}

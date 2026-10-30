@@ -2409,6 +2409,8 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         Event::Focus { surface, focused } => {
             (surface, if focused { "focus.in" } else { "focus.out" })
         }
+        // A command of its menus chosen in the shell's bar (ADR 0021).
+        Event::MenuItemActivated { surface, .. } => (surface, "menu.activated"),
         _ => return None,
     })
 }

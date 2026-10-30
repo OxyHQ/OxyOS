@@ -347,6 +347,14 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.authenticate: a password");
       return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt)));
     });
+    // A command of the active window's menus, as the shell was told them (ADR 0021).
+    module->method("activateMenuItem", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      ready(rt);
+      services.shell.activateMenuItem(number(rt, args, count, 0), number(rt, args, count, 1),
+                                      number(rt, args, count, 2));
+      return jsi::Value::undefined();
+    });
     module->listeners();
   } else if (name == "OxyOSWindow") {
     // The application's own window (sample/oxyos/platform-surface.js, docs/adr/0016-windows.mdx).
@@ -406,6 +414,34 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->method("getSystem", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       return jsi::valueFromDynamic(rt, systemFacts());
+    });
+    module->listeners();
+  } else if (name == "OxyOSMenuBar") {
+    // The application window's menus (sample/oxyos/platform-surface.js, docs/adr/0021-menu-bar.mdx):
+    // `setMenus([{ parent, kind, flags, label, shortcut }])` sends them as a new commit and returns
+    // its serial; `OxyOSMenuActivated` ({ serial, index }) is a choice in the shell's bar. The
+    // adapter keeps Bloom's ids for each commit's indices: the compositor never sees them.
+    module->constants(folly::dynamic::object("available", services.applicationWindow));
+    module->method("setMenus", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (!services.menuBar.setMenus) throw jsi::JSError(rt, "OxyOSMenuBar: only an application's window has menus");
+      if (count < 1 || !args[0].isObject()) throw jsi::JSError(rt, "OxyOSMenuBar.setMenus: the entries");
+      auto value = jsi::dynamicFromValue(rt, args[0]);
+      if (!value.isArray()) throw jsi::JSError(rt, "OxyOSMenuBar.setMenus: the entries");
+      std::vector<MenuEntry> entries;
+      for (const auto& item : value) {
+        MenuEntry entry;
+        auto parent = item.getDefault("parent", -1);
+        entry.parent = parent.isNumber() && parent.asDouble() >= 0 ? static_cast<uint32_t>(parent.asDouble())
+                                                                    : OXYOS_NO_MENU_PARENT;
+        entry.kind = static_cast<uint8_t>(item.getDefault("kind", 0).asInt());
+        entry.flags = static_cast<uint8_t>(item.getDefault("flags", 0).asInt());
+        auto label = item.getDefault("label", "");
+        auto shortcut = item.getDefault("shortcut", "");
+        if (label.isString()) entry.label = label.getString();
+        if (shortcut.isString()) entry.shortcut = shortcut.getString();
+        entries.push_back(std::move(entry));
+      }
+      return jsi::Value(static_cast<double>(services.menuBar.setMenus(entries)));
     });
     module->listeners();
   } else if (name == "OxyOSClipboard") {

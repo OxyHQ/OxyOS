@@ -155,6 +155,33 @@ bool ShellState::observe(const OxyOSEvent& event) {
       if (locked_ == (event.flag != 0)) return false;
       locked_ = event.flag != 0;
       return true;
+    // The active window's menus (docs/adr/0021-menu-bar.mdx), shown once whole.
+    case OXYOS_EVENT_MENU_BAR:
+      receivingMenuBar_ = MenuBar{.window = event.code, .serial = event.detail, .count = event.width};
+      return false;
+    case OXYOS_EVENT_MENU_BAR_ITEM: {
+      if (event.code != receivingMenuBar_.window || event.detail != receivingMenuBar_.items.size()) return false;
+      MenuItem item;
+      item.parent = event.width == OXYOS_NO_MENU_PARENT ? -1 : static_cast<int64_t>(event.width);
+      item.kind = event.height;
+      item.flags = event.flag;
+      receivingMenuBar_.items.push_back(std::move(item));
+      return false;
+    }
+    case OXYOS_EVENT_MENU_BAR_TEXT: {
+      if (event.code != receivingMenuBar_.window || event.detail >= receivingMenuBar_.items.size()) return false;
+      auto& item = receivingMenuBar_.items[event.detail];
+      (event.height == OXYOS_MENU_SHORTCUT ? item.shortcut : item.label)
+          .append(event.text, strnlen(event.text, sizeof(event.text)));
+      return false;
+    }
+    case OXYOS_EVENT_MENU_BAR_COMMITTED:
+      if (event.code != receivingMenuBar_.window || receivingMenuBar_.items.size() != receivingMenuBar_.count) {
+        return false;
+      }
+      menuBar_ = std::move(receivingMenuBar_);
+      receivingMenuBar_ = MenuBar{};
+      return true;
     case OXYOS_EVENT_WORKSPACES:
       workspaces_ = event.detail;
       active_ = event.code;
@@ -187,7 +214,16 @@ folly::dynamic ShellState::state() const {
     outputs.push_back(folly::dynamic::object("id", id)("x", output.x)("y", output.y)("width", output.width)(
         "height", output.height)("scale", output.scale120 / 120.0)("primary", output.primary));
   }
-  return folly::dynamic::object("windows", std::move(windows))("workspaces", workspaces_)("active", active_)(
+  static const char* kinds[] = {"", "menu", "item", "submenu", "separator"};
+  folly::dynamic items = folly::dynamic::array();
+  for (const auto& item : menuBar_.items) {
+    items.push_back(folly::dynamic::object("parent", item.parent)("kind", item.kind <= 4 ? kinds[item.kind] : "")(
+        "enabled", (item.flags & OXYOS_MENU_DISABLED) == 0)("checkable", (item.flags & OXYOS_MENU_CHECKABLE) != 0)(
+        "checked", (item.flags & OXYOS_MENU_CHECKED) != 0)("label", item.label)("shortcut", item.shortcut));
+  }
+  folly::dynamic menuBar =
+      folly::dynamic::object("window", menuBar_.window)("serial", menuBar_.serial)("items", std::move(items));
+  return folly::dynamic::object("windows", std::move(windows))("menuBar", std::move(menuBar))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
       "applications", applications_)("output", output_)("outputs", std::move(outputs));
 }

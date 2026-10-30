@@ -66,6 +66,8 @@ impl Scene {
         if self.focus.is_none() {
             self.focus_next();
         }
+        // The active window left while the shell's top bar had focus: none is active.
+        self.update_active();
         self.refresh_pointer_focus();
     }
 

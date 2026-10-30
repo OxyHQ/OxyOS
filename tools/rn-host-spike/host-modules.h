@@ -4,6 +4,8 @@
 #include "network.h"
 #include "renderer.h"
 
+#include <oxyos_client.h>
+
 #include <ReactCommon/CallInvoker.h>
 #include <ReactCommon/TurboModule.h>
 
@@ -16,6 +18,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace oxyos {
 
@@ -99,6 +102,23 @@ struct ShellService {
   // could not be sent. `OxyOSShellLaunch` answers.
   std::function<uint32_t(const std::string& id)> launch;
   std::function<bool(const std::string& secret)> authenticate;
+  // Chooses the entry `index` of the commit `serial` of window `window`'s menus, as the shell was
+  // told them (docs/adr/0021-menu-bar.mdx); the compositor delivers it only if they are still the
+  // active window's.
+  std::function<void(uint32_t window, uint32_t serial, uint32_t index)> activateMenuItem;
+};
+
+// The application window's menus (docs/adr/0021-menu-bar.mdx), for Bloom's `menu-bar` capability:
+// entries in order (OXYOS_MENU_* kinds and flags, a parent's index or OXYOS_NO_MENU_PARENT), sent as
+// a new commit whose serial is returned (0: not sent). `OxyOSMenuActivated` ({ serial, index })
+// says what the person chose in the shell's bar. Unset without an application window.
+struct MenuEntry {
+  uint32_t parent = OXYOS_NO_MENU_PARENT;
+  uint8_t kind = 0, flags = 0;
+  std::string label, shortcut;
+};
+struct MenuBarService {
+  std::function<uint32_t(const std::vector<MenuEntry>& entries)> setMenus;
 };
 
 // The application's own window (docs/adr/0016-windows.mdx), for Bloom's `window` capability:
@@ -136,6 +156,7 @@ struct HostServices {
   bool applicationWindow = false;
   WindowService window{};
   SettingsService settings{};
+  MenuBarService menuBar{};
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

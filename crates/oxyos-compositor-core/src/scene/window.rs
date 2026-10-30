@@ -321,10 +321,11 @@ impl Scene {
         Ok(())
     }
 
-    /// After focus changed: the active window is the toplevel that has the focus itself or
-    /// through its popups and dialogs. Focus on one of the shell's panels (the top bar's menus
-    /// act for the active application) leaves it; anything else (an overlay, the lock, nothing)
-    /// leaves no window active.
+    /// After focus changed, or the active window stopped being shown: the active window is the
+    /// toplevel that has the focus itself or through its popups and dialogs. Focus on one of the
+    /// shell's panels (the top bar's menus act for the active application) leaves it, while it is
+    /// shown (minimized or on another workspace, it is not active); anything else (an overlay, the
+    /// lock, nothing) leaves no window active.
     pub(super) fn update_active(&mut self) {
         let root = self.focus.map(|focus| self.root_of(focus));
         let active = match root.and_then(|root| self.nodes.get(&root).map(|node| (root, node))) {
@@ -338,7 +339,7 @@ impl Scene {
                     }
                 ) =>
             {
-                self.active
+                self.active.filter(|active| self.visible(*active))
             }
             _ => None,
         };

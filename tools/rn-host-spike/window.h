@@ -123,6 +123,12 @@ class Window {
   void destroy(uint32_t id);
   // Publishes a surface's accessibility snapshot (ADR 0003). Throws on failure.
   void publishAccessibility(uint32_t id, const std::vector<OxyOSAccessibleNode>& nodes);
+  // The window's menus (docs/adr/0021-menu-bar.mdx), entries in order, as the commit `serial`, above
+  // the last; a MENU_ITEM_ACTIVATED names it and the chosen entry's index. Throws on failure.
+  void setMenus(uint32_t serial, const std::vector<OxyOSMenuItem>& items);
+  // The session's shell chooses the entry `index` of the commit `serial` of window `window`'s menus,
+  // as a MENU_BAR told them.
+  void activateMenuItem(uint32_t window, uint32_t serial, uint32_t index);
   // Announces text to assistive technologies from a surface (OXYOS_POLITE, OXYOS_ASSERTIVE).
   // Throws on failure.
   void announce(uint32_t id, uint8_t politeness, const std::string& text);
