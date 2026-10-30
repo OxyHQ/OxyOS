@@ -18,8 +18,21 @@ export type ShellSurfaceProps = {
   children: ReactNode;
 };
 
+/**
+ * `children` drawn only where `mask` is opaque, as React Native's MaskedView (the lock screen's
+ * clock is the wallpaper, blurred, seen through its digits). `style` sizes the view; the mask
+ * fills it.
+ */
+export type MaskedProps = {
+  mask: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+};
+
 export type ShellPlatform = {
   Surface: ComponentType<ShellSurfaceProps>;
+  /** Where the platform masks views; without it, what would be masked is drawn plainly. */
+  Masked?: ComponentType<MaskedProps>;
 };
 
 /** Everywhere but OxyOS (the browser preview): every region stays in the one surface. */

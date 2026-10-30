@@ -6,6 +6,7 @@
  * shell's layout put it (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
+import { StyleSheet, View } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 
 const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () => ({
@@ -26,4 +27,24 @@ function Surface({ kind, edge, exclusive, style, children }) {
   );
 }
 
-export const oxyosShell = { Surface };
+// React Native's MaskedView (@react-native-masked-view/masked-view), as that package renders it:
+// its RNCMaskedView with the mask in its first child, filling it, then the children. The Bloom host
+// draws it as Android does (masked-view.h): the children kept where the mask is opaque.
+const RNCMaskedView = NativeComponentRegistry.get('RNCMaskedView', () => ({
+  uiViewClassName: 'RNCMaskedView',
+  validAttributes: {},
+}));
+
+function Masked({ mask, style, children }) {
+  return (
+    <RNCMaskedView style={style} pointerEvents="box-none">
+      {/* Never flattened away: the mask is the first child, whatever it holds. */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill} collapsable={false}>
+        {mask}
+      </View>
+      {children}
+    </RNCMaskedView>
+  );
+}
+
+export const oxyosShell = { Surface, Masked };

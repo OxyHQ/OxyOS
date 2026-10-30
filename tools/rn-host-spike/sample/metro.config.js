@@ -11,6 +11,8 @@ const RN_DIR = path.dirname(bloomRequire.resolve('react-native/package.json'));
 const OVERRIDES = path.join(__dirname, 'oxyos');
 
 const PLATFORM_MODULE = path.join('Libraries', 'Utilities', 'Platform');
+// Third-party packages whose Android modules OxyOS runs, as it runs React Native's own.
+const ANDROID_PACKAGES = ['expo-blur'];
 const RN_ENTRY = path.join(RN_DIR, 'index.js');
 
 // React Native files split by platform: an OxyOS override when one exists, otherwise the
@@ -93,6 +95,13 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
       if (platform !== PLATFORM || result.type !== 'sourceFile') return result;
       const variant = oxyosVariant(result.filePath, context.originModulePath);
       if (variant) return { type: 'sourceFile', filePath: variant };
+      // Packages whose Android native views the host implements as Android does take their
+      // Android modules too: expo-blur's blur target is then its own view, never a View that
+      // Fabric may flatten away (expo-blur.h).
+      if (ANDROID_PACKAGES.some((name) => result.filePath.includes(`${path.sep}node_modules${path.sep}${name}${path.sep}`))) {
+        const android = result.filePath.replace(/\.js$/, '.android.js');
+        if (android !== result.filePath && fs.existsSync(android)) return { type: 'sourceFile', filePath: android };
+      }
       return result;
     },
   },

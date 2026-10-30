@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include "expo-blur.h"
+#include "masked-view.h"
 
 #include "svg.h"
 #include "text.h"
@@ -406,7 +407,7 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "AndroidTextInput", "AndroidHorizontalScrollContentView",
                                             "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
-                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView"};
+                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView"};
 
 // The input's text laid out as it is drawn: single-line inputs do not wrap.
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -655,6 +656,189 @@ void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip
   }
 }
 
+// The device pixels of a logical rectangle within `clip` that `painter` paints: [x0, x1) × [y0, y1).
+struct PixelBox {
+  int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+  bool empty() const { return x0 >= x1 || y0 >= y1; }
+};
+PixelBox paintedPixels(const Painter& painter, float x, float y, float w, float h, const Clip& clip) {
+  Clip visible = clip.intersect(Clip{x, y, x + w, y + h});
+  if (visible.empty()) return {};
+  const auto& region = painter.region();
+  float scale = painter.scale();
+  return PixelBox{std::max(static_cast<int>(std::floor(visible.x0 * scale)), region[0]),
+                  std::max(static_cast<int>(std::floor(visible.y0 * scale)), region[1]),
+                  std::min(static_cast<int>(std::ceil(visible.x1 * scale)), region[2]),
+                  std::min(static_cast<int>(std::ceil(visible.y1 * scale)), region[3])};
+}
+
+// A canvas's premultiplied pixels as a picture (premultiplied R, G, B, A bytes), to draw with
+// Painter::image.
+Picture asPicture(const Canvas& canvas) {
+  Picture picture;
+  picture.width = canvas.width;
+  picture.height = canvas.height;
+  picture.pixels.resize(canvas.pixels.size() * 4);
+  for (size_t i = 0; i < canvas.pixels.size(); ++i) {
+    uint32_t pixel = canvas.pixels[i];
+    picture.pixels[i * 4] = (pixel >> 16) & 0xff;
+    picture.pixels[i * 4 + 1] = (pixel >> 8) & 0xff;
+    picture.pixels[i * 4 + 2] = pixel & 0xff;
+    picture.pixels[i * 4 + 3] = pixel >> 24;
+  }
+  return picture;
+}
+
+// Blurs a canvas's premultiplied pixels with a Gaussian of standard deviation `sigma` device
+// pixels, as three box blurs of the sizes that approximate it (each pass a running sum, so the
+// cost does not grow with the radius), along rows then columns, the edges extended.
+void gaussianBlur(Canvas& canvas, float sigma) {
+  const int w = canvas.width, h = canvas.height;
+  if (w <= 0 || h <= 0 || sigma < 0.5f) return;
+  // The widths of three boxes whose succession has this standard deviation.
+  float ideal = std::sqrt(12 * sigma * sigma / 3 + 1);
+  int lower = static_cast<int>(std::floor(ideal));
+  if (lower % 2 == 0) --lower;
+  int upper = lower + 2;
+  int lowerCount = static_cast<int>(
+      std::round((12 * sigma * sigma - 3.0f * lower * lower - 12.0f * lower - 9) / (-4.0f * lower - 4)));
+  std::vector<float> planes[4], scratch(static_cast<size_t>(w) * h);
+  for (int c = 0; c < 4; ++c) {
+    planes[c].resize(static_cast<size_t>(w) * h);
+    for (size_t i = 0; i < planes[c].size(); ++i) planes[c][i] = (canvas.pixels[i] >> (24 - 8 * c)) & 0xff;
+  }
+  // One box of half-width `r` along `count` lines of `length` samples `step` apart, the lines
+  // `stride` apart: from `in` to `out`.
+  auto box = [](const std::vector<float>& in, std::vector<float>& out, int r, int lines, int length, int stride,
+                int step) {
+    const float scale = 1.0f / (2 * r + 1);
+    for (int line = 0; line < lines; ++line) {
+      const size_t base = static_cast<size_t>(line) * stride;
+      auto at = [&](int i) { return in[base + static_cast<size_t>(std::clamp(i, 0, length - 1)) * step]; };
+      float sum = 0;
+      for (int i = -r; i <= r; ++i) sum += at(i);
+      for (int i = 0; i < length; ++i) {
+        out[base + static_cast<size_t>(i) * step] = sum * scale;
+        sum += at(i + r + 1) - at(i - r);
+      }
+    }
+  };
+  for (auto& plane : planes) {
+    for (int pass = 0; pass < 3; ++pass) {
+      int r = ((pass < lowerCount ? lower : upper) - 1) / 2;
+      box(plane, scratch, r, h, w, w, 1);
+      box(scratch, plane, r, w, h, 1, w);
+    }
+  }
+  for (size_t i = 0; i < canvas.pixels.size(); ++i) {
+    uint32_t pixel = 0;
+    for (int c = 0; c < 4; ++c) {
+      pixel |= static_cast<uint32_t>(std::lround(std::clamp(planes[c][i], 0.0f, 255.0f))) << (24 - 8 * c);
+    }
+    canvas.pixels[i] = pixel;
+  }
+}
+
+// Whether the blur view being drawn is drawing its target: a blur view inside that target draws
+// its tint alone, as Dimezis' does, so a target never blurs into itself.
+thread_local int drawingBlurTarget = 0;
+
+// expo-blur's view with a blur target (expo-blur.h), as Dimezis' BlurView draws on Android: the
+// target's content under the view, drawn afresh (never what the canvas holds, which outside the
+// damage is the last frame, this view's blur included), blurred, then clipped to the view and its
+// rounded corners. Its tint is drawn over it by the caller.
+void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarget, float x, float y, float w,
+                 float h, const BorderRadii& radii, Clip clip, float opacity, Painter& painter,
+                 const TextInputEdit& edit) {
+  PixelBox painted = paintedPixels(painter, x, y, w, h, clip);
+  if (painted.empty()) return;
+  auto blurAt = windowFrame(tree, blur);
+  auto targetAt = windowFrame(tree, blurTarget.target);
+  auto target = tree.views().find(blurTarget.target);
+  if (!blurAt || !targetAt || target == tree.views().end()) return;
+  const float scale = painter.scale(), sigma = blurTarget.radius * scale;
+  // What the blur reads around a pixel: three standard deviations.
+  const int margin = static_cast<int>(std::ceil(3 * sigma));
+  Canvas layer;
+  layer.width = painted.x1 - painted.x0 + 2 * margin;
+  layer.height = painted.y1 - painted.y0 + 2 * margin;
+  layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+  const float left = static_cast<float>(painted.x0 - margin) / scale;
+  const float top = static_cast<float>(painted.y0 - margin) / scale;
+  // The target where it is relative to this view, in the layer's coordinates.
+  Affine map = viewTransform(target->second.view);
+  float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx - left;
+  float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty - top;
+  Painter inside(layer, scale);
+  RenderStats unseen;
+  ++drawingBlurTarget;
+  drawView(tree, blurTarget.target, targetX, targetY,
+           Clip{-std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+                std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()},
+           1.0f, inside, unseen, edit);
+  --drawingBlurTarget;
+  gaussianBlur(layer, sigma);
+  painter.image(asPicture(layer), left, top, layer.width / scale, layer.height / scale,
+                clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity, std::nullopt);
+}
+
+// A MaskedView (masked-view.h): its children but the first drawn on their own, kept by the alpha
+// of its first child drawn on its own, then drawn at the view's opacity.
+void drawMasked(const ViewTree& tree, Tag tag, float x, float y, float w, float h, Clip clip, float opacity,
+                Painter& painter, RenderStats& stats, const TextInputEdit& edit) {
+  const auto& children = tree.views().at(tag).children;
+  if (children.empty()) return;
+  PixelBox painted = paintedPixels(painter, x, y, w, h, clip);
+  const float scale = painter.scale();
+  Canvas content, mask;
+  int width = painted.empty() ? 0 : painted.x1 - painted.x0, height = painted.empty() ? 0 : painted.y1 - painted.y0;
+  for (Canvas* canvas : {&content, &mask}) {
+    canvas->width = width;
+    canvas->height = height;
+    canvas->pixels.assign(static_cast<size_t>(width) * height, 0);
+  }
+  const float left = painted.empty() ? 0 : painted.x0 / scale, top = painted.empty() ? 0 : painted.y0 / scale;
+  Clip inside{clip.x0 - left, clip.y0 - top, clip.x1 - left, clip.y1 - top};
+  inside = inside.intersect(Clip{x - left, y - top, x - left + w, y - top + h});
+  Painter maskPainter(mask, scale), contentPainter(content, scale);
+  // Nothing of it painted: its subtree is still walked, for the stats.
+  if (painted.empty()) {
+    maskPainter.limit(0, 0, 0, 0);
+    contentPainter.limit(0, 0, 0, 0);
+  }
+  drawView(tree, children.front(), x - left, y - top, inside, 1.0f, maskPainter, stats, edit);
+  // Nothing of the children is kept where the mask is transparent: they are drawn within the
+  // mask's opaque box alone (a blur under a clock's digits, not across the screen).
+  if (!painted.empty()) {
+    int bx0 = width, by0 = height, bx1 = 0, by1 = 0;
+    for (int py = 0; py < height; ++py) {
+      const uint32_t* row = mask.pixels.data() + static_cast<size_t>(py) * width;
+      for (int px = 0; px < width; ++px) {
+        if (row[px] >> 24) {
+          bx0 = std::min(bx0, px), bx1 = std::max(bx1, px + 1);
+          by0 = std::min(by0, py), by1 = std::max(by1, py + 1);
+        }
+      }
+    }
+    contentPainter.limit(bx0, by0, bx1, by1);
+  }
+  for (size_t i = 1; i < children.size(); ++i) {
+    drawView(tree, children[i], x - left, y - top, inside, 1.0f, contentPainter, stats, edit);
+  }
+  if (painted.empty()) return;
+  for (size_t i = 0; i < content.pixels.size(); ++i) {
+    uint32_t keep = mask.pixels[i] >> 24, pixel = content.pixels[i];
+    if (keep == 255) continue;
+    uint32_t kept = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+      kept |= ((((pixel >> shift) & 0xff) * keep + 127) / 255) << shift;
+    }
+    content.pixels[i] = kept;
+  }
+  painter.image(asPicture(content), left, top, width / scale, height / scale, clip, x, y, w, h, BorderRadii{},
+                opacity, std::nullopt);
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
               RenderStats& stats, const TextInputEdit& edit, bool untransformed) {
   auto it = tree.views().find(tag);
@@ -708,7 +892,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     Rgba background = rgba(props->backgroundColor);
     background.a *= opacity;
     painter.fill(x, y, w, h, border.borderRadii, background, clip);
-    // expo-blur's view without a blur target, as on Android: its tint over what is behind it.
+    // expo-blur's view, as on Android: with a blur target, the target under it blurred; then its
+    // tint (all there is without a target).
+    if (auto blurTarget = expoBlurTarget(view); blurTarget && drawingBlurTarget == 0) {
+      drawBlurred(tree, tag, *blurTarget, x, y, w, h, border.borderRadii, clip, opacity, painter, edit);
+    }
     if (auto tint = expoBlurTint(view)) {
       Rgba color{((*tint >> 16) & 0xff) / 255.0f, ((*tint >> 8) & 0xff) / 255.0f, (*tint & 0xff) / 255.0f,
                  ((*tint >> 24) & 0xff) / 255.0f * opacity};
@@ -782,6 +970,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     }
     ++stats.texts;
     if (visible) stats.textContent.push_back(state.attributedString.getString());
+  }
+
+  if (isMaskedView(name)) {
+    drawMasked(tree, tag, x, y, w, h, clip, opacity, painter, stats, edit);
+    return;
   }
 
   for (Tag child : it->second.children) {
