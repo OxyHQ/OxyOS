@@ -193,6 +193,15 @@ messages! {
         // by the window's number, the commit's serial and the command's index in it, as it was
         // told them (MenuBar). Anything else is answered with nothing.
         84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
+        // The session's shell (its `shell` grant, ADR 0022): the windows one of its shell surfaces
+        // shows live, each by the number the compositor gave it, which the compositor draws over
+        // the surface's own pixels: within `rect` (surface-local logical pixels), fitted to it
+        // with its proportions kept and centred, cut to `clip`, its corners rounded by `radius`,
+        // at `opacity`. ClearWindowViews begins the surface's list anew, each PlaceWindowView
+        // adds one above those before it (at most MAX_WINDOW_VIEWS), and the list is shown with
+        // the surface's next Submit. The shell never receives a window's pixels.
+        90 => ClearWindowViews { surface: u32 },
+        91 => PlaceWindowView { surface: u32, window: u32, rect: Rect, clip: Rect, radius: u32, opacity: u8 },
     }
 }
 
@@ -323,6 +332,9 @@ messages! {
         // To an application: the person chose one of its commands in the shell's bar, the entry
         // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
         74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
+        // To the session's shell (ADR 0022): a window's size in logical pixels, when it is first
+        // told and whenever it changes, so the shell shows it in its proportions.
+        80 => WindowSize { window: u32, size: Size },
     }
 }
 

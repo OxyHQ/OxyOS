@@ -227,6 +227,15 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new("appearance=dark").unwrap(),
         },
+        Request::ClearWindowViews { surface: 3 },
+        Request::PlaceWindowView {
+            surface: 3,
+            window: 7,
+            rect: Rect::new(40, 96, 320, 200),
+            clip: Rect::new(24, 80, 400, 180),
+            radius: 13,
+            opacity: 64,
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -357,6 +366,10 @@ fn events() -> Vec<Event> {
             primary: false,
         },
         Event::OutputRemoved { output: 2 },
+        Event::WindowSize {
+            window: 7,
+            size: Size::new(1280, 800),
+        },
         Event::LockState { locked: true },
         Event::CapsLock {
             surface: 5,

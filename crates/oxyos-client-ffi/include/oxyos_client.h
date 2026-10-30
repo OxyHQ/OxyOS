@@ -40,6 +40,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_APP_ID 39
 #define OXYOS_EVENT_WINDOW_CLOSED 40
 #define OXYOS_EVENT_WORKSPACES 41
+#define OXYOS_EVENT_WINDOW_SIZE 80
 #define OXYOS_EVENT_CLOSE_REQUESTED 42
 #define OXYOS_EVENT_PINCH 43
 #define OXYOS_EVENT_LOCK_STATE 44
@@ -148,6 +149,8 @@ typedef struct OxyOSClient OxyOSClient;
  *               primary, which has the dock (docs/adr/0018-several-displays.mdx). Told for every
  *               output when the shell connects, then as one is added or changes.
  *   OUTPUT_REMOVED  code: the output that went away.
+ *   WINDOW_SIZE  code: the window; width, height: its size in logical pixels, when it is first
+ *               told and whenever it changes (docs/adr/0022-window-views.mdx).
  *   CLOSE_REQUESTED  the shell asks this application to close the window `surface`.
  *   PINCH       serial; x, y as POINTER: the pointer, which a pinch does not move; detail:
  *               OXYOS_PINCH_*; scale_65536: the fingers' spread over their spread when the
@@ -464,6 +467,23 @@ typedef struct OxyOSRect {
   uint32_t width;
   uint32_t height;
 } OxyOSRect;
+
+/* A window a shell surface shows live (docs/adr/0022-window-views.mdx): the window's number, where
+ * it is drawn in the surface (logical pixels; fitted with its proportions kept, centred), the part
+ * of the surface it may cover, its corners' radius and its opacity (255: as it is). */
+typedef struct OxyOSWindowView {
+  uint32_t window;
+  OxyOSRect rect;
+  OxyOSRect clip;
+  uint32_t radius;
+  uint8_t opacity;
+} OxyOSWindowView;
+
+/* The windows the shell's surface shows live, bottom to top, replacing those it showed: `count`
+ * (at most 64) views, shown with the surface's next present. The compositor draws them over the
+ * surface's pixels, box-filtered; the shell never receives them. Only the session's shell may (the
+ * `shell` grant); nothing of them shows while the session is locked. 0, or OXYOS_ERROR. */
+int oxyos_client_show_windows(OxyOSClient* client, uint32_t surface, const OxyOSWindowView* views, size_t count);
 
 /* oxyos_client_present for a frame of which only `count` rectangles at `damage` changed since the
  * surface's previous frame (0: everything). The compositor hears the damage, and a reused buffer

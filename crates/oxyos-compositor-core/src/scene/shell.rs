@@ -5,7 +5,7 @@
 //! outputs, each with its place, scale and whether it is the primary (ADR 0018).
 
 use super::{ClientId, Output, OutputId, Request, Role, Scene, SurfaceKey};
-use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk};
+use oxyos_protocol::{ErrorCode, Event, PreeditText, Size, TextChunk};
 use std::collections::BTreeMap;
 
 /// A window's title, in bytes.
@@ -28,6 +28,8 @@ struct Window {
     /// Its process is one the session started: its application id is the registry's.
     launched: bool,
     names: Names,
+    /// Its size, logical pixels: the proportions the shell shows it in (ADR 0022).
+    size: Size,
 }
 
 #[derive(Debug, Default)]
@@ -95,7 +97,7 @@ impl Scene {
         self.shell_windows.numbers.get(&key).copied()
     }
 
-    fn window_by_number(&self, number: u32) -> Option<SurfaceKey> {
+    pub(super) fn window_by_number(&self, number: u32) -> Option<SurfaceKey> {
         let found = self
             .shell_windows
             .numbers
@@ -233,6 +235,7 @@ impl Scene {
                         focused: focused == Some(*key),
                         launched: launched.is_some(),
                         names,
+                        size: node.size,
                     },
                 ))
             })
@@ -309,6 +312,15 @@ impl Scene {
                 }
                 if before.is_none_or(|b| b.names.app_id != window.names.app_id) {
                     self.emit_name(client, number, true, &window.names.app_id);
+                }
+                if before.is_none_or(|b| b.size != window.size) {
+                    self.emit(
+                        client,
+                        Event::WindowSize {
+                            window: number,
+                            size: window.size,
+                        },
+                    );
                 }
             }
             if told.workspaces != Some(workspaces) {

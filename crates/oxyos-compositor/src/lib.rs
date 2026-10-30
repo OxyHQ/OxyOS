@@ -223,6 +223,16 @@ impl Screen {
             height: (y1 - y0) as u32,
             paint,
             radius: length(layer.radius),
+            // A clip is of the global space too.
+            clip: layer.clip.map(|clip| {
+                let (cx0, cy0, cx1, cy1) = self.place(clip.x, clip.y, clip.width, clip.height);
+                oxyos_gpu::Rect {
+                    x: cx0,
+                    y: cy0,
+                    width: (cx1 - cx0).max(0) as u32,
+                    height: (cy1 - cy0).max(0) as u32,
+                }
+            }),
             ..*layer
         })
     }
@@ -395,6 +405,8 @@ pub struct Compositor {
     /// composed of each surface shown, which one going is drawn from.
     pub transitions: transitions::Transitions,
     shown: HashMap<SurfaceKey, transitions::Snapshot>,
+    /// The windows each shell surface showed live in the frame composed last (ADR 0022).
+    shown_views: HashMap<SurfaceKey, Vec<ShownView>>,
     /// Frames composed while a transition ran, as the development compositor reports them.
     pub transition_frames: u64,
     /// The time transitions and the idle lock run on: `CLOCK_MONOTONIC`, or a test's.
@@ -462,6 +474,13 @@ struct Content {
     shadow: Option<(std::rc::Rc<oxyos_gpu::ShadowProfile>, oxyos_gpu::Shadow)>,
     /// A window's look, kept with its last frame for its transition going.
     look: Option<WindowLook>,
+    /// How its pixels are sampled drawn at another size: a window shown live in the shell's
+    /// overview is box-filtered (docs/adr/0022-window-views.mdx).
+    filter: oxyos_gpu::Filter,
+    /// Where on the output it may draw, if not everywhere.
+    clip: Option<oxyos_gpu::Rect>,
+    /// Its pixels are those of the content at this index (the same window's frame, read once).
+    shares: Option<usize>,
 }
 
 impl Content {
@@ -479,6 +498,9 @@ impl Content {
             radius: 0,
             shadow: None,
             look: None,
+            filter: oxyos_gpu::Filter::Nearest,
+            clip: None,
+            shares: None,
         }
     }
 
@@ -506,9 +528,69 @@ impl Content {
             radius: 0,
             shadow: Some((profile.clone(), drawn.shadow)),
             look: None,
+            filter: oxyos_gpu::Filter::Nearest,
+            clip: None,
+            shares: None,
         };
         (shadow, drawn.radius)
     }
+}
+
+/// A window a shell surface showed live in the frame composed last, as the scene placed it
+/// (docs/adr/0022-window-views.mdx): what goes with the surface if it goes.
+#[derive(Clone, Copy, Debug)]
+struct ShownView {
+    window: SurfaceKey,
+    buffer: u64,
+    rect: Rect,
+    clip: Rect,
+    radius: u32,
+    opacity: u8,
+}
+
+/// `inner`, a part of a surface at `rect`, where it is drawn when the surface is drawn at
+/// `placed` (its transition scaling and moving it): scaled and moved with it.
+pub fn placed_within(rect: Rect, placed: Rect, inner: Rect) -> Rect {
+    if rect == placed {
+        return inner;
+    }
+    let along = |at: i64, from: i32, to: i32, length: u32, drawn: u32| {
+        i64::from(to) + (at - i64::from(from)) * i64::from(drawn) / i64::from(length.max(1))
+    };
+    let x0 = along(
+        i64::from(inner.x),
+        rect.x,
+        placed.x,
+        rect.width,
+        placed.width,
+    );
+    let y0 = along(
+        i64::from(inner.y),
+        rect.y,
+        placed.y,
+        rect.height,
+        placed.height,
+    );
+    let x1 = along(
+        i64::from(inner.x) + i64::from(inner.width),
+        rect.x,
+        placed.x,
+        rect.width,
+        placed.width,
+    );
+    let y1 = along(
+        i64::from(inner.y) + i64::from(inner.height),
+        rect.y,
+        placed.y,
+        rect.height,
+        placed.height,
+    );
+    Rect::new(
+        x0 as i32,
+        y0 as i32,
+        (x1 - x0).max(0) as u32,
+        (y1 - y0).max(0) as u32,
+    )
 }
 
 pub struct Gpu {
@@ -584,6 +666,7 @@ impl Compositor {
             idle_hint_refused: false,
             transitions: transitions::Transitions::default(),
             shown: HashMap::new(),
+            shown_views: HashMap::new(),
             transition_frames: 0,
             clock: None,
             idle: idle::Idle::default(),
@@ -1016,7 +1099,7 @@ impl Compositor {
             .iter()
             .filter_map(|item| match *item {
                 RenderItem::Surface { key, .. } => Some((key, self.scene.window_look(key)?)),
-                RenderItem::Cover { .. } => None,
+                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
             })
             .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
@@ -1062,7 +1145,26 @@ impl Compositor {
             let snapshot = if appearance.arrived() {
                 None
             } else {
-                self.shown.remove(&appearance.key)
+                self.shown.remove(&appearance.key).map(|mut snapshot| {
+                    // The windows a shell surface showed live go with it, from their frames now.
+                    let views = self.shown_views.remove(&appearance.key).unwrap_or_default();
+                    snapshot.views = views
+                        .into_iter()
+                        .filter_map(|view| {
+                            let (extent, format, pixels) = self.pixels(view.window, view.buffer)?;
+                            Some(transitions::ViewSnapshot {
+                                rect: view.rect,
+                                clip: view.clip,
+                                radius: view.radius,
+                                opacity: view.opacity,
+                                extent,
+                                format,
+                                pixels,
+                            })
+                        })
+                        .collect();
+                    snapshot
+                })
             };
             let rect = snapshot.as_ref().map(|snapshot| snapshot.rect).or_else(|| {
                 list.iter().find_map(|item| match *item {
@@ -1119,7 +1221,7 @@ impl Compositor {
             .into_iter()
             .filter_map(|item| match item {
                 RenderItem::Surface { key, frame, .. } => Some((key, frame)),
-                RenderItem::Cover { .. } => None,
+                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
             })
             .collect();
         // Each surface's pixels, read from its shared buffer, and the covers.
@@ -1147,6 +1249,10 @@ impl Compositor {
         };
         let mut unreadable = Vec::new();
         let mut contents = Vec::new();
+        // Where each surface is drawn: its content's index, its rectangle, where its transition
+        // places it and at what opacity; and the windows each shell surface showed live.
+        let mut surfaces_at: HashMap<SurfaceKey, (usize, Rect, Rect, u8)> = HashMap::new();
+        let mut views_shown: HashMap<SurfaceKey, Vec<ShownView>> = HashMap::new();
         for item in list.iter().copied() {
             match item {
                 RenderItem::Surface { key, rect, frame } => match self.pixels(key, frame.buffer) {
@@ -1220,11 +1326,92 @@ impl Compositor {
                             radius,
                             shadow: None,
                             look,
-                        })
+                            filter: oxyos_gpu::Filter::Nearest,
+                            clip: None,
+                            shares: None,
+                        });
+                        surfaces_at
+                            .insert(key, (contents.len() - 1, rect, placed, arriving.opacity));
                     }
                     None => unreadable.push(key.client),
                 },
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
+                // A window the shell's surface shows live (ADR 0022): over it, where the shell
+                // placed it, as the surface is drawn (in its transition), box-filtered.
+                RenderItem::View {
+                    surface,
+                    window,
+                    frame,
+                    rect,
+                    clip,
+                    radius,
+                    opacity,
+                } => {
+                    let Some(&(_, surface_rect, surface_placed, surface_opacity)) =
+                        surfaces_at.get(&surface)
+                    else {
+                        continue;
+                    };
+                    // The window's frame, read once: shared with its own layer when it is drawn.
+                    let drawn = list.iter().any(|item| {
+                        matches!(item, RenderItem::Surface { key, frame: drawn, .. }
+                            if *key == window && drawn.buffer == frame.buffer)
+                    });
+                    let read = match surfaces_at.get(&window) {
+                        Some(&(index, ..)) if drawn => {
+                            let shared = &contents[index];
+                            shared
+                                .format
+                                .map(|format| (shared.extent, format, Vec::new(), Some(index)))
+                        }
+                        _ => self
+                            .pixels(window, frame.buffer)
+                            .map(|(extent, format, pixels)| (extent, format, pixels, None)),
+                    };
+                    // A frame that cannot be read is not drawn: its window's own layer says so.
+                    let Some((extent, format, pixels, shares)) = read else {
+                        continue;
+                    };
+                    let source = self
+                        .versions
+                        .get(&(window, frame.sequence))
+                        .map(|&version| oxyos_gpu::Source {
+                            key: (u64::from(window.client) << 32) | u64::from(window.id),
+                            version,
+                        });
+                    views_shown.entry(surface).or_default().push(ShownView {
+                        window,
+                        buffer: frame.buffer,
+                        rect,
+                        clip,
+                        radius,
+                        opacity,
+                    });
+                    let placed = placed_within(surface_rect, surface_placed, rect);
+                    let clip = placed_within(surface_rect, surface_placed, clip);
+                    contents.push(Content {
+                        key: None,
+                        rect: placed,
+                        placed,
+                        extent,
+                        format: Some(format),
+                        pixels,
+                        source,
+                        changed: None,
+                        opacity: (u32::from(opacity) * u32::from(surface_opacity) / 255) as u8,
+                        radius,
+                        shadow: None,
+                        look: None,
+                        filter: oxyos_gpu::Filter::Box,
+                        clip: Some(oxyos_gpu::Rect {
+                            x: clip.x,
+                            y: clip.y,
+                            width: clip.width,
+                            height: clip.height,
+                        }),
+                        shares,
+                    });
+                }
             }
         }
         // The splash over everything while the session starts, on every screen.
@@ -1242,6 +1429,9 @@ impl Compositor {
                 radius: 0,
                 shadow: None,
                 look: None,
+                filter: oxyos_gpu::Filter::Nearest,
+                clip: None,
+                shares: None,
             });
         }
         // Surfaces going, over what stays, from their last frames.
@@ -1267,7 +1457,36 @@ impl Compositor {
                 radius,
                 shadow: None,
                 look: None,
+                filter: oxyos_gpu::Filter::Nearest,
+                clip: None,
+                shares: None,
             });
+            // The windows it showed live go with it (ADR 0022).
+            for view in &snapshot.views {
+                let clip = placed_within(snapshot.rect, placed, view.clip);
+                contents.push(Content {
+                    key: None,
+                    rect: view.rect,
+                    placed: placed_within(snapshot.rect, placed, view.rect),
+                    extent: view.extent,
+                    format: Some(view.format),
+                    pixels: view.pixels.clone(),
+                    source: None,
+                    changed: None,
+                    opacity: (u32::from(view.opacity) * u32::from(at.opacity) / 255) as u8,
+                    radius: view.radius,
+                    shadow: None,
+                    look: None,
+                    filter: oxyos_gpu::Filter::Box,
+                    clip: Some(oxyos_gpu::Rect {
+                        x: clip.x,
+                        y: clip.y,
+                        width: clip.width,
+                        height: clip.height,
+                    }),
+                    shares: None,
+                });
+            }
         }
         if self.records {
             self.reads
@@ -1276,7 +1495,16 @@ impl Compositor {
         // The layers in the global space (logical pixels); each screen places them in its own.
         let layers: Vec<oxyos_gpu::Layer<'_>> = contents
             .iter()
-            .map(|content| oxyos_gpu::Layer {
+            .map(|content| {
+                // A window shown live reads its own layer's pixels.
+                (
+                    content,
+                    content
+                        .shares
+                        .map_or(&content.pixels, |index| &contents[index].pixels),
+                )
+            })
+            .map(|(content, pixels)| oxyos_gpu::Layer {
                 x: content.placed.x,
                 y: content.placed.y,
                 width: content.placed.width,
@@ -1287,10 +1515,10 @@ impl Compositor {
                         oxyos_gpu::Paint::Shadow(profile.pixels(), *shadow)
                     }
                     (None, Some(oxyos_protocol::Format::Xrgb8888)) => {
-                        oxyos_gpu::Paint::Opaque(&content.pixels)
+                        oxyos_gpu::Paint::Opaque(pixels)
                     }
                     (None, Some(oxyos_protocol::Format::Argb8888)) => {
-                        oxyos_gpu::Paint::Premultiplied(&content.pixels)
+                        oxyos_gpu::Paint::Premultiplied(pixels)
                     }
                     (None, None) => oxyos_gpu::Paint::Fill(0),
                 },
@@ -1301,6 +1529,8 @@ impl Compositor {
                     .map(|(from, rects)| (*from, rects.as_slice())),
                 opacity: content.opacity,
                 radius: content.radius,
+                filter: content.filter,
+                clip: content.clip,
             })
             .collect();
         // Frames older than those composed are never shown again.
@@ -1308,6 +1538,11 @@ impl Compositor {
             list.iter().all(|item| match item {
                 RenderItem::Surface {
                     key: shown, frame, ..
+                }
+                | RenderItem::View {
+                    window: shown,
+                    frame,
+                    ..
                 } if shown == key => *sequence >= frame.sequence,
                 _ => true,
             })
@@ -1348,10 +1583,12 @@ impl Compositor {
                         format: content.format?,
                         pixels: content.pixels,
                         look: content.look,
+                        views: Vec::new(),
                     },
                 ))
             })
             .collect();
+        self.shown_views = views_shown;
     }
 
     /// Composes one screen's frame from what the turn gathered (`frame`), if anything on it
@@ -2351,7 +2588,7 @@ pub fn output_damage(
                 RenderItem::Surface { key, rect, frame } => {
                     Some((key, rect, frame, looks.get(&key).copied()))
                 }
-                RenderItem::Cover { .. } => None,
+                RenderItem::Cover { .. } | RenderItem::View { .. } => None,
             })
             .collect()
     };
@@ -2393,6 +2630,22 @@ pub fn output_damage(
     for (then, now) in old_order.iter().zip(&new_order) {
         if then.0 != now.0 {
             damage.extend([then.1, now.1]);
+        }
+    }
+    // A window shown live (ADR 0022) where it is cut to, when it came, went, moved or shows a
+    // new frame.
+    let views = |list: &[RenderItem]| -> Vec<RenderItem> {
+        list.iter()
+            .filter(|item| matches!(item, RenderItem::View { .. }))
+            .copied()
+            .collect()
+    };
+    let (old_views, new_views) = (views(before.0), views(after.0));
+    for (these, others) in [(&old_views, &new_views), (&new_views, &old_views)] {
+        for view in these.iter().filter(|view| !others.contains(view)) {
+            if let RenderItem::View { clip, .. } = view {
+                damage.push(rect(*clip));
+            }
         }
     }
     let covers = |list: &[RenderItem]| -> Vec<RenderItem> {
@@ -2602,8 +2855,20 @@ mod tests {
             changed: None,
             opacity: 200,
             radius: 6,
+            filter: oxyos_gpu::Filter::Nearest,
+            clip: None,
         };
         let placed = right.layer(&layer).expect("on the screen");
+        // A clip is placed as the layer is: one that is the layer's rectangle is the placed one.
+        let clipped = oxyos_gpu::Layer {
+            clip: Some(rect(650, 10, 20, 20)),
+            ..layer
+        };
+        let clipped = right.layer(&clipped).expect("on the screen");
+        assert_eq!(
+            clipped.clip,
+            Some(rect(clipped.x, clipped.y, clipped.width, clipped.height))
+        );
         assert_eq!(
             (
                 placed.x,

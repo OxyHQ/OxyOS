@@ -291,6 +291,19 @@ pub enum RenderItem {
     },
     /// Compositor-drawn opaque cover for an output without a ready lock surface.
     Cover { output: OutputId, rect: Rect },
+    /// A window the shell's surface `surface` shows live (docs/adr/0022-window-views.mdx), drawn
+    /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
+    /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
+    /// `opacity`. It takes no input: the surface under it does.
+    View {
+        surface: SurfaceKey,
+        window: SurfaceKey,
+        frame: Frame,
+        rect: Rect,
+        clip: Rect,
+        radius: u32,
+        opacity: u8,
+    },
 }
 
 /// How a window is drawn (`Scene::window_look`): whether it is the active window
@@ -399,6 +412,8 @@ pub struct Scene {
     appearances: Vec<appearances::Appearance>,
     /// Windows' menus and what the shell was told of the active one's (ADR 0021).
     menu_bars: menus::MenuBars,
+    /// The windows each shell surface shows live (ADR 0022).
+    window_views: BTreeMap<SurfaceKey, window_views::SurfaceViews>,
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -1219,6 +1234,9 @@ impl Scene {
             | Request::ActivateWorkspace { .. }
             | Request::AddWorkspace {}
             | Request::RemoveWorkspace { .. } => self.shell_request(client, request),
+            Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
+                self.window_view_request(client, request)
+            }
             Request::LaunchApplication {
                 serial,
                 index,
@@ -1860,6 +1878,7 @@ impl Scene {
         if elsewhere {
             return Err(ErrorCode::InvalidBuffer);
         }
+        self.send_window_views(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
         // What the client drew into this frame since its previous one: the damage it asked for,
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
@@ -2169,6 +2188,7 @@ impl Scene {
         self.forget_secrets(Some(key));
         self.forget_window(key);
         self.forget_menus(key);
+        self.forget_window_views(key);
         if self.active == Some(key) {
             self.active = None;
         }
@@ -2289,6 +2309,10 @@ impl Scene {
             if let (Ok(x), Ok(y)) = (i32::try_from(x), i32::try_from(y)) {
                 let rect = Rect::new(x, y, size.width, size.height);
                 out.push(RenderItem::Surface { key, rect, frame });
+                // Over a shell surface, the windows it shows live; below its popups.
+                if matches!(node.role, Role::Shell { .. }) {
+                    self.push_window_views(key, rect, out, in_flight);
+                }
             }
         }
         for child in &node.children {
@@ -2322,7 +2346,7 @@ impl Scene {
                     RenderItem::Surface { key, .. } => {
                         self.nodes[key].role == Role::Lock { output: output.id }
                     }
-                    RenderItem::Cover { .. } => false,
+                    RenderItem::Cover { .. } | RenderItem::View { .. } => false,
                 });
                 if !covered {
                     covers.push(RenderItem::Cover {
@@ -2368,9 +2392,9 @@ impl Scene {
             .into_iter()
             .rev()
             .find(|item| match item {
-                RenderItem::Surface { rect, .. } | RenderItem::Cover { rect, .. } => {
-                    rect.intersects(output.rect)
-                }
+                RenderItem::Surface { rect, .. }
+                | RenderItem::Cover { rect, .. }
+                | RenderItem::View { clip: rect, .. } => rect.intersects(output.rect),
             })?;
         match top {
             RenderItem::Surface { key, rect, .. }
@@ -3255,6 +3279,7 @@ impl Scene {
     fn begin(&mut self, frame: FrameOf) -> usize {
         let mut started = 0;
         let mut arriving = Vec::new();
+        let mut presenting = Vec::new();
         for (key, node) in self.nodes.iter_mut() {
             if frame.is_some_and(|output| node.output != output) {
                 continue;
@@ -3264,6 +3289,9 @@ impl Scene {
                 && node.presentation.begin_present().ok().flatten().is_some()
             {
                 node.presenting_in = frame;
+                if let Some(frame) = node.presentation.presenting() {
+                    presenting.push((*key, frame.sequence));
+                }
                 // Relative to the frame displayed now: everything the client drew since.
                 node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
@@ -3283,15 +3311,20 @@ impl Scene {
                 .into_iter()
                 .filter_map(|item| match item {
                     RenderItem::Surface { key, rect: at, .. }
-                        if rect.is_some_and(|rect| at.intersects(rect)) =>
-                    {
-                        Some(key)
-                    }
+                    | RenderItem::View {
+                        window: key,
+                        clip: at,
+                        ..
+                    } if rect.is_some_and(|rect| at.intersects(rect)) => Some(key),
                     _ => None,
                 })
                 .collect()
         });
         self.frames_in_flight.insert(frame, reads);
+        // A shell surface's windows shown live are shown with the frame they were sent with.
+        for (key, sequence) in presenting {
+            self.present_window_views(key, sequence);
+        }
         started
     }
 
@@ -3493,6 +3526,8 @@ mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod appearances;
 mod menus;
+mod window_views;
+pub use window_views::fitted;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
 pub mod window;
