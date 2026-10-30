@@ -5,6 +5,7 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const bloom = process.env.BLOOM_DIR;
@@ -26,8 +27,19 @@ fs.mkdirSync(path.dirname(linked), { recursive: true });
 fs.rmSync(linked, { force: true });
 fs.symlinkSync(bloom, linked);
 
-// Transform output depends on config (asset registry, platform resolution): never reuse a cache.
-const config = await Metro.loadConfig({ config: path.resolve('metro.config.js'), resetCache: true });
+// Transform output depends on config (asset registry, platform resolution, the framework a build
+// is against) and on environment Metro's cache keys do not cover, so a build never shares a cache:
+// each has its own, made empty here and removed when it ends. Metro's default is one store for the
+// whole machine (`<tmpdir>/metro-cache`), which every other Metro (another worktree's build, Expo
+// CLI's) reads and writes while this one runs, and which a reset here would empty under them.
+const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'oxyos-metro-'));
+process.on('exit', () => fs.rmSync(cache, { recursive: true, force: true }));
+const { FileStore } = require('metro-cache');
+const config = {
+  ...(await Metro.loadConfig({ config: path.resolve('metro.config.js') })),
+  cacheStores: [new FileStore({ root: path.join(cache, 'transforms') })],
+  fileMapCacheDirectory: path.join(cache, 'file-map'),
+};
 const out = path.resolve(outDir, 'index.js');
 // With HERMESC (the hermesc of the Hermes the host runs), the bundle is Hermes bytecode, as an
 // Android release build ships it: the Android Gradle plugin compiles Metro's output with
