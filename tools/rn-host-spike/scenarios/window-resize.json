@@ -1,0 +1,105 @@
+{
+  "about": "The sample's Inbox (sample/App.tsx: AppShell's two panels, its content centred) resized live from its edges at a mouse's 125 Hz, the development compositor serving the application between motions (`drag_paced`), as ADR 0016's step 6 measures it: one configure in flight, each answered by a frame shown (one whose size changes nothing drawn too: shrunk a pixel, the centred content does not move), no more configures than frames, the edges not dragged never moving, and the window at exactly the pointer's size. Without one configure in flight, nearly every configure goes unanswered and the window shows a frame or two in the whole drag.",
+  "module": "OxyBloom",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The right edge dragged 300 px in, in 125 motions: the left, top and bottom edges stay",
+      "do": [
+        "drag_paced",
+        [
+          1093,
+          300,
+          793,
+          300,
+          125,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          600,
+          600
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 10,
+          "steady": [
+            "left",
+            "top",
+            "bottom"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The left edge dragged 150 px out, in 62 motions: the right edge stays",
+      "do": [
+        "drag_paced",
+        [
+          187,
+          300,
+          37,
+          300,
+          62,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          40,
+          60,
+          750,
+          600
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 10,
+          "steady": [
+            "top",
+            "right",
+            "bottom"
+          ]
+        }
+      }
+    },
+    {
+      "name": "The bottom-left corner dragged 200 px in and 100 px up, in 125 motions, its first a pixel: the top and right edges stay",
+      "do": [
+        "drag_paced",
+        [
+          35,
+          663,
+          235,
+          563,
+          125,
+          125
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          240,
+          60,
+          550,
+          500
+        ],
+        "drag": {
+          "unanswered_max": 0,
+          "bounded": true,
+          "presented_min": 10,
+          "steady": [
+            "top",
+            "right"
+          ]
+        }
+      }
+    }
+  ]
+}

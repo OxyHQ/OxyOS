@@ -230,8 +230,12 @@ impl Scene {
         // One configure in flight, as a Wayland compositor resizes: while the client has not
         // shown a frame for the last one, only the latest geometry is kept, and sent when it
         // does (`end_frame`). The window shows its last frame where it was meanwhile, so the
-        // edges not dragged stay put frame by frame.
-        if node.pending.is_some() {
+        // edges not dragged stay put frame by frame. A configure of the size shown (a new state,
+        // the same scale again) holds nothing: a client may have nothing new to draw for it.
+        if node
+            .pending
+            .is_some_and(|(_, _, pending)| pending != node.size)
+        {
             let node = self.nodes.get_mut(&resize.surface).expect("live");
             node.wanted = Some((origin, size));
         } else {

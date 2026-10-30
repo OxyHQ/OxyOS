@@ -6277,6 +6277,21 @@ fn a_resize_from_the_left_edge_keeps_the_right_edge_frame_by_frame() {
 }
 
 #[test]
+fn a_configure_of_the_size_shown_holds_no_resize() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    // Configured again at its size (its output's scale set again): its client need not answer.
+    h.scene.set_output_scale(1, 120).unwrap();
+    h.clear_log();
+    h.scene.pointer_motion(w.x + 403, w.y + 150);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_motion(w.x + 413, w.y + 150);
+    h.pump();
+    assert_eq!(configured_sizes(&h, window), [(410, 300)]);
+}
+
+#[test]
 fn a_configure_of_its_own_replaces_what_a_resize_wanted() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

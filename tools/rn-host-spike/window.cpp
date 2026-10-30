@@ -116,6 +116,12 @@ bool Window::resized() {
   return resized;
 }
 
+bool Window::answered(uint32_t id) const {
+  auto it = surfaces_.find(id);
+  // Before its first frame there is nothing to answer with: that frame comes with its content.
+  return it == surfaces_.end() || it->second.presentedFor == 0 || it->second.presentedFor == it->second.configure;
+}
+
 bool Window::ready(uint32_t id) const {
   auto it = surfaces_.find(id);
   return it != surfaces_.end() && it->second.configure != 0 && it->second.inFlight == 0;
@@ -136,6 +142,7 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
               << " for configure " << target.configure << "\n";
   }
   target.inFlight = static_cast<uint64_t>(sequence);
+  target.presentedFor = target.configure;
 }
 
 void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial) {

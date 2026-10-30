@@ -1027,10 +1027,12 @@ int main(int argc, char** argv) {
             toldCaret = caret;
           }
         }
+        // Every configure is answered with a frame, even one that changes nothing it shows.
+        if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
         if (dirty && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
-          if (damage && damage->empty()) {
+          if (damage && damage->empty() && window->answered(oxyos::Window::kToplevel)) {
             // Nothing visible changed (focus moved to a popup, say): nothing is drawn or presented.
             // The report still learns the focus, with the texts of the frame shown.
             oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, 0, shownTexts,
