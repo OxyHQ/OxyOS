@@ -1348,3 +1348,81 @@ fn transfers_are_requested_answered_when_they_end_and_cancelled_by_id() {
     let (paused, _) = call(&service, json!({"op": "pauseTransfer", "transfer": 5}), &[]);
     assert_eq!(paused["error"], "invalid");
 }
+
+#[test]
+fn a_move_between_volumes_copies_and_then_deletes() {
+    use std::os::unix::fs::MetadataExt;
+    let place = Place::new("cross-device");
+    // A volume on another file system: /dev/shm, where the test's home (in the temporary
+    // directory) is not.
+    let other =
+        PathBuf::from("/dev/shm").join(format!("oxyos-files-volume-{}", std::process::id()));
+    let device = |path: &Path| std::fs::metadata(path).map(|found| found.dev());
+    if device(Path::new("/dev/shm")).ok() == device(&place.root).ok() {
+        eprintln!("skipped: /dev/shm is on the temporary directory's file system");
+        return;
+    }
+    let media = other.join("media/ada");
+    std::fs::create_dir_all(media.join("Stick")).expect("volume");
+    let mountinfo = place.file(
+        "mountinfo",
+        &format!(
+            "90 22 8:17 / {}/Stick rw - vfat /dev/sdb1 rw\n",
+            media.display()
+        ),
+    );
+    let home = place.dir("home/ada");
+    let scope = Scope::new(
+        &home,
+        &home.join(".local/share"),
+        &home.join(".config"),
+        vec![media.clone()],
+        mountinfo,
+        1000,
+    )
+    .expect("scope");
+    let stick = std::fs::canonicalize(media.join("Stick")).expect("stick");
+    place.file("home/ada/notes.txt", "notes");
+    place.file("home/ada/Folder/inner/deep.txt", "deep");
+    std::os::unix::fs::symlink("deep.txt", home.join("Folder/inner/link")).expect("link");
+
+    let (notes, folder, stick_uri) = (
+        u(&home.join("notes.txt")),
+        d(&home.join("Folder")),
+        d(&stick),
+    );
+    let moved =
+        access::relocate(&scope, &to(&notes, false, &stick_uri, true, false)).expect("file");
+    assert_eq!(moved, format!("{stick_uri}notes.txt"));
+    assert_eq!(
+        std::fs::read_to_string(stick.join("notes.txt")).expect("there"),
+        "notes"
+    );
+    assert!(!home.join("notes.txt").exists());
+    access::relocate(&scope, &to(&folder, true, &stick_uri, true, false)).expect("folder");
+    assert_eq!(
+        std::fs::read_to_string(stick.join("Folder/inner/deep.txt")).expect("deep"),
+        "deep"
+    );
+    assert_eq!(
+        std::fs::read_link(stick.join("Folder/inner/link")).expect("link"),
+        PathBuf::from("deep.txt")
+    );
+    assert!(!home.join("Folder").exists());
+    // Never over an item there unless asked, across volumes too.
+    place.file("home/ada/notes.txt", "again");
+    assert!(matches!(
+        access::relocate(&scope, &to(&notes, false, &stick_uri, true, false)),
+        Err(Error::Exists)
+    ));
+    assert_eq!(
+        std::fs::read_to_string(home.join("notes.txt")).expect("kept"),
+        "again"
+    );
+    access::relocate(&scope, &to(&notes, false, &stick_uri, true, true)).expect("overwrite");
+    assert_eq!(
+        std::fs::read_to_string(stick.join("notes.txt")).expect("replaced"),
+        "again"
+    );
+    let _ = std::fs::remove_dir_all(&other);
+}
