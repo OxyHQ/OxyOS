@@ -161,7 +161,7 @@
         "drag": {
           "unanswered_max": 0,
           "bounded": true,
-          "presented_min": 10,
+          "presented_min": 3,
           "steady": [
             "top",
             "right",

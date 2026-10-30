@@ -29,7 +29,7 @@
         "drag": {
           "unanswered_max": 0,
           "bounded": true,
-          "presented_min": 10,
+          "presented_min": 3,
           "steady": [
             "left",
             "top",
@@ -61,7 +61,7 @@
         "drag": {
           "unanswered_max": 0,
           "bounded": true,
-          "presented_min": 10,
+          "presented_min": 3,
           "steady": [
             "top",
             "right",
@@ -93,7 +93,7 @@
         "drag": {
           "unanswered_max": 0,
           "bounded": true,
-          "presented_min": 10,
+          "presented_min": 3,
           "steady": [
             "top",
             "right"
