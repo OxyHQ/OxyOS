@@ -279,6 +279,12 @@ fn requests() -> Vec<Request> {
             serial: 3,
             index: 1,
         },
+        Request::HideApplication { window: 7 },
+        Request::QuitApplication { window: 8 },
+        Request::FocusShellSurface {
+            surface: 3,
+            serial: 41,
+        },
     ]
 }
 
@@ -578,6 +584,16 @@ fn events() -> Vec<Event> {
             menus: 3,
             index: 1,
         },
+        Event::SystemShortcut {
+            shortcut: SystemShortcut::SwitcherPrevious,
+            serial: 41,
+            output: 2,
+        },
+        Event::WindowUse {
+            window: 7,
+            used: 12,
+            hidden: true,
+        },
     ]
 }
 
@@ -664,6 +680,28 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
     bad_flags[kind + 1] = 0x80;
     assert!(read_request(&mut Cursor::new(bad_flags)).is_err());
     assert!(read_request(&mut Cursor::new(bytes)).is_ok());
+}
+
+#[test]
+fn system_shortcuts_are_a_closed_set() {
+    assert!(SystemShortcut::from_raw(0).is_none());
+    assert!(SystemShortcut::from_raw(8).is_none());
+    assert_eq!(SystemShortcut::from_raw(7), Some(SystemShortcut::Search));
+    let mut bytes = Vec::new();
+    write_event(
+        &mut bytes,
+        &Event::SystemShortcut {
+            shortcut: SystemShortcut::SwitcherNext,
+            serial: 1,
+            output: 1,
+        },
+    )
+    .unwrap();
+    // The shortcut byte follows the 4-byte length and the opcode.
+    let mut bad = bytes.clone();
+    bad[4 + 1] = 0;
+    assert!(read_event(&mut Cursor::new(bad)).is_err());
+    assert!(read_event(&mut Cursor::new(bytes)).is_ok());
 }
 
 #[test]

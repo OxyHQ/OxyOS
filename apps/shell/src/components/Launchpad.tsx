@@ -24,6 +24,7 @@ export function Launchpad({
   folders,
   wallpaper,
   escapeRequest = 0,
+  searchRequest = 0,
 }: {
   /** Whether it is shown. It stays mounted while hidden, as macOS keeps Launchpad, so showing it
       draws what is already built instead of building it then. */
@@ -35,6 +36,9 @@ export function Launchpad({
   folders: readonly ShellFolder[];
   dismiss: () => void;
   escapeRequest?: number;
+  /** A new value focuses the search, so what is typed searches (Super+Space,
+      docs/adr/0024-system-shortcuts.mdx). */
+  searchRequest?: number;
 }) {
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState<ShellFolder | null>(null);
@@ -51,6 +55,12 @@ export function Launchpad({
     if (open && lastEscape.current !== escapeRequest) close.current();
     lastEscape.current = escapeRequest;
   }, [escapeRequest, open]);
+  const search = useRef<React.ComponentRef<typeof Search>>(null);
+  const lastSearch = useRef(searchRequest);
+  useEffect(() => {
+    if (open && lastSearch.current !== searchRequest) search.current?.focus();
+    lastSearch.current = searchRequest;
+  }, [searchRequest, open]);
   // Closed, it starts again where it opens: no search, no folder, the first page.
   useEffect(() => {
     if (open) return;
@@ -121,6 +131,8 @@ export function Launchpad({
           }}
         >
           <Search
+            ref={search}
+            testID="launcher-search"
             label="Buscar aplicaciones"
             placeholder="Buscar"
             accessibilityLabel="Buscar aplicaciones"

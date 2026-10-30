@@ -162,6 +162,7 @@ function ProbeShell({
   lock,
   wallpaper,
   dock,
+  commands,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
   /** Whether this display has the dock (the primary's); the window probe's has it. */
@@ -172,6 +173,8 @@ function ProbeShell({
   lock?: ShellLock;
   /** The wallpaper the system chose (the solar wallpaper's frame now); the fixture's without. */
   wallpaper?: string;
+  /** The system shortcuts the shell shows (ADR 0024), as the compositor sent them. */
+  commands?: React.ComponentProps<typeof Shell>['commands'];
 }) {
   return (
       <SafeAreaProvider>
@@ -184,6 +187,7 @@ function ProbeShell({
             lock={lock}
             platform={platform}
             dock={dock}
+            commands={commands}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -220,6 +224,8 @@ export function ShellSession() {
       launched: boolean;
       width: number;
       height: number;
+      used: number;
+      hidden: boolean;
     }) => ({
       id: String(window.id),
       appId: window.appId,
@@ -227,6 +233,9 @@ export function ShellSession() {
       workspaceId: String(window.workspace),
       minimized: window.minimized,
       launched: window.launched,
+      // How recently it was active, and hidden with its application (ADR 0024).
+      used: window.used,
+      hidden: window.hidden,
       // The window's proportions (ADR 0022): its card is drawn in them, and the compositor draws
       // the window in it live (the platform's WindowView).
       thumbnailSize: window.width > 0 && window.height > 0 ? { width: window.width, height: window.height } : undefined,
@@ -260,14 +269,29 @@ export function ShellSession() {
   const application = active?.launched ? registry.find((app) => app.id === active.appId) : undefined;
   const menus = windowMenus(bar, application?.name || active?.title || active?.appId || '');
   if (menus) shown.menus = menus;
+  type Known = { id: number; appId: string; launched: boolean; used: number };
+  // An application's window it used last (the newest of those never active), if it has one.
+  const recent = (id: string): Known | undefined =>
+    (state.windows as Known[])
+      .filter((window) => window.launched && window.appId === id)
+      .sort((a, b) => b.used - a.used || b.id - a.id)[0];
   const act: ShellActions = {
-    // The application's newest window, if it has one; else the session starts it (ADR 0013).
+    // Its window used last, shown again (restored, or with its application if hidden, ADR 0024);
+    // else the session starts it (ADR 0013).
     activateApp: (id) => {
-      const newest = state.windows
-        .filter((window: { appId: string; launched: boolean }) => window.launched && window.appId === id)
-        .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
-      if (newest) shell.focusWindow(newest.id);
+      const window = recent(id);
+      if (window) shell.focusWindow(window.id);
       else shell.launch(id);
+    },
+    // The application switcher's H and Q (ADR 0024): the compositor hides or quits the
+    // application of any of its windows.
+    hideApp: (id) => {
+      const window = recent(id);
+      if (window) shell.hideApplication(window.id);
+    },
+    quitApp: (id) => {
+      const window = recent(id);
+      if (window) shell.quitApplication(window.id);
     },
     focusWindow: (id) => shell.focusWindow(Number(id)),
     closeWindow: (id) => shell.closeWindow(Number(id)),
@@ -286,11 +310,11 @@ export function ShellSession() {
         shell.activateMenuItem(Number(command[1]), Number(command[2]), Number(command[3]));
         return;
       }
-      // The application's own menu: Hide is the shell's minimize, Quit the window's close request
-      // (as its close bubble's).
+      // The application's own menu: Hide hides the application, Quit asks each of its windows to
+      // close, as Super+H and Super+Q do (ADR 0024).
       const own = /^window-app:(hide|quit):(\d+)$/.exec(id);
-      if (own?.[1] === 'hide') shell.minimizeWindow(Number(own[2]));
-      if (own?.[1] === 'quit') shell.closeWindow(Number(own[2]));
+      if (own?.[1] === 'hide') shell.hideApplication(Number(own[2]));
+      if (own?.[1] === 'quit') shell.quitApplication(Number(own[2]));
     },
   };
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
@@ -311,6 +335,7 @@ export function ShellSession() {
       lock={lock}
       wallpaper={state.wallpaper ?? undefined}
       dock={dock}
+      commands={shell.shortcuts}
     />
   );
 }

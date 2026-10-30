@@ -23,6 +23,12 @@ export type ShellWindow = {
       it live (ADR 0022); preserves the surface aspect ratio. */
   thumbnailSize?: { width: number; height: number };
   minimized?: boolean;
+  /** Hidden with its application (Super+H): off the screen and not in the dock, until the
+      application is activated again (docs/adr/0024-system-shortcuts.mdx). */
+  hidden?: boolean;
+  /** How recently it was the active window: higher is more recent; the application switcher
+      orders applications by it. */
+  used?: number;
   /** False when the session did not start the window's process: its `appId` is then only its
       own claim, and it is no registry application's (docs/adr/0013-launching-applications.mdx). */
   launched?: boolean;
@@ -72,6 +78,10 @@ export type ShellActions = {
   moveWindowToWorkspace: (windowId: string, workspaceId: string) => void;
   addWorkspace: () => void;
   menuCommand: (id: string) => void;
+  /** Hides or quits an application (all its windows), where the platform can: the application
+      switcher's H and Q (docs/adr/0024-system-shortcuts.mdx). */
+  hideApp?: (id: string) => void;
+  quitApp?: (id: string) => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is
@@ -92,9 +102,23 @@ export type ShellLock = {
     wait: number;
   };
 };
+/** What the platform asks of the shell, a new `id` for each: dismissing what is open, showing the
+    launcher or the overview, and the system shortcuts it shows (docs/adr/0024-system-shortcuts.mdx):
+    the application switcher's moves, quit, hide, end with the choice (Super released) or cancel,
+    and the launcher's search. */
 export type ShellCommand = {
   id: number;
-  action: "dismiss" | "launcher" | "overview";
+  action:
+    | "dismiss"
+    | "launcher"
+    | "overview"
+    | "search"
+    | "switcher-next"
+    | "switcher-previous"
+    | "switcher-quit"
+    | "switcher-hide"
+    | "switcher-done"
+    | "switcher-cancel";
 };
 
 /** Whether `window` is the application `appId`'s: its id, given by the session's launch record

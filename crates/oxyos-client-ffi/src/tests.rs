@@ -3063,6 +3063,79 @@ fn settings_changes_preferences_and_every_client_is_told_them_through_the_c_abi(
 mod menus;
 
 #[test]
+fn the_header_matches_the_system_shortcuts_abi() {
+    for (name, value) in [
+        ("OXYOS_EVENT_SYSTEM_SHORTCUT", OXYOS_EVENT_SYSTEM_SHORTCUT),
+        ("OXYOS_EVENT_WINDOW_USE", OXYOS_EVENT_WINDOW_USE),
+        ("OXYOS_SHORTCUT_SWITCHER_NEXT", OXYOS_SHORTCUT_SWITCHER_NEXT),
+        (
+            "OXYOS_SHORTCUT_SWITCHER_PREVIOUS",
+            OXYOS_SHORTCUT_SWITCHER_PREVIOUS,
+        ),
+        ("OXYOS_SHORTCUT_SWITCHER_QUIT", OXYOS_SHORTCUT_SWITCHER_QUIT),
+        ("OXYOS_SHORTCUT_SWITCHER_HIDE", OXYOS_SHORTCUT_SWITCHER_HIDE),
+        ("OXYOS_SHORTCUT_SWITCHER_DONE", OXYOS_SHORTCUT_SWITCHER_DONE),
+        (
+            "OXYOS_SHORTCUT_SWITCHER_CANCEL",
+            OXYOS_SHORTCUT_SWITCHER_CANCEL,
+        ),
+        ("OXYOS_SHORTCUT_SEARCH", OXYOS_SHORTCUT_SEARCH),
+        (
+            "OXYOS_MANAGE_HIDE_APPLICATION",
+            OXYOS_MANAGE_HIDE_APPLICATION.into(),
+        ),
+        (
+            "OXYOS_MANAGE_QUIT_APPLICATION",
+            OXYOS_MANAGE_QUIT_APPLICATION.into(),
+        ),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    use oxyos_protocol::SystemShortcut;
+    for (shortcut, constant) in [
+        (SystemShortcut::SwitcherNext, OXYOS_SHORTCUT_SWITCHER_NEXT),
+        (
+            SystemShortcut::SwitcherPrevious,
+            OXYOS_SHORTCUT_SWITCHER_PREVIOUS,
+        ),
+        (SystemShortcut::SwitcherQuit, OXYOS_SHORTCUT_SWITCHER_QUIT),
+        (SystemShortcut::SwitcherHide, OXYOS_SHORTCUT_SWITCHER_HIDE),
+        (SystemShortcut::SwitcherDone, OXYOS_SHORTCUT_SWITCHER_DONE),
+        (
+            SystemShortcut::SwitcherCancel,
+            OXYOS_SHORTCUT_SWITCHER_CANCEL,
+        ),
+        (SystemShortcut::Search, OXYOS_SHORTCUT_SEARCH),
+    ] {
+        let event = Event::SystemShortcut {
+            shortcut,
+            serial: 41,
+            output: 2,
+        };
+        assert_eq!(u32::from(event.opcode()), OXYOS_EVENT_SYSTEM_SHORTCUT);
+        let event = convert(&event).unwrap();
+        assert_eq!(
+            (event.kind, event.serial, event.detail, event.code),
+            (OXYOS_EVENT_SYSTEM_SHORTCUT, 41, constant, 2)
+        );
+    }
+    let used = Event::WindowUse {
+        window: 7,
+        used: 12,
+        hidden: true,
+    };
+    assert_eq!(u32::from(used.opcode()), OXYOS_EVENT_WINDOW_USE);
+    let event = convert(&used).unwrap();
+    assert_eq!(
+        (event.kind, event.code, event.detail, event.flag),
+        (OXYOS_EVENT_WINDOW_USE, 7, 12, 1)
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);"
+    ));
+}
+
+#[test]
 fn the_header_matches_the_window_views_abi() {
     assert_eq!(
         define("OXYOS_EVENT_WINDOW_SIZE"),

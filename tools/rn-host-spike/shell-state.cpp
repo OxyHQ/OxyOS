@@ -191,6 +191,13 @@ bool ShellState::observe(const OxyOSEvent& event) {
       return true;
     case OXYOS_EVENT_OUTPUT_REMOVED:
       return outputs_.erase(event.code) > 0;
+    // How recently a window was active and whether it is hidden with its application (ADR 0024).
+    case OXYOS_EVENT_WINDOW_USE: {
+      auto& window = windows_[event.code];
+      window.used = event.detail;
+      window.hidden = event.flag != 0;
+      return true;
+    }
     case OXYOS_EVENT_WINDOW_SIZE: {
       // The window's proportions, for the overview's cards (docs/adr/0022-window-views.mdx).
       auto& window = windows_[event.code];
@@ -214,7 +221,7 @@ folly::dynamic ShellState::state() const {
   folly::dynamic windows = folly::dynamic::array();
   for (const auto& [id, window] : windows_) {
     windows.push_back(folly::dynamic::object("id", id)("appId", window.appId)("title", window.title)(
-        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched)("width", window.width)("height", window.height));
+        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched)("width", window.width)("height", window.height)("used", window.used)("hidden", window.hidden));
   }
   folly::dynamic outputs = folly::dynamic::array();
   for (const auto& [id, output] : outputs_) {

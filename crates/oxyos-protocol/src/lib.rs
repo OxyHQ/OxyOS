@@ -18,7 +18,8 @@ pub use wire::{
     Anchor, AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase,
     Gravity, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge, PointerKind, PointerShape,
     Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind,
-    Size, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES,
+    TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.

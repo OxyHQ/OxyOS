@@ -162,6 +162,23 @@ pub const OXYOS_MANAGE_MOVE: u8 = 4;
 pub const OXYOS_MANAGE_ACTIVATE_WORKSPACE: u8 = 5;
 pub const OXYOS_MANAGE_ADD_WORKSPACE: u8 = 6;
 pub const OXYOS_MANAGE_REMOVE_WORKSPACE: u8 = 7;
+/// Hides or quits the application of the window (ADR 0024).
+pub const OXYOS_MANAGE_HIDE_APPLICATION: u8 = 8;
+pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
+/// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
+/// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
+/// output to show it on), and how recently a window was active (code: the window; detail: its
+/// latest activation, rising, 0 never; flag: whether it is hidden with its application).
+pub const OXYOS_EVENT_SYSTEM_SHORTCUT: u32 = 100;
+pub const OXYOS_EVENT_WINDOW_USE: u32 = 101;
+/// A SYSTEM_SHORTCUT's `detail`, the protocol's `SystemShortcut`.
+pub const OXYOS_SHORTCUT_SWITCHER_NEXT: u32 = 1;
+pub const OXYOS_SHORTCUT_SWITCHER_PREVIOUS: u32 = 2;
+pub const OXYOS_SHORTCUT_SWITCHER_QUIT: u32 = 3;
+pub const OXYOS_SHORTCUT_SWITCHER_HIDE: u32 = 4;
+pub const OXYOS_SHORTCUT_SWITCHER_DONE: u32 = 5;
+pub const OXYOS_SHORTCUT_SWITCHER_CANCEL: u32 = 6;
+pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -646,6 +663,32 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_WINDOW_CLOSED,
                 code: window,
+                ..out
+            }
+        }
+        Event::SystemShortcut {
+            shortcut,
+            serial,
+            output,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SYSTEM_SHORTCUT,
+                serial,
+                detail: shortcut as u32,
+                code: output,
+                ..out
+            }
+        }
+        Event::WindowUse {
+            window,
+            used,
+            hidden,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_WINDOW_USE,
+                code: window,
+                detail: used,
+                flag: u8::from(hidden),
                 ..out
             }
         }
@@ -1179,6 +1222,8 @@ pub unsafe extern "C" fn oxyos_client_manage(
         OXYOS_MANAGE_ACTIVATE_WORKSPACE => Request::ActivateWorkspace { workspace },
         OXYOS_MANAGE_ADD_WORKSPACE => Request::AddWorkspace {},
         OXYOS_MANAGE_REMOVE_WORKSPACE => Request::RemoveWorkspace { workspace },
+        OXYOS_MANAGE_HIDE_APPLICATION => Request::HideApplication { window },
+        OXYOS_MANAGE_QUIT_APPLICATION => Request::QuitApplication { window },
         _ => return fail("unknown action"),
     };
     // SAFETY: forwarded caller contract.
@@ -1595,6 +1640,23 @@ pub unsafe extern "C" fn oxyos_client_activate_menu_item(
             },
         )
     }
+}
+
+/// The session's shell gives the keyboard focus to one of its own panels or overlays (ADR 0024),
+/// citing `serial`, an input it received (a press, a key, a SYSTEM_SHORTCUT); one it did not
+/// receive lately is ignored. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_focus_shell_surface(
+    client: *mut OxyOSClient,
+    surface: u32,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::FocusShellSurface { surface, serial }) }
 }
 
 /// Announces `length` bytes of UTF-8 to assistive technologies (ADR 0003): `politeness` is

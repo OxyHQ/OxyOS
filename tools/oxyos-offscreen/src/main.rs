@@ -121,6 +121,9 @@ struct Session {
     /// (a session gives `settings` only to an entry root wrote): the application `ID`, launched,
     /// is given `settings`.
     grant_settings: Option<String>,
+    /// The clients of applications the shell launched (not the director's own): what they are
+    /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
+    launched_clients: std::collections::BTreeSet<ClientId>,
 }
 
 impl Session {
@@ -175,6 +178,7 @@ impl Session {
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
+            launched_clients: Default::default(),
         })
     }
 
@@ -200,6 +204,12 @@ impl Session {
                 application: id,
             })
         });
+        for client in self.compositor.peers.keys() {
+            // The director's own application is client 1 (launch.rs's CLIENT).
+            if *client != 1 && self.compositor.scene.application(*client).is_some() {
+                self.launched_clients.insert(*client);
+            }
+        }
         let Some(launcher) = self.launcher.as_mut() else {
             return;
         };

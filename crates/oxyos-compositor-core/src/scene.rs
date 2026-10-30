@@ -375,8 +375,10 @@ pub struct Scene {
     /// The active window (ADR 0016).
     active: Option<SurfaceKey>,
     locked: bool,
-    shortcuts: BTreeSet<u32>,
-    shortcut_target: Option<SurfaceKey>,
+    /// The system shortcuts' keys held and taken, and the application switcher (ADR 0024).
+    system_keys: shortcuts::SystemKeys,
+    /// How recently each window was active, and the windows hidden with their application.
+    applications: shortcuts::Applications,
     events: Vec<(ClientId, Event)>,
     buffers: BTreeMap<(ClientId, u64), BufferEntry>,
     /// Buffers no consumer will read again and the client cannot reuse: the backend may drop
@@ -836,6 +838,7 @@ impl Scene {
         // The keys an input method held go on to the field before anything else changes.
         self.forget_input_method(client);
         self.forget_shell_client(client);
+        self.forget_switcher(client);
         self.forget_menu_bar_client(client);
         self.forget_launches(client);
         self.forget_preference_changes(client);
@@ -899,6 +902,9 @@ impl Scene {
         grants.input_method &= !revoked.input_method;
         grants.screen_reader &= !revoked.screen_reader;
         grants.settings &= !revoked.settings;
+        if revoked.shell || revoked.shortcuts {
+            self.forget_switcher(client);
+        }
         if revoked.input_method {
             self.forget_input_method(client);
         }
@@ -922,29 +928,6 @@ impl Scene {
         for key in keys {
             self.dismiss(key, DismissReason::AuthorizationRevoked);
         }
-        if revoked.shortcuts && self.shortcut_target.is_some_and(|key| key.client == client) {
-            self.shortcut_target = None;
-        }
-        self.elect_shortcut_target();
-    }
-
-    /// Keeps a live shell surface of a shortcut-granted client as the shortcut target.
-    fn elect_shortcut_target(&mut self) {
-        let valid = |scene: &Self, key: SurfaceKey| {
-            scene
-                .live(key)
-                .is_some_and(|node| matches!(node.role, Role::Shell { .. }))
-                && scene.clients.get(&key.client).is_some_and(|g| g.shortcuts)
-        };
-        if self.shortcut_target.is_some_and(|key| valid(self, key)) {
-            return;
-        }
-        self.shortcut_target = self.nodes.keys().copied().find(|key| valid(self, *key));
-    }
-
-    /// Keys the compositor routes to the shell before any application sees them.
-    pub fn set_shortcuts(&mut self, keys: impl IntoIterator<Item = u32>) {
-        self.shortcuts = keys.into_iter().collect();
     }
 
     // ---- requests ------------------------------------------------------------------------
@@ -1029,9 +1012,6 @@ impl Scene {
                     output,
                 };
                 self.insert(key(surface), role, None, origin, size, output);
-                if grants.shortcuts && self.shortcut_target.is_none() {
-                    self.shortcut_target = Some(key(surface));
-                }
                 Ok(())
             }
             Request::CreateLockSurface { surface, output } => {
@@ -1233,7 +1213,10 @@ impl Scene {
             | Request::MoveWindowToWorkspace { .. }
             | Request::ActivateWorkspace { .. }
             | Request::AddWorkspace {}
-            | Request::RemoveWorkspace { .. } => self.shell_request(client, request),
+            | Request::RemoveWorkspace { .. }
+            | Request::HideApplication { .. }
+            | Request::QuitApplication { .. }
+            | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
                 self.window_view_request(client, request)
             }
@@ -1443,26 +1426,33 @@ impl Scene {
                 if node.role != Role::Toplevel {
                     return Err(ErrorCode::InvalidRole);
                 }
-                if node.fullscreen == enabled || node.dismissed {
-                    return Ok(());
-                }
-                let output = self.output(node.output).ok_or(ErrorCode::InvalidGeometry)?;
-                let (origin, size) = if enabled {
-                    (
-                        (output.rect.x, output.rect.y),
-                        Size::new(output.rect.width, output.rect.height),
-                    )
-                } else {
-                    node.restore.unwrap_or((node.origin, node.size))
-                };
-                let current = (node.origin, node.size);
-                let node = self.nodes.get_mut(&key(surface)).expect("present");
-                node.fullscreen = enabled;
-                node.restore = if enabled { Some(current) } else { None };
-                self.reconfigure(key(surface), Some(origin), size);
-                Ok(())
+                self.set_fullscreen(key(surface), enabled)
             }
         }
+    }
+
+    /// A toplevel full-screen on its output or back to its frame, as it asked (`SetFullscreen`)
+    /// or as Super+Ctrl+F asks for it (ADR 0024).
+    fn set_fullscreen(&mut self, key: SurfaceKey, enabled: bool) -> Result<(), ErrorCode> {
+        let node = self.nodes.get(&key).ok_or(ErrorCode::UnknownSurface)?;
+        if node.fullscreen == enabled || node.dismissed {
+            return Ok(());
+        }
+        let output = self.output(node.output).ok_or(ErrorCode::InvalidGeometry)?;
+        let (origin, size) = if enabled {
+            (
+                (output.rect.x, output.rect.y),
+                Size::new(output.rect.width, output.rect.height),
+            )
+        } else {
+            node.restore.unwrap_or((node.origin, node.size))
+        };
+        let current = (node.origin, node.size);
+        let node = self.nodes.get_mut(&key).expect("present");
+        node.fullscreen = enabled;
+        node.restore = if enabled { Some(current) } else { None };
+        self.reconfigure(key, Some(origin), size);
+        Ok(())
     }
 
     fn check_new(&self, key: SurfaceKey) -> Result<(), ErrorCode> {
@@ -2110,10 +2100,6 @@ impl Scene {
             self.set_focus(None);
             self.focus_next();
         }
-        if self.shortcut_target == Some(key) {
-            self.shortcut_target = None;
-            self.elect_shortcut_target();
-        }
     }
 
     fn dismiss_grab(&mut self, reason: DismissReason) {
@@ -2187,6 +2173,7 @@ impl Scene {
         self.forget_text_input(key);
         self.forget_secrets(Some(key));
         self.forget_window(key);
+        self.forget_application_window(key);
         self.forget_menus(key);
         self.forget_window_views(key);
         if self.active == Some(key) {
@@ -2201,10 +2188,6 @@ impl Scene {
         }
         if self.focus_before_grab == Some(key) {
             self.focus_before_grab = None;
-        }
-        if self.shortcut_target == Some(key) {
-            self.shortcut_target = None;
-            self.elect_shortcut_target();
         }
         if self.last_press.is_some_and(|press| press.surface == key) {
             self.last_press = None;
@@ -2549,6 +2532,12 @@ impl Scene {
     }
 
     pub fn minimize(&mut self, key: SurfaceKey) {
+        self.conceal(key, appearances::Change::Minimized);
+    }
+
+    /// Takes a window off the screen until it is restored: minimized into the dock, or hidden
+    /// with its application (ADR 0024).
+    fn conceal(&mut self, key: SurfaceKey, change: appearances::Change) {
         let Some(node) = self.nodes.get(&key) else {
             return;
         };
@@ -2557,7 +2546,7 @@ impl Scene {
         }
         let children = node.children.clone();
         if node.mapped {
-            self.appeared(key, appearances::Change::Minimized);
+            self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
         for child in children {
@@ -2575,7 +2564,15 @@ impl Scene {
         self.refresh_pointer_focus();
     }
 
+    /// Shows a minimized window again and activates it; a window hidden with its application
+    /// brings back every window hidden with it (ADR 0024).
     pub fn restore(&mut self, key: SurfaceKey) {
+        if self.applications_hidden(key) {
+            self.reveal_application(key);
+            self.activate(key);
+            self.refresh_pointer_focus();
+            return;
+        }
         if let Some(node) = self.nodes.get_mut(&key) {
             if node.hidden {
                 node.hidden = false;
@@ -2647,6 +2644,7 @@ impl Scene {
         }
         self.locked = true;
         self.dismiss_grab(DismissReason::Locked);
+        self.cancel_switcher();
         let popups: Vec<SurfaceKey> = self
             .nodes
             .iter()
@@ -3120,44 +3118,17 @@ impl Scene {
         });
     }
 
-    /// Whether `key` goes to the shell's shortcut target rather than the focused surface.
-    fn is_shortcut(&self, key: u32) -> bool {
-        !self.locked
-            && self.shortcuts.contains(&key)
-            && self
-                .shortcut_target
-                .is_some_and(|target| self.live(target).is_some())
-    }
-
-    /// A key from the keyboard: the screen reader's first (ADR 0014), then the shell's
-    /// shortcuts, then the focused surface.
+    /// A key from the keyboard: the screen reader's first (ADR 0014), then the system shortcuts
+    /// (ADR 0024), then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.user_input();
-        if !self.reader_key(key, pressed) {
+        if !self.reader_key(key, pressed) && !self.system_key(key, pressed) {
             self.surface_key(key, pressed);
         }
     }
 
     fn surface_key(&mut self, key: u32, pressed: bool) {
         let serial = self.next_serial();
-        if self.is_shortcut(key) {
-            if let Some(target) = self.shortcut_target {
-                if pressed {
-                    self.last_user_serial = serial;
-                    self.record_press(serial, target, false);
-                }
-                self.emit(
-                    target.client,
-                    Event::Key {
-                        surface: target.id,
-                        serial,
-                        key,
-                        pressed,
-                    },
-                );
-                return;
-            }
-        }
         if pressed {
             self.last_user_serial = serial;
         }
@@ -3530,6 +3501,8 @@ mod window_views;
 pub use window_views::fitted;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
+/// The system shortcuts and applications' windows (ADR 0024).
+mod shortcuts;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

@@ -48,6 +48,7 @@ class Window {
     uint64_t inFlight = 0;   // sequence of the frame awaiting feedback
     uint64_t presentedFor = 0;  // the configure the latest frame presented answers
     uint8_t states = 0;      // a toplevel's OXYOS_CONFIGURE_* bits, from its latest configure
+    bool shown = false;      // a frame of it was presented (on the screen)
   };
   // The surface, or null if it does not exist (or no longer does).
   Surface* surface(uint32_t id);
@@ -77,6 +78,9 @@ class Window {
   void nameWindow(const std::string& title, const std::string& appId);
   // The session's shell acting on a window or a workspace (OXYOS_MANAGE_*).
   void manage(uint8_t action, uint32_t window, uint32_t workspace);
+  // The session's shell asks for the keyboard focus on one of its own regions' surfaces, citing
+  // the input `serial` (docs/adr/0024-system-shortcuts.mdx).
+  void focusShellSurface(uint32_t id, uint64_t serial);
   // The application's own window (docs/adr/0016-windows.mdx): moved with the pointer from the
   // press `serial` names, zoomed to the work area or restored, minimized, kept within sizes.
   void beginMove(uint64_t serial);

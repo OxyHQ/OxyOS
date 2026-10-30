@@ -1,8 +1,9 @@
 use super::*;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Adjust, Anchor, Gravity,
-    PreeditText, ReaderCommand, TextChunk, TextHints, TextPurpose, MAX_ACCESSIBLE_NODES,
-    MAX_ACCESSIBLE_TEXT_BYTES, MAX_PREFERENCE_BYTES, MAX_SURROUNDING_BYTES, NO_ACCESSIBLE_PARENT,
+    PreeditText, ReaderCommand, SystemShortcut, TextChunk, TextHints, TextPurpose,
+    MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES, MAX_PREFERENCE_BYTES, MAX_SURROUNDING_BYTES,
+    NO_ACCESSIBLE_PARENT,
 };
 use std::collections::HashMap;
 
@@ -66,7 +67,7 @@ impl Harness {
         ] {
             scene.connect(client, grants).unwrap();
         }
-        let mut harness = Self {
+        Self {
             scene,
             configures: HashMap::new(),
             log: Vec::new(),
@@ -74,9 +75,7 @@ impl Harness {
             next_sequence: HashMap::new(),
             free: HashMap::new(),
             extents: HashMap::new(),
-        };
-        harness.scene.set_shortcuts([SUPER]);
-        harness
+        }
     }
 
     fn pump(&mut self) -> Vec<(ClientId, Event)> {
@@ -1185,14 +1184,22 @@ fn shortcuts_and_window_moves_do_not_wait_for_a_stalled_application() {
     // APP never reads or answers from here on.
     h.clear_log();
     h.scene.key(SUPER, true);
+    h.scene.key(SPACE, true);
+    h.scene.key(SPACE, false);
     h.scene.key(SUPER, false);
     h.pump();
     assert_eq!(
         h.events_for(SHELL)
             .iter()
-            .filter(|e| matches!(e, Event::Key { key: SUPER, .. }))
+            .filter(|e| matches!(
+                e,
+                Event::SystemShortcut {
+                    shortcut: SystemShortcut::Search,
+                    ..
+                }
+            ))
             .count(),
-        2
+        1
     );
     assert!(h
         .events_for(APP)
@@ -1713,7 +1720,7 @@ fn a_fullscreen_window_fills_the_surviving_output_after_removal() {
 }
 
 #[test]
-fn shortcuts_move_to_another_shell_surface_when_the_target_goes_away() {
+fn shortcuts_reach_the_shell_through_any_surface_it_has_left() {
     let mut h = Harness::new();
     for (surface, kind) in [(1, ShellKind::Panel), (2, ShellKind::Overlay)] {
         h.request(
@@ -1733,12 +1740,12 @@ fn shortcuts_move_to_another_shell_surface_when_the_target_goes_away() {
     h.request(SHELL, Request::Destroy { surface: 1 }).unwrap();
     h.clear_log();
     h.scene.key(SUPER, true);
+    h.scene.key(SPACE, true);
     h.pump();
-    assert!(h.events_for(SHELL).contains(&Event::Key {
-        surface: 2,
+    assert!(h.events_for(SHELL).contains(&Event::SystemShortcut {
+        shortcut: SystemShortcut::Search,
         serial: h.scene.serial,
-        key: SUPER,
-        pressed: true
+        output: 1,
     }));
     assert!(h.events_for(APP).is_empty());
 }
@@ -3958,11 +3965,13 @@ fn shortcuts_and_an_unserved_keyboard_bypass_the_input_method() {
     h.activate(window);
     logged(&mut h);
     h.scene.keyboard(SUPER, true, None);
+    h.scene.keyboard(57, true, Some(" "));
     let events = logged(&mut h);
     assert!(to(&events, IME).is_empty());
+    assert!(to(&events, APP).is_empty());
     assert!(to(&events, SHELL)
         .iter()
-        .any(|e| matches!(e, Event::Key { key: SUPER, .. })));
+        .any(|e| matches!(e, Event::SystemShortcut { .. })));
     // A field without text input is not served: keys go straight, text as Text.
     let (mut h, _) = served("");
     h.request(APP, Request::TextInputDisable { surface: 1 })
@@ -4480,6 +4489,12 @@ fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
                 minimized: false,
                 focused: true,
                 launched: false,
+            },
+            // The third activation: Inbox's, Other's, Inbox's again (ADR 0024).
+            Event::WindowUse {
+                window: a,
+                used: 3,
+                hidden: false,
             },
             Event::WindowState {
                 window: b,
@@ -5993,8 +6008,6 @@ fn without_a_screen_reader_its_keys_are_ordinary() {
 fn the_screen_readers_keys_come_before_the_input_method_shortcuts_and_the_lock() {
     let (mut h, _) = served("");
     h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
-    // Even were Right a shortcut of the shell's.
-    h.scene.set_shortcuts([SUPER, RIGHT]);
     h.scene.keyboard(CTRL, true, None);
     let ctrl = held(&logged(&mut h));
     h.scene.keyboard(ALT, true, None);
@@ -6009,6 +6022,8 @@ fn the_screen_readers_keys_come_before_the_input_method_shortcuts_and_the_lock()
         )
         .unwrap();
     }
+    // Even with Super held, which makes every other key the system's (ADR 0024).
+    h.scene.keyboard(SUPER, true, None);
     logged(&mut h);
     h.scene.keyboard(RIGHT, true, None);
     h.scene.keyboard(RIGHT, false, None);
@@ -6725,6 +6740,7 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// The menu bar (ADR 0021).
 mod menus;
+mod shortcuts;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 
 /// The shell's overview: an overlay over the whole output.

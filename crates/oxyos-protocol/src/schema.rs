@@ -5,8 +5,8 @@ use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     AuthOutcome, Clock, DismissReason, ErrorCode, Format, GesturePhase, MenuField, MenuFlags,
     MenuKind, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
-    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, TextChunk, TextHints,
-    TextPurpose, TouchKind, Wire,
+    PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
+    TextHints, TextPurpose, TouchKind, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -202,6 +202,17 @@ messages! {
         // the surface's next Submit. The shell never receives a window's pixels.
         90 => ClearWindowViews { surface: u32 },
         91 => PlaceWindowView { surface: u32, window: u32, rect: Rect, clip: Rect, radius: u32, opacity: u8 },
+        // The session's shell (its `shell` grant, ADR 0024): hides the application of a window (all
+        // its windows leave the screen, not into the dock, until the application is activated:
+        // FocusWindow of any of them shows them again), or quits it (each of its windows is asked
+        // to close, CloseRequested, and may refuse). An application is the windows the shell sees
+        // as one: the same application id, launched or claimed alike.
+        110 => HideApplication { window: u32 },
+        111 => QuitApplication { window: u32 },
+        // The session's shell gives the keyboard focus to one of its own panels or overlays (the
+        // launcher's search), citing the serial of an input it received: a press, a key or a
+        // SystemShortcut. One it did not receive lately is ignored.
+        112 => FocusShellSurface { surface: u32, serial: u64 },
     }
 }
 
@@ -335,6 +346,14 @@ messages! {
         // To the session's shell (ADR 0022): a window's size in logical pixels, when it is first
         // told and whenever it changes, so the shell shows it in its proportions.
         80 => WindowSize { window: u32, size: Size },
+        // To the session's shell of `output` (its `shortcuts` grant, ADR 0024): a system shortcut
+        // the compositor took from the keyboard, for the shell to show: the application switcher's
+        // and the search's. `serial` is a user input of the shell's, as a key press's is.
+        100 => SystemShortcut { shortcut: SystemShortcut, serial: u64, output: u32 },
+        // To the session's shell (ADR 0024), after the window's WindowState, when either changes:
+        // how recently it was the active window (a rising count of activations; 0: never), and
+        // whether it is hidden with its application (minimized, but not into the dock).
+        101 => WindowUse { window: u32, used: u32, hidden: bool },
     }
 }
 
