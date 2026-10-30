@@ -6,7 +6,8 @@
 //! standard input and writes bytecode to its standard output (`hermesc -emit-binary -O -`), and
 //! reaches nothing else. As root (the service) it runs as a transient systemd unit
 //! (`systemd-run --wait --pipe`): a dynamic user, no network, no devices, the file system
-//! read-only, no capabilities, `@system-service`'s system calls, at most ten minutes and 2 GiB.
+//! read-only, no capabilities, `@system-service`'s system calls but no socket of any family, at
+//! most ten minutes and 2 GiB.
 //! systemd's own sandbox is the one every unit of the system is confined by, and a transient unit
 //! needs no unit file the install service could get wrong; `--pipe` hands it the two descriptors.
 //! Not as root (the tests), it runs directly.
@@ -56,7 +57,6 @@ const SANDBOX: &[&str] = &[
     "ProtectHostname=yes",
     "NoNewPrivileges=yes",
     "CapabilityBoundingSet=",
-    "RestrictAddressFamilies=none",
     "RestrictNamespaces=yes",
     "RestrictRealtime=yes",
     "RestrictSUIDSGID=yes",
@@ -64,28 +64,39 @@ const SANDBOX: &[&str] = &[
     "MemoryDenyWriteExecute=yes",
     "SystemCallArchitectures=native",
     "SystemCallFilter=@system-service",
+    // No socket of any family: `socket()`, `connect()` and the rest fail with EPERM. Not
+    // `RestrictAddressFamilies=none`, which a unit file takes but systemd (257) refuses as a
+    // transient unit's property ("Invalid argument"), so the unit never starts; this is stricter,
+    // as no family is left at all.
+    "SystemCallFilter=~@network-io",
     "SystemCallErrorNumber=EPERM",
     "UMask=0077",
     "RuntimeMaxSec=600",
     "MemoryMax=2G",
 ];
 
+/// `program` as the compiler runs as root: a transient systemd unit with [`SANDBOX`]'s
+/// properties, waited for, given this process's standard input and output (`--pipe`).
+pub fn confined(program: &Path) -> Command {
+    let mut command = Command::new("systemd-run");
+    command.args([
+        "--quiet",
+        "--wait",
+        "--pipe",
+        "--collect",
+        "--service-type=exec",
+    ]);
+    for property in SANDBOX {
+        command.arg(format!("--property={property}"));
+    }
+    command.arg("--").arg(program);
+    command
+}
+
 impl Compile for Hermesc {
     fn compile(&self, hermesc: &Path, source: &File, out: &File) -> Result<(), String> {
         let mut command = if self.confined {
-            let mut command = Command::new("systemd-run");
-            command.args([
-                "--quiet",
-                "--wait",
-                "--pipe",
-                "--collect",
-                "--service-type=exec",
-            ]);
-            for property in SANDBOX {
-                command.arg(format!("--property={property}"));
-            }
-            command.arg("--").arg(hermesc);
-            command
+            confined(hermesc)
         } else {
             Command::new(hermesc)
         };

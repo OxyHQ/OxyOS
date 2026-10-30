@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 mod flows;
 mod ipc;
 mod refusals;
+mod sandbox;
 mod tuf_client;
 
 /// 2026-10-30T00:00:00Z, the tests' now.
