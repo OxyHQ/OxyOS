@@ -120,6 +120,12 @@ impl Settings {
         compositor.scene.set_preferences(drawing, &values);
     }
 
+    /// When the sun next crosses the horizon where the system is (unix seconds), with an automatic
+    /// appearance: `serve` should run by then.
+    pub fn next_crossing(&self) -> Option<i64> {
+        self.crossing
+    }
+
     /// One turn: the changes Settings asked for, each answered, and the sun if it crossed the
     /// horizon. The keys whose values changed, for the program to follow what is its own (the
     /// screen reader).

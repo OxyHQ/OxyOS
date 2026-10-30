@@ -90,6 +90,7 @@ use oxyos_protocol::{AuthOutcome, PointerShape};
 use rustix::fd::BorrowedFd;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
 use std::rc::Rc;
@@ -109,6 +110,10 @@ const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const PAM_SERVICE: &str = "oxyos";
 /// A shell that exits while locked is started again, but no sooner than this after the last.
 const SHELL_RESTART: Duration = Duration::from_secs(1);
+/// The longest a turn waits when nothing is due: the session wakes for its devices, its clients,
+/// its displays and its children exiting, and for what is due on a clock (the sun an automatic
+/// appearance follows, a shell started again); this only bounds a wait that something missed.
+const IDLE_WAIT: Duration = Duration::from_secs(60);
 
 fn main() -> Result<()> {
     // Before any thread or child: nothing the session starts inherits the service manager's
@@ -214,9 +219,19 @@ fn main() -> Result<()> {
     let own_uid = rustix::process::getuid().as_raw();
     let mut compositor = Compositor::new(Scene::new(), own_uid);
     // A session waits for its devices, clients and displays rather than turning every 5 ms; at
-    // most a quarter of a second, in which it notices its application or shell has exited.
+    // most a quarter of a second while it starts. Its children exiting wake it: SIGCHLD writes to
+    // a socket its turns wait on, which the loop reads before it looks at them (`children_exited`).
     compositor.idle_wait = Duration::from_millis(250);
+    let children_exited = {
+        let (read, write) = std::os::unix::net::UnixStream::pair()?;
+        read.set_nonblocking(true)?;
+        signal_hook::low_level::pipe::register(signal_hook::consts::SIGCHLD, write)?;
+        compositor.wakers.push(read.try_clone()?.into());
+        read
+    };
     compositor.records = false;
+    // What it does record: a turn that took longer than a refresh, and where the time went.
+    compositor.slow_turns = true;
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
     // The machine's volumes, backlights, battery and network, on a thread of their own: every
@@ -391,6 +406,8 @@ fn main() -> Result<()> {
     );
     let mut shell_started = Instant::now();
     let ended = loop {
+        // What woke the turn of children exiting: they are looked at below, every turn.
+        drain(&children_exited);
         // Monitors plugged in and out (ADR 0018): an output added gets a shell of its own; one
         // removed, its shell stopped.
         if compositor.take_hotplug() {
@@ -537,6 +554,29 @@ fn main() -> Result<()> {
                 break Ok(());
             }
         }
+        // The turn waits until the next thing due on a clock, if anything is sooner than IDLE_WAIT:
+        // the login screen's splash ending, a shell started again, the sun crossing the horizon,
+        // a display's mode on trial going back.
+        let mut wait = IDLE_WAIT;
+        if let Some(deadline) = displays.trial_deadline() {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
+        if let Some(since) = signed_in {
+            wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));
+        }
+        let shell_missing = shell_command.is_some()
+            && compositor
+                .screens
+                .iter()
+                .any(|screen| !shells.contains_key(&screen.id));
+        if shell_missing {
+            wait = wait.min(SHELL_RESTART.saturating_sub(shell_started.elapsed()));
+        }
+        if let Some(crossing) = settings.next_crossing() {
+            let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);
+            wait = wait.min(Duration::from_secs(seconds));
+        }
+        compositor.idle_wait = wait;
         if let Err(error) = compositor.serve(&listener) {
             break Err(error);
         }
@@ -561,6 +601,12 @@ fn main() -> Result<()> {
     }
     compositor.seat = None;
     ended
+}
+
+/// Reads what woke a turn from a waker (`Compositor::wakers`) until nothing is left.
+fn drain(mut waker: &std::os::unix::net::UnixStream) {
+    let mut buffer = [0u8; 64];
+    while matches!(waker.read(&mut buffer), Ok(read) if read > 0) {}
 }
 
 /// Starts the session's shells on `socket`, granting `shell`, one on each output, and serves the
