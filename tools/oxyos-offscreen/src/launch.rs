@@ -1006,8 +1006,25 @@ fn settle(
                 answer_flip = None;
             }
         }
+        // A window configured (zoomed, resized) has answered only once it shows a frame for its
+        // latest configure: its last frame may stay unchanged a while before that one comes.
+        let window = SurfaceKey {
+            client: CLIENT,
+            id: WINDOW,
+        };
+        let answered = session
+            .compositor
+            .scene
+            .render_list()
+            .iter()
+            .find_map(|item| match item {
+                RenderItem::Surface { key, frame, .. } if *key == window => Some(frame.configure),
+                _ => None,
+            })
+            .is_none_or(|shown| Some(shown) == session.compositor.scene.configure_serial(window));
         if !changed
             && !shell_changed
+            && answered
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= SETTLE
         {
