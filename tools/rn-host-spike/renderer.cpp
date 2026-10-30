@@ -1249,7 +1249,7 @@ Point transformOffset(const ShadowView& view) {
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
   canvas.width = static_cast<int>(std::lround(display.width * display.scale));
   canvas.height = static_cast<int>(std::lround(display.height * display.scale));
-  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0xffffffff);
+  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, display.background);
   Painter painter(canvas, display.scale);
   RenderStats stats;
   drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
@@ -1290,7 +1290,7 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
     if (x1 <= x0 || y1 <= y0) continue;
     // The region starts as a new window does, then everything over it is drawn again.
     for (int y = y0; y < y1; ++y) {
-      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, 0xffffffffu);
+      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, display.background);
     }
     Painter painter(canvas, display.scale);
     painter.limit(x0, y0, x1, y1);

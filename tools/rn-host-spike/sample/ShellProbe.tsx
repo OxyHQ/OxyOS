@@ -175,7 +175,7 @@ function ProbeShell({
 }) {
   return (
       <SafeAreaProvider>
-        <BloomProvider mode="light" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
+        <BloomProvider mode="system" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
           <Shell
             snapshot={shown}
             actions={act}
