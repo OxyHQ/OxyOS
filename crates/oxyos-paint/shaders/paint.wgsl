@@ -38,6 +38,19 @@ fn real_at(at: u32) -> f32 {
     return bitcast<f32>(ops[frame.op + at]);
 }
 
+// x / y rounded as the CPU rounds it: a device's division may be an ulp or two off (Vulkan allows
+// 2.5), which moves a pixel at an edge or a level at a rounding; one step on the residual, exact
+// with fma, puts it right.
+fn div(x: f32, y: f32) -> f32 {
+    let q = x / y;
+    let r = fma(-q, y, x);
+    return q + r / y;
+}
+
+fn div4(v: vec4<f32>, y: f32) -> vec4<f32> {
+    return vec4<f32>(div(v.x, y), div(v.y, y), div(v.z, y), div(v.w, y));
+}
+
 // std::lround of a value at or above zero.
 fn lround(value: f32) -> u32 {
     return u32(floor(value + 0.5));
@@ -150,10 +163,10 @@ fn blend(index: u32, c: Rgba, coverage: f32) {
         return;
     }
     let dst = heap[index];
-    let da = f32((dst >> 24u) & 0xffu) / 255.0;
-    let dr = f32((dst >> 16u) & 0xffu) / 255.0;
-    let dg = f32((dst >> 8u) & 0xffu) / 255.0;
-    let db = f32(dst & 0xffu) / 255.0;
+    let da = div(f32((dst >> 24u) & 0xffu), 255.0);
+    let dr = div(f32((dst >> 16u) & 0xffu), 255.0);
+    let dg = div(f32((dst >> 8u) & 0xffu), 255.0);
+    let db = div(f32(dst & 0xffu), 255.0);
     heap[index] = (lround((1.0 * a + da * (1.0 - a)) * 255.0) << 24u) | (lround((c.r * a + dr * (1.0 - a)) * 255.0) << 16u)
         | (lround((c.g * a + dg * (1.0 - a)) * 255.0) << 8u) | lround((c.b * a + db * (1.0 - a)) * 255.0);
 }
@@ -182,17 +195,17 @@ fn blend_solid(index: u32, c: Rgba) {
 fn over(index: u32, alpha: f32, r: f32, g: f32, b: f32) {
     let dst = heap[index];
     let keep = 1.0 - alpha;
-    heap[index] = (lround(clamp(alpha + f32((dst >> 24u) & 0xffu) / 255.0 * keep, 0.0, 1.0) * 255.0) << 24u)
-        | (lround(clamp(r + f32((dst >> 16u) & 0xffu) / 255.0 * keep, 0.0, 1.0) * 255.0) << 16u)
-        | (lround(clamp(g + f32((dst >> 8u) & 0xffu) / 255.0 * keep, 0.0, 1.0) * 255.0) << 8u)
-        | lround(clamp(b + f32(dst & 0xffu) / 255.0 * keep, 0.0, 1.0) * 255.0);
+    heap[index] = (lround(clamp(alpha + div(f32((dst >> 24u) & 0xffu), 255.0) * keep, 0.0, 1.0) * 255.0) << 24u)
+        | (lround(clamp(r + div(f32((dst >> 16u) & 0xffu), 255.0) * keep, 0.0, 1.0) * 255.0) << 16u)
+        | (lround(clamp(g + div(f32((dst >> 8u) & 0xffu), 255.0) * keep, 0.0, 1.0) * 255.0) << 8u)
+        | lround(clamp(b + div(f32(dst & 0xffu), 255.0) * keep, 0.0, 1.0) * 255.0);
 }
 
 // ---- operations ---------------------------------------------------------------------------------
 
 // Painter::fill: a rounded box, less a hole (a border ring).
 fn fill_op(px: u32, py: u32) {
-    let s = 1.0 / real_at(SCALE);
+    let s = div(1.0, real_at(SCALE));
     let scale = real_at(SCALE);
     let x = real_at(ARGS);
     let y = real_at(ARGS + 1u);
@@ -201,13 +214,13 @@ fn fill_op(px: u32, py: u32) {
     let r = radii(ARGS + 4u);
     let hole = word_at(ARGS + 8u) != 0u;
     let hr = radii(ARGS + 13u);
-    let lx = f32(px) / scale;
-    let ly = f32(py) / scale;
+    let lx = div(f32(px), scale);
+    let ly = div(f32(py), scale);
     let cx0 = real_at(CLIP);
     let cy0 = real_at(CLIP + 1u);
     let cx1 = real_at(CLIP + 2u);
     let cy1 = real_at(CLIP + 3u);
-    if (lx + 1.0 / scale <= cx0 || lx >= cx1 || ly + 1.0 / scale <= cy0 || ly >= cy1) {
+    if (lx + div(1.0, scale) <= cx0 || lx >= cx1 || ly + div(1.0, scale) <= cy0 || ly >= cy1) {
         return;
     }
     var coverage: f32;
@@ -221,8 +234,8 @@ fn fill_op(px: u32, py: u32) {
         let by0 = max(y, cy0);
         let bx1 = min(x + w, cx1);
         let by1 = min(y + h, cy1);
-        let cx = min(lx + 1.0 / scale, bx1) - max(lx, bx0);
-        let cy = min(ly + 1.0 / scale, by1) - max(ly, by0);
+        let cx = min(lx + div(1.0, scale), bx1) - max(lx, bx0);
+        let cy = min(ly + div(1.0, scale), by1) - max(ly, by0);
         coverage = clamp(cx * scale, 0.0, 1.0) * clamp(cy * scale, 0.0, 1.0);
     }
     let index = pixel_index(px, py);
@@ -240,16 +253,16 @@ fn texel(base: u32, width: u32, height: u32, canvas: bool, tx: i32, ty: i32) -> 
     let cy = u32(clamp(ty, 0, i32(height) - 1));
     let p = heap[base + cy * width + cx];
     if (canvas) {
-        return vec4<f32>(f32((p >> 16u) & 0xffu), f32((p >> 8u) & 0xffu), f32(p & 0xffu), f32(p >> 24u)) / 255.0;
+        return div4(vec4<f32>(f32((p >> 16u) & 0xffu), f32((p >> 8u) & 0xffu), f32(p & 0xffu), f32(p >> 24u)), 255.0);
     }
-    return vec4<f32>(f32(p & 0xffu), f32((p >> 8u) & 0xffu), f32((p >> 16u) & 0xffu), f32(p >> 24u)) / 255.0;
+    return div4(vec4<f32>(f32(p & 0xffu), f32((p >> 8u) & 0xffu), f32((p >> 16u) & 0xffu), f32(p >> 24u)), 255.0);
 }
 
 // Painter::image: a picture (or a canvas) stretched over (dx, dy, dw, dh), bilinear at the pixel's
 // centre, rounded by the box's radii, tinted or not.
 fn image_op(px: u32, py: u32) {
     let scale = real_at(SCALE);
-    let s = 1.0 / scale;
+    let s = div(1.0, scale);
     let base = word_at(ARGS);
     let pw = word_at(ARGS + 1u);
     let ph = word_at(ARGS + 2u);
@@ -276,8 +289,8 @@ fn image_op(px: u32, py: u32) {
     if (coverage <= 0.0) {
         return;
     }
-    let u = ((lx + s / 2.0 - dx) / dw) * f32(pw) - 0.5;
-    let v = ((ly + s / 2.0 - dy) / dh) * f32(ph) - 0.5;
+    let u = div(lx + s / 2.0 - dx, dw) * f32(pw) - 0.5;
+    let v = div(ly + s / 2.0 - dy, dh) * f32(ph) - 0.5;
     let u0 = i32(floor(u));
     let v0 = i32(floor(v));
     let fu = u - f32(u0);
@@ -321,11 +334,11 @@ fn layer_texel(base: u32, width: u32, height: u32, tx: i32, ty: i32) -> u32 {
 }
 
 fn channels(p: u32) -> vec4<f32> {
-    return vec4<f32>(f32((p >> 24u) & 0xffu), f32((p >> 16u) & 0xffu), f32((p >> 8u) & 0xffu), f32(p & 0xffu)) / 255.0;
+    return div4(vec4<f32>(f32((p >> 24u) & 0xffu), f32((p >> 16u) & 0xffu), f32((p >> 8u) & 0xffu), f32(p & 0xffu)), 255.0);
 }
 
 fn layer_op(px: u32, py: u32) {
-    let s = 1.0 / real_at(SCALE);
+    let s = div(1.0, real_at(SCALE));
     let base = word_at(ARGS);
     let lw = word_at(ARGS + 1u);
     let lh = word_at(ARGS + 2u);
@@ -374,8 +387,8 @@ fn glyphs_op(px: u32, py: u32) {
     let scale = real_at(SCALE);
     let list = word_at(ARGS);
     let count = word_at(ARGS + 1u);
-    let lx = f32(px) / scale;
-    let ly = f32(py) / scale;
+    let lx = div(f32(px), scale);
+    let ly = div(f32(py), scale);
     if (lx < real_at(CLIP) || lx >= real_at(CLIP + 2u) || ly < real_at(CLIP + 1u) || ly >= real_at(CLIP + 3u)) {
         return;
     }
@@ -394,7 +407,7 @@ fn glyphs_op(px: u32, py: u32) {
         let byte = u32(y) * gw + u32(x);
         let value = (heap[heap[at + 4u] + byte / 4u] >> ((byte % 4u) * 8u)) & 0xffu;
         if (value != 0u) {
-            blend(index, color(), f32(value) / 255.0);
+            blend(index, color(), div(f32(value), 255.0));
         }
     }
 }
@@ -420,7 +433,7 @@ fn plane(base: u32, size: u32, c: u32, index: u32) -> f32 {
 // Painter::smooth: float planes stretched bilinearly at full precision and dithered as written.
 fn smooth_op(px: u32, py: u32) {
     let scale = real_at(SCALE);
-    let s = 1.0 / scale;
+    let s = div(1.0, scale);
     let base = word_at(ARGS);
     let iw = word_at(ARGS + 1u);
     let ih = word_at(ARGS + 2u);
@@ -436,7 +449,7 @@ fn smooth_op(px: u32, py: u32) {
     let by1 = min(dy + dh, real_at(CLIP + 3u));
     let size = iw * ih;
     let lx = f32(px) * s;
-    let u = ((lx + s / 2.0 - dx) / dw) * f32(iw) - 0.5;
+    let u = div(lx + s / 2.0 - dx, dw) * f32(iw) - 0.5;
     let u0 = i32(floor(u));
     let cover = clamp((min(lx + s, bx1) - max(lx, bx0)) * scale, 0.0, 1.0);
     let weight = u - f32(u0);
@@ -444,7 +457,7 @@ fn smooth_op(px: u32, py: u32) {
     let right = u32(clamp(u0 + 1, 0, i32(iw) - 1));
     let ly = f32(py) * s;
     let row_cover = clamp((min(ly + s, by1) - max(ly, by0)) * scale, 0.0, 1.0);
-    let v = ((ly + s / 2.0 - dy) / dh) * f32(ih) - 0.5;
+    let v = div(ly + s / 2.0 - dy, dh) * f32(ih) - 0.5;
     let v0 = i32(floor(v));
     let fv = v - f32(v0);
     let top_row = u32(clamp(v0, 0, i32(ih) - 1)) * iw;
@@ -467,7 +480,7 @@ fn smooth_op(px: u32, py: u32) {
     }
     let threshold = dither(px, py);
     let index = pixel_index(px, py);
-    let alpha = level[0] / 255.0;
+    let alpha = div(level[0], 255.0);
     if (alpha <= 0.0) {
         return;
     }
@@ -520,7 +533,7 @@ fn box_line(line: u32, plane_index: u32) {
     let stride = word_at(ARGS + 5u);
     let step = word_at(ARGS + 6u);
     let base = line * stride;
-    let scale = 1.0 / f32(2 * r + 1);
+    let scale = div(1.0, f32(2 * r + 1));
     var sum = 0.0;
     for (var i = -r; i <= r; i++) {
         sum += bitcast<f32>(heap[input + base + u32(clamp(i, 0, length - 1)) * step]);

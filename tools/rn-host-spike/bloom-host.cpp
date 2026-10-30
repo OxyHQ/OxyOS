@@ -1381,7 +1381,15 @@ int main(int argc, char** argv) {
                 oxyos::CpuPaintScope onCpu;
                 oxyos::draw(tree, display, cpu, drawn);
               }
-              auto difference = oxyos::compareFrames(oxyos::canvasPixels(windowCanvas), cpu.pixels);
+              auto gpuPixels = oxyos::canvasPixels(windowCanvas);
+              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels);
+              if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
+                static int dumped = 0;
+                oxyos::Canvas gpuFrame{windowCanvas.width, windowCanvas.height, gpuPixels, nullptr};
+                oxyos::writePng(gpuFrame, std::string(dump) + "/gpu-" + std::to_string(dumped) + ".png");
+                oxyos::writePng(cpu, std::string(dump) + "/cpu-" + std::to_string(dumped) + ".png");
+                ++dumped;
+              }
               oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference.largest, difference.beyondThree,
                                                difference.pixels);
             }
