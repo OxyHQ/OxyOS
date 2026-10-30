@@ -1,0 +1,16 @@
+[package]
+name = "oxyos-package"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Ed25519 (signing and strict verification) and SHA-256, from the crate rustls already brings:
+# no second implementation of either in the workspace.
+ring = "0.17"
+# Walking a package's tree by descriptor (openat with O_NOFOLLOW), so a link is never followed.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs"] }
+
+[lints]
+workspace = true

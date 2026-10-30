@@ -1752,6 +1752,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-package"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-platform-probe"
 version = "0.1.0"
 dependencies = [
