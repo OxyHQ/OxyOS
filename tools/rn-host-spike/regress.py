@@ -123,7 +123,7 @@ what it says (ADR 0014); the reader's keys are `key` steps (Ctrl+Alt+Right is [2
 
 Every scenario runs with a preferences file of its own, light unless it says otherwise. A scenario
 with `settings` ({"app": ID, "preferences": {KEY: VALUE}}) has that file written with those lines (docs/adr/0019-settings.mdx), and the application ID granted
-`settings` as a session grants an administrator's entry. A step's `preferences` expectation checks
+`settings` as a session grants the system application the image's policy names. A step's `preferences` expectation checks
 what the session last told the application of how to draw (dark, reduceMotion,
 reduceTransparency, accent) by the time the step settled, each key given; the `final`
 `preferences_file` expectation checks the file holds each KEY = VALUE given once the run ended.

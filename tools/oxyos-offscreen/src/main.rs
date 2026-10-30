@@ -121,9 +121,9 @@ struct Session {
     /// The user's preferences, played as the session keeps them (docs/adr/0019-settings.mdx):
     /// from `--preferences FILE`, never the developer's own; the defaults without it.
     settings: oxyos_compositor::settings::Settings,
-    /// `--grant-settings ID`: the development compositor's fixture for an administrator's entry
-    /// (a session gives `settings` only to an entry root wrote): the application `ID`, launched,
-    /// is given `settings`.
+    /// `--grant-settings ID`: the development compositor's fixture for the image's policy of
+    /// system applications (a session gives `settings` only to the application that policy names
+    /// it for): the application `ID`, launched, is given `settings`.
     grant_settings: Option<String>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.

@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 # Asking an application's process to stop (SIGTERM).
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+# The image's policy of system applications (docs/adr/0030-installing-applications.mdx), JSON.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lints]
 workspace = true

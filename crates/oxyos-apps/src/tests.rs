@@ -26,15 +26,9 @@ const ALLO: &str = "[Desktop Entry]\nType=Application\nName=Allo\nName[es]=Allo 
 #[test]
 fn an_entry_is_an_application_named_in_the_sessions_language() {
     let dir = Path::new("/apps");
-    let es = parse(
-        "so.oxy.allo",
-        ALLO,
-        dir,
-        &["es_ES".into(), "es".into()],
-        false,
-    )
-    .unwrap()
-    .unwrap();
+    let es = parse("so.oxy.allo", ALLO, dir, &["es_ES".into(), "es".into()])
+        .unwrap()
+        .unwrap();
     assert_eq!(es.name, "Allo en español");
     assert_eq!(es.icon, Some(PathBuf::from("/apps/allo.png")));
     assert_eq!(
@@ -45,15 +39,9 @@ fn an_entry_is_an_application_named_in_the_sessions_language() {
         }
     );
     assert_eq!(es.pinned, Some(2));
-    let en = parse(
-        "so.oxy.allo",
-        ALLO,
-        dir,
-        &["en_US".into(), "en".into()],
-        false,
-    )
-    .unwrap()
-    .unwrap();
+    let en = parse("so.oxy.allo", ALLO, dir, &["en_US".into(), "en".into()])
+        .unwrap()
+        .unwrap();
     assert_eq!(en.name, "Allo");
 }
 
@@ -65,7 +53,6 @@ fn exec_is_split_as_the_specification_quotes_and_field_codes_are_refused() {
             &format!("[Desktop Entry]\nType=Application\nName=Tool\nExec={exec}\n"),
             Path::new("/"),
             &[],
-            false,
         )
     };
     assert_eq!(
@@ -89,16 +76,15 @@ fn exec_is_split_as_the_specification_quotes_and_field_codes_are_refused() {
 fn entries_not_to_list_and_invalid_ids_are_not_applications() {
     let dir = Path::new("/");
     let hidden = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nNoDisplay=true\n";
-    assert_eq!(parse("so.oxy.x", hidden, dir, &[], false), Ok(None));
+    assert_eq!(parse("so.oxy.x", hidden, dir, &[]), Ok(None));
     let link = "[Desktop Entry]\nType=Link\nName=X\nURL=https://oxy.so\n";
-    assert_eq!(parse("so.oxy.x", link, dir, &[], false), Ok(None));
-    assert!(parse("../etc/passwd", ALLO, dir, &[], false).is_err());
+    assert_eq!(parse("so.oxy.x", link, dir, &[]), Ok(None));
+    assert!(parse("../etc/passwd", ALLO, dir, &[]).is_err());
     assert!(parse(
         "so.oxy.allo",
         "[Desktop Entry]\nType=Application\nExec=x\n",
         dir,
-        &[],
-        false
+        &[]
     )
     .is_err());
     assert!(valid_id("so.oxy.allo") && !valid_id("") && !valid_id(".hidden") && !valid_id("a b"));
@@ -138,7 +124,12 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
             ("README", "not an entry"),
         ],
     );
-    let (apps, skipped) = registry(&[user.0.clone(), system.0.clone()], &[], &|_| false);
+    let (apps, skipped) = registry(
+        &[user.0.clone(), system.0.clone()],
+        &[],
+        &Policy::none(),
+        &|_| false,
+    );
     let names: Vec<(&str, &str)> = apps
         .iter()
         .map(|a| (a.id.as_str(), a.name.as_str()))
@@ -151,11 +142,24 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert!(skipped[0].contains("so.oxy.broken"));
     assert_eq!(
-        find(&[system.0.clone()], &[], &|_| false, "so.oxy.allo").map(|a| a.name),
+        find(
+            &[system.0.clone()],
+            &[],
+            &Policy::none(),
+            &|_| false,
+            "so.oxy.allo"
+        )
+        .map(|a| a.name),
         Some("Allo".into())
     );
     assert_eq!(
-        find(&[system.0.clone()], &[], &|_| false, "so.oxy.none"),
+        find(
+            &[system.0.clone()],
+            &[],
+            &Policy::none(),
+            &|_| false,
+            "so.oxy.none"
+        ),
         None
     );
 }
@@ -179,7 +183,6 @@ fn a_dock_place_is_a_number_from_one() {
             ),
             Path::new("/"),
             &[],
-            false,
         )
     };
     assert_eq!(entry("3").unwrap().unwrap().pinned, Some(3));
@@ -230,7 +233,7 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
     );
     let _ = std::fs::remove_file(&out);
     // A Bloom application needs the session's host and a bundle.
-    let bloom = parse("so.oxy.allo", ALLO, Path::new("/apps"), &[], false)
+    let bloom = parse("so.oxy.allo", ALLO, Path::new("/apps"), &[])
         .unwrap()
         .unwrap();
     assert!(command(&bloom, &launcher.runtime).is_err());
@@ -253,38 +256,407 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
     );
 }
 
-// ---- grants (docs/adr/0019-settings.mdx) ------------------------------------------------------
+// ---- system grants (docs/adr/0019-settings.mdx, docs/adr/0030-installing-applications.mdx) -----
 
 const SETTINGS: &str =
-    "[Desktop Entry]\nType=Application\nName=Settings\nExec=/bin/true\nX-OxyOS-Grants=settings;\n";
+    "[Desktop Entry]\nType=Application\nName=Settings\nExec=/bin/sh -c \"exit 0\"\nX-OxyOS-Grants=settings;\n";
+
+/// A policy naming `id` as a native system application: its entry in `directory`, `program`
+/// what it runs.
+fn policy_of(id: &str, directory: &Path, program: &Path, grants: &str) -> String {
+    format!(
+        r#"{{"applications":{{"{id}":{{"entry":"{}","exec":"{}","grants":[{grants}]}}}}}}"#,
+        directory.join(format!("{id}.desktop")).display(),
+        program.display()
+    )
+}
 
 #[test]
-fn an_entry_has_the_grants_it_names_only_if_trusted() {
-    let dir = Path::new("/");
-    let trusted = parse("so.oxy.settings", SETTINGS, dir, &[], true)
-        .unwrap()
-        .unwrap();
-    assert_eq!(trusted.grants, Grants { settings: true });
-    let untrusted = parse("so.oxy.settings", SETTINGS, dir, &[], false)
-        .unwrap()
-        .unwrap();
-    assert_eq!(untrusted.grants, Grants::default());
-    // Names this system does not know grant nothing; the list may have spaces and no `;`.
-    let entry = |list: &str| {
-        parse(
-            "so.oxy.x",
-            &format!("[Desktop Entry]\nType=Application\nName=X\nExec=x\nX-OxyOS-Grants={list}\n"),
-            dir,
-            &[],
-            true,
-        )
-        .unwrap()
-        .unwrap()
-        .grants
+fn the_policy_is_read_strictly() {
+    let good = r#"{"applications":{
+        "so.oxy.settings":{"entry":"/usr/share/oxyos/applications/so.oxy.settings.desktop",
+            "bloom":{"host":"/usr/lib/oxyos/oxyos-bloom-host","bundle":"/usr/lib/oxyos/bundle/index.js"},
+            "grants":["settings"]},
+        "so.oxy.stash":{"entry":"/usr/share/oxyos/applications/so.oxy.stash.desktop",
+            "exec":"/usr/libexec/stash","grants":[]}}}"#;
+    let policy = Policy::parse(good).unwrap();
+    assert_eq!(
+        policy.get("so.oxy.settings"),
+        Some(&SystemApplication {
+            entry: "/usr/share/oxyos/applications/so.oxy.settings.desktop".into(),
+            runs: Runs::Bloom {
+                host: "/usr/lib/oxyos/oxyos-bloom-host".into(),
+                bundle: "/usr/lib/oxyos/bundle/index.js".into(),
+            },
+            grants: Grants { settings: true },
+        })
+    );
+    assert_eq!(
+        policy.get("so.oxy.stash").map(|app| app.grants),
+        Some(Grants::default())
+    );
+    assert_eq!(policy.get("so.oxy.mention"), None);
+    let one = |fields: &str| {
+        Policy::parse(&format!(
+            r#"{{"applications":{{"so.oxy.x":{{{fields}}}}}}}"#
+        ))
     };
-    assert_eq!(entry("shell;lock;root"), Grants::default());
-    assert_eq!(entry("shell; settings"), Grants { settings: true });
-    assert_eq!(entry("Settings"), Grants::default());
+    let entry = r#""entry":"/usr/share/oxyos/applications/so.oxy.x.desktop""#;
+    assert!(one(&format!(
+        r#"{entry},"exec":"/usr/bin/x","grants":["settings"]"#
+    ))
+    .is_ok());
+    // Each way a policy could mean something it does not say refuses it whole.
+    let refused = [
+        (
+            "an unknown key",
+            format!(r#"{entry},"exec":"/x","grants":[],"pinned":1"#),
+        ),
+        (
+            "a key twice",
+            format!(r#"{entry},"exec":"/x","exec":"/y","grants":[]"#),
+        ),
+        (
+            "an unknown grant",
+            format!(r#"{entry},"exec":"/x","grants":["shell"]"#),
+        ),
+        (
+            "a grant's other spelling",
+            format!(r#"{entry},"exec":"/x","grants":["Settings"]"#),
+        ),
+        (
+            "a grant twice",
+            format!(r#"{entry},"exec":"/x","grants":["settings","settings"]"#),
+        ),
+        ("no grants named", format!(r#"{entry},"exec":"/x""#)),
+        (
+            "a relative program",
+            format!(r#"{entry},"exec":"x","grants":[]"#),
+        ),
+        (
+            "a program through ..",
+            format!(r#"{entry},"exec":"/usr/../x","grants":[]"#),
+        ),
+        (
+            "both exec and bloom",
+            format!(r#"{entry},"exec":"/x","bloom":{{"host":"/h","bundle":"/b"}},"grants":[]"#),
+        ),
+        ("neither exec nor bloom", format!(r#"{entry},"grants":[]"#)),
+        (
+            "a relative bundle",
+            format!(r#"{entry},"bloom":{{"host":"/h","bundle":"b"}},"grants":[]"#),
+        ),
+        (
+            "a bloom key unknown",
+            format!(r#"{entry},"bloom":{{"host":"/h","bundle":"/b","module":"M"}},"grants":[]"#),
+        ),
+        (
+            "an entry of another id",
+            r#""entry":"/usr/share/oxyos/applications/so.oxy.y.desktop","exec":"/x","grants":[]"#
+                .to_string(),
+        ),
+        (
+            "a relative entry",
+            r#""entry":"so.oxy.x.desktop","exec":"/x","grants":[]"#.to_string(),
+        ),
+    ];
+    for (what, fields) in refused {
+        assert!(one(&fields).is_err(), "{what} was accepted");
+    }
+    let app = format!(r#"{{{entry},"exec":"/x","grants":[]}}"#);
+    assert!(
+        Policy::parse(&format!(
+            r#"{{"applications":{{"so.oxy.x":{app},"so.oxy.x":{app}}}}}"#
+        ))
+        .is_err(),
+        "an id twice"
+    );
+    assert!(
+        Policy::parse(&format!(r#"{{"applications":{{"../x":{app}}}}}"#)).is_err(),
+        "not an id"
+    );
+    assert!(
+        Policy::parse(r#"{"applications":{},"version":1}"#).is_err(),
+        "an unknown key above"
+    );
+    assert!(Policy::parse(r#"{}"#).is_err(), "no applications");
+    assert!(
+        Policy::parse("").is_err() && Policy::parse("[").is_err(),
+        "not JSON"
+    );
+    assert_eq!(Policy::parse(r#"{"applications":{}}"#), Ok(Policy::none()));
+    // A development machine's, with Settings' host and bundle in /opt/oxyos and its entry in
+    // /usr/local, laid out as a person writes it.
+    let development = r#"{
+  "applications": {
+    "so.oxy.settings": {
+      "entry": "/usr/local/share/oxyos/applications/so.oxy.settings.desktop",
+      "bloom": { "host": "/opt/oxyos/oxyos-bloom-host", "bundle": "/opt/oxyos/bundle/index.js" },
+      "grants": ["settings"]
+    }
+  }
+}
+"#;
+    assert_eq!(
+        Policy::parse(development)
+            .unwrap()
+            .get("so.oxy.settings")
+            .map(|app| app.grants),
+        Some(Grants { settings: true })
+    );
+}
+
+#[test]
+fn a_policy_is_an_administrators_or_nothing() {
+    let dir = Directory::new("policy-read", &[]);
+    let path = dir.0.join("system-apps.json");
+    let trusted = as_if_root(&dir.0);
+    // No policy: no system application.
+    assert_eq!(Policy::read(&path, &trusted), Ok(Policy::none()));
+    std::fs::write(
+        &path,
+        policy_of(
+            "so.oxy.settings",
+            Path::new("/e"),
+            Path::new("/p"),
+            r#""settings""#,
+        ),
+    )
+    .unwrap();
+    assert!(Policy::read(&path, &trusted)
+        .unwrap()
+        .get("so.oxy.settings")
+        .is_some());
+    // The same file, the user's: nothing, and said.
+    assert!(Policy::read(&path, &|_| false).is_err());
+    // A link to it, even in the administrator's directory: nothing.
+    let link = dir.0.join("linked.json");
+    std::os::unix::fs::symlink(&path, &link).unwrap();
+    assert!(Policy::read(&link, &trusted).is_err());
+    // Larger than a policy may be: nothing.
+    std::fs::write(&path, " ".repeat(POLICY_LIMIT as usize + 1)).unwrap();
+    assert!(Policy::read(&path, &trusted).is_err());
+    // A user's file is never an administrator's: the session's own rule refuses it.
+    std::fs::write(&path, r#"{"applications":{}}"#).unwrap();
+    assert!(Policy::read(&path, &administrator_written).is_err());
+}
+
+#[test]
+fn an_entry_grants_nothing_whoever_wrote_it() {
+    // Root's entry asking for `settings`, which the policy does not name: the hole ADR 0030's
+    // decision 7 closes (an installer writes root's files from what it downloads).
+    let dir = Directory::new("grants-entry", &[("so.oxy.settings.desktop", SETTINGS)]);
+    let trusted = as_if_root(&dir.0);
+    let (apps, skipped) = registry(&[dir.0.clone()], &[], &Policy::none(), &trusted);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(
+        apps.iter()
+            .map(|a| (a.id.as_str(), a.system))
+            .collect::<Vec<_>>(),
+        [("so.oxy.settings", false)]
+    );
+    let mut launcher = test_launcher(&dir, None);
+    launcher.trusted =
+        Box::new(move |path| trusted(path) || path == Path::new("/bin/sh").canonicalize().unwrap());
+    let pid = launcher.launch("so.oxy.settings").unwrap();
+    assert_eq!(
+        launcher.application_of(pid).map(|l| l.grants),
+        Some(Grants::default())
+    );
+    launcher.end(std::time::Duration::from_secs(5));
+}
+
+/// A launcher over `dir`'s entries with the policy at `policy` (none if absent).
+fn test_launcher(dir: &Directory, policy: Option<&Path>) -> Launcher {
+    let mut launcher = Launcher::new(
+        Runtime {
+            socket: PathBuf::from("/run/oxyos-test"),
+            bloom_host: None,
+            bloom_bundle: None,
+            window: (960, 600),
+            env: Vec::new(),
+        },
+        vec![dir.0.clone()],
+        vec![],
+    );
+    launcher.policy = policy.map_or_else(|| dir.0.join("no-policy.json"), Path::to_path_buf);
+    launcher
+}
+
+#[test]
+fn a_system_application_is_the_policys_entry_and_no_one_elses() {
+    let user = Directory::new(
+        "system-user",
+        &[(
+            "so.oxy.settings.desktop",
+            "[Desktop Entry]\nType=Application\nName=Mine\nExec=/bin/true\n",
+        )],
+    );
+    let system = Directory::new("system-entries", &[("so.oxy.settings.desktop", SETTINGS)]);
+    let policy = Policy::parse(&policy_of(
+        "so.oxy.settings",
+        &system.0.canonicalize().unwrap(),
+        Path::new("/bin/sh"),
+        r#""settings""#,
+    ))
+    .unwrap();
+    let trusted = as_if_root(&system.0);
+    // The user's directory first, as `$XDG_DATA_HOME` is: the system's Settings still wins.
+    let (apps, skipped) = registry(&[user.0.clone(), system.0.clone()], &[], &policy, &trusted);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(
+        apps.iter()
+            .map(|a| (a.id.as_str(), a.name.as_str(), a.system))
+            .collect::<Vec<_>>(),
+        [("so.oxy.settings", "Settings", true)]
+    );
+    // The policy's entry the user's: Settings is left out, said, and never the user's instead.
+    let (apps, skipped) = registry(&[user.0.clone(), system.0.clone()], &[], &policy, &|_| {
+        false
+    });
+    assert!(apps.is_empty(), "{apps:?}");
+    assert_eq!(skipped.len(), 1, "{skipped:?}");
+    // Nor through a link on the way to it: the path the policy names must be the real one.
+    let linked = Directory::new("system-linked", &[]);
+    std::os::unix::fs::symlink(&system.0, linked.0.join("entries")).unwrap();
+    let through_link = Policy::parse(&policy_of(
+        "so.oxy.settings",
+        &linked.0.canonicalize().unwrap().join("entries"),
+        Path::new("/bin/sh"),
+        r#""settings""#,
+    ))
+    .unwrap();
+    let (apps, _) = registry(&[], &[], &through_link, &trusted);
+    assert!(apps.is_empty(), "{apps:?}");
+}
+
+#[test]
+fn a_system_launch_runs_what_the_policy_names() {
+    let shell = Path::new("/bin/sh").canonicalize().unwrap();
+    let dir = Directory::new(
+        "system-launch",
+        &[
+            ("so.oxy.settings.desktop", SETTINGS),
+            (
+                "so.oxy.searched.desktop",
+                "[Desktop Entry]\nType=Application\nName=Searched\nExec=sh -c \"exit 0\"\n",
+            ),
+            (
+                "so.oxy.other.desktop",
+                "[Desktop Entry]\nType=Application\nName=Other\nExec=/bin/true\n",
+            ),
+        ],
+    );
+    let entries = dir.0.canonicalize().unwrap();
+    let policy_file = Directory::new("system-launch-policy", &[]);
+    let path = policy_file.0.join("system-apps.json");
+    let write = |id: &str, program: &Path| {
+        std::fs::write(&path, policy_of(id, &entries, program, r#""settings""#)).unwrap();
+    };
+    let root = {
+        let (entries, policies) = (as_if_root(&dir.0), as_if_root(&policy_file.0));
+        let shell = shell.clone();
+        move |path: &Path| entries(path) || policies(path) || path == shell
+    };
+    let mut launcher = test_launcher(&dir, Some(&path));
+    launcher.trusted = Box::new(root);
+    // The policy's program, an administrator's, by its real path: granted.
+    write("so.oxy.settings", &shell);
+    let pid = launcher.launch("so.oxy.settings").unwrap();
+    assert_eq!(
+        launcher.application_of(pid).map(|l| l.grants),
+        Some(Grants { settings: true })
+    );
+    // A program the PATH finds is whatever the PATH finds: not started.
+    write("so.oxy.searched", &shell);
+    assert!(launcher.launch("so.oxy.searched").is_err());
+    // A program other than the policy's: not started.
+    write("so.oxy.other", &shell);
+    assert!(launcher.launch("so.oxy.other").is_err());
+    // The policy's program, but anyone's (the user's own script): not started.
+    let users = Directory::new(
+        "system-launch-program",
+        &[("program", "#!/bin/sh\nexit 0\n")],
+    );
+    let script = users.0.canonicalize().unwrap().join("program");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(
+        dir.0.join("so.oxy.users.desktop"),
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Users\nExec={}\n",
+            script.display()
+        ),
+    )
+    .unwrap();
+    write("so.oxy.users", &script);
+    assert!(launcher.launch("so.oxy.users").is_err());
+    write("so.oxy.settings", &shell);
+    // A policy anyone could have written gives nothing: Settings runs, as an application.
+    launcher.trusted = Box::new({
+        let entries = as_if_root(&dir.0);
+        let shell = shell.clone();
+        move |path: &Path| entries(path) || path == shell
+    });
+    let pid = launcher.launch("so.oxy.settings").unwrap();
+    assert_eq!(
+        launcher.application_of(pid).map(|l| l.grants),
+        Some(Grants::default())
+    );
+    launcher.end(std::time::Duration::from_secs(5));
+
+    // A Bloom application runs the policy's host and bundle, whatever the session's are, by
+    // their real paths, and only if they are an administrator's.
+    let bloom = Application {
+        id: "so.oxy.settings".into(),
+        name: "Settings".into(),
+        icon: None,
+        launch: Launch::Bloom {
+            module: "Settings".into(),
+            bundle: Some(dir.0.join("elsewhere.js")),
+        },
+        pinned: None,
+        system: true,
+    };
+    let host = entries.join("host");
+    let bundle = entries.join("bundle.js");
+    std::fs::write(&host, "").unwrap();
+    std::fs::write(&bundle, "").unwrap();
+    let system = SystemApplication {
+        entry: entries.join("so.oxy.settings.desktop"),
+        runs: Runs::Bloom {
+            host: host.clone(),
+            bundle: bundle.clone(),
+        },
+        grants: Grants { settings: true },
+    };
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: Some(PathBuf::from("/home/someone/host")),
+        bloom_bundle: Some(PathBuf::from("/home/someone/bundle.js")),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let trusted = as_if_root(&dir.0);
+    let (application, real) = pinned(&bloom, &system, &runtime, &trusted).unwrap();
+    assert_eq!(real.bloom_host, Some(host.clone()));
+    assert_eq!(
+        application.launch,
+        Launch::Bloom {
+            module: "Settings".into(),
+            bundle: Some(bundle.clone())
+        }
+    );
+    let only_host = |path: &Path| path == host;
+    assert!(pinned(&bloom, &system, &runtime, &only_host).is_none());
+    // What it runs must be what the policy says it is: a native client is not a Bloom one.
+    let native = SystemApplication {
+        runs: Runs::Exec(shell.clone()),
+        ..system.clone()
+    };
+    assert!(pinned(&bloom, &native, &runtime, &trusted).is_none());
 }
 
 /// A filesystem as `lstat` would describe it, for the trust rule alone.
@@ -400,154 +772,4 @@ fn as_if_root(system: &Path) -> impl Fn(&Path) -> bool {
             })
         })
     }
-}
-
-#[test]
-fn a_user_entry_claiming_a_grant_gets_none() {
-    let user = Directory::new(
-        "grants-user",
-        &[
-            ("so.oxy.mine.desktop", SETTINGS),
-            // The user's own Settings hides the system's, and is the user's.
-            ("so.oxy.settings.desktop", SETTINGS),
-            ("elsewhere.desktop.txt", SETTINGS),
-        ],
-    );
-    let system = Directory::new(
-        "grants-system",
-        &[
-            ("so.oxy.settings.desktop", SETTINGS),
-            ("so.oxy.system.desktop", SETTINGS),
-        ],
-    );
-    // A link in the system's directory to an entry the user can change.
-    std::os::unix::fs::symlink(
-        user.0.join("elsewhere.desktop.txt"),
-        system.0.join("so.oxy.linked.desktop"),
-    )
-    .unwrap();
-    let trusted = as_if_root(&system.0);
-    let grants = |directories: &[PathBuf]| -> Vec<(String, bool)> {
-        let (apps, skipped) = registry(directories, &[], &trusted);
-        assert!(skipped.is_empty(), "{skipped:?}");
-        apps.into_iter()
-            .map(|app| (app.id, app.grants.settings))
-            .collect()
-    };
-    let mut both = grants(&[user.0.clone(), system.0.clone()]);
-    both.sort();
-    assert_eq!(
-        both,
-        [
-            ("so.oxy.linked".to_string(), false),
-            ("so.oxy.mine".to_string(), false),
-            ("so.oxy.settings".to_string(), false),
-            ("so.oxy.system".to_string(), true),
-        ]
-    );
-    // Without the user's directory, the system's Settings is granted.
-    let mut system_only = grants(&[system.0.clone()]);
-    system_only.sort();
-    assert_eq!(
-        system_only,
-        [
-            ("so.oxy.linked".to_string(), false),
-            ("so.oxy.settings".to_string(), true),
-            ("so.oxy.system".to_string(), true),
-        ]
-    );
-}
-
-#[test]
-fn a_launch_keeps_its_grants_only_running_an_administrators_program() {
-    let shell = Path::new("/bin/sh").canonicalize().unwrap();
-    let dir = Directory::new(
-        "grants-launch",
-        &[
-            (
-                "so.oxy.settings.desktop",
-                "[Desktop Entry]\nType=Application\nName=Settings\nExec=/bin/sh -c \"exit 0\"\nX-OxyOS-Grants=settings\n",
-            ),
-            (
-                "so.oxy.searched.desktop",
-                "[Desktop Entry]\nType=Application\nName=Searched\nExec=sh -c \"exit 0\"\nX-OxyOS-Grants=settings\n",
-            ),
-        ],
-    );
-    let users = Directory::new("grants-program", &[("program", "#!/bin/sh\nexit 0\n")]);
-    let script = users.0.join("program");
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    std::fs::write(
-        dir.0.join("so.oxy.users.desktop"),
-        format!(
-            "[Desktop Entry]\nType=Application\nName=Users\nExec={}\nX-OxyOS-Grants=settings\n",
-            script.display()
-        ),
-    )
-    .unwrap();
-    let runtime = Runtime {
-        socket: PathBuf::from("/run/oxyos-test"),
-        bloom_host: None,
-        bloom_bundle: None,
-        window: (960, 600),
-        env: Vec::new(),
-    };
-    let mut launcher = Launcher::new(runtime.clone(), vec![dir.0.clone()], vec![]);
-    let entries = as_if_root(&dir.0);
-    let program = shell.clone();
-    launcher.trusted = Box::new(move |path| entries(path) || path == program);
-    let pid = launcher.launch("so.oxy.settings").unwrap();
-    assert_eq!(
-        launcher.application_of(pid).map(|l| l.grants),
-        Some(Grants { settings: true })
-    );
-    // A program found on the PATH is whatever the PATH finds: no grant.
-    let pid = launcher.launch("so.oxy.searched").unwrap();
-    assert_eq!(
-        launcher.application_of(pid).map(|l| l.grants),
-        Some(Grants::default())
-    );
-    // Nor a program anyone but root could change: the user's own.
-    let pid = launcher.launch("so.oxy.users").unwrap();
-    assert_eq!(
-        launcher.application_of(pid).map(|l| l.grants),
-        Some(Grants::default())
-    );
-    launcher.end(std::time::Duration::from_secs(5));
-
-    // A Bloom application's host and bundle are what run: both must be an administrator's, and
-    // they run by their real paths.
-    let bloom = Application {
-        id: "so.oxy.settings".into(),
-        name: "Settings".into(),
-        icon: None,
-        launch: Launch::Bloom {
-            module: "Settings".into(),
-            bundle: None,
-        },
-        pinned: None,
-        grants: Grants { settings: true },
-    };
-    let host = dir.0.join("host");
-    let bundle = dir.0.join("bundle.js");
-    std::fs::write(&host, "").unwrap();
-    std::fs::write(&bundle, "").unwrap();
-    let runtime = Runtime {
-        bloom_host: Some(host.clone()),
-        bloom_bundle: Some(bundle.clone()),
-        ..runtime
-    };
-    let trusted = as_if_root(&dir.0);
-    let (_, real) = pinned(&bloom, &runtime, &trusted).unwrap();
-    assert_eq!(real.bloom_host, host.canonicalize().ok());
-    let only_host = |path: &Path| path == host.canonicalize().unwrap();
-    assert!(pinned(&bloom, &runtime, &only_host).is_none());
-    let no_host = Runtime {
-        bloom_host: None,
-        ..runtime
-    };
-    assert!(pinned(&bloom, &no_host, &trusted).is_none());
 }
