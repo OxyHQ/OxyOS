@@ -384,7 +384,7 @@ class Painter {
       Rgba color{((run.color >> 16) & 0xff) / 255.0f, ((run.color >> 8) & 0xff) / 255.0f,
                  (run.color & 0xff) / 255.0f, ((run.color >> 24) & 0xff) / 255.0f * opacity};
       for (const auto& glyph : run.glyphs) {
-        const auto& bitmap = engine.rasterize(glyph.face, glyph.id);
+        const auto& bitmap = engine.rasterize(glyph.face, glyph.id, scale_);
         int gx = static_cast<int>(std::lround((ox + glyph.x) * scale_)) + bitmap.left;
         int gy = static_cast<int>(std::lround((oy + run.baseline) * scale_)) - bitmap.top;
         if (gx + bitmap.width <= region_[0] || gx >= region_[2] || gy + bitmap.height <= region_[1] ||
