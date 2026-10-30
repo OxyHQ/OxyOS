@@ -172,6 +172,11 @@ impl Transitions {
         }
     }
 
+    /// Whether `key` is arriving.
+    pub fn is_arriving(&self, key: SurfaceKey) -> bool {
+        self.arriving.contains_key(&key)
+    }
+
     /// Whether `key` is arriving as a lock surface: drawn over the lock's cover until it is
     /// whole, so nothing under the lock shows through it.
     pub fn lock_arriving(&self, key: SurfaceKey) -> bool {
