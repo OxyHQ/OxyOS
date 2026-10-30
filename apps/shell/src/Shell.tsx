@@ -22,6 +22,8 @@ import { Bezel } from "./components/Bezel";
 import { ControlCenter } from "./components/ControlCenter";
 import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner";
 import { NotificationCenter } from "./components/NotificationCenter";
+import { SystemSheet } from "./components/SystemSheet";
+import type { Language, SheetText } from "./sheet";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -55,6 +57,7 @@ export function Shell({
   controls,
   notifications,
   banners = true,
+  sheet,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -85,6 +88,13 @@ export function Shell({
   notifications?: ShellNotifications;
   /** Whether this display shows banners: the primary does, as a Mac shows them on its main one. */
   banners?: boolean;
+  /** The session's system sheet to show now (ADR 0030): the first waiting, and its answer. */
+  sheet?: {
+    text: SheetText;
+    language?: Language;
+    names?: Record<string, string>;
+    answer: (accepted: boolean) => void;
+  };
 }) {
   const { Surface } = platform;
   const dark = useColorScheme() === "dark";
@@ -390,6 +400,13 @@ export function Shell({
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />
+          </Surface>
+        )}
+        {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
+            to the person; only the shell's press answers it. */}
+        {sheet && !lock?.locked && (
+          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+            <SystemSheet text={sheet.text} language={sheet.language} names={sheet.names} answer={sheet.answer} />
           </Surface>
         )}
         {/* A hardware key's bezel, above everything, taking no input. */}

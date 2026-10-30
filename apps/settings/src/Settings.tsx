@@ -16,6 +16,8 @@ import {
   RiLockLine,
   RiNotification3Line,
   RiPaletteLine,
+  RiRefreshLine,
+  RiShieldLine,
 } from "@oxy.so/bloom/icons";
 import {
   SegmentedControl,
@@ -32,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@oxy.so/bloom/select";
+import { Button } from "@oxy.so/bloom/button";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { SettingsLayout } from "@oxy.so/bloom/settings-modal";
 import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
@@ -56,6 +59,7 @@ import {
   type SettingsSnapshot,
 } from "./model";
 import type { Strings } from "./strings";
+import { formatSize as formatBytes, privacyRows, updatable, updateRows } from "./updates";
 
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Strings };
 
@@ -734,6 +738,142 @@ function AboutPage({ snapshot, strings }: PageProps) {
   );
 }
 
+/** Software Update (docs/adr/0030-installing-applications.mdx, decision 16): the OS's update
+    first, then every application update the account has, from the install service's one state,
+    which Atlas's Updates shows too. Settings never runs apt and never shows a fake OS update. */
+function SoftwareUpdatePage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.softwareUpdate;
+  const language = strings.title === "Ajustes" ? "es" : "en";
+  const updates = snapshot.updates;
+  if (!updates || !actions.updates) {
+    return (
+      <GroupedSection>
+        <GroupedSectionItem title={words.unavailable} testID="software-update-unavailable" />
+      </GroupedSection>
+    );
+  }
+  const act = actions.updates;
+  const state = updates.state;
+  const rows = updateRows(state, language);
+  const now = updatable(rows);
+  const checked = state?.checking
+    ? words.checking
+    : state?.checkFailed
+      ? words.checkFailed
+      : state?.checkedAt
+        ? words.lastChecked(new Date(state.checkedAt).toLocaleString(language))
+        : words.neverChecked;
+  return (
+    <View style={{ gap: 16 }}>
+      <GroupedSection>
+        <GroupedSectionItem
+          title={words.system}
+          description={updates.system.kind === "apt" ? words.systemApt : words.systemUnknown}
+          testID="software-update-system"
+        />
+      </GroupedSection>
+      <GroupedSection>
+        <GroupedSectionItem
+          title={rows.length === 0 && state && !state.checking ? words.upToDate : words.applications}
+          description={checked}
+          testID="software-update-status"
+        />
+        {rows.map((row) => (
+          <GroupedSectionItem
+            key={row.id}
+            title={row.name}
+            description={[
+              words.version(row.version, formatBytes(row.size, language)),
+              row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
+              row.notes,
+            ]
+              .filter(Boolean)
+              .join("\n")}
+            testID={`software-update-${row.id}`}
+            rightElement={
+              row.atNextLaunch ? undefined : (
+                <Button
+                  size="sm"
+                  appearance="outline"
+                  tone="neutral"
+                  testID={`software-update-${row.id}-update`}
+                  onPress={() => act.update(row.id)}
+                >
+                  {words.update}
+                </Button>
+              )
+            }
+          />
+        ))}
+      </GroupedSection>
+      <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+        <Button
+          appearance="outline"
+          tone="neutral"
+          testID="software-update-check"
+          disabled={state?.checking}
+          onPress={act.checkForUpdates}
+        >
+          {words.check}
+        </Button>
+        {now.length > 0 ? (
+          <Button appearance="solid" tone="accent" testID="software-update-all" onPress={act.updateAll}>
+            {words.updateAll}
+          </Button>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+/** Privacy (decision 8): each installed application's capabilities asked at first use, as its
+    account decided them, each a switch the install service keeps; it applies at the app's next
+    launch. */
+function PrivacyPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.privacy;
+  const apps = snapshot.privacy;
+  if (apps === undefined || !actions.privacy) {
+    return (
+      <GroupedSection>
+        <GroupedSectionItem title={words.unavailable} testID="privacy-unavailable" />
+      </GroupedSection>
+    );
+  }
+  const act = actions.privacy;
+  const listed = (apps ?? []).map((app) => ({ app, rows: privacyRows(app) })).filter(({ rows }) => rows.length > 0);
+  return (
+    <View style={{ gap: 16 }}>
+      <Text style={{ fontSize: 13 }}>{words.description}</Text>
+      {listed.length === 0 ? (
+        <GroupedSection>
+          <GroupedSectionItem title={words.none} testID="privacy-none" />
+        </GroupedSection>
+      ) : (
+        listed.map(({ app, rows }) => (
+          <GroupedSection key={app.id} title={app.name}>
+            {rows.map((row) => (
+              <GroupedSectionItem
+                key={row.capability}
+                title={words.capabilities[row.capability] ?? row.capability}
+                description={row.decided ? undefined : words.notAsked}
+                testID={`privacy-${app.id}-${row.capability}`}
+                rightElement={
+                  <Switch
+                    checked={row.granted}
+                    onCheckedChange={(granted: boolean) => act.decide(app.id, row.capability, granted)}
+                    accessibilityLabel={words.capabilities[row.capability] ?? row.capability}
+                    testID={`privacy-${app.id}-${row.capability}-switch`}
+                  />
+                }
+              />
+            ))}
+          </GroupedSection>
+        ))
+      )}
+    </View>
+  );
+}
+
 export function Settings({
   snapshot,
   actions,
@@ -764,6 +904,8 @@ export function Settings({
       items: [
         { key: "keyboard", label: words.keyboard, icon: RiKeyboardLine, page: "keyboard" },
         { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+        { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
+        { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
         { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
       ],
     },
@@ -778,6 +920,8 @@ export function Settings({
     keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },
     "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
     about: { title: words.about, content: <AboutPage {...props} /> },
+    "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },
+    privacy: { title: words.privacy, content: <PrivacyPage {...props} /> },
   };
   return (
     <SettingsLayout

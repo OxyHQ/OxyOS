@@ -1,3 +1,4 @@
+import type { PrivacyActions, PrivacyApplication, UpdatesActions, UpdatesSnapshot } from "./updates";
 import type { ImageSourcePropType } from "react-native";
 
 /**
@@ -82,6 +83,11 @@ export type SettingsSnapshot = {
   wallpapers: readonly Wallpaper[];
   system: SystemFacts;
   displays: DisplaysSnapshot;
+  /** Software Update (docs/adr/0030-installing-applications.mdx, decision 16): none without the
+      platform's `updates` grant. */
+  updates?: UpdatesSnapshot;
+  /** Privacy (decision 8): the installed applications' capabilities; none without `privacy`. */
+  privacy?: PrivacyApplication[] | null;
 };
 
 /** The keys a change names, as the session's preferences file does. */
@@ -114,6 +120,8 @@ export type SettingsActions = {
   setPrimaryDisplay: (output: number) => void;
   /** Keep the mode on trial, or go back to what the display showed. */
   confirmDisplays: (keep: boolean) => void;
+  updates?: UpdatesActions;
+  privacy?: PrivacyActions;
 };
 
 /** The resolutions a display offers, the largest first, each once, with whether it is its own. */
