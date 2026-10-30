@@ -737,6 +737,27 @@ int main(int argc, char** argv) {
           .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
             window->activateMenuItem(target, serial, index);
           },
+          // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx).
+          .setControlLevel =
+              [&window](uint8_t control, uint32_t level) {
+                oxyos::Report::get().input("control.set", 0, folly::dynamic::object("control", control)("level", level));
+                window->setControlLevel(control, level);
+              },
+          .setControlMuted =
+              [&window](uint8_t control, bool muted) {
+                oxyos::Report::get().input("control.mute", 0, folly::dynamic::object("control", control)("muted", muted));
+                window->setControlMuted(control, muted);
+              },
+          .setWifiEnabled =
+              [&window](bool enabled) {
+                oxyos::Report::get().input("control.wifi", 0, folly::dynamic::object("enabled", enabled));
+                window->setWifiEnabled(enabled);
+              },
+          .setAppearance = [&window, serial = uint32_t{0}](bool dark) mutable {
+            oxyos::Report::get().input("control.appearance", 0, folly::dynamic::object("dark", dark));
+            window->setAppearance(++serial, dark);
+          },
+          .refreshControls = [&window] { window->refreshControls(); },
       };
     }
     window->onClipboardChanged([&instance, &window] {
@@ -801,6 +822,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> preferenceResults;
         std::vector<OxyOSEvent> menuChoices;
         std::vector<OxyOSEvent> systemShortcuts;
+        std::vector<OxyOSEvent> bezels;
         if (!window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
@@ -810,6 +832,9 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_PREFERENCE_RESULT) preferenceResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
+              if (event.kind == OXYOS_EVENT_CONTROL_LEVEL && (event.flag & OXYOS_CONTROL_BEZEL)) {
+                bezels.push_back(event);
+              }
               if (event.kind == OXYOS_EVENT_FOCUS) {
                 if (event.flag) {
                   keyboardSurface = event.surface;
@@ -976,6 +1001,17 @@ int main(int argc, char** argv) {
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
+        }
+        // A hardware key's level for the shell's bezel (docs/adr/0025-hardware-keys-and-control-center.mdx),
+        // after the state that holds it: to JavaScript in order, each a bezel shown again.
+        for (const auto& bezel : bezels) {
+          static const char* controls[] = {"", "output", "input", "display", "keyboard"};
+          const char* control = bezel.detail <= OXYOS_CONTROL_KEYBOARD_BRIGHTNESS ? controls[bezel.detail] : "";
+          folly::dynamic payload = folly::dynamic::object("control", control)("level", bezel.code / 65536.0)(
+              "muted", (bezel.flag & OXYOS_CONTROL_MUTED) != 0);
+          oxyos::Report::get().input("control.bezel", 0, payload);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSShellBezel", payload));
         }
         // A text field JavaScript focused in one of the shell's regions (the launcher's search)
         // takes the keyboard there: the shell asks for its surface's focus, citing the latest

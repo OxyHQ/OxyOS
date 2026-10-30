@@ -175,6 +175,22 @@ void Window::lockSession() {
   if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
 }
 
+bool Window::setControlLevel(uint8_t control, uint32_t level) {
+  return oxyos_client_set_control_level(client_, control, level) == 0;
+}
+
+bool Window::setControlMuted(uint8_t control, bool muted) {
+  return oxyos_client_set_control_muted(client_, control, muted) == 0;
+}
+
+bool Window::setWifiEnabled(bool enabled) { return oxyos_client_set_wifi_enabled(client_, enabled) == 0; }
+
+bool Window::setAppearance(uint32_t serial, bool dark) {
+  return oxyos_client_set_appearance(client_, serial, dark) == 0;
+}
+
+bool Window::refreshControls() { return oxyos_client_refresh_controls(client_) == 0; }
+
 bool Window::authenticate(uint32_t id, const std::string& secret, const std::string& account) {
   return oxyos_client_authenticate_account(client_, id, account.empty() ? nullptr : account.c_str(), secret.data(),
                                            secret.size()) == 0;

@@ -6,7 +6,10 @@ import { BloomProvider } from "@oxy.so/bloom/provider";
 import { Shell, type ShellCommand } from "../../../apps/shell/src/Shell";
 import "./styles.css";
 import { previewSnapshot, previewWallpaper } from "./fixtures";
-import type { ShellActions } from "../../../apps/shell/src/model";
+import type {
+  ShellActions,
+  ShellControls,
+} from "../../../apps/shell/src/model";
 
 function Preview() {
   const [snapshot, setSnapshot] = useState(previewSnapshot);
@@ -51,6 +54,46 @@ function Preview() {
     menuCommand: (id) =>
       console.info("[shell preview] system command intent", id),
   };
+  // A played machine (docs/adr/0025-hardware-keys-and-control-center.mdx), so the Control
+  // Center can be tried in the browser: its changes are the fixture's alone.
+  const [machine, setMachine] = useState<ShellControls>({
+    levels: {
+      output: { level: 0.5, muted: false, available: true },
+      display: { level: 0.75, available: true },
+    },
+    power: { battery: "discharging", percent: 64, onAC: false, minutes: 200 },
+    network: { wifi: "connected", signal: 73, ssid: "Oxy", wired: false },
+    bluetooth: { state: "on", connected: 1 },
+  });
+  const controls: ShellControls = {
+    ...machine,
+    setLevel: (control, level) =>
+      setMachine((current) => ({
+        ...current,
+        levels: {
+          ...current.levels,
+          [control]: { ...current.levels[control], level, muted: false, available: true },
+        },
+      })),
+    setMuted: (control, muted) =>
+      setMachine((current) => ({
+        ...current,
+        levels: {
+          ...current.levels,
+          [control]: { ...current.levels[control], level: current.levels[control]?.level ?? 0, muted, available: true },
+        },
+      })),
+    setWifi: (enabled) =>
+      setMachine((current) =>
+        current.network
+          ? {
+              ...current,
+              network: { ...current.network, wifi: enabled ? "connected" : "off" },
+            }
+          : current,
+      ),
+    setDark: (dark) => console.info("[shell preview] appearance intent", dark ? "dark" : "light"),
+  };
   const [now, setNow] = useState(() => new Date());
   const [command, setCommand] = useState<ShellCommand>();
   useEffect(() => {
@@ -90,6 +133,7 @@ function Preview() {
             wallpaper={previewWallpaper}
             now={now}
             command={command}
+            controls={controls}
           />
         </BloomProvider>
       </SafeAreaProvider>

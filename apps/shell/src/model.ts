@@ -127,3 +127,44 @@ export type ShellCommand = {
 export function belongsTo(window: ShellWindow, appId: string): boolean {
   return window.launched !== false && window.appId === appId;
 }
+
+/** A level the session controls (docs/adr/0025-hardware-keys-and-control-center.mdx): 0 to 1,
+    a volume's mute, and whether the machine has it at all. */
+export type ShellLevel = { level: number; muted?: boolean; available: boolean };
+export type ShellControl = "output" | "input" | "display" | "keyboard";
+export type ShellBattery = {
+  battery: "absent" | "discharging" | "charging" | "full" | "not-charging";
+  /** 0 to 100. */
+  percent: number;
+  onAC: boolean;
+  /** Until empty (discharging) or full (charging); 0 unknown. */
+  minutes: number;
+};
+export type ShellNetwork = {
+  wifi: "unavailable" | "off" | "disconnected" | "connecting" | "connected";
+  /** The access point's signal, 0 to 100, and its name (empty unless connected or connecting). */
+  signal: number;
+  ssid: string;
+  wired: boolean;
+};
+export type ShellBluetooth = { state: "unavailable" | "off" | "on"; connected: number };
+/**
+ * The machine as the session says it is (docs/adr/0025-hardware-keys-and-control-center.mdx),
+ * never invented by the UI: what it has not said is not shown. The Control Center's changes are
+ * intents; the next state says what happened.
+ */
+export type ShellControls = {
+  levels: Partial<Record<ShellControl, ShellLevel>>;
+  power?: ShellBattery;
+  network?: ShellNetwork;
+  bluetooth?: ShellBluetooth;
+  /** The latest level a hardware key acted on, a new `id` for each: the bezel shows it. */
+  bezel?: { id: number; control: ShellControl };
+  setLevel?: (control: ShellControl, level: number) => void;
+  setMuted?: (control: ShellControl, muted: boolean) => void;
+  setWifi?: (enabled: boolean) => void;
+  /** The appearance, as a preference the session keeps (ADR 0019). */
+  setDark?: (dark: boolean) => void;
+  /** The Control Center opened: the session looks at the machine again. */
+  refresh?: () => void;
+};

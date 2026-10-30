@@ -1,8 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { StyleSheet, type ImageSourcePropType } from "react-native";
+import { StyleSheet, useColorScheme, type ImageSourcePropType } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
-import type { ShellActions, ShellCommand, ShellLock, ShellSnapshot } from "./model";
+import type {
+  ShellActions,
+  ShellCommand,
+  ShellControls,
+  ShellLock,
+  ShellSnapshot,
+} from "./model";
 import { Wallpaper } from "./components/Wallpaper";
 import { TopBar } from "./components/TopBar";
 import { DOCK_HEIGHT, Dock } from "./components/Dock";
@@ -10,6 +16,8 @@ import { Overview } from "./components/Overview";
 import { Launchpad } from "./components/Launchpad";
 import { LockScreen } from "./components/LockScreen";
 import { AppSwitcher } from "./components/AppSwitcher";
+import { Bezel } from "./components/Bezel";
+import { ControlCenter } from "./components/ControlCenter";
 import {
   chosen,
   followSwitcher,
@@ -36,6 +44,7 @@ export function Shell({
   lock,
   platform = inPlace,
   dock = true,
+  controls,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -54,8 +63,22 @@ export function Shell({
    * every display has the top bar (docs/adr/0018-several-displays.mdx).
    */
   dock?: boolean;
+  /**
+   * The machine as the session says it is, and the Control Center's intents
+   * (docs/adr/0025-hardware-keys-and-control-center.mdx): the top bar's battery and Wi-Fi, the
+   * Control Center, and the bezel of a hardware key. Without it, none is shown but the
+   * Control Center's appearance.
+   */
+  controls?: ShellControls;
 }) {
   const { Surface } = platform;
+  const dark = useColorScheme() === "dark";
+  const [controlCenter, setControlCenter] = useState(false);
+  const shownControls: ShellControls = controls ?? { levels: {} };
+  // The lock closes it, as it closes every other panel.
+  useEffect(() => {
+    if (lock?.locked) setControlCenter(false);
+  }, [lock?.locked]);
   const [view, setView] = useState<"desktop" | "launcher" | "overview">(
     "desktop",
   );
@@ -157,6 +180,8 @@ export function Shell({
             launcher={() => toggle("launcher")}
             canLock={!!lock}
             onCommand={menuCommand}
+            controls={controls}
+            controlCenter={() => setControlCenter((open) => !open)}
           />
         </Surface>
         <Box
@@ -224,6 +249,18 @@ export function Shell({
             />
           </Surface>
         )}
+        {/* The Control Center, from the top bar's button: over everything but the top bar,
+            closed by a press outside it. */}
+        {controlCenter && !lock?.locked && (
+          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+            <ControlCenter
+              controls={shownControls}
+              dark={dark}
+              close={() => setControlCenter(false)}
+              openSettings={() => menuCommand("system.settings")}
+            />
+          </Surface>
+        )}
         {dock && (
           <Surface kind="panel" edge="bottom" exclusive>
             <Dock
@@ -245,6 +282,14 @@ export function Shell({
               now={now}
               Masked={platform.Masked}
             />
+            {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
+            <Bezel bezel={controls?.bezel} levels={shownControls.levels} />
+          </Surface>
+        )}
+        {/* A hardware key's bezel, above everything, taking no input. */}
+        {controls?.bezel && !lock?.locked && (
+          <Surface kind="notification" style={StyleSheet.absoluteFill}>
+            <Bezel bezel={controls.bezel} levels={shownControls.levels} />
           </Surface>
         )}
       </Box>
