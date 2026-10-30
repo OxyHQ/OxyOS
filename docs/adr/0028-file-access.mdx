@@ -1,0 +1,114 @@
+---
+title: "ADR 0028: File access for applications"
+description: How an OxyOS application reaches files, through Expo's own file system API (expo-file-system), which OxyOS implements over crates/oxyos-files, and what the platform adds that the API lacks (the person's places and the Trash, through Bloom's platform adapter). Stash, the Oxy file manager on every platform, is OxyOS's.
+order: 37
+---
+
+# ADR 0028: File access for applications
+
+Status: **accepted; implemented**, except opening a file in another application (decision 6), which is specified and waits for its protocol. Builds on [ADR 0015](./0015-application-model) (one application, the platform's capabilities through standard APIs), [ADR 0013](./0013-launching-applications) (launch records, the application id), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and [ADR 0007](./0007-clipboard) (a request that cites the user's input). Supersedes the Files application of draft PR #162: its service, scope and Trash are kept here, and its application is not.
+
+## Problem
+
+OxyOS needs a file manager, a Mac's Finder: the person's files in a window, their folders and disks in a sidebar, the Trash, items moved, renamed and opened. Any application also needs to read and write its own files and those the person gives it.
+
+The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person's photos and files on the web, phones and OxyOS. It shows local files, Oxy Files (the account's cloud) and photo albums in one window, as a Mac's Finder does with iCloud Drive and Photos. Stash is one Expo and Bloom source ([ADR 0015](./0015-application-model)). So nothing in it may ask which platform it runs on. It must reach files through an API that phones and OxyOS both implement. An API of OxyOS's own would make Stash a second application on OxyOS.
+
+## Options
+
+- **(a) A host module of OxyOS's own, behind the application's model** (PR #162's `OxyOSFiles`). This works for an application that runs only on OxyOS. An application built once for every platform would need a second implementation of its model for each one, and only OxyOS would have this one.
+- **(b) Expo's own API, `expo-file-system`** (`File`, `Directory`, `Paths`, `Directory.watch`, `File.downloadFileAsync`, uploads, file handles). Stash and the Oxy SDK already use it on iOS and Android. OxyOS implements its native module, as it implements expo-clipboard's ([ADR 0007](./0007-clipboard)) and expo-notifications' ([ADR 0026](./0026-notifications)).
+  - The API has no notion of the person's places (a desktop's home, its standard folders, the volumes) and no Trash.
+  - Those two are added where an application learns what its platform can do: Bloom's platform adapter, which the runtime registers.
+
+## Decision
+
+1. **(b): `expo-file-system` is how an application reaches files, on OxyOS as everywhere.**
+   - **Where it lives.** The Bloom host registers Expo's `FileSystem` module and the legacy `ExponentFileSystem` (`sample/oxyos/expo-file-system.js`) over the host's `OxyOSFiles` (`files.h`). That module runs on `crates/oxyos-files`, behind the C ABI.
+   - **Threads.** Expo's synchronous methods run on the JavaScript thread, as on Android, through synchronous calls into the crate. Asynchronous ones run in order on the service's own thread.
+   - **Errors** are thrown as Android throws them, with its codes: `ERR_INVALID_PERMISSION` with the scope's reason, `ERR_DESTINATION_ALREADY_EXISTS`, `ERR_UNABLE_TO_DELETE`, and so on.
+   - **Who has it.** Only an application's window has the module. The shell and the login screen do not.
+
+2. **What a path may name** (the platform's rule, from #162):
+   - **Reached:** the person's home; the volumes mounted for them directly under `/media/USER` and `/run/media/USER` (from `/proc/self/mountinfo`); the application's own folders (decision 3); and its bundle's folder, which can be read and never changed.
+   - **Refused,** with the reason:
+     - a path that is not an absolute `file://` URI, or that has `.`, `..` or NUL in it;
+     - anything else on the disk;
+     - a link that leads out of what is reached;
+     - a link that leads nowhere, since writing through it would create what it names anywhere;
+     - a Trash's insides, which only the Trash's operations reach (decision 4).
+   - **Resolving.** Reading follows links. Deleting, renaming and moving act on the link itself. A path that does not exist yet is resolved through its deepest folder that does.
+   - **Never changed** (deleted, moved, renamed or trashed): the home, a volume's root, the application's folders, and any folder that holds one of them or a Trash.
+   - **Not a sandbox.** Without one (#35, #36), any program running as the person reaches what the person does. This is the platform's rule for what the API names, checked on canonical paths.
+
+3. **The application's own folders** are named by its id, the registry entry's (`so.oxy.stash`, [ADR 0013](./0013-launching-applications)). The session's launch gives that id to the host as `OXYOS_APP_ID`, and the host validates it as the registry does.
+   - `Paths.document` is `$XDG_DATA_HOME/ID` and `Paths.cache` is `$XDG_CACHE_HOME/ID`. Both are created when the service starts, private to the person (mode 0700).
+   - `Paths.bundle` is the folder of the bundle the host runs.
+   - A host started with no id (a development run) has no folders of the application's. `Paths.document` and `Paths.cache` then say why, instead of pointing somewhere shared.
+
+4. **Expo's semantics, Android's behaviour.**
+   - **Never replacing.** An item is never replaced unless `overwrite` is asked (`RENAME_NOREPLACE`). With `overwrite`, the old item is exchanged in one step (`RENAME_EXCHANGE`), so a copy that fails leaves it whole.
+   - **Deleting.** `delete()` deletes for good, a folder with what it holds, as the API says. Putting an item in the Trash is the platform's separate operation (decision 5).
+   - **Moving and copying.** A move between volumes is a copy, then the original is deleted. A copy keeps links as links.
+   - **Watching.** `Directory.watch` and `File.watch` are inotify's: each item's events merged after the debounce, moves paired into renames, and the watched item's deletion said at once, ending the watch.
+   - **Types and space.** `File.type` comes from the name's extension (the image has no shared-mime-info). The disk's space is `statvfs`'s on the documents folder.
+   - **Transfers** go through the host's network stack (`crates/oxyos-net`) from the file service, never holding a file whole in memory and with no cookie jar, as on Android:
+     - **Downloads:** `File.downloadFileAsync` and download tasks. A status that is not 2xx makes no file. A task can be paused and resumed (`Range`).
+     - **Uploads:** `File.upload`, upload tasks, and the legacy `uploadAsync` and `createUploadTask`, which the Oxy SDK's native uploads use. The body is the file's raw bytes or a multipart form, with progress.
+     - **Form parts:** React Native's `FormData` parts that are files (`{uri, name, type}`, which the SDK's `assets.upload` sends) are opened through this scope. A part with any other URI fails the request.
+   - **What fails loudly, with the reason:**
+     - `File.pickFileAsync` and `Directory.pickDirectoryAsync`: OxyOS has no system picker.
+     - `File.preview`; `canPreview` answers false until decision 6.
+     - The legacy module beyond its folders and uploads.
+
+5. **The person's places and the Trash: `files` on Bloom's platform adapter** (`PlatformFiles`, `usePlatformFiles()`, Bloom PR #525). It is optional and changes no presentation, as the adapter's `keyboard` is. An application asks for it and never for a platform. Where it is absent (the web, a phone today), the application has the folders `expo-file-system` gives it and deletes for good, saying so.
+   - **Places:** the home; the standard folders that exist in it, the XDG user directories (`user-dirs.dirs`; a directory set to the home itself is disabled, as the specification says); and the volumes, each by its label. Watched through the mount table.
+   - **The Trash is freedesktop.org's** (Trash specification 1.0), which every file manager on the machine shares, kept as #162 decided:
+     - **Where.** An item in the home goes to `$XDG_DATA_HOME/Trash`. An item on a volume goes to that volume's Trash: `.Trash/UID` when there is a sticky `.Trash` folder that is not a link, else `.Trash-UID`, made with mode 0700.
+     - **Its info.** The `.trashinfo` is written first, exclusively, with the original path (percent-encoded) and the deletion date. A taken name takes a number.
+     - **Putting back** restores an item where it was, never over an item there now.
+   - **Every URI is `file://`.** What a place holds is read, changed and watched through `expo-file-system`. The Trash's operations answer per item (`PlatformFileOutcome`), so one failure never hides what came of the rest.
+   - **The runtime registers the adapter.** For an application run from its own checkout (Stash), the runtime wraps the application's Expo Router root in `PlatformSurfaceProvider`. The application's own `BloomProvider`, with no `platform` of its own, keeps that adapter (Bloom PR #525).
+
+6. **Opening a file in another application** (specified, not implemented): as #162 specified it, behind Expo's own `File.preview`, which hands a file to the application that opens it.
+   - **Which application.** An entry declares what it opens with the Desktop Entry `MimeType=` key.
+   - **The request.** The asking window cites a user input, and the session starts the application or tells the one it already launched. The files arrive as React Native's `Linking` gives a `file://` URL.
+   - **The launch record** keeps what it was given.
+   - **What the platform says until then.** No application in the registry opens documents yet, so `canPreview` answers false and Stash shows its own preview.
+
+7. **Stash is OxyOS's file manager** (`so.oxy.stash`). Its icon is Stash's own, and it is first in the dock, as a Mac's Finder is. The bundle takes Stash from its own checkout, as it takes Bloom from its own. Stash's window is built as [ADR 0015](./0015-application-model) says:
+   - **The shell:** Bloom's AppShell, with places, Oxy Files, Photos, Albums and the Trash in its sidebar.
+   - **The toolbar:** back and forward, the path, the view and the search.
+   - **The items:** icons or a sortable list; selection with clicks, Shift, the command modifier, the rubber band and the keys; context menus at the press (`popup-surface`).
+   - **Commands:** the menus in the shell's bar (`menu-bar`).
+   - **Moving and changing items:** dragging onto folders, renaming in place, uploading to Oxy Files and downloading back.
+
+## Steps
+
+1. **The service and its C ABI** (`crates/oxyos-files`, `crates/oxyos-client-ffi/src/files.rs`). *Done.* Tests on homes, volumes and mount tables the tests make cover:
+   - the scope's refusals, the application's folders and the read-only bundle;
+   - reading, writing and appending; making files and folders (`intermediates`, `overwrite`, `idempotent`); deleting; copying, moving and renaming with and without `overwrite`; a move across two real file systems;
+   - file handles; digests against the standard vectors;
+   - typed watches (merging, rename pairing, a watched item's deletion ending its watch, the debounce);
+   - downloads (naming, refusals, a 404 making no file, pausing and resuming, cancelling) and uploads (raw and multipart);
+   - the Trash and the places, as in #162;
+   - the service's protocol, and all of the above through the C ABI.
+2. **The host and Bloom.**
+   - **Host:** the Expo modules, `OxyOSFiles` and the adapter's `files`, `FormData` file parts, and `didSendNetworkData` for every request with a body.
+   - **Desktop input** (from #162): every mouse button's press as a W3C pointer event, popups placed at a point of their anchor, and the text input taking a selection JavaScript sets.
+   - **Bloom:** `usePlatformFiles` and the inherited adapter, OxyHQ/Bloom#525 (no release yet).
+
+   *Done.*
+   - `scenarios/file-system.json` runs `sample/FileSystemProbe.tsx` on a home the scenario makes. It drives expo-file-system's public API and the adapter's `files`, and checks each result, each error code, each watch event and the disk (the Trash's `.trashinfo` included) after every step.
+   - `scenarios/pointer-presses.json` checks the W3C presses, a secondary press opening a popup where it pressed, a double press and a selection set from JavaScript.
+   - `scenarios/network.json` sends a file of the home in a form.
+3. **Stash on OxyOS:** its registry entry, its bundle and its scenarios. These are in the pull request that runs Expo Router applications from their checkout on the Bloom host.
+4. **Opening files in other applications** (decision 6).
+
+## Not in this decision
+
+- A system file picker (an open panel), which an ordinary application would use to reach a file outside its folders once there is a sandbox (#35, #36).
+- Ejecting volumes, network volumes, and the computer's own disks.
+- Dragging between applications, and files on the desktop.
+- Undo, aliases, and searching beyond the folder shown (an index).
+- Keeping local folders in step with Oxy Files: Stash uploads and downloads on request, and syncing is its own decision.
