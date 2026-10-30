@@ -176,13 +176,31 @@ class Painter {
     Solid full = solid(color);
     bool rounded = radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 ||
                    radii.bottomLeft.horizontal > 0 || radii.bottomRight.horizontal > 0 || holeRadii;
+    const float s = 1 / scale_;
     for (int py = y0; py < y1; ++py) {
+      const float ly = py / scale_;
+      // The run of the row's pixels a rounded fill covers whole, inside the clip, without
+      // sampling them one by one: each takes the colour; a ring (a border) paints nothing where
+      // its hole covers a pixel whole, so the hole's run is skipped. Every pixel outside the runs
+      // is sampled as before, and the runs are the pixels roundedCoverage's shortcut finds.
+      auto [solidFrom, solidTo] = rounded ? clearRun(ly, s, x, y, w, h, radii, clip) : std::pair{0, 0};
+      auto [holeFrom, holeTo] = holeRadii ? clearRun(ly, s, hx, hy, hw, hh, *holeRadii, clip) : std::pair{0, 0};
+      if (holeRadii) solidFrom = solidTo = 0;
       for (int px = x0; px < x1; ++px) {
-        float lx = px / scale_, ly = py / scale_;
+        if (px >= holeFrom && px < holeTo) {
+          px = holeTo - 1;
+          continue;
+        }
+        if (px >= solidFrom && px < solidTo) {
+          uint32_t* row = canvas_.pixels.data() + static_cast<size_t>(py) * canvas_.width;
+          for (int end = std::min(solidTo, x1); px < end; ++px) blendSolid(row[px], full);
+          --px;
+          continue;
+        }
+        float lx = px / scale_;
         if (lx + 1 / scale_ <= clip.x0 || lx >= clip.x1 || ly + 1 / scale_ <= clip.y0 || ly >= clip.y1) continue;
         float coverage;
         if (rounded) {
-          float s = 1 / scale_;
           // Subsample in logical space at device-pixel granularity.
           coverage = roundedCoverage(lx, ly, s, x, y, w, h, radii);
           if (holeRadii && coverage > 0) coverage -= roundedCoverage(lx, ly, s, hx, hy, hw, hh, *holeRadii);
@@ -206,15 +224,44 @@ class Painter {
   static float roundedCoverage(float lx, float ly, float s, float x, float y, float w, float h,
                                const BorderRadii& r) {
     if (lx + s <= x || ly + s <= y || lx >= x + w || ly >= y + h) return 0;
-    if (lx >= x && ly >= y && lx + s <= x + w && ly + s <= y + h) {
-      float limit = std::min(w, h) / 2;
-      float tl = std::min(r.topLeft.horizontal, limit), tr = std::min(r.topRight.horizontal, limit);
-      float bl = std::min(r.bottomLeft.horizontal, limit), br = std::min(r.bottomRight.horizontal, limit);
-      bool clear = (lx >= x + tl || ly >= y + tl) && (lx + s <= x + w - tr || ly >= y + tr) &&
-                   (lx >= x + bl || ly + s <= y + h - bl) && (lx + s <= x + w - br || ly + s <= y + h - br);
-      if (clear) return 1;
-    }
+    if (coveredWhole(lx, ly, s, x, y, w, h, r)) return 1;
     return roundedCoverageScaled(lx, ly, s, x, y, w, h, r);
+  }
+
+  // Whether the pixel square at (lx, ly) of logical size `s` lies inside the rounded rectangle
+  // and meets none of its corner squares: it is covered whole.
+  static bool coveredWhole(float lx, float ly, float s, float x, float y, float w, float h, const BorderRadii& r) {
+    if (lx < x || ly < y || lx + s > x + w || ly + s > y + h) return false;
+    float limit = std::min(w, h) / 2;
+    float tl = std::min(r.topLeft.horizontal, limit), tr = std::min(r.topRight.horizontal, limit);
+    float bl = std::min(r.bottomLeft.horizontal, limit), br = std::min(r.bottomRight.horizontal, limit);
+    return (lx >= x + tl || ly >= y + tl) && (lx + s <= x + w - tr || ly >= y + tr) &&
+           (lx >= x + bl || ly + s <= y + h - bl) && (lx + s <= x + w - br || ly + s <= y + h - br);
+  }
+
+  // The device pixels [from, to) of the row at `ly` that the rounded rectangle covers whole
+  // (coveredWhole) and the clip holds whole; empty when none. On a row the pixels covered whole
+  // are one run (every condition bounds the square's left or right edge), so the run is found
+  // from its bounds and its ends checked with coveredWhole itself.
+  std::pair<int, int> clearRun(float ly, float s, float x, float y, float w, float h, const BorderRadii& r,
+                               const Clip& clip) const {
+    if (ly < y || ly + s > y + h || ly < clip.y0 || ly + s > clip.y1) return {0, 0};
+    float limit = std::min(w, h) / 2;
+    float tl = std::min(r.topLeft.horizontal, limit), tr = std::min(r.topRight.horizontal, limit);
+    float bl = std::min(r.bottomLeft.horizontal, limit), br = std::min(r.bottomRight.horizontal, limit);
+    float left = std::max(x, clip.x0), right = std::min(x + w, clip.x1);
+    if (ly < y + tl) left = std::max(left, x + tl);
+    if (ly + s > y + h - bl) left = std::max(left, x + bl);
+    if (ly < y + tr) right = std::min(right, x + w - tr);
+    if (ly + s > y + h - br) right = std::min(right, x + w - br);
+    int from = static_cast<int>(std::ceil(left * scale_)), to = static_cast<int>(std::floor(right * scale_));
+    auto whole = [&](int px) {
+      float lx = px / scale_;
+      return coveredWhole(lx, ly, s, x, y, w, h, r) && lx >= clip.x0 && lx + s <= clip.x1;
+    };
+    while (from < to && !whole(from)) ++from;
+    while (to > from && !whole(to - 1)) --to;
+    return {from, to};
   }
 
   // 4x4-sampled coverage of a device pixel whose logical size is `s`.

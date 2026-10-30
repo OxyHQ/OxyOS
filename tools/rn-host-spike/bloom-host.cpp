@@ -287,6 +287,7 @@ void crashed(int signal) {
 
 void stage(const char* name) {
   if (std::getenv("OXYOS_HOST_TRACE")) std::cerr << "[host] " << name << "\n";
+  oxyos::Report::get().stage(name);
 }
 
 }  // namespace
@@ -305,6 +306,7 @@ int main(int argc, char** argv) {
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
+  stage("main");
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
   // The session's shell (docs/adr/0009-session-shell.mdx) is a window of another kind.
   const bool shellMode = outPath == "--shell";
@@ -921,14 +923,25 @@ int main(int argc, char** argv) {
     };
     int idleTurns = 0;  // turns in a row that found nothing to do
     try {
+      // What runs JavaScript, timed for the report (Report::javascript).
+      auto javascript = [](auto&& run) {
+        if (!oxyos::Report::get().enabled()) return run();
+        auto started = Clock::now();
+        bool ran = run();
+        oxyos::Report::get().javascript(std::chrono::duration<double, std::milli>(Clock::now() - started).count());
+        return ran;
+      };
       while (true) {
+        oxyos::Report::get().beginTurn();
         Beat::tickAll();
-        bool busy = loop->drain();
+        bool busy = javascript([&] { return loop->drain(); });
         busy |= mounter.pull();
         busy |= timers->fire(*timerManager);
         busy |= gestures->tick();
-        busy |= worklets.tick();
-        busy |= reanimated.tick();
+        // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
+        // as a mount, a UI job or a frame asked for.
+        bool uiFrame = javascript([&] { return worklets.tick(); });
+        busy |= javascript([&] { return reanimated.tick(); });
         busy |= animated.tick();
         busy |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
         busy |= networking.deliver();
@@ -1335,27 +1348,38 @@ int main(int argc, char** argv) {
         }
         popups.present(drawn, focusName());
         shellSurfaces.present(drawn, focusName());
+        // What the turn did may change what worklets' and Reanimated's next frames act on
+        // (Reanimated's mappers, the updates it commits): they get one.
+        if (busy) worklets.wantFrame();
+        if (busy || uiFrame) reanimated.wantFrame();
+        busy |= uiFrame;
+        oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
-        // image decoder, a paste's pipe, the next timer of JavaScript's or a gesture handler's, or
-        // the next frame for worklets' frame callbacks, Animated's native driver or
-        // requestAnimationFrame (the compositor's answer to the window's frame wakes it for that too).
+        // image decoder, a paste's pipe; or until the next time something is due: a timer of
+        // JavaScript's or a gesture handler's, a paste running out of time, the wallpaper's next
+        // frame, or the next frame wanted for worklets' or Reanimated's callbacks, Animated's
+        // native driver or requestAnimationFrame (the compositor's answer to the window's frame
+        // wakes it for that too). Nothing else wakes it: an application doing nothing never turns.
         // It waits only after a second idle turn, since what one turn dispatches (an event for
-        // Fabric's beat) is delivered on the next; and at most a second, should anything else
-        // need a turn.
+        // Fabric's beat) is delivered on the next.
         idleTurns = busy ? 0 : idleTurns + 1;
         if (idleTurns >= 2) {
-          auto deadline = Clock::now() + std::chrono::seconds(1);
-          for (auto due : {timers->next(), gestures->nextDeadline(), worklets.nextFrame(), animated.nextFrame(),
+          std::optional<Clock::time_point> deadline;
+          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(),
+                           shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
+                           reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel))}) {
-            if (due && *due < deadline) deadline = *due;
+            if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
           for (int fd : {networking.fd(), images.fd()}) fds.push_back({fd, POLLIN, 0});
-          // To the nanosecond: a frame due in 16.7 ms is not taken at 17.
-          auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - Clock::now()).count();
-          if (wait > 0) {
+          if (!deadline) {
+            ppoll(fds.data(), fds.size(), nullptr, nullptr);
+          } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();
+                     wait > 0) {
+            // To the nanosecond: a frame due in 16.7 ms is not taken at 17.
             timespec timeout{static_cast<time_t>(wait / 1'000'000'000), static_cast<long>(wait % 1'000'000'000)};
             ppoll(fds.data(), fds.size(), &timeout, nullptr);
           }

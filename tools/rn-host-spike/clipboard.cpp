@@ -69,6 +69,14 @@ std::vector<int> Clipboard::fds() const {
   return out;
 }
 
+std::optional<std::chrono::steady_clock::time_point> Clipboard::nextDeadline() const {
+  std::optional<std::chrono::steady_clock::time_point> first;
+  for (const auto& paste : pastes_) {
+    if (!first || paste.started + kTimeout < *first) first = paste.started + kTimeout;
+  }
+  return first;
+}
+
 bool Clipboard::deliver() {
   bool finished = false;
   for (auto it = pastes_.begin(); it != pastes_.end();) {

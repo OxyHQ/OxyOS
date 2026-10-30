@@ -4,8 +4,9 @@
 #include <pwd.h>
 #include <unistd.h>
 
-#include <cstdlib>
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -115,6 +116,12 @@ bool ShellState::tick() {
   auto before = frame_;
   chooseFrame();
   return frame_ != before;
+}
+
+std::optional<std::chrono::steady_clock::time_point> ShellState::nextChange() const {
+  if (wallpaperDir_.empty() || std::getenv("OXYOS_SOLAR_NOW")) return std::nullopt;
+  int64_t in = std::clamp<int64_t>(nextChange_ - solarNow(), 0, 60);
+  return std::chrono::steady_clock::now() + std::chrono::seconds(in);
 }
 
 bool ShellState::observe(const OxyOSEvent& event) {
