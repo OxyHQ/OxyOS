@@ -1,0 +1,609 @@
+{
+  "about": "Hardware keys and the Control Center (ADR 0025) on the OxyOS shell, over a played machine (the development compositor's --controls: a ThinkPad's volumes, display backlight, battery on 64 % discharging, Wi-Fi on LukeSkyRouter, Bluetooth with one device). Allo (sample/EditingProbe.tsx) has its field focused throughout. Volume up, down, mute and up again, Shift+Alt+volume up (a quarter step), the microphone's mute and the display's brightness keys each change the machine as a Mac's do (sixteen steps, a volume key unmuting) and show the shell's bezel, its level said to the screen reader, which fades on its own after a moment; Allo receives nothing of any of those keys. The top bar shows the battery and Wi-Fi as the machine has them. Its Control Center button opens the Control Center: Wi-Fi on LukeSkyRouter, Bluetooth with one device, the display's and the sound's sliders, the battery; pressing the sliders sets the machine's levels, Wi-Fi's switch turns it off (the top bar follows) and on again, and Dark Mode sets the user's appearance (the file the session keeps, and Allo told dark). A press outside closes it. As a control, keys typed without the hardware keys are Allo's. With the compositor not taking the hardware keys, it fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "battery": "discharging",
+    "battery_percent": 64,
+    "battery_minutes": 200,
+    "on_ac": false,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "steps": [
+    {
+      "name": "Allo's field takes the keyboard; the top bar shows the battery and Wi-Fi as the machine has them",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Generic",
+              "name": "Batería: 64 %, 3 h 20 min restantes"
+            },
+            {
+              "role": "Generic",
+              "name": "Wi-Fi: LukeSkyRouter"
+            },
+            {
+              "role": "Button",
+              "name": "Centro de control"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Volume up: a step up, the bezel shows it and says it, Allo receives nothing",
+      "do": [
+        "key",
+        [
+          115
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "controls": {
+          "output_volume": 0.5625,
+          "output_muted": false
+        },
+        "announcements": [
+          {
+            "text": "Volumen, 56 %"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "ProgressBar",
+              "name": "Volumen",
+              "value": "56 %"
+            }
+          ]
+        },
+        "output_pixels": {
+          "560,400": "#5a5d63",
+          "645,535": "#ffffff",
+          "656,535": "#525d75"
+        }
+      }
+    },
+    {
+      "name": "Volume down: a step down",
+      "do": [
+        "key",
+        [
+          114
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "output_volume": 0.5
+        },
+        "announcements": [
+          {
+            "text": "Volumen, 50 %"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "ProgressBar",
+              "name": "Volumen",
+              "value": "50 %"
+            }
+          ]
+        },
+        "output_pixels": {
+          "634,535": "#ffffff",
+          "645,535": "#525d75"
+        }
+      }
+    },
+    {
+      "name": "Mute: muted, the level kept",
+      "do": [
+        "key",
+        [
+          113
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "output_volume": 0.5,
+          "output_muted": true
+        },
+        "announcements": [
+          {
+            "text": "Sonido silenciado"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "ProgressBar",
+              "name": "Volumen",
+              "value": "Silenciado"
+            }
+          ]
+        },
+        "output_pixels": {
+          "634,535": "#525d75"
+        }
+      }
+    },
+    {
+      "name": "Volume up unmutes, a step up",
+      "do": [
+        "key",
+        [
+          115
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "output_volume": 0.5625,
+          "output_muted": false
+        },
+        "announcements": [
+          {
+            "text": "Volumen, 56 %"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Shift+Alt+volume up: a quarter of a step (the modifiers alone are Allo's, as a Mac's are)",
+      "do": [
+        "key",
+        [
+          42,
+          56,
+          115
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "controls": {
+          "output_volume": 0.578125
+        },
+        "announcements": [
+          {
+            "text": "Volumen, 58 %"
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "The microphone's mute",
+      "do": [
+        "key",
+        [
+          248
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "input_volume": 1.0,
+          "input_muted": true
+        },
+        "announcements": [
+          {
+            "text": "Micrófono silenciado"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "ProgressBar",
+              "name": "Micrófono"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Brightness down: the display's backlight a step down",
+      "do": [
+        "key",
+        [
+          224
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "display_brightness": 0.6875
+        },
+        "announcements": [
+          {
+            "text": "Brillo, 69 %"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "ProgressBar",
+              "name": "Brillo",
+              "value": "69 %"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Brightness up",
+      "do": [
+        "key",
+        [
+          225
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "controls": {
+          "display_brightness": 0.75
+        },
+        "announcements": [
+          {
+            "text": "Brillo, 75 %"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Left alone, the bezel fades away",
+      "do": [
+        "wait",
+        2200
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "announcements": [],
+        "at_absent": {
+          "shell": [
+            {
+              "role": "ProgressBar"
+            }
+          ]
+        },
+        "output_pixels": {
+          "560,400": "#ffffff"
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "The top bar's button opens the Control Center: Wi-Fi, Bluetooth, the appearance, the display, the sound and the battery",
+      "do": [
+        "press_output",
+        [
+          1146,
+          14
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Centro de control"
+            },
+            {
+              "role": "Switch",
+              "name": "Wi-Fi",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "name": "Bluetooth: 1 dispositivo"
+            },
+            {
+              "role": "Switch",
+              "name": "Modo oscuro",
+              "state": []
+            },
+            {
+              "role": "Slider",
+              "name": "Pantalla"
+            },
+            {
+              "role": "Slider",
+              "name": "Sonido"
+            },
+            {
+              "name": "Batería: 64 %, 3 h 20 min restantes"
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "LukeSkyRouter",
+            "1 dispositivo",
+            "64 %, 3 h 20 min restantes"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "output_pixels": {
+          "978,76": "#2f6fe4",
+          "978,164": "#dde0e9"
+        }
+      }
+    },
+    {
+      "name": "A press at a quarter of the sound's slider sets the volume there",
+      "do": [
+        "press_output",
+        [
+          1067,
+          345
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "controls": {
+          "output_volume": 0.25,
+          "output_muted": false
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "A press at the middle of the display's slider sets the brightness there",
+      "do": [
+        "press_output",
+        [
+          1124,
+          256
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "controls": {
+          "display_brightness": 0.5
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Wi-Fi's switch turns it off: the Control Center and the top bar say so",
+      "do": [
+        "press_output",
+        [
+          990,
+          76
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "controls": {
+          "wifi": "off"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Wi-Fi",
+              "state": []
+            },
+            {
+              "name": "Wi-Fi: Desactivada"
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Desactivada"
+          ],
+          "absent": [
+            "LukeSkyRouter"
+          ]
+        },
+        "delivered": {},
+        "output_pixels": {
+          "978,76": "#dde0e9"
+        }
+      }
+    },
+    {
+      "name": "And on again, connected to the network it knows",
+      "do": [
+        "press_output",
+        [
+          990,
+          76
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "controls": {
+          "wifi": "connected"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Wi-Fi",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "name": "Wi-Fi: LukeSkyRouter"
+            }
+          ]
+        },
+        "delivered": {},
+        "output_pixels": {
+          "978,76": "#2f6fe4"
+        }
+      }
+    },
+    {
+      "name": "Dark Mode: the user's appearance is dark, kept by the session and told to Allo",
+      "do": [
+        "press_output",
+        [
+          990,
+          164
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "preferences": {
+          "dark": true
+        },
+        "preferences_file": {
+          "appearance": "dark"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Switch",
+              "name": "Modo oscuro",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "delivered": {},
+        "output_pixels": {
+          "978,164": "#2f6fe4"
+        }
+      }
+    },
+    {
+      "name": "A press outside closes it",
+      "do": [
+        "press_output",
+        [
+          200,
+          600
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Centro de control"
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The control: keys typed without the hardware keys are Allo's",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line"
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "typed",
+      "do": [
+        "keyboard",
+        "ok"
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "keyPress@line": 2,
+          "change@line": 2,
+          "selectionChange@line": 2
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2,
+            "text_input": 2
+          }
+        },
+        "texts": [
+          "Line: \"ok\" [2,2]"
+        ]
+      }
+    }
+  ]
+}

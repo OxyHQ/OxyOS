@@ -187,6 +187,10 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
         if (input->editable) node.actions |= OXYOS_OFFERS_SET_SELECTION;
         if (w.hooks && w.hooks->selection) node.selection = w.hooks->selection(tag);
       }
+    } else if (const auto& value = props->accessibilityValue; value.text || value.now) {
+      // How far along it is (a slider's, a progress bar's), as said: its text, else its number.
+      node.value = value.text ? *value.text : std::to_string(*value.now);
+      if (node.name.empty() && !scrolls) collectText(w.tree, tag, node.name);
     } else if (node.name.empty() && !scrolls) {
       // A scroll view is named by its label alone: its content is read as its own nodes.
       collectText(w.tree, tag, node.name);

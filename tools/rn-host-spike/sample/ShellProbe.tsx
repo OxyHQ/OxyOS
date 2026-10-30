@@ -154,6 +154,14 @@ const actions: ShellActions = {
 const PROBE_TIME = new Date(2026, 9, 29, 9, 41);
 
 /** The shell, its regions where `platform` draws them, showing `snapshot` at `now`. */
+/** The fixture's machine (docs/adr/0025-hardware-keys-and-control-center.mdx), where the shell
+    runs without a session: a full battery and Wi-Fi at full signal. */
+const probeControls: NonNullable<React.ComponentProps<typeof Shell>['controls']> = {
+  levels: {},
+  power: { battery: 'discharging', percent: 100, onAC: false, minutes: 0 },
+  network: { wifi: 'connected', signal: 100, ssid: 'OxyOS', wired: false },
+};
+
 function ProbeShell({
   platform,
   shown = snapshot,
@@ -163,8 +171,11 @@ function ProbeShell({
   wallpaper,
   dock,
   commands,
+  controls = probeControls,
 }: {
   platform?: React.ComponentProps<typeof Shell>['platform'];
+  /** The machine as the session says it is (ADR 0025). */
+  controls?: React.ComponentProps<typeof Shell>['controls'];
   /** Whether this display has the dock (the primary's); the window probe's has it. */
   dock?: boolean;
   shown?: ShellSnapshot;
@@ -188,6 +199,7 @@ function ProbeShell({
             platform={platform}
             dock={dock}
             commands={commands}
+            controls={controls}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -326,6 +338,33 @@ export function ShellSession() {
     authenticate: shell.authenticate,
     answer: shell.authentication ?? undefined,
   };
+  // The machine as the session says it is, and the Control Center's intents (ADR 0025): only
+  // what it told is shown.
+  type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
+  type Level = { level: number; muted: boolean; available: boolean } | null;
+  const told: (Record<'output' | 'input' | 'display' | 'keyboard', Level> & {
+    power: Controls['power'] | null;
+    network: Controls['network'] | null;
+    bluetooth: Controls['bluetooth'] | null;
+  }) | null = state.controls ?? null;
+  const levels: Controls['levels'] = {};
+  for (const control of ['output', 'input', 'display', 'keyboard'] as const) {
+    const level = told?.[control];
+    if (level) levels[control] = level;
+  }
+  const bezel = shell.bezels[shell.bezels.length - 1];
+  const controls: Controls = {
+    levels,
+    power: told?.power ?? undefined,
+    network: told?.network ?? undefined,
+    bluetooth: told?.bluetooth ?? undefined,
+    bezel,
+    setLevel: shell.setControlLevel,
+    setMuted: shell.setControlMuted,
+    setWifi: shell.setWifiEnabled,
+    setDark: shell.setAppearance,
+    refresh: shell.refreshControls,
+  };
   return (
     <ProbeShell
       platform={oxyosShell}
@@ -336,6 +375,7 @@ export function ShellSession() {
       wallpaper={state.wallpaper ?? undefined}
       dock={dock}
       commands={shell.shortcuts}
+      controls={controls}
     />
   );
 }

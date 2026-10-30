@@ -34,7 +34,13 @@ class ShellState {
   //   user: { name, fullName }, capsLock, wallpaper: "file://..." or null,
   //   applications: [{ id, name, icon: { uri } or { svg }, pinned: place or null }],
   //   output, outputs: [{ id, x, y, width, height, scale, primary }],
-  //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API) }
+  //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API),
+  //   controls: { output, input, display, keyboard: { level (0 to 1), muted, available } or null,
+  //   power: { battery: "absent" | "discharging" | "charging" | "full" | "not-charging", percent,
+  //   onAC, minutes } or null, network: { wifi: "unavailable" | "off" | "disconnected" |
+  //   "connecting" | "connected", signal, ssid, wired } or null, bluetooth: { state: "unavailable" |
+  //   "off" | "on", connected } or null } (docs/adr/0025-hardware-keys-and-control-center.mdx: null
+  //   until the session has told it) }
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
   // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
@@ -70,6 +76,14 @@ class ShellState {
   };
   MenuBar menuBar_, receivingMenuBar_;
   bool locked_ = false;
+  // The hardware controls as the session told them (ADR 0025), by OXYOS_CONTROL_*.
+  struct Level {
+    uint32_t level = 0;
+    bool muted = false, available = false;
+  };
+  std::map<uint32_t, Level> levels_;
+  std::optional<OxyOSEvent> power_, network_, bluetooth_;
+  folly::dynamic controls() const;
   struct Output {
     int32_t x = 0, y = 0;
     uint32_t width = 0, height = 0, scale120 = 120;

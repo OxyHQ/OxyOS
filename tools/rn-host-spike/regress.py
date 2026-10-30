@@ -36,6 +36,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- controls: with the scenario's `controls` (a machine the session's hardware keys and Control
+  Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
+  the machine as it is once the step settled, each key given matching;
 - animated: what Animated's native driver set on views in the step (native-animated.h), frame by
   frame, as "testID" -> {prop: [from, to]} ("transform.translateX" for a transform's entry; a
   colour as "#rrggbb"): the values went from `from` to exactly `to`, monotonically in each colour
@@ -146,7 +149,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STEP_KEYS = {"press", "press_popup", "press_output", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle"}
+             "expect_popup", "switch_terminal", "idle", "wait"}
 
 
 def director_args(step):
@@ -207,6 +210,9 @@ def director_args(step):
         return args + ["--a11y-action", f"{value[0]},{value[1]}"]
     if kind == "scale":
         return args + ["--scale", str(value)]
+    if kind == "wait":
+        # Milliseconds of real time with no input: what fades on its own clock (a bezel, ADR 0025).
+        return args + ["--wait", str(value)]
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
@@ -768,6 +774,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "controls" in expect:
+        # The played machine once the step settled (ADR 0025): what the session did to it, each
+        # key given matching (levels within 1/65536 of all of it).
+        machine = result.get("controls") or {}
+        for key, value in expect["controls"].items():
+            got = machine.get(key)
+            if isinstance(value, float) and isinstance(got, (int, float)) and not isinstance(got, bool):
+                matches = abs(got - value) <= 1 / 65536
+            else:
+                matches = got == value
+            if not matches:
+                fail(f"the machine's {key} is {got!r}, expected {value!r}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "preferences" in expect:
@@ -896,6 +914,13 @@ def main():
     command += ["--preferences", str(preferences)]
     if "settings" in scenario:
         command += ["--grant-settings", scenario["settings"]["app"]]
+    if "controls" in scenario:
+        # The machine the hardware keys and the Control Center act on (ADR 0025), played as the
+        # scenario describes it, in a file of the run's own the session writes back.
+        controls = out / "controls"
+        controls.write_text("".join(f"{key} = {str(value).lower() if isinstance(value, bool) else value}\n"
+                                    for key, value in scenario["controls"].items()))
+        command += ["--controls", str(controls)]
     if scenario.get("lock_password"):
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
@@ -990,7 +1015,7 @@ def main():
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, options.uinput,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences" if "settings" in scenario else None)
+                           out / "preferences")
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":
@@ -1010,7 +1035,7 @@ def main():
         check_step(len(scenario["steps"]), {"name": "final", "do": ["final"], "expect": scenario["final"]},
                    {"t_settled": last, "window": window}, report, start, failures,
                    screenshot=out / f"launch-{len(scenario['steps']) + 1}.png", shell_report=shell_report,
-                   preferences=out / "preferences" if "settings" in scenario else None)
+                   preferences=out / "preferences")
 
     # Frames presented; a change that drew nothing (a new focus) is reported, not presented.
     renders = [line["render_ms"] for line in report if line["kind"] == "frame" and line.get("presented", True)]

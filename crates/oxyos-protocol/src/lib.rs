@@ -15,11 +15,11 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, AuthOutcome, BufferLayout, Clock, DismissReason, ErrorCode, Format, GesturePhase,
-    Gravity, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge, PointerKind, PointerShape,
-    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind,
-    Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, Clock, Control, DismissReason,
+    ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, Outcome, PanelEdge,
+    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
+    Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints, TextPurpose,
+    TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
@@ -58,6 +58,8 @@ pub const MAX_MENU_SHORTCUT_BYTES: usize = 32;
 pub const NO_MENU_PARENT: u32 = u32::MAX;
 /// Most windows one shell surface shows live (`PlaceWindowView`, ADR 0022).
 pub const MAX_WINDOW_VIEWS: usize = 64;
+/// A whole level of a control (`ControlLevel`, `SetControlLevel`, ADR 0025): 65536 is all of it.
+pub const FULL_LEVEL: u32 = 65_536;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

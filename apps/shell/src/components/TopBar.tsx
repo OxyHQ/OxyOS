@@ -13,13 +13,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
 } from "@oxy.so/bloom/dropdown-menu";
-import { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 
-import Svg, { Rect, Circle } from "react-native-svg";
+import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { OxyLogo } from "./OxyLogo";
-import type { ShellMenu, ShellMenuItem } from "../model";
+import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
+import type { ShellBattery, ShellControls, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 
 /** A menu's entries as Bloom's rows: commands (with their check and chord), submenus and
     separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -120,6 +120,37 @@ function ControlsIcon({
   );
 }
 
+/** The battery as the session says it is: its charge filled in, a bolt while it charges. */
+function BatteryIcon({ power }: { power: ShellBattery }) {
+  const fill = Math.max(1, Math.round((17 * Math.min(100, power.percent)) / 100));
+  const low = power.battery === "discharging" && power.percent <= 10;
+  return (
+    <Svg width={24} height={12} viewBox="0 0 26 13">
+      <Rect x="1" y="1" width="21" height="11" rx="3" stroke="#ffffffcc" fill="none" />
+      <Rect x="3" y="3" width={fill} height="7" rx="1.5" fill={low ? "#ff5a4f" : "#fff"} />
+      <Rect x="23.5" y="4" width="1.5" height="5" rx=".7" fill="#ffffffb3" />
+      {(power.battery === "charging" || power.battery === "full") && (
+        <Path d="M12.6 1.6 8.4 7.1h3l-1 4.3 4.3-5.6h-3.1l1-4.2Z" fill="#26313d" stroke="#fff" strokeWidth=".6" />
+      )}
+    </Svg>
+  );
+}
+
+/** Wi-Fi as the session says it is: its signal in arcs; off or not connected, faint. */
+function WifiIcon({ network }: { network: ShellNetwork }) {
+  const connected = network.wifi === "connected";
+  const bars = connected ? wifiBars(network.signal) : 0;
+  const arc = (on: boolean) => (on ? "#fff" : "#ffffff59");
+  return (
+    <Svg width={14} height={12} viewBox="0 0 20 16">
+      <Path d="M1 5.6a13 13 0 0 1 18 0" stroke={arc(bars >= 3)} strokeWidth="2" strokeLinecap="round" fill="none" />
+      <Path d="M4.2 8.9a8.4 8.4 0 0 1 11.6 0" stroke={arc(bars >= 2)} strokeWidth="2" strokeLinecap="round" fill="none" />
+      <Path d="M7.4 12.1a3.9 3.9 0 0 1 5.2 0" stroke={arc(bars >= 1)} strokeWidth="2" strokeLinecap="round" fill="none" />
+      <Circle cx="10" cy="14.6" r="1.3" fill={arc(connected || wifiOn(network))} />
+    </Svg>
+  );
+}
+
 const menuStyle = {
   height: 28,
   paddingLeft: 8,
@@ -136,6 +167,8 @@ export function TopBar({
   launcher,
   canLock = false,
   onCommand,
+  controls,
+  controlCenter,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -144,7 +177,14 @@ export function TopBar({
   /** Whether the session can be locked from here (the platform has a lock). */
   canLock?: boolean;
   onCommand: (id: string) => void;
+  /** The machine as the session says it is (docs/adr/0025-hardware-keys-and-control-center.mdx):
+      the battery and Wi-Fi are shown from it, and only what it said. */
+  controls?: ShellControls;
+  /** Opens the Control Center, or closes it. */
+  controlCenter: () => void;
 }) {
+  const battery = batteryLabel(controls?.power);
+  const wifi = wifiLabel(controls?.network);
   return (
     <Box
       testID="shell-topbar"
@@ -222,31 +262,17 @@ export function TopBar({
         ))}
       </Box>
       <Box className="flex-row items-center gap-2.5">
-        <Box
-          className="flex-row items-center gap-4"
-          accessibilityLabel="Indicadores de ejemplo, sin conexión al sistema"
-        >
-          <Svg width={24} height={12} viewBox="0 0 26 13">
-            <Rect
-              x="1"
-              y="1"
-              width="21"
-              height="11"
-              rx="3"
-              stroke="#ffffffcc"
-              fill="none"
-            />
-            <Rect x="3" y="3" width="17" height="7" rx="1.5" fill="#fff" />
-            <Rect
-              x="23.5"
-              y="4"
-              width="1.5"
-              height="5"
-              rx=".7"
-              fill="#ffffffb3"
-            />
-          </Svg>
-          <RiWifiLine width={14} height={14} fill="#fff" />
+        <Box className="flex-row items-center gap-4">
+          {battery !== undefined && controls?.power && (
+            <Box testID="shell-battery" accessible accessibilityLabel={`Batería: ${battery}`}>
+              <BatteryIcon power={controls.power} />
+            </Box>
+          )}
+          {wifi !== undefined && controls?.network && (
+            <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
+              <WifiIcon network={controls.network} />
+            </Box>
+          )}
         </Box>
         <Button
           iconOnly
@@ -262,11 +288,12 @@ export function TopBar({
           iconOnly
           icon={ControlsIcon}
           iconSize={15}
-          accessibilityLabel="Controles del sistema"
+          testID="shell-control-center"
+          accessibilityLabel="Centro de control"
           appearance="plain"
           className="h-7 w-[22px] border-0 bg-transparent p-0"
           colors={{ background: "transparent", foreground: "#fff" }}
-          onPress={() => onCommand("system.settings")}
+          onPress={controlCenter}
         />
         <Text className="ml-1 text-[12px] leading-4 font-normal text-white">
           {now.toLocaleDateString("es", {

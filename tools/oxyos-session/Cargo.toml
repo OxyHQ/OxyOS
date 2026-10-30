@@ -14,6 +14,7 @@ oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-controls = { path = "../../crates/oxyos-controls" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }

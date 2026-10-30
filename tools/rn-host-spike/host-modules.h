@@ -108,6 +108,15 @@ struct ShellService {
   // told them (docs/adr/0021-menu-bar.mdx); the compositor delivers it only if they are still the
   // active window's.
   std::function<void(uint32_t window, uint32_t serial, uint32_t index)> activateMenuItem;
+  // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a level by its
+  // OXYOS_CONTROL_* (0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or dark,
+  // and the system looked at again now. The session applies them and the state says what came of
+  // it.
+  std::function<void(uint8_t control, uint32_t level)> setControlLevel;
+  std::function<void(uint8_t control, bool muted)> setControlMuted;
+  std::function<void(bool enabled)> setWifiEnabled;
+  std::function<void(bool dark)> setAppearance;
+  std::function<void()> refreshControls;
 };
 
 // The application window's menus (docs/adr/0021-menu-bar.mdx), for Bloom's `menu-bar` capability:

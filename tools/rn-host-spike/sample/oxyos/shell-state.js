@@ -28,6 +28,15 @@
  * 'switcher-done' | 'switcher-cancel' | 'search'; output the one to show it on).
  * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window.
  *
+ * The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx):
+ * `controls` in the state is what the session says of the machine, { output, input, display,
+ * keyboard: { level (0 to 1), muted, available } | null, power: { battery, percent, onAC, minutes }
+ * | null, network: { wifi, signal, ssid, wired } | null, bluetooth: { state, connected } | null };
+ * `bezels` are the latest levels a hardware key acted on, for the bezel, in order, [{ id, control }]
+ * (control 'output' | 'input' | 'display' | 'keyboard'). `setControlLevel(control, level)`,
+ * `setControlMuted(control, muted)`, `setWifiEnabled(enabled)`, `setAppearance(dark)` and
+ * `refreshControls()` are the Control Center's intents: the next state says what happened.
+ *
  * The login screen (docs/adr/0020-oxy-account-login.mdx): `authenticate(password, account)` sends the
  * password for an enrolled account's Unix user, and `accounts()` reads the enrolled accounts from the
  * accounts' service, [{ user, name, picture }] (null when they cannot be read); `oxyApi` in the state
@@ -42,6 +51,7 @@ export function useOxyOSShell() {
   const [state, setState] = React.useState(() => native?.getState() ?? null);
   const [authentication, setAuthentication] = React.useState(null);
   const [shortcuts, setShortcuts] = React.useState([]);
+  const [bezels, setBezels] = React.useState([]);
   React.useEffect(() => {
     if (!native) return undefined;
     const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', setState);
@@ -56,12 +66,17 @@ export function useOxyOSShell() {
         { id: (last[last.length - 1]?.id ?? 0) + 1, action, output },
       ]),
     );
+    // Each bezel is new, even one like the last (a key pressed at the end of its range shows it).
+    const bezel = DeviceEventEmitter.addListener('OxyOSShellBezel', ({ control }) =>
+      setBezels((last) => [...last.slice(-15), { id: (last[last.length - 1]?.id ?? 0) + 1, control }]),
+    );
     // A change between the first read and the subscription is not lost.
     setState(native.getState());
     return () => {
       subscription.remove();
       answers.remove();
       told.remove();
+      bezel.remove();
     };
   }, []);
   return {
@@ -84,5 +99,11 @@ export function useOxyOSShell() {
     authenticate: (password, account) => native?.authenticate(password, account) ?? false,
     accounts: () => native?.accounts() ?? null,
     activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
+    bezels,
+    setControlLevel: (control, level) => native?.setControlLevel(control, level),
+    setControlMuted: (control, muted) => native?.setControlMuted(control, muted),
+    setWifiEnabled: (enabled) => native?.setWifiEnabled(enabled),
+    setAppearance: (dark) => native?.setAppearance(dark),
+    refreshControls: () => native?.refreshControls(),
   };
 }

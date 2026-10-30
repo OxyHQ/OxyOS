@@ -289,6 +289,20 @@ fn requests() -> Vec<Request> {
             surface: 3,
             serial: 41,
         },
+        Request::SetControlLevel {
+            control: Control::DisplayBrightness,
+            level_65536: 40_960,
+        },
+        Request::SetControlMuted {
+            control: Control::InputVolume,
+            muted: true,
+        },
+        Request::SetWifiEnabled { enabled: false },
+        Request::SetAppearance {
+            serial: 9,
+            dark: true,
+        },
+        Request::RefreshControls {},
     ]
 }
 
@@ -598,6 +612,29 @@ fn events() -> Vec<Event> {
             used: 12,
             hidden: true,
         },
+        Event::ControlLevel {
+            control: Control::OutputVolume,
+            level_65536: FULL_LEVEL,
+            muted: true,
+            available: true,
+            bezel: true,
+        },
+        Event::Power {
+            battery: BatteryState::Charging,
+            percent: 78,
+            on_ac: true,
+            minutes: 42,
+        },
+        Event::Network {
+            wifi: WifiState::Connected,
+            signal: 73,
+            wired: false,
+            ssid: PreeditText::new("LukeSkyRouter").unwrap(),
+        },
+        Event::Bluetooth {
+            state: BluetoothState::On,
+            connected: 2,
+        },
     ]
 }
 
@@ -704,6 +741,45 @@ fn system_shortcuts_are_a_closed_set() {
     // The shortcut byte follows the 4-byte length and the opcode.
     let mut bad = bytes.clone();
     bad[4 + 1] = 0;
+    assert!(read_event(&mut Cursor::new(bad)).is_err());
+    assert!(read_event(&mut Cursor::new(bytes)).is_ok());
+}
+
+#[test]
+fn controls_are_closed_sets() {
+    assert!(Control::from_raw(0).is_none());
+    assert!(Control::from_raw(5).is_none());
+    assert_eq!(Control::from_raw(4), Some(Control::KeyboardBrightness));
+    assert!(BatteryState::from_raw(5).is_none());
+    assert!(WifiState::from_raw(5).is_none());
+    assert!(BluetoothState::from_raw(3).is_none());
+    let mut bytes = Vec::new();
+    write_request(
+        &mut bytes,
+        &Request::SetControlLevel {
+            control: Control::OutputVolume,
+            level_65536: 0,
+        },
+    )
+    .unwrap();
+    // The control byte follows the 4-byte length and the opcode.
+    let mut bad = bytes.clone();
+    bad[4 + 1] = 9;
+    assert!(read_request(&mut Cursor::new(bad)).is_err());
+    assert!(read_request(&mut Cursor::new(bytes)).is_ok());
+    let mut bytes = Vec::new();
+    write_event(
+        &mut bytes,
+        &Event::Network {
+            wifi: WifiState::Off,
+            signal: 0,
+            wired: true,
+            ssid: PreeditText::default(),
+        },
+    )
+    .unwrap();
+    let mut bad = bytes.clone();
+    bad[4 + 1] = 7;
     assert!(read_event(&mut Cursor::new(bad)).is_err());
     assert!(read_event(&mut Cursor::new(bytes)).is_ok());
 }

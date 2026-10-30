@@ -131,6 +131,12 @@ impl Scene {
         true
     }
 
+    /// Whether Shift and Alt are held: a hardware key moves a quarter of a step (ADR 0025).
+    pub(super) fn fine_step(&self) -> bool {
+        let keys = &self.system_keys;
+        keys.holds([LEFT_SHIFT, RIGHT_SHIFT]) && keys.holds([LEFT_ALT, RIGHT_ALT])
+    }
+
     /// A key pressed with Super held, while unlocked.
     fn system_shortcut(&mut self, key: u32) {
         let keys = &self.system_keys;
@@ -212,7 +218,7 @@ impl Scene {
     }
 
     /// Where the shell shows a shortcut: the active window's output, else the pointer's.
-    fn shortcut_output(&self) -> OutputId {
+    pub(super) fn shortcut_output(&self) -> OutputId {
         self.active
             .and_then(|active| self.live(active).map(|node| node.output))
             .or_else(|| {
@@ -225,7 +231,7 @@ impl Scene {
 
     /// The shell client granted `shortcuts` that shows `output` (it has a shell surface there),
     /// else any that has a shell surface.
-    fn shortcut_shell(&self, output: OutputId) -> Option<ClientId> {
+    pub(super) fn shortcut_shell(&self, output: OutputId) -> Option<ClientId> {
         let shells: Vec<(ClientId, OutputId)> = self
             .nodes
             .iter()

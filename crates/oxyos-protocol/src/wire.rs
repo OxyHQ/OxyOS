@@ -167,6 +167,27 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// A level the session controls (ADR 0025): the volume of the default output and of the
+    /// default input (the microphone), and the backlight of the built-in display and of the
+    /// keyboard.
+    Control: u8 { OutputVolume = 1, InputVolume = 2, DisplayBrightness = 3, KeyboardBrightness = 4 }
+}
+wire_enum! {
+    /// The battery, as the session finds it (ADR 0025): none, discharging, charging, full, or on
+    /// AC power and not charging.
+    BatteryState: u8 { Absent = 0, Discharging = 1, Charging = 2, Full = 3, NotCharging = 4 }
+}
+wire_enum! {
+    /// Wi-Fi, as the session finds it (ADR 0025): no Wi-Fi device (or nothing managing one),
+    /// turned off, on and not connected, connecting, connected.
+    WifiState: u8 { Unavailable = 0, Off = 1, Disconnected = 2, Connecting = 3, Connected = 4 }
+}
+wire_enum! {
+    /// Bluetooth, as the session finds it (ADR 0025): no adapter (or nothing managing one), its
+    /// adapter off, or on.
+    BluetoothState: u8 { Unavailable = 0, Off = 1, On = 2 }
+}
+wire_enum! {
     /// What an entry of a window's menus is (ADR 0021): a menu of the bar (a root), a command, a
     /// submenu of commands, or a separator between them.
     MenuKind: u8 { Menu = 1, Item = 2, Submenu = 3, Separator = 4 }

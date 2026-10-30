@@ -121,6 +121,9 @@ struct Session {
     /// (a session gives `settings` only to an entry root wrote): the application `ID`, launched,
     /// is given `settings`.
     grant_settings: Option<String>,
+    /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
+    /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
+    controls: Option<oxyos_controls::Fake>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -178,6 +181,7 @@ impl Session {
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
+            controls: None,
             launched_clients: Default::default(),
         })
     }

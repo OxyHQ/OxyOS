@@ -93,8 +93,10 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
     placed.kind = kLock;
     placed.edge = OXYOS_EDGE_NONE;
     placed.strip = Rect{{0, 0}, {width, height}};
-  } else if (props->kind == "overlay") {
-    placed.kind = OXYOS_SHELL_OVERLAY;
+  } else if (props->kind == "overlay" || props->kind == "notification") {
+    // A notification (the bezel of a hardware key, docs/adr/0025-hardware-keys-and-control-center.mdx)
+    // is above the overlays and takes no input: presses go through it to what is under it.
+    placed.kind = props->kind == "overlay" ? OXYOS_SHELL_OVERLAY : OXYOS_SHELL_NOTIFICATION;
     placed.edge = OXYOS_EDGE_NONE;
     placed.strip = Rect{{0, 0}, {width, height}};
   } else {
@@ -129,6 +131,7 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   placed.input = OxyOSRect{static_cast<int32_t>(left), static_cast<int32_t>(top),
                            static_cast<uint32_t>(std::max<Float>(0, right - left)),
                            static_cast<uint32_t>(std::max<Float>(0, bottom - top))};
+  if (placed.kind == OXYOS_SHELL_NOTIFICATION) placed.input = OxyOSRect{0, 0, 0, 0};
   return placed;
 }
 
@@ -164,9 +167,10 @@ void ShellSurfaceHost::sync() {
       window_.setInputRegion(surface, placed->input);
       regions_[tag] = Region{.surface = surface, .placed = *placed};
       Report::get().popup("shell.open", surface, &view,
-                          folly::dynamic::object("kind", placed->kind == kLock              ? "lock"
-                                                         : placed->kind == OXYOS_SHELL_OVERLAY ? "overlay"
-                                                                                               : "panel")(
+                          folly::dynamic::object("kind", placed->kind == kLock                      ? "lock"
+                                                         : placed->kind == OXYOS_SHELL_OVERLAY        ? "overlay"
+                                                         : placed->kind == OXYOS_SHELL_NOTIFICATION ? "notification"
+                                                                                                      : "panel")(
                               "width", placed->strip.size.width)("height", placed->strip.size.height));
     } else {
       window_.setInputRegion(open->second.surface, placed->input);

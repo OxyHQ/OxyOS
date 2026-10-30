@@ -133,6 +133,9 @@ pub enum Step {
     /// No input for this many seconds: the idle lock counts them as passed at once, as if the
     /// person had left the machine alone that long (ADR 0010). Its own time; nothing waits.
     Idle(u64),
+    /// Milliseconds of real time with no input, the session served all along: what fades on its
+    /// own clock (a hardware key's bezel, ADR 0025) has the time to.
+    Wait(u64),
 }
 
 /// The points of a drag on the output after its first: eight even steps to its last.
@@ -203,6 +206,7 @@ impl Step {
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
+            Step::Wait(ms) => format!("{ms} ms waited"),
         }
     }
 
@@ -296,6 +300,7 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Wait(ms) => format!("\"wait\":{ms}"),
         }
     }
 }
@@ -386,6 +391,12 @@ pub struct Launch {
     /// session gives it to an entry only an administrator could have written. A fixture: a
     /// scenario's entries are the developer's.
     pub grant_settings: Option<String>,
+    /// `--controls FILE`: the machine the hardware keys and the Control Center act on
+    /// (docs/adr/0025-hardware-keys-and-control-center.mdx), played as FILE describes it
+    /// (`oxyos_controls::Fake`), which it writes back as the session changes it; each step's
+    /// result says it (`controls`). Without it the keys act on nothing and the shell is told
+    /// nothing of the machine.
+    pub controls: Option<PathBuf>,
     /// `--outputs WxH[@SCALE],...`: the session's outputs, of these pixels at these scales,
     /// arranged as a session arranges its displays (docs/adr/0018-several-displays.mdx): left to
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
@@ -398,8 +409,8 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
@@ -445,7 +456,7 @@ impl Launch {
         let mut shell = None;
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
-        let (mut preferences, mut grant_settings) = (None, None);
+        let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut screens = Vec::new();
         let mut command = Vec::new();
         let mut login = None;
@@ -503,6 +514,10 @@ impl Launch {
                 }
                 Some("--preferences") => {
                     preferences = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--controls") => {
+                    controls = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--grant-settings") => {
@@ -663,6 +678,10 @@ impl Launch {
                     let seconds = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Idle(seconds.parse()?)
                 }
+                Some("--wait") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Wait(ms.parse()?)
+                }
                 Some("--scale") => {
                     let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Scale(scale.parse()?)
@@ -755,6 +774,7 @@ impl Launch {
                 reader_locale,
                 preferences,
                 grant_settings,
+                controls,
                 outputs: screens,
                 login,
             },
@@ -1162,6 +1182,25 @@ fn delivered_json(session: &Session) -> String {
         fields.push(format!("\"launched\":{{{}}}", kinds.join(",")));
     }
     fields.push(format!("\"leaked\":{leaked}"));
+    format!("{{{}}}", fields.join(","))
+}
+
+/// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
+/// themselves, the rest as text.
+fn controls_json(fake: &oxyos_controls::Fake) -> String {
+    let fields: Vec<String> = fake
+        .text()
+        .lines()
+        .filter_map(|line| line.split_once(" = "))
+        .map(|(key, value)| {
+            let value = if value == "true" || value == "false" || value.parse::<f64>().is_ok() {
+                value.to_string()
+            } else {
+                json_string(value)
+            };
+            format!("{}:{value}", json_string(key))
+        })
+        .collect();
     format!("{{{}}}", fields.join(","))
 }
 
@@ -2048,6 +2087,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         // Handled by the step loop: no input to inject, the session's input method's, or the
         // assistive technology's.
         Step::ExpectPopup
+        | Step::Wait(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
         | Step::Accessibility { .. }
@@ -2085,6 +2125,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .settings
         .apply(&mut session.compositor, oxyos_compositor::settings::now());
     session.grant_settings = launch.grant_settings.clone();
+    if let Some(file) = &launch.controls {
+        // A played machine, acted on in the turn itself, so a scenario is the same every run.
+        let fake = oxyos_controls::Fake::from_file(file.clone())?;
+        session.compositor.controls = Some(oxyos_compositor::controls::Controls::new(
+            oxyos_controls::Worker::inline(Box::new(fake.clone())),
+            Instant::now(),
+        ));
+        session.controls = Some(fake);
+    }
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
     }
@@ -2417,6 +2466,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 inject_input_method(&mut session, step)?;
                 0
             }
+            _ if matches!(step, Step::Wait(_)) => {
+                if let Step::Wait(ms) = step {
+                    let until = Instant::now() + Duration::from_millis(*ms);
+                    while Instant::now() < until {
+                        session.compositor.serve(&session.listener)?;
+                        session.serve_launches();
+                        session.serve_preferences();
+                        session.reader.absorb(&mut session.compositor);
+                    }
+                }
+                0
+            }
             _ if matches!(step, Step::Grab { .. }) => {
                 if let Step::Grab { from, by } = step {
                     grab(&mut session, window, *from, *by)?;
@@ -2488,7 +2549,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{}{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{}{}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -2505,6 +2566,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             session.compositor.scene.pointer_shape(),
             transitions_json(&mut session.compositor),
+            session.controls.as_ref().map_or("null".to_string(), controls_json),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
         ));
         snapshots.push(snapshot(

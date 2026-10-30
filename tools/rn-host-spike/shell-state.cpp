@@ -198,6 +198,20 @@ bool ShellState::observe(const OxyOSEvent& event) {
       window.hidden = event.flag != 0;
       return true;
     }
+    // The hardware controls (docs/adr/0025-hardware-keys-and-control-center.mdx).
+    case OXYOS_EVENT_CONTROL_LEVEL:
+      levels_[event.detail] = Level{event.code, (event.flag & OXYOS_CONTROL_MUTED) != 0,
+                                    (event.flag & OXYOS_CONTROL_AVAILABLE) != 0};
+      return true;
+    case OXYOS_EVENT_POWER:
+      power_ = event;
+      return true;
+    case OXYOS_EVENT_NETWORK:
+      network_ = event;
+      return true;
+    case OXYOS_EVENT_BLUETOOTH:
+      bluetooth_ = event;
+      return true;
     case OXYOS_EVENT_WINDOW_SIZE: {
       // The window's proportions, for the overview's cards (docs/adr/0022-window-views.mdx).
       auto& window = windows_[event.code];
@@ -224,6 +238,38 @@ folly::dynamic ShellState::wallpaperUri() const {
   return "file://" + wallpaperDir_ + "/" + file->second;
 }
 
+folly::dynamic ShellState::controls() const {
+  auto level = [this](uint32_t control) -> folly::dynamic {
+    auto found = levels_.find(control);
+    if (found == levels_.end()) return nullptr;
+    return folly::dynamic::object("level", found->second.level / 65536.0)("muted", found->second.muted)(
+        "available", found->second.available);
+  };
+  auto name = [](const char* const* names, size_t count, uint32_t value) -> const char* {
+    return value < count ? names[value] : "";
+  };
+  static const char* batteries[] = {"absent", "discharging", "charging", "full", "not-charging"};
+  static const char* wifis[] = {"unavailable", "off", "disconnected", "connecting", "connected"};
+  static const char* bluetooths[] = {"unavailable", "off", "on"};
+  folly::dynamic power = nullptr, network = nullptr, bluetooth = nullptr;
+  if (power_) {
+    power = folly::dynamic::object("battery", name(batteries, 5, power_->detail))("percent", power_->code)(
+        "onAC", power_->flag != 0)("minutes", power_->width);
+  }
+  if (network_) {
+    network = folly::dynamic::object("wifi", name(wifis, 5, network_->detail))("signal", network_->code)(
+        "ssid", std::string(network_->text, strnlen(network_->text, sizeof(network_->text))))("wired",
+                                                                                             network_->flag != 0);
+  }
+  if (bluetooth_) {
+    bluetooth = folly::dynamic::object("state", name(bluetooths, 3, bluetooth_->detail))("connected",
+                                                                                         bluetooth_->code);
+  }
+  return folly::dynamic::object("output", level(OXYOS_CONTROL_OUTPUT_VOLUME))("input", level(OXYOS_CONTROL_INPUT_VOLUME))(
+      "display", level(OXYOS_CONTROL_DISPLAY_BRIGHTNESS))("keyboard", level(OXYOS_CONTROL_KEYBOARD_BRIGHTNESS))(
+      "power", std::move(power))("network", std::move(network))("bluetooth", std::move(bluetooth));
+}
+
 folly::dynamic ShellState::state() const {
   folly::dynamic windows = folly::dynamic::array();
   for (const auto& [id, window] : windows_) {
@@ -246,7 +292,7 @@ folly::dynamic ShellState::state() const {
       folly::dynamic::object("window", menuBar_.window)("serial", menuBar_.serial)("items", std::move(items));
   return folly::dynamic::object("windows", std::move(windows))("menuBar", std::move(menuBar))("workspaces", workspaces_)("active", active_)(
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
-      "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi());
+      "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls());
 }
 
 }  // namespace oxyos

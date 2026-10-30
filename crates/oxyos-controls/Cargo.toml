@@ -1,0 +1,16 @@
+[package]
+name = "oxyos-controls"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+oxyos-protocol = { path = "../oxyos-protocol" }
+# logind's SetBrightness on the session.
+oxyos-seat = { path = "../oxyos-seat" }
+# UPower, NetworkManager and BlueZ over the system bus, in safe Rust.
+zbus = "5"
+
+[lints]
+workspace = true

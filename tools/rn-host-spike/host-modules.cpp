@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -372,6 +373,45 @@ std::shared_ptr<TurboModule> createHostModule(
         json.assign(static_cast<size_t>(length) + 1, '\0');
       }
       return jsi::Value::null();
+    });
+    // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): controls by name,
+    // levels from 0 to 1.
+    auto control = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) -> uint8_t {
+      std::string name = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
+      if (name == "output") return OXYOS_CONTROL_OUTPUT_VOLUME;
+      if (name == "input") return OXYOS_CONTROL_INPUT_VOLUME;
+      if (name == "display") return OXYOS_CONTROL_DISPLAY_BRIGHTNESS;
+      if (name == "keyboard") return OXYOS_CONTROL_KEYBOARD_BRIGHTNESS;
+      throw jsi::JSError(rt, "OxyOSShell: output, input, display or keyboard");
+    };
+    module->method("setControlLevel", [&services, ready, control](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      ready(rt);
+      double level = count > 1 && args[1].isNumber() ? args[1].asNumber() : 0;
+      services.shell.setControlLevel(control(rt, args, count),
+                                     static_cast<uint32_t>(std::lround(std::clamp(level, 0.0, 1.0) * 65536)));
+      return jsi::Value::undefined();
+    });
+    module->method("setControlMuted", [&services, ready, control](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      ready(rt);
+      services.shell.setControlMuted(control(rt, args, count), count > 1 && args[1].isBool() && args[1].getBool());
+      return jsi::Value::undefined();
+    });
+    module->method("setWifiEnabled", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      services.shell.setWifiEnabled(count > 0 && args[0].isBool() && args[0].getBool());
+      return jsi::Value::undefined();
+    });
+    module->method("setAppearance", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      services.shell.setAppearance(count > 0 && args[0].isBool() && args[0].getBool());
+      return jsi::Value::undefined();
+    });
+    module->method("refreshControls", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      services.shell.refreshControls();
+      return jsi::Value::undefined();
     });
     // A command of the active window's menus, as the shell was told them (ADR 0021).
     module->method("activateMenuItem", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,

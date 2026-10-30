@@ -50,6 +50,14 @@
 //! screen reader started or stopped) and told to every client. `lock_after` arms the idle lock
 //! again from the change.
 //!
+//! The hardware keys (docs/adr/0025-hardware-keys-and-control-center.mdx) are the session's:
+//! volume, mute, the microphone's mute, the display's and the keyboard's brightness act on
+//! PipeWire's default devices (through WirePlumber's `wpctl`) and on the backlights (through
+//! logind's `SetBrightness`) whatever has the keyboard, locked or not, and no application sees
+//! them; the shell shows each level and its Control Center sets them, turns Wi-Fi on and off
+//! (NetworkManager) and shows the battery (UPower) and Bluetooth (BlueZ), which the session looks
+//! at every few seconds, off the compositor's turn.
+//!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
 //! images of a Windows cursor file or cursor scheme's folder (`--pointer`, every shape its
@@ -209,6 +217,17 @@ fn main() -> Result<()> {
     compositor.records = false;
     // Applied before any client connects, so each is told them with its Welcome.
     settings.apply(&mut compositor, settings::now());
+    // The machine's volumes, backlights, battery and network, on a thread of their own: every
+    // call may wait on another process (ADR 0025).
+    match oxyos_controls::Worker::spawn(Box::new(oxyos_controls::Session::new())) {
+        Ok(worker) => {
+            compositor.controls = Some(oxyos_compositor::controls::Controls::new(
+                worker,
+                Instant::now(),
+            ))
+        }
+        Err(error) => eprintln!("[session] the hardware keys: {error}; they do nothing"),
+    }
     compositor.reads_back = false;
     compositor.authentication = Some(authentication);
     if greeter {

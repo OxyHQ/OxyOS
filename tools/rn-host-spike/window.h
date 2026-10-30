@@ -119,6 +119,14 @@ class Window {
   // longer than 512 bytes). The compositor's AUTHENTICATION_RESULT answers.
   void openLockSurface(uint32_t id);
   void lockSession();
+  // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a level (OXYOS_CONTROL_*,
+  // 0 to 65536), a volume's mute, Wi-Fi, the appearance (a PREFERENCE_RESULT with `serial`
+  // answers) and the system looked at again. False if it could not be sent.
+  bool setControlLevel(uint8_t control, uint32_t level);
+  bool setControlMuted(uint8_t control, bool muted);
+  bool setWifiEnabled(bool enabled);
+  bool setAppearance(uint32_t serial, bool dark);
+  bool refreshControls();
   // The session's shell asks for an application of the registry (ADR 0013); a LAUNCH_RESULT with
   // `serial` answers. False if it could not be sent.
   bool launch(uint32_t serial, const std::string& id);
