@@ -68,7 +68,8 @@ class Machine:
         if self.display == "virtio":
             arguments += ["-device", f"virtio-vga,edid=on,xres={width},yres={height}"]
         else:
-            arguments += ["-device", f"VGA,edid=on,xres={width},yres={height}"]
+            # bochs-drm offers only modes that fit its video memory twice: 16 MB drops 1920x1200.
+            arguments += ["-device", f"VGA,edid=on,xres={width},yres={height},vgamem_mb=64"]
         arguments += [
             "-drive", f"file={self.image},media=cdrom,readonly=on,if=none,id=cd",
             "-device", "ide-cd,drive=cd,bootindex=0",
@@ -146,9 +147,10 @@ class Machine:
     def screendump(self, path):
         self.execute("screendump", filename=str(path), format="ppm")
 
-    def keys(self, *names, hold=60):
+    def keys(self, *names, hold=50):
         self.execute("send-key", keys=[{"type": "qcode", "data": name} for name in names], **{"hold-time": hold})
-        time.sleep(0.03)
+        # Bootloaders poll the keyboard: a key sent before the last is released is lost.
+        time.sleep(hold / 1000 + 0.07)
 
     def type(self, text):
         for character in text:

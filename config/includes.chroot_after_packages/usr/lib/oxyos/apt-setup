@@ -1,7 +1,10 @@
-#!/bin/bash -ex
+#!/bin/sh
+# First boot (oxyos-apt-setup.service): apt's sources as one deb822 file, then the service
+# removes itself. POSIX sh, as the image's hooks.
+set -eu
 
-if [[ -f /etc/apt/sources.list ]] && [[ ! -f /etc/apt/sources.list.d/debian.sources ]]; then
-cat << EOF > /etc/apt/sources.list.d/debian.sources
+if [ -f /etc/apt/sources.list ] && [ ! -f /etc/apt/sources.list.d/debian.sources ]; then
+    cat > /etc/apt/sources.list.d/debian.sources << 'SOURCES'
 # Add 'deb-src' to Types line for source packages
 Types: deb
 URIs: http://deb.debian.org/debian/
@@ -14,11 +17,10 @@ URIs: http://security.debian.org/debian-security/
 Suites: trixie-security
 Components: main contrib non-free non-free-firmware
 Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-EOF
-rm /etc/apt/sources.list
-rm /etc/apt/sources.list~
+SOURCES
+    # The security suite is in debian.sources now: live-build's oxyos.list would repeat it.
+    rm -f /etc/apt/sources.list /etc/apt/sources.list~ /etc/apt/sources.list.d/oxyos.list
 fi
 
-systemctl disable oxyos-apt-setup
-rm /usr/lib/systemd/system/oxyos-apt-setup.service
-rm -rf /usr/lib/oxyos
+systemctl disable oxyos-apt-setup.service
+rm -f /usr/lib/systemd/system/oxyos-apt-setup.service /usr/lib/oxyos/apt-setup

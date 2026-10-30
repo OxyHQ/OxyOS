@@ -189,9 +189,12 @@ def edit_entry(machine, firmware):
         machine.type(" " + TEST_ARGUMENTS)
         machine.keys("ret")
     else:
-        # GRUB: e edits the entry; its first line is the kernel's, Ctrl+E goes to its end.
+        # GRUB: e edits the entry. Its lines are `setparams 'Live system (amd64)'`, an empty
+        # line, then the kernel's (live-build's grub.cfg); Ctrl+E goes to the line's end.
         machine.keys("e")
         time.sleep(1)
+        machine.keys("down")
+        machine.keys("down")
         machine.keys("ctrl", "e")
         machine.type(" " + TEST_ARGUMENTS)
         machine.keys("ctrl", "x")
@@ -244,6 +247,9 @@ def system(args, run):
             run.facts["secure_boot"] = secure == "1"
             run.check("booted through UEFI" + (" with Secure Boot on (shim)" if wanted else ""),
                       (secure == "1") == (wanted == "1"), f"SecureBoot variable {secure or 'off'}")
+        # Each connector and its first modes: the first is the preferred one, which Plymouth takes.
+        run.facts["display_modes"] = machine.run(
+            "for c in /sys/class/drm/card*-*; do echo \"${c##*/} $(cat $c/status) $(head -n 3 $c/modes | tr '\\n' ' ')\"; done")
         analyze = machine.run("systemd-analyze")
         run.facts["systemd_analyze"] = analyze
         run.facts["blame"] = machine.run("systemd-analyze blame | head -n 12")

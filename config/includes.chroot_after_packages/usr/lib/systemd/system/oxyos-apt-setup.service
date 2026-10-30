@@ -1,10 +1,11 @@
 [Unit]
-Description=oxyos apt setup service
-After=getty@%i.service
+Description=OxyOS apt sources setup
+ConditionPathExists=/usr/lib/oxyos/apt-setup
+Before=apt-daily.service apt-daily-upgrade.service
 
 [Service]
-ExecStart=/usr/lib/oxyos/apt-setup
 Type=oneshot
+ExecStart=/usr/lib/oxyos/apt-setup
 
 [Install]
 WantedBy=multi-user.target

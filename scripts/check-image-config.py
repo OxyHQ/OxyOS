@@ -107,6 +107,28 @@ def check_hooks():
     return violations
 
 
+def check_includes():
+    """A script the image includes must be executable (a unit's ExecStart= of a file without the
+    bit fails at every boot) and, when it is sh, parse."""
+    violations = []
+    includes = CONFIG / "includes.chroot_after_packages"
+    for path in sorted(p for p in includes.rglob("*") if p.is_file() and not p.is_symlink()):
+        with path.open("rb") as file:
+            first = file.readline()
+        if not first.startswith(b"#!"):
+            continue
+        relative = path.relative_to(ROOT)
+        if not path.stat().st_mode & 0o111:
+            violations.append(f"{relative}: a script without the executable bit")
+        if first.split()[0] in (b"#!/bin/sh", b"#!/usr/bin/sh"):
+            result = subprocess.run(["sh", "-n", str(path)], capture_output=True, text=True)
+            if result.returncode != 0:
+                violations.append(f"{relative}: {result.stderr.strip()}")
+        else:
+            violations.append(f"{relative}: scripts are POSIX sh ({first.decode(errors='replace').strip()})")
+    return violations
+
+
 def check_image_settings():
     violations = []
     # The graphical debian-installer runs an X.org server from the install media.
@@ -187,7 +209,8 @@ def check_boot_logo():
 
 def main():
     violations = (
-        check_packages() + check_references() + check_publication() + check_hooks() + check_image_settings()
+        check_packages() + check_references() + check_publication() + check_hooks() + check_includes()
+        + check_image_settings()
         + check_boot_logo()
     )
     if violations:
