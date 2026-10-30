@@ -58,22 +58,19 @@ fn updatable<'a>(
     (version == from && length == words && copied <= length).then_some((offset, changed))
 }
 
-/// Damage clipped to the output, without empty rectangles. Past eight, one rectangle holding
-/// them all: each region costs a dispatch per layer.
+/// Damage clipped to the output as rectangles that do not overlap (`crate::disjoint`), each
+/// pixel composed once. Past 32, one rectangle holding them all: each is a dispatch.
 fn merged(regions: Vec<crate::Rect>, output: &crate::Rect) -> Vec<crate::Rect> {
-    let clipped: Vec<crate::Rect> = regions
-        .iter()
-        .filter_map(|region| region.intersect(output))
-        .collect();
-    if clipped.len() <= 8 {
-        return clipped;
+    let disjoint = crate::disjoint(&regions, output);
+    if disjoint.len() <= 32 {
+        return disjoint;
     }
-    vec![clipped[1..]
+    vec![disjoint[1..]
         .iter()
-        .fold(clipped[0], |all, region| all.bounding(region))]
+        .fold(disjoint[0], |all, region| all.bounding(region))]
 }
 
-/// Push constants of `shaders/compose.wgsl`'s `Layer`.
+/// A layer as `shaders/compose.wgsl`'s `Layer`: an entry of the frame's layer table.
 #[derive(Clone, Copy, Default)]
 struct Push {
     x: i32,
@@ -107,8 +104,37 @@ struct Push {
     filter: u32,
 }
 
-/// The push constants' size: 29 words, within the 128 bytes every device has.
+/// A layer table entry's size: 29 words.
 const PUSH_BYTES: usize = 29 * 4;
+
+/// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
+/// output's size, the background and the layers' count. 8 words, within the 128 bytes every
+/// device has.
+const FRAME_BYTES: usize = 8 * 4;
+
+fn frame_bytes(
+    region: &crate::Rect,
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: u32,
+) -> [u8; FRAME_BYTES] {
+    let words = [
+        region.x as u32,
+        region.y as u32,
+        region.width,
+        region.height,
+        width,
+        height,
+        background,
+        layers,
+    ];
+    let mut bytes = [0; FRAME_BYTES];
+    for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
+        chunk.copy_from_slice(&word.to_ne_bytes());
+    }
+    bytes
+}
 
 impl Push {
     /// The whole layer in one dispatch.
@@ -226,6 +252,8 @@ enum Role {
     Readback,
     /// An output exported as DMA-BUF for a display.
     Scanout,
+    /// The frame's layer table, written by the host, read by the shader.
+    Layers,
 }
 
 #[derive(Debug)]
@@ -285,7 +313,7 @@ pub struct VulkanCompositor {
     command: vk::CommandBuffer,
     fence: vk::Fence,
     queries: vk::QueryPool,
-    buffers: [Option<Buffer>; 4],
+    buffers: [Option<Buffer>; 5],
     device_name: String,
     kind: DeviceKind,
     timestamp_period: f32,
@@ -328,6 +356,8 @@ pub struct VulkanCompositor {
     completion: Option<(vk::Semaphore, ash::khr::external_semaphore_fd::Device)>,
     /// The last deferred submission's completion as a sync file, until it is taken.
     completed_when: Option<std::os::fd::OwnedFd>,
+    /// The device's time for each frame completed and not yet taken (`take_completed_ms`).
+    completed_ms: Vec<f64>,
 }
 
 impl VulkanCompositor {
@@ -372,7 +402,7 @@ impl VulkanCompositor {
             command: vk::CommandBuffer::null(),
             fence: vk::Fence::null(),
             queries: vk::QueryPool::null(),
-            buffers: [None, None, None, None],
+            buffers: [None, None, None, None, None],
             device_name: opened.name,
             kind: opened.kind,
             timestamp_period: opened.timestamp_period,
@@ -393,6 +423,7 @@ impl VulkanCompositor {
             submitted: false,
             completion: None,
             completed_when: None,
+            completed_ms: Vec::new(),
         };
         this.build(opened.family)?;
         if opened.sync_file {
@@ -555,7 +586,7 @@ impl VulkanCompositor {
     /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
     fn build(&mut self, family: u32) -> Result<(), Error> {
         let device = &self.device;
-        let bindings = [0, 1].map(|binding| {
+        let bindings = [0, 1, 2].map(|binding| {
             vk::DescriptorSetLayoutBinding::default()
                 .binding(binding)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -571,7 +602,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(PUSH_BYTES as u32)];
+                .size(FRAME_BYTES as u32)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -597,7 +628,7 @@ impl VulkanCompositor {
             self.pipeline = pipelines.map_err(|(_, result)| Error::from(result))?[0];
             let sizes = [vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(2)];
+                .descriptor_count(3)];
             self.pool = device.create_descriptor_pool(
                 &vk::DescriptorPoolCreateInfo::default()
                     .max_sets(1)
@@ -935,6 +966,7 @@ impl VulkanCompositor {
             (frame_words * 8).max(4),
             (frame_words * 4).max(4),
             out_bytes,
+            (layers.len() * PUSH_BYTES).max(PUSH_BYTES) as u64,
         )?;
         if self.buffers[0].as_ref().map(|buffer| buffer.buffer) != source {
             // A new source buffer holds no pixels.
@@ -973,7 +1005,8 @@ impl VulkanCompositor {
         };
         let family = self.family;
         self.bind_output(target);
-        let [Some(source), _, Some(upload), Some(readback)] = &self.buffers else {
+        let [Some(source), _, Some(upload), Some(readback), Some(table_buffer)] = &self.buffers
+        else {
             unreachable!("reserved");
         };
 
@@ -1105,35 +1138,16 @@ impl VulkanCompositor {
         }
         self.last_uploaded = uploaded * 4;
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
-        // Every layer whole, or, region by region, the background and the parts of the layers
-        // within it.
-        let pushes: Vec<Push> = match &regions {
-            None => layer_pushes.iter().flatten().copied().collect(),
-            Some(regions) => regions
-                .iter()
-                .flat_map(|region| {
-                    let background = Push {
-                        x: region.x,
-                        y: region.y,
-                        width: region.width,
-                        height: region.height,
-                        out_width: width,
-                        out_height: height,
-                        mode: 2,
-                        color: background,
-                        opacity: 255,
-                        ..Push::default()
-                    }
-                    .whole();
-                    std::iter::once(background).chain(
-                        layer_pushes
-                            .iter()
-                            .flatten()
-                            .filter_map(|push| push.within(region)),
-                    )
-                })
-                .collect(),
-        };
+        // The layers drawn, bottom to top, into the table the shader reads; and what it composes:
+        // the whole output, or each damaged region (each pixel of it once, every layer over it).
+        let table: Vec<Push> = layer_pushes.iter().flatten().copied().collect();
+        let regions = regions.unwrap_or_else(|| vec![output]);
+        let words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
+        // SAFETY: the table buffer is mapped, coherent and holds at least a layer per layer
+        // (`reserve`); the last submission, which read it, is done (`complete`).
+        unsafe {
+            std::ptr::copy_nonoverlapping(words.as_ptr(), table_buffer.mapped, words.len());
+        }
         let timing = self.queries != vk::QueryPool::null();
 
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -1202,9 +1216,6 @@ impl VulkanCompositor {
             if !copies.is_empty() {
                 device.cmd_copy_buffer(command, upload.buffer, source.buffer, &copies);
             }
-            if regions.is_none() {
-                device.cmd_fill_buffer(command, target, 0, out_bytes, background);
-            }
             barrier(
                 vk::AccessFlags::TRANSFER_WRITE,
                 vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
@@ -1228,27 +1239,21 @@ impl VulkanCompositor {
                 &[self.set],
                 &[],
             );
-            for push in &pushes {
+            for region in &regions {
                 device.cmd_push_constants(
                     command,
                     self.pipeline_layout,
                     vk::ShaderStageFlags::COMPUTE,
                     0,
-                    &push.bytes(),
+                    &frame_bytes(region, width, height, background, table.len() as u32),
                 );
                 device.cmd_dispatch(
                     command,
-                    push.count_x.div_ceil(8),
-                    push.count_y.div_ceil(8),
+                    region.width.div_ceil(8),
+                    region.height.div_ceil(8),
                     1,
                 );
-                // Layers compose in order: each sees the one below written.
-                barrier(
-                    vk::AccessFlags::SHADER_WRITE,
-                    vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
-                    vk::PipelineStageFlags::COMPUTE_SHADER,
-                    vk::PipelineStageFlags::COMPUTE_SHADER,
-                );
+                // Regions do not overlap and nothing reads the output: they run together.
             }
             if timing {
                 device.cmd_write_timestamp(
@@ -1442,7 +1447,20 @@ impl VulkanCompositor {
         } else {
             None
         };
+        if let Some(ms) = self.last_gpu_ms {
+            // Kept until taken, a few seconds' frames at most.
+            if self.completed_ms.len() >= 1024 {
+                self.completed_ms.remove(0);
+            }
+            self.completed_ms.push(ms);
+        }
         Ok(())
+    }
+
+    /// The device's time composing each frame completed since the last call (GPU timestamps;
+    /// a frame handed to its display completes when the next is composed), in ms.
+    pub fn take_completed_ms(&mut self) -> Vec<f64> {
+        std::mem::take(&mut self.completed_ms)
     }
 
     /// Points the descriptor set's output binding at `buffer`.
@@ -1582,6 +1600,7 @@ impl VulkanCompositor {
         source_bytes: u64,
         upload_bytes: u64,
         out_bytes: u64,
+        layers_bytes: u64,
     ) -> Result<(), Error> {
         let mut rebind = false;
         for (slot, role, bytes) in [
@@ -1589,6 +1608,7 @@ impl VulkanCompositor {
             (1, Role::Output, out_bytes),
             (2, Role::Upload, upload_bytes),
             (3, Role::Readback, out_bytes),
+            (4, Role::Layers, layers_bytes),
         ] {
             if self.buffers[slot]
                 .as_ref()
@@ -1600,23 +1620,23 @@ impl VulkanCompositor {
             if let Some(old) = self.buffers[slot].replace(buffer) {
                 self.free(old);
             }
-            rebind |= slot < 2;
+            rebind |= slot < 2 || slot == 4;
             if slot == 1 {
                 // A new output buffer holds no frame.
                 self.output_holds = None;
             }
         }
         if rebind {
-            let [Some(source), Some(output), ..] = &self.buffers else {
+            let [Some(source), Some(output), _, _, Some(table)] = &self.buffers else {
                 unreachable!("reserved");
             };
-            let infos = [source, output].map(|buffer| {
+            let infos = [source, output, table].map(|buffer| {
                 [vk::DescriptorBufferInfo::default()
                     .buffer(buffer.buffer)
                     .offset(0)
                     .range(vk::WHOLE_SIZE)]
             });
-            let writes = [0, 1].map(|binding| {
+            let writes = [0, 1, 2].map(|binding| {
                 vk::WriteDescriptorSet::default()
                     .dst_set(self.set)
                     .dst_binding(binding)
@@ -1675,13 +1695,18 @@ impl VulkanCompositor {
                 Memory::empty(),
                 Memory::DEVICE_LOCAL,
             ),
+            Role::Layers => (
+                Usage::STORAGE_BUFFER,
+                Memory::HOST_VISIBLE | Memory::HOST_COHERENT,
+                Memory::DEVICE_LOCAL,
+            ),
         };
         let export = role == Role::Scanout;
         let mut external = vk::ExternalMemoryBufferCreateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
         let mut exported = vk::ExportMemoryAllocateInfo::default()
             .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
-        let host = matches!(role, Role::Upload | Role::Readback);
+        let host = matches!(role, Role::Upload | Role::Readback | Role::Layers);
         // SAFETY: the device is live; on failure every object created here is destroyed.
         unsafe {
             let mut create = vk::BufferCreateInfo::default()

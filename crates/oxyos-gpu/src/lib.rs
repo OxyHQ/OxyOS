@@ -211,6 +211,45 @@ fn pixel(pixels: &[u8], index: usize) -> u32 {
     ])
 }
 
+/// The pixels of `rects` within `output` as rectangles that do not overlap, so that none is
+/// composed twice: in bands between the rectangles' tops and bottoms, each band's spans joined.
+pub(crate) fn disjoint(rects: &[Rect], output: &Rect) -> Vec<Rect> {
+    let rects: Vec<Rect> = rects
+        .iter()
+        .filter_map(|rect| rect.intersect(output))
+        .collect();
+    let mut edges: Vec<i64> = rects
+        .iter()
+        .flat_map(|rect| [i64::from(rect.y), rect.bottom()])
+        .collect();
+    edges.sort_unstable();
+    edges.dedup();
+    let mut out = Vec::new();
+    for band in edges.windows(2) {
+        let (top, bottom) = (band[0], band[1]);
+        let mut spans: Vec<(i64, i64)> = rects
+            .iter()
+            .filter(|rect| i64::from(rect.y) <= top && rect.bottom() >= bottom)
+            .map(|rect| (i64::from(rect.x), rect.right()))
+            .collect();
+        spans.sort_unstable();
+        let mut joined: Vec<(i64, i64)> = Vec::new();
+        for (left, right) in spans {
+            match joined.last_mut() {
+                Some(last) if left <= last.1 => last.1 = last.1.max(right),
+                _ => joined.push((left, right)),
+            }
+        }
+        out.extend(joined.into_iter().map(|(left, right)| Rect {
+            x: left as i32,
+            y: top as i32,
+            width: (right - left) as u32,
+            height: (bottom - top) as u32,
+        }));
+    }
+    out
+}
+
 /// Composes `layers` onto an output of `width` × `height` filled with `background`, as the
 /// compositor shows them: 0x00RRGGBB per pixel, row by row. The reference composition.
 pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>]) -> Vec<u32> {

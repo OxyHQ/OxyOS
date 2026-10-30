@@ -428,6 +428,8 @@ pub struct Compositor {
     /// the time went, at most once a second: a session's, whose frames are otherwise not measured.
     pub slow_turns: bool,
     slow_turn_logged: Option<Instant>,
+    /// With `slow_turns`: when the GPU's composing times were last summed up (`serve`).
+    gpu_times_logged: Option<Instant>,
     /// Descriptors that only wake a turn, readable when the program running the compositor has
     /// something of its own to do (a child of its exited); it reads them itself.
     pub wakers: Vec<std::os::fd::OwnedFd>,
@@ -796,6 +798,7 @@ impl Compositor {
             wakers: Vec::new(),
             slow_turns: false,
             slow_turn_logged: None,
+            gpu_times_logged: None,
             composing_since: std::time::Duration::ZERO,
             compositions: Vec::new(),
             reads: Vec::new(),
@@ -2718,6 +2721,27 @@ impl Compositor {
                     ms(framed),
                     ms(woke.elapsed() - framing.duration_since(woke) - framed),
                 );
+            }
+            // Every ten seconds that composed frames on the GPU: how long it took to compose them.
+            if self
+                .gpu_times_logged
+                .is_none_or(|logged| logged.elapsed() >= Duration::from_secs(10))
+            {
+                self.gpu_times_logged = Some(Instant::now());
+                if let Some(gpu) = &mut self.gpu {
+                    let mut times = gpu.compositor.take_completed_ms();
+                    if !times.is_empty() {
+                        times.sort_by(f64::total_cmp);
+                        eprintln!(
+                            "[compositor] the GPU composed {} frames in the last 10 s: {:.2} ms median, \
+                             {:.2} at the 95th percentile, {:.2} at most",
+                            times.len(),
+                            times[times.len() / 2],
+                            times[(times.len() * 95 / 100).min(times.len() - 1)],
+                            times[times.len() - 1],
+                        );
+                    }
+                }
             }
         }
         Ok(())
