@@ -34,6 +34,11 @@
 //! it with the session). It runs on a socket of its own that grants `accessibility` and
 //! `screen_reader`, so its keys (Ctrl+Alt with an arrow or Space) reach it alone.
 //!
+//! The user's preferences (docs/adr/0019-settings.mdx) are read from
+//! `$XDG_CONFIG_HOME/oxyos/preferences` as the session starts: reduce motion takes the
+//! transitions' time away, and the screen reader preference starts the reader as `--reader-on`
+//! does.
+//!
 //! The pointer is shown on the display's cursor plane, in the shape the surface under it wants:
 //! the display's own arrow, or the images of a Windows cursor file or cursor scheme's folder
 //! (`--pointer`, every shape its `Install.inf` names) closest to SIZE pixels (32 by default).
@@ -117,6 +122,12 @@ fn main() -> Result<()> {
     if reader_on && reader_program.is_none() {
         return Err(USAGE.into());
     }
+    // The user's preferences; what the file does not say (or is not there) is the default.
+    let preferences = oxyos_preferences::session_path()
+        .map(|path| oxyos_preferences::Preferences::load(&path))
+        .unwrap_or_default();
+    // The screen reader the user keeps on starts with the session, when there is one to start.
+    let reader_on = reader_on || preferences.screen_reader && reader_program.is_some();
 
     // The lock's authentication path first: without one the session never starts, as it could
     // lock and never unlock.
@@ -168,6 +179,9 @@ fn main() -> Result<()> {
     // most a quarter of a second, in which it notices its application or shell has exited.
     compositor.idle_wait = Duration::from_millis(250);
     compositor.records = false;
+    compositor
+        .transitions
+        .set_reduce_motion(preferences.reduce_motion);
     compositor.reads_back = false;
     compositor.authentication = Some(Box::new(pam));
     // The Oxy mark on black while the session starts, as a Mac shows its own (ADR 0011).

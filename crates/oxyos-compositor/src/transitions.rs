@@ -254,9 +254,28 @@ pub struct Transitions {
     next_id: u64,
     /// What each transition since the last `take_seen` did, by id.
     seen: BTreeMap<u64, Seen>,
+    /// Reduce motion (docs/adr/0019-settings.mdx): every transition takes no time.
+    reduced: bool,
 }
 
 impl Transitions {
+    /// Reduce motion, the user's preference: from now on every surface arrives and goes at once,
+    /// as a zero duration does; what is running finishes as it began.
+    pub fn set_reduce_motion(&mut self, reduced: bool) {
+        self.reduced = reduced;
+    }
+
+    fn reduce(&self, motion: Motion) -> Motion {
+        if self.reduced {
+            Motion {
+                duration: Duration::ZERO,
+                ..motion
+            }
+        } else {
+            motion
+        }
+    }
+
     /// A new transition's id, recorded as begun.
     fn begin(&mut self, kind: Kind, change: Change) -> u64 {
         // A session nobody asks keeps only the latest.
@@ -287,7 +306,7 @@ impl Transitions {
         snapshot: Option<Snapshot>,
         place: &Place,
     ) {
-        let motion = motions(appearance.kind, appearance.change, place);
+        let motion = self.reduce(motions(appearance.kind, appearance.change, place));
         if appearance.arrived() {
             self.start_arriving(
                 appearance.key,
@@ -310,14 +329,14 @@ impl Transitions {
 
     /// `key` arrives with its first frame, as the ADR's motion for its kind.
     pub fn arrive(&mut self, key: SurfaceKey, kind: Kind, now: Duration) {
-        let motion = motions(kind, Change::Arrived, &Place::default());
+        let motion = self.reduce(motions(kind, Change::Arrived, &Place::default()));
         self.start_arriving(key, kind, Change::Arrived, motion, now);
     }
 
     /// `key` goes (destroyed, dismissed), drawn from `snapshot` (its last frame shown); without
     /// one it was not shown, and nothing is drawn.
     pub fn go(&mut self, key: SurfaceKey, kind: Kind, now: Duration, snapshot: Option<Snapshot>) {
-        let motion = motions(kind, Change::Gone, &Place::default());
+        let motion = self.reduce(motions(kind, Change::Gone, &Place::default()));
         self.start_going(key, kind, Change::Gone, motion, now, snapshot);
     }
 
@@ -382,6 +401,9 @@ impl Transitions {
             id: u32::MAX,
         };
         self.going.retain(|(going, _, _)| *going != key);
+        if self.reduced {
+            return;
+        }
         let id = self.begin(Kind::Panel, Change::Gone);
         self.going.push((
             key,
@@ -577,6 +599,23 @@ mod tests {
         // Never shown, nothing goes.
         t.go(KEY, Kind::Popup, start, None);
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn with_reduce_motion_everything_arrives_and_goes_at_once() {
+        let mut t = Transitions::default();
+        let now = Duration::from_secs(1);
+        t.set_reduce_motion(true);
+        t.arrive(KEY, Kind::Window, now);
+        assert_eq!(t.arriving(KEY, now), Frame::WHOLE);
+        t.go(KEY, Kind::Window, now, Some(snapshot()));
+        t.fade(snapshot(), now);
+        assert!(t.is_empty(), "nothing runs");
+        assert!(t.take_seen().is_empty());
+        // Turned off again, windows grow and fade in as before.
+        t.set_reduce_motion(false);
+        t.arrive(KEY, Kind::Window, now);
+        assert_eq!(t.arriving(KEY, now).opacity, 0);
     }
 
     #[test]
