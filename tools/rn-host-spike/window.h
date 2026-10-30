@@ -49,6 +49,10 @@ class Window {
     uint64_t presentedFor = 0;  // the configure the latest frame presented answers
     uint8_t states = 0;      // a toplevel's OXYOS_CONFIGURE_* bits, from its latest configure
     bool shown = false;      // a frame of it was presented (on the screen)
+    // The configured size the frame in flight was drawn for, and that of the latest frame
+    // presented: the size the compositor has for the surface is one of the two.
+    float inFlightWidth = 0, inFlightHeight = 0;
+    float shownWidth = 0, shownHeight = 0;
   };
   // The surface, or null if it does not exist (or no longer does).
   Surface* surface(uint32_t id);
@@ -66,6 +70,12 @@ class Window {
   // not needs a frame, even with nothing changed in it: the compositor keeps the configures of a
   // resize to one in flight (docs/adr/0016-windows.mdx), and the next waits for that frame.
   bool answered(uint32_t id) const;
+  // The size the compositor surely has for the surface, which it checks a child popup's anchor
+  // against (the size of the latest frame it showed, not the latest configure): the smaller of
+  // the latest frame presented and the one in flight, which it may have shown by now. A window
+  // growing keeps its anchors within the smaller size until its larger frame is presented, and a
+  // shrinking one within the smaller as soon as that frame is sent. nullopt before any size.
+  std::optional<std::pair<float, float>> extent(uint32_t id) const;
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
   // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
