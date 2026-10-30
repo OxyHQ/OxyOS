@@ -539,6 +539,34 @@ std::shared_ptr<TurboModule> createHostModule(
     module->method("getSystem", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       return jsi::valueFromDynamic(rt, systemFacts());
     });
+    // The displays (docs/adr/0018-several-displays.mdx): as the session tells them, and a change of
+    // one, answered as a preference's (`OxyOSSettingsResult`); `OxyOSDisplaysChanged` follows.
+    module->method("getDisplays", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      return services.settings.displays ? jsi::valueFromDynamic(rt, services.settings.displays()) : jsi::Value::null();
+    });
+    for (const char* change : {"mode", "scale", "origin", "primary", "confirm"}) {
+      static const std::map<std::string, std::string> methods = {{"mode", "setDisplayMode"},
+                                                                 {"scale", "setDisplayScale"},
+                                                                 {"origin", "setDisplayOrigin"},
+                                                                 {"primary", "setPrimaryDisplay"},
+                                                                 {"confirm", "confirmDisplays"}};
+      const std::string& method = methods.at(change);
+      module->method(method, [&services, change = std::string(change), method](jsi::Runtime& rt, const jsi::Value* args,
+                                                                              size_t count) {
+        std::vector<double> numbers;
+        for (size_t i = 0; i < count; ++i) {
+          if (args[i].isBool()) {
+            numbers.push_back(args[i].getBool() ? 1 : 0);
+          } else if (args[i].isNumber()) {
+            numbers.push_back(args[i].asNumber());
+          } else {
+            throw jsi::JSError(rt, "OxyOSSettings." + method + ": numbers");
+          }
+        }
+        if (!services.settings.display) throw jsi::JSError(rt, "OxyOSSettings: no connection to the session");
+        return jsi::Value(static_cast<double>(services.settings.display(change, numbers)));
+      });
+    }
     module->listeners();
   } else if (name == "OxyOSMenuBar") {
     // The application window's menus (sample/oxyos/platform-surface.js, docs/adr/0021-menu-bar.mdx):

@@ -61,6 +61,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
      - **Appearance:** light, dark or auto, and the accent;
      - **Wallpaper;**
      - **Lock screen:** lock after;
+     - **Displays:** as a Mac's, each display the session shows: their arrangement (dragged, or moved to a side by its accessible actions) and the main display, and for the one chosen in it its scale ("Larger text" to "More space", each choice what the display looks like then), resolution and refresh rate, a resolution kept only once confirmed ("Keep these display settings?"). Changed through the session, which applies them live and keeps them by each display's identity ([ADR 0018](./0018-several-displays), decision 10); not preferences of this file's keys;
      - **Keyboard:** the layout;
      - **Date and time:** the time zone, automatic time, the 24-hour clock;
      - **Accessibility:** the screen reader, reduce motion, reduce transparency;
@@ -140,7 +141,7 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
    - a session started again keeps it.
 
    *Partly done.*
-   - **The application.** `apps/settings` draws its pages (Appearance, Wallpaper, Lock Screen, Accessibility, Keyboard, Date & Time, About) as Bloom's grouped sections in `SettingsLayout` in an application window, in Spanish or English. Its model is the session's (`sample/SettingsApp.tsx`: `OxyOSSettings` when granted, a fixture otherwise), and the Oxy menu's System Settings opens it.
+   - **The application.** `apps/settings` draws its pages (Appearance, Wallpaper, Lock Screen, Displays, Accessibility, Keyboard, Date & Time, About) as Bloom's grouped sections in `SettingsLayout` in an application window, in Spanish or English. Its model is the session's (`sample/SettingsApp.tsx`: `OxyOSSettings` when granted, a fixture otherwise), and the Oxy menu's System Settings opens it.
    - **The scenario.** `scenarios/settings.json` runs it granted (the development compositor's `--grant-settings`, with a preferences file of the run's own) and checks, step by step, what the session tells the application (`preferences`, from the host's report):
      - choosing Dark makes it draw dark at once (a pixel of its page);
      - Light makes it light again;
@@ -158,6 +159,6 @@ A Mac has System Settings: one application whose sidebar lists the pages and who
 ## Not in this decision
 
 - The session's polkit authentication agent (the dialog an administrator's change asks for), and changing the system's settings through it.
-- Displays (arrangement, resolution, scale), sound, networks, Bluetooth, users and the Oxy account: each comes with the decision that adds what it sets. Notifications' preferences are [ADR 0026](./0026-notifications)'s.
+- Sound, networks, Bluetooth, users and the Oxy account: each comes with the decision that adds what it sets. Notifications' preferences are [ADR 0026](./0026-notifications)'s, the displays' [ADR 0018](./0018-several-displays)'s (decision 10): the session keeps them in this file, by each display's identity, but they are no preference Settings sets with `SetPreference`.
 - Preferences of applications (each keeps its own); syncing preferences with the Oxy account.
 - Sandboxing applications from one another (#35, #36): without it, any program running as the user can write the preferences file or trace Settings.

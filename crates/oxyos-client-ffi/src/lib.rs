@@ -257,6 +257,26 @@ pub const OXYOS_NOTIFICATION_WITHHELD: u8 = 2;
 /// A NOTIFICATION_POLICY's `flag` bits.
 pub const OXYOS_NOTIFICATIONS_DO_NOT_DISTURB: u8 = 1;
 pub const OXYOS_NOTIFICATIONS_PREVIEWS: u8 = 2;
+/// To Settings (its `settings` grant, ADR 0018), each display the session shows, by its output
+/// (code), when the grant is given and as it changes: a chunk of its name (detail: the chunk's
+/// index, 0 begins it; flag: the last; text), each of its modes (detail: the mode's index, 0 begins
+/// the list; width, height: its pixels; x: its refresh in mHz; flag: the display prefers it), each
+/// of its scale choices from the most space to the largest text (detail: the choice's index, 0
+/// begins them; scale_120; flag: the one its density recommends), then DISPLAY, which applies
+/// them (x, y, width, height: its rectangle in the global space, logical; scale_120; detail: its
+/// mode, an index of its modes; surface and serial: its physical width and height in mm, 0 when
+/// unknown; flag: OXYOS_DISPLAY_PRIMARY, _BUILTIN bits); and its removal.
+pub const OXYOS_EVENT_DISPLAY_NAME: u32 = 130;
+pub const OXYOS_EVENT_DISPLAY_MODE: u32 = 131;
+pub const OXYOS_EVENT_DISPLAY_SCALE: u32 = 132;
+pub const OXYOS_EVENT_DISPLAY: u32 = 133;
+pub const OXYOS_EVENT_DISPLAY_REMOVED: u32 = 134;
+/// To Settings: the display `code`'s mode is on trial, and goes back unless kept
+/// (`oxyos_client_confirm_displays`) within `detail` seconds; 0, it was kept or went back.
+pub const OXYOS_EVENT_DISPLAY_CONFIRMATION: u32 = 135;
+/// A DISPLAY's `flag` bits.
+pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
+pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
 
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
@@ -948,6 +968,97 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 } else {
                     0
                 },
+                ..out
+            }
+        }
+        Event::DisplayName {
+            output,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY_NAME,
+                code: output,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
+        Event::DisplayMode {
+            output,
+            index,
+            width,
+            height,
+            refresh_mhz,
+            preferred,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY_MODE,
+                code: output,
+                detail: index,
+                width,
+                height,
+                x: i32::try_from(refresh_mhz).unwrap_or(i32::MAX),
+                flag: u8::from(preferred),
+                ..out
+            }
+        }
+        Event::DisplayScale {
+            output,
+            index,
+            scale_120,
+            recommended,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY_SCALE,
+                code: output,
+                detail: index,
+                scale_120,
+                flag: u8::from(recommended),
+                ..out
+            }
+        }
+        Event::Display {
+            output,
+            rect,
+            scale_120,
+            mode,
+            width_mm,
+            height_mm,
+            primary,
+            builtin,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY,
+                code: output,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                scale_120,
+                detail: mode,
+                surface: width_mm,
+                serial: u64::from(height_mm),
+                flag: if primary { OXYOS_DISPLAY_PRIMARY } else { 0 }
+                    | if builtin { OXYOS_DISPLAY_BUILTIN } else { 0 },
+                ..out
+            }
+        }
+        Event::DisplayRemoved { output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY_REMOVED,
+                code: output,
+                ..out
+            }
+        }
+        Event::DisplayConfirmation { output, seconds } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_DISPLAY_CONFIRMATION,
+                code: output,
+                detail: seconds,
                 ..out
             }
         }
@@ -2185,6 +2296,125 @@ pub unsafe extern "C" fn oxyos_client_set_appearance(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::SetAppearance { serial, dark }) }
+}
+
+/// Settings (its `settings` grant, ADR 0018) shows the display of `output` at one of its modes
+/// (`width`×`height` at `refresh_mhz`, as a DISPLAY_MODE told it), on trial: it goes back unless
+/// `oxyos_client_confirm_displays` keeps it within the seconds a DISPLAY_CONFIRMATION says. A
+/// PREFERENCE_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_display_mode(
+    client: *mut OxyOSClient,
+    serial: u32,
+    output: u32,
+    width: u32,
+    height: u32,
+    refresh_mhz: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SetDisplayMode {
+                serial,
+                output,
+                width,
+                height,
+                refresh_mhz,
+            },
+        )
+    }
+}
+
+/// Settings shows the display of `output` at one of its scale choices (in 120ths), kept at once.
+/// A PREFERENCE_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_display_scale(
+    client: *mut OxyOSClient,
+    serial: u32,
+    output: u32,
+    scale_120: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SetDisplayScale {
+                serial,
+                output,
+                scale_120,
+            },
+        )
+    }
+}
+
+/// Settings wants the display of `output` at (`x`, `y`) in the global space (logical pixels): the
+/// session places it beside the others, touching one, and keeps the arrangement. A
+/// PREFERENCE_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_display_origin(
+    client: *mut OxyOSClient,
+    serial: u32,
+    output: u32,
+    x: i32,
+    y: i32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SetDisplayOrigin {
+                serial,
+                output,
+                x,
+                y,
+            },
+        )
+    }
+}
+
+/// Settings makes the display of `output` the primary (it has the dock), kept at once. A
+/// PREFERENCE_RESULT with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_primary_display(
+    client: *mut OxyOSClient,
+    serial: u32,
+    output: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::SetPrimaryDisplay { serial, output }) }
+}
+
+/// Settings keeps the mode on trial (`keep`), or has the display go back now. A PREFERENCE_RESULT
+/// with `serial` answers. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_confirm_displays(
+    client: *mut OxyOSClient,
+    serial: u32,
+    keep: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::ConfirmDisplays { serial, keep }) }
 }
 
 /// The Control Center opened: the session looks at the system again now (ADR 0025). 0 on

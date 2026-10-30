@@ -106,6 +106,40 @@ class Window {
   // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
   // answers. False if it could not be sent.
   bool setPreference(uint32_t serial, const std::string& key, const std::string& value);
+  // The session's displays (docs/adr/0018-several-displays.mdx), told to Settings alone: each as
+  // the session last told it, by its output (its name, modes, scale choices from the most space to
+  // the largest text, the one its density recommends, its rectangle in the global space, scale,
+  // mode, physical size, whether it is the primary and built in), and a mode on trial.
+  struct DisplayMode {
+    uint32_t width = 0, height = 0, refreshMhz = 0;
+    bool preferred = false;
+    bool operator==(const DisplayMode&) const = default;
+  };
+  struct Display {
+    std::string name;
+    std::vector<DisplayMode> modes;
+    std::vector<uint32_t> scales;
+    uint32_t recommended = 0;
+    int32_t x = 0, y = 0;
+    uint32_t width = 0, height = 0, scale120 = 0, mode = 0, widthMm = 0, heightMm = 0;
+    bool primary = false, builtin = false;
+    bool operator==(const Display&) const = default;
+  };
+  // The display whose mode is on trial and the seconds it was given (0: none).
+  struct Trial {
+    uint32_t output = 0, seconds = 0;
+    bool operator==(const Trial&) const = default;
+  };
+  const std::map<uint32_t, Display>& displays() const { return displays_; }
+  const Trial& trial() const { return trial_; }
+  // Settings changes a display (each answered by a PREFERENCE_RESULT with `serial`): one of its
+  // modes, on trial until kept (`confirmDisplays`); one of its scales; where it is wanted in the
+  // global space; the primary. False if it could not be sent.
+  bool setDisplayMode(uint32_t serial, uint32_t output, uint32_t width, uint32_t height, uint32_t refreshMhz);
+  bool setDisplayScale(uint32_t serial, uint32_t output, uint32_t scale120);
+  bool setDisplayOrigin(uint32_t serial, uint32_t output, int32_t x, int32_t y);
+  bool setPrimaryDisplay(uint32_t serial, uint32_t output);
+  bool confirmDisplays(uint32_t serial, bool keep);
   // A surface id for a popup or a shell region, never used before on this connection.
   uint32_t allocate() { return nextSurface_++; }
   bool shell() const { return shell_.has_value(); }
@@ -198,6 +232,16 @@ class Window {
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
+  // A display's name, modes and scales being told, applied by its DISPLAY.
+  struct Telling {
+    std::optional<std::string> name;
+    std::optional<std::vector<DisplayMode>> modes;
+    std::optional<std::vector<uint32_t>> scales;
+    uint32_t recommended = 0;
+  };
+  std::map<uint32_t, Telling> telling_;
+  std::map<uint32_t, Display> displays_;
+  Trial trial_;
   bool active_ = false;
   uint64_t presented_ = 0;
   uint32_t nextSurface_ = kToplevel + 1;

@@ -4,7 +4,9 @@
 //! - its displays are every connected output of the first card with one
 //!   (docs/adr/0018-several-displays.mdx): side by side, left to right, top-aligned, the built-in
 //!   panel first (the primary, which has the dock), each at its preferred mode, at a scale from
-//!   its density, composed and flipped on its own; monitors plugged in and out are followed;
+//!   its density, composed and flipped on its own, unless the user's preferences keep another
+//!   mode, scale or arrangement for them (Settings' Displays page changes them, a mode on trial
+//!   until kept); monitors plugged in and out are followed;
 //! - frames are composed on the GPU straight into the display's scanout buffers where Vulkan
 //!   exports DMA-BUF, otherwise on the CPU, only what changed (docs/adr/0005-damage.mdx);
 //! - its input is the seat's devices through libinput, with the system's keyboard
@@ -78,11 +80,11 @@
 //! display is told to the login program, which tells the service manager.
 
 mod cursor_file;
-mod displays;
 
+use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
 use oxyos_compositor::{Authentication, Compositor, Gpu, LaunchRecord, Result};
-use oxyos_compositor_core::{Grants, OutputId, Scene};
+use oxyos_compositor_core::{Grants, ModeInfo, OutputId, Scene};
 use oxyos_ipc::Listener;
 use oxyos_protocol::{AuthOutcome, PointerShape};
 use rustix::fd::BorrowedFd;
@@ -263,20 +265,19 @@ fn main() -> Result<()> {
         ),
         Err(error) => eprintln!("[session] no Vulkan device ({error}): composing on the CPU"),
     }
-    // Every connected output, arranged (ADR 0018).
-    let mut outputs = Outputs {
+    // Every connected output, shown and arranged as the user's preferences keep them (ADR 0018).
+    let mut card = Card {
         card,
         path: card_path,
-        shown: Vec::new(),
-        next_id: 1,
         pointer,
     };
-    outputs.follow(&mut compositor)?;
+    let mut displays = Displays::new(1);
+    displays.follow(&mut card, &mut compositor, settings.preferences())?;
     if compositor.screens.is_empty() {
-        return Err(format!("{}: no output could be shown", outputs.path.display()).into());
+        return Err(format!("{}: no output could be shown", card.path.display()).into());
     }
     // The card's connectors changing: monitors plugged in and out.
-    let name = outputs.path.file_name().and_then(|name| name.to_str());
+    let name = card.path.file_name().and_then(|name| name.to_str());
     match name.map(oxyos_kms::Hotplug::open) {
         Some(Ok(hotplug)) => compositor.hotplug = Some(hotplug),
         Some(Err(error)) => {
@@ -393,7 +394,8 @@ fn main() -> Result<()> {
         // Monitors plugged in and out (ADR 0018): an output added gets a shell of its own; one
         // removed, its shell stopped.
         if compositor.take_hotplug() {
-            let (added, removed) = outputs.follow(&mut compositor)?;
+            let (added, removed) =
+                displays.follow(&mut card, &mut compositor, settings.preferences())?;
             for output in removed {
                 if let Some(mut shell) = shells.remove(&output) {
                     end(&mut shell)?;
@@ -468,6 +470,9 @@ fn main() -> Result<()> {
                 switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
             }
         }
+        // The displays' changes Settings asked for, and a mode on trial going back once its time
+        // is up (ADR 0018).
+        displays.serve(&mut card, &mut compositor, &mut settings, Instant::now());
         // The windows of what it started are their registry application's (ADR 0013).
         // An administrator's Settings is given `settings` (ADR 0019).
         compositor.name_clients(&|pid| {
@@ -836,145 +841,113 @@ fn open_card(seat: &oxyos_seat::Seat) -> Result<(Rc<oxyos_kms::Card>, PathBuf)> 
     Err(last.unwrap_or_else(|| "no DRM card".to_string()).into())
 }
 
-/// The outputs the session shows on its card (docs/adr/0018-several-displays.mdx), in the
-/// arrangement's order, as the compositor's screens are.
-struct Outputs {
+/// The session's card (docs/adr/0018-several-displays.mdx): each output it shows is a display on
+/// a CRTC and planes of its own, with its own scanout buffers on the GPU and its pointer's images.
+struct Card {
     card: Rc<oxyos_kms::Card>,
     path: PathBuf,
-    shown: Vec<displays::Shown>,
-    next_id: OutputId,
     /// `--pointer`: the cursor file or scheme each display's pointer images come from.
     pointer: Option<(PathBuf, u32)>,
 }
 
-impl Outputs {
-    /// Reads the card's connectors and follows them: outputs gone are removed (their windows go
-    /// to the primary), those left close up, and new ones are shown at the right end, each on a
-    /// display of its own. Returns the outputs added and removed.
-    fn follow(&mut self, compositor: &mut Compositor) -> Result<(Vec<OutputId>, Vec<OutputId>)> {
-        let connectors: Vec<displays::Connector> = self
-            .card
-            .outputs()?
+/// A connector made ready to show an output: its display, scanout buffers and pointer images.
+struct Head {
+    display: oxyos_kms::Display,
+    scanout: Vec<(usize, oxyos_kms::Framebuffer)>,
+    pointer: BTreeMap<PointerShape, Vec<(usize, Duration)>>,
+}
+
+impl Heads for Card {
+    type Head = Head;
+
+    fn connectors(&mut self) -> Result<Vec<Connector>> {
+        Ok(self.card.outputs()?.iter().map(Connector::of).collect())
+    }
+
+    /// A display on the connector at the mode, on a CRTC and planes no other display uses, which
+    /// the card must take (an atomic test) before anything is shown on it.
+    fn prepare(
+        &mut self,
+        compositor: &mut Compositor,
+        connector: &Connector,
+        mode: &ModeInfo,
+        scale_120: u32,
+    ) -> std::result::Result<Head, String> {
+        let in_use: Vec<u32> = compositor
+            .screens
             .iter()
-            .map(displays::Connector::of)
+            .filter_map(|screen| screen.display.as_ref())
+            .flat_map(|display| display.objects())
             .collect();
-        let plan = displays::plan(&self.shown, &connectors, self.next_id);
-        let name = |id: Option<u32>| {
-            connectors
-                .iter()
-                .find(|connector| Some(connector.id) == id)
-                .map_or("?", |connector| connector.name.as_str())
-                .to_string()
+        let wanted = oxyos_kms::Mode {
+            width: u16::try_from(mode.width).map_err(|_| "a mode too wide")?,
+            height: u16::try_from(mode.height).map_err(|_| "a mode too tall")?,
+            refresh_hz: mode.refresh_mhz.div_ceil(1000),
+            refresh_mhz: mode.refresh_mhz,
+            preferred: mode.preferred,
         };
-        for &id in &plan.remove {
-            let connector = self.shown.iter().find(|shown| shown.output.id == id);
-            eprintln!(
-                "[session] output {id} ({}) is gone",
-                name(connector.and_then(|shown| shown.connector))
-            );
-            compositor.remove_output(id);
-            self.shown.retain(|shown| shown.output.id != id);
-        }
-        if plan.dark {
-            eprintln!("[session] no output is connected: nothing is shown until one is");
-            for shown in &mut self.shown {
-                compositor.detach_display(shown.output.id);
-                shown.connector = None;
-            }
-        }
-        for &(id, origin) in &plan.moves {
-            compositor.move_output(id, origin)?;
-            if let Some(shown) = self.shown.iter_mut().find(|shown| shown.output.id == id) {
-                (shown.output.rect.x, shown.output.rect.y) = origin;
-            }
-        }
-        let mut added = Vec::new();
-        for shown in plan.add {
-            let output = shown.output;
-            self.next_id = self.next_id.max(output.id + 1);
-            let connector = shown.connector.expect("an output added is on a connector");
-            let in_use: Vec<u32> = compositor
-                .screens
+        let mut display = oxyos_kms::Display::on_connector(
+            self.card.clone(),
+            connector.id,
+            Some(&wanted),
+            &in_use,
+        )
+        .map_err(|error| error.to_string())?;
+        display
+            .test()
+            .map_err(|error| format!("the card refuses {}: {error}", display.mode_name()))?;
+        let pointer = show_pointer(&mut display, self.pointer.as_ref(), scale_120);
+        // Its own scanout buffers on the GPU, taking turns.
+        let mut scanout = Vec::new();
+        if let (Some(gpu), true) = (&mut compositor.gpu, compositor.gpu_only) {
+            use std::os::fd::AsFd;
+            let (width, height) = display.size();
+            let targets = gpu
+                .compositor
+                .add_scanout_targets(2, width, height)
+                .map_err(|error| format!("its scanout buffers: {error}"))?;
+            let indices: Vec<usize> = targets.iter().map(|(index, _)| *index).collect();
+            let imported = targets
                 .iter()
-                .filter_map(|screen| screen.display.as_ref())
-                .flat_map(|display| display.objects())
-                .collect();
-            let mut display =
-                match oxyos_kms::Display::on_connector(self.card.clone(), connector, &in_use) {
-                    Ok(display) => display,
-                    Err(error) => {
-                        eprintln!("[session] {} is not shown: {error}", name(Some(connector)));
-                        continue;
-                    }
-                };
-            let pointer = show_pointer(&mut display, self.pointer.as_ref(), output.scale_120);
-            // Its own scanout buffers on the GPU, taking turns.
-            let mut scanout = Vec::new();
-            if let (Some(gpu), true) = (&mut compositor.gpu, compositor.gpu_only) {
-                use std::os::fd::AsFd;
-                let (width, height) = display.size();
-                let imported = match gpu.compositor.add_scanout_targets(2, width, height) {
-                    Ok(targets) => {
-                        let indices: Vec<usize> = targets.iter().map(|(index, _)| *index).collect();
-                        let imported = targets
-                            .iter()
-                            .map(|(index, target)| {
-                                display
-                                    .card()
-                                    .import_dmabuf(
-                                        target.fd.as_fd(),
-                                        target.width,
-                                        target.height,
-                                        target.pitch,
-                                    )
-                                    .map(|framebuffer| (*index, framebuffer))
-                            })
-                            .collect::<std::io::Result<Vec<_>>>()
-                            .map_err(|error| error.to_string());
-                        if imported.is_err() {
-                            gpu.compositor.remove_scanout_targets(&indices);
-                        }
-                        imported
-                    }
-                    Err(error) => Err(error.to_string()),
-                };
-                match imported {
-                    Ok(imported) => scanout = imported,
-                    Err(error) => {
-                        eprintln!(
-                            "[session] {} is not shown: its scanout buffers: {error}",
-                            name(Some(connector))
-                        );
-                        continue;
-                    }
+                .map(|(index, target)| {
+                    display
+                        .card()
+                        .import_dmabuf(target.fd.as_fd(), target.width, target.height, target.pitch)
+                        .map(|framebuffer| (*index, framebuffer))
+                })
+                .collect::<std::io::Result<Vec<_>>>();
+            match imported {
+                Ok(imported) => scanout = imported,
+                Err(error) => {
+                    gpu.compositor.remove_scanout_targets(&indices);
+                    return Err(format!("its scanout buffers: {error}"));
                 }
             }
-            eprintln!(
-                "[session] output {} on {}: {} at {}x scale, {}x{} at ({}, {}){}",
-                output.id,
-                name(Some(connector)),
-                display.mode_name(),
-                f64::from(output.scale_120) / 120.0,
-                output.rect.width,
-                output.rect.height,
-                output.rect.x,
-                output.rect.y,
-                if compositor.screens.is_empty() {
-                    ", the primary"
-                } else {
-                    ""
-                }
-            );
-            compositor.add_output(output, Some(display.size()))?;
-            let screen = compositor.screen_mut(output.id).expect("just added");
-            screen.display = Some(display);
-            screen.scanout = scanout;
-            screen.pointer_images = pointer;
-            self.shown.push(shown);
-            added.push(output.id);
         }
-        // Outputs gone and their shells' surfaces with them; those added composed from now on.
-        Ok((added, plan.remove))
+        Ok(Head {
+            display,
+            scanout,
+            pointer,
+        })
+    }
+
+    fn attach(&mut self, compositor: &mut Compositor, output: OutputId, head: Head) {
+        if let Some(screen) = compositor.screen_mut(output) {
+            screen.display = Some(head.display);
+            screen.scanout = head.scanout;
+            screen.pointer_images = head.pointer;
+        }
+    }
+
+    /// The pointer's images chosen again for the display's new scale.
+    fn rescale(&mut self, compositor: &mut Compositor, output: OutputId, scale_120: u32) {
+        let pointer = self.pointer.clone();
+        if let Some(screen) = compositor.screen_mut(output) {
+            if let Some(display) = screen.display.as_mut() {
+                display.clear_pointer_images();
+                screen.pointer_images = show_pointer(display, pointer.as_ref(), scale_120);
+            }
+        }
     }
 }
 

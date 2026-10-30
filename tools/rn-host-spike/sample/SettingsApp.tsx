@@ -2,7 +2,8 @@
  * OxyOS's Settings (apps/settings) in the Bloom host (docs/adr/0019-settings.mdx). Its model is the
  * session's: every preference as the session keeps it (`OxyOSSettings`, which only the client the
  * session granted `settings` has), a change asked of the session, which validates, keeps and
- * applies it and tells every application; and the machine's facts. Without the grant (a host run
+ * applies it and tells every application; the displays as the session shows them and their changes
+ * (docs/adr/0018-several-displays.mdx); and the machine's facts. Without the grant (a host run
  * outside a session, the browser preview) the model is a fixture kept in memory.
  */
 import * as React from 'react';
@@ -16,6 +17,7 @@ import {
   PREFERENCE_KEYS,
   preferenceText,
   type Appearance,
+  type DisplaysSnapshot,
   type NotificationPreviews,
   type Preferences,
   type SettingsActions,
@@ -27,6 +29,12 @@ const native = TurboModuleRegistry.get<{
   getValues(): Record<string, string> | null;
   setPreference(key: string, value: string): number;
   getSystem(): SystemFacts;
+  getDisplays(): DisplaysSnapshot | null;
+  setDisplayMode(output: number, width: number, height: number, refreshMhz: number): number;
+  setDisplayScale(output: number, scale: number): number;
+  setDisplayOrigin(output: number, x: number, y: number): number;
+  setPrimaryDisplay(output: number): number;
+  confirmDisplays(keep: boolean): number;
 }>('OxyOSSettings');
 
 const FIXTURE: SettingsSnapshot = {
@@ -53,6 +61,53 @@ const FIXTURE: SettingsSnapshot = {
     automaticTime: true,
     keyboardLayout: 'us',
   },
+  // The ThinkPad's panel at 1.25, and a 27-inch 4K monitor right of it at 1.5.
+  displays: {
+    displays: [
+      {
+        output: 1,
+        name: 'eDP-1',
+        builtin: true,
+        primary: true,
+        x: 0,
+        y: 0,
+        width: 1536,
+        height: 960,
+        scale: 150,
+        mode: 0,
+        modes: [
+          { width: 1920, height: 1200, refreshMhz: 60000, preferred: true },
+          { width: 1280, height: 800, refreshMhz: 60000, preferred: false },
+        ],
+        scales: [120, 150, 180, 210],
+        recommended: 150,
+        widthMm: 301,
+        heightMm: 188,
+      },
+      {
+        output: 2,
+        name: 'DELL U2723QE',
+        builtin: false,
+        primary: false,
+        x: 1536,
+        y: 0,
+        width: 2560,
+        height: 1440,
+        scale: 180,
+        mode: 0,
+        modes: [
+          { width: 3840, height: 2160, refreshMhz: 60000, preferred: true },
+          { width: 2560, height: 1440, refreshMhz: 59951, preferred: false },
+          { width: 1920, height: 1080, refreshMhz: 60000, preferred: false },
+        ],
+        scales: [120, 150, 180, 210, 240],
+        recommended: 180,
+        widthMm: 597,
+        heightMm: 336,
+      },
+    ],
+    trial: null,
+  },
 };
 
 /** The session's preferences, as its file keeps them, read into the application's model. */
@@ -76,12 +131,17 @@ function preferencesOf(values: Record<string, string>): Preferences {
 /** The session's model when this is Settings in a session, else the fixture's. */
 function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActions } {
   const [values, setValues] = React.useState(() => native?.getValues() ?? null);
+  const [displays, setDisplays] = React.useState(() => native?.getDisplays() ?? null);
   const [fixture, setFixture] = React.useState(FIXTURE);
   React.useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener('OxyOSSettingsChanged', setValues);
+    const subscriptions = [
+      DeviceEventEmitter.addListener('OxyOSSettingsChanged', setValues),
+      DeviceEventEmitter.addListener('OxyOSDisplaysChanged', setDisplays),
+    ];
     // A change between the first read and the subscription is not lost.
     setValues(native?.getValues() ?? null);
-    return () => subscription.remove();
+    setDisplays(native?.getDisplays() ?? null);
+    return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
   const system = React.useMemo(() => (native ? native.getSystem() : FIXTURE.system), []);
   const actions = React.useMemo<SettingsActions>(
@@ -91,6 +151,39 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
         // refused change leaves it as it was.
         if (native?.getValues()) native.setPreference(PREFERENCE_KEYS[key], preferenceText(value));
         else setFixture((current) => ({ ...current, preferences: { ...current.preferences, [key]: value } }));
+      },
+      // The session judges, applies and keeps each and tells the displays as they are then
+      // (OxyOSDisplaysChanged); the fixture takes a scale and the main display as they are asked.
+      setDisplayMode: (output, mode) => {
+        if (native?.getValues()) native.setDisplayMode(output, mode.width, mode.height, mode.refreshMhz);
+      },
+      setDisplayScale: (output, scale) => {
+        if (native?.getValues()) native.setDisplayScale(output, scale);
+        else
+          setFixture((current) => ({
+            ...current,
+            displays: {
+              ...current.displays,
+              displays: current.displays.displays.map((d) => (d.output === output ? { ...d, scale } : d)),
+            },
+          }));
+      },
+      setDisplayOrigin: (output, x, y) => {
+        if (native?.getValues()) native.setDisplayOrigin(output, x, y);
+      },
+      setPrimaryDisplay: (output) => {
+        if (native?.getValues()) native.setPrimaryDisplay(output);
+        else
+          setFixture((current) => ({
+            ...current,
+            displays: {
+              ...current.displays,
+              displays: current.displays.displays.map((d) => ({ ...d, primary: d.output === output })),
+            },
+          }));
+      },
+      confirmDisplays: (keep) => {
+        if (native?.getValues()) native.confirmDisplays(keep);
       },
     }),
     [],
@@ -102,6 +195,7 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
       // The wallpapers the session has: its own, for now.
       wallpapers: FIXTURE.wallpapers,
       system,
+      displays: displays ?? { displays: [], trial: null },
     },
     actions,
   };

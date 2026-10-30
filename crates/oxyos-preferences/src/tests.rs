@@ -154,3 +154,99 @@ fn the_file_is_under_the_configuration_directory() {
     );
     assert_eq!(path(None, None), None);
 }
+
+const PANEL: &str = "BOE-0A4B-00000001";
+const MONITOR: &str = "DEL-A0B4-7Y9K2N3";
+
+fn settings(width: u32, height: u32, refresh_mhz: u32, scale_120: u32) -> DisplaySettings {
+    DisplaySettings {
+        mode: DisplayMode {
+            width,
+            height,
+            refresh_mhz,
+        },
+        scale_120,
+    }
+}
+
+#[test]
+fn each_display_keeps_its_mode_and_scale_and_each_set_its_arrangement() {
+    let mut preferences = Preferences::default();
+    preferences.keep_display(PANEL, settings(1920, 1200, 60_000, 150));
+    preferences.keep_display(MONITOR, settings(2560, 1440, 59_951, 120));
+    preferences.keep_arrangement(Arrangement {
+        displays: vec![(MONITOR.into(), (0, 0)), (PANEL.into(), (2560, 480))],
+    });
+    let text = preferences.to_text();
+    assert!(text.contains("\ndisplay.BOE-0A4B-00000001 = 1920x1200@60000 1.25\n"));
+    assert!(text.contains("\ndisplay.DEL-A0B4-7Y9K2N3 = 2560x1440@59951 1\n"));
+    assert!(text.contains(
+        "\narrangement.BOE-0A4B-00000001+DEL-A0B4-7Y9K2N3 = DEL-A0B4-7Y9K2N3 0,0 BOE-0A4B-00000001 2560,480\n"
+    ));
+    let read = Preferences::parse(&text);
+    assert_eq!(read, preferences);
+    assert_eq!(read.display(PANEL), Some(settings(1920, 1200, 60_000, 150)));
+    assert_eq!(read.display("nobody"), None);
+    // The set's arrangement, whatever order its displays are named in; the primary first.
+    let arrangement = read.arrangement([PANEL, MONITOR]).unwrap();
+    assert_eq!(arrangement.displays[0].0, MONITOR);
+    assert!(read.arrangement([PANEL]).is_none());
+    // Settings cannot write them as a preference: they are the session's displays' to change.
+    assert_eq!(
+        preferences.set("display.BOE-0A4B-00000001", "640x480@60000 1"),
+        Err(Refused::UnknownKey)
+    );
+}
+
+#[test]
+fn bad_display_lines_are_nothing() {
+    let preferences = Preferences::parse(
+        "display.BOE-0A4B-00000001 = 1920x1200@60000 1.25\n\
+         display.../../etc = 1920x1200@60000 1\n\
+         display.A = 0x1200@60000 1\n\
+         display.B = 1920x1200@60000 9\n\
+         display.C = 1920x1200 1\n\
+         arrangement.A+B = A 0,0\n\
+         arrangement.A+B = A 0,0 C 10,0\n\
+         arrangement.A+B = A 0,0 A 10,0\n\
+         arrangement.A+B = A 0,0 B 2000000,0\n\
+         arrangement.A+C = C 0,0 A -1920,0\n\
+         appearance = dark\n",
+    );
+    assert_eq!(preferences.displays.len(), 1);
+    assert_eq!(preferences.arrangements.len(), 1);
+    assert_eq!(
+        preferences.arrangement(["A", "C"]).unwrap().displays,
+        [("C".to_string(), (0, 0)), ("A".to_string(), (-1920, 0))]
+    );
+    assert_eq!(preferences.appearance, Appearance::Dark);
+}
+
+#[test]
+fn the_displays_changed_longest_ago_go_first() {
+    let mut preferences = Preferences::default();
+    for n in 0..displays::MAX_DISPLAYS + 2 {
+        preferences.keep_display(&format!("D-{n}"), settings(1920, 1080, 60_000, 120));
+    }
+    // Changing one makes it the latest.
+    preferences.keep_display("D-2", settings(1280, 720, 60_000, 120));
+    assert_eq!(preferences.displays.len(), displays::MAX_DISPLAYS);
+    assert!(preferences.display("D-0").is_none() && preferences.display("D-1").is_none());
+    assert_eq!(preferences.displays.last().unwrap().0, "D-2");
+    assert_eq!(preferences.display("D-2").unwrap().mode.width, 1280);
+}
+
+#[test]
+fn a_scale_is_written_as_people_read_it() {
+    assert_eq!(displays::scale_text(120), "1");
+    assert_eq!(displays::scale_text(150), "1.25");
+    assert_eq!(displays::scale_text(180), "1.5");
+    assert_eq!(displays::scale_text(210), "1.75");
+    assert_eq!(displays::scale_text(240), "2");
+    assert_eq!(
+        DisplaySettings::parse("1920x1080@60000 1.75")
+            .unwrap()
+            .scale_120,
+        210
+    );
+}

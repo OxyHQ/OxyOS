@@ -101,6 +101,51 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         receiving_.clear();
         input(event);
       }
+    } else if (event.kind == OXYOS_EVENT_DISPLAY_NAME) {
+      auto& telling = telling_[event.code];
+      if (event.detail == 0 || !telling.name) telling.name = "";
+      *telling.name += event.text;
+    } else if (event.kind == OXYOS_EVENT_DISPLAY_MODE) {
+      auto& telling = telling_[event.code];
+      if (event.detail == 0 || !telling.modes) telling.modes.emplace();
+      telling.modes->push_back(DisplayMode{.width = event.width,
+                                           .height = event.height,
+                                           .refreshMhz = static_cast<uint32_t>(event.x),
+                                           .preferred = event.flag != 0});
+    } else if (event.kind == OXYOS_EVENT_DISPLAY_SCALE) {
+      auto& telling = telling_[event.code];
+      if (event.detail == 0 || !telling.scales) telling.scales.emplace();
+      telling.scales->push_back(event.scale_120);
+      if (event.flag) telling.recommended = event.scale_120;
+    } else if (event.kind == OXYOS_EVENT_DISPLAY) {
+      // What was told before it, and what it says.
+      auto& display = displays_[event.code];
+      auto telling = std::move(telling_[event.code]);
+      telling_.erase(event.code);
+      if (telling.name) display.name = *telling.name;
+      if (telling.modes) display.modes = *telling.modes;
+      if (telling.scales) {
+        display.scales = *telling.scales;
+        display.recommended = telling.recommended;
+      }
+      display.x = event.x;
+      display.y = event.y;
+      display.width = event.width;
+      display.height = event.height;
+      display.scale120 = event.scale_120;
+      display.mode = event.detail;
+      display.widthMm = event.surface;
+      display.heightMm = static_cast<uint32_t>(event.serial);
+      display.primary = (event.flag & OXYOS_DISPLAY_PRIMARY) != 0;
+      display.builtin = (event.flag & OXYOS_DISPLAY_BUILTIN) != 0;
+      input(event);
+    } else if (event.kind == OXYOS_EVENT_DISPLAY_REMOVED) {
+      displays_.erase(event.code);
+      telling_.erase(event.code);
+      input(event);
+    } else if (event.kind == OXYOS_EVENT_DISPLAY_CONFIRMATION) {
+      trial_ = event.detail ? Trial{.output = event.code, .seconds = event.detail} : Trial{};
+      input(event);
     } else if (event.kind == OXYOS_EVENT_ACTIVATED && event.surface == kToplevel) {
       active_ = event.flag != 0;
       input(event);
@@ -214,6 +259,24 @@ void Window::manage(uint8_t action, uint32_t window, uint32_t workspace) {
 bool Window::setPreference(uint32_t serial, const std::string& key, const std::string& value) {
   return oxyos_client_set_preference(client_, serial, key.c_str(), value.c_str()) == 0;
 }
+
+bool Window::setDisplayMode(uint32_t serial, uint32_t output, uint32_t width, uint32_t height, uint32_t refreshMhz) {
+  return oxyos_client_set_display_mode(client_, serial, output, width, height, refreshMhz) == 0;
+}
+
+bool Window::setDisplayScale(uint32_t serial, uint32_t output, uint32_t scale120) {
+  return oxyos_client_set_display_scale(client_, serial, output, scale120) == 0;
+}
+
+bool Window::setDisplayOrigin(uint32_t serial, uint32_t output, int32_t x, int32_t y) {
+  return oxyos_client_set_display_origin(client_, serial, output, x, y) == 0;
+}
+
+bool Window::setPrimaryDisplay(uint32_t serial, uint32_t output) {
+  return oxyos_client_set_primary_display(client_, serial, output) == 0;
+}
+
+bool Window::confirmDisplays(uint32_t serial, bool keep) { return oxyos_client_confirm_displays(client_, serial, keep) == 0; }
 
 void Window::beginMove(uint64_t serial) {
   if (oxyos_client_begin_move(client_, kToplevel, serial) != 0) failed("cannot move the window");

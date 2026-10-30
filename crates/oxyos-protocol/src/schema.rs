@@ -250,6 +250,20 @@ messages! {
         // a change of the user's `do_not_disturb` preference answered as SetPreference's with a
         // PreferenceResult naming `serial`, as SetAppearance is. While locked it is refused.
         135 => SetDoNotDisturb { serial: u32, enabled: bool },
+        // Settings (the `settings` grant, ADR 0018): a display's arrangement, mode and scale, each
+        // answered as SetPreference's with a PreferenceResult naming `serial`. The display is named
+        // by its output, as Display told it. A mode is one of the display's modes (DisplayMode),
+        // shown at once and kept only once ConfirmDisplays keeps it: without that, within the
+        // seconds DisplayConfirmation said, the display goes back to what it showed before. A scale
+        // is one of the display's choices (DisplayScale). An origin is where the display is wanted
+        // in the global space (logical pixels); the session places it beside the others, touching
+        // one, never over any. The primary display has the dock and the windows of a display that
+        // goes.
+        140 => SetDisplayMode { serial: u32, output: u32, width: u32, height: u32, refresh_mhz: u32 },
+        141 => SetDisplayScale { serial: u32, output: u32, scale_120: u32 },
+        142 => SetDisplayOrigin { serial: u32, output: u32, x: i32, y: i32 },
+        143 => SetPrimaryDisplay { serial: u32, output: u32 },
+        144 => ConfirmDisplays { serial: u32, keep: bool },
     }
 }
 
@@ -427,6 +441,23 @@ messages! {
         // To the session's shell, when it connects and whenever they change: whether Do Not
         // Disturb silences banners, and whether the lock screen may show what notifications say.
         125 => NotificationPolicy { do_not_disturb: bool, previews: bool },
+        // To clients with the `settings` grant (ADR 0018), when the grant is given and whenever
+        // they change: each display the session shows, by its output. Its name in chunks (the
+        // monitor's own, from its EDID, else its connector's; `index` 0 begins it), its modes
+        // (`index` 0 begins the list; pixels, refresh in mHz, and the one the display prefers) and
+        // its scale choices (`index` 0 begins them, from the most space to the largest text; in
+        // 120ths, and the one its density recommends), then Display, which applies them: its
+        // rectangle in the global space, its scale, its mode (an index of its modes), its physical
+        // size in millimetres (0 when unknown), whether it is the primary and whether it is built
+        // into the machine. Only what changed is sent again. And its removal.
+        130 => DisplayName { output: u32, index: u8, last: bool, text: PreeditText },
+        131 => DisplayMode { output: u32, index: u32, width: u32, height: u32, refresh_mhz: u32, preferred: bool },
+        132 => DisplayScale { output: u32, index: u32, scale_120: u32, recommended: bool },
+        133 => Display { output: u32, rect: Rect, scale_120: u32, mode: u32, width_mm: u32, height_mm: u32, primary: bool, builtin: bool },
+        134 => DisplayRemoved { output: u32 },
+        // To clients with the `settings` grant: the display's mode was changed and is shown, and
+        // goes back unless ConfirmDisplays keeps it within `seconds`; 0, it was kept or went back.
+        135 => DisplayConfirmation { output: u32, seconds: u32 },
     }
 }
 

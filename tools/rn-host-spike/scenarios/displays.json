@@ -1,0 +1,507 @@
+{
+  "about": "OxyOS's Settings' Displays page (apps/settings, docs/adr/0018-several-displays.mdx) on the session's displays, played on two virtual connectors as a card reports them: a 14-inch 1920x1200 panel (the primary, at the 1.25 its density recommends) and a 24-inch 1080p monitor right of it, the shell on each. Granted `settings`, Settings is told each display (its name, modes, scale choices, place, scale and mode) and changes them through the session, which applies each live and keeps it in the preferences file by the display's identity: More space on the panel makes it 1920x1200 logical at once, the monitor moving with its edge and each shell's bars taking the new edges; the monitor made the main display takes the dock, nothing moving; a resolution is shown on trial (the monitor's frame 1280x720 at once) while Settings asks to keep it, Revert takes it back at once, leaving it alone takes it back once its 15 seconds pass, and Keep Changes keeps it; the monitor moved above the panel (its accessible action, as a drag would) goes there, touching it. The file holds every display's mode and scale and the arrangement at the end. Without the grant Settings is told no display: its page shows none, and the run fails at the first step that looks for one.",
+  "module": "OxyOSSettings",
+  "window": [
+    980,
+    760
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light"
+    }
+  },
+  "shell": "OxyOSShell",
+  "displays": [
+    {
+      "identity": "BOE-0A4B-00000001",
+      "kind": "internal",
+      "size_mm": [
+        301,
+        188
+      ],
+      "modes": [
+        "1920x1200@60000*",
+        "1440x900@60000",
+        "1280x800@60000"
+      ],
+      "connector": "eDP-1"
+    },
+    {
+      "identity": "OXY-0001-00000042",
+      "kind": "external",
+      "size_mm": [
+        531,
+        299
+      ],
+      "modes": [
+        "1920x1080@60000*",
+        "1920x1080@50000",
+        "1280x720@60000"
+      ],
+      "connector": "HDMI-A-1",
+      "name": "OxyOS Monitor"
+    }
+  ],
+  "steps": [
+    {
+      "name": "Displays: both displays as the session shows them, the main one chosen, its scale among its choices",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Displays"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Arrangement",
+          "Built-in Display",
+          "OxyOS Monitor",
+          "14-inch, 1920 × 1200",
+          "1536 × 960",
+          "Main display"
+        ],
+        "at": {
+          "window": [
+            {
+              "name": "Built-in Display",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "name": "OxyOS Monitor",
+              "state": []
+            },
+            {
+              "name": "Looks like 1536 × 960",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "displays": {
+          "1": {
+            "primary": true,
+            "builtin": true,
+            "x": 0,
+            "y": 0,
+            "width": 1536,
+            "height": 960,
+            "scale": 150,
+            "recommended": 150,
+            "scales": [
+              120,
+              150,
+              180,
+              210
+            ]
+          },
+          "2": {
+            "primary": false,
+            "builtin": false,
+            "name": "OxyOS Monitor",
+            "x": 1536,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 120,
+            "mode": 0
+          },
+          "trial": null
+        }
+      }
+    },
+    {
+      "name": "More space on the built-in display: 1920 × 1200 at once, the monitor still beside it, the shell's bars on the new edges",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Looks like 1920 × 1200"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "1": {
+            "scale": 120,
+            "width": 1920,
+            "height": 1200
+          },
+          "2": {
+            "x": 1920,
+            "y": 0
+          }
+        },
+        "shell": {
+          "work_areas": {
+            "1": [
+              0,
+              28,
+              1920,
+              1116
+            ],
+            "2": [
+              1920,
+              28,
+              1920,
+              1052
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "The monitor chosen: its own settings",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "OxyOS Monitor"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "24-inch, 1920 × 1080"
+        ],
+        "at": {
+          "window": [
+            {
+              "name": "OxyOS Monitor",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "name": "Extended display",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The monitor the main display: the dock goes to it, nothing moves",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Main display"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "1": {
+            "primary": false,
+            "x": 0
+          },
+          "2": {
+            "primary": true,
+            "x": 1920
+          }
+        },
+        "shell": {
+          "work_areas": {
+            "1": [
+              0,
+              28,
+              1920,
+              1172
+            ],
+            "2": [
+              1920,
+              28,
+              1920,
+              996
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "The monitor's resolutions",
+      "do": [
+        "press",
+        [
+          837,
+          614
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "1280 × 720"
+        ]
+      }
+    },
+    {
+      "name": "1280 × 720: shown at once, on trial for 15 seconds, the session asking to keep it",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "1280 × 720"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Keep these display settings?"
+        ],
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2,
+            "x": 1920,
+            "y": 0
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Revert: the monitor goes back at once",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Revert"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "width": 1920,
+            "height": 1080,
+            "mode": 0
+          },
+          "trial": null
+        },
+        "absent": [
+          "Keep these display settings?"
+        ]
+      }
+    },
+    {
+      "name": "The monitor's resolutions again",
+      "do": [
+        "press",
+        [
+          837,
+          614
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "1280 × 720"
+        ]
+      }
+    },
+    {
+      "name": "1280 × 720 on trial again",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "1280 × 720"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Left alone, it goes back once its 15 seconds pass: no picture is ever kept unconfirmed",
+      "do": [
+        "wait",
+        16000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "width": 1920,
+            "height": 1080,
+            "mode": 0
+          },
+          "trial": null
+        },
+        "absent": [
+          "Keep these display settings?"
+        ],
+        "shell": {
+          "work_areas": {
+            "1": [
+              0,
+              28,
+              1920,
+              1172
+            ],
+            "2": [
+              1920,
+              28,
+              1920,
+              996
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "The monitor's resolutions once more",
+      "do": [
+        "press",
+        [
+          837,
+          614
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "1280 × 720"
+        ]
+      }
+    },
+    {
+      "name": "1280 × 720 on trial once more",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "1280 × 720"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720
+          },
+          "trial": {
+            "output": 2,
+            "seconds": 15
+          }
+        }
+      }
+    },
+    {
+      "name": "Keep Changes: kept, the session's shell on the monitor at its new size",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Keep Changes"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "width": 1280,
+            "height": 720,
+            "mode": 2,
+            "primary": true
+          },
+          "trial": null
+        },
+        "absent": [
+          "Keep these display settings?"
+        ],
+        "shell": {
+          "work_areas": {
+            "1": [
+              0,
+              28,
+              1920,
+              1172
+            ],
+            "2": [
+              1920,
+              28,
+              1280,
+              636
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "The monitor moved above the panel: placed touching it, the arrangement's corner the monitor's",
+      "do": [
+        "a11y-action",
+        [
+          "custom:Move above",
+          "OxyOS Monitor"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays": {
+          "2": {
+            "x": 0,
+            "y": 0,
+            "width": 1280
+          },
+          "1": {
+            "x": 0,
+            "y": 720,
+            "width": 1920
+          }
+        },
+        "shell": {
+          "work_areas": {
+            "1": [
+              0,
+              748,
+              1920,
+              1172
+            ],
+            "2": [
+              0,
+              28,
+              1280,
+              636
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "display.BOE-0A4B-00000001": "1920x1200@60000 1",
+      "display.OXY-0001-00000042": "1280x720@60000 1",
+      "arrangement.BOE-0A4B-00000001+OXY-0001-00000042": "OXY-0001-00000042 0,0 BOE-0A4B-00000001 0,720"
+    }
+  }
+}

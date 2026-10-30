@@ -177,6 +177,12 @@ struct SettingsService {
   std::function<folly::dynamic()> drawing;
   std::function<folly::dynamic()> values;
   std::function<uint32_t(const std::string& key, const std::string& value)> set;
+  // The displays (docs/adr/0018-several-displays.mdx), for Settings alone (null without the
+  // grant): `{displays: [...], trial: {output, seconds} | null}`; and a change of one
+  // (`display`: "mode", "scale", "origin", "primary" or "confirm" with its numbers), the request's
+  // serial, 0 if it could not be sent or this client is not Settings.
+  std::function<folly::dynamic()> displays;
+  std::function<uint32_t(const std::string& change, const std::vector<double>& numbers)> display;
 };
 
 // The window's key presses for Bloom's `PlatformKeyboard` (key-chords.h): JavaScript's one

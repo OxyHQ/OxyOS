@@ -10,6 +10,7 @@
 //! host), passing the socket in `OXYOS_COMPOSITOR_SOCKET`, and presses the points `--press` names.
 
 mod client;
+mod displays;
 mod ime;
 mod launch;
 mod lock;
@@ -36,19 +37,22 @@ const OUTPUT_ID: OutputId = 1;
 const DEADLINE: Duration = Duration::from_secs(10);
 const BUTTON: u32 = 272;
 
-/// The primary's composed frame as a PNG in `directory` (`NAME.png`), and every other output's
-/// beside it (`NAME.output-ID.png`, in its own pixels).
+/// The primary's composed frame as a PNG in `directory` (`NAME.png`), and every output's by its id
+/// beside it (`NAME.output-ID.png`, in its own pixels), but `OUTPUT_ID`'s while it is the primary:
+/// that one is `NAME.png` alone. Another output made the primary (Settings, ADR 0018) is both.
 fn snapshot(compositor: &Compositor, directory: &Path, name: &str) -> Result<PathBuf> {
     let path = directory.join(name);
     for (index, screen) in compositor.screens.iter().enumerate() {
-        let file = match index {
-            0 => path.clone(),
-            _ => path.with_extension(format!("output-{}.png", screen.id)),
-        };
-        fs::write(
-            &file,
-            png::encode(screen.width, screen.height, &screen.framebuffer),
-        )?;
+        let encoded = png::encode(screen.width, screen.height, &screen.framebuffer);
+        if index == 0 {
+            fs::write(&path, &encoded)?;
+        }
+        if index != 0 || screen.id != OUTPUT_ID {
+            fs::write(
+                path.with_extension(format!("output-{}.png", screen.id)),
+                &encoded,
+            )?;
+        }
     }
     Ok(path)
 }
@@ -127,6 +131,9 @@ struct Session {
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
+    /// `--displays FILE`: the session's displays, on virtual connectors (displays.rs), shown and
+    /// changed from Settings as a session's are.
+    displays: Option<(oxyos_compositor::displays::Displays, displays::Virtual)>,
 }
 
 impl Session {
@@ -183,7 +190,26 @@ impl Session {
             grant_settings: None,
             controls: None,
             launched_clients: Default::default(),
+            displays: None,
         })
+    }
+
+    /// The session's displays on the virtual connectors `file` describes (`--displays`), shown as
+    /// the user's preferences keep them (docs/adr/0018-several-displays.mdx), numbered from
+    /// `OUTPUT_ID`.
+    fn follow_displays(&mut self, file: &Path) -> Result<()> {
+        let mut heads = displays::Virtual::parse(&fs::read_to_string(file)?)?;
+        let mut displays = oxyos_compositor::displays::Displays::new(OUTPUT_ID);
+        displays.follow(
+            &mut heads,
+            &mut self.compositor,
+            self.settings.preferences(),
+        )?;
+        if self.compositor.screens.is_empty() {
+            return Err(format!("{}: no display could be shown", file.display()).into());
+        }
+        self.displays = Some((displays, heads));
+        Ok(())
     }
 
     /// Starts the applications the shell asked for that the registry lists, and answers it;
@@ -249,6 +275,15 @@ impl Session {
         let now = oxyos_compositor::settings::now();
         for key in self.settings.serve(&mut self.compositor, now) {
             eprintln!("[preferences] {key} changed");
+        }
+        // And the displays' (ADR 0018), with `--displays`.
+        if let Some((displays, heads)) = self.displays.as_mut() {
+            displays.serve(
+                heads,
+                &mut self.compositor,
+                &mut self.settings,
+                Instant::now(),
+            );
         }
     }
 

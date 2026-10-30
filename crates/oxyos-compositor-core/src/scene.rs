@@ -421,6 +421,9 @@ pub struct Scene {
     window_views: BTreeMap<SurfaceKey, window_views::SurfaceViews>,
     /// The notifications kept for the session (ADR 0026).
     notifications: notifications::Notifications,
+    /// The displays as the program running the compositor said them, what Settings was told of
+    /// them and the changes it asked for (ADR 0018).
+    displays: displays::Displays,
     /// The time, as the program running the compositor last told it (`set_clock`).
     clock: std::time::Duration,
 }
@@ -431,6 +434,26 @@ fn fit(size: Size, scale_120: u32) -> Size {
     let limit = (u64::from(MAX_DIMENSION) * u64::from(SCALE_DENOMINATOR) / u64::from(scale_120))
         .max(1) as u32;
     Size::new(size.width.min(limit), size.height.min(limit))
+}
+
+/// A window's frame kept within `area`: moved, then shrunk only if it is larger, as little as
+/// that takes.
+fn within(area: Rect, (x, y): (i32, i32), size: Size) -> ((i32, i32), Size) {
+    let size = Size::new(
+        size.width.min(area.width).max(1),
+        size.height.min(area.height).max(1),
+    );
+    let clamp = |at: i32, start: i32, length: u32, room: u32| {
+        let last = i64::from(start) + i64::from(room) - i64::from(length);
+        i64::from(at).clamp(i64::from(start), last.max(i64::from(start))) as i32
+    };
+    (
+        (
+            clamp(x, area.x, size.width, area.width),
+            clamp(y, area.y, size.height, area.height),
+        ),
+        size,
+    )
 }
 
 /// Buffer size for a logical size that `fit` already made representable: `ceil(logical ×
@@ -664,6 +687,111 @@ impl Scene {
         Ok(())
     }
 
+    /// Gives an output another rectangle and scale (a display at another mode or scale, or moved,
+    /// docs/adr/0018-several-displays.mdx). What is on it moves with its origin, as
+    /// `set_output_origin` moves it; then the shell's surfaces and the lock take its new edges, a
+    /// full-screen window fills it, a zoomed one its work area, and every other window keeps its
+    /// place on it, moved and shrunk only as much as it takes to stay within the work area (and
+    /// what it is restored to, too). Every surface on it is asked for buffers at its scale.
+    pub fn set_output_geometry(
+        &mut self,
+        id: OutputId,
+        rect: Rect,
+        scale_120: u32,
+    ) -> Result<(), ErrorCode> {
+        let index = self
+            .outputs
+            .iter()
+            .position(|o| o.id == id)
+            .ok_or(ErrorCode::InvalidGeometry)?;
+        if rect.is_empty()
+            || rect.width > MAX_DIMENSION
+            || rect.height > MAX_DIMENSION
+            || !(SCALE_DENOMINATOR..=4 * SCALE_DENOMINATOR).contains(&scale_120)
+        {
+            return Err(ErrorCode::InvalidGeometry);
+        }
+        let before = self.outputs[index];
+        self.set_output_origin(id, (rect.x, rect.y))?;
+        if (before.rect.width, before.rect.height, before.scale_120)
+            == (rect.width, rect.height, scale_120)
+        {
+            return Ok(());
+        }
+        self.outputs[index].rect = rect;
+        self.outputs[index].scale_120 = scale_120;
+        let on: Vec<SurfaceKey> = self
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.output == id && !node.dismissed)
+            .map(|(key, _)| *key)
+            .collect();
+        // The shell's surfaces and the lock first: the work area windows keep within is theirs.
+        for &key in &on {
+            let node = &self.nodes[&key];
+            let (origin, size) = node.upcoming();
+            match node.role {
+                Role::Shell { kind, edge, .. } => {
+                    let (origin, size) = Self::shell_geometry(kind, edge, size, rect);
+                    self.reconfigure(key, Some(origin), size);
+                }
+                Role::Lock { .. } => {
+                    let size = Size::new(rect.width, rect.height);
+                    self.reconfigure(key, Some((rect.x, rect.y)), size);
+                }
+                _ if node.parent.is_some() => self.reconfigure(key, Some(origin), size),
+                _ => {}
+            }
+        }
+        let area = self.work_area(id).unwrap_or(rect);
+        for &key in &on {
+            let node = &self.nodes[&key];
+            if node.parent.is_some() || !matches!(node.role, Role::Toplevel | Role::Dialog) {
+                continue;
+            }
+            let (origin, size) = node.upcoming();
+            let (origin, size) = if node.fullscreen {
+                ((rect.x, rect.y), Size::new(rect.width, rect.height))
+            } else if node.maximized {
+                let size = node.limits.clamp(Size::new(area.width, area.height));
+                let size = Size::new(size.width.min(area.width), size.height.min(area.height));
+                let origin = (
+                    area.x + ((area.width - size.width) / 2) as i32,
+                    area.y + ((area.height - size.height) / 2) as i32,
+                );
+                (origin, size)
+            } else {
+                within(area, origin, size)
+            };
+            let node = self.nodes.get_mut(&key).expect("present");
+            node.restore = node
+                .restore
+                .map(|(origin, size)| within(rect, origin, size));
+            node.unzoomed = node
+                .unzoomed
+                .map(|(origin, size)| within(area, origin, size));
+            self.reconfigure(key, Some(origin), size);
+            self.reconstrain_children(key);
+        }
+        self.refresh_accessibility_geometry();
+        self.place_candidates();
+        self.refresh_pointer_focus();
+        Ok(())
+    }
+
+    /// Makes an output the primary (the first of the arrangement), which has the dock and takes
+    /// the windows of an output removed. Nothing on any output moves.
+    pub fn set_primary_output(&mut self, id: OutputId) -> Result<(), ErrorCode> {
+        let index = self
+            .outputs
+            .iter()
+            .position(|o| o.id == id)
+            .ok_or(ErrorCode::InvalidGeometry)?;
+        let output = self.outputs.remove(index);
+        self.outputs.insert(0, output);
+        Ok(())
+    }
+
     fn output(&self, id: OutputId) -> Option<Output> {
         self.outputs.iter().copied().find(|o| o.id == id)
     }
@@ -854,6 +982,7 @@ impl Scene {
         self.forget_menu_bar_client(client);
         self.forget_launches(client);
         self.forget_preference_changes(client);
+        self.forget_display_client(client);
         self.forget_notification_client(client);
         // The clipboard is its owner's offer: it empties when the owner goes, before focus moves
         // on, so the client focus reaches is told once.
@@ -923,6 +1052,7 @@ impl Scene {
         }
         if revoked.settings {
             self.forget_preference_changes(client);
+            self.forget_display_client(client);
         }
         let keys: Vec<SurfaceKey> = self
             .nodes
@@ -1251,6 +1381,11 @@ impl Scene {
                 last,
                 text,
             } => self.preference_request(client, serial, index, last, text),
+            Request::SetDisplayMode { .. }
+            | Request::SetDisplayScale { .. }
+            | Request::SetDisplayOrigin { .. }
+            | Request::SetPrimaryDisplay { .. }
+            | Request::ConfirmDisplays { .. } => self.display_request(client, request),
             Request::NotificationText { .. }
             | Request::PostNotification { .. }
             | Request::WithdrawNotification { .. }
@@ -3470,6 +3605,8 @@ impl Scene {
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
         // The shell is told what changed of windows and workspaces since it was last told.
         self.tell_shell();
+        // Settings, what changed of the displays (ADR 0018).
+        self.tell_displays();
         // Then the active window's menus, once it knows the window (ADR 0021).
         self.tell_menu_bar();
         std::mem::take(&mut self.events)
@@ -3531,6 +3668,11 @@ mod launch;
 pub use launch::LaunchRequest;
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
+mod displays;
+pub use displays::{
+    DisplayChange, DisplayInfo, DisplayRequest, ModeInfo, MAX_DISPLAY_MODES,
+    MAX_DISPLAY_NAME_BYTES, MAX_SCALE_CHOICES,
+};
 /// Notifications (docs/adr/0026-notifications.mdx).
 mod notifications;
 pub use notifications::{

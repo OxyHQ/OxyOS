@@ -108,6 +108,14 @@ A scenario with `outputs` ("WxH[@SCALE],..."; ADR 0018) runs on those outputs, a
 session arranges its displays (left to right, top-aligned, the first the primary), with a shell
 on each; steps' points are in the global space.
 
+A scenario with `displays` (ADR 0018) runs on the session's displays instead, on virtual connectors
+in the card's order, each {identity, kind ("internal" or "external"), size_mm [w, h], modes
+["WxH@MHZ", ... with "*" after the preferred one], connector, name (its EDID's, optional)}: shown,
+arranged and changed from Settings as a session's are, as the preferences keep them. A step's
+`displays` expectation checks what the session last told Settings of them by the time the step
+settled: by output id, each key given of that display (x, y, width, height, scale, mode, primary,
+name...), and `trial` (the mode on trial, {output, seconds}, or null).
+
 A scenario with `login` is a login screen (docs/adr/0020-oxy-account-login.mdx): the development
 compositor runs its `shell` module (`OxyOSLogin`) locked, with no application, and hands its
 passwords to the login program on its development path (`oxyos-login --dev`, beside the offscreen
@@ -795,6 +803,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for key, value in expect["preferences"].items():
             if last.get(key) != value:
                 fail(f"preferences told: {key} = {last.get(key)!r}, expected {value!r}")
+    if "displays" in expect:
+        told = [line for line in report if line["kind"] == "input" and line["event"] == "displays"
+                and line["t"] <= end]
+        last = told[-1] if told else {}
+        shown = {str(display["output"]): display for display in last.get("displays", [])}
+        for output, wanted in expect["displays"].items():
+            if output == "trial":
+                if last.get("trial") != wanted:
+                    fail(f"the mode on trial told: {last.get('trial')!r}, expected {wanted!r}")
+                continue
+            display = shown.get(output)
+            if display is None:
+                fail(f"display {output} was not told (told {sorted(shown)})")
+                continue
+            for key, value in wanted.items():
+                if display.get(key) != value:
+                    fail(f"display {output}: {key} = {display.get(key)!r}, expected {value!r}")
     if "preferences_file" in expect:
         kept = {}
         for line in (preferences.read_text().splitlines() if preferences else []):
@@ -900,6 +925,16 @@ def main():
     if scenario.get("outputs"):
         # Several outputs (ADR 0018), a shell on each.
         command += ["--outputs", scenario["outputs"]]
+    if scenario.get("displays"):
+        # The session's displays (ADR 0018), on virtual connectors described in a file of the run's
+        # own: identity, kind, size in mm, modes (the preferred one marked), connector and name.
+        displays = out / "displays"
+        displays.write_text("".join(
+            " ".join([display["identity"], display["kind"], "x".join(map(str, display["size_mm"])),
+                      ",".join(display["modes"]), display["connector"]]
+                     + ([display["name"]] if display.get("name") else [])) + "\n"
+            for display in scenario["displays"]))
+        command += ["--displays", str(displays)]
     if scenario.get("shell"):
         # The session's shell (ADR 0009), a Bloom host of the same bundle started before the
         # application with the shell grant; its report is the application's with ".shell" (another
