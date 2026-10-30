@@ -1,7 +1,9 @@
-// expo-blur on OxyOS: its views as host components (Expo's `ViewManagerAdapter_` names). OxyOS
-// has no blur target, so a blur view draws as Android's does without one (blur method "none"): its
-// tint, at an alpha its intensity gives, over what is behind it. The target view lays out as a
-// plain view.
+// expo-blur on OxyOS: its views as host components (Expo's `ViewManagerAdapter_` names), drawn as
+// Android draws them. Without a blur target, or with the blur method "none", a blur view is its
+// tint, at an alpha its intensity gives, over what is behind it. With a target (a BlurTargetView,
+// `blurTargetId`) and a blur method (Dimezis' BlurView on Android), it is the target's content
+// under it blurred (a Gaussian whose radius is intensity / blurReductionFactor logical pixels),
+// then its tint, clipped to it. The target view draws its children as a plain view.
 #pragma once
 
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
@@ -24,6 +26,10 @@ class ExpoBlurViewProps final : public ViewProps {
 
   std::string tint{"default"};
   Float intensity{50};
+  // The target's tag (findNodeHandle of the BlurTargetView), 0 for none.
+  int blurTargetId{0};
+  std::string blurMethod{"none"};
+  Float blurReductionFactor{4};
 };
 
 using ExpoBlurViewShadowNode = ConcreteViewShadowNode<ExpoBlurViewComponentName, ExpoBlurViewProps>;
@@ -40,5 +46,13 @@ bool isExpoBlurView(const std::string& name);
 // A blur view's tint as 0xAARRGGBB, as Android's TintStyle.toBlurEffect gives it; none for
 // another view.
 std::optional<uint32_t> expoBlurTint(const facebook::react::ShadowView& view);
+
+// What a blur view with a target blurs: the target's tag and the Gaussian's radius (its standard
+// deviation) in logical pixels; none for one that draws its tint alone.
+struct ExpoBlurTarget {
+  facebook::react::Tag target;
+  float radius;
+};
+std::optional<ExpoBlurTarget> expoBlurTarget(const facebook::react::ShadowView& view);
 
 }  // namespace oxyos

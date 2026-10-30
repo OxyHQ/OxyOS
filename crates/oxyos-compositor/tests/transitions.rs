@@ -199,3 +199,73 @@ fn the_splash_shows_the_mark_until_the_session_is_on_screen_then_fades_out() {
     assert!(s.compositor.transitions.is_empty());
     assert!(!s.compositor.showing_splash());
 }
+
+impl Session {
+    /// Composes the frame at `ms` and checks that everything it changed on the output is within
+    /// its damage: a display composing only the damage shows the same frame as one composing it
+    /// whole. True if the frame was composed from its damage (not whole).
+    fn damage_covers_changes(&mut self, ms: u64) -> bool {
+        let before = self.compositor.framebuffer.clone();
+        let frames = self.compositor.frames;
+        self.compositor.clock = Some(Duration::from_secs(100) + Duration::from_millis(ms));
+        self.compositor.serve(&self.listener).unwrap();
+        if self.compositor.frames == frames {
+            assert_eq!(self.compositor.framebuffer, before, "no frame, no change");
+            return true;
+        }
+        let Some(damage) = self.compositor.last_damage.clone() else {
+            return false;
+        };
+        let width = 640;
+        for (index, (old, new)) in before.iter().zip(&self.compositor.framebuffer).enumerate() {
+            if old == new {
+                continue;
+            }
+            let (x, y) = ((index % width) as i32, (index / width) as i32);
+            assert!(
+                damage.iter().any(|r| x >= r.x
+                    && y >= r.y
+                    && x < r.x + r.width as i32
+                    && y < r.y + r.height as i32),
+                "({x}, {y}) changed at {ms} ms outside the damage {damage:?}"
+            );
+        }
+        true
+    }
+}
+
+#[test]
+fn a_transition_is_composed_from_its_damage_alone() {
+    let (mut s, _) = session("damage");
+    // Arriving: every frame of the window's fade and growth from its damage, the last (whole
+    // again) included.
+    for ms in [20, 45, 90, 135, 170, 180, 200] {
+        assert!(s.damage_covers_changes(ms), "arriving, at {ms} ms");
+    }
+    // Going: from its last frame, shrinking and fading, to nothing.
+    s.destroy.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while s.compositor.surface_rect(1, 1).is_some() {
+        assert!(
+            Instant::now() < deadline,
+            "the window was not destroyed in time"
+        );
+        assert!(s.damage_covers_changes(200));
+    }
+    for ms in [220, 260, 300, 340, 360] {
+        assert!(s.damage_covers_changes(ms), "going, at {ms} ms");
+    }
+    assert!(s.compositor.transitions.is_empty());
+    // Damaged, not whole: a transition damages its surface, not the output.
+    let damaged = s
+        .compositor
+        .damaged
+        .iter()
+        .skip(1)
+        .filter(|&&share| share < 1.0)
+        .count();
+    assert!(
+        damaged >= 10,
+        "frames composed from their damage: {damaged}"
+    );
+}

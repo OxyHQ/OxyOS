@@ -1,0 +1,47 @@
+{
+  "about": "expo-blur's blur with a target and React Native's MaskedView (sample/MaterialProbe.tsx), as Android draws them, and the lock screen's clock made of them. A blur view over a target half black (x 0-99), half white (x 100-199), across their edge: the target under it is blurred, a Gaussian of radius 10 (intensity 40 over a reduction factor of 4), so the edge becomes a ramp (95: 33 % white, 100: 52 %, 105: 71 %, as the Gaussian's integral gives), with its tint over it (systemUltraThinMaterial: grey 191 at 0.44 of its intensity), black and white with that tint where the edge is beyond three radii, and the target untouched outside the view. The same view with the blur method \"none\" is its tint alone: the edge stays sharp. A red view masked by an opaque circle and a half transparent square is red in the circle, half red over the page in the square, and nothing elsewhere, the circle's bounding box included. The lock screen's clock (apps/shell's LockClock) over a blue target: its glyphs are the target blurred and lightened, between them the target as it is, and an assistive technology reads the time and the date whole; a press moves it on a minute and its last digit turns over several frames.",
+  "module": "MaterialProbe",
+  "window": [400, 480],
+  "steps": [
+    {
+      "name": "the blur, its tint and its clip; the method none, sharp; the mask's opaque and half transparent parts; the clock's material",
+      "do": ["press", [390, 250]],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "50,50": "#212121",
+          "95,50": "#676767",
+          "100,50": "#8e8e8e",
+          "105,50": "#b5b5b5",
+          "150,50": "#f4f4f4",
+          "20,50": "#000000",
+          "170,50": "#ffffff",
+          "50,200": "#212121",
+          "95,200": "#212121",
+          "100,200": "#f4f4f4",
+          "150,200": "#f4f4f4",
+          "250,70": "#d03030",
+          "350,70": "#e79797",
+          "222,42": "#ffffff",
+          "300,70": "#ffffff",
+          "250,30": "#ffffff",
+          "57,370": "#b5c0ec",
+          "200,405": "#b5c0eb",
+          "200,383": "#3050d0",
+          "20,300": "#3050d0"
+        },
+        "at": {"window": [{"name": "09:41"}, {"name": "Jueves, 29 de octubre"}]}
+      }
+    },
+    {
+      "name": "a minute later the clock reads 09:42, its last digit having turned over several frames",
+      "do": ["press", [345, 455]],
+      "expect": {
+        "pixels": {"200,405": "#b5c0eb", "200,383": "#3050d0"},
+        "at": {"window": [{"name": "09:42"}]},
+        "at_absent": {"window": [{"name": "09:41"}]},
+        "window_frames": [8, 80]
+      }
+    }
+  ]
+}
