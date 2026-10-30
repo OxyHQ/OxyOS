@@ -127,3 +127,41 @@ fn the_secret_is_never_printed() {
     assert!(!printed.contains(DEVICE_SECRET), "{printed}");
     assert!(printed.contains("Secret(…)"));
 }
+
+#[test]
+fn the_login_screen_is_listed_each_account_without_its_credential() {
+    let dir = TempDir::new("store-list");
+    let pictures = dir.path().join("pictures");
+    fs::create_dir(&pictures).unwrap();
+    let store = Store::open(&dir.path().join("accounts"))
+        .unwrap()
+        .with_pictures(&pictures);
+    assert_eq!(store.list().unwrap(), (Vec::new(), Vec::new()));
+    store.put(&enrollment()).unwrap();
+    let (listed, broken) = store.list().unwrap();
+    assert!(broken.is_empty());
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].account, account());
+    assert_eq!(listed[0].user, account().user_name());
+    assert_eq!(listed[0].uid, 1001);
+    assert_eq!(listed[0].name, "Ada Lovelace");
+    assert_eq!(listed[0].picture, None);
+    assert!(!format!("{listed:?}").contains(DEVICE_SECRET));
+    // The picture is the user's file of the pictures' directory, never a link.
+    let picture = pictures.join(account().user_name().as_str());
+    std::os::unix::fs::symlink("/etc/shadow", &picture).unwrap();
+    assert_eq!(store.list().unwrap().0[0].picture, None);
+    fs::remove_file(&picture).unwrap();
+    fs::write(&picture, b"png").unwrap();
+    assert_eq!(store.list().unwrap().0[0].picture, Some(picture));
+    // Without a display name, the username; a file that is no account's is left out and said.
+    let mut nameless = enrollment();
+    nameless.profile.display_name = Some("  ".into());
+    store.put(&nameless).unwrap();
+    fs::write(store.directory().join("oxy-other.json"), "{}").unwrap();
+    let (listed, broken) = store.list().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, "ada");
+    assert_eq!(broken.len(), 1);
+    assert!(broken[0].starts_with("oxy-other"));
+}

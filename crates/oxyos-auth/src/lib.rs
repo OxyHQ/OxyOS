@@ -2,6 +2,11 @@
 //! checked by PAM, the system's established mechanism, for the session's own user, and the
 //! throttle that slows guessing. Only an accepted password may unlock the session; this crate
 //! decides nothing else.
+//!
+//! And a login's ([ADR 0020](../../docs/adr/0020-oxy-account-login.mdx), step 2): the PAM
+//! transaction that signs a user in and holds its session ([`login`]), starting a program as that
+//! user ([`user`]), and what the login screen's compositor and the login program say to each other
+//! ([`greeter`]).
 
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -9,7 +14,10 @@ use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 mod checker;
+pub mod greeter;
+pub mod login;
 mod pam;
+pub mod user;
 
 pub use checker::{Answer, Attempt, Checker};
 
@@ -19,6 +27,11 @@ pub struct Secret(Zeroizing<Vec<u8>>);
 impl Secret {
     pub fn new(bytes: Vec<u8>) -> Self {
         Self(Zeroizing::new(bytes))
+    }
+
+    /// The password's bytes, still overwritten when dropped.
+    pub fn into_bytes(self) -> Zeroizing<Vec<u8>> {
+        self.0
     }
 }
 

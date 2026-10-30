@@ -31,9 +31,13 @@ impl Fixture {
 }
 
 impl Authentication for Fixture {
-    fn attempt(&mut self, secret: Secret) -> Option<(AuthOutcome, u32)> {
+    fn attempt(&mut self, account: Option<&str>, secret: Secret) -> Option<(AuthOutcome, u32)> {
         if self.checked.is_some() {
             return Some((AuthOutcome::Busy, 0));
+        }
+        // A lock checks the session's own user, as the session's does: never an account named.
+        if account.is_some() {
+            return Some((AuthOutcome::Rejected, 0));
         }
         // Answered on the compositor's next turn, as an authentication path off its thread is.
         self.checked = Some(&secret[..] == self.password.as_bytes());

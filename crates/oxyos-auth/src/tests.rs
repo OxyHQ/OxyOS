@@ -294,3 +294,232 @@ fn a_broken_configuration_rejects_without_counting() {
         assert_eq!(answer_of(&mut checker).outcome, Outcome::Rejected);
     }
 }
+
+mod login {
+    //! A login's transaction ([`crate::login`]) against the system's PAM with the tests' own
+    //! configuration, and the greeter's messages ([`crate::greeter`]) on a real socket.
+
+    use super::{Config, PASSWORD};
+    use crate::greeter::{self, Answer, Greeter, ToLogin, Verdict};
+    use crate::login::Login;
+    use crate::user::User;
+    use crate::{Error, Outcome, Secret};
+
+    fn start(config: &Config, service: &str) -> Login {
+        Login::start(service, "oxyos-test", Some(config.path())).unwrap()
+    }
+
+    const SESSION_STACK: &str = "\
+auth [success=1 default=ignore] pam_exec.so quiet expose_authtok SCRIPT
+auth requisite pam_deny.so
+auth required pam_permit.so
+account required pam_permit.so
+session required pam_permit.so
+";
+
+    #[test]
+    fn a_login_authenticates_then_opens_and_closes_its_session() {
+        let config = Config::new("login-session");
+        config.service("oxyos-login", SESSION_STACK);
+        let mut login = start(&config, "oxyos-login");
+        login.set_tty("/dev/tty1").unwrap();
+        login.set_env("XDG_SESSION_CLASS", "user").unwrap();
+        login.set_env("XDG_SEAT", "seat0").unwrap();
+        assert_eq!(
+            login.authenticate(Secret::new(PASSWORD.as_bytes().to_vec())),
+            Ok(Outcome::Accepted)
+        );
+        login.open_session().unwrap();
+        let env = login.environment();
+        assert!(env.contains(&("XDG_SESSION_CLASS".into(), "user".into())));
+        assert!(env.contains(&("XDG_SEAT".into(), "seat0".into())));
+        login.close_session().unwrap();
+        // Once: closing again does nothing.
+        login.close_session().unwrap();
+    }
+
+    #[test]
+    fn a_wrong_or_empty_password_never_signs_in() {
+        let config = Config::new("login-wrong");
+        config.service("oxyos-login", SESSION_STACK);
+        let mut login = start(&config, "oxyos-login");
+        assert_eq!(
+            login.authenticate(Secret::new(b"correct horse".to_vec())),
+            Ok(Outcome::Rejected)
+        );
+        assert_eq!(
+            start(&config, "oxyos-login").authenticate(Secret::new(Vec::new())),
+            Ok(Outcome::Rejected)
+        );
+        assert_eq!(
+            start(&config, "oxyos-login").authenticate(Secret::new(b"a\0b".to_vec())),
+            Err(Error::NulInSecret)
+        );
+    }
+
+    #[test]
+    fn a_refused_account_or_session_is_no_sign_in() {
+        let config = Config::new("login-refused");
+        config.service(
+            "account",
+            "auth required pam_permit.so\naccount required pam_deny.so\n",
+        );
+        config.service(
+            "session",
+            "auth required pam_permit.so\naccount required pam_permit.so\n\
+             session required pam_deny.so\n",
+        );
+        assert_eq!(
+            start(&config, "account").check_account(),
+            Ok(Outcome::Rejected)
+        );
+        let mut login = start(&config, "session");
+        assert_eq!(login.check_account(), Ok(Outcome::Accepted));
+        assert!(login.open_session().is_err());
+    }
+
+    #[test]
+    fn the_password_answers_one_prompt_only() {
+        // A second hidden prompt (a code, a new password) is not the password's to answer.
+        let config = Config::new("login-prompts");
+        config.service(
+            "oxyos-login",
+            "auth required pam_exec.so quiet expose_authtok SCRIPT\n\
+             auth required pam_exec.so quiet expose_authtok /bin/false\n\
+             account required pam_permit.so\n",
+        );
+        let outcome = start(&config, "oxyos-login").authenticate(Secret::new(PASSWORD.into()));
+        assert_ne!(outcome, Ok(Outcome::Accepted));
+    }
+
+    #[test]
+    fn a_variable_is_named_and_given_whole() {
+        let config = Config::new("login-env");
+        config.service("oxyos-login", SESSION_STACK);
+        let mut login = start(&config, "oxyos-login");
+        assert!(login.set_env("A=B", "c").is_err());
+        assert!(login.set_env("", "c").is_err());
+        login.set_env("LANG", "es_ES.UTF-8").unwrap();
+        assert_eq!(
+            login.environment(),
+            vec![("LANG".to_string(), "es_ES.UTF-8".to_string())]
+        );
+    }
+
+    #[test]
+    fn a_user_is_read_from_the_account_database() {
+        let root = User::named("root").unwrap().unwrap();
+        assert_eq!((root.uid, root.gid), (0, 0));
+        assert_eq!(root.groups.first(), Some(&0));
+        assert!(User::named("oxyos-no-such-user").unwrap().is_none());
+        assert!(User::named("a\0b").unwrap().is_none());
+    }
+
+    #[test]
+    fn only_root_starts_a_program_as_a_user() {
+        if rustix::process::getuid().is_root() {
+            return;
+        }
+        let root = User::named("root").unwrap().unwrap();
+        let started = root.spawn("/bin/true".as_ref(), &[] as &[&str], &[]);
+        assert!(started.is_err(), "a user cannot become another");
+    }
+
+    #[test]
+    fn the_greeters_messages_round_trip_and_hide_the_password() {
+        let attempt = ToLogin::Attempt {
+            account: "oxy-aaaaaaaaaaaaaaaaaaaa".into(),
+            secret: Secret::new(PASSWORD.into()),
+        };
+        assert!(!format!("{attempt:?}").contains(PASSWORD));
+        assert!(ToLogin::decode(b"a").is_err());
+        assert!(ToLogin::decode(b"a\x05abc").is_err());
+        assert!(ToLogin::decode(b"a\x00").is_err());
+        assert!(ToLogin::decode(b"x").is_err());
+        let mut long = vec![b'a', 1, b'u'];
+        long.extend(std::iter::repeat_n(b'p', greeter::MAX_SECRET_BYTES + 1));
+        assert!(ToLogin::decode(&long).is_err());
+        assert!(matches!(ToLogin::decode(b"s"), Ok(ToLogin::Shown)));
+    }
+
+    #[test]
+    fn a_greeter_attempts_and_hears_the_answer_on_the_socket() {
+        let dir = std::env::temp_dir().join(format!("oxyos-auth-greeter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("greeter");
+        let me = rustix::process::getuid().as_raw();
+        let listener = greeter::Listener::bind(&path, me).unwrap();
+        assert!(listener.accept(me).unwrap().is_none(), "no one yet");
+        let mut client = Greeter::connect(&path).unwrap();
+        let connection = listener.accept(me).unwrap().unwrap();
+        // Another uid's connection is refused (unless that is ours).
+        let _other = Greeter::connect(&path).unwrap();
+        assert!(listener.accept(me.wrapping_add(1)).unwrap().is_none());
+        assert!(connection.receive().unwrap().is_none());
+        // The login screen always names its account: without one, nothing is sent.
+        assert_eq!(
+            client.attempt(None, Secret::new(PASSWORD.into())),
+            Some(Answer {
+                verdict: Verdict::Rejected,
+                wait_s: 0
+            })
+        );
+        assert_eq!(
+            client.attempt(Some("oxy-a"), Secret::new(PASSWORD.into())),
+            None
+        );
+        assert_eq!(
+            client.attempt(Some("oxy-a"), Secret::new(b"again".to_vec())),
+            Some(Answer {
+                verdict: Verdict::Busy,
+                wait_s: 0
+            })
+        );
+        let Some(ToLogin::Attempt { account, secret }) = connection.receive().unwrap() else {
+            panic!("an attempt");
+        };
+        assert_eq!(account, "oxy-a");
+        assert_eq!(&secret.0[..], PASSWORD.as_bytes());
+        assert!(client.answer().is_none(), "not answered yet");
+        let answer = Answer {
+            verdict: Verdict::Throttled,
+            wait_s: 30,
+        };
+        connection.answer(answer).unwrap();
+        assert_eq!(client.answer(), Some(answer));
+        client.shown().unwrap();
+        assert!(matches!(
+            connection.receive().unwrap(),
+            Some(ToLogin::Shown)
+        ));
+        // The login program gone, an attempt is a rejection.
+        assert_eq!(
+            client.attempt(Some("oxy-a"), Secret::new(PASSWORD.into())),
+            None
+        );
+        // Shut down, not only closed: a process another test forks meanwhile may hold a copy of
+        // the descriptor until it executes.
+        let gone = |fd: std::os::fd::BorrowedFd<'_>| {
+            rustix::net::shutdown(fd, rustix::net::Shutdown::Both).unwrap()
+        };
+        gone(connection.as_fd());
+        drop(connection);
+        drop(listener);
+        assert_eq!(
+            client.answer().map(|answer| answer.verdict),
+            Some(Verdict::Rejected)
+        );
+        // A greeter gone ends the connection.
+        let listener = greeter::Listener::bind(&path, me).unwrap();
+        let client = Greeter::connect(&path).unwrap();
+        let connection = listener.accept(me).unwrap().unwrap();
+        gone(client.as_fd());
+        drop(client);
+        assert_eq!(
+            connection.receive().unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

@@ -6,6 +6,10 @@
 //! - Each file is mode 0600 and written whole: to a new file beside it, flushed to the disk,
 //!   renamed over the old one, and the directory flushed, so a reader or a crash sees the old
 //!   file or the new one, never a part. What is written is overwritten in memory afterwards.
+//! - What the login screen shows of each (its user, name and picture, [`Store::list`]) is read
+//!   from the same files; the credential in them is dropped unread, overwritten. An account's
+//!   picture is a file of the pictures' directory (`/var/lib/oxyos/pictures/<user>`, readable by
+//!   the login screen, as AccountsService keeps its icons), when there is one.
 
 use crate::api::{DeviceCredential, Profile};
 use crate::id::{AccountId, UserName};
@@ -19,6 +23,8 @@ use zeroize::Zeroizing;
 
 /// Where the service keeps enrolled accounts.
 pub const STATE_DIRECTORY: &str = "/var/lib/oxyos/accounts";
+/// Where accounts' pictures are: a file named by the account's user, for the login screen.
+pub const PICTURES_DIRECTORY: &str = "/var/lib/oxyos/pictures";
 
 /// The version of an account's file.
 const VERSION: u32 = 1;
@@ -59,8 +65,21 @@ struct File1 {
     credential: DeviceCredential,
 }
 
+/// What the login screen shows of an enrolled account: never its credential.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Listed {
+    pub account: AccountId,
+    pub user: UserName,
+    pub uid: u32,
+    /// The account's display name, else its username, else its user's.
+    pub name: String,
+    /// The account's picture, a file of the pictures' directory, when it has one.
+    pub picture: Option<PathBuf>,
+}
+
 pub struct Store {
     directory: PathBuf,
+    pictures: Option<PathBuf>,
 }
 
 fn invalid(why: String) -> io::Error {
@@ -92,7 +111,14 @@ impl Store {
         }
         Ok(Self {
             directory: directory.to_owned(),
+            pictures: None,
         })
+    }
+
+    /// Accounts' pictures are files of `directory`, named by their users.
+    pub fn with_pictures(mut self, directory: &Path) -> Self {
+        self.pictures = Some(directory.to_owned());
+        self
     }
 
     pub fn directory(&self) -> &Path {
@@ -131,6 +157,53 @@ impl Store {
             profile: stored.profile,
             credential: stored.credential,
         }))
+    }
+
+    /// Every enrolled account as the login screen shows it, by user. A file that is not an
+    /// account's is left out and said in the returned errors: one broken file hides one account,
+    /// never the others.
+    pub fn list(&self) -> io::Result<(Vec<Listed>, Vec<String>)> {
+        let (mut listed, mut broken) = (Vec::new(), Vec::new());
+        for user in self.users()? {
+            match self.listed(&user) {
+                Ok(account) => listed.push(account),
+                Err(error) => broken.push(format!("{user}: {error}")),
+            }
+        }
+        Ok((listed, broken))
+    }
+
+    fn listed(&self, user: &str) -> io::Result<Listed> {
+        let path = self.directory.join(format!("{user}{SUFFIX}"));
+        let mut bytes = Zeroizing::new(Vec::with_capacity(16 * 1024));
+        File::open(&path)?.read_to_end(&mut bytes)?;
+        let stored: File1 =
+            serde_json::from_slice(&bytes).map_err(|error| invalid(error.to_string()))?;
+        let account = AccountId::parse(&stored.account_id)
+            .map_err(|_| invalid("not an account's id".into()))?;
+        if stored.version != VERSION || stored.user != user || account.user_name().as_str() != user
+        {
+            return Err(invalid("not this user's account".into()));
+        }
+        let picture = self
+            .pictures
+            .as_ref()
+            .map(|directory| directory.join(user))
+            .filter(|path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()));
+        let profile = &stored.profile;
+        let name = [&profile.display_name, &profile.username]
+            .into_iter()
+            .flatten()
+            .find(|name| !name.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| user.to_owned());
+        Ok(Listed {
+            user: account.user_name(),
+            account,
+            uid: stored.uid,
+            name,
+            picture,
+        })
     }
 
     /// Every enrolled account's user, by its file's name.

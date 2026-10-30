@@ -1,12 +1,12 @@
-//! The session's readiness, for the service manager that started it (docs/adr/0017-boot-logo.mdx):
-//! `READY=1` on the socket `NOTIFY_SOCKET` names, sd_notify(3)'s protocol, once the session's
-//! first frame is on the display. A unit that starts the session at boot as `Type=notify` lets
-//! the boot logo go only then (`plymouth quit --retain-splash`), so the logo is on screen until
-//! the session's splash, the same pixels, replaces it.
+//! The readiness of what a unit started, for the service manager (docs/adr/0017-boot-logo.mdx):
+//! `READY=1` on the socket `NOTIFY_SOCKET` names, sd_notify(3)'s protocol, once the first frame
+//! is on the display: the session's, or the login screen's (the login program, `oxyos-login`,
+//! sends it for its greeter, which runs in a logind session of its own, outside the unit). A
+//! unit of `Type=notify` lets the boot logo go only then (`plymouth quit --retain-splash`), so the
+//! logo is on screen until the splash, the same pixels, replaces it.
 //!
 //! Started from a terminal login there is no such socket and nothing is sent. Telling Plymouth
-//! itself is the unit's, not the session's: plymouthd answers only root, and the session never
-//! runs as root.
+//! itself is the unit's: plymouthd answers only root.
 
 use std::ffi::OsString;
 use std::io;

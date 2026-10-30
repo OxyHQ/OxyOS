@@ -3,7 +3,8 @@
 
 use super::*;
 use crate::ipc::{
-    serve, Answer, Connection, Conversation, Enrollers, Listener, Outcome, Reason, Request, Turn,
+    list, serve, Answer, Connection, Conversation, Enrollers, Listener, Outcome, Reason, Request,
+    Turn,
 };
 use crate::setup::Setup;
 use crate::store::Store;
@@ -304,4 +305,52 @@ fn the_wire_format_is_the_documented_one() {
     );
     let printed = format!("{:?}", enroll(PASSWORD));
     assert!(!printed.contains(PASSWORD) && !printed.contains(DEVICE_SECRET));
+}
+
+#[test]
+fn the_login_screen_lists_the_enrolled_accounts_and_others_may_not() {
+    let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 3);
+    assert_eq!(list(&service.socket).unwrap(), Vec::new());
+    let client = service.connect();
+    client.send(&enroll(PASSWORD)).unwrap();
+    assert!(matches!(answer(&client), Answer::Enrolled { .. }));
+    let accounts = list(&service.socket).unwrap();
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].account_id, ACCOUNT);
+    assert_eq!(accounts[0].user, account().user_name().as_str());
+    assert_eq!(accounts[0].picture, None);
+    let log = service.finish();
+    assert!(log[2].contains("Listed { accounts: 1"), "{log:?}");
+    // Not the login program's user (unless the tests run as root, which may).
+    let mut service = Service::start(
+        FakeApi::default(),
+        Enrollers {
+            login: Some(me().wrapping_add(1)),
+        },
+        1,
+    );
+    let refused = list(&service.socket);
+    service.finish();
+    if me() != 0 {
+        assert_eq!(
+            refused.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    }
+}
+
+#[test]
+fn the_list_is_the_documented_one() {
+    assert_eq!(serde_json::to_string(&Request::List).unwrap(), r#""list""#);
+    let answer = Answer::Accounts(vec![crate::ipc::Account {
+        account_id: "a".into(),
+        user: "oxy-a".into(),
+        uid: 1001,
+        name: "Ada".into(),
+        picture: None,
+    }]);
+    assert_eq!(
+        serde_json::to_string(&answer).unwrap(),
+        r#"{"accounts":[{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada"}]}"#
+    );
 }

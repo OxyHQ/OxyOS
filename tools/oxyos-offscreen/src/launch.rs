@@ -391,11 +391,16 @@ pub struct Launch {
     /// right, top-aligned, the first the primary; a shell runs on each. One of 1280x720 at 1
     /// without it.
     pub outputs: Vec<((u32, u32), u32)>,
+    /// `--login SOCKET`: the session is a login screen (docs/adr/0020-oxy-account-login.mdx),
+    /// locked from the start, with no application: the shell (the Bloom host's `OxyOSLogin`) is
+    /// all there is, and its passwords go to the login program listening at SOCKET (`oxyos-login
+    /// --dev`), for the account its lock surface names, never to this fixture or to PAM here.
+    pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE],...] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --expect-popup]... \
-                     -- COMMAND [ARGS]...";
+                     -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// `WxH[@SCALE],...`: each output's pixels and scale (1 without one), the scale in 120ths.
 fn outputs(value: &str) -> Result<Vec<((u32, u32), u32)>> {
@@ -442,6 +447,8 @@ impl Launch {
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings) = (None, None);
         let mut screens = Vec::new();
+        let mut command = Vec::new();
+        let mut login = None;
         let mut args = args.iter();
         while let Some(arg) = args.next() {
             let step = match arg.to_str() {
@@ -710,39 +717,48 @@ impl Launch {
                     Step::Commit(text.to_string())
                 }
                 Some("--") => {
-                    let command: Vec<_> = args.cloned().collect();
+                    command = args.by_ref().cloned().collect();
                     if command.is_empty() {
                         return Err("no command after --".into());
                     }
-                    return Ok((
-                        out,
-                        Self {
-                            command,
-                            steps,
-                            gpu,
-                            gpu_only,
-                            dump_frames,
-                            kms,
-                            input,
-                            uinput,
-                            seat,
-                            layout,
-                            input_method,
-                            shell: shell.clone(),
-                            lock_password: lock_password.clone(),
-                            reader: reader.clone(),
-                            reader_locale: reader_locale.clone(),
-                            preferences: preferences.clone(),
-                            grant_settings: grant_settings.clone(),
-                            outputs: screens.clone(),
-                        },
-                    ));
+                    break;
+                }
+                Some("--login") => {
+                    login = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
                 }
                 _ => return Err(format!("unexpected argument {arg:?}\n{USAGE}").into()),
             };
             steps.push((step, std::mem::take(&mut allow)));
         }
-        Err(USAGE.into())
+        // A login screen has no application; anything else is shown with one.
+        if command.is_empty() && login.is_none() {
+            return Err(USAGE.into());
+        }
+        Ok((
+            out,
+            Self {
+                command,
+                steps,
+                gpu,
+                gpu_only,
+                dump_frames,
+                kms,
+                input,
+                uinput,
+                seat,
+                layout,
+                input_method,
+                shell,
+                lock_password,
+                reader,
+                reader_locale,
+                preferences,
+                grant_settings,
+                outputs: screens,
+                login,
+            },
+        ))
     }
 }
 
@@ -832,10 +848,18 @@ fn start_shell(
         session.compositor.serve(&session.listener)?;
         let now = shell_surfaces(&session.compositor);
         let scene = &session.compositor.scene;
-        let reserved = scene
-            .outputs()
-            .iter()
-            .all(|output| scene.work_area(output.id) != Some(output.rect));
+        // A login screen keeps nothing out of the work area: its lock surfaces are what it shows.
+        let reserved = if session.compositor.login {
+            !scene
+                .render_list()
+                .iter()
+                .any(|item| matches!(item, RenderItem::Cover { .. }))
+        } else {
+            scene
+                .outputs()
+                .iter()
+                .all(|output| scene.work_area(output.id) != Some(output.rect))
+        };
         if now != last.0 {
             last = (now, Instant::now());
         } else if reserved && last.1.elapsed() >= SETTLE {
@@ -904,10 +928,11 @@ fn shell_json(compositor: &Compositor) -> String {
         .map(|(id, r)| format!("\"{id}\":{}", rect(r)))
         .collect();
     format!(
-        "{{\"surfaces\":[{}],\"work_area\":{area},\"work_areas\":{{{}}},\"locked\":{}}}",
+        "{{\"surfaces\":[{}],\"work_area\":{area},\"work_areas\":{{{}}},\"locked\":{},\"signed_in\":{}}}",
         surfaces.join(","),
         areas.join(","),
-        compositor.scene.is_locked()
+        compositor.scene.is_locked(),
+        compositor.signed_in
     )
 }
 
@@ -2087,6 +2112,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.authentication =
             Some(Box::new(crate::lock::Fixture::new(password.clone())?));
     }
+    // A login screen: locked before any client connects, its passwords the login program's.
+    if let Some(socket) = &launch.login {
+        let greeter = oxyos_auth::greeter::Greeter::connect(socket)
+            .map_err(|error| format!("the login program at {}: {error}", socket.display()))?;
+        session.compositor.authentication =
+            Some(Box::new(oxyos_compositor::login::LoginProgram(greeter)));
+        session.compositor.login = true;
+        session.compositor.scene.lock();
+    }
     session
         .compositor
         .scene
@@ -2266,18 +2300,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         )?),
         None => None,
     };
-    let mut children = Children(vec![Command::new(&launch.command[0])
-        .args(&launch.command[1..])
-        .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .spawn()?]);
+    // A login screen has no application: its shell is the first child, which must not exit.
+    let mut children = Children(Vec::new());
+    if let Some(program) = launch.command.first() {
+        children.0.push(
+            Command::new(program)
+                .args(&launch.command[1..])
+                .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+                .env_remove("DISPLAY")
+                .env_remove("WAYLAND_DISPLAY")
+                .spawn()?,
+        );
+    }
     // Its own launch, as the session records one, when the scenario names the application;
     // unless the scenario has it be a process the session did not start
     // (`OXYOS_APP_UNRECORDED`), whose id is then only its claim.
-    if let (Ok(id), None) = (
+    if let (Ok(id), None, false) = (
         std::env::var("OXYOS_APP_ID"),
         std::env::var_os("OXYOS_APP_UNRECORDED"),
+        launch.command.is_empty(),
     ) {
         session.app = Some((children.0[0].id(), id));
     }
@@ -2286,19 +2327,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
     let launched_ns = monotonic_ns();
+    // A login screen has no window: the output stands for it, and its first frame is the one
+    // its shell has already shown.
+    let login = launch.command.is_empty();
+    let primary = session.compositor.screens[0].rect;
     let first = settle(
         &mut session,
         &mut children,
         &[],
-        false,
+        login,
         deadline,
         "the first frame",
-        None,
+        login.then_some(primary),
     )?;
     let mut window = first.window;
-    if (window.y..window.bottom() as i32).all(|y| {
-        (window.x..window.right() as i32).all(|x| session.compositor.pixel(x, y) == DESKTOP)
-    }) {
+    if !login
+        && (window.y..window.bottom() as i32).all(|y| {
+            (window.x..window.right() as i32).all(|x| session.compositor.pixel(x, y) == DESKTOP)
+        })
+    {
         return Err("the window shows nothing".into());
     }
     let mut output = composed(&session.compositor);
@@ -2599,7 +2646,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     println!(
         "{{\"mode\":\"offscreen-cpu\",\"outputs\":[{}],\"drm\":{display},\"gpu\":{gpu},\"launched\":{:?},\"t_launch\":{launched_ns},\"first_frame_ms\":{:.1},\"window\":[{},{},{},{}],\"frames\":{frames},\"damaged_fraction_median\":{damaged:.3},\"frames_whole\":{whole},\"steps\":[{}],\"console_input_bytes\":{console_input},\"descriptors_settled\":true,\"snapshots\":{:?},\"status\":\"passed\"}}",
         session_outputs,
-        launch.command[0],
+        launch.command.first().cloned().unwrap_or_default(),
         first.first_frame_ns.map_or(0.0, |ns| (ns - launched_ns) as f64 / 1e6),
         window.x,
         window.y,

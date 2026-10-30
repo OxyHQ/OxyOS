@@ -1,0 +1,4 @@
+# The login screen's user (docs/adr/0020-oxy-account-login.mdx): a system user with no password and
+# no shell, in no group but its own; logind gives its session the seat's devices. Installed as
+# /usr/lib/sysusers.d/oxyos-login.conf.
+u oxyos-login - "OxyOS login screen" /var/lib/oxyos-login /usr/sbin/nologin

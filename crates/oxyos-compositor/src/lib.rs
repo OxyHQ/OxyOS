@@ -26,6 +26,7 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod idle;
+pub mod login;
 pub mod settings;
 pub mod splash;
 pub mod transitions;
@@ -423,6 +424,13 @@ pub struct Compositor {
     pub away: bool,
     /// What checks the lock's passwords; without one, none unlocks.
     pub authentication: Option<Box<dyn Authentication>>,
+    /// A login screen (docs/adr/0020-oxy-account-login.mdx): the scene is locked from the start
+    /// and an accepted password signs a person in rather than unlocking. The splash is shown and
+    /// [`Compositor::signed_in`] says so; the login program then ends the compositor and starts
+    /// the person's session. Nothing behind the lock is ever shown.
+    pub login: bool,
+    /// At a login screen, a password was accepted.
+    pub signed_in: bool,
     /// The lock surface whose password is being checked.
     checking: Option<SurfaceKey>,
     /// The machine is about to sleep: it may once the lock is on screen.
@@ -458,13 +466,16 @@ pub struct Compositor {
 }
 
 /// The session's authentication path (ADR 0010): it checks a lock surface's password off the
-/// compositor's thread, and only its `Accepted` unlocks. The session's is PAM; the development
-/// compositor's a fixture, never a session's.
+/// compositor's thread, and only its `Accepted` unlocks. The session's is PAM; a login screen's
+/// the login program's (ADR 0020); the development compositor's a fixture, never a session's.
 pub trait Authentication {
-    /// Begins checking `secret`: `None` while it is checked, or an answer at once (busy,
-    /// throttled) with the seconds until another may be tried.
+    /// Begins checking `secret`, for `account` when the lock surface named one (a login
+    /// screen's), else for the session's own user: `None` while it is checked, or an answer at
+    /// once (busy, throttled, an account it may not check) with the seconds until another may be
+    /// tried.
     fn attempt(
         &mut self,
+        account: Option<&str>,
         secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)>;
     /// Readable when the password being checked has its answer.
@@ -686,6 +697,8 @@ impl Compositor {
             card_device: None,
             away: false,
             authentication: None,
+            login: false,
+            signed_in: false,
             checking: None,
             sleeping: false,
             hinted_locked: false,
@@ -2489,8 +2502,9 @@ impl Compositor {
         }
     }
 
-    /// Answers the password being checked once it has its answer, unlocking on `Accepted`, and
-    /// hands the next one a lock surface submitted to the authentication path.
+    /// Answers the password being checked once it has its answer, unlocking on `Accepted` (at a
+    /// login screen, showing the splash: someone signed in), and hands the next one a lock
+    /// surface submitted to the authentication path.
     pub fn authenticate(&mut self) {
         if let Some(key) = self.checking {
             let answer = self
@@ -2500,18 +2514,26 @@ impl Compositor {
             if let Some((outcome, wait_s)) = answer {
                 self.checking = None;
                 self.scene.authenticated(key, outcome, wait_s);
-                if outcome == AuthOutcome::Accepted {
-                    self.scene.unlock();
+                match (outcome, self.login) {
+                    (AuthOutcome::Accepted, false) => self.scene.unlock(),
+                    (AuthOutcome::Accepted, true) => {
+                        if !self.signed_in {
+                            self.signed_in = true;
+                            self.show_splash();
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
-        while let Some((key, secret)) = self.scene.take_authentication() {
+        while let Some(submitted) = self.scene.take_authentication() {
+            let key = submitted.surface;
             let Some(authentication) = self.authentication.as_mut() else {
                 eprintln!("[lock] no authentication path: the session stays locked");
                 self.scene.authenticated(key, AuthOutcome::Rejected, 0);
                 continue;
             };
-            match authentication.attempt(secret) {
+            match authentication.attempt(submitted.account.as_deref(), submitted.secret) {
                 None => self.checking = Some(key),
                 Some((outcome, wait_s)) => self.scene.authenticated(key, outcome, wait_s),
             }

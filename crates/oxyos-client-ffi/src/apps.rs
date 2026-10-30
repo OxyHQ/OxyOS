@@ -5,7 +5,7 @@ use super::fail;
 use std::ffi::c_char;
 
 /// `text` as a JSON string.
-fn json_string(text: &str) -> String {
+pub(crate) fn json_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for c in text.chars() {

@@ -17,6 +17,7 @@ oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-auth = { path = "../../crates/oxyos-auth" }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
 evdev = "0.13"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe"] }

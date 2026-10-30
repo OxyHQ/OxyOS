@@ -19,6 +19,9 @@
 //!   (`systemd-inhibit --what=idle`, as a video player does).
 //!
 //! Dropping the [`Seat`] gives control back.
+//!
+//! [`notify`] is systemd's other interface a program on a seat speaks: telling the unit that
+//! started it that it is on screen (sd_notify's `READY=1`, docs/adr/0017-boot-logo.mdx).
 
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::collections::HashMap;
@@ -28,6 +31,8 @@ use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::OwnedObjectPath;
+
+pub mod notify;
 
 const LOGIND: &str = "org.freedesktop.login1";
 const SESSION: &str = "org.freedesktop.login1.Session";

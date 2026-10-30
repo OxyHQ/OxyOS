@@ -1,0 +1,3 @@
+# The login screen's home, its own (docs/adr/0020-oxy-account-login.mdx). Installed as
+# /usr/lib/tmpfiles.d/oxyos-login.conf.
+d /var/lib/oxyos-login 0700 oxyos-login oxyos-login -

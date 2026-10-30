@@ -1,0 +1,14 @@
+# The login program's sign-in (docs/adr/0020-oxy-account-login.mdx): an enrolled Oxy account's
+# password, checked as the system checks one at a login (its verifier, offline, by pam_unix), the
+# account checked, and the person's session opened as a login opens one: its login uid, limits,
+# environment and locale, and logind's session on the seat (pam_systemd, required: a session that
+# logind does not know gets no seat). Installed as /etc/pam.d/oxyos-login.
+@include common-auth
+@include common-account
+session required pam_loginuid.so
+session optional pam_keyinit.so force revoke
+session required pam_limits.so
+session required pam_env.so readenv=1
+session required pam_env.so readenv=1 envfile=/etc/default/locale
+session required pam_unix.so
+session required pam_systemd.so

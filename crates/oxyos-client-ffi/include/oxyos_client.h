@@ -417,6 +417,10 @@ int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, si
  * Without the grant the compositor closes the connection. */
 int oxyos_client_set_preference(OxyOSClient* client, uint32_t serial, const char* key, const char* value);
 int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char* secret, size_t length);
+/* The same at a login screen (docs/adr/0020-oxy-account-login.mdx): the password is for `account`,
+ * its Unix user's name (NUL-terminated, 1 to 31 bytes; null for the session's own user). */
+int oxyos_client_authenticate_account(OxyOSClient* client, uint32_t surface, const char* account, const char* secret,
+                                      size_t length);
 /* Focuses (and restores, showing its workspace; a window hidden with its application brings back
  * the others), closes (the application is asked), minimizes or moves (to `workspace`) the window
  * numbered `window`, hides or quits its application; activates, adds or removes a workspace. */
@@ -937,6 +941,12 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
  * `capacity`: call again with more room). */
 int64_t oxyos_applications(char* out, size_t capacity);
+
+/* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
+ * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
+ * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as
+ * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
+int64_t oxyos_accounts(char* out, size_t capacity);
 
 /* The solar wallpaper (crates/oxyos-solar, docs/adr/0012-solar-wallpaper.mdx). A frame of a solar
  * wallpaper and the sun it shows (its manifest's solarAnchors): degrees above the horizon and

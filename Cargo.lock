@@ -1560,6 +1560,7 @@ dependencies = [
 name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
+ "oxyos-account",
  "oxyos-apps",
  "oxyos-client",
  "oxyos-gestures",
@@ -1577,6 +1578,7 @@ dependencies = [
 name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
+ "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor-core",
  "oxyos-gpu",
@@ -1686,6 +1688,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-login"
+version = "0.1.0"
+dependencies = [
+ "oxyos-account",
+ "oxyos-auth",
+ "oxyos-seat",
+ "oxyos-vt",
+ "rustix",
+ "serde_json",
+ "signal-hook",
+ "zeroize",
+]
+
+[[package]]
 name = "oxyos-net"
 version = "0.1.0"
 dependencies = [
@@ -1700,6 +1716,7 @@ version = "0.1.0"
 dependencies = [
  "evdev",
  "oxyos-apps",
+ "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor",
  "oxyos-compositor-core",
