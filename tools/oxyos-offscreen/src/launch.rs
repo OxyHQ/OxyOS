@@ -764,6 +764,7 @@ fn settle(
             );
         }
         session.compositor.serve(&session.listener)?;
+        session.serve_launches();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
         }
@@ -1508,6 +1509,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let mut session = Session::start()?;
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
+    }
+    // The shell's applications, from the registry, run with the shell's own Bloom host and bundle.
+    if let Some(shell) = &launch.shell {
+        session.launcher = Some(oxyos_apps::Launcher::new(
+            oxyos_apps::Runtime {
+                socket: session.socket.clone(),
+                bloom_host: shell.first().map(PathBuf::from),
+                bloom_bundle: shell.get(1).map(PathBuf::from),
+                window: (600, 360),
+                // A launched Bloom host's report goes beside the application's, not into it.
+                env: std::env::var_os("OXYOS_HOST_REPORT")
+                    .map(|mut report| {
+                        report.push(".launched");
+                        vec![("OXYOS_HOST_REPORT".into(), report)]
+                    })
+                    .unwrap_or_default(),
+            },
+            oxyos_apps::directories(),
+            oxyos_apps::languages(),
+        ));
     }
     if let Some(password) = &launch.lock_password {
         session.compositor.authentication =

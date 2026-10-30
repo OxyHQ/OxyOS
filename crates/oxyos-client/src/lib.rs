@@ -295,6 +295,32 @@ impl Client {
     }
 
     /// Names a window (ADR 0009): its title, or (`app_id`) its application id, in chunks.
+    /// The session's shell asks for the application `id` of the session's registry (ADR 0013);
+    /// a `LaunchResult` with `serial` answers.
+    pub fn launch(&self, serial: u32, id: &str) -> io::Result<()> {
+        let chunks: Vec<PreeditText> = TextChunk::split(id)
+            .iter()
+            .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
+            .collect();
+        if chunks.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "no application id",
+            ));
+        }
+        let count = chunks.len();
+        for (index, text) in chunks.into_iter().enumerate() {
+            let index = u8::try_from(index).map_err(|_| io::Error::other("id too long"))?;
+            self.send(&Request::LaunchApplication {
+                serial,
+                index,
+                last: usize::from(index) + 1 == count,
+                text,
+            })?;
+        }
+        Ok(())
+    }
+
     pub fn name_window(&self, surface: u32, app_id: bool, text: &str) -> io::Result<()> {
         let mut chunks: Vec<PreeditText> = TextChunk::split(text)
             .iter()

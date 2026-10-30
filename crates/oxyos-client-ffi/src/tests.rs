@@ -2472,6 +2472,10 @@ fn the_header_matches_the_lock_abi() {
             OXYOS_EVENT_AUTHENTICATION_RESULT.into(),
         ),
         ("OXYOS_EVENT_CAPS_LOCK", OXYOS_EVENT_CAPS_LOCK.into()),
+        (
+            "OXYOS_EVENT_LAUNCH_RESULT",
+            OXYOS_EVENT_LAUNCH_RESULT.into(),
+        ),
         ("OXYOS_AUTH_ACCEPTED", OXYOS_AUTH_ACCEPTED.into()),
         ("OXYOS_AUTH_REJECTED", OXYOS_AUTH_REJECTED.into()),
         ("OXYOS_AUTH_BUSY", OXYOS_AUTH_BUSY.into()),
@@ -2781,4 +2785,85 @@ fn the_applications_are_listed_as_json_through_the_c_abi() {
         let text = CStr::from_ptr(buffer.as_ptr()).to_str().unwrap();
         assert!(text.starts_with('[') && text.ends_with(']'), "{text}");
     }
+}
+
+#[test]
+fn the_shell_asks_for_an_application_through_the_c_abi() {
+    assert_eq!(
+        u32::from(
+            Event::LaunchResult {
+                serial: 1,
+                launched: true
+            }
+            .opcode()
+        ),
+        OXYOS_EVENT_LAUNCH_RESULT
+    );
+    let result = convert(&Event::LaunchResult {
+        serial: 7,
+        launched: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (result.kind, result.code, result.flag),
+        (OXYOS_EVENT_LAUNCH_RESULT, 7, 1)
+    );
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-launch-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let id = "so.oxy.an-application-with-a-rather-long-id";
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..2)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the ids are
+    // as long as said.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_launch(client, 7, std::ptr::null(), 0),
+            OXYOS_ERROR
+        );
+        let long = "a".repeat(129);
+        assert_eq!(
+            oxyos_client_launch(client, 7, long.as_ptr().cast(), long.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_launch(client, 7, id.as_ptr().cast(), id.len()),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        let text: String = requests
+            .iter()
+            .map(|request| match request {
+                Request::LaunchApplication {
+                    serial: 7, text, ..
+                } => text.as_str().to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(text, id);
+        assert!(matches!(
+            requests.last(),
+            Some(Request::LaunchApplication {
+                index: 1,
+                last: true,
+                ..
+            })
+        ));
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
 }

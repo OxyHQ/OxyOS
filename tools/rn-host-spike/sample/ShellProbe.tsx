@@ -159,12 +159,13 @@ export function ShellSession() {
     activeAppId: state.windows.find((window: { focused: boolean }) => window.focused)?.appId,
   };
   const act: ShellActions = {
-    // The application's newest window, if it has one (ADR 0009: launching comes with the registry).
+    // The application's newest window, if it has one; else the session starts it (ADR 0013).
     activateApp: (id) => {
       const newest = state.windows
         .filter((window: { appId: string }) => window.appId === id)
         .sort((a: { id: number }, b: { id: number }) => b.id - a.id)[0];
       if (newest) shell.focusWindow(newest.id);
+      else shell.launch(id);
     },
     focusWindow: (id) => shell.focusWindow(Number(id)),
     closeWindow: (id) => shell.closeWindow(Number(id)),

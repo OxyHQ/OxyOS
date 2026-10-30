@@ -95,6 +95,9 @@ struct ShellService {
   // lock screen, which the host sends from its lock surface (false if there is none, or it could
   // not be sent). `OxyOSShellAuthentication` answers.
   std::function<void()> lock;
+  // Asks the session for an application of its registry (ADR 0013): the request's serial, 0 if it
+  // could not be sent. `OxyOSShellLaunch` answers.
+  std::function<uint32_t(const std::string& id)> launch;
   std::function<bool(const std::string& secret)> authenticate;
 };
 

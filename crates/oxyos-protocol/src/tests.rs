@@ -203,6 +203,12 @@ fn requests() -> Vec<Request> {
             surface: 1,
             shape: PointerShape::ResizeTopRight,
         },
+        Request::LaunchApplication {
+            serial: 3,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.allo").unwrap(),
+        },
         Request::LockSession {},
         Request::AuthenticateSecret {
             surface: 5,
@@ -273,6 +279,10 @@ fn events() -> Vec<Event> {
             y: 4,
             scale_65536: 98304,
             rotation_256: -2560,
+        },
+        Event::LaunchResult {
+            serial: 3,
+            launched: true,
         },
         Event::LockState { locked: true },
         Event::CapsLock {
