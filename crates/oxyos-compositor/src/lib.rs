@@ -237,6 +237,37 @@ impl Screen {
         })
     }
 
+    /// A surface's damage (buffer pixels) where it shows at `rect` (the global space's): on this
+    /// screen, every pixel whose filtered sample reads a damaged buffer pixel (`on_output`, at the
+    /// size the surface is drawn here, ADR 0011), as a rectangle of the global space rounded
+    /// outward, so that `covering` holds them.
+    fn damage_on(&self, damage: &Rect, rect: Rect, extent: Size) -> oxyos_gpu::Rect {
+        let (x0, y0, x1, y1) = self.place(rect.x, rect.y, rect.width, rect.height);
+        let placed = Rect::new(x0, y0, (x1 - x0).max(0) as u32, (y1 - y0).max(0) as u32);
+        let on = on_output(damage, placed, extent);
+        let scale = i64::from(self.scale_120);
+        let back = |pixels: i32, origin: i32, up: bool| {
+            let at = i64::from(pixels) * 120;
+            let v = i64::from(origin)
+                + if up {
+                    (at + scale - 1).div_euclid(scale)
+                } else {
+                    at.div_euclid(scale)
+                };
+            v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+        };
+        let left = back(on.x, self.rect.x, false);
+        let top = back(on.y, self.rect.y, false);
+        let right = back(on.x.saturating_add(on.width as i32), self.rect.x, true);
+        let bottom = back(on.y.saturating_add(on.height as i32), self.rect.y, true);
+        oxyos_gpu::Rect {
+            x: left,
+            y: top,
+            width: (right - left).max(0) as u32,
+            height: (bottom - top).max(0) as u32,
+        }
+    }
+
     /// A rectangle of the global space (logical) in this screen's pixels, rounded outward, so
     /// that it covers every pixel showing any of it; none if it is off the screen.
     fn covering(&self, rect: &oxyos_gpu::Rect) -> Option<oxyos_gpu::Rect> {
@@ -474,9 +505,6 @@ struct Content {
     shadow: Option<(std::rc::Rc<oxyos_gpu::ShadowProfile>, oxyos_gpu::Shadow)>,
     /// A window's look, kept with its last frame for its transition going.
     look: Option<WindowLook>,
-    /// How its pixels are sampled drawn at another size: a window shown live in the shell's
-    /// overview is box-filtered (docs/adr/0022-window-views.mdx).
-    filter: oxyos_gpu::Filter,
     /// Where on the output it may draw, if not everywhere.
     clip: Option<oxyos_gpu::Rect>,
     /// Its pixels are those of the content at this index (the same window's frame, read once).
@@ -498,7 +526,6 @@ impl Content {
             radius: 0,
             shadow: None,
             look: None,
-            filter: oxyos_gpu::Filter::Nearest,
             clip: None,
             shares: None,
         }
@@ -528,7 +555,6 @@ impl Content {
             radius: 0,
             shadow: Some((profile.clone(), drawn.shadow)),
             look: None,
-            filter: oxyos_gpu::Filter::Nearest,
             clip: None,
             shares: None,
         };
@@ -1326,7 +1352,6 @@ impl Compositor {
                             radius,
                             shadow: None,
                             look,
-                            filter: oxyos_gpu::Filter::Nearest,
                             clip: None,
                             shares: None,
                         });
@@ -1402,7 +1427,6 @@ impl Compositor {
                         radius,
                         shadow: None,
                         look: None,
-                        filter: oxyos_gpu::Filter::Box,
                         clip: Some(oxyos_gpu::Rect {
                             x: clip.x,
                             y: clip.y,
@@ -1429,7 +1453,6 @@ impl Compositor {
                 radius: 0,
                 shadow: None,
                 look: None,
-                filter: oxyos_gpu::Filter::Nearest,
                 clip: None,
                 shares: None,
             });
@@ -1457,7 +1480,6 @@ impl Compositor {
                 radius,
                 shadow: None,
                 look: None,
-                filter: oxyos_gpu::Filter::Nearest,
                 clip: None,
                 shares: None,
             });
@@ -1477,7 +1499,6 @@ impl Compositor {
                     radius: view.radius,
                     shadow: None,
                     look: None,
-                    filter: oxyos_gpu::Filter::Box,
                     clip: Some(oxyos_gpu::Rect {
                         x: clip.x,
                         y: clip.y,
@@ -1529,7 +1550,9 @@ impl Compositor {
                     .map(|(from, rects)| (*from, rects.as_slice())),
                 opacity: content.opacity,
                 radius: content.radius,
-                filter: content.filter,
+                // Drawn at another size (a transition, a window's view in the overview, an
+                // output's scale), filtered (ADR 0011, step 5; ADR 0022).
+                filter: oxyos_gpu::Filter::Box,
                 clip: content.clip,
             })
             .collect();
@@ -1611,7 +1634,7 @@ impl Compositor {
                 Some(oxyos_compositor_core::SurfaceDamage::Rects(rects)) if composed_here => Some(
                     rects
                         .iter()
-                        .map(|damage| on_output(damage, rect, extent))
+                        .map(|damage| screen.damage_on(damage, rect, extent))
                         .collect(),
                 ),
                 _ => None,
@@ -2533,29 +2556,29 @@ impl Compositor {
     }
 }
 
-/// A surface's damage (buffer pixels) on the output, where the surface shows at `rect`: scaled
-/// as the surface is, rounded outward so every output pixel sampling a damaged buffer pixel is
-/// in it.
+/// A surface's damage (buffer pixels) on the output, where the surface shows at `rect`: every
+/// output pixel whose filtered sample reads a damaged buffer pixel (`oxyos_gpu::filter::span`,
+/// ADR 0011), which drawn larger reaches up to a buffer pixel beyond them; at 1:1 the damage
+/// itself.
 pub fn on_output(damage: &Rect, rect: Rect, extent: Size) -> oxyos_gpu::Rect {
-    let scale = |at: u32, length: u32, extent: u32, up: bool| {
-        let product = u64::from(at) * u64::from(length);
-        let extent = u64::from(extent.max(1));
-        (if up {
-            product.div_ceil(extent)
-        } else {
-            product / extent
-        }) as i64
-    };
     let (x0, y0) = (damage.x.max(0) as u32, damage.y.max(0) as u32);
-    let left = scale(x0, rect.width, extent.width, false);
-    let top = scale(y0, rect.height, extent.height, false);
-    let right = scale(x0 + damage.width, rect.width, extent.width, true);
-    let bottom = scale(y0 + damage.height, rect.height, extent.height, true);
+    let (left, right) = oxyos_gpu::filter::span(
+        x0,
+        x0.saturating_add(damage.width),
+        extent.width,
+        rect.width,
+    );
+    let (top, bottom) = oxyos_gpu::filter::span(
+        y0,
+        y0.saturating_add(damage.height),
+        extent.height,
+        rect.height,
+    );
     oxyos_gpu::Rect {
         x: rect.x + left as i32,
         y: rect.y + top as i32,
-        width: (right - left) as u32,
-        height: (bottom - top) as u32,
+        width: right - left,
+        height: bottom - top,
     }
 }
 
@@ -2814,6 +2837,15 @@ mod tests {
             right.covering(&rect(1000, 290, 100, 100)),
             Some(rect(540, 435, 60, 15))
         );
+        // A surface's damage reaches every pixel whose filtered sample reads it, at the size the
+        // surface is drawn on the screen: a 20x20 buffer at 20x20 logical is 30x30 pixels here,
+        // and its pixel 10 is read by pixels 14 to 16 of them (29 to 31 of the screen; pixel 14's
+        // centre falls between buffer pixels 9's and 10's), which the logical damage, 660 to 661
+        // (pixels 30 and 31), would miss.
+        let surface = Rect::new(650, 10, 20, 20);
+        let damage = right.damage_on(&Rect::new(10, 10, 1, 1), surface, Size::new(20, 20));
+        assert_eq!(damage, rect(659, 19, 3, 3));
+        assert_eq!(right.covering(&damage), Some(rect(28, 28, 5, 5)));
         // A point is on the screen it is in, in its pixels.
         assert_eq!(right.on_display((640, 0)), Some((0, 0)));
         assert_eq!(right.on_display((1039, 299)), Some((599, 449)));
@@ -2855,7 +2887,7 @@ mod tests {
             changed: None,
             opacity: 200,
             radius: 6,
-            filter: oxyos_gpu::Filter::Nearest,
+            filter: oxyos_gpu::Filter::Box,
             clip: None,
         };
         let placed = right.layer(&layer).expect("on the screen");
@@ -3045,15 +3077,32 @@ mod tests {
                 height: 1
             }]
         );
-        // Scaled outward: a 10x10 buffer at 15x15 (1.5x), pixels 3 to 5 cover output 4 to 9.
+        // Where it is sampled: a 10x10 buffer at 15x15 (1.5x), pixels 3 to 5 are read by output
+        // pixels 4 to 9 (pixel 9's centre is 6⅓ buffer pixels in, between pixels 5 and 6's
+        // centres, so it reads pixel 5 too).
         let shown = Rect::new(100, 0, 15, 15);
         assert_eq!(
             on_output(&Rect::new(3, 3, 3, 3), shown, Size::new(10, 10)),
             oxyos_gpu::Rect {
                 x: 104,
                 y: 4,
-                width: 5,
-                height: 5
+                width: 6,
+                height: 6
+            }
+        );
+        // Drawn smaller, the output pixels covering them: a 20x20 buffer at 10x10, pixels 3 to 5
+        // are within output pixels 1 and 2.
+        assert_eq!(
+            on_output(
+                &Rect::new(3, 3, 3, 3),
+                Rect::new(0, 0, 10, 10),
+                Size::new(20, 20)
+            ),
+            oxyos_gpu::Rect {
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 2
             }
         );
     }

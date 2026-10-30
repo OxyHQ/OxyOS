@@ -85,65 +85,19 @@ pub struct Layer<'a> {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Filter {
     /// The pixel under each output pixel's corner: exact for a surface at its own size, and
-    /// what every surface is drawn with.
+    /// what a frame file from before filtering was composed with.
     #[default]
     Nearest,
-    /// The mean of the pixels each output pixel covers (its footprint, at least one), up to
-    /// [`MAX_TAPS`] of them evenly spread along each axis: a box filter, exact up to that
-    /// reduction and a stratified one beyond it. Premultiplied pixels are averaged with their
-    /// alpha. A window drawn smaller (its view in the overview, docs/adr/0022-window-views.mdx)
-    /// is drawn so, never pixelated.
+    /// Filtered (`filter`, docs/adr/0011-transitions.mdx, step 5): along each axis, a box as
+    /// wide as the output pixel's footprint and never narrower than one source pixel. Drawn
+    /// smaller, each output pixel is the average of the source pixels it covers, each by the share
+    /// of it covered; drawn larger, bilinear; at 1:1, the pixels as they are. Premultiplied
+    /// pixels are averaged with their alpha. Every surface the compositor draws is filtered: a
+    /// window arriving, going, minimized or zoomed (ADR 0011, ADR 0016), shown in the overview
+    /// (docs/adr/0022-window-views.mdx), on an output at another scale. A layer with an axis
+    /// beyond `filter::MAX_RATIO` or `filter::MAX_FILTERED` is sampled by nearest neighbour, and
+    /// so is an axis of `filter::SNAP` pixels or more within one of its source's.
     Box,
-}
-
-/// The most pixels a [`Filter::Box`] reads along each axis for one output pixel.
-pub const MAX_TAPS: u64 = 8;
-
-/// The source pixels output pixel `at` of `length` covers when drawn from `extent`: `(start,
-/// end)`, at least one.
-fn footprint(at: u64, length: u64, extent: u64) -> (u64, u64) {
-    let start = at * extent / length;
-    let end = ((at + 1) * extent)
-        .div_ceil(length)
-        .min(extent)
-        .max(start + 1);
-    (start, end)
-}
-
-/// The `index`th of the `taps` pixels read from a footprint: evenly spread, each the middle of
-/// its share; every pixel of it when it has no more than [`MAX_TAPS`].
-fn tap(start: u64, end: u64, index: u64, taps: u64) -> u64 {
-    start + (2 * index + 1) * (end - start) / (2 * taps)
-}
-
-/// A box-filtered pixel (0xAARRGGBB, premultiplied) of `pixels` at `extent`, for the output pixel
-/// (`lx`, `ly`) of a layer `width` × `height`; `opaque` pixels have alpha 255 whatever their
-/// fourth byte. Each channel is the rounded mean of the taps'.
-fn box_filtered(
-    pixels: &[u8],
-    extent: (u32, u32),
-    (lx, ly): (u64, u64),
-    (width, height): (u32, u32),
-    opaque: bool,
-) -> u32 {
-    let (x0, x1) = footprint(lx, u64::from(width), u64::from(extent.0));
-    let (y0, y1) = footprint(ly, u64::from(height), u64::from(extent.1));
-    let (nx, ny) = ((x1 - x0).min(MAX_TAPS), (y1 - y0).min(MAX_TAPS));
-    let mut sums = [0u64; 4];
-    for j in 0..ny {
-        let sy = tap(y0, y1, j, ny);
-        for i in 0..nx {
-            let sx = tap(x0, x1, i, nx);
-            let value = pixel(pixels, (sy * u64::from(extent.0) + sx) as usize);
-            for (channel, sum) in sums.iter_mut().enumerate() {
-                *sum += u64::from((value >> (8 * channel)) & 0xff);
-            }
-        }
-    }
-    let count = nx * ny;
-    let mean = |sum: u64| ((sum + count / 2) / count) as u32;
-    let alpha = if opaque { 255 } else { mean(sums[3]) };
-    (alpha << 24) | (mean(sums[2]) << 16) | (mean(sums[1]) << 8) | mean(sums[0])
 }
 
 /// The identity of a layer's pixels: the same key and version are the same pixels, so the
@@ -187,6 +141,18 @@ impl Layer<'_> {
     /// The radius its corners are drawn with.
     fn corner_radius(&self) -> u32 {
         shape::radius_on(self.radius, self.width, self.height)
+    }
+
+    /// Whether its pixels are filtered: they are drawn at another size (beyond rounding, on an
+    /// axis at least), and asked to be, within what filtering draws. Drawn 1:1 they are copied as
+    /// they are, as before filtering.
+    fn filtered(&self) -> bool {
+        self.filter == Filter::Box
+            && matches!(self.paint, Paint::Opaque(_) | Paint::Premultiplied(_))
+            && (filter::scaled(self.extent.0, self.width)
+                || filter::scaled(self.extent.1, self.height))
+            && filter::filters(self.extent.0, self.width)
+            && filter::filters(self.extent.1, self.height)
     }
 }
 
@@ -266,9 +232,24 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
             .min(i64::from(height))
             .min(clip.bottom());
         let radius = layer.corner_radius();
+        // A filtered layer's weights, for the columns and rows shown.
+        let filtered = (layer.filtered() && i64::from(x0) < x1 && i64::from(y0) < y1).then(|| {
+            let axis = |start: i32, end: i64, at: i32, length: u32, extent: u32| {
+                let from = (i64::from(start) - i64::from(at)) as u32;
+                let to = (end - i64::from(at)) as u32;
+                filter::Axis::new(from, to, length, extent)
+            };
+            (
+                axis(x0, x1, layer.x, layer.width, layer.extent.0),
+                axis(y0, y1, layer.y, layer.height, layer.extent.1),
+            )
+        });
         for y in i64::from(y0)..y1 {
             let ly = (y - i64::from(layer.y)) as u64;
             let sy = ly * u64::from(layer.extent.1) / u64::from(layer.height);
+            let rows = filtered
+                .as_ref()
+                .map(|(columns, rows)| (columns, rows.get((y - i64::from(y0)) as usize)));
             for x in i64::from(x0)..x1 {
                 let lx = (x - i64::from(layer.x)) as u64;
                 let index = y as usize * width as usize + x as usize;
@@ -286,29 +267,24 @@ pub fn compose_cpu(width: u32, height: u32, background: u32, layers: &[Layer<'_>
                     let sx = lx * u64::from(layer.extent.0) / u64::from(layer.width);
                     (sy * u64::from(layer.extent.0) + sx) as usize
                 };
-                let filtered = |pixels: &[u8], opaque: bool| {
-                    box_filtered(
-                        pixels,
-                        layer.extent,
-                        (lx, ly),
-                        (layer.width, layer.height),
-                        opaque,
-                    )
-                };
                 // The pixel, premultiplied, with its alpha (opaque ones and fills have 255).
-                let (source, alpha) = match (layer.paint, layer.filter) {
+                let (source, alpha) = match (layer.paint, rows) {
+                    (
+                        Paint::Opaque(pixels) | Paint::Premultiplied(pixels),
+                        Some((columns, rows)),
+                    ) => filter::sample(
+                        pixels,
+                        layer.extent.0,
+                        columns.get((x - i64::from(x0)) as usize),
+                        rows,
+                        matches!(layer.paint, Paint::Opaque(_)),
+                    ),
                     (Paint::Fill(color), _) => (color & 0x00ff_ffff, 255),
-                    (Paint::Opaque(pixels), Filter::Nearest) => {
+                    (Paint::Opaque(pixels), _) => {
                         (pixel(pixels, source_index()) & 0x00ff_ffff, 255)
                     }
-                    (Paint::Opaque(pixels), Filter::Box) => {
-                        (filtered(pixels, true) & 0x00ff_ffff, 255)
-                    }
-                    (Paint::Premultiplied(pixels), filter) => {
-                        let source = match filter {
-                            Filter::Nearest => pixel(pixels, source_index()),
-                            Filter::Box => filtered(pixels, false),
-                        };
+                    (Paint::Premultiplied(pixels), _) => {
+                        let source = pixel(pixels, source_index());
                         (source & 0x00ff_ffff, source >> 24)
                     }
                     (Paint::Shadow(profile, shadow), _) => {
@@ -360,6 +336,7 @@ fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
     shape::corner_coverage(cx as u32, cy as u32, clip.width, clip.height, radius)
 }
 
+pub mod filter;
 pub mod frame_file;
 pub mod shape;
 pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};

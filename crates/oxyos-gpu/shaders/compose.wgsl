@@ -1,5 +1,6 @@
 // One layer of a frame, composed into the output (docs/adr/0004): the same arithmetic as
-// `compose_cpu` (and, for corners and shadows, `src/shape.rs`), so the two agree byte for byte. Pixels are 0x00RRGGBB in the output and
+// `compose_cpu` (and, for corners and shadows, `src/shape.rs`; for filtered sampling,
+// `src/filter.rs`), so the two agree byte for byte. Pixels are 0x00RRGGBB in the output and
 // 0xAARRGGBB (B, G, R, A in memory) in a layer.
 
 struct Layer {
@@ -42,8 +43,9 @@ struct Layer {
     clip_height: u32,
     clip_radius: u32,
     scale: u32,
-    // How the pixels are sampled at another size: 0, nearest neighbour; 1, a box filter
-    // (`Filter::Box`, docs/adr/0022-window-views.mdx).
+    // How the pixels are sampled: 1, filtered (`Layer::filtered`: `Filter::Box`, drawn at
+    // another size, docs/adr/0011-transitions.mdx, step 5); 0, nearest neighbour (at 1:1, the
+    // pixels as they are).
     sampling: u32,
 }
 
@@ -127,53 +129,79 @@ fn beneath(x: u32, y: u32) -> u32 {
     return corner_coverage(u32(cx), u32(cy), layer.clip_width, layer.clip_height, layer.clip_radius);
 }
 
-// The most pixels the box filter reads along each axis (`MAX_TAPS`).
-const MAX_TAPS: u32 = 8u;
+// `filter::ONE`: an output pixel's weights along an axis sum to it.
+const ONE: u32 = 4096u;
+// `filter::SNAP`.
+const SNAP: u32 = 64u;
 
-// `footprint` in `compose_cpu`: the first source pixel output pixel `at` covers.
-fn footprint_start(at: u32, length: u32, extent: u32) -> u32 {
-    return at * extent / length;
+// `filter::Taps`.
+struct Taps {
+    first: u32,
+    last: u32,
+    low: i32,
+    half: u32,
+    length: u32,
 }
 
-// `footprint`'s end: past the last one, at least one past the first.
-fn footprint_end(at: u32, length: u32, extent: u32, start: u32) -> u32 {
-    return max(min(((at + 1u) * extent + length - 1u) / length, extent), start + 1u);
+// `filter::taps`.
+fn taps(at: u32, length: u32, extent: u32) -> Taps {
+    // Not drawn at another size beyond rounding (`filter::scaled`): nearest neighbour.
+    let apart = max(extent, length) - min(extent, length);
+    if (apart == 0u || (apart == 1u && max(extent, length) >= SNAP)) {
+        let source = at * extent / length;
+        return Taps(source, source, 0, 1u, length);
+    }
+    let half = max(extent, length);
+    let centre = i32((2u * at + 1u) * extent);
+    let low = centre - i32(half);
+    let high = centre + i32(half);
+    var first = 0u;
+    if (low > 0) {
+        first = min(u32(low) / (2u * length), extent - 1u);
+    }
+    let last = min(u32(high - 1) / (2u * length), extent - 1u);
+    return Taps(first, last, low, half, length);
 }
 
-// `tap`.
-fn tap(start: u32, end: u32, index: u32, taps: u32) -> u32 {
-    return start + (2u * index + 1u) * (end - start) / (2u * taps);
+// `Taps::through`.
+fn through(taps: Taps, at: u32) -> u32 {
+    if (at == taps.last) {
+        return ONE;
+    }
+    let end = i32(2u * (at + 1u) * taps.length) - taps.low;
+    return (u32(end) * ONE + taps.half) / (2u * taps.half);
 }
 
-// `box_filtered`: each channel the rounded mean of the taps'; an opaque layer's alpha is 255.
-fn box_filtered(lx: u32, ly: u32, opaque: bool) -> u32 {
-    let x0 = footprint_start(lx, layer.width, layer.src_width);
-    let x1 = footprint_end(lx, layer.width, layer.src_width, x0);
-    let y0 = footprint_start(ly, layer.height, layer.src_height);
-    let y1 = footprint_end(ly, layer.height, layer.src_height, y0);
-    let nx = min(x1 - x0, MAX_TAPS);
-    let ny = min(y1 - y0, MAX_TAPS);
-    var b = 0u;
-    var g = 0u;
-    var r = 0u;
-    var a = 0u;
-    for (var j = 0u; j < ny; j++) {
-        let sy = tap(y0, y1, j, ny);
-        for (var i = 0u; i < nx; i++) {
-            let sx = tap(x0, x1, i, nx);
-            let value = src[layer.src_offset + sy * layer.src_width + sx];
-            b += value & 0xffu;
-            g += (value >> 8u) & 0xffu;
-            r += (value >> 16u) & 0xffu;
-            a += value >> 24u;
+// `filter::sample`: the layer's pixel for output pixel (lx, ly), filtered, premultiplied, its
+// alpha in the high byte; an opaque layer's alpha is 255.
+fn sample(lx: u32, ly: u32, opaque: bool) -> u32 {
+    let columns = taps(lx, layer.width, layer.src_width);
+    let rows = taps(ly, layer.height, layer.src_height);
+    var sum = vec4<u32>(0u);
+    var above = 0u;
+    for (var y = rows.first; y <= rows.last; y++) {
+        let to_y = through(rows, y);
+        let wy = to_y - above;
+        above = to_y;
+        var row = vec4<u32>(0u);
+        var before = 0u;
+        for (var x = columns.first; x <= columns.last; x++) {
+            let to_x = through(columns, x);
+            let wx = to_x - before;
+            before = to_x;
+            let pixel = src[layer.src_offset + y * layer.src_width + x];
+            var alpha = pixel >> 24u;
+            if (opaque) {
+                alpha = 255u;
+            }
+            let red = (pixel >> 16u) & 0xffu;
+            let green = (pixel >> 8u) & 0xffu;
+            row += wx * vec4<u32>(red, green, pixel & 0xffu, alpha);
         }
+        sum += wy * row;
     }
-    let count = nx * ny;
-    var alpha = 255u;
-    if (!opaque) {
-        alpha = (a + count / 2u) / count;
-    }
-    return (alpha << 24u) | (((r + count / 2u) / count) << 16u) | (((g + count / 2u) / count) << 8u) | ((b + count / 2u) / count);
+    let rounded = (sum + vec4<u32>(1u << 23u)) >> vec4<u32>(24u);
+    return (rounded.w << 24u) | (rounded.x << 16u) | (rounded.y << 8u) | rounded.z;
 }
 
 fn channel(source: u32, under: u32, keep: u32, shift: u32, opacity: u32) -> u32 {
@@ -216,10 +244,10 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         alpha = pixel >> 24u;
     } else if (layer.mode != 2u) {
         // Nearest neighbour, as the reference: the source pixel under the output pixel's corner;
-        // or the box filter's mean of those it covers.
+        // or filtered.
         var pixel = 0u;
         if (layer.sampling == 1u) {
-            pixel = box_filtered(lx, ly, layer.mode == 0u);
+            pixel = sample(lx, ly, layer.mode == 0u);
         } else {
             let sx = lx * layer.src_width / layer.width;
             let sy = ly * layer.src_height / layer.height;
