@@ -79,7 +79,21 @@ impl Scene {
             return true;
         }
         let before = self.shown_windows();
+        let forward = index > self.workspaces.active;
         self.workspaces.active = index;
+        // The windows left slide out and those of the workspace shown slide in, as a Mac's
+        // spaces do (ADR 0011); they are moved aside, not gone.
+        let now = self.shown_windows();
+        for &out in before.difference(&now) {
+            if self.nodes[&out].mapped {
+                self.appeared(out, super::appearances::Change::WorkspaceOut { forward });
+            }
+        }
+        for &into in now.difference(&before) {
+            if self.nodes[&into].mapped {
+                self.appeared(into, super::appearances::Change::WorkspaceIn { forward });
+            }
+        }
         // The window that had focus is on the workspace left: the new one's topmost takes it.
         if let Some(focused) = self.focus.map(|f| self.root_of(f)) {
             if before.contains(&focused) {

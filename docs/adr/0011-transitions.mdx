@@ -45,8 +45,17 @@ Every surface appears and goes at once: a window is there on the frame its first
 
    *Composing only what a transition changes.* A frame while surfaces arrive or go is no longer composed whole: its damage is what changed in the scene (ADR 0005) and, for each surface in transition, its rectangle and where it is placed, in this frame and in the last (so a surface growing, shrinking or ending its transition is drawn again wherever it was or is). The next frame is composed whole only when it must be: the first, after the display came back, or with the splash shown (`recompose`, which also composes such a frame when no surface changed). Tested through real sockets on the compositor's clock: at each point of a window arriving and going, every output pixel that changed is within the frame's damage (a display composing only the damage shows what one composing the whole frame does), and most of those frames are composed from their damage; without the transitions' rectangles it fails on the first frame.
 
+4. **More of a Mac's motions**, on the same mechanism: a window minimized goes into the dock and comes back out of it; a switch of workspace slides the windows aside; a notification slides in.
+
+   *Done.* A motion moves a surface as well as scaling and fading it (`Shift`): toward a point, by a distance, or by a share of its own size, and it may not fade.
+   - **Minimizing:** the window shrinks to a tenth of its size as it goes to the dock's centre (the shell's bottom panel, `Scene::dock`; without one, the output's bottom edge's centre), fading, 300 ms; restoring brings it back out of the dock the same way. This is the transition, not a Mac's genie warp: composition draws a surface as a rectangle, never bent.
+   - **A switch of workspace:** the scene reports the windows hidden and shown as moved aside (`WorkspaceOut`, `WorkspaceIn`), not gone: the windows left slide out by the output's width, to the left going to a later workspace and to the right going back, and those of the workspace shown slide in from the other side, 300 ms, whole, never faded, as a Mac's spaces. A window moved to another workspace is hidden, not slid: the overview it is moved from covers it.
+   - **Notifications** (`ShellKind::Notification`, a kind of their own): they slide in from beside themselves, a tenth beyond their own width, as they fade in, 250 ms, and fade out, 200 ms.
+
+   Each transition reports how its surface came or went (`change`, in the development compositor's record). Tests: the motions (the window at the dock's centre at a tenth of its size at the end, the slide by the output's width each way, the notification beside itself), the scene's appearances (a minimized window, a restored one, a workspace's out and in, the dock as the shell's shown bottom panel), and through real sockets a window minimized, restored and slid out and back, every frame from its damage alone; `shell-windows` checks a window minimized into the dock and brought back by the dock's button.
+
 ## Not in this decision
 
-- Minimizing into the dock (a Mac's genie), notifications sliding in, switching workspaces with a slide: each a transition of its own, on this mechanism.
+- A Mac's genie (bending a window as it goes into the dock), and a slide for a window moved to another workspace.
 - The reduce-motion setting itself.
 - Transitions an application asks for: none is needed yet.
