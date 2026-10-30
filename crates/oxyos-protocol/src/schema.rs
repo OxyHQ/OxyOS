@@ -382,6 +382,11 @@ messages! {
         // which has the dock); and its removal.
         55 => Output { output: u32, rect: Rect, scale_120: u32, refresh_mhz: u32, primary: bool },
         56 => OutputRemoved { output: u32 },
+        // To every surface's client (ADR 0018): the refresh of the output the surface is on, in
+        // mHz, before its first Configure and whenever it changes (it moved to another output, or
+        // its display is driven at another mode): the display's frames, which its client paces
+        // its own by (a frame of animation each refresh), never an assumed 60 a second.
+        57 => Refresh { surface: u32, refresh_mhz: u32 },
         // To the session's shell (ADR 0021): the active window's menus, as that window committed
         // them, whenever they or the active window change: MenuBar with the window's number (0:
         // none is active), the commit's serial (0: it declared none) and how many entries follow,

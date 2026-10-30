@@ -1,0 +1,130 @@
+{
+  "about": "Windows on an output paced as a 60 Hz display (`outputs` 1280x720:60, the session's shell on it; docs/adr/0018-several-displays.mdx), the window told its refresh before its first configure. WindowProbe's green bubble zooms it to the work area and back, its frame on the compositor's spring, which is time's, not frames': it lasts the same at any refresh (refresh-120-windows.json runs the same steps at 120 Hz), its last frame within a refresh of its end; how many frames it draws is the composition's (this fixture composes on the CPU, whose zoom takes longer than a 120 Hz refresh: the compositor's own test, tests/refresh.rs, counts twice the frames at 120 Hz as at 60 on an output too small to miss one). Its title area dragged at a mouse's 125 Hz composes a frame each 16.7 ms refresh while the hand moves, never two between vblanks, about one for every two motions.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "1280x720:60",
+  "steps": [
+    {
+      "name": "The window opens between the top bar and the dock",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "The green bubble zooms it to the work area, its frame going there on a spring as long as at any refresh",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          0,
+          28,
+          1280,
+          636
+        ],
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true,
+              "eased": true,
+              "lasts_ms": [
+                430,
+                520
+              ]
+            }
+          ],
+          "frames_min": 10
+        }
+      }
+    },
+    {
+      "name": "Pressed again, it restores its frame, as long",
+      "do": [
+        "press",
+        [
+          72,
+          26
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "transitions": {
+          "seen": [
+            {
+              "kind": "window",
+              "change": "zoomed",
+              "ended": true,
+              "eased": true,
+              "lasts_ms": [
+                430,
+                520
+              ]
+            }
+          ],
+          "frames_min": 10
+        }
+      }
+    },
+    {
+      "name": "Its title area dragged 200 px right and 100 px down, 100 motions at 125 Hz: a frame composed each 60 Hz refresh while the hand moves, 16.7 ms apart",
+      "do": [
+        "drag_paced",
+        [
+          340,
+          76,
+          540,
+          176,
+          100,
+          125
+        ]
+      ],
+      "expect": {
+        "drag": {
+          "composed_min": 42,
+          "bytes_read_max": 0,
+          "composed_gap_ms": [
+            16.4,
+            17.3
+          ]
+        }
+      }
+    }
+  ]
+}

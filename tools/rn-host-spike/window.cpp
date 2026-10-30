@@ -80,6 +80,8 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       target->scale = scale;
       target->configure = event.serial;
       target->states = event.flag;
+    } else if (event.kind == OXYOS_EVENT_REFRESH) {
+      if (target) target->refreshMhz = event.detail;
     } else if (event.kind == OXYOS_EVENT_FEEDBACK) {
       if (target && event.serial == target->inFlight) {
         target->inFlight = 0;

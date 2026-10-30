@@ -30,7 +30,7 @@ Every surface appears and goes at once: a window is there on the frame its first
 
 3. **A surface going away keeps its last frame for its transition.** When a departing transition begins, the compositor copies the surface's displayed pixels, once; the scene forgets the surface at once (its client's resources are freed, its buffers released) and the copy is drawn until the transition ends. The copy is the compositor's alone and is dropped when the transition ends.
 
-4. **Transitions run on the display's time.** They are measured on `CLOCK_MONOTONIC`; while one runs, the compositor composes a frame for every refresh (its turn wakes for the next), and a transitioning surface's rectangle is damaged on each. Each moves on a spring released from rest, never linearly (step 6). With reduce motion ([ADR 0019](./0019-settings)) every one is a crossfade: nothing grows, shrinks or slides.
+4. **Transitions run on the display's time.** They are measured on `CLOCK_MONOTONIC`; while one runs, the compositor composes a frame for every refresh of the display (its turn wakes for the next, at most a refresh of the fastest display later: [ADR 0018](./0018-several-displays), decision 11), and a transitioning surface's rectangle is damaged on each. Every motion is a function of the time since it began, never of the frames drawn, so it lasts as long at 60, 120 or 144 Hz, with more frames the faster the display. Each moves on a spring released from rest, never linearly (step 6). With reduce motion ([ADR 0019](./0019-settings)) every one is a crossfade: nothing grows, shrinks or slides.
 
 ## Steps
 

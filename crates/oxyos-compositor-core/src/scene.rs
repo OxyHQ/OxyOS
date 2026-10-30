@@ -31,6 +31,10 @@ pub const MAX_CLIENTS: usize = 64;
 pub const MAX_SURFACES_PER_CLIENT: usize = 64;
 pub const MAX_POPUP_DEPTH: usize = 8;
 pub const MAX_OUTPUTS: usize = 16;
+/// The refreshes an output may have, in mHz: from a projector's 24 Hz to past the fastest
+/// monitors' (ADR 0018).
+pub const MIN_REFRESH_MHZ: u32 = 1_000;
+pub const MAX_REFRESH_MHZ: u32 = 1_000_000;
 pub const MAX_TOUCH_POINTS: usize = 10;
 pub const MAX_BUFFERS_PER_CLIENT: usize = 128;
 /// Media types an offer may name (ADR 0007).
@@ -76,6 +80,8 @@ pub struct Output {
     /// Logical geometry in the global coordinate space.
     pub rect: Rect,
     pub scale_120: u32,
+    /// Its display's refresh, in mHz (60 Hz is 60000): its frames' pace, which every surface on
+    /// it is told (`Refresh`).
     pub refresh_mhz: u32,
 }
 
@@ -130,6 +136,8 @@ struct Node {
     presentation: Presentation,
     scale_120: u32,
     output: OutputId,
+    /// The refresh of its output its client was last told (`Refresh`, in mHz; 0: not yet).
+    refresh_mhz: u32,
     mapped: bool,
     hidden: bool,
     dismissed: bool,
@@ -514,6 +522,7 @@ impl Scene {
             || output.rect.width > MAX_DIMENSION
             || output.rect.height > MAX_DIMENSION
             || !(SCALE_DENOMINATOR..=4 * SCALE_DENOMINATOR).contains(&output.scale_120)
+            || !(MIN_REFRESH_MHZ..=MAX_REFRESH_MHZ).contains(&output.refresh_mhz)
             || self.outputs.iter().any(|o| o.id == output.id)
         {
             return Err(ErrorCode::InvalidGeometry);
@@ -787,6 +796,22 @@ impl Scene {
         self.refresh_accessibility_geometry();
         self.place_candidates();
         self.refresh_pointer_focus();
+        Ok(())
+    }
+
+    /// Gives an output another refresh, in mHz (its display at another mode of the same size,
+    /// docs/adr/0018-several-displays.mdx): the shells are told the output again, and every
+    /// surface on it its refresh (`Refresh`), by which its client paces its frames.
+    pub fn set_output_refresh(&mut self, id: OutputId, refresh_mhz: u32) -> Result<(), ErrorCode> {
+        if !(MIN_REFRESH_MHZ..=MAX_REFRESH_MHZ).contains(&refresh_mhz) {
+            return Err(ErrorCode::InvalidGeometry);
+        }
+        let output = self
+            .outputs
+            .iter_mut()
+            .find(|o| o.id == id)
+            .ok_or(ErrorCode::InvalidGeometry)?;
+        output.refresh_mhz = refresh_mhz;
         Ok(())
     }
 
@@ -1695,6 +1720,7 @@ impl Scene {
         let scale_120 = self
             .output(output)
             .map_or(SCALE_DENOMINATOR, |o| o.scale_120);
+        let refresh_mhz = self.output(output).map_or(0, |o| o.refresh_mhz);
         let size = fit(size, scale_120);
         let presentation =
             Presentation::new(physical(size, scale_120)).expect("physical sizes are valid");
@@ -1714,6 +1740,7 @@ impl Scene {
                 presentation,
                 scale_120,
                 output,
+                refresh_mhz,
                 mapped: false,
                 hidden: false,
                 dismissed: false,
@@ -1750,7 +1777,47 @@ impl Scene {
                 self.roots.insert(index, key);
             }
         }
+        // Its client paces its frames by its output's refresh from the first one on.
+        if refresh_mhz != 0 {
+            self.emit(
+                key.client,
+                Event::Refresh {
+                    surface: key.id,
+                    refresh_mhz,
+                },
+            );
+        }
         self.send_configure(key);
+    }
+
+    /// Tells each surface's client the refresh of the output it is on now, where it is not the
+    /// one last told: the surface moved to another output, or its display is at another mode.
+    fn tell_refreshes(&mut self) {
+        let refreshes: BTreeMap<OutputId, u32> = self
+            .outputs
+            .iter()
+            .map(|output| (output.id, output.refresh_mhz))
+            .collect();
+        let mut told = Vec::new();
+        for (key, node) in &mut self.nodes {
+            let Some(&refresh_mhz) = refreshes.get(&node.output) else {
+                continue;
+            };
+            if node.dismissed || node.refresh_mhz == refresh_mhz {
+                continue;
+            }
+            node.refresh_mhz = refresh_mhz;
+            told.push((*key, refresh_mhz));
+        }
+        for (key, refresh_mhz) in told {
+            self.emit(
+                key.client,
+                Event::Refresh {
+                    surface: key.id,
+                    refresh_mhz,
+                },
+            );
+        }
     }
 
     fn send_configure(&mut self, key: SurfaceKey) {
@@ -3617,6 +3684,8 @@ impl Scene {
     // ---- outputs for the transport/backend -----------------------------------------------
 
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
+        // Each surface's client, the refresh of its output where it changed (ADR 0018).
+        self.tell_refreshes();
         // The shell is told what changed of windows and workspaces since it was last told.
         self.tell_shell();
         // Settings, what changed of the displays (ADR 0018).

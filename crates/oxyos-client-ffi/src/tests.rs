@@ -1627,6 +1627,7 @@ fn the_header_matches_the_window_management_abi() {
             "OXYOS_EVENT_OUTPUT_REMOVED",
             OXYOS_EVENT_OUTPUT_REMOVED.into(),
         ),
+        ("OXYOS_EVENT_REFRESH", OXYOS_EVENT_REFRESH.into()),
         (
             "OXYOS_EVENT_CLOSE_REQUESTED",
             OXYOS_EVENT_CLOSE_REQUESTED.into(),
@@ -1786,6 +1787,15 @@ fn window_events_convert_field_by_field() {
     assert_eq!(
         (removed.kind, removed.code),
         (OXYOS_EVENT_OUTPUT_REMOVED, 2)
+    );
+    let refresh = convert(&Event::Refresh {
+        surface: 1,
+        refresh_mhz: 119_998,
+    })
+    .unwrap();
+    assert_eq!(
+        (refresh.kind, refresh.surface, refresh.detail),
+        (OXYOS_EVENT_REFRESH, 1, 119_998)
     );
 }
 

@@ -140,6 +140,11 @@ void Report::layout(float width, float height, double ms) {
   write(folly::dynamic::object("kind", "layout")("width", width)("height", height)("ms", ms));
 }
 
+void Report::refresh(uint32_t mhz) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "refresh")("mhz", mhz));
+}
+
 void Report::settled(double ms, int turns, bool timedOut) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "settle")("ms", ms)("turns", turns)("timed_out", timedOut));

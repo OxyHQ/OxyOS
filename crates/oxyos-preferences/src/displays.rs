@@ -5,12 +5,15 @@
 //!
 //! ```text
 //! display.DEL-A0B4-7Y9K2N3 = 3840x2160@60000 1.5
+//! display.BOE-0A4B-00000001 = default 1.25
 //! arrangement.BOE-0A4B-00000001+DEL-A0B4-7Y9K2N3 = DEL-A0B4-7Y9K2N3 0,0 BOE-0A4B-00000001 2560,480
 //! ```
 //!
-//! A display's line is its mode (pixels and refresh in millihertz) and its scale; an arrangement's
-//! key is the set's identities, sorted, its value each display's origin in the global space
-//! (logical pixels), the primary first. A bad line is nothing, as any other.
+//! A display's line is the mode the person chose for it (pixels and refresh in millihertz), or
+//! `default` when they chose none (its own: its native resolution at the fastest refresh the card
+//! drives it at), and its scale; an arrangement's key is the set's identities, sorted, its value
+//! each display's origin in the global space (logical pixels), the primary first. A bad line is
+//! nothing, as any other.
 
 /// The most displays and arrangements kept: past them, the one changed longest ago goes.
 pub const MAX_DISPLAYS: usize = 32;
@@ -31,10 +34,11 @@ pub struct DisplayMode {
     pub refresh_mhz: u32,
 }
 
-/// How a display is shown: its mode and its scale (in 120ths: 150 is 1.25).
+/// How a display is shown: the mode the person chose (none: its own, the session's default) and
+/// its scale (in 120ths: 150 is 1.25).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplaySettings {
-    pub mode: DisplayMode,
+    pub mode: Option<DisplayMode>,
     pub scale_120: u32,
 }
 
@@ -83,39 +87,61 @@ fn parse_scale(text: &str) -> Option<u32> {
 }
 
 impl DisplaySettings {
-    /// Its line's value: `3840x2160@60000 1.5`.
+    /// Its line's value: `3840x2160@60000 1.5`, or `default 1.25`.
     pub fn text(&self) -> String {
-        let DisplayMode {
-            width,
-            height,
-            refresh_mhz,
-        } = self.mode;
-        format!(
-            "{width}x{height}@{refresh_mhz} {}",
-            scale_text(self.scale_120)
-        )
+        let mode = match self.mode {
+            Some(DisplayMode {
+                width,
+                height,
+                refresh_mhz,
+            }) => format!("{width}x{height}@{refresh_mhz}"),
+            None => DEFAULT_MODE.to_string(),
+        };
+        format!("{mode} {}", scale_text(self.scale_120))
     }
 
     pub fn parse(text: &str) -> Option<Self> {
         let (mode, scale) = text.split_once(' ')?;
-        let (size, refresh) = mode.split_once('@')?;
-        let (width, height) = size.split_once('x')?;
-        let dimension = |text: &str| {
-            text.parse::<u32>()
-                .ok()
-                .filter(|v| (1..=MAX_DIMENSION).contains(v))
+        let mode = match mode {
+            DEFAULT_MODE => None,
+            mode => Some(parse_mode(mode)?),
         };
         Some(Self {
-            mode: DisplayMode {
-                width: dimension(width)?,
-                height: dimension(height)?,
-                refresh_mhz: refresh
-                    .parse()
-                    .ok()
-                    .filter(|mhz| (1..=1_000_000).contains(mhz))?,
-            },
+            mode,
             scale_120: parse_scale(scale.trim())?,
         })
+    }
+}
+
+/// A display's line for no mode chosen: the display's own.
+const DEFAULT_MODE: &str = "default";
+
+/// `WxH@MHZ`.
+fn parse_mode(text: &str) -> Option<DisplayMode> {
+    let (size, refresh) = text.split_once('@')?;
+    let (width, height) = size.split_once('x')?;
+    let dimension = |text: &str| {
+        text.parse::<u32>()
+            .ok()
+            .filter(|v| (1..=MAX_DIMENSION).contains(v))
+    };
+    Some(DisplayMode {
+        width: dimension(width)?,
+        height: dimension(height)?,
+        refresh_mhz: refresh
+            .parse()
+            .ok()
+            .filter(|mhz| (1..=1_000_000).contains(mhz))?,
+    })
+}
+
+impl DisplaySettings {
+    /// At its own mode, the session's default.
+    pub fn default_mode(scale_120: u32) -> Self {
+        Self {
+            mode: None,
+            scale_120,
+        }
     }
 }
 

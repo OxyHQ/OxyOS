@@ -59,8 +59,11 @@ class Report {
   // The window laid out at a new size (logical pixels), in `ms` (Fabric's commit with the new
   // constraints, Yoga's layout and the mount).
   void layout(float width, float height, double ms);
+  // The window's display refreshes at `mhz` (the compositor's REFRESH): the host's frames' pace.
+  void refresh(uint32_t mhz);
   // After a new size, the window waited `ms` for JavaScript to lay it out (bloom-host's
-  // kResizeSettle), over `turns` loop turns; `timedOut` when the bound ended it.
+  // settle bound, a frame of the display), over `turns` loop turns; `timedOut` when the bound
+  // ended it.
   void settled(double ms, int turns, bool timedOut);
   // A frame drawn from its damage that differs from the frame drawn whole (OXYOS_HOST_DAMAGE_CHECK):
   // `pixels` of them. Any is a defect in the damage.

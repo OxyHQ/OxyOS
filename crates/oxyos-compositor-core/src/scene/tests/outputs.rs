@@ -1,6 +1,7 @@
 //! Several outputs (docs/adr/0018-several-displays.mdx): each output's frame presents and
 //! completes on its own, releases wait only for the frames that may read the buffer, an output
-//! moves with what is on it, and the shell is told the outputs and which is the primary.
+//! moves with what is on it, the shell is told the outputs and which is the primary, and every
+//! surface's client the refresh of its output.
 
 use super::*;
 
@@ -247,4 +248,87 @@ fn windows_left_on_no_output_go_to_the_next_one_added() {
     let placed = h.rect(window);
     assert!(monitor.contains(placed), "{placed:?}");
     assert_eq!(h.scene.nodes[&window].output, 7);
+}
+
+/// What a client was told of its surfaces' refresh: (surface, mHz), in order.
+fn refreshes(h: &Harness, client: ClientId) -> Vec<(u32, u32)> {
+    h.events_for(client)
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Refresh {
+                surface,
+                refresh_mhz,
+            } => Some((surface, refresh_mhz)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn every_surface_is_told_its_outputs_refresh_and_paces_by_it() {
+    let mut h = two_outputs();
+    h.clear_log();
+    // A window opened on the 60 Hz output is told its refresh before its first configure.
+    let window = window_at(&mut h, APP, 1, (100, 100));
+    let told = h.events_for(APP);
+    let refresh = told
+        .iter()
+        .position(|event| matches!(event, Event::Refresh { surface: 1, .. }))
+        .expect("told its refresh");
+    let configure = told
+        .iter()
+        .position(|event| matches!(event, Event::Configure { surface: 1, .. }))
+        .expect("configured");
+    assert!(refresh < configure, "{told:?}");
+    assert_eq!(refreshes(&h, APP), [(1, 60_000)]);
+    // One on the 144 Hz output, its own.
+    window_at(&mut h, OTHER, 1, (2000, 100));
+    assert_eq!(refreshes(&h, OTHER), [(1, 144_000)]);
+    // Told once: nothing changed.
+    h.clear_log();
+    h.pump();
+    assert!(refreshes(&h, APP).is_empty());
+    // Dragged onto the 144 Hz output, its client is told the refresh there.
+    let at = h.rect(window);
+    let serial = h.press(at.x + 5, at.y + 5);
+    h.request(APP, Request::BeginMove { surface: 1, serial })
+        .unwrap();
+    h.scene.pointer_motion(2100, at.y + 5);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(h.scene.nodes[&window].output, 2);
+    assert_eq!(refreshes(&h, APP), [(1, 144_000)]);
+    // The display driven at another rate (Settings' refresh, or its fastest at the start): every
+    // surface on it is told, and the shell the output again; nothing else changes.
+    h.clear_log();
+    h.scene.set_output_refresh(2, 119_998).unwrap();
+    h.pump();
+    assert_eq!(refreshes(&h, APP), [(1, 119_998)]);
+    assert_eq!(refreshes(&h, OTHER), [(1, 119_998)]);
+    assert!(h.events_for(SHELL).iter().any(|event| matches!(
+        event,
+        Event::Output {
+            output: 2,
+            refresh_mhz: 119_998,
+            ..
+        }
+    )));
+    assert!(h
+        .events_for(APP)
+        .iter()
+        .all(|event| !matches!(event, Event::Configure { .. })));
+    // A refresh no display has is refused, as an output with none.
+    assert_eq!(
+        h.scene.set_output_refresh(2, 0),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.scene.add_output(Output {
+            id: 3,
+            rect: Rect::new(3200, 0, 800, 600),
+            scale_120: 120,
+            refresh_mhz: 0,
+        }),
+        Err(ErrorCode::InvalidGeometry)
+    );
 }

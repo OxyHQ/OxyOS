@@ -9,10 +9,13 @@
 //   requested during a frame wait for the next, and cancelAnimationFrame removes a callback until
 //   its own turn comes, in the frame running too;
 // - a frame begins only when the window's previous frame was answered by the compositor (presented
-//   or discarded) and a display frame (1/60 s: the protocol does not tell an output's refresh) has
-//   passed since the last one: never faster than the compositor takes frames, nor than the display.
-//   Without a window, the display's frames alone.
+//   or discarded) and a frame of the display the window is on has passed since the last one (its
+//   refresh, as the compositor tells it: display-refresh.h; 8.3 ms at 120 Hz): never faster than
+//   the compositor takes frames, nor than the display. Without a window, the display's frames
+//   alone.
 #pragma once
+
+#include "display-refresh.h"
 
 #include <ReactCommon/RuntimeExecutor.h>
 #include <jsi/jsi.h>
@@ -29,7 +32,7 @@ class AnimationFrames {
  public:
   using Clock = std::chrono::steady_clock;
 
-  explicit AnimationFrames(facebook::react::RuntimeExecutor executor);
+  AnimationFrames(facebook::react::RuntimeExecutor executor, const DisplayRefresh& refresh);
   // Drops the callbacks still waiting, while the runtime they belong to is alive.
   ~AnimationFrames();
 
@@ -51,6 +54,7 @@ class AnimationFrames {
     std::optional<Clock::time_point> last;
   };
   facebook::react::RuntimeExecutor executor_;
+  const DisplayRefresh& refresh_;
   std::shared_ptr<State> state_;
 };
 

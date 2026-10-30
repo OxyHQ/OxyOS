@@ -8,15 +8,8 @@ using namespace facebook;
 
 namespace oxyos {
 
-namespace {
-
-constexpr auto kDisplayFrame =
-    std::chrono::duration_cast<AnimationFrames::Clock::duration>(std::chrono::duration<double>(1.0 / 60));
-
-}  // namespace
-
-AnimationFrames::AnimationFrames(react::RuntimeExecutor executor)
-    : executor_(std::move(executor)), state_(std::make_shared<State>()) {}
+AnimationFrames::AnimationFrames(react::RuntimeExecutor executor, const DisplayRefresh& refresh)
+    : executor_(std::move(executor)), refresh_(refresh), state_(std::make_shared<State>()) {}
 
 AnimationFrames::~AnimationFrames() {
   state_->waiting.clear();
@@ -53,7 +46,7 @@ void AnimationFrames::install(jsi::Runtime& runtime) {
 
 bool AnimationFrames::tick(bool ready) {
   auto now = Clock::now();
-  if (state_->waiting.empty() || !ready || (state_->last && now - *state_->last < kDisplayFrame)) return false;
+  if (state_->waiting.empty() || !ready || (state_->last && now - *state_->last < refresh_.period())) return false;
   state_->last = now;
   // performance.now()'s clock: the steady clock, in milliseconds.
   double timestamp = react::HighResTimeStamp::fromChronoSteadyClockTimePoint(now).toDOMHighResTimeStamp();
@@ -76,7 +69,7 @@ bool AnimationFrames::tick(bool ready) {
 
 std::optional<AnimationFrames::Clock::time_point> AnimationFrames::nextFrame(bool ready) const {
   if (state_->waiting.empty() || !ready) return std::nullopt;
-  return state_->last ? *state_->last + kDisplayFrame : Clock::now();
+  return state_->last ? *state_->last + refresh_.period() : Clock::now();
 }
 
 }  // namespace oxyos

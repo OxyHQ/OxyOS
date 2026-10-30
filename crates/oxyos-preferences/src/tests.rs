@@ -160,11 +160,11 @@ const MONITOR: &str = "DEL-A0B4-7Y9K2N3";
 
 fn settings(width: u32, height: u32, refresh_mhz: u32, scale_120: u32) -> DisplaySettings {
     DisplaySettings {
-        mode: DisplayMode {
+        mode: Some(DisplayMode {
             width,
             height,
             refresh_mhz,
-        },
+        }),
         scale_120,
     }
 }
@@ -196,6 +196,32 @@ fn each_display_keeps_its_mode_and_scale_and_each_set_its_arrangement() {
         preferences.set("display.BOE-0A4B-00000001", "640x480@60000 1"),
         Err(Refused::UnknownKey)
     );
+}
+
+#[test]
+fn a_display_left_at_its_own_mode_keeps_its_scale_alone() {
+    // Only the scale chosen: the mode stays the display's own (its native resolution at its fastest
+    // refresh), so a monitor whose card drives it faster later is shown faster.
+    let mut preferences = Preferences::default();
+    preferences.keep_display(PANEL, DisplaySettings::default_mode(150));
+    let text = preferences.to_text();
+    assert!(text.contains("\ndisplay.BOE-0A4B-00000001 = default 1.25\n"));
+    let read = Preferences::parse(&text);
+    assert_eq!(
+        read.display(PANEL),
+        Some(DisplaySettings::default_mode(150))
+    );
+    // A mode chosen is kept as chosen, whatever the default is.
+    assert_eq!(
+        DisplaySettings::parse("2560x1440@59951 1").unwrap().mode,
+        Some(DisplayMode {
+            width: 2560,
+            height: 1440,
+            refresh_mhz: 59_951
+        })
+    );
+    assert_eq!(DisplaySettings::parse("defaults 1"), None);
+    assert_eq!(DisplaySettings::parse("default"), None);
 }
 
 #[test]
@@ -233,7 +259,10 @@ fn the_displays_changed_longest_ago_go_first() {
     assert_eq!(preferences.displays.len(), displays::MAX_DISPLAYS);
     assert!(preferences.display("D-0").is_none() && preferences.display("D-1").is_none());
     assert_eq!(preferences.displays.last().unwrap().0, "D-2");
-    assert_eq!(preferences.display("D-2").unwrap().mode.width, 1280);
+    assert_eq!(
+        preferences.display("D-2").unwrap().mode.unwrap().width,
+        1280
+    );
 }
 
 #[test]

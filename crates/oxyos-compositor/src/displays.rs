@@ -3,8 +3,11 @@
 //!
 //! - **Who a display is.** A display is known by its identity (its EDID's maker, product and
 //!   serial, `oxyos_kms::Output::identity`), so what is kept for it follows it to any port.
-//! - **How it is shown.** At the mode and scale kept for it, else its preferred mode at the scale
-//!   its density recommends (`arrangement`).
+//! - **How it is shown.** At the mode the person chose for it, else its own: its native resolution
+//!   (its preferred mode's pixels) at the fastest refresh it offers there that the card drives (an
+//!   atomic test, `Heads::prepare`), the next fastest when the card refuses one (a link without
+//!   the bandwidth); at the scale kept for it, else the one its density recommends
+//!   (`arrangement`).
 //! - **Where.** As the arrangement kept for the set of displays connected says, the primary first;
 //!   else left to right, top-aligned, the built-in panel first (the primary). A monitor plugged in
 //!   comes at the right end; one unplugged goes, and those that touched only it come back beside
@@ -48,6 +51,10 @@ pub struct Connector {
     pub size_mm: (u32, u32),
     /// Its modes while a display is connected (none otherwise), as the card lists them.
     pub modes: Vec<ModeInfo>,
+    /// Whether the display and the card can refresh it at a variable rate (`vrr_capable`), and the
+    /// vertical refresh it takes, least and most, in hertz (its EDID's range limits).
+    pub vrr_capable: bool,
+    pub refresh_range_hz: Option<(u32, u32)>,
 }
 
 impl Connector {
@@ -73,6 +80,8 @@ impl Connector {
             } else {
                 Vec::new()
             },
+            vrr_capable: output.vrr_capable,
+            refresh_range_hz: output.edid.as_ref().and_then(|edid| edid.refresh_range_hz),
         }
     }
 
@@ -87,6 +96,23 @@ impl Connector {
             .find(|mode| mode.preferred)
             .or(self.modes.first())
             .copied()
+    }
+
+    /// Its own modes, as it is shown unless the person chose another: its native resolution (its
+    /// preferred mode's pixels) at each refresh it offers there, the fastest first. A Mac drives a
+    /// ProMotion panel or a 144 Hz monitor at its fastest by default; so does the session.
+    pub fn own_modes(&self) -> Vec<ModeInfo> {
+        let Some(preferred) = self.preferred() else {
+            return Vec::new();
+        };
+        let mut modes: Vec<ModeInfo> = self
+            .modes
+            .iter()
+            .filter(|mode| (mode.width, mode.height) == (preferred.width, preferred.height))
+            .copied()
+            .collect();
+        modes.sort_by_key(|mode| std::cmp::Reverse(mode.refresh_mhz));
+        modes
     }
 
     /// Its mode of these pixels and refresh, if it has one.
@@ -109,6 +135,15 @@ impl Connector {
     }
 }
 
+/// A mode as the preferences keep it.
+fn display_mode(mode: &ModeInfo) -> DisplayMode {
+    DisplayMode {
+        width: mode.width,
+        height: mode.height,
+        refresh_mhz: mode.refresh_mhz,
+    }
+}
+
 /// Whether two modes are the same pixels and refresh.
 fn same(a: &ModeInfo, b: &ModeInfo) -> bool {
     (a.width, a.height, a.refresh_mhz) == (b.width, b.height, b.refresh_mhz)
@@ -122,6 +157,9 @@ pub struct Shown {
     pub connector: Option<u32>,
     pub display: Connector,
     pub mode: ModeInfo,
+    /// The mode the person chose for it, as kept (Settings); none: its own
+    /// (`Connector::own_modes`). Shown unless the card refuses it now, and kept either way.
+    pub chosen: Option<DisplayMode>,
 }
 
 impl Shown {
@@ -129,15 +167,18 @@ impl Shown {
         (self.mode.width, self.mode.height)
     }
 
+    /// What is kept for it: the mode the person chose, if any, and its scale.
     fn settings(&self) -> DisplaySettings {
         DisplaySettings {
-            mode: DisplayMode {
-                width: self.mode.width,
-                height: self.mode.height,
-                refresh_mhz: self.mode.refresh_mhz,
-            },
+            mode: self.chosen,
             scale_120: self.output.scale_120,
         }
+    }
+
+    /// Whether it is shown at the mode the person chose.
+    fn at_chosen(&self) -> bool {
+        self.chosen
+            .is_some_and(|chosen| chosen == display_mode(&self.mode))
     }
 }
 
@@ -267,13 +308,29 @@ impl Displays {
         new.sort_by_key(|connector| !connector.internal);
         let mut added = Vec::new();
         for connector in new {
-            let (mode, scale_120) = chosen(connector, preferences);
-            let head = match heads.prepare(compositor, connector, &mode, scale_120) {
-                Ok(head) => head,
-                Err(error) => {
-                    eprintln!("[displays] {} is not shown: {error}", connector.name);
-                    continue;
+            // The first the card drives of the modes it may be shown at, best first.
+            let mut shown_at = None;
+            for (mode, scale_120) in choices(connector, preferences) {
+                match heads.prepare(compositor, connector, &mode, scale_120) {
+                    Ok(head) => {
+                        shown_at = Some((mode, scale_120, head));
+                        break;
+                    }
+                    Err(error) => eprintln!(
+                        "[displays] {} at {}x{}@{:.3}: {error}",
+                        connector.name,
+                        mode.width,
+                        mode.height,
+                        f64::from(mode.refresh_mhz) / 1000.0
+                    ),
                 }
+            }
+            let Some((mode, scale_120, head)) = shown_at else {
+                eprintln!(
+                    "[displays] {} is not shown: none of the modes tried could be",
+                    connector.name
+                );
+                continue;
             };
             // At the right end for now, top-aligned; arranged with the others below.
             let (width, height) = arrangement::logical((mode.width, mode.height), scale_120);
@@ -303,6 +360,9 @@ impl Displays {
                 connector: Some(connector.id),
                 display: connector.clone(),
                 mode,
+                chosen: preferences
+                    .display(&connector.identity)
+                    .and_then(|kept| kept.mode),
             });
             added.push(output.id);
         }
@@ -657,6 +717,9 @@ impl Displays {
                     return Ok(());
                 }
                 let index = self.index(trial.output)?;
+                // The mode on trial is the person's choice now, kept as chosen.
+                let before = self.shown[index].chosen;
+                self.shown[index].chosen = Some(display_mode(&self.shown[index].mode));
                 let shown = &self.shown[index];
                 let (identity, kept) = (shown.display.identity.clone(), shown.settings());
                 let layout: Vec<(Rect, u32)> = self
@@ -673,6 +736,7 @@ impl Displays {
                     }
                 }) {
                     // Not kept, so not shown: the file and the session never disagree.
+                    self.shown[index].chosen = before;
                     self.trial = Some(trial);
                     self.revert(heads, compositor);
                     return Err(error);
@@ -719,7 +783,10 @@ impl Displays {
         let layout = self.reflowed(index, size, scale_120);
         self.shown[index].mode = mode;
         self.shown[index].output.refresh_mhz = mode.refresh_mhz;
-        let applied = self.apply(compositor, &layout);
+        // Its frames are paced by its new refresh, and every surface on it is told it.
+        let applied = self
+            .apply(compositor, &layout)
+            .and_then(|()| compositor.set_output_refresh(id, mode.refresh_mhz));
         heads.attach(compositor, id, head);
         applied.map_err(|error| error.to_string())
     }
@@ -778,14 +845,20 @@ impl Displays {
 
     fn log(&self, shown: &Shown) {
         let output = shown.output;
+        let variable = match (shown.display.vrr_capable, shown.display.refresh_range_hz) {
+            (true, Some((least, most))) => format!(", variable refresh {least} to {most} Hz"),
+            (true, None) => ", variable refresh".to_string(),
+            (false, _) => String::new(),
+        };
         eprintln!(
-            "[displays] output {} on {} ({}): {}x{}@{:.3} at {}x scale, {}x{} at ({}, {}){}",
+            "[displays] output {} on {} ({}): {}x{}@{:.3} ({}){variable} at {}x scale, {}x{} at ({}, {}){}",
             output.id,
             shown.display.name,
             shown.display.identity,
             shown.mode.width,
             shown.mode.height,
             f64::from(shown.mode.refresh_mhz) / 1000.0,
+            if shown.at_chosen() { "chosen" } else { "its own" },
             f64::from(output.scale_120) / 120.0,
             output.rect.width,
             output.rect.height,
@@ -804,26 +877,38 @@ impl Displays {
     }
 }
 
-/// The mode and scale a display is shown at: as kept for it, if it still has that mode (the scale
-/// if it is still one of its choices there), else its preferred mode at the scale its density
-/// recommends.
-fn chosen(connector: &Connector, preferences: &Preferences) -> (ModeInfo, u32) {
-    let kept = preferences.display(&connector.identity).and_then(|kept| {
-        let mode = connector.mode(kept.mode.width, kept.mode.height, kept.mode.refresh_mhz)?;
-        let monitor = connector.monitor(&mode);
-        let scale = if arrangement::scale_choices(&monitor).contains(&kept.scale_120) {
-            kept.scale_120
-        } else {
-            arrangement::scale_120(&monitor)
-        };
-        Some((mode, scale))
-    });
-    kept.unwrap_or_else(|| {
-        let mode = connector
-            .preferred()
-            .expect("a connected connector has a mode");
-        (mode, arrangement::scale_120(&connector.monitor(&mode)))
-    })
+/// The modes a display may be shown at, best first, each with its scale: the mode the person chose
+/// for it, if it still has that mode; then its own (`own_modes`: its native resolution, the fastest
+/// refresh first), for the card to take the first it drives. The scale kept with a mode, at that
+/// mode (the chosen one, or its own when none was chosen), if it is still one of its choices there;
+/// otherwise the one its density recommends.
+fn choices(connector: &Connector, preferences: &Preferences) -> Vec<(ModeInfo, u32)> {
+    let kept = preferences.display(&connector.identity);
+    let scale = |mode: &ModeInfo, kept_with_it: bool| {
+        let monitor = connector.monitor(mode);
+        match kept {
+            Some(kept)
+                if kept_with_it
+                    && arrangement::scale_choices(&monitor).contains(&kept.scale_120) =>
+            {
+                kept.scale_120
+            }
+            _ => arrangement::scale_120(&monitor),
+        }
+    };
+    let chosen = kept.and_then(|kept| kept.mode);
+    let shown_chosen =
+        chosen.and_then(|mode| connector.mode(mode.width, mode.height, mode.refresh_mhz));
+    let mut choices: Vec<(ModeInfo, u32)> = shown_chosen
+        .iter()
+        .map(|mode| (*mode, scale(mode, true)))
+        .collect();
+    for mode in connector.own_modes() {
+        if shown_chosen.is_none_or(|chosen| !same(&chosen, &mode)) {
+            choices.push((mode, scale(&mode, chosen.is_none())));
+        }
+    }
+    choices
 }
 
 /// What Settings is told of a display: its name, its modes (the largest first, at most

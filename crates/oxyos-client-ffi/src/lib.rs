@@ -131,6 +131,9 @@ pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
 /// flag: whether it is the primary, which has the dock), and an output removed (code).
 pub const OXYOS_EVENT_OUTPUT: u32 = 55;
 pub const OXYOS_EVENT_OUTPUT_REMOVED: u32 = 56;
+/// To every surface's client (ADR 0018): the refresh of the output the surface is on (detail, in
+/// mHz), before its first CONFIGURE and whenever it changes; its frames are paced by it.
+pub const OXYOS_EVENT_REFRESH: u32 = 57;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -1096,6 +1099,17 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 scale_120,
                 detail: refresh_mhz,
                 flag: u8::from(primary),
+                ..out
+            }
+        }
+        Event::Refresh {
+            surface,
+            refresh_mhz,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_REFRESH,
+                surface,
+                detail: refresh_mhz,
                 ..out
             }
         }

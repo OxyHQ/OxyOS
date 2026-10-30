@@ -37,9 +37,11 @@ void unsupported(const char* what) {
 
 ReanimatedHost::ReanimatedHost(
     WorkletsHost& worklets,
-    std::function<react::Scheduler*()> scheduler)
+    std::function<react::Scheduler*()> scheduler,
+    const DisplayRefresh& refresh)
     : worklets_(worklets),
       scheduler_(std::move(scheduler)),
+      refresh_(refresh),
       renders_(std::make_shared<std::vector<std::function<void(double)>>>()) {}
 
 ReanimatedHost::~ReanimatedHost() = default;
@@ -109,7 +111,7 @@ void ReanimatedHost::event(const std::string& name, int tag, const folly::dynami
 
 bool ReanimatedHost::tick() {
   double now = nowMs();
-  if (!proxy_ || (!wanted_ && renders_->empty()) || now - lastFrame_ < 1000.0 / 60) return false;
+  if (!proxy_ || (!wanted_ && renders_->empty()) || now - lastFrame_ < refresh_.periodMs()) return false;
   lastFrame_ = now;
   wanted_ = false;
   // As Android's frame callback does: run requested render callbacks, then always let Reanimated
@@ -124,7 +126,7 @@ bool ReanimatedHost::tick() {
 
 std::optional<std::chrono::steady_clock::time_point> ReanimatedHost::nextFrame() const {
   if (!proxy_ || (!wanted_ && renders_->empty())) return std::nullopt;
-  double wait = std::max(0.0, lastFrame_ + 1000.0 / 60 - nowMs());
+  double wait = std::max(0.0, lastFrame_ + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));
 }
