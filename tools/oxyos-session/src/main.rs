@@ -248,6 +248,41 @@ fn main() -> Result<()> {
     }
     compositor.reads_back = false;
     compositor.authentication = Some(authentication);
+    // Screenshots (ADR 0024, decision 10), written as the user the session runs as: the Desktop
+    // and Documents where xdg-user-dirs keeps them, named in the session's language, with the
+    // sound theme's shutter. The login screen captures nothing.
+    if !greeter {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let config_home = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
+        let folders = Box::new(move |destination| {
+            let (variable, default) = match destination {
+                oxyos_protocol::CaptureDestination::Desktop => ("XDG_DESKTOP_DIR", "Desktop"),
+                oxyos_protocol::CaptureDestination::Documents => {
+                    ("XDG_DOCUMENTS_DIR", "Documents")
+                }
+            };
+            oxyos_preferences::user_dirs::folder(&config_home, &home, variable, default)
+        });
+        let data_dirs: Vec<PathBuf> = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .into_iter()
+            .chain(std::env::split_paths(
+                &std::env::var_os("XDG_DATA_DIRS")
+                    .unwrap_or_else(|| "/usr/local/share:/usr/share".into()),
+            ))
+            .collect();
+        match oxyos_compositor::screenshots::Writer::spawn(
+            folders,
+            oxyos_compositor::screenshots::Language::of(&oxyos_apps::languages()),
+            oxyos_compositor::screenshots::shutter_sound(&data_dirs),
+        ) {
+            Ok(writer) => compositor.screenshots = Some(writer),
+            Err(error) => eprintln!("[session] screenshots: {error}; none is saved"),
+        }
+    }
     if greeter {
         // Locked before any client connects: nothing but the login screen is ever shown.
         compositor.login = true;
@@ -527,6 +562,31 @@ fn main() -> Result<()> {
             compositor
                 .scene
                 .launched(request.client, request.serial, launched);
+        }
+        // A screenshot's thumbnail pressed (ADR 0024, decision 10): the session opens the file it
+        // wrote in the application that opens PNGs, else the file manager, the file in its launch
+        // record.
+        for screenshot in compositor.scene.take_screenshot_opens() {
+            let Some(path) = compositor
+                .screenshots
+                .as_ref()
+                .and_then(|writer| writer.path(screenshot))
+                .map(std::path::Path::to_path_buf)
+            else {
+                continue;
+            };
+            match launcher.open(&path, "image/png", oxyos_apps::FILE_MANAGER) {
+                Ok((id, pid)) => {
+                    eprintln!("[session] opened {} in {id} ({pid})", path.display());
+                    if let Some(note) = launcher
+                        .application_of(pid)
+                        .and_then(|l| versions.launched(pid, l))
+                    {
+                        installd.as_ref().inspect(|i| i.note(note));
+                    }
+                }
+                Err(error) => eprintln!("[session] {} not opened: {error}", path.display()),
+            }
         }
         // A notification pressed while its application ran nowhere (ADR 0026): the session starts
         // it, and its first client is given the response.

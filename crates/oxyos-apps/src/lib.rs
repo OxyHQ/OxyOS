@@ -293,6 +293,8 @@ pub struct Application {
     pub pinned: Option<u32>,
     /// Where its entry comes from, which decides what it is to the platform.
     pub origin: Origin,
+    /// The media types it opens (`MimeType`, docs/adr/0028-file-access.mdx, decision 6).
+    pub opens: Vec<String>,
 }
 
 /// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
@@ -556,6 +558,17 @@ pub fn parse(
         launch,
         pinned,
         origin: Origin::Development,
+        opens: keys
+            .get("MimeType")
+            .map(|types| {
+                types
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|kind| !kind.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
     }))
 }
 
@@ -1027,6 +1040,9 @@ pub struct Launched {
     /// keeps them ([`capability_decisions`]); none for any other. Phase 4's host modules enforce
     /// them.
     pub capabilities: BTreeMap<String, String>,
+    /// The file it was started to open (docs/adr/0028-file-access.mdx, decision 6), which it is
+    /// given as React Native's `Linking` initial URL (`OXYOS_LAUNCH_URL`).
+    pub opened: Option<PathBuf>,
 }
 
 /// What the Bloom host is told of a launch: its origin (`system`, `installed`, `development`) and
@@ -1111,6 +1127,25 @@ fn pinned(
     Some((application, runtime))
 }
 
+/// The file manager (docs/adr/0028-file-access.mdx, decision 7), which shows any file: what opens
+/// one no application declares its type for.
+pub const FILE_MANAGER: &str = "so.oxy.stash";
+
+/// A file's `file://` URL: its absolute path, every byte but an unreserved one or `/`
+/// percent-encoded (RFC 3986), as Android's `Uri.fromFile` makes one.
+pub fn file_url(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut url = String::from("file://");
+    for &byte in path.as_os_str().as_bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            url.push(byte as char);
+        } else {
+            url.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    url
+}
+
 /// The processes a session started for applications (docs/adr/0013-launching-applications.mdx).
 pub struct Launcher {
     pub runtime: Runtime,
@@ -1171,6 +1206,32 @@ impl Launcher {
     /// has the policy's grants; one whose program, host or bundle is not the policy's or not an
     /// administrator's is not started at all. Every other application has none.
     pub fn launch(&mut self, id: &str) -> Result<u32, Error> {
+        self.launch_opening(id, None)
+    }
+
+    /// Opens `file`, of the media type `kind`, in the application that opens it
+    /// (docs/adr/0028-file-access.mdx, decision 6): the first in the registry's order whose entry
+    /// declares the type (`MimeType`), else `fallback` (the file manager, which shows any file).
+    /// It is started with the file in its launch record and as its `Linking` initial URL. The id
+    /// started and its pid.
+    pub fn open(&mut self, file: &Path, kind: &str, fallback: &str) -> Result<(String, u32), Error> {
+        let policy = self.policy();
+        let (applications, _) = registry(
+            &self.directories,
+            &self.languages,
+            &policy,
+            self.installed.as_deref(),
+            &*self.trusted,
+        );
+        let id = applications
+            .iter()
+            .find(|application| application.opens.iter().any(|opens| opens == kind))
+            .map_or_else(|| fallback.to_string(), |application| application.id.clone());
+        let pid = self.launch_opening(&id, Some(file))?;
+        Ok((id, pid))
+    }
+
+    fn launch_opening(&mut self, id: &str, opened: Option<&Path>) -> Result<u32, Error> {
         let policy = self.policy();
         let application = find(
             &self.directories,
@@ -1209,6 +1270,9 @@ impl Launcher {
         command
             .env("OXYOS_APP_ORIGIN", origin)
             .env("OXYOS_APP_CAPABILITIES", granted);
+        if let Some(file) = opened {
+            command.env("OXYOS_LAUNCH_URL", file_url(file));
+        }
         let child = command
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
@@ -1220,6 +1284,7 @@ impl Launcher {
                 grants,
                 origin: application.origin,
                 capabilities,
+                opened: opened.map(Path::to_path_buf),
             },
         ));
         Ok(pid)

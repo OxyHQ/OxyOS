@@ -212,6 +212,10 @@ pub struct Snapshot {
     /// The windows a shell surface showed live over its pixels (docs/adr/0022-window-views.mdx),
     /// which go with it.
     pub views: Vec<ViewSnapshot>,
+    /// Whether a capture shows it going (docs/adr/0024-system-shortcuts.mdx, decision 10), and its
+    /// secure regions (surface-local, logical), which a capture draws black as it goes too.
+    pub captured: bool,
+    pub secure: Vec<oxyos_protocol::Rect>,
 }
 
 /// A window a shell surface going showed live: its frame's pixels when the surface began going,
@@ -838,6 +842,8 @@ mod tests {
             pixels: Rc::new(vec![0; 200 * 100 * 4].into()),
             look: None,
             views: Vec::new(),
+            captured: true,
+            secure: Vec::new(),
         }
     }
 

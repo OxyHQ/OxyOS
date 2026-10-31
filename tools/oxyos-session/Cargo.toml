@@ -17,6 +17,8 @@ oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
+# Where the user's Desktop and Documents are, for screenshots (xdg-user-dirs).
+oxyos-preferences = { path = "../../crates/oxyos-preferences" }
 # Holding, and noting, the installed versions it runs (docs/adr/0030-installing-applications.mdx).
 oxyos-install = { path = "../../crates/oxyos-install" }
 serde_json = "1"
