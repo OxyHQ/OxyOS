@@ -214,6 +214,9 @@ export function TopBar({
   const count = menus.length + 1;
   const [focused, setFocused] = useState<number | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  // Whether the open menu was opened from the bar's keys: it then starts on its first row, as a
+  // Mac's does (Bloom's `openFocus`); one opened by a press starts with none.
+  const [byKeys, setByKeys] = useState(false);
   const titles = useRef<(React.ComponentRef<typeof View> | null)[]>([]);
   const state = useRef({ focused, open, count });
   state.current = { focused, open, count };
@@ -260,10 +263,14 @@ export function TopBar({
           const step = action === "next" ? 1 : -1;
           const to = (now.focused + step + now.count) % now.count;
           setFocused(to);
-          if (now.open !== null) setOpen(to);
+          if (now.open !== null) {
+            setByKeys(true);
+            setOpen(to);
+          }
           return true;
         }
         case "open":
+          setByKeys(true);
           setOpen(now.focused);
           return true;
         case "leave":
@@ -283,8 +290,12 @@ export function TopBar({
   const command = (id: string) => choose(() => onCommand(id))();
   const opened = (index: number) => ({
     open: open === index,
-    onOpenChange: (next: boolean) =>
-      setOpen((current) => (next ? index : current === index ? null : current)),
+    openFocus: open === index && byKeys ? ("first" as const) : undefined,
+    onOpenChange: (next: boolean) => {
+      // Opened by its trigger (a press): no row active.
+      if (next) setByKeys(false);
+      setOpen((current) => (next ? index : current === index ? null : current));
+    },
   });
   const title = (index: number) => (view: React.ComponentRef<typeof View> | null) => {
     titles.current[index] = view;
