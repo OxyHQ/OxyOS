@@ -15,6 +15,7 @@
 #include "key-chords.h"
 #include "images.h"
 #include "input.h"
+#include "android-view-props.h"
 #include "overscroll.h"
 #include "intl.h"
 #include "modal.h"
@@ -533,7 +534,7 @@ int main(int argc, char** argv) {
   // on demand), so the provider registry must outlive every Scheduler that uses it.
   auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
   providers->add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<oxyos::ViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());

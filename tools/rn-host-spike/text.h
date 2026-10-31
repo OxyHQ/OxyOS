@@ -28,8 +28,11 @@ struct Face {
   int weight = 400;
   bool variable = false;  // whether the weight is on the file's `wght` axis
   float size = 0;
-  // Android's fake italic (Minikin: a skew of -1/4): an italic asked of a font that has none.
-  bool fakeItalic = false;
+  // The optical size it is set at on the file's `opsz` axis (0: the file has none).
+  float opticalSize = 0;
+  // Android's fake italic (Minikin: a skew of -1/4): an italic asked of a font that has none; and
+  // its fake bold (emboldened outlines): a bold asked of a font much lighter.
+  bool fakeItalic = false, fakeBold = false;
   hb_font_t* hb = nullptr;
   // The font's metrics at its size (OS/2's typographic ones where it asks for them, hhea's
   // otherwise, as Skia's FreeType port reads them), the ascent and descent taken outward to whole

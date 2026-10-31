@@ -127,10 +127,12 @@ std::string transformed(const std::string& text, const TextAttributes& attribute
 struct TextEngine::Impl {
   std::map<std::string, std::string> families;
   std::vector<std::string> fallbacks;
-  // Each file's HarfBuzz face, opened once, and what it is.
+  // Each file's HarfBuzz face, opened once, and what it is: its axes of weight and optical size,
+  // whether it is italic, and its weight (OS/2's usWeightClass).
   struct File {
     hb_face_t* hb = nullptr;
-    bool variable = false, italic = false;
+    bool weightAxis = false, opticalAxis = false, italic = false;
+    int weight = 400;
   };
   std::map<std::string, File> files;
   std::map<std::tuple<std::string, int, int, bool>, Face> faces;
@@ -175,14 +177,19 @@ struct TextEngine::Impl {
       files[path] = entry;
       return nullptr;
     }
-    entry.variable = hb_ot_var_has_data(entry.hb);
-    // OS/2's fsSelection: ITALIC (bit 0) or OBLIQUE (bit 9).
+    hb_ot_var_axis_info_t axis;
+    entry.weightAxis = hb_ot_var_find_axis_info(entry.hb, HB_TAG('w', 'g', 'h', 't'), &axis);
+    entry.opticalAxis = hb_ot_var_find_axis_info(entry.hb, HB_TAG('o', 'p', 's', 'z'), &axis);
     hb_blob_t* os2 = hb_face_reference_table(entry.hb, HB_TAG('O', 'S', '/', '2'));
     unsigned length = 0;
     const char* data = hb_blob_get_data(os2, &length);
+    auto u16 = [data](unsigned at) {
+      return static_cast<unsigned>(static_cast<unsigned char>(data[at]) << 8 | static_cast<unsigned char>(data[at + 1]));
+    };
     if (data && length >= 64) {
-      unsigned selection = static_cast<unsigned char>(data[62]) << 8 | static_cast<unsigned char>(data[63]);
-      entry.italic = (selection & 0x201) != 0;
+      entry.weight = static_cast<int>(u16(4));
+      // fsSelection: ITALIC (bit 0) or OBLIQUE (bit 9).
+      entry.italic = (u16(62) & 0x201) != 0;
     }
     hb_blob_destroy(os2);
     return &(files[path] = entry);
@@ -200,17 +207,26 @@ struct TextEngine::Impl {
     Face entry;
     entry.path = path;
     entry.weight = weight;
-    entry.variable = source->variable;
+    entry.variable = source->weightAxis;
     entry.size = size;
     entry.fakeItalic = italic && !source->italic;
+    // Minikin's fake bold (FontFamily::computeFakery): a weight of 600 or more asked of a font at
+    // least 200 lighter, its weight not on an axis.
+    entry.fakeBold = !source->weightAxis && weight >= 600 && weight - source->weight >= 200;
+    // The optical size the font is set at, as CSS's font-optical-sizing: auto sets it (Chromium,
+    // and Apple's text), on a font with the axis: its size in pixels.
+    if (source->opticalAxis) entry.opticalSize = size;
     entry.hb = hb_font_create(source->hb);
     hb_ot_font_set_funcs(entry.hb);
     auto scale = static_cast<int>(std::lround(size * kShapingUnits));
     hb_font_set_scale(entry.hb, scale, scale);
-    if (source->variable) {
-      // The weight on the `wght` axis, which HarfBuzz (and Skia, drawing it) clamps to its range.
-      hb_variation_t variation{HB_TAG('w', 'g', 'h', 't'), static_cast<float>(weight)};
-      hb_font_set_variations(entry.hb, &variation, 1);
+    // The weight on the `wght` axis and the optical size on `opsz`, which HarfBuzz (and Skia,
+    // drawing them) clamps to their ranges.
+    std::vector<hb_variation_t> variations;
+    if (source->weightAxis) variations.push_back({HB_TAG('w', 'g', 'h', 't'), static_cast<float>(weight)});
+    if (source->opticalAxis) variations.push_back({HB_TAG('o', 'p', 's', 'z'), size});
+    if (!variations.empty()) {
+      hb_font_set_variations(entry.hb, variations.data(), static_cast<unsigned>(variations.size()));
     }
     auto metric = [&](hb_ot_metrics_tag_t tag) -> std::optional<float> {
       hb_position_t position = 0;

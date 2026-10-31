@@ -1,5 +1,6 @@
 #include "renderer.h"
 
+#include "android-view-props.h"
 #include "background.h"
 #include "expo-blur.h"
 #include "masked-view.h"
@@ -36,6 +37,7 @@
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/SkSurfaceGanesh.h>
 #include <include/effects/SkImageFilters.h>
+#include <include/utils/SkShadowUtils.h>
 #include <include/ports/SkFontMgr_empty.h>
 
 #include <algorithm>
@@ -223,16 +225,19 @@ AttributedString inputText(const AndroidTextInputProps& props, const std::string
 // positioning, as Chromium draws text on Linux, and slanted as Android fakes an italic.
 SkFont skiaFont(const Face* face) {
   static sk_sp<SkFontMgr> fonts = SkFontMgr_New_Custom_Empty();
-  static std::map<std::pair<std::string, int>, sk_sp<SkTypeface>> typefaces;
-  auto key = std::make_pair(face->path, face->variable ? face->weight : 0);
+  // Each file at each weight and optical size it is drawn at, as the text engine set them.
+  static std::map<std::tuple<std::string, int, int>, sk_sp<SkTypeface>> typefaces;
+  auto key = std::make_tuple(face->path, face->variable ? face->weight : 0,
+                             static_cast<int>(std::lround(face->opticalSize * 64)));
   auto it = typefaces.find(key);
   if (it == typefaces.end()) {
     sk_sp<SkTypeface> typeface = fonts->makeFromFile(face->path.c_str(), 0);
-    if (typeface && face->variable) {
-      const SkFontArguments::VariationPosition::Coordinate coordinate{SkSetFourByteTag('w', 'g', 'h', 't'),
-                                                                     static_cast<float>(face->weight)};
+    std::vector<SkFontArguments::VariationPosition::Coordinate> coordinates;
+    if (face->variable) coordinates.push_back({SkSetFourByteTag('w', 'g', 'h', 't'), static_cast<float>(face->weight)});
+    if (face->opticalSize > 0) coordinates.push_back({SkSetFourByteTag('o', 'p', 's', 'z'), face->opticalSize});
+    if (typeface && !coordinates.empty()) {
       SkFontArguments arguments;
-      arguments.setVariationDesignPosition({&coordinate, 1});
+      arguments.setVariationDesignPosition({coordinates.data(), static_cast<int>(coordinates.size())});
       if (auto clone = typeface->makeClone(arguments)) typeface = std::move(clone);
     }
     it = typefaces.emplace(key, std::move(typeface)).first;
@@ -242,6 +247,8 @@ SkFont skiaFont(const Face* face) {
   font.setHinting(SkFontHinting::kSlight);
   font.setSubpixel(true);
   if (face->fakeItalic) font.setSkewX(-0.25f);
+  // Android's fake bold, as Paint.setFakeBoldText draws it.
+  if (face->fakeBold) font.setEmbolden(true);
   return font;
 }
 
@@ -632,6 +639,28 @@ void drawChild(const ViewTree& tree, Tag child, float ox, float oy, const Clip& 
   drawTransformed(tree, child, matrix, clip, opacity, draw);
 }
 
+// A view's `elevation`, as Android casts it: HWUI's shadow of the view's outline (its background's:
+// the border box with its corners; a view without a background has none, so casts nothing) raised
+// `elevation` pixels, by Skia's SkShadowUtils, with Android's light: 600 dp above the top of the
+// window, at its middle, 800 dp wide, an ambient shadow at 0.039 and a spot shadow at 0.19 of the
+// shadow colour (React Native's shadowColor, Android's outline ambient and spot colours; black by
+// default), a translucent caster seen through. Android places the light at the middle of the
+// display; a window here is placed by the compositor and does not know where it is, so the light
+// is at the middle of its own surface.
+void drawElevation(SkCanvas& canvas, const ViewProps& props, const LayoutMetrics& layout, float x, float y, float w,
+                   float h, float elevation, float opacity, float scale) {
+  if (!drawsBackground(props)) return;
+  auto border = props.resolveBorderMetrics(layout);
+  SkPath outline = SkPath::RRect(borderBox(border, x, y, w, h));
+  SkColor4f color = faded(props.shadowColor, 1, SkColor4f{0, 0, 0, 1});
+  auto alpha = [&](float share) { return SkColor4f{color.fR, color.fG, color.fB, color.fA * share * opacity}.toSkColor(); };
+  SkISize device = canvas.getBaseLayerSize();
+  const SkPoint3 light = SkPoint3::Make(device.width() / 2.0f, 0, 600 * scale);
+  bool opaque = faded(props.backgroundColor, 1).fA >= 1 && opacity >= 1;
+  SkShadowUtils::DrawShadow(&canvas, outline, SkPoint3::Make(0, 0, elevation * scale), light, 800 * scale,
+                            alpha(0.039f), alpha(0.19f), opaque ? kNone_ShadowFlag : kTransparentOccluder_ShadowFlag);
+}
+
 // Whether a view's own drawing needs a layer of its own (saveLayer): a filter, a blend mode, or
 // an opacity it asks to be composited offscreen (needsOffscreenAlphaCompositing, Android's
 // hasOverlappingRendering); every other opacity multiplies into each draw, as Android's does.
@@ -640,8 +669,9 @@ struct Group {
   SkPaint paint;
 };
 
-Group groupOf(const ViewProps& props, float opacity) {
+Group groupOf(const ViewProps& props, const AndroidViewProps& android, float opacity) {
   Group group;
+  if (android.needsOffscreenAlphaCompositing && opacity < 1) group.layer = true;
   if (auto filter = viewFilter(props)) {
     group.layer = true;
     group.paint.setImageFilter(std::move(filter));
@@ -723,8 +753,15 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   float childOx = x, childOy = y;
   if (props) {
     opacity *= props->opacity;
-    if (opacity <= 0.001f) return;
-    Group group = groupOf(*props, opacity);
+    if (opacity <= 0.001f) {
+      canvas.restoreToCount(saved);
+      return;
+    }
+    auto android = androidViewPropsOf(*view.props);
+    // Its elevation's shadow, cast under it from its outline before anything of it is drawn, as
+    // HWUI draws a raised render node's (at its reorder barrier, outside its own layer).
+    if (android.elevation > 0) drawElevation(canvas, *props, view.layoutMetrics, x, y, w, h, android.elevation, opacity, draw.scale);
+    Group group = groupOf(*props, android, opacity);
     if (group.layer) {
       canvas.saveLayer(nullptr, &group.paint);
       opacity = 1;
@@ -1245,6 +1282,10 @@ Rect inkBounds(const ShadowView& view) {
   if (!props) return area;
   auto overflow = backgroundOverflow(*props);
   float filter = filterOverflow(*props);
+  // An elevation's shadow: its spot shadow's blur grows with the height (the light's 800 dp over
+  // its 600), and it moves away from the light by as much again for a view at a window's edge.
+  float elevation = androidViewPropsOf(*view.props).elevation;
+  if (elevation > 0) filter = std::max(filter, elevation * 4 + 8);
   float left = std::max(overflow.left, filter), top = std::max(overflow.top, filter);
   float right = std::max(overflow.right, filter), bottom = std::max(overflow.bottom, filter);
   return Rect{{-left, -top}, {area.size.width + left + right, area.size.height + top + bottom}};
@@ -1279,7 +1320,8 @@ bool drawsTheSame(const ShadowView& before, const ShadowView& after) {
          a->outlineStyle == b->outlineStyle && a->outlineWidth == b->outlineWidth &&
          a->mixBlendMode == b->mixBlendMode &&
          a->yogaStyle.border(facebook::yoga::Edge::All) == b->yogaStyle.border(facebook::yoga::Edge::All) &&
-         a->borderColors.all == b->borderColors.all;
+         a->borderColors.all == b->borderColors.all && a->shadowColor == b->shadowColor &&
+         androidViewPropsOf(*before.props) == androidViewPropsOf(*after.props);
 }
 
 bool drawsFlat(const ShadowView& view) {
@@ -1289,7 +1331,8 @@ bool drawsFlat(const ShadowView& view) {
   if (!props) return true;
   if (!(props->transform == Transform::Identity())) return false;
   if (!props->boxShadow.empty() || !props->filter.empty() || !props->backgroundImage.empty() ||
-      props->outlineWidth != 0 || props->mixBlendMode != BlendMode::Normal) {
+      props->outlineWidth != 0 || props->mixBlendMode != BlendMode::Normal ||
+      androidViewPropsOf(*view.props) != AndroidViewProps{}) {
     return false;
   }
   auto border = props->resolveBorderMetrics(view.layoutMetrics);
