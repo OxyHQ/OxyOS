@@ -47,6 +47,8 @@ class Window {
     float width = 0, height = 0, scale = 1;
     uint32_t refreshMhz = 0;  // its output's refresh, as the compositor told it (0: not yet)
     bool resized = false;    // set by a configure that changed size or scale
+    // When the first configure that resized it and is not yet laid out was received.
+    std::chrono::steady_clock::time_point resizedAt{};
     uint64_t inFlight = 0;   // sequence of the frame awaiting feedback
     uint64_t presentedFor = 0;  // the configure the latest frame presented answers
     uint8_t states = 0;      // a toplevel's OXYOS_CONFIGURE_* bits, from its latest configure
@@ -65,6 +67,8 @@ class Window {
   float scale() const { return surfaces_.at(kToplevel).scale; }
   // Reports (once) a toplevel size the host must lay out for.
   bool resized();
+  // When the configure behind the size `resized` last reported was received.
+  std::chrono::steady_clock::time_point resizedAt() const { return resizedAt_; }
 
   // A frame may be presented: the surface is configured and its previous frame was answered.
   bool ready(uint32_t id) const;
@@ -292,6 +296,7 @@ class Window {
   Trial trial_;
   bool active_ = false;
   uint64_t presented_ = 0;
+  std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;
 };

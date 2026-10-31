@@ -4,8 +4,11 @@
 
 #include <folly/json.h>
 
+#include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
+#include <unistd.h>
 
 using namespace facebook::react;
 
@@ -26,8 +29,29 @@ Report& Report::get() {
   return report;
 }
 
-Report::Report() {
-  if (const char* path = std::getenv("OXYOS_HOST_REPORT")) file_ = std::fopen(path, "w");
+Report::Report() = default;
+
+void Report::open(const std::string& application) {
+  const char* path = std::getenv("OXYOS_HOST_REPORT");
+  if (file_ || !path || !*path) return;
+  std::string target = path;
+  std::error_code error;
+  if (target.back() == '/' || std::filesystem::is_directory(target, error)) {
+    // A directory: this process's own report in it, named by its application and pid.
+    std::filesystem::create_directories(target, error);
+    std::string name;
+    for (char c : application) name += std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' ? c : '_';
+    if (target.back() != '/') target += '/';
+    target += (name.empty() ? std::string("host") : name) + "-" + std::to_string(getpid()) + ".jsonl";
+  }
+  file_ = std::fopen(target.c_str(), "w");
+  if (!file_) std::fprintf(stderr, "[host] cannot write the report to %s\n", target.c_str());
+}
+
+void Report::diagnostic(const char* kind, folly::dynamic&& line) {
+  if (!file_) return;
+  line["kind"] = kind;
+  write(std::move(line));
 }
 
 std::string Report::name(const ShadowView& view) {

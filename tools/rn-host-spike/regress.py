@@ -148,6 +148,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   (Pointer enter/leave, which follow every motion, are left out of `react`, and so are the W3C
   pointer presses, every mouse button's pointerdown and pointerup;)
 - react_presses: those presses, exactly, as `react` checks its events;
+- diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
+  report's `timing` and `log` lines: "slow", [least, most] slow lines written to the log;
+  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
+  "slow_line", a slow line written in the step having each key given ("subject", a pattern it
+  matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
+  unsaid); "summaries", [least, most] summaries written; "logged", patterns (regular expressions) each
+  matching a line written in the step. Every run also checks, for each host's report, that every
+  line its diagnostics wrote is in the log (the hosts' stderr), that a slow frame's line names the
+  work its `timing` line has, and that each summary's numbers are those of the frames presented
+  since the summary before;
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
@@ -286,6 +296,57 @@ STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
+
+
+# A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
+SLOW_LINE = re.compile(
+    r"\[host (?P<app>\S+)\] (?P<subject>.+?) took (?P<work>[\d.]+) ms, (?P<dropped>\d+) dropped "
+    r"\(a refresh is (?P<refresh>[\d.]+) ms\): events (?P<events>[\d.]+), JavaScript (?P<javascript>[\d.]+) "
+    r"\(commits (?P<commits>[\d.]+), of which Yoga layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), "
+    r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+), drawing (?P<draw>[\d.]+), "
+    r"presenting (?P<present>[\d.]+)(?P<painter>| on the GPU \(sync [\d.]+\)| from the CPU), "
+    r"other (?P<other>[\d.]+); waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?"
+    r"(?:; input to present (?P<latency>[\d.]+) ms)?(?:; (?P<skipped>\d+) slow not shown since the last)?$")
+
+
+def percentile(ordered, p):
+    """The percentile as the host's summary picks it (FrameDiagnostics::percentile)."""
+    return ordered[min(len(ordered) * p // 100, len(ordered) - 1)] if ordered else None
+
+
+def check_diagnostics(report, log_text, failures, who="the application"):
+    """A host's frame diagnostics (frame-diagnostics.h) against its own report: each line written to
+    the log is there, a slow frame's line names the work its `timing` line has, and each summary sums
+    up exactly the frames presented since the summary before."""
+    logged = set(log_text.splitlines())
+    frames, last_slow = [], None
+    for line in report:
+        if line["kind"] == "timing":
+            if line["presented"]:
+                frames.append(line)
+            if line["slow"]:
+                last_slow = line
+        elif line["kind"] == "log":
+            if line["text"] not in logged:
+                failures.append(f"{who}'s diagnostics wrote {line['text']!r} to its report, not to the log")
+            slow = SLOW_LINE.match(line["text"])
+            if " took " in line["text"] and " dropped (a refresh is " in line["text"] and not slow:
+                failures.append(f"{who}'s slow line {line['text']!r} is not as frame-diagnostics.cpp writes it")
+            elif slow and (last_slow is None or abs(float(slow["work"]) - last_slow["work_ms"]) > 0.051):
+                failures.append(f"{who}'s slow line {line['text']!r} does not name its frame's work "
+                                f"({last_slow and last_slow['work_ms']})")
+        elif line["kind"] == "timing_summary":
+            work = sorted(frame["work_ms"] for frame in frames)
+            latency = sorted(frame["latency_ms"] for frame in frames if frame["latency_ms"] is not None)
+            slow = [frame for frame in frames if frame["slow"]]
+            wanted = {"frames": len(frames), "work_p50": percentile(work, 50), "work_p95": percentile(work, 95),
+                      "work_max": work[-1] if work else None, "latency_p50": percentile(latency, 50),
+                      "latency_p95": percentile(latency, 95), "inputs": len(latency), "slow": len(slow),
+                      "dropped": sum(frame["dropped"] for frame in slow)}
+            got = {key: line[key] for key in wanted}
+            if got != wanted:
+                failures.append(f"{who}'s summary says {got}, its frames since the one before {wanted}")
+            frames = []
 
 
 def director_args(step, out):
@@ -1233,6 +1294,28 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail("requestAnimationFrame's timestamps did not rise")
         if any(abs(line["t"] / 1e6 - line["timestamp"]) > 1 for line in frames):
             fail("requestAnimationFrame's timestamps are not on performance.now()'s clock")
+    if "diagnostics" in expect:
+        wanted = expect["diagnostics"]
+        logs = [line["text"] for line in report if line["kind"] == "log" and start <= line["t"] <= end]
+        slow_lines = [m for m in map(SLOW_LINE.match, logs) if m]
+        slow_frames = [line for line in report if line["kind"] == "timing" and line["slow"]
+                       and start <= line["t"] <= end]
+        summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
+        for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
+            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+                fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
+                     f"{wanted[key][1]}: {logs}")
+        if "slow_line" in wanted:
+            like = wanted["slow_line"]
+            if not any(("subject" not in like or re.fullmatch(like["subject"], m["subject"]))
+                       and ("skipped" not in like or int(m["skipped"] or 0) == like["skipped"])
+                       and float(m["javascript"]) >= like.get("javascript_min", 0)
+                       and float(m["work"]) >= like.get("work_min", 0)
+                       and int(m["dropped"]) >= like.get("dropped_min", 0) for m in slow_lines):
+                fail(f"no slow line like {like} was written: {logs}")
+        for pattern in wanted.get("logged", []):
+            if not any(re.search(pattern, text) for text in logs):
+                fail(f"no line matching {pattern!r} was written: {logs}")
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]
@@ -2075,6 +2158,10 @@ def main():
         start = check_step(index, step, result, report, start, failures, options.uinput,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
                            out / "preferences", refresh_hz, recorder)
+    # Each host's frame diagnostics against its report, and the log they wrote to.
+    check_diagnostics(report, run.stdout + run.stderr, failures)
+    if shell_report:
+        check_diagnostics(shell_report, run.stdout + run.stderr, failures, "the shell")
     # A frame the host drew from its damage that differs from the frame drawn whole.
     for line in report:
         if line["kind"] == "damage_mismatch":

@@ -1,5 +1,5 @@
 {
- "about": "Stash's window as a Mac's is used (docs/adr/0016-windows.mdx): moved by its toolbar's empty middle, resized live from each edge and corner (one configure in flight, the edges not dragged never moving, the window at exactly the pointer's size) down to the smallest size Stash declares through Bloom's window capability (useWindowSizeLimits: 640x400, the compositor's SetSizeLimits), zoomed and restored, its sidebar hidden and shown from the toolbar, and minimized. At every size the sidebar stays in the window (Bloom's desktop window: navFrom 0), never a drawer whose menu button lands on the window's controls, and its pane's toolbar is the window's title area beside it.",
+ "about": "Stash's window as a Mac's is used (docs/adr/0016-windows.mdx): moved by its toolbar's empty middle, resized live from each edge and corner (one configure in flight, the edges not dragged never moving, the window at exactly the pointer's size) down to the smallest size Stash declares through Bloom's window capability (useWindowSizeLimits: 640x400, the compositor's SetSizeLimits), zoomed and restored, its sidebar hidden and shown from the toolbar, and minimized. At every size the sidebar stays in the window (Bloom's desktop window: navFrom 0), never a drawer whose menu button lands on the window's controls, and its pane's toolbar is the window's title area beside it. Its host's diagnostics write each resize, zoom and minimize to the log (frame-diagnostics.h).",
  "module": "Stash",
  "window": [
   1024,
@@ -125,6 +125,11 @@
        "role": "Button",
        "name": "Open navigation"
       }
+     ]
+    },
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.stash\\] a resize to \\d+x680: its frame presented [\\d.]+ ms after the configure \\(laying it out"
      ]
     }
    }
@@ -476,7 +481,12 @@
      0,
      1280,
      720
-    ]
+    ],
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.stash\\] zoom \\(to fill the work area\\): its configure [\\d.]+ ms after it was asked, its frame presented"
+     ]
+    }
    }
   },
   {
@@ -494,7 +504,12 @@
      60,
      640,
      400
-    ]
+    ],
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.stash\\] zoom \\(back to its size\\): its configure"
+     ]
+    }
    }
   },
   {
@@ -575,7 +590,12 @@
     ]
    ],
    "expect": {
-    "window_shown": false
+    "window_shown": false,
+    "diagnostics": {
+     "logged": [
+      "^\\[host so\\.oxy\\.stash\\] minimize: the window inactive [\\d.]+ ms after it was asked$"
+     ]
+    }
    }
   }
  ]

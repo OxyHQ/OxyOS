@@ -1,0 +1,220 @@
+{
+ "about": "The host's frame diagnostics (frame-diagnostics.h; sample/FrameProbe.tsx; docs/performance.mdx, \"Reading the session's log\"): a frame whose work takes longer than a refresh of its display writes one line to the session's log naming what started it and where its time went (JavaScript holding the thread 120 ms after a press: its JavaScript at least 100 ms, its refreshes dropped), at most one a second with how many went unsaid; fast frames (presses answered at once, 90 frames of requestAnimationFrame) write none; and while the window draws, a summary every 10 s whose numbers are those of the frames in its report (regress.py checks every summary of every run), and none while it is idle.",
+ "module": "FrameProbe",
+ "window": [
+  480,
+  320
+ ],
+ "app": {
+  "id": "so.oxy.frameprobe",
+  "title": "Frames"
+ },
+ "steps": [
+  {
+   "name": "the window starts",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Count 0, frame 0"
+    ]
+   }
+  },
+  {
+   "name": "a press answered at once: no slow frame",
+   "do": [
+    "press",
+    [
+     116,
+     46
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 1, frame 0"
+    ],
+    "diagnostics": {
+     "slow": [
+      0,
+      0
+     ],
+     "slow_frames": [
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "name": "another: still none",
+   "do": [
+    "press",
+    [
+     116,
+     46
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 2, frame 0"
+    ],
+    "diagnostics": {
+     "slow": [
+      0,
+      0
+     ],
+     "slow_frames": [
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "name": "a press whose JavaScript holds the thread 120 ms: one slow line, its time in JavaScript, its refreshes dropped",
+   "do": [
+    "press",
+    [
+     116,
+     118
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 3, frame 0"
+    ],
+    "diagnostics": {
+     "slow": [
+      1,
+      1
+     ],
+     "slow_frames": [
+      1,
+      1
+     ],
+     "slow_line": {
+      "subject": "a frame after pointer\\.(press|release)",
+      "javascript_min": 100,
+      "work_min": 100,
+      "dropped_min": 5
+     }
+    }
+   }
+  },
+  {
+   "name": "a second later",
+   "do": [
+    "wait",
+    1100
+   ],
+   "allow_unchanged": true
+  },
+  {
+   "name": "three such presses within a second: three slow frames, one line",
+   "do": [
+    "press_paced",
+    [
+     116,
+     118,
+     3,
+     250
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 6, frame 0"
+    ],
+    "diagnostics": {
+     "slow": [
+      1,
+      1
+     ],
+     "slow_frames": [
+      3,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "name": "a second later again",
+   "do": [
+    "wait",
+    1100
+   ],
+   "allow_unchanged": true
+  },
+  {
+   "name": "the next slow line says the two not shown",
+   "do": [
+    "press",
+    [
+     116,
+     118
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 7, frame 0"
+    ],
+    "diagnostics": {
+     "slow": [
+      1,
+      1
+     ],
+     "slow_line": {
+      "javascript_min": 100,
+      "skipped": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "90 frames of requestAnimationFrame, each drawn: no slow frame",
+   "do": [
+    "press",
+    [
+     116,
+     190
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Count 7, frame 90"
+    ],
+    "diagnostics": {
+     "slow": [
+      0,
+      0
+     ]
+    }
+   }
+  },
+  {
+   "name": "idle: the frames since the last summary summed up once, within 10 s of the first, then nothing",
+   "do": [
+    "wait",
+    10500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "diagnostics": {
+     "summaries": [
+      1,
+      1
+     ],
+     "slow": [
+      0,
+      0
+     ],
+     "logged": [
+      "^\\[host so\\.oxy\\.frameprobe\\] in the last 1\\d\\.\\d s: \\d+ frames, their work [\\d.]+ ms median"
+     ]
+    }
+   }
+  }
+ ]
+}
