@@ -1,0 +1,582 @@
+{
+ "about": "Stash's window as a Mac's is used (docs/adr/0016-windows.mdx): moved by its toolbar's empty middle, resized live from each edge and corner (one configure in flight, the edges not dragged never moving, the window at exactly the pointer's size) down to the smallest size Stash declares through Bloom's window capability (useWindowSizeLimits: 640x400, the compositor's SetSizeLimits), zoomed and restored, its sidebar hidden and shown from the toolbar, and minimized. At every size the sidebar stays in the window (Bloom's desktop window: navFrom 0), never a drawer whose menu button lands on the window's controls, and its pane's toolbar is the window's title area beside it.",
+ "module": "Stash",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Downloads/": "",
+   "Pictures/": "",
+   "notes.txt": "hello",
+   "report.pdf": "%PDF",
+   "photo.jpg": "x"
+  }
+ },
+ "steps": [
+  {
+   "name": "Its first window: the sidebar in it (no drawer, no menu button), the window's controls at its top",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "window_rect": [
+     128,
+     20,
+     1024,
+     680
+    ],
+    "window_shown": true,
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Hide Sidebar"
+      },
+      {
+       "role": "Button",
+       "name": "Close"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press held on the toolbar's empty middle moves the window with the pointer",
+   "do": [
+    "grab",
+    [
+     522,
+     27,
+     -60,
+     -10
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     68,
+     10,
+     1024,
+     680
+    ]
+   }
+  },
+  {
+   "name": "The right edge dragged 80 px out: the left, top and bottom edges stay, the pane relaid out live",
+   "do": [
+    "drag_paced",
+    [
+     1094,
+     400,
+     1174,
+     400,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     68,
+     10,
+     1104,
+     680
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "left",
+      "top",
+      "bottom"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The left edge dragged 100 px in: the right, top and bottom edges stay",
+   "do": [
+    "drag_paced",
+    [
+     65,
+     400,
+     165,
+     400,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     168,
+     10,
+     1004,
+     680
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "top",
+      "right",
+      "bottom"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The top edge dragged 50 px down: the left, right and bottom edges stay",
+   "do": [
+    "drag_paced",
+    [
+     600,
+     7,
+     600,
+     57,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     168,
+     60,
+     1004,
+     630
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "left",
+      "right",
+      "bottom"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The bottom edge dragged 100 px up: the left, right and top edges stay",
+   "do": [
+    "drag_paced",
+    [
+     600,
+     692,
+     600,
+     592,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     168,
+     60,
+     1004,
+     530
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "left",
+      "top",
+      "right"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The top-left corner dragged 100 px in and 30 down: the right and bottom edges stay",
+   "do": [
+    "drag_paced",
+    [
+     165,
+     57,
+     265,
+     87,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     268,
+     90,
+     904,
+     500
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "right",
+      "bottom"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The top-right corner dragged 100 px in and 30 up: the left and bottom edges stay",
+   "do": [
+    "drag_paced",
+    [
+     1174,
+     87,
+     1074,
+     57,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     268,
+     60,
+     804,
+     530
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "left",
+      "bottom"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The bottom-left corner dragged 50 px in and 50 up: the top and right edges stay",
+   "do": [
+    "drag_paced",
+    [
+     265,
+     592,
+     315,
+     542,
+     50,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     318,
+     60,
+     754,
+     480
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "top",
+      "right"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The bottom-right corner dragged far in: the window stops at the smallest size Stash declared (640x400, its sidebar beside a pane whose toolbar fits), the sidebar still in it",
+   "do": [
+    "drag_paced",
+    [
+     1074,
+     542,
+     674,
+     242,
+     100,
+     125
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     318,
+     60,
+     640,
+     400
+    ],
+    "drag": {
+     "unanswered_max": 0,
+     "bounded": true,
+     "presented_min": 3,
+     "steady": [
+      "left",
+      "top"
+     ]
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The green bubble zooms the window to the work area",
+   "do": [
+    "press",
+    [
+     72,
+     26
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     0,
+     0,
+     1280,
+     720
+    ]
+   }
+  },
+  {
+   "name": "Pressed again, it restores the frame it had",
+   "do": [
+    "press",
+    [
+     72,
+     26
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     318,
+     60,
+     640,
+     400
+    ]
+   }
+  },
+  {
+   "name": "Hide Sidebar, from the toolbar: the sidebar leaves the window and the accessibility tree, the pane takes its room, the window does not move",
+   "do": [
+    "press",
+    [
+     261,
+     26
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     318,
+     60,
+     640,
+     400
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Show Sidebar"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "With the sidebar hidden the toolbar keeps the window's controls' room: its toggle is after them, and shows the sidebar again",
+   "do": [
+    "press",
+    [
+     106,
+     26
+    ]
+   ],
+   "expect": {
+    "window_rect": [
+     318,
+     60,
+     640,
+     400
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Hide Sidebar"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The yellow bubble minimizes the window",
+   "do": [
+    "press",
+    [
+     48,
+     26
+    ]
+   ],
+   "expect": {
+    "window_shown": false
+   }
+  }
+ ]
+}

@@ -1,0 +1,128 @@
+{
+ "about": "stash-icons.json on the ThinkPad's display (1600x1000 at 1.25, ADR 0018), its events and tree (pixels are read at scale 1).",
+ "module": "Stash",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "archive.zip": {
+    "bytes": 2000
+   },
+   "Documents/": "",
+   "music.mp3": {
+    "bytes": 3000
+   },
+   "notes.txt": "hello",
+   "photo.jpg": "x",
+   "picture.png": {
+    "png": [
+     640,
+     480,
+     "#3a7bd5"
+    ]
+   },
+   "report.pdf": "%PDF"
+  }
+ },
+ "steps": [
+  {
+   "name": "Every item has its kind's icon: the folder, a page with its kind's glyph, the picture itself; a picture the platform cannot draw (photo.jpg is not a JPEG) tells Stash so and is an image's page, never an empty cell",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "archive.zip",
+     "Documents",
+     "music.mp3",
+     "notes.txt",
+     "photo.jpg",
+     "picture.png",
+     "report.pdf",
+     "7 items"
+    ]
+   }
+  },
+  {
+   "name": "As List: every row has its kind's small icon; the two pictures are asked of the platform again, the one it cannot draw told so, the other drawn",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "as List"
+    ]
+   ],
+   "expect": {
+    "react": {
+     "loadStart@thumbnail-photo.jpg": 1,
+     "error@thumbnail-photo.jpg": 1,
+     "loadEnd@thumbnail-photo.jpg": 1,
+     "loadStart@thumbnail-picture.png": 1,
+     "load@thumbnail-picture.png": 1,
+     "loadEnd@thumbnail-picture.png": 1,
+     "click@view-list": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "as List",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "photo.jpg"
+      }
+     ]
+    },
+    "texts": [
+     "Kind",
+     "7 items"
+    ]
+   }
+  },
+  {
+   "name": "As Icons again: the same icons, photo.jpg's page and picture.png's own pixels",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "as Icons"
+    ]
+   ],
+   "expect": {
+    "react": {
+     "loadStart@thumbnail-photo.jpg": 1,
+     "error@thumbnail-photo.jpg": 1,
+     "loadEnd@thumbnail-photo.jpg": 1,
+     "loadStart@thumbnail-picture.png": 1,
+     "load@thumbnail-picture.png": 1,
+     "loadEnd@thumbnail-picture.png": 1,
+     "click@view-icons": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "as Icons",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "outputs": "1600x1000@1.25"
+}

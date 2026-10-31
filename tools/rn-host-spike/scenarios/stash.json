@@ -79,7 +79,12 @@
               "state": []
             },
             {
-              "role": "Toolbar"
+              "role": "Group",
+              "name": "Stash"
+            },
+            {
+              "role": "Button",
+              "name": "Hide Sidebar"
             },
             {
               "role": "Button",
@@ -93,14 +98,14 @@
               "name": "home"
             },
             {
-              "role": "Radio",
+              "role": "Button",
               "name": "as Icons",
               "state": [
-                "checked"
+                "selected"
               ]
             },
             {
-              "role": "Radio",
+              "role": "Button",
               "name": "as List",
               "state": []
             },
@@ -137,15 +142,16 @@
             "Photos",
             "Locations",
             "Trash",
+            "Documents",
+            "notes.txt",
+            "Pictures",
+            "Hide Sidebar",
             "Back",
             "Forward",
             "home",
             "as Icons",
             "as List",
             "Search",
-            "Documents",
-            "notes.txt",
-            "Pictures",
             "3 items"
           ]
         }
@@ -165,14 +171,14 @@
         "at": {
           "window": [
             {
-              "role": "Radio",
+              "role": "Button",
               "name": "as List",
               "state": [
-                "checked"
+                "selected"
               ]
             },
             {
-              "role": "Radio",
+              "role": "Button",
               "name": "as Icons",
               "state": []
             }
@@ -232,7 +238,7 @@
         "press",
         [
           67,
-          393
+          372
         ]
       ],
       "expect": {
