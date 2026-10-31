@@ -21,6 +21,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the compositor latched since the run began, at least "latched_min", and at least "waited_min"
   of them held until their acquire point signalled: frames that took the GPU path, not shared
   memory;
+- menus: the window's menus as the shell is told them (ADR 0021): null, or by an entry's path
+  ("View > Appearance > Dark") the keys given (shortcut, disabled, checked), null for an entry that
+  must not be there, and "bar", the menus of the bar exactly. A `menu` step chooses a command by
+  its path, as the shell delivers the person's choice;
 - pointer_image: the client's image the pointer shows (ADR 0029), each key given matching (width,
   height, hotspot, scale_120, middle as "#aarrggbb"), or null for a shape;
 - clipboard: what the clipboard holds once the step settled, as the session reads it from its
@@ -277,7 +281,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "clipboard"}
+             "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
 
 
 def director_args(step, out):
@@ -367,6 +371,10 @@ def director_args(step, out):
         return args + ["--switch-terminal", str(value)]
     if kind == "expect-popup":
         return ["--expect-popup"]
+    if kind == "menu":
+        # The person chooses a command in the session's bar (ADR 0021), by its path:
+        # "View > Show Full URL".
+        return args + ["--menu", value]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -1142,6 +1150,28 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                         fail(f"the clipboard's {key} is {have!r}, expected {value!r}")
                 elif have != value:
                     fail(f"the clipboard's {key} is {have!r}, expected {value!r}")
+    if "menus" in expect:
+        # The window's menus as the shell is told them (ADR 0021): null for none, or by an
+        # entry's path ("View > Appearance > Dark") the keys given (shortcut, disabled, checked),
+        # null for an entry that must not be there; "bar" is the menus of the bar, exactly.
+        wanted, got = expect["menus"], result.get("menus")
+        if wanted is None or got is None:
+            if wanted != got:
+                fail(f"the window's menus are {got}, expected {wanted}")
+        else:
+            entries = {entry["path"]: entry for entry in got}
+            for path, value in wanted.items():
+                if path == "bar":
+                    bar = [entry["path"] for entry in got if " > " not in entry["path"]]
+                    if bar != value:
+                        fail(f"the menu bar is {bar}, expected {value}")
+                elif value is None:
+                    if path in entries:
+                        fail(f"the menus have {path!r}, expected none")
+                elif path not in entries:
+                    fail(f"the menus have no {path!r}")
+                elif any(entries[path].get(key) != v for key, v in value.items()):
+                    fail(f"the menus' {path!r} is {entries[path]}, expected {value}")
     if "pointer_image" in expect:
         # The client's image the pointer shows (ADR 0029), each key given matching (width,
         # height, hotspot, scale_120, middle as "#aarrggbb"), or null for a shape.

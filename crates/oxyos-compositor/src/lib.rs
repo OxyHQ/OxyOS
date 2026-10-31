@@ -49,6 +49,10 @@ pub type Looks = HashMap<SurfaceKey, WindowLook>;
 pub const DESKTOP: u32 = 0x10_14_18;
 /// Events a client may leave unread before it is disconnected as unresponsive.
 const MAX_OUTBOX: usize = 1024;
+/// The most requests read from one client in a turn: a burst (a window's menus, an accessibility
+/// snapshot, hundreds of packets) is read in a few turns, not one turn a packet, so a frame sent
+/// after it is not left waiting behind it.
+const REQUESTS_PER_TURN: usize = 256;
 /// Connections, including ones that have not completed Hello yet.
 const MAX_PEERS: usize = oxyos_compositor_core::scene::MAX_CLIENTS;
 /// Time a connection may take to send Hello.
@@ -71,6 +75,22 @@ pub struct Peer {
     pub pid: i32,
     /// Its launch record was looked for (ADR 0013).
     named: bool,
+}
+
+impl Peer {
+    /// Whether another request is waiting to be read, without waiting for one.
+    fn has_request(&self) -> bool {
+        let mut fds = [PollFd::from_borrowed_fd(
+            self.connection.as_fd(),
+            PollFlags::IN,
+        )];
+        let now = rustix::event::Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        matches!(poll(&mut fds, Some(&now)), Ok(ready) if ready > 0)
+            && fds[0].revents().contains(PollFlags::IN)
+    }
 }
 
 /// What the program running the compositor knows of a client's process from its launch records
@@ -3149,6 +3169,12 @@ impl Compositor {
         for (index, client) in clients.iter().enumerate() {
             if readable[index + 1 + shell + reader] {
                 self.receive(*client);
+                for _ in 1..REQUESTS_PER_TURN {
+                    if !self.peers.get(client).is_some_and(Peer::has_request) {
+                        break;
+                    }
+                    self.receive(*client);
+                }
             }
         }
         self.follow_gpu_sync();

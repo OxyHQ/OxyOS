@@ -186,6 +186,9 @@ pub enum Step {
     /// Another application copies these types with their contents (pasteboard.rs): the
     /// clipboard holds them, for the application to paste (ADR 0007).
     Clipboard(Vec<(TextChunk, Vec<u8>)>),
+    /// The person chooses the command at this path of the window's menus in the session's bar
+    /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
+    Menu(String),
 }
 
 /// The points of a drag on the output after its first: eight even steps to its last.
@@ -287,6 +290,7 @@ impl Step {
             Step::Idle(seconds) => format!("{seconds} s with no input"),
             Step::Wait(ms) => format!("{ms} ms waited"),
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
+            Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
 
@@ -424,6 +428,7 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
                     .iter()
@@ -949,6 +954,10 @@ impl Launch {
                 }
                 Some("--minimize-window") => Step::MinimizeWindow,
                 Some("--caps-lock") => Step::CapsLock,
+                Some("--menu") => {
+                    let path = args.next().and_then(|p| p.to_str()).ok_or(USAGE)?;
+                    Step::Menu(path.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1563,6 +1572,79 @@ fn controls_json(fake: &oxyos_controls::Fake) -> String {
         })
         .collect();
     format!("{{{}}}", fields.join(","))
+}
+
+/// Each entry of the window's menus by its path in the bar (`View > Appearance > Dark`), in
+/// order, with its chord, whether it is disabled and, for a checkable command, whether it is
+/// checked; null when the window declared none (ADR 0021).
+fn menus_json(compositor: &Compositor) -> String {
+    let Some(menus) = compositor.scene.menus(SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    }) else {
+        return "null".to_string();
+    };
+    let lines: Vec<String> = menus
+        .entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.kind != oxyos_protocol::MenuKind::Separator)
+        .map(|(index, entry)| {
+            let checked = if entry.flags.contains(oxyos_protocol::MenuFlags::CHECKABLE) {
+                entry
+                    .flags
+                    .contains(oxyos_protocol::MenuFlags::CHECKED)
+                    .to_string()
+            } else {
+                "null".to_string()
+            };
+            format!(
+                "{{\"path\":{},\"shortcut\":{},\"disabled\":{},\"checked\":{checked}}}",
+                json_string(&menu_path(&menus.entries, index)),
+                json_string(&entry.shortcut),
+                entry.flags.contains(oxyos_protocol::MenuFlags::DISABLED),
+            )
+        })
+        .collect();
+    format!("[{}]", lines.join(","))
+}
+
+/// An entry's path in the bar: its menus' labels and its own, joined by ` > `.
+fn menu_path(entries: &[oxyos_compositor_core::scene::MenuEntry], index: usize) -> String {
+    let mut labels = Vec::new();
+    let mut at = Some(index);
+    while let Some(index) = at {
+        let Some(entry) = entries.get(index) else {
+            break;
+        };
+        labels.push(entry.label.as_str());
+        at = (entry.parent != oxyos_protocol::NO_MENU_PARENT).then_some(entry.parent as usize);
+    }
+    labels.reverse();
+    labels.join(" > ")
+}
+
+/// Chooses the command at `path` of the window's menus, as the shell's bar does.
+fn choose_menu_item(compositor: &mut Compositor, path: &str) -> Result<()> {
+    let key = SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    };
+    let menus = compositor
+        .scene
+        .menus(key)
+        .ok_or("the window declared no menus")?;
+    let serial = menus.serial;
+    let index = (0..menus.entries.len())
+        .find(|&index| menu_path(&menus.entries, index) == path)
+        .ok_or_else(|| format!("no {path:?} in the window's menus"))?;
+    if !compositor
+        .scene
+        .choose_active_menu_item(serial, index as u32)
+    {
+        return Err(format!("{path:?} could not be chosen").into());
+    }
+    Ok(())
 }
 
 /// The client's image the pointer shows once a step settled (ADR 0029): its size and hotspot in
@@ -2920,6 +3002,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ExpectPopup
         | Step::Wait(_)
         | Step::Clipboard(_)
+        | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
         | Step::Accessibility { .. }
@@ -3372,6 +3455,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Menu(_)) => {
+                if let Step::Menu(path) = step {
+                    choose_menu_item(&mut session.compositor, path)?;
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -3497,7 +3586,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let announcements = announcements_json(&session.reader.take_announcements());
         let clipboard = clipboard_json(&mut session)?;
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -3516,6 +3605,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
+            menus_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),

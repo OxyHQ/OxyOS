@@ -230,6 +230,21 @@ impl Scene {
         else {
             return Ok(());
         };
+        self.choose_menu_item(key, serial, index);
+        Ok(())
+    }
+
+    /// The session's bar chooses the entry `index` of the commit `serial` of the active
+    /// window's menus, as the shell's choice is delivered (a development compositor's played
+    /// bar): false, and nothing delivered, for anything the shell's choice would not deliver.
+    pub fn choose_active_menu_item(&mut self, serial: u32, index: u32) -> bool {
+        match self.active {
+            Some(key) if !self.locked => self.choose_menu_item(key, serial, index),
+            _ => false,
+        }
+    }
+
+    fn choose_menu_item(&mut self, key: SurfaceKey, serial: u32, index: u32) -> bool {
         let Some(menus) = self
             .menu_bars
             .surfaces
@@ -237,18 +252,18 @@ impl Scene {
             .and_then(|entry| entry.committed.as_ref())
             .filter(|menus| menus.serial == serial)
         else {
-            return Ok(());
+            return false;
         };
         let Some(entry) = menus.entries.get(index as usize) else {
-            return Ok(());
+            return false;
         };
         if entry.kind != MenuKind::Item {
-            return Ok(());
+            return false;
         }
         let mut at = Some(entry);
         while let Some(entry) = at {
             if entry.flags.contains(MenuFlags::DISABLED) {
-                return Ok(());
+                return false;
             }
             at = menus.entries.get(entry.parent as usize);
         }
@@ -266,7 +281,7 @@ impl Scene {
                 index,
             },
         );
-        Ok(())
+        true
     }
 
     /// A surface went away: its menus with it.

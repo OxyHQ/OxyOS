@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS menu bar</title>
+<style>
+html, body { margin: 0; height: 100%; }
+* { caret-color: transparent; caret-animation: manual; }
+body { background: #e9ecef; font: 22px sans-serif; }
+#field { position: absolute; left: 20px; top: 10px; width: 400px; height: 40px; font: 22px sans-serif; }
+#result { position: absolute; left: 440px; top: 10px; width: 120px; height: 40px; background: #868e96; }
+</style>
+</head>
+<body>
+<input id="field" value="hola menu">
+<div id="result"></div>
+<script>
+field.addEventListener("input", () => {
+  result.style.background = field.value === "hola menuhola menu" ? "#2f9e44" : "#e03131";
+});
+</script>
+</body>
+</html>

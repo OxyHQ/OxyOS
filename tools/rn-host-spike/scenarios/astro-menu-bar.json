@@ -1,0 +1,157 @@
+{
+  "about": "Astro's menus in the session's menu bar (ADR 0029, decision 6; ADR 0021): Astro's interface builds File, Edit, View, Tabs, History, Bookmarks, Extensions, Window and Help from its own command table (the one its ⋯ menu and shortcuts use), each command with its chord, check and disabled state, and the engine gives them to the window's menu bar through the oxyos platform; a choice comes back as the same command. Run with the engine as `--client`; the page (pages/astro-menu-bar.html) is Astro's tab, 190 px right of the window's edge and 47 px down. The bar's Select All, Copy and Paste act on the focused field (the clipboard then holds its text, and the paste doubles it), and View > Show Tabs in Sidebar moves the tabs on top, its check following. Menus not declared, a choice that does nothing, or a check that does not follow fails it.",
+  "window": [
+    1000,
+    400
+  ],
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-menu-bar.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it: the window's menus are Astro's, each command with its chord",
+      "do": [
+        "press",
+        [
+          890,
+          347
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "menus": {
+          "bar": [
+            "File",
+            "Edit",
+            "View",
+            "Tabs",
+            "History",
+            "Bookmarks",
+            "Extensions",
+            "Window",
+            "Help"
+          ],
+          "File > New Tab": {
+            "shortcut": "Mod+T",
+            "disabled": false
+          },
+          "File > Close Window": {
+            "shortcut": "Mod+Shift+W"
+          },
+          "Edit > Copy": {
+            "shortcut": "Mod+C"
+          },
+          "Edit > Paste": {
+            "shortcut": "Mod+V"
+          },
+          "Edit > Find > Find…": {
+            "shortcut": "Mod+F"
+          },
+          "View > Appearance > Automatic": {
+            "checked": true
+          },
+          "View > Appearance > Dark": {
+            "checked": false
+          },
+          "View > Show Tabs in Sidebar": {
+            "checked": true
+          },
+          "Tabs > Go Back": {
+            "disabled": true
+          },
+          "History > Show History…": {
+            "shortcut": "Mod+Y"
+          },
+          "Bookmarks > Bookmark This Page": {
+            "shortcut": "Mod+D"
+          },
+          "Window > Profiles > Personal": {
+            "shortcut": "Super+1"
+          },
+          "Help > Keyboard Shortcuts": {
+            "shortcut": ""
+          }
+        }
+      }
+    },
+    {
+      "name": "a press in the field gives it the keyboard",
+      "do": [
+        "press",
+        [
+          410,
+          77
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "Edit > Select All in the bar selects the field's text",
+      "do": [
+        "menu",
+        "Edit > Select All"
+      ]
+    },
+    {
+      "name": "Edit > Copy in the bar copies it: the clipboard holds it",
+      "do": [
+        "menu",
+        "Edit > Copy"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "clipboard": {
+          "text/plain;charset=utf-8": "hola menu"
+        }
+      }
+    },
+    {
+      "name": "a press after the text puts the caret at its end",
+      "do": [
+        "press",
+        [
+          570,
+          77
+        ]
+      ]
+    },
+    {
+      "name": "Edit > Paste in the bar pastes it there",
+      "do": [
+        "menu",
+        "Edit > Paste"
+      ],
+      "expect": {
+        "pixels": {
+          "690,77": "#2f9e44"
+        }
+      }
+    },
+    {
+      "name": "View > Show Tabs in Sidebar in the bar puts the tabs on top, and the window's menus say so",
+      "do": [
+        "menu",
+        "View > Show Tabs in Sidebar"
+      ],
+      "expect": {
+        "pixels": {
+          "100,300": "#e9ecef"
+        },
+        "menus": {
+          "View > Show Tabs in Sidebar": {
+            "checked": false
+          }
+        }
+      }
+    }
+  ]
+}
