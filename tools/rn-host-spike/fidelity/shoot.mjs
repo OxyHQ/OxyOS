@@ -34,7 +34,10 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const STILL = `*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important;
   transition-duration: 0s !important; transition-delay: 0s !important; caret-color: transparent !important; }`;
 
-const browser = await chromium.launch({ headless: true });
+// The whole browser (Chromium's own headless mode), not Playwright's headless shell: the shell sets
+// glyphs at whole-pixel advances on Linux, where Chromium itself (and Astro) sets them at their
+// fractional ones, so text laid out by the shell is wider than Bloom's in a browser.
+const browser = await chromium.launch({ headless: true, channel: 'chromium' });
 let failed = false;
 try {
   for (const config of spec.configs) {

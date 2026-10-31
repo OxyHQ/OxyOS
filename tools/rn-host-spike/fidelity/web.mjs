@@ -83,6 +83,17 @@ write('public/index.html', `<!doctype html>
 write('index.js', `import './global.css';
 import { AppRegistry } from 'react-native';
 import FidelityGallery from ${JSON.stringify(path.join(sample, 'FidelityGallery'))};
+import inter from ${JSON.stringify(path.join(bloom, 'src/fonts/assets/InterVariable.ttf'))};
+
+// Text without a fontFamily is set in the platform's own face: react-native-web's System stack in
+// a browser, Inter on OxyOS (the host's text engine). Each family of that stack is the file the
+// host draws such text with, so the gallery compares drawing, not which faces a machine has.
+const system = ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial'];
+const faces = document.createElement('style');
+faces.textContent = system
+  .map((name) => \`@font-face { font-family: '\${name}'; src: url("\${inter}"); font-weight: 100 900; font-style: normal; }\`)
+  .join('\\n');
+document.head.appendChild(faces);
 
 // The page from the address (?page=N), as the host's module name chooses it (FidelityGalleryN).
 const page = Number(new URLSearchParams(window.location.search).get('page') || '1');
