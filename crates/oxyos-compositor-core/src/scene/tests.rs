@@ -3606,6 +3606,67 @@ fn two_windows(h: &mut Harness) -> (SurfaceKey, SurfaceKey) {
 }
 
 #[test]
+fn the_session_copies_without_an_input_and_reads_what_an_application_copied() {
+    const SESSION: ClientId = 99;
+    let mut h = Harness::new();
+    let (_, _) = two_windows(&mut h);
+    assert_eq!(
+        h.scene.copy_for_session(SESSION, vec![mime(PLAIN)]),
+        Err(ErrorCode::Unauthorized),
+        "only a client of the scene owns content"
+    );
+    h.scene.connect(SESSION, Grants::default()).unwrap();
+    h.scene
+        .copy_for_session(SESSION, vec![mime("text/html"), mime(PLAIN)])
+        .unwrap();
+    h.pump();
+    // The focused application is told it, as for any copy, under the compositor's name.
+    assert_eq!(
+        clipboard_events(&h, APP),
+        [
+            Event::ClipboardTypes {
+                selection: 1,
+                count: 2
+            },
+            Event::ClipboardType {
+                selection: 1,
+                mime: mime("text/html")
+            },
+            Event::ClipboardType {
+                selection: 1,
+                mime: mime(PLAIN)
+            },
+        ]
+    );
+    let serial = type_key(&mut h);
+    assert_eq!(paste(&mut h, APP, 1, "text/html", serial), Some(SESSION));
+    assert_eq!(
+        clipboard_events(&h, SESSION).last(),
+        Some(&Event::ClipboardSend {
+            offer: 1,
+            mime: mime("text/html")
+        })
+    );
+
+    copy(&mut h, APP, 7);
+    assert_eq!(h.scene.clipboard().map(|(selection, _)| selection), Some(2));
+    assert!(
+        !h.scene.paste_for_session(mime("image/png")),
+        "a type it does not hold"
+    );
+    assert!(h.scene.paste_for_session(mime(PLAIN)));
+    assert_eq!(h.scene.take_transfer(), Some(APP));
+    h.pump();
+    assert_eq!(
+        clipboard_events(&h, APP).last(),
+        Some(&Event::ClipboardSend {
+            offer: 7,
+            mime: mime(PLAIN)
+        })
+    );
+}
+
+#[test]
 fn a_copy_reaches_the_focused_application_which_pastes_it_from_its_owner() {
     let mut h = Harness::new();
     let (_, other) = two_windows(&mut h);
@@ -3821,10 +3882,26 @@ fn logged(h: &mut Harness) -> Vec<(ClientId, Event)> {
 }
 
 fn to(events: &[(ClientId, Event)], client: ClientId) -> Vec<Event> {
+    without_outputs(
+        events
+            .iter()
+            .filter(|(c, _)| *c == client)
+            .map(|(_, e)| *e)
+            .collect(),
+    )
+}
+
+/// `events` but what every client is told of the outputs when it connects (ApplicationOutput,
+/// its work area), which tests of something else leave out.
+fn without_outputs(events: Vec<Event>) -> Vec<Event> {
     events
-        .iter()
-        .filter(|(c, _)| *c == client)
-        .map(|(_, e)| *e)
+        .into_iter()
+        .filter(|event| {
+            !matches!(
+                event,
+                Event::ApplicationOutput { .. } | Event::ApplicationOutputWorkArea { .. }
+            )
+        })
         .collect()
 }
 
@@ -4957,7 +5034,7 @@ fn the_shell_locks_and_the_lock_screen_is_told() {
     assert!(h.scene.is_locked());
     assert!(!h.rendered(window));
     assert_eq!(
-        h.events_for(LOCKER),
+        without_outputs(h.events_for(LOCKER)),
         vec![Event::LockState { locked: true }]
     );
     // Telling is the lock grant's: the shell and applications are not told.
@@ -4996,13 +5073,13 @@ fn a_lock_screen_that_connects_while_locked_is_told_at_once() {
         .unwrap();
     h.pump();
     assert_eq!(
-        h.events_for(LOCKER),
+        without_outputs(h.events_for(LOCKER)),
         vec![Event::LockState { locked: true }]
     );
     // An application connecting is told nothing of it.
     h.scene.connect(9, Grants::default()).unwrap();
     h.pump();
-    assert!(h.events_for(9).is_empty());
+    assert!(without_outputs(h.events_for(9)).is_empty());
 }
 
 #[test]
@@ -6104,7 +6181,7 @@ fn every_client_is_told_the_preferences_it_draws_with_and_settings_every_one() {
     h.clear_log();
     h.scene.connect(SETTINGS, Grants::default()).unwrap();
     h.pump();
-    assert_eq!(h.events_for(SETTINGS), vec![preferences]);
+    assert_eq!(without_outputs(h.events_for(SETTINGS)), vec![preferences]);
     assert!(told_preferences(&h, SETTINGS).is_empty());
     h.scene
         .grant(
@@ -7532,4 +7609,220 @@ fn a_key_the_input_method_gives_back_keeps_its_own_time() {
         })
         .collect();
     assert_eq!(keys, [2_000_000_000]);
+}
+
+#[test]
+fn every_client_is_told_the_keyboard_layout_before_its_first_key() {
+    let mut h = Harness::new();
+    assert_eq!(
+        h.scene.set_keyboard_layout(""),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let long = "x".repeat(oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES + 1);
+    assert_eq!(
+        h.scene.set_keyboard_layout(&long),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let layout = "de\tnodeadkeys\tcompose:ralt,grp:alt_shift_toggle";
+    h.scene.set_keyboard_layout(layout).unwrap();
+    h.pump();
+    let told = |h: &Harness, client| -> String {
+        h.events_for(client)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::KeyboardLayout { text, .. } => Some(text.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(told(&h, APP), layout, "a connected client, in chunks");
+    let chunks: Vec<(u8, bool)> = h
+        .events_for(APP)
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::KeyboardLayout { index, last, .. } => Some((index, last)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chunks, [(0, false), (1, true)]);
+    h.scene.connect(7, Grants::default()).unwrap();
+    h.pump();
+    assert_eq!(told(&h, 7), layout, "one that connects later, at once");
+    h.clear_log();
+    h.scene.set_keyboard_layout(layout).unwrap();
+    h.pump();
+    assert_eq!(told(&h, APP), "", "only a change is told again");
+}
+
+#[test]
+fn a_surfaces_pointer_image_is_the_pointers_until_a_shape_replaces_it() {
+    use oxyos_protocol::PointerShape;
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let attach = |buffer, format, width, height| Request::AttachBuffer {
+        buffer,
+        format,
+        extent: Size::new(width, height),
+        stride: width * 4,
+        offset: 0,
+    };
+    h.request(APP, attach(40, oxyos_protocol::Format::Argb8888, 32, 32))
+        .unwrap();
+    h.request(APP, attach(41, oxyos_protocol::Format::Argb8888, 257, 8))
+        .unwrap();
+    h.request(APP, attach(42, oxyos_protocol::Format::Xrgb8888, 8, 8))
+        .unwrap();
+    let image = |buffer, hotspot_x, scale_120| Request::SetPointerImage {
+        surface: 1,
+        buffer,
+        hotspot_x,
+        hotspot_y: 0,
+        scale_120,
+    };
+    assert_eq!(
+        h.request(APP, image(41, 0, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(42, 0, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(40, 32, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(40, 0, 600)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(9, 0, 120)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    assert_eq!(
+        h.request(OTHER, image(40, 0, 120)),
+        Err(ErrorCode::UnknownSurface)
+    );
+    h.request(APP, image(40, 4, 240)).unwrap();
+    assert_eq!(h.scene.pointer_image_of(window), Some(1));
+    assert_eq!(h.scene.pointer_image(), None, "the pointer is not over it");
+    h.scene.pointer_motion(w.x + 50, w.y + 50);
+    assert_eq!(h.scene.pointer_image(), Some((window, 1)));
+    // A buffer destroyed after the image was set does not take the image with it: the program
+    // running the compositor read its pixels when it arrived.
+    h.request(APP, Request::DestroyBuffer { buffer: 40 })
+        .unwrap();
+    assert_eq!(h.scene.pointer_image(), Some((window, 1)));
+    h.request(
+        APP,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Hand,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.pointer_image(), None);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Hand);
+}
+
+#[test]
+fn applications_are_told_each_outputs_size_scale_refresh_and_work_area_but_not_its_place() {
+    let mut h = Harness::new();
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: Rect::new(1920, 0, 1280, 720),
+            scale_120: 180,
+            refresh_mhz: 144_000,
+        })
+        .unwrap();
+    h.scene.connect(7, Grants::default()).unwrap();
+    h.pump();
+    let told: Vec<Event> = h
+        .events_for(7)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                Event::ApplicationOutput { .. } | Event::ApplicationOutputWorkArea { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [
+            Event::ApplicationOutput {
+                output: 1,
+                size: Size::new(1920, 1080),
+                scale_120: 120,
+                refresh_mhz: 60_000,
+                primary: true,
+            },
+            Event::ApplicationOutputWorkArea {
+                output: 1,
+                rect: Rect::new(0, 0, 1920, 1080),
+            },
+            Event::ApplicationOutput {
+                output: 2,
+                size: Size::new(1280, 720),
+                scale_120: 180,
+                refresh_mhz: 144_000,
+                primary: false,
+            },
+            Event::ApplicationOutputWorkArea {
+                output: 2,
+                rect: Rect::new(0, 0, 1280, 720),
+            },
+        ]
+    );
+    // A window is told the output it is on before its first configure, and again when it is
+    // moved onto another.
+    h.clear_log();
+    let window = h.toplevel(7, 1, 400, 300);
+    let first: Vec<Event> = h.events_for(7);
+    let on = first
+        .iter()
+        .position(|event| {
+            *event
+                == Event::SurfaceOutput {
+                    surface: 1,
+                    output: 1,
+                }
+        })
+        .expect("told its output");
+    let configured = first
+        .iter()
+        .position(|event| matches!(event, Event::Configure { .. }))
+        .unwrap();
+    assert!(on < configured);
+    h.clear_log();
+    h.scene.move_window_to(window, (2000, 100));
+    h.present(window);
+    h.pump();
+    assert!(h.events_for(7).contains(&Event::SurfaceOutput {
+        surface: 1,
+        output: 2
+    }));
+    // An output's change and its removal are told; nothing else is told again.
+    h.clear_log();
+    h.scene.set_output_scale(2, 240).unwrap();
+    h.pump();
+    assert!(h.events_for(7).contains(&Event::ApplicationOutput {
+        output: 2,
+        size: Size::new(1280, 720),
+        scale_120: 240,
+        refresh_mhz: 144_000,
+        primary: false,
+    }));
+    assert!(!h
+        .events_for(7)
+        .iter()
+        .any(|event| matches!(event, Event::ApplicationOutput { output: 1, .. })));
+    h.clear_log();
+    h.scene.remove_output(2);
+    h.pump();
+    assert!(h
+        .events_for(7)
+        .contains(&Event::ApplicationOutputRemoved { output: 2 }));
 }

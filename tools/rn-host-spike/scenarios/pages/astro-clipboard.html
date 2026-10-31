@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS clipboard</title>
+<style>
+html, body { margin: 0; height: 100%; }
+* { caret-color: transparent; caret-animation: manual; }
+body { background: #e9ecef; font: 22px sans-serif; }
+#source, #plain { position: absolute; left: 20px; width: 400px; height: 40px; font: 22px sans-serif; }
+#source { top: 10px; }
+#rich, #target { position: absolute; left: 20px; width: 400px; background: #ffffff; outline: none; }
+#rich { top: 60px; height: 40px; }
+#copyImage { position: absolute; left: 20px; top: 110px; width: 200px; height: 40px; font: 22px sans-serif; }
+#target { top: 160px; height: 60px; }
+#plain { top: 230px; }
+.status { position: absolute; left: 440px; width: 120px; background: #868e96; }
+#imageStatus { top: 110px; height: 40px; }
+#pasteStatus { top: 160px; height: 60px; }
+#plainStatus { top: 230px; height: 40px; }
+</style>
+</head>
+<body>
+<input id="source" value="copied from Astro">
+<div id="rich" contenteditable="true">Rich <b>bold</b> text</div>
+<button id="copyImage">Copy image</button>
+<div id="target" contenteditable="true"></div>
+<input id="plain">
+<div class="status" id="imageStatus"></div>
+<div class="status" id="pasteStatus"></div>
+<div class="status" id="plainStatus"></div>
+<script>
+const GOOD = "#2f9e44";
+const BAD = "#e03131";
+const paint = (element, ok) => { element.style.background = ok ? GOOD : BAD; };
+
+copyImage.onclick = () => {
+  imageStatus.style.background = "#f08c00";
+  const canvas = document.createElement("canvas");
+  canvas.width = 3;
+  canvas.height = 2;
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#1971c2";
+  context.fillRect(0, 0, 3, 2);
+  canvas.toBlob((blob) => {
+    navigator.clipboard.write([new ClipboardItem({ "image/png": blob })])
+      .then(() => paint(imageStatus, true), () => paint(imageStatus, false));
+  }, "image/png");
+};
+
+target.addEventListener("paste", (event) => {
+  event.preventDefault();
+  const data = event.clipboardData;
+  const html = data.getData("text/html");
+  const text = data.getData("text/plain");
+  const files = [...data.files];
+  const image = files.find((file) => file.type === "image/png");
+  const missing = [
+    html.includes("<i>hola</i> <b>OxyOS</b>") ? "" : "html",
+    text === "hola desde OxyOS" ? "" : "text",
+    image ? "" : "image",
+  ].filter(Boolean);
+  if (missing.length) {
+    pasteStatus.textContent = missing.join(" ");
+    paint(pasteStatus, false);
+    return;
+  }
+  createImageBitmap(image).then(
+    (bitmap) => paint(pasteStatus, bitmap.width === 2 && bitmap.height === 2),
+    () => paint(pasteStatus, false));
+});
+
+plain.addEventListener("input", () => paint(plainStatus, plain.value === "hola desde OxyOS"));
+</script>
+</body>
+</html>

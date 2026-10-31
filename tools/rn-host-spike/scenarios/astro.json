@@ -4,6 +4,7 @@
     1000,
     600
   ],
+  "launch_settle_ms": 3000,
   "client": [
     "--ozone-platform=oxyos",
     "--user-data-dir={out}/profile",

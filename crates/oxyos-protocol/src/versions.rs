@@ -21,40 +21,38 @@ const GROWN_IN_3: &[(u8, &[u8])] = &[
     (150, &[0; 8]),
 ];
 
-/// Opcodes version 3 added: GPU buffers (ADR 0031), in both directions.
-const ADDED_IN_3: std::ops::RangeInclusive<u8> = 170..=174;
+/// The opcodes each version added, by direction (a request and an event may share an opcode):
+/// version 3, GPU buffers (ADR 0031), both ways; version 4, a touchpad's resting fingers (Hold),
+/// sent unasked to the surface under the pointer; version 5, the session's keyboard layout and
+/// the outputs, told to every client, and a client's pointer images (ADR 0029); version 6,
+/// screenshots (ADR 0024, decision 10), both ways, `CaptureMode` sent unasked on Super+Shift+4
+/// and 5.
+type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
+const EVENTS_ADDED: Added = &[
+    (3, 170..=174),
+    (4, 58..=58),
+    (5, 180..=180),
+    (5, 200..=203),
+    (6, 210..=212),
+];
+const REQUESTS_ADDED: Added = &[(3, 170..=174), (5, 190..=190), (6, 210..=215)];
 
-/// Events version 4 added: a touchpad's resting fingers (Hold), sent unasked to the surface under
-/// the pointer, so never to an older client.
-const EVENTS_ADDED_IN_4: &[u8] = &[58];
+fn since(added: Added, opcode: u8) -> u16 {
+    added
+        .iter()
+        .find(|(_, opcodes)| opcodes.contains(&opcode))
+        .map_or(2, |(version, _)| *version)
+}
 
-/// Opcodes version 5 added, in both directions: screenshots (ADR 0024, decision 10). CaptureMode
-/// is sent unasked, on Super+Shift+4 and 5.
-const ADDED_IN_5: std::ops::RangeInclusive<u8> = 200..=205;
-
-/// The version that introduced an event.
+/// The version that introduced an event: it is never sent to a connection of an older one.
 pub fn event_since(event: &Event) -> u16 {
-    if ADDED_IN_5.contains(&event.opcode()) {
-        5
-    } else if EVENTS_ADDED_IN_4.contains(&event.opcode()) {
-        4
-    } else if ADDED_IN_3.contains(&event.opcode()) {
-        3
-    } else {
-        2
-    }
+    since(EVENTS_ADDED, event.opcode())
 }
 
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one.
 pub fn request_since(request: &Request) -> u16 {
-    if ADDED_IN_5.contains(&request.opcode()) {
-        5
-    } else if ADDED_IN_3.contains(&request.opcode()) {
-        3
-    } else {
-        2
-    }
+    since(REQUESTS_ADDED, request.opcode())
 }
 
 fn grown(opcode: u8, version: u16) -> &'static [u8] {

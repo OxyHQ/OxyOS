@@ -395,6 +395,9 @@ fn main() -> Result<()> {
         });
     let input = oxyos_input::Input::open_with(bounds, &layout, Some((open, close)))?;
     eprintln!("[session] input from seat0, layout {layout}");
+    if let Err(code) = compositor.scene.set_keyboard_layout(&layout.names()) {
+        eprintln!("[session] layout {layout} not told to applications: {code:?}");
+    }
     compositor.input = Some(input);
     compositor.confine_pointer();
 
@@ -1195,6 +1198,7 @@ impl Heads for Card {
             screen.display = Some(head.display);
             screen.scanout = head.scanout;
             screen.pointer_images = head.pointer;
+            screen.client_pointer = None;
         }
     }
 
@@ -1205,6 +1209,7 @@ impl Heads for Card {
             if let Some(display) = screen.display.as_mut() {
                 display.clear_pointer_images();
                 screen.pointer_images = show_pointer(display, pointer.as_ref(), scale_120);
+                screen.client_pointer = None;
             }
         }
     }

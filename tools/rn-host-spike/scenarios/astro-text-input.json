@@ -1,0 +1,253 @@
+{
+  "about": "Astro's text input on OxyOS (ADR 0029, decision 6; ADR 0008): Chromium's input method context over the protocol's text input, and the session's keyboard layout for keys that type nothing. Run with the engine as `--client`; the page (pages/astro-text-input.html) is Astro's tab, 190 px right of the window's edge and 47 px down, its carets transparent and still. A focused field tells the compositor its purpose, hints, text and caret, without its composition; an input method's transactions compose (with segments and a cursor), convert, commit and delete whole characters; a dead key's composition and the character it composes reach the field as the session's compose table makes them; on the session's AZERTY layout Ctrl with the key at US Q is Ctrl+A; a password field tells nothing of its text. A field told with its composition, a deletion counted in UTF-16, or the US position for a shortcut fails it.",
+  "window": [
+    1000,
+    400
+  ],
+  "launch_settle_ms": 3000,
+  "layout": "fr",
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-text-input.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it gives the page the keyboard: no field is focused",
+      "do": [
+        "press",
+        [
+          890,
+          347
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "700,300": "#e9ecef"
+        },
+        "focus_surface": 1,
+        "field": null
+      }
+    },
+    {
+      "name": "a press in the field focuses it: Astro tells the compositor a field, empty, its caret",
+      "do": [
+        "press",
+        [
+          410,
+          77
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "field": {
+          "surface": 1,
+          "purpose": "Normal",
+          "hints": 1,
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "text typed is one transaction, and the field tells its new text",
+      "do": [
+        "type",
+        "abc"
+      ],
+      "expect": {
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "an input method's composition shows in the field, composing; the field tells its text without it",
+      "do": [
+        "transaction",
+        {
+          "preedit": "にほん",
+          "segments": [
+            [
+              0,
+              9,
+              "composing"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "pixels": {
+          "690,77": "#2f9e44"
+        },
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "converting it: the converted text replaces the composition, one segment selected",
+      "do": [
+        "transaction",
+        {
+          "preedit": "日本",
+          "cursor": [
+            0,
+            6
+          ],
+          "segments": [
+            [
+              0,
+              6,
+              "converting"
+            ]
+          ]
+        }
+      ],
+      "expect": {
+        "pixels": {
+          "690,77": "#1971c2"
+        },
+        "field": {
+          "text": "abc",
+          "anchor": 3,
+          "cursor": 3
+        }
+      }
+    },
+    {
+      "name": "the commit replaces the composition with the text",
+      "do": [
+        "transaction",
+        {
+          "commit": "日本"
+        }
+      ],
+      "expect": {
+        "field": {
+          "text": "abc日本",
+          "anchor": 9,
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "a deletion before the selection, in bytes, deletes whole characters",
+      "do": [
+        "transaction",
+        {
+          "delete": [
+            3,
+            0
+          ]
+        }
+      ],
+      "expect": {
+        "field": {
+          "text": "abc日",
+          "anchor": 6,
+          "cursor": 6
+        }
+      }
+    },
+    {
+      "name": "a dead key's composition, as the session's compose table shows it",
+      "do": [
+        "preedit",
+        "´"
+      ],
+      "expect": {
+        "field": {
+          "text": "abc日",
+          "anchor": 6,
+          "cursor": 6
+        }
+      }
+    },
+    {
+      "name": "the composed character replaces it",
+      "do": [
+        "type",
+        "á"
+      ],
+      "expect": {
+        "field": {
+          "text": "abc日á",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "Ctrl with the key at US Q is Ctrl+A on the session's AZERTY layout, not Ctrl+Q",
+      "do": [
+        "key",
+        [
+          29,
+          16
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "690,127": "#2f9e44"
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "the password field is a password, and tells neither its text nor its caret",
+      "do": [
+        "press",
+        [
+          410,
+          127
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "field": {
+          "purpose": "Password",
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": null
+        }
+      }
+    },
+    {
+      "name": "what is typed into it is told to no one",
+      "do": [
+        "type",
+        "secreto"
+      ],
+      "expect": {
+        "field": {
+          "purpose": "Password",
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": null
+        }
+      }
+    }
+  ]
+}

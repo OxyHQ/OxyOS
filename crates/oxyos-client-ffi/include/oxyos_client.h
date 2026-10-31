@@ -86,6 +86,11 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
 #define OXYOS_EVENT_GPU_SCANOUT 173
+#define OXYOS_EVENT_KEYBOARD_LAYOUT 180
+#define OXYOS_EVENT_APPLICATION_OUTPUT 200
+#define OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA 201
+#define OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED 202
+#define OXYOS_EVENT_SURFACE_OUTPUT 203
 /* A DISPLAY's flag bits. */
 #define OXYOS_DISPLAY_PRIMARY 1
 #define OXYOS_DISPLAY_BUILTIN 2
@@ -99,9 +104,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_SEARCH 7
 #define OXYOS_SHORTCUT_MENU_BAR 8
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
-#define OXYOS_EVENT_CAPTURE_MODE 200
-#define OXYOS_EVENT_CAPTURE_TARGET 201
-#define OXYOS_EVENT_SCREENSHOT_SAVED 202
+#define OXYOS_EVENT_CAPTURE_MODE 210
+#define OXYOS_EVENT_CAPTURE_TARGET 211
+#define OXYOS_EVENT_SCREENSHOT_SAVED 212
 /* A CAPTURE_MODE's detail. */
 #define OXYOS_CAPTURE_MODE_SELECTION 1
 #define OXYOS_CAPTURE_MODE_WINDOW 2
@@ -407,6 +412,19 @@ typedef struct OxyOSClient OxyOSClient;
  *                      the last (then show it); `text` the chunk.
  *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
  *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+ *   APPLICATION_OUTPUT to every client when it connects and as it changes (ADR 0029): an output
+ *                      the session shows, never its place: code, its id; width, height, its size in
+ *                      logical pixels; scale_120; detail, its refresh in mHz; flag, the primary.
+ *   APPLICATION_OUTPUT_WORK_AREA  after it: code, the output; x, y, width, height, the part of it
+ *                      windows may cover, relative to it.
+ *   APPLICATION_OUTPUT_REMOVED  code: the output that went away.
+ *   SURFACE_OUTPUT     surface; code: the output it is on, before its first CONFIGURE and whenever it
+ *                      changes.
+ *   KEYBOARD_LAYOUT    to every client when it connects and whenever it changes (ADR 0029): a chunk
+ *                      of the session's keyboard layout, `layout\tvariant\toptions` as XKB names
+ *                      them (variant and options may be empty), compiled with the default rules
+ *                      and model; `detail` its index (0 begins it), `flag` 1 on the last, `text`
+ *                      the chunk.
 
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */
@@ -563,6 +581,11 @@ const char* oxyos_last_error(void);
 OxyOSClient* oxyos_client_connect(const char* path);
 void oxyos_client_close(OxyOSClient* client);
 int oxyos_client_fd(OxyOSClient* client);
+/* The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx): the highest the
+ * compositor and this library share. A request newer than it fails and an event newer than it never
+ * arrives, so a client offers what needs a newer version only when it has it (a pointer image needs
+ * 5). 0 for no client. */
+uint16_t oxyos_client_protocol_version(OxyOSClient* client);
 
 int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height);
 
@@ -730,6 +753,15 @@ int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, ui
 #define OXYOS_POINTER_ZOOM_OUT 16
 /* The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0, or OXYOS_ERROR. */
 int oxyos_client_set_pointer_shape(OxyOSClient* client, uint32_t surface, uint8_t shape);
+/* The pointer's image while it is over `surface`, instead of a shape (ADR 0029): `width` by `height`
+ * pixels (1 to 256 each), rows of `stride` bytes of premultiplied ARGB8888 (little-endian B, G, R,
+ * A), its hotspot in them and the scale it was drawn for in 120ths (120 to 480; a display of
+ * another scale shows it resized). The compositor reads the pixels at once. A later shape replaces
+ * it. 0, or OXYOS_ERROR (nothing sent for an image that is not valid, or to a compositor of a
+ * protocol version before 5). */
+int oxyos_client_set_pointer_image(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height,
+                                   uint32_t stride, const uint8_t* pixels, uint32_t hotspot_x, uint32_t hotspot_y,
+                                   uint32_t scale_120);
 /* A toplevel's own window (docs/adr/0016-windows.mdx). begin_move: the compositor moves it with
  * the pointer from the press `serial` names (the one being handled) until its buttons are up.
  * set_maximized zooms it to its output's work area or restores it; minimize puts it in the dock;
@@ -917,6 +949,19 @@ int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
  * client library keeps it and answers pastes itself. The compositor refuses a copy whose serial
  * is not a recent input of this client, or made without keyboard focus. */
 int oxyos_client_copy_text(OxyOSClient* client, uint64_t serial, const char* text, size_t length);
+/* One media type of a copy: `mime_length` bytes of its name (UTF-8, 1 to 32) and `length` bytes of
+ * its content. */
+typedef struct OxyOSClipboardEntry {
+  const char* mime;
+  size_t mime_length;
+  const uint8_t* data;
+  size_t length;
+} OxyOSClipboardEntry;
+/* Copies `count` media types (1 to 16, each named once, the most faithful first) as the clipboard,
+ * with the serial of the user input that asked for it: any type, text, HTML or an image. The
+ * client library keeps every content and answers pastes itself. Nothing is sent if an entry is not
+ * valid; the compositor may refuse the copy as it refuses oxyos_client_copy_text's. */
+int oxyos_client_copy(OxyOSClient* client, uint64_t serial, const OxyOSClipboardEntry* entries, size_t count);
 /* Empties the clipboard if this client's copy is what it holds. */
 int oxyos_client_clear_clipboard(OxyOSClient* client, uint64_t serial);
 /* Pastes `mime` of the content CLIPBOARD_TYPES named `selection`, with the serial of the user input

@@ -297,6 +297,12 @@ messages! {
         // point signals, and the compositor signals the release point once it no longer reads it.
         // Timeline 0 is none: a buffer submitted without an acquire point is ready when submitted.
         174 => SetSync { surface: u32, acquire_timeline: u32, acquire_point: u64, release_timeline: u32, release_point: u64 },
+        // The pointer's image while it is over the surface, instead of a shape (ADR 0029): the
+        // pixels of an attached buffer (premultiplied ARGB8888, at most MAX_POINTER_IMAGE_SIDE on
+        // a side), read when this arrives, so the buffer may be destroyed at once; the hotspot in
+        // its pixels, and the scale it was drawn for in 120ths (a display of another scale shows
+        // it resized). A browser's custom cursors and the cursors OxyOS has no shape for.
+        190 => SetPointerImage { surface: u32, buffer: u64, hotspot_x: u32, hotspot_y: u32, scale_120: u32 },
         // Screenshots (ADR 0024, decision 10). The session's shell (its `shell` and `shortcuts`
         // grants) captures what the person chose in the screenshot interface the compositor
         // opened (CaptureMode), citing that CaptureMode's `serial`: every display (`Screens`), a
@@ -304,21 +310,21 @@ messages! {
         // numbered `window` with its shadow (`Window`); the other fields are 0. It is saved to
         // `destination`, which Super+Shift+3 then uses too. The capture ends the interface; one
         // without it open, or citing another serial, is ignored. EndCapture ends it without one.
-        200 => Capture { serial: u64, kind: CaptureKind, output: u32, rect: Rect, window: u32, destination: CaptureDestination },
-        201 => EndCapture { serial: u64 },
+        210 => Capture { serial: u64, kind: CaptureKind, output: u32, rect: Rect, window: u32, destination: CaptureDestination },
+        211 => EndCapture { serial: u64 },
         // The session's shell: one of its own shell surfaces left out of every capture (its
         // screenshot interface, the thumbnail of the last), or put back in.
-        202 => ExcludeFromCapture { surface: u32, excluded: bool },
+        212 => ExcludeFromCapture { surface: u32, excluded: bool },
         // Any client: the parts of a surface never captured, its secure text fields (surface-local
         // logical pixels, at most MAX_SECURE_REGIONS), drawn opaque black in a capture.
         // ClearSecureRegions begins the list anew, each AddSecureRegion adds one, and the list
         // goes with the surface's next Submit, shown with that frame.
-        203 => ClearSecureRegions { surface: u32 },
-        204 => AddSecureRegion { surface: u32, rect: Rect },
+        213 => ClearSecureRegions { surface: u32 },
+        214 => AddSecureRegion { surface: u32, rect: Rect },
         // The session's shell: open a screenshot the session saved (ScreenshotSaved), citing the
         // serial of an input it received (the press on its thumbnail): the session starts the
         // application that opens it.
-        205 => OpenScreenshot { screenshot: u32, serial: u64 },
+        215 => OpenScreenshot { screenshot: u32, serial: u64 },
     }
 }
 
@@ -558,20 +564,38 @@ messages! {
         // formats when it is no longer.
         173 => GpuScanout { surface: u32, formats: u32 },
         174 => GpuScanoutFormat { surface: u32, index: u32, format: Format, modifier: u64 },
+        // To every client, when it connects and whenever it changes (ADR 0029): the session's
+        // keyboard layout, the XKB keymap its keys are typed with, as `layout\tvariant\toptions`
+        // (variant and options may be empty), in chunks as WindowTitle's: what a client that
+        // works out a key's meaning itself (a browser's shortcuts on a key that types nothing)
+        // compiles with the same default rules and model.
+        180 => KeyboardLayout { index: u8, last: bool, text: PreeditText },
+        // To every client, when it connects and as they change (ADR 0029, amending ADR 0018):
+        // each output the session shows, without its place in the global space, which stays the
+        // shell's: its size in logical pixels, scale in 120ths, refresh in mHz and whether it is
+        // the primary; then the part of it windows may cover (its work area, relative to it); and
+        // an output's removal. What a browser's display list holds (screen.width, devicePixelRatio,
+        // availHeight), and nothing of other clients.
+        200 => ApplicationOutput { output: u32, size: Size, scale_120: u32, refresh_mhz: u32, primary: bool },
+        201 => ApplicationOutputWorkArea { output: u32, rect: Rect },
+        202 => ApplicationOutputRemoved { output: u32 },
+        // To a surface's client, before its first Configure and whenever it changes: the output the
+        // surface is on (the one its Refresh is of).
+        203 => SurfaceOutput { surface: u32, output: u32 },
         // Screenshots (ADR 0024, decision 10), to the session's shell (its `shortcuts` grant).
         // The screenshot interface to show or change: on every display's shell for the crosshair
         // (Super+Shift+4), on the shell of `output` for the toolbar (Super+Shift+5). `serial` is a
         // user input of the shell's, which Capture and FocusShellSurface cite; it is the same for
         // every shell, and for every change until the interface ends.
-        200 => CaptureMode { mode: CaptureMode, serial: u64, output: u32 },
+        210 => CaptureMode { mode: CaptureMode, serial: u64, output: u32 },
         // While the interface is open: the window under the pointer, by its number, and its
         // rectangle (global logical pixels, without its shadow), as the pointer moves onto
         // another; 0 and an empty rectangle over none.
-        201 => CaptureTarget { window: u32, rect: Rect },
+        211 => CaptureTarget { window: u32, rect: Rect },
         // A screenshot the session saved, numbered by it, of `output` (a window's: the display it
         // is on), `width` x `height` pixels: its file's path in chunks (`index` 0 begins it,
         // `last` completes it), to the shell of that output.
-        202 => ScreenshotSaved { screenshot: u32, output: u32, width: u32, height: u32, index: u8, last: bool, text: PreeditText },
+        212 => ScreenshotSaved { screenshot: u32, output: u32, width: u32, height: u32, index: u8, last: bool, text: PreeditText },
     }
 }
 

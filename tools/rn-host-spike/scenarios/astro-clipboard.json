@@ -1,0 +1,243 @@
+{
+  "about": "Astro's clipboard on OxyOS (ADR 0029, decision 6; ADR 0007): Chromium's PlatformClipboard over the protocol's offers and pastes, any type, with the serial of the input that asked. Run with the engine as `--client`; the page is Astro's tab, 190 px right of the window's edge (its sidebar) and 47 px down (its toolbar); carets are transparent, as a blinking one never settles. The page (pages/astro-clipboard.html) copies a field's text and a rich text's HTML with Ctrl+C, and an image with the Async Clipboard API; the session reads each from Astro's pipe as another application pastes. Then another application copies HTML, text and a PNG, and Ctrl+V pastes them into the page: its paste handler gets all three (the image decoded, 2×2), and a plain field gets the text. A copy that offers only text, or a paste that reads nothing, fails it.",
+  "window": [
+    1000,
+    500
+  ],
+  "launch_settle_ms": 3000,
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-clipboard.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it gives the page the keyboard",
+      "do": [
+        "press",
+        [
+          890,
+          347
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "700,100": "#e9ecef"
+        },
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a press in the field focuses it",
+      "do": [
+        "press",
+        [
+          410,
+          77
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+A selects its text",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "expect": {
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+C copies it: the session reads the text from Astro's pipe",
+      "do": [
+        "key",
+        [
+          29,
+          46
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "clipboard": {
+          "text/plain;charset=utf-8": "copied from Astro",
+          "text/plain": "copied from Astro"
+        }
+      }
+    },
+    {
+      "name": "a press in the rich text, Ctrl+A",
+      "do": [
+        "press",
+        [
+          410,
+          127
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+A selects the rich text",
+      "do": [
+        "key",
+        [
+          29,
+          30
+        ]
+      ],
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+C copies it as HTML and text, the HTML first",
+      "do": [
+        "key",
+        [
+          29,
+          46
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "clipboard": {
+          "text/html": {
+            "contains": "bold</b>"
+          },
+          "text/plain;charset=utf-8": "Rich bold text"
+        }
+      }
+    },
+    {
+      "name": "a press on Copy image writes a PNG with the Async Clipboard API (its status turns orange, or green if done)",
+      "do": [
+        "press",
+        [
+          310,
+          177
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "the image is copied once Chromium encoded it: the clipboard holds the PNG alone",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "690,177": "#2f9e44"
+        },
+        "clipboard": {
+          "types": [
+            "image/png",
+            "chromium/x-source-url"
+          ],
+          "image/png": {
+            "png": [
+              3,
+              2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "another application copies HTML, text and an image",
+      "do": [
+        "clipboard",
+        {
+          "image/png": "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGPQn+cCRAwQCgAdlgRFjxvAMwAAAABJRU5ErkJggg==",
+          "text/html": "<i>hola</i> <b>OxyOS</b>",
+          "text/plain;charset=utf-8": "hola desde OxyOS"
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "clipboard": {
+          "types": [
+            "image/png",
+            "text/html",
+            "text/plain;charset=utf-8"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press in the paste target",
+      "do": [
+        "press",
+        [
+          410,
+          237
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+V pastes all three from the other application",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "690,237": "#2f9e44"
+        }
+      }
+    },
+    {
+      "name": "a press in the plain field",
+      "do": [
+        "press",
+        [
+          410,
+          297
+        ]
+      ],
+      "allow_unchanged": true
+    },
+    {
+      "name": "Ctrl+V pastes the text there",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "690,297": "#2f9e44"
+        }
+      }
+    }
+  ]
+}

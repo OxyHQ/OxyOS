@@ -241,9 +241,9 @@ pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
 /// logical, without its shadow), and a screenshot saved (code: its number; x: the output it is of;
 /// width, height: its pixels; detail: the chunk's index, 0 beginning its path; flag: whether it is
 /// the last; text: the chunk).
-pub const OXYOS_EVENT_CAPTURE_MODE: u32 = 200;
-pub const OXYOS_EVENT_CAPTURE_TARGET: u32 = 201;
-pub const OXYOS_EVENT_SCREENSHOT_SAVED: u32 = 202;
+pub const OXYOS_EVENT_CAPTURE_MODE: u32 = 210;
+pub const OXYOS_EVENT_CAPTURE_TARGET: u32 = 211;
+pub const OXYOS_EVENT_SCREENSHOT_SAVED: u32 = 212;
 /// A CAPTURE_MODE's `detail`, the protocol's `CaptureMode`.
 pub const OXYOS_CAPTURE_MODE_SELECTION: u32 = 1;
 pub const OXYOS_CAPTURE_MODE_WINDOW: u32 = 2;
@@ -320,6 +320,11 @@ pub const OXYOS_EVENT_SYSTEM_TEXT: u32 = 160;
 pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
+pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED: u32 = 202;
+pub const OXYOS_EVENT_SURFACE_OUTPUT: u32 = 203;
 /// A DISPLAY's `flag` bits.
 pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
 pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
@@ -1395,6 +1400,60 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::ApplicationOutput {
+            output,
+            size,
+            scale_120,
+            refresh_mhz,
+            primary,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT,
+                code: output,
+                width: size.width,
+                height: size.height,
+                scale_120,
+                detail: refresh_mhz,
+                flag: u8::from(primary),
+                ..out
+            }
+        }
+        Event::ApplicationOutputWorkArea { output, rect } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA,
+                code: output,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                ..out
+            }
+        }
+        Event::ApplicationOutputRemoved { output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED,
+                code: output,
+                ..out
+            }
+        }
+        Event::SurfaceOutput { surface, output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SURFACE_OUTPUT,
+                surface,
+                code: output,
+                ..out
+            }
+        }
+        Event::KeyboardLayout { index, last, text } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_KEYBOARD_LAYOUT,
+                detail: u32::from(index),
+                flag: u8::from(last),
+                ..out
+            }
+        }
         Event::CapabilityResult { serial, granted } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_CAPABILITY_RESULT,
@@ -1610,6 +1669,20 @@ pub unsafe extern "C" fn oxyos_client_fd(client: *mut OxyOSClient) -> c_int {
         Some(client) => client.as_fd().as_raw_fd(),
         None => fail("null client"),
     }
+}
+
+/// The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx): the highest
+/// the compositor and this library share. A request newer than it fails and an event newer than it
+/// never arrives, so a client offers what needs a newer version only when it has it. 0 for no
+/// client.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`, or null.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_protocol_version(client: *mut OxyOSClient) -> u16 {
+    // SAFETY: forwarded caller contract.
+    unsafe { self::client(client) }.map_or(0, |client| client.version())
 }
 
 /// Sends one request; 0 on success.
@@ -2046,6 +2119,57 @@ pub unsafe extern "C" fn oxyos_client_set_pointer_shape(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::SetPointerShape { surface, shape }) }
+}
+
+/// The pointer's image while it is over `surface`, instead of a shape (ADR 0029): `width` by
+/// `height` pixels (1 to 256 each), rows of `stride` bytes of premultiplied ARGB8888
+/// (little-endian B, G, R, A), its hotspot in them and the scale it was drawn for in 120ths (120
+/// to 480). A later shape replaces it. 0 on success; nothing is sent for an image that is not
+/// valid.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `pixels` points to `height` rows of
+/// `stride` readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn oxyos_client_set_pointer_image(
+    client: *mut OxyOSClient,
+    surface: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    pixels: *const u8,
+    hotspot_x: u32,
+    hotspot_y: u32,
+    scale_120: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let row = width as usize * 4;
+    if pixels.is_null() || (stride as usize) < row || width == 0 || height == 0 {
+        return fail("no pixels, or rows shorter than the image");
+    }
+    if width > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+        || height > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+    {
+        return fail("a pointer image is 1 to 256 pixels on a side");
+    }
+    let mut tight = Vec::with_capacity(row * height as usize);
+    for y in 0..height as usize {
+        // SAFETY: per the contract, row `y` holds `stride` readable bytes, `row` of them pixels.
+        let line = unsafe { std::slice::from_raw_parts(pixels.add(y * stride as usize), row) };
+        tight.extend_from_slice(line);
+    }
+    status(client.set_pointer_image(
+        surface,
+        Size::new(width, height),
+        &tight,
+        (hotspot_x, hotspot_y),
+        scale_120,
+    ))
 }
 
 /// Moves a toplevel with the pointer, from the press `serial` names (the press being handled),
@@ -3043,6 +3167,68 @@ pub unsafe extern "C" fn oxyos_client_copy_text(
     }
     let mime = TextChunk::new(CLIPBOARD_TEXT).expect("a short type");
     status(client.copy(serial, vec![(mime, bytes)]))
+}
+
+/// One media type of a copy (`oxyos_client_copy`): `mime_length` bytes of its name (UTF-8, 1 to
+/// 32) and `length` bytes of its content.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSClipboardEntry {
+    pub mime: *const c_char,
+    pub mime_length: usize,
+    pub data: *const u8,
+    pub length: usize,
+}
+
+/// Copies `count` media types (1 to 16, each named once, the most faithful first) as the
+/// clipboard, with the serial of the user input that asked for it (ADR 0007): any type, text,
+/// HTML or an image. The client library keeps every content and writes the asked one into each
+/// paste itself. 0 on success; nothing is sent if an entry is not valid. The compositor may still
+/// refuse the copy, as for oxyos_client_copy_text.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `entries` points to `count` readable
+/// entries, each pointing to its readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_copy(
+    client: *mut OxyOSClient,
+    serial: u64,
+    entries: *const OxyOSClipboardEntry,
+    count: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if count == 0 || count > oxyos_protocol::MAX_CLIPBOARD_TYPES || entries.is_null() {
+        return fail("a copy has 1 to 16 types");
+    }
+    // SAFETY: per the contract, `entries` points to `count` readable entries.
+    let entries = unsafe { std::slice::from_raw_parts(entries, count) };
+    let mut contents: Vec<(TextChunk, Vec<u8>)> = Vec::with_capacity(count);
+    for entry in entries {
+        if entry.mime.is_null() || (entry.data.is_null() && entry.length > 0) {
+            return fail("null type or content");
+        }
+        // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+        let name =
+            unsafe { std::slice::from_raw_parts(entry.mime.cast::<u8>(), entry.mime_length) };
+        let Some(mime) = std::str::from_utf8(name).ok().and_then(TextChunk::new) else {
+            return fail("a type is UTF-8 of 1 to 32 bytes");
+        };
+        if contents.iter().any(|(named, _)| *named == mime) {
+            return fail("a type is named twice");
+        }
+        let data = if entry.length == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: per the contract, `data` points to `length` readable bytes.
+            unsafe { std::slice::from_raw_parts(entry.data, entry.length) }.to_vec()
+        };
+        contents.push((mime, data));
+    }
+    status(client.copy(serial, contents))
 }
 
 /// Empties the clipboard if this client's copy is what it holds. 0 on success.

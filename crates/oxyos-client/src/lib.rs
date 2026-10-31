@@ -429,6 +429,61 @@ impl Client {
         Ok(self.sequence)
     }
 
+    /// The pointer's image while it is over `surface` (ADR 0029): `pixels`, rows of `width`
+    /// premultiplied ARGB8888 pixels (little-endian B, G, R, A), its hotspot in them and the
+    /// scale it was drawn for in 120ths. The pixels go in a buffer of their own, which the
+    /// compositor reads at once and forgets.
+    pub fn set_pointer_image(
+        &mut self,
+        surface: u32,
+        extent: Size,
+        pixels: &[u8],
+        hotspot: (u32, u32),
+        scale_120: u32,
+    ) -> io::Result<()> {
+        let invalid = |what: &str| io::Error::new(io::ErrorKind::InvalidInput, what.to_string());
+        if extent.width == 0
+            || extent.height == 0
+            || extent.width > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+            || extent.height > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+        {
+            return Err(invalid("a pointer image is 1 to 256 pixels on a side"));
+        }
+        if hotspot.0 >= extent.width || hotspot.1 >= extent.height {
+            return Err(invalid("the hotspot is outside the image"));
+        }
+        if !(120..=480).contains(&scale_120) {
+            return Err(invalid("a pointer image is drawn for a scale from 1 to 4"));
+        }
+        let stride = extent.width * 4;
+        let bytes = u64::from(stride) * u64::from(extent.height);
+        if pixels.len() as u64 != bytes {
+            return Err(invalid("pixels do not match the extent"));
+        }
+        let fd = create_shared_memory("oxyos-pointer", bytes)?;
+        write_at(fd.as_fd(), 0, pixels)?;
+        self.next_buffer += 1;
+        let buffer = self.next_buffer;
+        self.connection.send_request(
+            &Request::AttachBuffer {
+                buffer,
+                format: Format::Argb8888,
+                extent,
+                stride,
+                offset: 0,
+            },
+            Some(fd.as_fd()),
+        )?;
+        self.send(&Request::SetPointerImage {
+            surface,
+            buffer,
+            hotspot_x: hotspot.0,
+            hotspot_y: hotspot.1,
+            scale_120,
+        })?;
+        self.send(&Request::DestroyBuffer { buffer })
+    }
+
     /// Ends a buffer from [`Client::attach_buffer`]: the compositor forgets it once nothing of
     /// it is shown.
     pub fn detach_buffer(&mut self, buffer: u64) -> io::Result<()> {
@@ -878,6 +933,12 @@ impl Client {
     /// paste's pipe from a thread of its own; the compositor refuses the offer if the serial is
     /// not a recent input of this client or the client lost keyboard focus.
     pub fn copy(&mut self, serial: u64, contents: Vec<(TextChunk, Vec<u8>)>) -> io::Result<()> {
+        if contents.is_empty() || contents.len() > oxyos_protocol::MAX_CLIPBOARD_TYPES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a copy has 1 to 16 types",
+            ));
+        }
         self.next_offer = self.next_offer.wrapping_add(1);
         let offer = self.next_offer;
         self.send(&Request::ClipboardOffer { offer, serial })?;

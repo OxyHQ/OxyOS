@@ -28,7 +28,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 5;
+pub const VERSION: u16 = 6;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
@@ -53,6 +53,13 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 128;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
+/// Media types a clipboard offer may name (ADR 0007).
+pub const MAX_CLIPBOARD_TYPES: usize = 16;
+/// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).
+pub const MAX_KEYBOARD_LAYOUT_BYTES: usize = 1024;
+/// The largest pointer image a client may set, on either side, in its pixels (ADR 0029): the
+/// largest cursor planes take 256.
+pub const MAX_POINTER_IMAGE_SIDE: u32 = 256;
 /// Most entries (menus, commands, submenus and separators) in one window's menus (ADR 0021).
 pub const MAX_MENU_ITEMS: u32 = 256;
 /// How deep a window's menus nest: a menu of the bar is at depth 1, its entries at 2; so at most

@@ -14,6 +14,7 @@ mod displays;
 mod ime;
 mod launch;
 mod lock;
+mod pasteboard;
 mod png;
 mod reader;
 mod uinput;
@@ -112,6 +113,8 @@ struct Session {
     _cleanup: TempDir,
     /// With `--input-method`: the input method the session plays (ime.rs).
     ime: Option<ime::Ime>,
+    /// With `--launch`: another application's clipboard the session plays (pasteboard.rs).
+    pasteboard: Option<pasteboard::Pasteboard>,
     /// With `--launch`: the assistive technology the session plays (reader.rs).
     reader: reader::Reader,
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
@@ -205,6 +208,7 @@ impl Session {
             baseline_fds,
             _cleanup: cleanup,
             ime: None,
+            pasteboard: None,
             reader: reader::Reader::default(),
             launcher: None,
             app: None,

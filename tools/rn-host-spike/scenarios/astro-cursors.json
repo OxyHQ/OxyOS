@@ -1,0 +1,176 @@
+{
+  "about": "Astro's cursors on OxyOS (ADR 0029): Chromium's cursor types the compositor has a shape for are shapes; the others (copy, alias, a context menu, progress, a cell, vertical text, panning) are Chromium's own images, and a page's custom cursor its image, through SetPointerImage with its hotspot and the scale it was drawn for; cursor: none is a transparent pixel. Run with the engine as `--client`; the page (pages/astro-cursors.html) is Astro's tab, 190 px right of the window's edge and 47 px down. A custom cursor shown as the arrow, an image at the wrong scale or a hotspot not moved with it fails it.",
+  "window": [
+    1000,
+    400
+  ],
+  "launch_settle_ms": 3000,
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-cursors.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it",
+      "do": [
+        "press",
+        [
+          890,
+          347
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "890,347": "#e9ecef"
+        },
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "over a link's cursor (pointer): the compositor's hand, no image",
+      "do": [
+        "move_paced",
+        [
+          230,
+          97,
+          260,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "Hand",
+        "pointer_image": null
+      }
+    },
+    {
+      "name": "over a page's own cursor (a 32×32 red PNG, hotspot 4,4): that image, at scale 1",
+      "do": [
+        "move_paced",
+        [
+          350,
+          97,
+          380,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_image": {
+          "width": 32,
+          "height": 32,
+          "hotspot": [
+            4,
+            4
+          ],
+          "scale_120": 120,
+          "middle": "#ffff0000"
+        }
+      }
+    },
+    {
+      "name": "over copy, which OxyOS has no shape for: Chromium's own image of it",
+      "do": [
+        "move_paced",
+        [
+          470,
+          97,
+          500,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_image": {
+          "scale_120": 120
+        }
+      }
+    },
+    {
+      "name": "over cursor: none: the pointer is hidden, a transparent pixel",
+      "do": [
+        "move_paced",
+        [
+          590,
+          97,
+          620,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_image": {
+          "width": 1,
+          "height": 1,
+          "middle": "#00000000"
+        }
+      }
+    },
+    {
+      "name": "over text: the compositor's text shape replaces the image",
+      "do": [
+        "move_paced",
+        [
+          710,
+          97,
+          740,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_shape": "Text",
+        "pointer_image": null
+      }
+    },
+    {
+      "name": "the output at scale 1.5: Astro draws again at 1.5",
+      "do": [
+        "scale",
+        180
+      ]
+    },
+    {
+      "name": "the page's own cursor at 1.5: Chromium's image for that scale, its hotspot with it",
+      "do": [
+        "move_paced",
+        [
+          350,
+          97,
+          380,
+          97,
+          3,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pointer_image": {
+          "width": 48,
+          "height": 48,
+          "hotspot": [
+            6,
+            6
+          ],
+          "scale_120": 180,
+          "middle": "#ffff0000"
+        }
+      }
+    }
+  ]
+}

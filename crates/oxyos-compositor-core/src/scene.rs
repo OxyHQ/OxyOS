@@ -15,7 +15,7 @@
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
-    BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
+    BufferLayout, Clock, DismissReason, ErrorCode, Event, Format, GesturePhase, Outcome, PanelEdge,
     PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ScrollSource,
     ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
@@ -37,8 +37,7 @@ pub const MIN_REFRESH_MHZ: u32 = 1_000;
 pub const MAX_REFRESH_MHZ: u32 = 1_000_000;
 pub const MAX_TOUCH_POINTS: usize = 10;
 pub const MAX_BUFFERS_PER_CLIENT: usize = 128;
-/// Media types an offer may name (ADR 0007).
-pub const MAX_CLIPBOARD_TYPES: usize = 16;
+pub use oxyos_protocol::MAX_CLIPBOARD_TYPES;
 /// Offers a client may have begun and not committed.
 pub const MAX_CLIPBOARD_OFFERS: usize = 4;
 /// The latest user inputs per client whose serials authorize clipboard requests.
@@ -146,6 +145,8 @@ struct Node {
     output: OutputId,
     /// The refresh of its output its client was last told (`Refresh`, in mHz; 0: not yet).
     refresh_mhz: u32,
+    /// The output its client was last told it is on (`SurfaceOutput`; 0: not yet).
+    told_output: OutputId,
     mapped: bool,
     hidden: bool,
     dismissed: bool,
@@ -179,6 +180,10 @@ struct Node {
     workspace: u32,
     /// The pointer's shape while it is over the surface.
     pointer_shape: PointerShape,
+    /// The image the client set for the pointer over the surface instead of its shape, by the
+    /// number the scene gave it (SetPointerImage; the program running the compositor keeps its
+    /// pixels).
+    pointer_image: Option<u64>,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -273,6 +278,16 @@ struct BufferEntry {
     layout: BufferLayout,
     /// The client destroyed it while still held; it is retired once released.
     destroyed: bool,
+}
+
+/// An output as applications are told it (ApplicationOutput, ApplicationOutputWorkArea).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ApplicationOutput {
+    size: Size,
+    scale_120: u32,
+    refresh_mhz: u32,
+    primary: bool,
+    work_area: Rect,
 }
 
 /// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
@@ -397,6 +412,14 @@ pub struct Scene {
     inputs: BTreeMap<ClientId, std::collections::VecDeque<u64>>,
     /// The clipboard (ADR 0007): an offer its owner committed; empty if none.
     clipboard: Option<Clipboard>,
+    /// The session's keyboard layout, as clients are told it.
+    keyboard_layout: Option<String>,
+    /// What each client was last told of the outputs (ApplicationOutput), by output.
+    application_outputs: BTreeMap<ClientId, BTreeMap<OutputId, ApplicationOutput>>,
+    /// Offers the session made with copy_for_session, counted.
+    next_session_offer: u32,
+    /// Pointer images clients set, counted.
+    pointer_images: u64,
     /// Offers begun and not committed, by client and the client's offer number: their types.
     offers: BTreeMap<(ClientId, u32), Vec<TextChunk>>,
     /// Names each clipboard content for receivers, never reused.
@@ -965,8 +988,11 @@ impl Scene {
         self.check_grants(grants)?;
         self.clients.insert(client, Grants::default());
         self.activation.insert(client, self.serial);
-        // Every client draws as the user prefers from its first frame.
+        // Every client draws as the user prefers from its first frame, and knows the keys'
+        // layout before its first key.
         self.tell_drawing(client);
+        self.tell_keyboard_layout(client);
+        self.tell_application_outputs(Some(client));
         self.grant(client, grants)
     }
 
@@ -1049,6 +1075,7 @@ impl Scene {
         self.forget_switcher(client);
         self.forget_capture_shell(client);
         self.forget_menu_bar_client(client);
+        self.application_outputs.remove(&client);
         self.forget_launches(client);
         self.forget_system_requests(client);
         self.forget_preference_changes(client);
@@ -1389,8 +1416,16 @@ impl Scene {
                     .filter(|node| !node.dismissed)
                     .ok_or(ErrorCode::UnknownSurface)?;
                 node.pointer_shape = shape;
+                node.pointer_image = None;
                 Ok(())
             }
+            Request::SetPointerImage {
+                surface,
+                buffer,
+                hotspot_x,
+                hotspot_y,
+                scale_120,
+            } => self.set_pointer_image(key(surface), buffer, (hotspot_x, hotspot_y), scale_120),
             Request::SetSizeLimits {
                 surface,
                 min_width,
@@ -1849,6 +1884,7 @@ impl Scene {
                 scale_120,
                 output,
                 refresh_mhz,
+                told_output: if refresh_mhz != 0 { output } else { 0 },
                 mapped: false,
                 hidden: false,
                 dismissed: false,
@@ -1867,6 +1903,7 @@ impl Scene {
                 presenting_in: None,
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
+                pointer_image: None,
             },
         );
         match parent {
@@ -1885,8 +1922,17 @@ impl Scene {
                 self.roots.insert(index, key);
             }
         }
-        // Its client paces its frames by its output's refresh from the first one on.
+        // Its client knows the output it is on, and paces its frames by its refresh, from the
+        // first one on.
         if refresh_mhz != 0 {
+            self.tell_application_outputs(Some(key.client));
+            self.emit(
+                key.client,
+                Event::SurfaceOutput {
+                    surface: key.id,
+                    output,
+                },
+            );
             self.emit(
                 key.client,
                 Event::Refresh {
@@ -1907,15 +1953,32 @@ impl Scene {
             .map(|output| (output.id, output.refresh_mhz))
             .collect();
         let mut told = Vec::new();
+        let mut moved = Vec::new();
         for (key, node) in &mut self.nodes {
             let Some(&refresh_mhz) = refreshes.get(&node.output) else {
                 continue;
             };
-            if node.dismissed || node.refresh_mhz == refresh_mhz {
+            if node.dismissed {
+                continue;
+            }
+            if node.told_output != node.output {
+                node.told_output = node.output;
+                moved.push((*key, node.output));
+            }
+            if node.refresh_mhz == refresh_mhz {
                 continue;
             }
             node.refresh_mhz = refresh_mhz;
             told.push((*key, refresh_mhz));
+        }
+        for (key, output) in moved {
+            self.emit(
+                key.client,
+                Event::SurfaceOutput {
+                    surface: key.id,
+                    output,
+                },
+            );
         }
         for (key, refresh_mhz) in told {
             self.emit(
@@ -2316,6 +2379,167 @@ impl Scene {
             }
             None => self.emit(client, Event::ClipboardEmpty {}),
         }
+    }
+
+    /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
+    /// every client now and to each that connects (ADR 0029). A layout too long to tell is
+    /// refused.
+    pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
+        if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        if self.keyboard_layout.as_deref() == Some(layout) {
+            return Ok(());
+        }
+        self.keyboard_layout = Some(layout.to_string());
+        let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+        for client in clients {
+            self.tell_keyboard_layout(client);
+        }
+        Ok(())
+    }
+
+    /// Tells each client (or only `only`) what changed of the outputs since it was last told:
+    /// each one's size, scale, refresh, whether it is the primary, and its work area relative to
+    /// it, never its place in the global space (ADR 0029).
+    fn tell_application_outputs(&mut self, only: Option<ClientId>) {
+        let now: BTreeMap<OutputId, ApplicationOutput> = self
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(index, output)| {
+                let area = self.work_area(output.id).unwrap_or(output.rect);
+                (
+                    output.id,
+                    ApplicationOutput {
+                        size: Size::new(output.rect.width, output.rect.height),
+                        scale_120: output.scale_120,
+                        refresh_mhz: output.refresh_mhz,
+                        primary: index == 0,
+                        work_area: Rect::new(
+                            area.x - output.rect.x,
+                            area.y - output.rect.y,
+                            area.width,
+                            area.height,
+                        ),
+                    },
+                )
+            })
+            .collect();
+        let clients: Vec<ClientId> = match only {
+            Some(client) => vec![client],
+            None => self.clients.keys().copied().collect(),
+        };
+        for client in clients {
+            if !self.clients.contains_key(&client) {
+                continue;
+            }
+            let told = self.application_outputs.remove(&client).unwrap_or_default();
+            for id in told.keys().filter(|id| !now.contains_key(id)) {
+                self.emit(client, Event::ApplicationOutputRemoved { output: *id });
+            }
+            for (&id, output) in &now {
+                let before = told.get(&id);
+                if before.map(|b| (b.size, b.scale_120, b.refresh_mhz, b.primary))
+                    != Some((
+                        output.size,
+                        output.scale_120,
+                        output.refresh_mhz,
+                        output.primary,
+                    ))
+                {
+                    self.emit(
+                        client,
+                        Event::ApplicationOutput {
+                            output: id,
+                            size: output.size,
+                            scale_120: output.scale_120,
+                            refresh_mhz: output.refresh_mhz,
+                            primary: output.primary,
+                        },
+                    );
+                }
+                if before.map(|b| b.work_area) != Some(output.work_area) {
+                    self.emit(
+                        client,
+                        Event::ApplicationOutputWorkArea {
+                            output: id,
+                            rect: output.work_area,
+                        },
+                    );
+                }
+            }
+            self.application_outputs.insert(client, now.clone());
+        }
+    }
+
+    fn tell_keyboard_layout(&mut self, client: ClientId) {
+        let Some(layout) = self.keyboard_layout.clone() else {
+            return;
+        };
+        let chunks = TextChunk::split(&layout);
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.emit(
+                client,
+                Event::KeyboardLayout {
+                    index: index as u8,
+                    last: index + 1 == count,
+                    text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                },
+            );
+        }
+    }
+
+    /// What the clipboard holds: the name receivers know it by and its types.
+    pub fn clipboard(&self) -> Option<(u32, &[TextChunk])> {
+        self.clipboard
+            .as_ref()
+            .map(|clipboard| (clipboard.selection, clipboard.types.as_slice()))
+    }
+
+    /// The session copies content it holds as `owner`, a client of the scene the program running
+    /// the compositor plays (a development compositor's other application): no user input or
+    /// keyboard focus is asked of it, as the session is the one that asks them of applications.
+    /// Its pastes come to `owner` as ClipboardSend events, as any owner's.
+    pub fn copy_for_session(
+        &mut self,
+        owner: ClientId,
+        types: Vec<TextChunk>,
+    ) -> Result<(), ErrorCode> {
+        if !self.clients.contains_key(&owner) {
+            return Err(ErrorCode::Unauthorized);
+        }
+        if types.is_empty() || types.len() > MAX_CLIPBOARD_TYPES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        self.next_session_offer = self.next_session_offer.wrapping_add(1);
+        self.selections += 1;
+        self.clipboard = Some(Clipboard {
+            owner,
+            offer: self.next_session_offer,
+            types,
+            selection: self.selections,
+        });
+        self.tell_clipboard();
+        Ok(())
+    }
+
+    /// The session reads `mime` of what the clipboard holds: its owner is asked for it as for a
+    /// paste (a ClipboardSend), and take_transfer then names the owner the session's pipe goes
+    /// to. False if the clipboard holds no such type.
+    pub fn paste_for_session(&mut self, mime: TextChunk) -> bool {
+        let Some(clipboard) = self
+            .clipboard
+            .as_ref()
+            .filter(|clipboard| clipboard.types.contains(&mime))
+        else {
+            return false;
+        };
+        let (owner, offer) = (clipboard.owner, clipboard.offer);
+        self.transfer = Some(owner);
+        self.emit(owner, Event::ClipboardSend { offer, mime });
+        true
     }
 
     /// The owner that must answer the paste the request handled last, if it was allowed: the
@@ -3204,6 +3428,53 @@ impl Scene {
     /// Compositor-owned move: no client round trip, so a stalled client still moves smoothly.
     /// The pointer's shape now: the one the surface under it wants, the arrow over none, and the
     /// move shape while the compositor moves a window.
+    /// The client's image for the pointer, when the surface under it set one and no window is
+    /// being moved or resized: the surface and the image's number.
+    pub fn pointer_image(&self) -> Option<(SurfaceKey, u64)> {
+        if self.moving.is_some() || self.resizing.is_some() || self.resize_hover.is_some() {
+            return None;
+        }
+        let key = self.pointer_focus?;
+        self.live(key)?.pointer_image.map(|image| (key, image))
+    }
+
+    /// The number of the image `key` set last for the pointer, if its pointer is one.
+    pub fn pointer_image_of(&self, key: SurfaceKey) -> Option<u64> {
+        self.nodes.get(&key)?.pointer_image
+    }
+
+    /// A pointer image: the surface's, from a buffer of its client's that is premultiplied
+    /// ARGB8888 and no larger than MAX_POINTER_IMAGE_SIDE, its hotspot inside it, drawn for a
+    /// scale from 1 to 4.
+    fn set_pointer_image(
+        &mut self,
+        key: SurfaceKey,
+        buffer: u64,
+        hotspot: (u32, u32),
+        scale_120: u32,
+    ) -> Result<(), ErrorCode> {
+        if self.nodes.get(&key).is_none_or(|node| node.dismissed) {
+            return Err(ErrorCode::UnknownSurface);
+        }
+        let layout = match self.buffers.get(&(key.client, buffer)) {
+            Some(entry) if !entry.destroyed => entry.layout,
+            _ => return Err(ErrorCode::InvalidBuffer),
+        };
+        let extent = layout.extent;
+        if layout.format != Format::Argb8888
+            || extent.width > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+            || extent.height > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+            || hotspot.0 >= extent.width
+            || hotspot.1 >= extent.height
+            || !(SCALE_DENOMINATOR..=4 * SCALE_DENOMINATOR).contains(&scale_120)
+        {
+            return Err(ErrorCode::InvalidGeometry);
+        }
+        self.pointer_images += 1;
+        self.nodes.get_mut(&key).expect("present").pointer_image = Some(self.pointer_images);
+        Ok(())
+    }
+
     pub fn pointer_shape(&self) -> PointerShape {
         if self.moving.is_some() {
             return PointerShape::Move;
@@ -3939,6 +4210,8 @@ impl Scene {
     // ---- outputs for the transport/backend -----------------------------------------------
 
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
+        // Every client, what changed of the outputs, before a surface is said to be on one.
+        self.tell_application_outputs(None);
         // Each surface's client, the refresh of its output where it changed (ADR 0018).
         self.tell_refreshes();
         // The shell is told what changed of windows and workspaces since it was last told.

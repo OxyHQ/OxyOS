@@ -398,6 +398,13 @@ fn requests() -> Vec<Request> {
             release_timeline: 3,
             release_point: 11,
         },
+        Request::SetPointerImage {
+            surface: 1,
+            buffer: 3,
+            hotspot_x: 4,
+            hotspot_y: 5,
+            scale_120: 180,
+        },
         Request::Capture {
             serial: 40,
             kind: CaptureKind::Area,
@@ -732,6 +739,27 @@ fn events() -> Vec<Event> {
             index: 0,
             format: Format::Argb8888,
             modifier: 0x0100_0000_0000_0001,
+        },
+        Event::KeyboardLayout {
+            index: 0,
+            last: true,
+            text: PreeditText::new("es\t\tcompose:ralt").unwrap(),
+        },
+        Event::ApplicationOutput {
+            output: 2,
+            size: Size::new(1280, 720),
+            scale_120: 180,
+            refresh_mhz: 144_000,
+            primary: false,
+        },
+        Event::ApplicationOutputWorkArea {
+            output: 2,
+            rect: Rect::new(0, 28, 1280, 692),
+        },
+        Event::ApplicationOutputRemoved { output: 2 },
+        Event::SurfaceOutput {
+            surface: 1,
+            output: 2,
         },
         Event::CaptureMode {
             mode: CaptureMode::Selection,
@@ -1333,6 +1361,8 @@ fn version_negotiation_selects_the_highest_common_version() {
     // A version 2 peer is still served (ADR 0033): its events are encoded as version 2 has them.
     assert_eq!(negotiate(2, 2), Ok(2));
     assert_eq!(negotiate(2, 3), Ok(3));
+    assert_eq!(negotiate(2, 4), Ok(4));
+    assert_eq!(negotiate(2, 5), Ok(5));
 }
 
 #[test]
@@ -1446,22 +1476,61 @@ fn resting_fingers_are_never_sent_to_a_client_of_version_3_or_older() {
 }
 
 #[test]
-fn screenshots_are_version_5_and_never_reach_an_older_peer() {
+fn version_5_adds_what_a_version_4_connection_is_never_sent_and_may_not_send() {
+    let layout = Event::KeyboardLayout {
+        index: 0,
+        last: true,
+        text: PreeditText::new("fr\t\t").unwrap(),
+    };
+    assert_eq!(event_since(&layout), 5);
+    let image = Request::SetPointerImage {
+        surface: 1,
+        buffer: 2,
+        hotspot_x: 0,
+        hotspot_y: 0,
+        scale_120: 120,
+    };
+    assert_eq!(request_since(&image), 5);
+    let output = Event::SurfaceOutput {
+        surface: 1,
+        output: 2,
+    };
+    assert_eq!(event_since(&output), 5);
+    assert!(!write_event_for(&mut Vec::new(), &output, 4).unwrap());
+    let mut nothing = Vec::new();
+    assert!(!write_event_for(&mut nothing, &layout, 4).unwrap());
+    assert!(nothing.is_empty());
+    let mut v5 = Vec::new();
+    assert!(write_event_for(&mut v5, &layout, 5).unwrap());
+    assert!(read_event_for(&mut Cursor::new(&v5), 4).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(&v5), 5).unwrap(), layout);
+    // Versions 4 and 5 grew no event: a version 3 connection's are version 5's, byte for byte.
+    for event in events() {
+        let (mut v3, mut v5) = (Vec::new(), Vec::new());
+        if write_event_for(&mut v3, &event, 3).unwrap() {
+            write_event_for(&mut v5, &event, 5).unwrap();
+            assert_eq!(v3, v5);
+        }
+    }
+}
+
+#[test]
+fn screenshots_are_version_6_and_never_reach_an_older_peer() {
     let mode = Event::CaptureMode {
         mode: CaptureMode::Toolbar,
         serial: 9,
         output: 1,
     };
-    assert_eq!(event_since(&mode), 5);
-    for version in [2, 3, 4] {
+    assert_eq!(event_since(&mode), 6);
+    for version in [2, 3, 4, 5] {
         let mut nothing = Vec::new();
         assert!(!write_event_for(&mut nothing, &mode, version).unwrap());
         assert!(nothing.is_empty());
     }
-    let mut v5 = Vec::new();
-    assert!(write_event_for(&mut v5, &mode, 5).unwrap());
-    assert_eq!(read_event_for(&mut Cursor::new(&v5), 5).unwrap(), mode);
-    assert!(read_event_for(&mut Cursor::new(&v5), 4).is_err());
+    let mut v6 = Vec::new();
+    assert!(write_event_for(&mut v6, &mode, 6).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v6), 6).unwrap(), mode);
+    assert!(read_event_for(&mut Cursor::new(&v6), 5).is_err());
     let capture = Request::Capture {
         serial: 9,
         kind: CaptureKind::Screens,
@@ -1470,14 +1539,14 @@ fn screenshots_are_version_5_and_never_reach_an_older_peer() {
         window: 0,
         destination: CaptureDestination::Desktop,
     };
-    assert_eq!(request_since(&capture), 5);
+    assert_eq!(request_since(&capture), 6);
     assert_eq!(
         request_since(&Request::ClearSecureRegions { surface: 1 }),
-        5
+        6
     );
     assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
+    assert_eq!(negotiate(2, 6), Ok(6));
     assert_eq!(negotiate(2, 5), Ok(5));
-    assert_eq!(negotiate(2, 4), Ok(4));
 }
 
 #[test]
