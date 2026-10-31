@@ -247,12 +247,15 @@ reduceTransparency, accent) by the time the step settled, each key given; the `f
 A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-access.mdx), made
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
 inside it, never the developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
-text, or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour); each
+text, or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour), or for a
+folder {"tree": [FOLDERS, FILES]} (FOLDERS folders in it, FILES empty files in each: a
+`node_modules` of thousands of files, made without listing each); each
 modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
 on every run. `home.later` is what another program does to it while the run goes on, each when the
 application first shows a text: [{"when_shown": TEXT, "items": {...}}], items as above, made when a
 frame of the application's window shows TEXT (so a step after that one sees the window follow a
-change it did not make). A step's `home` expectation checks the home once the step settled: each path given
+change it did not make), or `after_ms` after it first does (a change coming while the application
+sits idle). A step's `home` expectation checks the home once the step settled: each path given
 exists (true) or not (false), a file's text, and `trash` the names in the home's Trash (its
 `files/`), each with a `.trashinfo` naming where it was. A scenario's `locale` sets `LANG` and
 `LC_ALL` for the run, and its `tz` the time zone (`TZ`).
@@ -668,6 +671,15 @@ def write_items(root, items, modified):
         path = root / relative.rstrip("/")
         if relative.endswith("/"):
             path.mkdir(parents=True, exist_ok=True)
+            if isinstance(what, dict) and "tree" in what:
+                folders, files = what["tree"]
+                for folder in range(folders):
+                    inside = path / f"folder-{folder}"
+                    inside.mkdir()
+                    for file in range(files):
+                        (inside / f"file-{file}.js").touch()
+                        made.append(inside / f"file-{file}.js")
+                    made.append(inside)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(what, str):
@@ -691,7 +703,9 @@ def change_home_later(home_root, home, report_path):
 
     def watch():
         seen = 0
-        deadline = time.monotonic() + 120
+        shown = []
+        due = None
+        deadline = time.monotonic() + 180
         while later and time.monotonic() < deadline:
             lines = report_path.read_text().splitlines() if report_path.exists() else []
             for line in lines[seen:]:
@@ -701,9 +715,17 @@ def change_home_later(home_root, home, report_path):
                     continue
                 if entry.get("kind") != "frame" or entry.get("surface") != 1:
                     continue
-                while later and any(later[0]["when_shown"] in text for text in entry.get("texts", [])):
+                shown = entry.get("texts", [])
+                # A change made as its text shows, before the window draws anything after it.
+                while later and "after_ms" not in later[0] and any(later[0]["when_shown"] in text for text in shown):
                     write_items(home_root, later.pop(0)["items"], modified)
             seen = len(lines)
+            # One made a while after its text showed, which comes while the window may draw nothing.
+            if later and due is None and any(later[0]["when_shown"] in text for text in shown):
+                due = time.monotonic() + later[0].get("after_ms", 0) / 1000
+            if later and due is not None and time.monotonic() >= due:
+                write_items(home_root, later.pop(0)["items"], modified)
+                due = None
             time.sleep(0.02)
 
     thread = threading.Thread(target=watch, daemon=True)

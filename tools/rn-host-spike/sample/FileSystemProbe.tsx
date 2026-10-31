@@ -110,6 +110,11 @@ async function files(say: Say) {
     const info = projects.info();
     return `${info.files?.join(' ')} ${info.size}`;
   });
+  // A folder's own date, one look at it (OxyOS's; Expo's modules publish it for files alone).
+  await attempt(say, 'folder date', () => {
+    const { lastModified } = projects as Directory & { lastModified: number | null };
+    return `${lastModified !== null && lastModified > 0 && lastModified === projects.info().modificationTime}`;
+  });
   await attempt(say, 'delete', () => {
     const sub = new Directory(projects, 'Sub');
     sub.delete();

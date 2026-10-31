@@ -1,0 +1,319 @@
+{
+  "about": "Stash on a home like the owner's ThinkPad's, whose node_modules/ and Oxy/ hold 360,000 files, in its window zoomed to the work area of a 1920x1200 output at 1.25 (1536x930): it opening on the home, an item pressed, a folder opened and back to the home (the press that froze for two seconds on the ThinkPad, and its launch for four: listing the home asked every folder its info(), and expo-file-system answers that by walking the folder's whole tree for its size), a file another program added to the home while Stash showed Downloads listed with it, Stash left alone for half a minute, and four more files added one every four seconds, each heard by its watch and listed again. A listing reads each item once (a folder's own date, never its tree), so no frame's JavaScript grows with what the folders hold: the launch and the press back are held to a budget of their JavaScript (js_work) on the reference machine (docs/performance.mdx; about twice what they take there unloaded; reading the trees took 0.9 to 1.5 s), the other presses to latency budgets, every frame while Stash is left alone to a refresh, and each change it hears to a budget of its own.",
+  "module": "Stash",
+  "window": [
+    1536,
+    930
+  ],
+  "outputs": "1920x1200@1.25",
+  "app": {
+    "id": "so.oxy.stash",
+    "title": "Stash"
+  },
+  "home": {
+    "items": {
+      "Clarity/": "",
+      "Desktop/": "",
+      "Documents/": "",
+      "Downloads/": "",
+      "installd-try/": "",
+      "Music/": "",
+      "node_modules/": {
+        "tree": [
+          3000,
+          60
+        ]
+      },
+      "Oxy/": {
+        "tree": [
+          900,
+          200
+        ]
+      },
+      "oxyos-validation/": "",
+      "Pictures/": "",
+      "Public/": "",
+      "servers/": "",
+      "Templates/": "",
+      "Videos/": "",
+      "website/": "",
+      "claude-setup-prompt.md": {
+        "bytes": 7000
+      },
+      "minecraft-bot.js": {
+        "bytes": 2000
+      },
+      "package.json": "{}",
+      "package-lock.json": "{}",
+      "probar-oxyos.sh": "#!/bin/sh",
+      "valdoria-house-map.png": {
+        "png": [
+          1024,
+          768,
+          "#4a7a3a"
+        ]
+      },
+      ".bashrc": "x",
+      ".profile": "x",
+      ".face": {
+        "png": [
+          96,
+          96,
+          "#aa5500"
+        ]
+      },
+      "Downloads/127.0.0.1_8080_(Nest Hub Max).png": {
+        "png": [
+          1280,
+          800,
+          "#3060c0"
+        ]
+      },
+      "Downloads/astro-browser_0.1.0_amd64.deb": {
+        "bytes": 300000
+      },
+      "Downloads/bedrock-server-1.26.44.3/": "",
+      "Downloads/bedrock-server-1.26.44.3.zip": {
+        "bytes": 200000
+      },
+      "Downloads/blur-my-shellaunetx.v70.shell-extension/": "",
+      "Downloads/blur-my-shellaunetx.v70.shell-extension.zip": {
+        "bytes": 3000
+      },
+      "Downloads/cgqzbklp_400x400.jpg": {
+        "png": [
+          400,
+          400,
+          "#c03060"
+        ]
+      },
+      "Downloads/code_1.115.0-1775600353_amd64.deb": {
+        "bytes": 100000
+      },
+      "Downloads/faircoin-v3.0.3-linux-x86_64/": "",
+      "Downloads/faircoin-v3.0.3-linux-x86_64.tar.gz": {
+        "bytes": 5000
+      },
+      "Downloads/Gmail - 493145959.pdf": "%PDF",
+      "Downloads/I'm The Problem.mp3": {
+        "bytes": 7000
+      },
+      "Downloads/macOS-Tahoe-v0.6.1.zip": {
+        "bytes": 600
+      },
+      "Downloads/MacTahoe-icon-theme/": "",
+      "Downloads/NPCEnch2.0.mcaddon": "x",
+      "Downloads/OTG Backpack v1.0.8 - Native Display_Bedrock Reimagine.mcaddon": "x",
+      "Downloads/photo_2026-08-16_20-57-49.jpg": {
+        "png": [
+          1600,
+          1200,
+          "#70a0d0"
+        ]
+      },
+      "Downloads/src/": "",
+      "Downloads/src.zip": {
+        "bytes": 900
+      },
+      "Downloads/Telegram Desktop/": "",
+      "Downloads/Tierras de Valdoria (1).png": {
+        "png": [
+          900,
+          900,
+          "#558833"
+        ]
+      },
+      "Downloads/Tierras_de_Valdoria__1_-removebg-preview.png": {
+        "png": [
+          600,
+          600,
+          "#aa8844"
+        ]
+      },
+      "Downloads/Tierras de Valdoria.png": {
+        "png": [
+          900,
+          900,
+          "#336655"
+        ]
+      },
+      "Downloads/track 3.mp3": {
+        "bytes": 7000
+      },
+      "Downloads/tsetup.6.7.2.tar.xz": {
+        "bytes": 6000
+      },
+      "Downloads/ulauncher_5.15.15_all.deb": {
+        "bytes": 1800
+      },
+      "Downloads/ulauncher-liquid-glass-v1.0.2/": "",
+      "Documents/note 1.txt": "n",
+      "Documents/note 2.txt": "n",
+      "Documents/note 3.txt": "n",
+      "Documents/note 4.txt": "n",
+      "Documents/note 5.txt": "n",
+      "Documents/note 6.txt": "n",
+      "Documents/note 7.txt": "n",
+      "Documents/note 8.txt": "n",
+      "Documents/note 9.txt": "n",
+      "Documents/note 10.txt": "n",
+      "Documents/note 11.txt": "n",
+      "Documents/note 12.txt": "n"
+    },
+    "later": [
+      {
+        "when_shown": "27 items",
+        "items": {
+          "note-1.txt": "x"
+        }
+      },
+      {
+        "when_shown": "1 of 22 selected",
+        "after_ms": 35000,
+        "items": {
+          "note-2.txt": "x"
+        }
+      },
+      {
+        "when_shown": "1 of 23 selected",
+        "after_ms": 4000,
+        "items": {
+          "note-3.txt": "x"
+        }
+      },
+      {
+        "when_shown": "1 of 24 selected",
+        "after_ms": 4000,
+        "items": {
+          "note-4.txt": "x"
+        }
+      },
+      {
+        "when_shown": "1 of 25 selected",
+        "after_ms": 4000,
+        "items": {
+          "note-5.txt": "x"
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "Stash opens on the home: its 21 items, listed without reading what its folders hold",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "21 items"
+        ],
+        "js_work": {
+          "js_ms_max": 250
+        }
+      }
+    },
+    {
+      "name": "A press selects Downloads",
+      "do": [
+        "press",
+        [
+          714,
+          112
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 21 selected"
+        ],
+        "latency_ms": 120
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "A double press opens Downloads: its 27 items",
+      "do": [
+        "double_press",
+        [
+          714,
+          112
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "27 items"
+        ],
+        "latency_ms": 600
+      }
+    },
+    {
+      "name": "settled",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Back to the home, Downloads selected: the press that froze; the file another program added while it was away listed with it",
+      "do": [
+        "press",
+        [
+          298,
+          27
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "1 of 22 selected"
+        ],
+        "latency_ms": 450,
+        "js_work": {
+          "js_ms_max": 250
+        }
+      }
+    },
+    {
+      "name": "Left alone for half a minute: nothing it runs takes a refresh",
+      "do": [
+        "wait",
+        30000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "1 of 22 selected"
+        ],
+        "js_work": {
+          "js_ms_max": 16.7
+        }
+      }
+    },
+    {
+      "name": "Another program adds four files to the home, one every four seconds: each heard and listed, never a folder's tree read",
+      "do": [
+        "wait",
+        25000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "1 of 26 selected"
+        ],
+        "js_work": {
+          "js_ms_max": 100
+        }
+      }
+    }
+  ]
+}
