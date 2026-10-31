@@ -1,6 +1,13 @@
 #include "svg.h"
 
-#include <oxyos_client.h>
+#include <include/core/SkCanvas.h>
+#include <include/core/SkPaint.h>
+#include <include/core/SkPath.h>
+#include <include/core/SkPathBuilder.h>
+#include <include/core/SkPictureRecorder.h>
+#include <include/core/SkRRect.h>
+#include <include/effects/SkDashPathEffect.h>
+#include <include/utils/SkParsePath.h>
 
 #include <react/renderer/components/rnsvg/ComponentDescriptors.h>
 #include <react/renderer/components/rnsvg/Props.h>
@@ -21,16 +28,6 @@ namespace oxyos {
 
 namespace {
 
-// SVG's matrix (a, b, c, d, e, f): x' = a·x + c·y + e, y' = b·x + d·y + f.
-struct Matrix {
-  float a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
-  // This transform after `inner` (inner applied first).
-  Matrix operator*(const Matrix& inner) const {
-    return {a * inner.a + c * inner.b,     b * inner.a + d * inner.b,     a * inner.c + c * inner.d,
-            b * inner.c + d * inner.d,     a * inner.e + c * inner.f + e, b * inner.e + d * inner.f + f};
-  }
-};
-
 // What an element inherits from its group unless its `propList` names it, as react-native-svg's
 // native renderers resolve it; the root's are SVG's initial values.
 struct Inherited {
@@ -45,15 +42,13 @@ struct Inherited {
   Float strokeDashoffset = 0, strokeMiterlimit = 4;
   uint32_t color = 0xff000000;  // currentColor
   float opacity = 1;
-  Matrix matrix;
+  SkMatrix matrix;
 };
 
-// Everything one drawing needs: the viewport percentages resolve against, and the shapes with what
-// their pointers point to.
+// What one drawing needs: the viewport percentages resolve against, and the canvas it records onto.
 struct Drawing {
   float viewportWidth = 0, viewportHeight = 0;
-  std::vector<OxyOSVectorShape> shapes;
-  std::deque<std::vector<float>> dashes;
+  SkCanvas* canvas = nullptr;
 };
 
 void unsupported(const std::string& what) {
@@ -112,9 +107,10 @@ uint32_t argb(const SharedColor& color) {
   return (byte(c.alpha) << 24) | (byte(c.red) << 16) | (byte(c.green) << 8) | byte(c.blue);
 }
 
-uint32_t withAlpha(uint32_t color, float opacity) {
-  auto alpha = static_cast<uint32_t>(std::lround(((color >> 24) & 0xff) * std::clamp(opacity, 0.0f, 1.0f)));
-  return (alpha << 24) | (color & 0xffffff);
+SkColor4f withAlpha(uint32_t color, float opacity) {
+  SkColor4f c = SkColor4f::FromColor(color);
+  c.fA *= std::clamp(opacity, 0.0f, 1.0f);
+  return c;
 }
 
 bool listed(const std::vector<std::string>& propList, const char* name) {
@@ -141,7 +137,8 @@ Inherited resolve(const P& props, const Inherited& parent) {
   own.opacity *= props.opacity;
   if (props.matrix.size() == 6) {
     const auto& m = props.matrix;
-    own.matrix = parent.matrix * Matrix{m[0], m[1], m[2], m[3], m[4], m[5]};
+    // SVG's (a, b, c, d, e, f): x' = a·x + c·y + e, y' = b·x + d·y + f.
+    own.matrix = SkMatrix::Concat(parent.matrix, SkMatrix::MakeAll(m[0], m[2], m[4], m[1], m[3], m[5], 0, 0, 1));
   }
   if (!props.clipPath.empty()) unsupported("clip paths (drawn unclipped)");
   if (!props.mask.empty()) unsupported("masks (drawn unmasked)");
@@ -150,33 +147,38 @@ Inherited resolve(const P& props, const Inherited& parent) {
   return own;
 }
 
-// One shape with the element's paint.
-template <typename P>
-void addShape(Drawing& drawing, const P& props, const Inherited& paint, OxyOSVectorShape shape) {
-  const auto& m = paint.matrix;
-  std::copy_n(std::array<float, 6>{m.a, m.b, m.c, m.d, m.e, m.f}.begin(), 6, shape.transform);
+// One shape with the element's paint, filled then stroked, as react-native-svg's Android
+// RenderableView draws it through its matrix.
+void drawShape(Drawing& drawing, SkPath path, const Inherited& paint) {
+  SkCanvas& canvas = *drawing.canvas;
+  canvas.save();
+  canvas.concat(paint.matrix);
   if (auto color = brushColor(paint.fill, paint.color)) {
-    shape.fill = 1;
-    shape.even_odd = paint.fillRule == 0;
-    shape.fill_color = withAlpha(*color, paint.fillOpacity * paint.opacity);
+    path.setFillType(paint.fillRule == 0 ? SkPathFillType::kEvenOdd : SkPathFillType::kWinding);
+    SkPaint fill(withAlpha(*color, paint.fillOpacity * paint.opacity));
+    fill.setAntiAlias(true);
+    canvas.drawPath(path, fill);
   }
   if (auto color = brushColor(paint.stroke, paint.color)) {
-    shape.stroke = 1;
-    shape.stroke_color = withAlpha(*color, paint.strokeOpacity * paint.opacity);
-    shape.stroke_width = length(paint.strokeWidth, drawing, Along::Diagonal, 1);
-    shape.cap = static_cast<uint8_t>(std::clamp(paint.strokeLinecap, 0, 2));
-    shape.join = static_cast<uint8_t>(std::clamp(paint.strokeLinejoin, 0, 2));
-    shape.miter_limit = paint.strokeMiterlimit;
+    SkPaint stroke(withAlpha(*color, paint.strokeOpacity * paint.opacity));
+    stroke.setAntiAlias(true);
+    stroke.setStyle(SkPaint::kStroke_Style);
+    stroke.setStrokeWidth(length(paint.strokeWidth, drawing, Along::Diagonal, 1));
+    static const SkPaint::Cap kCaps[] = {SkPaint::kButt_Cap, SkPaint::kRound_Cap, SkPaint::kSquare_Cap};
+    static const SkPaint::Join kJoins[] = {SkPaint::kMiter_Join, SkPaint::kRound_Join, SkPaint::kBevel_Join};
+    stroke.setStrokeCap(kCaps[std::clamp(paint.strokeLinecap, 0, 2)]);
+    stroke.setStrokeJoin(kJoins[std::clamp(paint.strokeLinejoin, 0, 2)]);
+    stroke.setStrokeMiter(paint.strokeMiterlimit);
     if (paint.strokeDasharray.isArray() && !paint.strokeDasharray.empty()) {
-      auto& dash = drawing.dashes.emplace_back();
-      for (const auto& value : paint.strokeDasharray) dash.push_back(length(value, drawing, Along::Diagonal));
-      shape.dash = dash.data();
-      shape.dash_count = dash.size();
-      shape.dash_offset = paint.strokeDashoffset;
+      std::vector<SkScalar> intervals;
+      for (const auto& value : paint.strokeDasharray) intervals.push_back(length(value, drawing, Along::Diagonal));
+      // An odd list is repeated, as SVG repeats it.
+      if (intervals.size() % 2 == 1) intervals.insert(intervals.end(), intervals.begin(), intervals.end());
+      stroke.setPathEffect(SkDashPathEffect::Make(intervals, paint.strokeDashoffset));
     }
+    canvas.drawPath(path, stroke);
   }
-  if (shape.fill || shape.stroke) drawing.shapes.push_back(shape);
-  (void)props;
+  canvas.restore();
 }
 
 void flatten(const ViewTree& tree, Tag tag, const Inherited& parent, Drawing& drawing);
@@ -190,7 +192,6 @@ void flatten(const ViewTree& tree, Tag tag, const Inherited& parent, Drawing& dr
   if (it == tree.views().end()) return;
   const auto& view = it->second.view;
   std::string name = view.componentName ? view.componentName : "";
-  OxyOSVectorShape shape{};
   if (name == "RNSVGGroup") {
     const auto& props = static_cast<const RNSVGGroupProps&>(*view.props);
     if (props.display == "none") return;
@@ -198,45 +199,44 @@ void flatten(const ViewTree& tree, Tag tag, const Inherited& parent, Drawing& dr
   } else if (name == "RNSVGPath") {
     const auto& props = static_cast<const RNSVGPathProps&>(*view.props);
     if (props.display == "none") return;
-    shape.kind = OXYOS_SHAPE_PATH;
-    shape.data = props.d.data();
-    shape.data_length = props.d.size();
-    addShape(drawing, props, resolve(props, parent), shape);
+    auto path = SkParsePath::FromSVGString(props.d.c_str());
+    if (!path) {
+      unsupported("path data SVG rejects (shape left out)");
+      return;
+    }
+    drawShape(drawing, *path, resolve(props, parent));
   } else if (name == "RNSVGRect") {
     const auto& props = static_cast<const RNSVGRectProps&>(*view.props);
     if (props.display == "none") return;
-    shape.kind = OXYOS_SHAPE_RECT;
+    SkRect rect = SkRect::MakeXYWH(length(props.x, drawing, Along::Width), length(props.y, drawing, Along::Height),
+                                   length(props.width, drawing, Along::Width),
+                                   length(props.height, drawing, Along::Height));
+    // SVG's corners: one radius given stands for both; each at most half the side.
     float rx = length(props.rx, drawing, Along::Width), ry = length(props.ry, drawing, Along::Height);
-    float geometry[6] = {length(props.x, drawing, Along::Width), length(props.y, drawing, Along::Height),
-                         length(props.width, drawing, Along::Width), length(props.height, drawing, Along::Height),
-                         rx, ry};
-    std::copy_n(geometry, 6, shape.geometry);
-    addShape(drawing, props, resolve(props, parent), shape);
+    if (rx <= 0) rx = ry;
+    if (ry <= 0) ry = rx;
+    rx = std::min(rx, rect.width() / 2), ry = std::min(ry, rect.height() / 2);
+    drawShape(drawing, rx > 0 && ry > 0 ? SkPath::RRect(SkRRect::MakeRectXY(rect, rx, ry)) : SkPath::Rect(rect),
+              resolve(props, parent));
   } else if (name == "RNSVGCircle") {
     const auto& props = static_cast<const RNSVGCircleProps&>(*view.props);
     if (props.display == "none") return;
-    shape.kind = OXYOS_SHAPE_ELLIPSE;
     float r = length(props.r, drawing, Along::Diagonal);
-    float geometry[6] = {length(props.cx, drawing, Along::Width), length(props.cy, drawing, Along::Height), r, r, 0,
-                         0};
-    std::copy_n(geometry, 6, shape.geometry);
-    addShape(drawing, props, resolve(props, parent), shape);
+    drawShape(drawing, SkPath::Circle(length(props.cx, drawing, Along::Width), length(props.cy, drawing, Along::Height), r),
+              resolve(props, parent));
   } else if (name == "RNSVGEllipse") {
     const auto& props = static_cast<const RNSVGEllipseProps&>(*view.props);
     if (props.display == "none") return;
-    shape.kind = OXYOS_SHAPE_ELLIPSE;
-    float geometry[6] = {length(props.cx, drawing, Along::Width), length(props.cy, drawing, Along::Height),
-                         length(props.rx, drawing, Along::Width), length(props.ry, drawing, Along::Height), 0, 0};
-    std::copy_n(geometry, 6, shape.geometry);
-    addShape(drawing, props, resolve(props, parent), shape);
+    float cx = length(props.cx, drawing, Along::Width), cy = length(props.cy, drawing, Along::Height);
+    float rx = length(props.rx, drawing, Along::Width), ry = length(props.ry, drawing, Along::Height);
+    drawShape(drawing, SkPath::Oval(SkRect::MakeLTRB(cx - rx, cy - ry, cx + rx, cy + ry)), resolve(props, parent));
   } else if (name == "RNSVGLine") {
     const auto& props = static_cast<const RNSVGLineProps&>(*view.props);
     if (props.display == "none") return;
-    shape.kind = OXYOS_SHAPE_LINE;
-    float geometry[6] = {length(props.x1, drawing, Along::Width), length(props.y1, drawing, Along::Height),
-                         length(props.x2, drawing, Along::Width), length(props.y2, drawing, Along::Height), 0, 0};
-    std::copy_n(geometry, 6, shape.geometry);
-    addShape(drawing, props, resolve(props, parent), shape);
+    SkPathBuilder line;
+    line.moveTo(length(props.x1, drawing, Along::Width), length(props.y1, drawing, Along::Height))
+        .lineTo(length(props.x2, drawing, Along::Width), length(props.y2, drawing, Along::Height));
+    drawShape(drawing, line.detach(), resolve(props, parent));
   } else if (name == "RNSVGDefs" || name == "RNSVGClipPath" || name == "RNSVGMask" || name == "RNSVGMarker" ||
              name == "RNSVGPattern" || name == "RNSVGSymbol" || name == "RNSVGLinearGradient" ||
              name == "RNSVGRadialGradient" || name == "RNSVGFilter" || name.rfind("RNSVGFe", 0) == 0) {
@@ -251,10 +251,12 @@ void flatten(const ViewTree& tree, Tag tag, const Inherited& parent, Drawing& dr
 // From the view box to the content box: SVG's preserveAspectRatio (react-native-svg's align and
 // meetOrSlice: 0 meet, 1 slice, 2 none).
 template <typename P>
-Matrix viewBox(const P& props, float width, float height) {
-  if (props.vbWidth <= 0 || props.vbHeight <= 0) return {};
+SkMatrix viewBox(const P& props, float width, float height) {
+  if (props.vbWidth <= 0 || props.vbHeight <= 0) return SkMatrix::I();
   float sx = width / props.vbWidth, sy = height / props.vbHeight;
-  if (props.align == "none" || props.meetOrSlice == 2) return {sx, 0, 0, sy, -props.minX * sx, -props.minY * sy};
+  if (props.align == "none" || props.meetOrSlice == 2) {
+    return SkMatrix::MakeAll(sx, 0, -props.minX * sx, 0, sy, -props.minY * sy, 0, 0, 1);
+  }
   float s = props.meetOrSlice == 1 ? std::max(sx, sy) : std::min(sx, sy);
   const std::string& align = props.align.empty() ? std::string("xMidYMid") : props.align;
   auto offset = [&](const char* min, const char* mid, float free) {
@@ -264,7 +266,7 @@ Matrix viewBox(const P& props, float width, float height) {
   };
   float tx = offset("xMin", "xMid", width - props.vbWidth * s);
   float ty = offset("YMin", "YMid", height - props.vbHeight * s);
-  return {s, 0, 0, s, tx - props.minX * s, ty - props.minY * s};
+  return SkMatrix::MakeAll(s, 0, tx - props.minX * s, 0, s, ty - props.minY * s, 0, 0, 1);
 }
 
 // What the picture depends on: the props of every element in the subtree, in order.
@@ -278,36 +280,24 @@ void signature(const ViewTree& tree, Tag tag, std::vector<const void*>& out) {
 
 struct Cached {
   std::vector<const void*> signature;
-  int width = 0, height = 0;
-  std::shared_ptr<const Picture> picture;
+  Size size;
+  sk_sp<SkPicture> picture;
 };
 
 template <typename P>
-std::shared_ptr<const Picture> draw(const ViewTree& tree, const View& svg, const P& props, float scale) {
+sk_sp<SkPicture> record(const ViewTree& tree, const View& svg, const P& props) {
   auto content = svg.view.layoutMetrics.getContentFrame();
-  int width = static_cast<int>(std::ceil(content.size.width * scale));
-  int height = static_cast<int>(std::ceil(content.size.height * scale));
-  if (width <= 0 || height <= 0) return nullptr;
+  if (content.size.width <= 0 || content.size.height <= 0) return nullptr;
+  SkPictureRecorder recorder;
   Drawing drawing;
+  drawing.canvas = recorder.beginRecording(SkRect::MakeWH(content.size.width, content.size.height));
   drawing.viewportWidth = props.vbWidth > 0 ? props.vbWidth : content.size.width;
   drawing.viewportHeight = props.vbHeight > 0 ? props.vbHeight : content.size.height;
   Inherited root;
   if (props.color) root.color = argb(props.color);
-  // Device pixels: the picture is the content box at the display's scale.
-  root.matrix = Matrix{scale, 0, 0, scale, 0, 0} * viewBox(props, content.size.width, content.size.height);
+  root.matrix = viewBox(props, content.size.width, content.size.height);
   for (Tag child : svg.children) flatten(tree, child, root, drawing);
-  auto picture = std::make_shared<Picture>();
-  picture->width = width;
-  picture->height = height;
-  picture->pixels.resize(static_cast<size_t>(width) * height * 4);
-  int skipped = oxyos_vector_render(drawing.shapes.data(), drawing.shapes.size(), static_cast<uint32_t>(width),
-                                    static_cast<uint32_t>(height), picture->pixels.data(), picture->pixels.size());
-  if (skipped < 0) {
-    std::cerr << "[host] svg: " << oxyos_last_error() << "\n";
-    return nullptr;
-  }
-  if (skipped > 0) unsupported("path data SVG rejects (shape left out)");
-  return picture;
+  return recorder.finishRecordingAsPicture();
 }
 
 }  // namespace
@@ -347,7 +337,7 @@ void addSvgComponents(ComponentDescriptorProviderRegistry& providers) {
 
 bool isSvgView(const std::string& name) { return name == "RNSVGSvgView" || name == "RNSVGSvgViewAndroid"; }
 
-std::shared_ptr<const Picture> svgPicture(const ViewTree& tree, Tag tag, float scale) {
+sk_sp<SkPicture> svgPicture(const ViewTree& tree, Tag tag) {
   static std::map<Tag, Cached> cache;
   auto it = tree.views().find(tag);
   if (it == tree.views().end()) {
@@ -355,21 +345,14 @@ std::shared_ptr<const Picture> svgPicture(const ViewTree& tree, Tag tag, float s
     return nullptr;
   }
   const auto& view = it->second.view;
-  auto content = view.layoutMetrics.getContentFrame();
-  int width = static_cast<int>(std::ceil(content.size.width * scale));
-  int height = static_cast<int>(std::ceil(content.size.height * scale));
   Cached now;
+  now.size = view.layoutMetrics.getContentFrame().size;
   signature(tree, tag, now.signature);
   auto& kept = cache[tag];
-  if (kept.picture && kept.signature == now.signature && kept.width == width && kept.height == height) {
-    return kept.picture;
-  }
+  if (kept.picture && kept.signature == now.signature && kept.size == now.size) return kept.picture;
   std::string name = view.componentName ? view.componentName : "";
-  now.picture = name == "RNSVGSvgView"
-                    ? draw(tree, it->second, static_cast<const RNSVGSvgViewProps&>(*view.props), scale)
-                    : draw(tree, it->second, static_cast<const RNSVGSvgViewAndroidProps&>(*view.props), scale);
-  now.width = width;
-  now.height = height;
+  now.picture = name == "RNSVGSvgView" ? record(tree, it->second, static_cast<const RNSVGSvgViewProps&>(*view.props))
+                                       : record(tree, it->second, static_cast<const RNSVGSvgViewAndroidProps&>(*view.props));
   kept = std::move(now);
   // Views gone since are forgotten.
   for (auto entry = cache.begin(); entry != cache.end();) {

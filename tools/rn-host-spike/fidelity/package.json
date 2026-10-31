@@ -1,0 +1,8 @@
+{
+  "name": "oxyos-bloom-fidelity",
+  "private": true,
+  "description": "Drives Chromium for fidelity.py: playwright-core, the version whose Chromium (revision 1248) Playwright installed in ~/.cache/ms-playwright.",
+  "devDependencies": {
+    "playwright-core": "1.64.1"
+  }
+}

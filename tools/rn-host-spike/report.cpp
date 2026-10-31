@@ -179,10 +179,10 @@ void Report::damageMismatch(uint32_t surface, size_t pixels) {
   write(folly::dynamic::object("kind", "damage_mismatch")("surface", surface)("pixels", pixels));
 }
 
-void Report::renderCheck(uint32_t surface, int largest, size_t beyondThree, size_t pixels) {
+void Report::renderCheck(uint32_t surface, const FrameDifference& difference) {
   if (!file_) return;
-  write(folly::dynamic::object("kind", "render_check")("surface", surface)("largest", largest)(
-      "beyond_three", beyondThree)("pixels", pixels));
+  write(folly::dynamic::object("kind", "render_check")("surface", surface)("largest", difference.largest)(
+      "beyond_three", difference.beyondThree)("pixels", difference.pixels)("blocks", difference.blocks));
 }
 
 void Report::present(uint32_t surface, int width, int height, bool gpu, const folly::dynamic& parts) {

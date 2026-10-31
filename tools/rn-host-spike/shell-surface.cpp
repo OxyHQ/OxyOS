@@ -320,7 +320,7 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
         drawRegion(tree_, tag, at, display, cpu, edit);
       }
       auto gpuPixels = canvasPixels(region.canvas);
-      auto difference = compareFrames(gpuPixels, cpu.pixels);
+      auto difference = compareFrames(gpuPixels, cpu.pixels, cpu.width);
       if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
         static int dumped = 0;
         Canvas gpuFrame{region.canvas.width, region.canvas.height, gpuPixels, nullptr};
@@ -328,7 +328,7 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
         writePng(cpu, std::string(dump) + "/region-cpu-" + std::to_string(dumped) + ".png");
         ++dumped;
       }
-      Report::get().renderCheck(region.surface, difference.largest, difference.beyondThree, difference.pixels);
+      Report::get().renderCheck(region.surface, difference);
     }
     // The damage in the canvas's pixels, rounded outward.
     std::vector<OxyOSRect> pixels;

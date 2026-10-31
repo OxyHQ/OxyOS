@@ -1,10 +1,13 @@
-// Retained view tree built from Fabric's mounting transactions, rasterized into a 32-bit buffer.
+// Retained view tree built from Fabric's mounting transactions, drawn by Skia (on the GPU through
+// Ganesh, or by its raster backend into a 32-bit buffer) as React Native's Android implementation
+// draws it (docs/adr/0031-gpu-buffers.mdx, decision 12).
 #pragma once
 
 #include <react/renderer/mounting/ShadowViewMutation.h>
 
 #include <oxyos_client.h>
 
+#include <include/core/SkImage.h>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -44,16 +47,13 @@ struct Display {
   }
 };
 
-// A decoded image an Image view shows (images.h): `width` × `height` premultiplied RGBA pixels,
-// sRGB, and the size it is drawn at by `center` and `repeat`, in logical pixels.
+// A decoded image an Image view shows (images.h): `width` × `height` premultiplied pixels, sRGB,
+// as a Skia image (uploaded to the GPU once, when first drawn there), and the size it is drawn at by
+// `center` and `repeat`, in logical pixels. A picture is never changed once made.
 struct Picture {
   int width = 0, height = 0;
-  std::vector<uint8_t> pixels;
+  sk_sp<SkImage> image;
   float naturalWidth = 0, naturalHeight = 0;
-  // Which picture this is, for the GPU painter's upload of it (docs/adr/0031-gpu-buffers.mdx): a
-  // picture is never changed once made, and each one made has its own.
-  uint64_t id = next();
-  static uint64_t next();
 };
 
 struct Canvas;
@@ -158,8 +158,8 @@ struct RenderStats {
   std::vector<WindowView> windowViews;
 };
 
-// A canvas drawn on the GPU (docs/adr/0031-gpu-buffers.mdx, decision 12): the painter's, freed
-// with the last canvas holding it.
+// A canvas drawn on the GPU (docs/adr/0031-gpu-buffers.mdx, decision 12): a Skia surface on the
+// device the compositor shares, freed with the last canvas holding it.
 struct GpuCanvas;
 
 // Pixels are 0xAARRGGBB, premultiplied, row-major, `width * scale` by `height * scale`. A window's
@@ -182,18 +182,19 @@ struct CpuPaintScope {
   CpuPaintScope();
   ~CpuPaintScope();
 };
-// The painter's canvas a canvas drawn on the GPU is (0 for one drawn on the CPU).
-uint32_t gpuCanvasId(const Canvas& canvas);
 // A canvas's pixels, read back from the GPU when it is drawn there.
 std::vector<uint32_t> canvasPixels(const Canvas& canvas);
-// The largest difference of any channel between two frames of one size, and how many pixels
-// differ by more than 3 levels in a channel (decision 13's parity check).
+// Two frames of one size, `width` pixels wide, compared (decision 13's parity check): the largest
+// difference of any channel, how many pixels differ by more than 3 levels in a channel, and the
+// largest difference of any channel between their 4 × 4 blocks' means (Skia's raster and Vulkan
+// backends anti-alias each their own way, which a block's mean evens out).
 struct FrameDifference {
   int largest = 0;
   size_t beyondThree = 0;
   size_t pixels = 0;
+  int blocks = 0;
 };
-FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b);
+FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b, int width);
 
 // The focused text input's editing state, drawn over its text (textinput.h owns it). Offsets
 // are UTF-8 byte offsets into the input's text.
@@ -303,8 +304,8 @@ struct Affine {
 };
 // A view's `transform`, as Android applies a view's matrix: from the view's own coordinates (its
 // frame's origin at 0, 0) to its parent's, its frame's origin included, around its transform origin.
-// Its subtree is drawn, hit and damaged through it. A 3D transform is drawn as its projection onto
-// the screen's plane, without perspective, and the host reports it once.
+// Its subtree is hit and damaged through it, and drawn through its whole matrix (a 3D transform
+// with its perspective); this is its projection onto the screen's plane.
 Affine viewTransform(const facebook::react::ShadowView& view);
 // Where a view's `transform` takes its centre, less the centre: how far a view is measured to have
 // moved (windowFrame), its size kept.
@@ -320,13 +321,18 @@ RenderStats drawModal(const ViewTree& tree, facebook::react::Tag modal, const Di
 // selection and composition, drawn with its text.
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit = {});
 // Whether two versions of a view are drawn the same (damage.h): the props `drawView` reads are
-// equal (background, opacity, borders, clipping), whatever new props object a re-render made.
-// A text input, whose drawing reads many of its props, is the same only with the same props.
+// equal (background, shadows, gradients, borders, outline, filter, opacity, clipping), whatever new
+// props object a re-render made. A text input, whose drawing reads many of its props, is the same
+// only with the same props.
 bool drawsTheSame(const facebook::react::ShadowView& before, const facebook::react::ShadowView& after);
 // Whether a view's own drawing is a plain fill or nothing, whatever its size: a View with no
-// corners, borders or transform. Such a view resized in place changes only where it gained or
-// lost area (damage.h); what it draws under its children and clips them to is the same elsewhere.
+// corners, borders, shadows, outline, filter, gradient or transform. Such a view resized in place
+// changes only where it gained or lost area (damage.h); what it draws under its children and clips
+// them to is the same elsewhere.
 bool drawsFlat(const facebook::react::ShadowView& view);
+// What a view draws, in its own coordinates (its frame's origin at 0, 0): its frame, grown by its
+// outset shadows, its outline and its filter's reach (damage.h).
+facebook::react::Rect inkBounds(const facebook::react::ShadowView& view);
 // Draws only the window's `damage` (window-local logical rectangles) onto `canvas`, which holds
 // the previous frame: each rectangle is drawn again as a whole frame draws it. The stats are the
 // whole window's. A canvas of another size (the window resized at the same scale: WindowDamage

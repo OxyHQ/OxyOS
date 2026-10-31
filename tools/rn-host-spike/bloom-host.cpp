@@ -15,6 +15,7 @@
 #include "key-chords.h"
 #include "images.h"
 #include "input.h"
+#include "android-view-props.h"
 #include "overscroll.h"
 #include "intl.h"
 #include "modal.h"
@@ -533,7 +534,7 @@ int main(int argc, char** argv) {
   // on demand), so the provider registry must outlive every Scheduler that uses it.
   auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
   providers->add(concreteComponentDescriptorProvider<RootComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ViewComponentDescriptor>());
+  providers->add(concreteComponentDescriptorProvider<oxyos::ViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
@@ -1829,7 +1830,7 @@ int main(int argc, char** argv) {
                 oxyos::draw(tree, display, cpu, drawn);
               }
               auto gpuPixels = oxyos::canvasPixels(windowCanvas);
-              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels);
+              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels, cpu.width);
               if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
                 static int dumped = 0;
                 oxyos::Canvas gpuFrame{windowCanvas.width, windowCanvas.height, gpuPixels, nullptr};
@@ -1837,8 +1838,7 @@ int main(int argc, char** argv) {
                 oxyos::writePng(cpu, std::string(dump) + "/cpu-" + std::to_string(dumped) + ".png");
                 ++dumped;
               }
-              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference.largest, difference.beyondThree,
-                                               difference.pixels);
+              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference);
             }
             // The damage in the canvas's pixels, rounded outward.
             std::vector<OxyOSRect> pixels;
