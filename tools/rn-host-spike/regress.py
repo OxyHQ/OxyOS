@@ -2139,7 +2139,11 @@ def main():
             raise SystemExit("a `client` scenario runs one native client: no `shell` or `login`")
     elif not options.runtimes or not options.packages:
         raise SystemExit("--runtimes and --packages are needed: the runtimes and the applications")
-    if "client" not in scenario:
+    # A native client's scenario runs no Bloom application but its file chooser's (ADR 0029,
+    # decision 8), which needs the runtimes and packages too.
+    if "client" not in scenario or scenario.get("file_chooser"):
+        if not options.runtimes or not options.packages:
+            raise SystemExit("--runtimes and --packages are needed: the file chooser is a Bloom application")
         machine = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages))
     width, height = scenario.get("window", [1024, 640])
 

@@ -1,0 +1,126 @@
+{
+  "about": "A web page's file input in Astro on OxyOS (ADR 0029, decision 8): Chromium's SelectFileDialog on the oxyos platform (OxyHQ/Astro#83) asks the session for the window, citing the press on the input; the development compositor starts the fixture chooser (sample/FileChooserFixture.tsx) as the window's sheet (800x440 at its top, 100 px in and 52 down); a.png chosen there reaches the page (green, its name and size), a cancellation fires the input's cancel event (orange). Run with the engine as `--client`; the page (pages/astro-file-chooser.html) is one file input for PNG images over Astro's tab.",
+  "window": [
+    1000,
+    500
+  ],
+  "launch_settle_ms": 3000,
+  "file_chooser": "FileChooserFixture",
+  "home": {
+    "items": {
+      "Pictures/a.png": "an image",
+      "Pictures/b b.png": "another image",
+      "Documents/": ""
+    }
+  },
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-file-chooser.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page's file input: the session's chooser, a sheet of Astro's window",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "the chooser is asked for PNG images",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open",
+            "Types: .png"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a.png chosen: the page's input has it",
+      "do": [
+        "press",
+        [
+          220,
+          90
+        ]
+      ],
+      "expect": {
+        "chooser": null,
+        "pixels": {
+          "950,300": "#2b8a3e"
+        }
+      }
+    },
+    {
+      "name": "the input pressed again",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "the chooser shows",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "chooser": {
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "Cancel: the input's cancel event",
+      "do": [
+        "press",
+        [
+          220,
+          320
+        ]
+      ],
+      "expect": {
+        "chooser": null,
+        "pixels": {
+          "950,300": "#e8590c"
+        }
+      }
+    }
+  ]
+}
