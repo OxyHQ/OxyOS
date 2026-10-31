@@ -60,6 +60,7 @@
           "move: Projects/Sub/copy.txt",
           "rename: Projects/Sub/renamed.txt",
           "directory info: Sub notes.txt plan.md 26",
+          "folder date: true",
           "delete: false false",
           "delete again: threw ERR_UNABLE_TO_DELETE",
           "handle: 2,3 at 3 of 5, closed null",

@@ -13,7 +13,8 @@ step's expected result) and measures, from what the processes report and from /p
 - the shell: what the session's shell pays for an event (shell-events.json): another window zoomed
   and restored, which changes nothing the shell shows, and the pointer over the dock; for each, the
   most JavaScript any one piece of the shell's work ran, against the scenario's budget;
-- responses: Stash used as a person uses it (perf-stash.json at 1, perf-stash-scaled.json at 1.25):
+- responses: Stash used as a person uses it (perf-stash.json at 1, perf-stash-scaled.json at 1.25,
+  perf-stash-home.json on a home of 360,000 files, zoomed at 1.25):
   for each input, the latency from it to the first frame that changed, against the scenario's
   budget, and the work the application's host did for it (`busy_ms` summed over the frames until
   the step settled, and its JavaScript);
@@ -89,6 +90,7 @@ INTERACTIONS = [
 RESPONSES = [
     ("Stash", "perf-stash.json"),
     ("Stash at 1.25", "perf-stash-scaled.json"),
+    ("Stash on a big home, zoomed at 1.25", "perf-stash-home.json"),
 ]
 
 # The shell's responses: (name, scenario). Each step that holds the shell to a `js_work` budget

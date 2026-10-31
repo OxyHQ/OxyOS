@@ -191,7 +191,12 @@ back, and a place in the sidebar. Every step checks what React received, the sel
 focus the assistive technology holds and the popups, not only pixels. For each input, the latency
 from it to the first frame that changed (held to the scenario's budget, about four times what it
 takes on this machine unloaded) and the application's host's work until the step settled (each
-frame's `busy_ms`, summed) and the JavaScript in it.
+frame's `busy_ms`, summed) and the JavaScript in it. `perf-stash-home.json` is the same home with
+360,000 files under `node_modules/` and `Oxy/` (the ThinkPad's), the window zoomed to the work
+area at 1.25 (1536 × 930): the launch and the press back to the home held to a budget of their
+JavaScript (`js_work.js_ms_max`), half a minute left alone to a refresh in every
+frame, and files another program adds to the home (`home.later` with `after_ms`), each heard by
+the watch and listed again, to a budget of their own.
 
 **The shell** (`perf.py shell`). What the session's shell pays for an event, in `shell-events.json`
 on the ThinkPad's display (1600 × 1000 at 1.25): another window activated, zoomed by its green
@@ -524,6 +529,18 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   is arithmetic, not memory; a session never composes on it. The session now logs every ten
   seconds how long the GPU took to compose its frames (`[compositor] the GPU composed …`).
 
+- **Stash's freezes (October 31).** On the ThinkPad Stash froze for 2 s at a press back to the
+  home and for 3.8 s as it opened ("a frame after a timer", the first listing). Listing a folder
+  asked each folder in it for `Directory.info()`, which expo-file-system answers by walking its
+  whole tree for its size (on Android and iOS as here), and the home was listed twice as it first
+  showed. Stash now reads each item once (a folder's own date from one stat, `Directory.lastModified`,
+  which the host publishes), lists a folder once as it first shows, and keeps the items a new
+  listing shares. On `perf-stash-home.json` the launch's longest frame of JavaScript went from
+  0.7–1.5 s to 110 ms, the press back from 0.9–1.0 s to 106 ms, a file added from 1.25 s to
+  38–80 ms. A selection drew 370 components: Stash's compiled components hung on whole objects new
+  at every click (read inside a condition), and Bloom's `useThemeRecipe`, keyed on each caller's
+  inline function, published new fill modes at every render of a Screen, redrawing its header and
+  toolbar. It now draws 158, and its JavaScript halved (about 21 to 11 ms here, sampled).
 - **Stash (October 31).** Measured with `perf-stash*.json` and profiled natively (an outside
   sampler) and in JavaScript (`OXYOS_HOST_JS_PROFILE`):
   - **A view's frame was found by searching the tree from its root** (`windowFrame`,

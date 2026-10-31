@@ -393,6 +393,18 @@ class FileSystemDirectory extends SharedObject {
     return !!found?.exists && !!found.directory;
   }
 
+  /**
+   * When the folder itself last changed (an item added, removed or renamed in it), from one look
+   * at it, as a file's `lastModified` is: never its tree walked, as `info()` and `size` walk it.
+   * Expo's Android and iOS modules keep this on every path (`FileSystemPath.modificationTime`)
+   * but publish it for files alone; a file browser lists folders with their dates.
+   */
+  get lastModified() {
+    const found = sync('read', this[URI], 'stat').value;
+    if (found.exists && !found.directory) throw expoError(new FilesError('not-a-folder', ''), 'read', this[URI]);
+    return found.exists ? found.modified : null;
+  }
+
   get size() {
     try {
       return callFiles('size', { uri: this[URI] }).value;
