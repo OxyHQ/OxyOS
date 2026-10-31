@@ -1,0 +1,83 @@
+---
+title: "ADR 0034: The dock's application menu and the Trash"
+description: A Mac's Dock menu on OxyOS's dock — an application's windows, Show All Windows, Hide, Keep in Dock, Open at Login, Quit and Force Quit, opened by a long press, a secondary click or a Control-click and drawn with Bloom's context menu — the Trash at the dock's end, and what the protocol, the compositor and the session do for them.
+order: 43
+---
+
+# ADR 0034: The dock's application menu and the Trash
+
+Status: **accepted; implemented**. Builds on [ADR 0009](./0009-session-shell) (the shell), [ADR 0013](./0013-launching-applications) (launching, launch records), [ADR 0016](./0016-windows) (windows and the close request), [ADR 0019](./0019-settings) (the user's preferences), [ADR 0024](./0024-system-shortcuts) (hiding and quitting an application), [ADR 0028](./0028-file-access) (the Trash, opening in another application), [ADR 0030](./0030-installing-applications) (system sheets) and [ADR 0033](./0033-protocol-versions) (protocol versions).
+
+## Problem
+
+On a Mac, pressing and holding a Dock icon, right-clicking it or Control-clicking it opens a menu above it: the application's windows (the current one checked), Show All Windows, Hide, Options (Keep in Dock, Open at Login, Show in Finder) and Quit, which Option turns into Force Quit and which an application that does not respond shows directly. An application not running offers Open and Options. The Trash sits at the Dock's end: a click opens it in Finder, and its menu offers Open and Empty Trash.
+
+OxyOS's dock (`apps/shell/src/components/Dock.tsx`) had no menu at all. The platform had some of the pieces: the shell hid and quit an application by any of its windows (`HideApplication`, `QuitApplication`, ADR 0024) and knew each window's application, title and state. It had no way to end an application that does not answer, to know that one does not, to keep the person's dock or the applications they open at login, to open an application at a place of its own, or to tell a Control-click on a surface without the keyboard from a plain one. Nothing showed a Trash.
+
+## Decision
+
+1. **The menu is the shell's, drawn with Bloom's context menu; the name is Bloom's tooltip.** The pointer over an icon shows its name above it, as a Mac's Dock does: Bloom's `Tooltip` (15.84.0), which on a platform with popups is in a popup of the platform's (`role: 'tooltip'`: no grab, presses passing through it), since the dock is a shell strip as tall as itself and clips anything drawn above it; it goes as the pointer leaves and while the icon's menu is open, and a press hides it until the pointer comes back, as a desktop's tooltip. The host opens a tooltip's popup without a grab and with an empty input region. For the menu, each icon is a `ContextMenuTrigger` of Bloom's `ContextMenu` (the rows `DropdownMenu` and `Menubar` share), in the platform's popup above the icon (`side="top"`, centred, 10 px off it), its submenu (Options) flying out beside its row. Its keys are Bloom's popup navigation (arrows, Home, End, Return, Escape, a letter), and the popup is announced as a menu named by the application. It opens on:
+   - a long press, held still for half a second (Bloom's trigger's long press);
+   - a secondary click (the trigger's secondary button);
+   - a Control-click, a primary press with Control held, which then opens nothing else.
+
+   The dock never draws a menu of its own. What the menu offers is worked out from the snapshot (`apps/shell/src/dock.ts`), and an entry the platform cannot do (an action it does not give) is not offered.
+
+2. **What the menu offers, as a Mac's Dock:**
+   - **A running application:** its windows by title (choosing one shows it; its current one checked: the active one, else the one it used last, since the menu's popup has the keyboard), Show All Windows (the overview with that application's windows alone, as App Exposé), Hide, Options › Keep in Dock and Open at Login, and Quit.
+   - **An application not running:** Open and Options.
+   - **Force Quit** replaces Quit while Option (Alt) is held as the menu opens, and whenever a window of the application does not respond; the menu then says so first (*La aplicación no responde*).
+
+   Quit is the application's own close request to each of its windows (ADR 0024): the application may answer it (unsaved changes, Bloom's `onCloseRequest`), and a Bloom application whose last window closes ends its process. Force Quit is the session's (decision 4).
+
+3. **Whether an application responds is the compositor's to know.** A client of version 8 or newer is sent `Ping` when it is given input (a press, a key, a touch), asked to close a window or activated, while no Ping to it is unanswered. Its library answers `Pong` as it reads its events, so a process stuck in its own work does not. One that has not answered in five seconds (`PING_TIMEOUT`, Mutter's and close to a Mac's) is not responding: its windows say so to the shell (`responding` at the end of `WindowState`) until it answers. A client of an older version is never pinged, and so always responds.
+
+4. **The session decides force quit, never the application.** The shell asks by a window (`ForceQuitApplication`). The scene names the clients of that window's application that the session started (their launch records, ADR 0013) and no other; the program running the compositor ends their processes (SIGKILL) only if its launcher started them (`Launcher::force_quit`). The shell, the login screen, the lock screen and a client claiming an application's id are never launches, so they are never ended. The application is told nothing and cannot refuse.
+
+5. **The person's lists of applications are user preferences the session keeps.** Keep in Dock and Open at Login change one of two lists: the applications kept in the dock, in its order (`dock`), and those opened at login (`open_at_login`). The shell sends a list whole (`SetApplicationList`, the ids one a line); the session validates it (each id the registry's rule, none twice, at most 64), keeps it in the preferences file (`dock = …`, `open_at_login = …`, ADR 0019), answers (`PreferenceResult`) and tells every shell (`ApplicationList`), when one connects too. Until the person changes the dock, it is the registry's (each entry's `X-OxyOS-Pinned`) and `chosen` says so. An application not kept but running stays in the dock until it quits, after those kept. A whole list, not a toggle, is what dragging icons to reorder them will send.
+
+   The session opens the applications at login when it starts, in their order (`oxyos-session`; the development compositor as it starts its shell), never on the login screen.
+
+6. **Modifiers reach the surface under the pointer.** Every `Pointer` event carries the keyboard's modifiers held (`modifiers`, version 8: Shift, Control, Alt, Super), whichever surface has the keyboard, as X11's and macOS's pointer events carry them. The dock never has the keyboard, so a Control-click or an Option-click on it is told so; the Bloom host gives them to React Native's W3C pointer events (`ctrlKey`, `altKey`). A client of an older version reads none held and keeps following its own keys.
+
+7. **The Trash sits at the dock's end, past a divider.** Its icon is the bin the platform's author gave (`apps/shell/assets/trash.png`), the same full or empty. It is the platform's Trash, freedesktop.org's (ADR 0028, decision 5), which every file manager shares:
+   - **A click opens it in the file manager.** The shell asks the session to open a URL (`OpenUrl`, citing the press), the platform's launch with a URL: the session starts the application whose entry declares the URL's scheme (`MimeType=x-scheme-handler/…`, as freedesktop.org's entries declare the schemes they open; an installed package's `opens.schemes` are written so) with the URL as React Native's `Linking` initial URL and expo-linking's linking URL (`OXYOS_LAUNCH_URL`), and answers with `LaunchResult`. The OxyOS platform's shell opens `stash://trash`: Stash (`so.oxy.stash`, the file manager) declares its own `stash:` scheme, and Expo Router opens the URL at its route `app/(browser)/trash.tsx`, nothing of Stash in the OS. An application already running is started again with the URL, a window of its own, as Finder opens another window on its Trash. A `file:` URL is not opened this way (a file opens by its type), nor one no entry declares.
+   - **Its menu:** Open, and Empty Trash while it holds anything. The session tells the shell how many items the user's Trashes hold (`TrashItems`), following them as they change (inotify, through `oxyos-files`' watcher, and the mount table for volumes' Trashes).
+   - **Emptying asks through a system sheet.** The shell asks (`EmptyTrash`, citing the press); the session asks the person in a system sheet (ADR 0030, decision 9: *¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?*, how many go, *Vaciar Papelera* destructive, *Cancelar* first) and empties every Trash of the user's (`oxyos_files::trash::empty`) only once they accept, citing their own press. The OS empties only its own Trash: what an application keeps in a Trash of its own (Oxy Files' in Stash) is the application's.
+
+8. **Protocol version 8** (ADR 0033), added only:
+
+   | Direction | Opcode | Message |
+   | --- | --- | --- |
+   | Request | 230 | `ForceQuitApplication { window }` (shell) |
+   | Request | 231 | `Pong { serial }` (any client) |
+   | Request | 232 | `SetApplicationList { serial, list, index, last, text }` (shell) |
+   | Request | 233 | `OpenUrl { serial, input, index, last, text }` (shell) |
+   | Request | 234 | `EmptyTrash { input }` (shell) |
+   | Event | 230 | `Ping { serial }`, sent unasked: never to a client of version 7 or older |
+   | Event | 231 | `ApplicationList { list, chosen, index, last, text }` (shell) |
+   | Event | 232 | `TrashItems { items }` (shell) |
+   | Event | 4 | `Pointer` grows `modifiers` (a version 7 reader reads none held) |
+   | Event | 37 | `WindowState` grows `responding` (a version 7 reader reads responding) |
+
+   The grown fields are `versions.rs`' `GROWN` table, which now lists what each version added to each event; the client library refuses the requests to a compositor of version 7. In the C ABI: `OxyOSEvent.modifiers`, `OXYOS_MODIFIER_*`, `OXYOS_WINDOW_RESPONDING`, `OXYOS_MANAGE_FORCE_QUIT_APPLICATION`, `OXYOS_EVENT_APPLICATION_LIST`, `OXYOS_EVENT_TRASH_ITEMS`, `oxyos_client_set_application_list`, `oxyos_client_open_url` and `oxyos_client_empty_trash`. `Ping` is answered inside the library and never reaches a C client.
+
+## Tests
+
+- **Protocol:** every new message round-trips; a version 8 `Pointer` is 35 bytes and a version 7 writer leaves its modifiers out, read back as none; a version 7 `WindowState` reads as responding; a `Ping` is never written for version 7; which version introduced each request.
+- **Scene** (`scene/tests/dock.rs`): a press pings a client of version 8 once while unanswered; within the timeout it responds, at the timeout the shell is told its window does not, a Pong of another serial changes nothing and its own restores it; a client of version 7 is never pinged; a close request and an activation ping, a disconnect forgets the ping; force quit names the launched clients of the window's application (both processes of one application) and none of a client the session did not start, only from the shell; a list in chunks handed whole, every shell told the session's, a late shell too, nothing told twice; a URL handed with whether it cited an input; a pointer press carries the modifiers held while another surface has the keyboard, left and right keys each their own.
+- **Preferences:** the lists kept and read back, an empty dock the person's choice, bad, repeated and too many ids refused with nothing changed.
+- **Launcher:** a URL opens in the application declaring its scheme with its URL (case of the scheme ignored); no scheme, a `file:` URL and an undeclared scheme refused; a force quit ends a process it started and refuses one it did not. An installed package's entry declares its kinds and schemes.
+- **The Trash follower** (`crates/oxyos-compositor/src/trash.rs`): the shell told 0, then 1 once a file manager trashes an item (inotify); a request citing no input asks nothing; one that does shows a sheet saying how many go, one at a time; refused, nothing goes; accepted, it is emptied and the shell told 0; an empty Trash asks nothing.
+- **Bloom** (OxyHQ/Bloom#571, 15.84.0): the native tooltip in the platform's popup, as a `tooltip` (its role, side, alignment, label and anchor), with no backdrop, closed by the pointer leaving and by the platform (`TooltipPlatformPopup.test.tsx`).
+- **The shell** (`apps/shell/tests/dock.test.ts`, `sheet.test.ts`): the dock's applications (kept, then running; an unlaunched claim is none), each menu exactly (windows with the current one checked: the active one, else the one used last, the options checked as kept and opened at login, Force Quit with Option and when not responding, Open for one not running, nothing the platform cannot do), the lists changed in order, the Trash's menu, the empty-trash sheet.
+- **Scenarios** (`regress.py`, the development compositor): `dock-menu.json` and `dock-menu-scaled.json` (scale 1.25): the pointer over an icon shows its name above the dock, in a popup of its own, and leaving it or pressing the icon takes it away, as does its menu opening; a long press on a running application's icon opens its menu (the assistive technology's nodes: the menu named by the application, its rows, its window checked), the name's tooltip gone; Escape closes it; a secondary click opens the same menu; Down, End and Return choose Quit from the keyboard, the application is asked to close and its process ends, and the running mark goes; a Control-click on an application not running opens its Open and Options and launches nothing. `dock-keep.json`: Keep in Dock and Open at Login from the keyboard through Options' submenu, kept in the preferences file; `dock-kept.json` starts a session with that file, as a shell started again reads it: the dock shows the person's list, and the application opened at login runs. `dock-trash.json`: the Trash past its divider, its menu, emptying through the sheet (nothing gone until the person accepts; then the home's Trash empty and its file kept), Empty Trash disabled once empty, and a click opening Stash at `stash://trash` (Stash's package declares its scheme, `opens.schemes`), which shows its Trash.
+
+## Not in this decision
+
+- **Dragging icons:** reordering the dock and dragging an icon out to unkeep it, as a Mac's. The lists are sent whole for it; the drag is to come.
+- **Dropping files on the Trash** to move them to it: OxyOS has no drag-and-drop protocol yet (ADR 0024, decision 10 says the same of a screenshot's thumbnail).
+- **Show in Finder (Stash):** an OxyOS application is a package the install service keeps (ADR 0030), not a file in the person's folders, and Stash opens no folder by URL yet; there is nothing to show.
+- **Option pressed while the menu is open:** a Mac turns Quit into Force Quit live; the popup is told key presses, not releases, so Option counts as the menu opens.
+- **A full Trash icon:** one icon was given; the dock shows it in both states.
+- **Opening a URL from an application** (`Linking.openURL`): the session opens URLs only for the shell, citing its press; an application's request is ADR 0028 decision 6's to come.

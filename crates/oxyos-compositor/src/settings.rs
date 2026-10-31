@@ -13,9 +13,10 @@
 //! starts and stops its reader.
 
 use crate::Compositor;
+use oxyos_compositor_core::scene::ApplicationList;
 use oxyos_compositor_core::DrawingPreferences;
 use oxyos_preferences::{Appearance, Preferences, KEYS};
-use oxyos_protocol::PreeditText;
+use oxyos_protocol::{ApplicationListKind, PreeditText};
 use oxyos_solar::Place;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -118,6 +119,21 @@ impl Settings {
             })
             .collect();
         compositor.scene.set_preferences(drawing, &values);
+        // The person's lists of applications (docs/adr/0034-the-dock.mdx), for the shell.
+        compositor.scene.set_application_list(
+            ApplicationListKind::Dock,
+            ApplicationList {
+                chosen: preferences.dock.is_some(),
+                ids: preferences.dock.clone().unwrap_or_default(),
+            },
+        );
+        compositor.scene.set_application_list(
+            ApplicationListKind::OpenAtLogin,
+            ApplicationList {
+                chosen: true,
+                ids: preferences.open_at_login.clone(),
+            },
+        );
     }
 
     /// When the sun next crosses the horizon where the system is (unix seconds), with an automatic
@@ -150,6 +166,41 @@ impl Settings {
                 .scene
                 .preference_set(change.client, change.serial, accepted);
         }
+        // The shell's changes of the person's lists of applications (docs/adr/0034-the-dock.mdx):
+        // one id a line, kept whole or refused with nothing changed.
+        for change in compositor.scene.take_application_list_changes() {
+            let list = match change.list {
+                ApplicationListKind::Dock => oxyos_preferences::ApplicationList::Dock,
+                ApplicationListKind::OpenAtLogin => oxyos_preferences::ApplicationList::OpenAtLogin,
+            };
+            let ids: Vec<String> = change
+                .text
+                .lines()
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let accepted = match self.keep_list(list, &ids) {
+                Ok(kept) => {
+                    if kept {
+                        changed.push(
+                            match list {
+                                oxyos_preferences::ApplicationList::Dock => "dock",
+                                oxyos_preferences::ApplicationList::OpenAtLogin => "open_at_login",
+                            }
+                            .to_owned(),
+                        );
+                    }
+                    true
+                }
+                Err(error) => {
+                    eprintln!("[preferences] {list:?} {ids:?} refused: {error}");
+                    false
+                }
+            };
+            compositor
+                .scene
+                .preference_set(change.client, change.serial, accepted);
+        }
         if !changed.is_empty() || self.crossing.is_some_and(|crossing| now >= crossing) {
             self.apply(compositor, now);
         }
@@ -172,6 +223,29 @@ impl Settings {
         }
         self.preferences = changed;
         Ok(())
+    }
+
+    /// Replaces one of the person's lists of applications and keeps it: whether it changed.
+    /// Refused, with nothing changed, as [`Settings::change`] is.
+    fn keep_list(
+        &mut self,
+        list: oxyos_preferences::ApplicationList,
+        ids: &[String],
+    ) -> Result<bool, String> {
+        let mut changed = self.preferences.clone();
+        changed
+            .set_list(list, ids)
+            .map_err(|error| error.to_string())?;
+        if changed == self.preferences {
+            return Ok(false);
+        }
+        if let Some(file) = &self.file {
+            changed
+                .save(file)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+        }
+        self.preferences = changed;
+        Ok(true)
     }
 
     /// Sets one preference from its text and keeps it: whether it changed. Refused (and nothing

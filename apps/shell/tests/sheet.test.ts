@@ -92,3 +92,15 @@ test("sizes read as a person reads them", () => {
   assert.equal(size(1_500_000, "es"), "1,5 MB");
   assert.equal(size(15_000_000, "en"), "15 MB");
 });
+
+test("emptying the Trash says how many items go for good, and its button is destructive", () => {
+  const sheet = readSheet('{"items":3,"kind":"empty-trash"}');
+  assert.ok(sheet);
+  const view = sheetView(sheet, "es");
+  assert.equal(view.title, "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?");
+  assert.equal(view.body, "Se eliminarán 3 ítems. No puedes deshacer esta acción.");
+  assert.equal(view.accept, "Vaciar");
+  assert.equal(view.refuse, "Cancelar");
+  assert.equal(view.destructive, true);
+  assert.equal(sheetView({ kind: "empty-trash", items: 1 }, "en").body, "1 item is erased. You can't undo this action.");
+});

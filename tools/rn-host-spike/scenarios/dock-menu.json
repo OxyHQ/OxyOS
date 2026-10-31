@@ -1,0 +1,537 @@
+{
+  "about": "The dock's application menu (docs/adr/0034-the-dock.mdx), as a Mac's Dock: Allo (sample/EditingProbe.tsx) with the shell and the development registry (Stash, Atlas and Inbox kept in the dock). The pointer over Inbox's icon shows its name above it, Bloom's tooltip in a popup of the platform's (the dock's strip would clip it), gone as the pointer leaves and hidden by a press until the pointer comes back. Inbox started from the dock; a long press on its icon opens its menu above it, Bloom's context menu in the platform's popup, named by the application and announced as a menu: its window checked, Show All Windows, Hide, Options and Quit; the tooltip is gone while it is open; Escape closes it; the pointer back over the icon, a secondary click opens the same menu, the name going; Down, End and Return choose Quit from the keyboard: Inbox is asked to close, its process ends and its running mark goes. A Control-click on Inbox, not running now, opens its Open and Options and launches nothing.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the pointer over Inbox's icon: its name above it, in a popup of its own the pointer passes through",
+      "do": [
+        "move_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Inbox"
+          ]
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              618,
+              624,
+              240,
+              45
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "the pointer off the icons: the name goes",
+      "do": [
+        "move_output",
+        [
+          1000,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Inbox"
+          ]
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Inbox from the dock: the session starts it and the dock marks it running; the press hides the name until the pointer leaves, as a desktop's tooltip",
+      "do": [
+        "press_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "output_pixels": {
+          "738,716": "#64717a"
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a long press on Inbox's icon opens its menu above it: the menu named Inbox, its window checked, its commands; its name's tooltip gone",
+      "do": [
+        "hold_output",
+        [
+          738,
+          693,
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              605,
+              486,
+              266,
+              176
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Inbox",
+            "Mostrar todas las ventanas",
+            "Ocultar",
+            "Opciones",
+            "Salir"
+          ],
+          "absent": [
+            "Forzar salida",
+            "Abrir"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Inbox"
+            },
+            {
+              "role": "CheckBox",
+              "name": "Inbox",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Mostrar todas las ventanas"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Ocultar"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Salir"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it, and nothing else happens",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Mostrar todas las ventanas",
+            "Salir"
+          ]
+        },
+        "output_pixels": {
+          "738,716": "#64717a"
+        }
+      }
+    },
+    {
+      "name": "the pointer leaves the icons",
+      "do": [
+        "move_output",
+        [
+          1000,
+          693
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "and comes back over Inbox's icon: its name again",
+      "do": [
+        "move_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              618,
+              624,
+              240,
+              45
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a secondary click on the icon opens the same menu, and the name goes while it is open",
+      "do": [
+        "press_secondary_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              605,
+              486,
+              266,
+              176
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Mostrar todas las ventanas",
+            "Ocultar",
+            "Opciones",
+            "Salir"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Inbox"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: its first row, Inbox's window (painted as Bloom paints a checked row already)",
+      "do": [
+        "key",
+        108
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Inbox",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "End: its last row, Quit",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Salir",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return chooses Quit: Inbox is asked to close its window, and the menu closes",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "launched": {
+            "close.requested": 1
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "Mostrar todas las ventanas",
+            "Salir"
+          ]
+        }
+      }
+    },
+    {
+      "name": "its process ends with its last window, and the dock's running mark goes",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "output_pixels": {
+          "738,716": "#f7f9fc"
+        }
+      }
+    },
+    {
+      "name": "Control held (the shell's dock has the keyboard since its menu closed)",
+      "do": [
+        "key_down",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "a Control-click on Inbox, not running: its menu, Open and Options, and nothing launched",
+      "do": [
+        "press_output",
+        [
+          738,
+          693
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Abrir",
+            "Opciones"
+          ],
+          "absent": [
+            "Salir",
+            "Ocultar"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Inbox"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Abrir"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Control released: nothing opened, nothing started",
+      "do": [
+        "key_up",
+        [
+          29
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "output_pixels": {
+          "738,716": "#f7f9fc"
+        }
+      }
+    }
+  ]
+}

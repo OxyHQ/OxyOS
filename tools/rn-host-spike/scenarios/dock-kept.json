@@ -1,0 +1,55 @@
+{
+  "about": "The person's lists of applications as the session keeps them (docs/adr/0034-the-dock.mdx), read by a session and its shell as they start: a preferences file whose dock keeps Allo, then Stash, and whose applications opened at login are Inbox. The dock shows Allo and Stash in that order, and Inbox, not kept, after them: the session opened it as it started, and it runs.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "dock": "so.oxy.allo,so.oxy.stash",
+      "open_at_login": "so.oxy.inbox"
+    }
+  },
+  "steps": [
+    {
+      "name": "the dock is the person's: Allo and Stash kept, in that order; Inbox opened at login, running, after them",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Abrir Allo"
+            },
+            {
+              "role": "Button",
+              "name": "Abrir Stash"
+            },
+            {
+              "role": "Button",
+              "name": "Abrir Inbox"
+            }
+          ]
+        },
+        "output_pixels": {
+          "651,716": "#64717a",
+          "709,716": "#f7f9fc",
+          "767,716": "#64717a"
+        }
+      }
+    }
+  ]
+}

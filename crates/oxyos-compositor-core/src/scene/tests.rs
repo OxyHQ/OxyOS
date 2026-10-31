@@ -4676,6 +4676,7 @@ fn told(events: &[(ClientId, Event)], client: ClientId) -> (ToldWindows, Option<
                 minimized,
                 focused,
                 launched: _,
+                responding: _,
             } => {
                 let entry = windows.entry(window).or_default();
                 (entry.0, entry.1, entry.2) = (workspace, minimized, focused);
@@ -4770,6 +4771,7 @@ fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
                 minimized: false,
                 focused: true,
                 launched: false,
+                responding: true,
             },
             // The third activation: Inbox's, Other's, Inbox's again (ADR 0024).
             Event::WindowUse {
@@ -4783,6 +4785,7 @@ fn the_shell_is_told_each_window_and_what_changes_and_applications_are_not() {
                 minimized: false,
                 focused: false,
                 launched: false,
+                responding: true,
             },
         ]
     );
@@ -7158,6 +7161,7 @@ mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;
 mod displays;
+mod dock;
 /// The menu bar (ADR 0021).
 mod menus;
 mod notifications;

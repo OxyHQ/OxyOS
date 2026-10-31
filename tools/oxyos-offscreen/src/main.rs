@@ -136,6 +136,8 @@ struct Session {
     installs: Option<oxyos_compositor::installs::Installs>,
     /// The descriptor its turn is woken by, among the compositor's wakers, given back at the end.
     installs_waker: Option<std::os::fd::RawFd>,
+    /// The Trash follower's waker among the compositor's, given back as the session finishes.
+    pub trash_waker: Option<std::os::fd::RawFd>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
@@ -149,6 +151,11 @@ struct Session {
     /// The screenshots the shell opened (docs/adr/0024-system-shortcuts.mdx, decision 10), each
     /// its file and the application started to open it, until a step reports them.
     pub screenshot_opens: Vec<(PathBuf, String)>,
+    /// The URLs the shell opened since a step last took them (docs/adr/0034-the-dock.mdx): each
+    /// URL and the application started for it.
+    pub url_opens: Vec<(String, String)>,
+    /// The user's Trashes, followed as the session follows them (`--trash`, a scenario's own home).
+    pub trash: Option<oxyos_compositor::trash::Trash>,
     /// `--installed-fixture ROOT`: the install service's state directory a scenario wrote, which
     /// the shell it starts lists from too.
     pub installed_fixture: Option<PathBuf>,
@@ -229,10 +236,13 @@ impl Session {
             grants: Vec::new(),
             installs: None,
             installs_waker: None,
+            trash_waker: None,
             controls: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
+            url_opens: Vec::new(),
+            trash: None,
             installed_fixture: None,
             displays: None,
             choosers: oxyos_compositor::choosers::Choosers::new(
@@ -395,6 +405,10 @@ impl Session {
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
     /// the session serves them; what the store opens is launched from the registry.
     fn serve_installs(&mut self) {
+        // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
+        if let Some(trash) = self.trash.as_mut() {
+            trash.serve(&mut self.compositor.scene);
+        }
         let Some(installs) = self.installs.as_mut() else {
             return;
         };
@@ -565,6 +579,29 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
+        // The URLs the shell opens and the force quits it asks for (docs/adr/0034-the-dock.mdx),
+        // as the session serves them.
+        for request in self.compositor.scene.take_url_requests() {
+            let opened = request.with_input
+                && match launcher.open_url(&request.url) {
+                    Ok((id, _)) => {
+                        self.url_opens.push((request.url.clone(), id));
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[launch] {}: {error}", request.url);
+                        false
+                    }
+                };
+            self.compositor
+                .scene
+                .launched(request.client, request.serial, opened);
+        }
+        for pid in self.compositor.take_force_quits() {
+            if launcher.force_quit(pid) {
+                eprintln!("[launch] force quit {pid}");
+            }
+        }
     }
 
     /// The changes Settings asked for, kept as the session keeps them. The screen reader is the
@@ -609,6 +646,12 @@ impl Session {
         // The install service's side, its threads waited for and its waker given back.
         self.installs = None;
         if let Some(waker) = self.installs_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // The Trash's follower, its watcher's thread waited for and its waker given back.
+        self.trash = None;
+        if let Some(waker) = self.trash_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }

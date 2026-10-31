@@ -154,6 +154,13 @@ pub const OXYOS_WINDOW_MINIMIZED: u8 = 1;
 pub const OXYOS_WINDOW_FOCUSED: u8 = 2;
 /// The session started the window's process: its application id is the registry's (ADR 0013).
 pub const OXYOS_WINDOW_LAUNCHED: u8 = 4;
+/// Its process answered the compositor's latest ping in time (docs/adr/0034-the-dock.mdx).
+pub const OXYOS_WINDOW_RESPONDING: u8 = 8;
+/// A POINTER event's modifiers (OxyOSEvent.modifiers), the protocol's.
+pub const OXYOS_MODIFIER_SHIFT: u8 = oxyos_protocol::MODIFIER_SHIFT;
+pub const OXYOS_MODIFIER_CONTROL: u8 = oxyos_protocol::MODIFIER_CONTROL;
+pub const OXYOS_MODIFIER_ALT: u8 = oxyos_protocol::MODIFIER_ALT;
+pub const OXYOS_MODIFIER_SUPER: u8 = oxyos_protocol::MODIFIER_SUPER;
 /// Pointer shapes (`oxyos_client_set_pointer_shape`), the protocol's.
 pub const OXYOS_POINTER_ARROW: u8 = 1;
 pub const OXYOS_POINTER_TEXT: u8 = 2;
@@ -182,6 +189,9 @@ pub const OXYOS_MANAGE_REMOVE_WORKSPACE: u8 = 7;
 /// Hides or quits the application of the window (ADR 0024).
 pub const OXYOS_MANAGE_HIDE_APPLICATION: u8 = 8;
 pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
+/// Force-quits the application of the window: the session ends the processes it started for it
+/// (docs/adr/0034-the-dock.mdx). Refused to a compositor of a version before 8.
+pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
 /// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
 /// output to show it on), and how recently a window was active (code: the window; detail: its
@@ -247,6 +257,18 @@ pub const OXYOS_EVENT_SCREENSHOT_SAVED: u32 = 212;
 /// to `oxyos_client_choose_files` (code: its serial; detail: the chunk's index, 0 begins it; flag:
 /// whether it is the last; text: the chunk), JSON once whole.
 pub const OXYOS_EVENT_FILES_CHOSEN: u32 = 220;
+/// To the session's shell (docs/adr/0034-the-dock.mdx): a chunk of one of the person's lists of
+/// applications as the session keeps it (code: OXYOS_APPLICATION_LIST_*; detail: the chunk's
+/// index, 0 begins it; flag: OXYOS_LIST_LAST if it is the last, OXYOS_LIST_CHOSEN if the person
+/// changed it; text: the chunk), ids one a line once whole.
+pub const OXYOS_EVENT_APPLICATION_LIST: u32 = 231;
+pub const OXYOS_APPLICATION_LIST_DOCK: u32 = 1;
+pub const OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN: u32 = 2;
+pub const OXYOS_LIST_LAST: u8 = 1;
+pub const OXYOS_LIST_CHOSEN: u8 = 2;
+/// To the session's shell (docs/adr/0034-the-dock.mdx): how many items the user's Trashes hold
+/// (code), when it connects and whenever it changes.
+pub const OXYOS_EVENT_TRASH_ITEMS: u32 = 232;
 /// A CAPTURE_MODE's `detail`, the protocol's `CaptureMode`.
 pub const OXYOS_CAPTURE_MODE_SELECTION: u32 = 1;
 pub const OXYOS_CAPTURE_MODE_WINDOW: u32 = 2;
@@ -375,6 +397,9 @@ pub struct OxyOSEvent {
     pub text: [u8; TEXT_CHUNK_BYTES + 1],
     /// An input event's time: when its device registered it, CLOCK_MONOTONIC nanoseconds.
     pub time_ns: u64,
+    /// A POINTER event's keyboard modifiers held (OXYOS_MODIFIER_*), whichever surface has the
+    /// keyboard; none from a compositor of a version before 8.
+    pub modifiers: u8,
 }
 
 impl Default for OxyOSEvent {
@@ -395,6 +420,7 @@ impl Default for OxyOSEvent {
             flag: 0,
             text: [0; TEXT_CHUNK_BYTES + 1],
             time_ns: 0,
+            modifiers: 0,
         }
     }
 }
@@ -624,6 +650,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             y,
             button,
             time_ns,
+            modifiers,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_POINTER,
@@ -634,6 +661,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 detail: kind as u32,
                 code: button,
                 time_ns,
+                modifiers,
                 ..out
             }
         }
@@ -901,6 +929,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             minimized,
             focused,
             launched,
+            responding,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_WINDOW_STATE,
@@ -908,7 +937,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 detail: workspace,
                 flag: u8::from(minimized) * OXYOS_WINDOW_MINIMIZED
                     + u8::from(focused) * OXYOS_WINDOW_FOCUSED
-                    + u8::from(launched) * OXYOS_WINDOW_LAUNCHED,
+                    + u8::from(launched) * OXYOS_WINDOW_LAUNCHED
+                    + u8::from(responding) * OXYOS_WINDOW_RESPONDING,
                 ..out
             }
         }
@@ -992,6 +1022,32 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 y: rect.y,
                 width: rect.width,
                 height: rect.height,
+                ..out
+            }
+        }
+        // The library answers it itself (oxyos-client).
+        Event::Ping { .. } => return None,
+        Event::TrashItems { items } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_TRASH_ITEMS,
+                code: items,
+                ..out
+            }
+        }
+        Event::ApplicationList {
+            list,
+            chosen,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_LIST,
+                code: list as u32,
+                detail: u32::from(index),
+                flag: u8::from(last) * OXYOS_LIST_LAST + u8::from(chosen) * OXYOS_LIST_CHOSEN,
                 ..out
             }
         }
@@ -1797,6 +1853,97 @@ pub unsafe extern "C" fn oxyos_client_launch(
     status(client.launch(serial, id))
 }
 
+/// The session's shell replaces one of the person's lists of applications
+/// (docs/adr/0034-the-dock.mdx): `list` an OXYOS_APPLICATION_LIST_*, `ids` `length` bytes of UTF-8,
+/// the ids in order one a line (none for an empty list); a PREFERENCE_RESULT with `serial` answers
+/// and an APPLICATION_LIST says what the session keeps. 0 on success; refused to a compositor of a
+/// version before 8.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `ids` points to `length` bytes (or is
+/// null with `length` 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_application_list(
+    client: *mut OxyOSClient,
+    serial: u32,
+    list: u32,
+    ids: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let Some(list) = u8::try_from(list)
+        .ok()
+        .and_then(oxyos_protocol::ApplicationListKind::from_raw)
+    else {
+        return fail("unknown list");
+    };
+    if length > oxyos_protocol::MAX_APPLICATION_LIST_BYTES || (ids.is_null() && length > 0) {
+        return fail("an application list is at most MAX_APPLICATION_LIST_BYTES");
+    }
+    let bytes = if length == 0 {
+        &[][..]
+    } else {
+        // SAFETY: per the contract, `ids` points to `length` readable bytes.
+        unsafe { std::slice::from_raw_parts(ids.cast::<u8>(), length) }
+    };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return fail("an application list is UTF-8");
+    };
+    let ids: Vec<&str> = text.lines().filter(|id| !id.is_empty()).collect();
+    status(client.set_application_list(serial, list, &ids))
+}
+
+/// The session's shell asks the session to empty the Trash (docs/adr/0034-the-dock.mdx), citing
+/// `input`, an input it received: the session asks the person in a system sheet. 0 on success;
+/// refused to a compositor of a version before 8.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_empty_trash(client: *mut OxyOSClient, input: u64) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    status(client.send(&Request::EmptyTrash { input }))
+}
+
+/// The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
+/// whose entry declares its scheme (docs/adr/0034-the-dock.mdx), citing `input`, an input it
+/// received; a LAUNCH_RESULT with `serial` answers. 0 on success; refused to a compositor of a
+/// version before 8.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `url` points to `length` bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_open_url(
+    client: *mut OxyOSClient,
+    serial: u32,
+    input: u64,
+    url: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if url.is_null() || length == 0 || length > oxyos_protocol::MAX_URL_BYTES {
+        return fail("a URL is 1 byte to MAX_URL_BYTES");
+    }
+    // SAFETY: per the contract, `url` points to `length` readable bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(url.cast::<u8>(), length) };
+    let Ok(url) = std::str::from_utf8(bytes) else {
+        return fail("a URL is UTF-8");
+    };
+    status(client.open_url(serial, input, url))
+}
+
 /// Settings (with the `settings` grant, ADR 0019) changes the preference `key` (NUL-terminated,
 /// not empty, no `=`) to `value` (NUL-terminated, may be empty), at most 128 bytes as
 /// `key=value`; a PREFERENCE_RESULT with `serial` answers. 0 on success.
@@ -2053,6 +2200,7 @@ pub unsafe extern "C" fn oxyos_client_manage(
         OXYOS_MANAGE_REMOVE_WORKSPACE => Request::RemoveWorkspace { workspace },
         OXYOS_MANAGE_HIDE_APPLICATION => Request::HideApplication { window },
         OXYOS_MANAGE_QUIT_APPLICATION => Request::QuitApplication { window },
+        OXYOS_MANAGE_FORCE_QUIT_APPLICATION => Request::ForceQuitApplication { window },
         _ => return fail("unknown action"),
     };
     // SAFETY: forwarded caller contract.

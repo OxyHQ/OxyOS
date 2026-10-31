@@ -43,6 +43,11 @@ pub enum Step {
     /// A secondary (right) button press and release at a window-local logical point: a context
     /// menu's.
     PressSecondary { x: i32, y: i32 },
+    /// The same at a point of the output, wherever it is: a dock icon's menu (ADR 0034).
+    PressSecondaryOutput { x: i32, y: i32 },
+    /// A left-button press at a point of the output held still for `ms` milliseconds, the
+    /// compositor serving the clients meanwhile, then released: a long press (ADR 0034).
+    HoldOutput { x: i32, y: i32, ms: u32 },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
     DoublePress { x: i32, y: i32 },
@@ -213,6 +218,12 @@ impl Step {
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
             Step::MoveOutput { x, y } => format!("pointer to ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
+            Step::PressSecondaryOutput { x, y } => {
+                format!("secondary press at ({x}, {y}) on the output")
+            }
+            Step::HoldOutput { x, y, ms } => {
+                format!("press at ({x}, {y}) on the output held {ms} ms")
+            }
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
             Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
@@ -305,6 +316,10 @@ impl Step {
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
             Step::MoveOutput { x, y } => format!("\"move_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
+            Step::PressSecondaryOutput { x, y } => {
+                format!("\"press_secondary_output\":[{x},{y}]")
+            }
+            Step::HoldOutput { x, y, ms } => format!("\"hold_output\":[{x},{y},{ms}]"),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
             Step::DoubleDrag { from, to } => {
@@ -560,6 +575,9 @@ pub struct Launch {
     /// `--installd SOCKET`: the install service the store's, Settings' and applications'
     /// requests go to (ADR 0030), one a scenario runs on directories of its own.
     pub installd: Option<PathBuf>,
+    /// `--trash`: the user's Trashes followed for the dock as the session follows them
+    /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
+    pub trash: bool,
     /// `--runtimes DIR`: where the runtimes an application's entry names are
     /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
     /// image's (`/usr/lib/oxyos/runtimes`).
@@ -596,8 +614,8 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -682,6 +700,7 @@ impl Launch {
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let (mut grants, mut installd) = (Vec::new(), None);
+        let mut trash = false;
         let mut runtimes = None;
         let mut installed_fixture = None;
         let mut screenshots = None;
@@ -782,6 +801,10 @@ impl Launch {
                     installd = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
+                Some("--trash") => {
+                    trash = true;
+                    continue;
+                }
                 Some("--grant-settings") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     grant_settings = Some(value.to_string());
@@ -841,6 +864,21 @@ impl Launch {
                 Some("--press-secondary") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressSecondary { x: n[0], y: n[1] }
+                }
+                Some("--press-secondary-output") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::PressSecondaryOutput { x: n[0], y: n[1] }
+                }
+                Some("--hold-output") => {
+                    let n = numbers(args.next(), 3)?;
+                    if n[2] < 1 {
+                        return Err("--hold-output holds the press for 1 ms or more".into());
+                    }
+                    Step::HoldOutput {
+                        x: n[0],
+                        y: n[1],
+                        ms: n[2] as u32,
+                    }
                 }
                 Some("--double-press") => {
                     let n = numbers(args.next(), 2)?;
@@ -1158,6 +1196,7 @@ impl Launch {
                 grant_settings,
                 grants,
                 installd,
+                trash,
                 runtimes,
                 installed_fixture,
                 screenshots,
@@ -1707,6 +1746,22 @@ fn screenshots_json(session: &mut Session) -> String {
     )
 }
 
+/// The URLs the shell opened in the step (docs/adr/0034-the-dock.mdx), each with the application
+/// started for it.
+fn urls_json(session: &mut Session) -> String {
+    let opened: Vec<String> = std::mem::take(&mut session.url_opens)
+        .into_iter()
+        .map(|(url, application)| {
+            format!(
+                "{{\"url\":{},\"application\":{}}}",
+                json_string(&url),
+                json_string(&application)
+            )
+        })
+        .collect();
+    format!("[{}]", opened.join(","))
+}
+
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
 /// themselves, the rest as text.
 fn controls_json(fake: &oxyos_controls::Fake) -> String {
@@ -2165,6 +2220,15 @@ fn inject_through(
         Step::PressSecondary { x, y } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+            devices.button_code(SECONDARY_BUTTON, true)?;
+            compositor.read_input();
+            devices.button_code(SECONDARY_BUTTON, false)?;
+        }
+        Step::PressSecondaryOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            let (px, py) = at(*x, *y);
             devices.move_to(px, py)?;
             compositor.read_input();
             devices.button_code(SECONDARY_BUTTON, true)?;
@@ -2919,6 +2983,36 @@ fn move_paced(
     ))
 }
 
+/// A long press on the output (`Step::HoldOutput`): pressed, held still for `ms` while the
+/// compositor serves the clients (the shell times the hold itself), then released.
+fn hold_output(session: &mut Session, at: (i32, i32), ms: u32) -> Result<()> {
+    let outputs: Vec<Rect> = session
+        .compositor
+        .screens
+        .iter()
+        .map(|screen| screen.rect)
+        .collect();
+    on_outputs(&outputs, at.0, at.1)?;
+    session.compositor.scene.pointer_motion(at.0, at.1);
+    session.compositor.scene.pointer_button(BUTTON, true);
+    let until = Instant::now() + Duration::from_millis(u64::from(ms));
+    let idle_wait = session.compositor.idle_wait;
+    while Instant::now() < until {
+        session.compositor.idle_wait =
+            idle_wait.min(until.saturating_duration_since(Instant::now()));
+        session.compositor.serve(&session.listener)?;
+        session.serve_launches();
+        session.serve_preferences();
+    }
+    session.compositor.idle_wait = idle_wait;
+    session
+        .compositor
+        .scene
+        .set_input_time(monotonic_ns() as u64);
+    session.compositor.scene.pointer_button(BUTTON, false);
+    Ok(())
+}
+
 /// Paced presses (`Step::PressPaced`): each press and its release when its time comes, carrying
 /// that time, with the compositor serving the application until then.
 fn press_paced(
@@ -3005,6 +3099,12 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::PressSecondary { x, y } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
+            compositor.scene.pointer_button(SECONDARY_BUTTON, true);
+            compositor.scene.pointer_button(SECONDARY_BUTTON, false);
+        }
+        Step::PressSecondaryOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            compositor.scene.pointer_motion(*x, *y);
             compositor.scene.pointer_button(SECONDARY_BUTTON, true);
             compositor.scene.pointer_button(SECONDARY_BUTTON, false);
         }
@@ -3177,6 +3277,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::DragPaced { .. }
         | Step::ScrollPaced { .. }
         | Step::MovePaced { .. }
+        | Step::HoldOutput { .. }
         | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
@@ -3231,6 +3332,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.installs_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.installs = Some(installs);
+    }
+    if launch.trash {
+        let trash = oxyos_files::Scope::for_user().and_then(oxyos_compositor::trash::Trash::new)?;
+        let waker = trash.wake_fd()?;
+        session.trash_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
     if let Some(folder) = &launch.screenshots {
@@ -3298,6 +3406,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.launcher = session.launcher.take().map(|launcher| {
                 launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
             });
+        }
+        // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
+        // starts them.
+        let open_at_login = session.settings.preferences().open_at_login.clone();
+        if let Some(launcher) = session.launcher.as_mut() {
+            for id in &open_at_login {
+                if let Err(error) = launcher.launch(id) {
+                    eprintln!("[launch] {id} not opened at login: {error}");
+                }
+            }
         }
     }
     if let Some(password) = &launch.lock_password {
@@ -3703,6 +3821,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::HoldOutput { .. }) => {
+                if let Step::HoldOutput { x, y, ms } = step {
+                    hold_output(&mut session, (*x, *y), *ms)?;
+                }
+                0
+            }
             _ if matches!(step, Step::PressPaced { .. }) => {
                 if let Step::PressPaced {
                     at,
@@ -3784,8 +3908,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let announcements = announcements_json(&session.reader.take_announcements());
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
+        let urls = urls_json(&mut session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

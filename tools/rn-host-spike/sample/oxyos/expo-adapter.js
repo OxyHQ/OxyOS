@@ -92,13 +92,18 @@ globalThis.expo.modules.ExponentConstants = {
   getWebViewUserAgentAsync: async () => null,
 };
 
-// expo-linking, as its Android module (and React Native's Linking, the host's IntentAndroid): an
-// application on OxyOS is started from its registry entry, never by a link, so there is no
-// linking URL and none arrives (`onURLReceived` is never sent).
+// expo-linking, as its Android module (and React Native's Linking, the host's IntentAndroid): the
+// linking URL is what the session started the application to open (its launch record's: a file,
+// or a URL of a scheme its entry declares, which Expo Router opens at its route,
+// docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a plain launch. None arrives
+// later (`onURLReceived` is never sent): a URL for an application running starts another process.
+let linkingURL = application.launchURL ?? null;
 const ExpoLinking = new globalThis.expo.EventEmitter();
 Object.assign(ExpoLinking, {
-  getLinkingURL: () => null,
-  clearInitialURL: () => {},
+  getLinkingURL: () => linkingURL,
+  clearInitialURL: () => {
+    linkingURL = null;
+  },
 });
 globalThis.expo.modules.ExpoLinking = ExpoLinking;
 

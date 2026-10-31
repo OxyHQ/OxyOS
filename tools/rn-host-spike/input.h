@@ -58,6 +58,10 @@ class PointerInput {
   // mouse's: a secondary press reaches nothing else (no touch), so it opens a context menu and
   // presses nothing. Key events only update the modifiers held.
   void handle(const OxyOSEvent& event);
+  // A compositor of version 8 or newer tells each pointer event the keyboard's modifiers held,
+  // whichever surface has the keyboard (docs/adr/0034-the-dock.mdx): a Control-click on a surface
+  // that does not have it. Before, they are only what this client's own keys said.
+  void takesPointerModifiers(bool told) { pointerModifiers_ = told; }
   // Scrolls a text input's text by (dx, dy) if it can still move that way (textinput.h); true
   // if it moved. A text input under the pointer takes the wheel before the scroll views around it.
   void scrollsText(std::function<bool(facebook::react::Tag, float dx, float dy)> scrollText) {
@@ -181,6 +185,7 @@ class PointerInput {
   uint32_t hoveredSurface_ = 0;
   std::optional<facebook::react::Point> hoveredAt_;  // where the last pointermove was, on the page
   bool down_ = false;
+  bool pointerModifiers_ = false;
   // The mouse buttons held (W3C `buttons` bits) and the keyboard's modifiers.
   int buttons_ = 0;
   bool ctrl_ = false, shift_ = false, alt_ = false, meta_ = false;

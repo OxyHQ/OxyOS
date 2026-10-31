@@ -24,22 +24,42 @@ pub(super) struct Launches {
     asked: Vec<LaunchRequest>,
 }
 
+/// A chunk's index: a byte for short texts, two for long ones (a list, a URL).
+pub(super) trait ChunkIndex: Copy + PartialEq {
+    const FIRST: Self;
+    fn next(self) -> Self;
+}
+
+impl ChunkIndex for u8 {
+    const FIRST: Self = 0;
+    fn next(self) -> Self {
+        self.wrapping_add(1)
+    }
+}
+
+impl ChunkIndex for u16 {
+    const FIRST: Self = 0;
+    fn next(self) -> Self {
+        self.wrapping_add(1)
+    }
+}
+
 /// Text a client sends in chunks for one of its requests (`request`, its serial): `index` 0 begins
 /// it, each next chunk follows in order, `last` completes it, and the whole text then. A chunk out
 /// of order or text beyond `max` bytes is a protocol error, and what was received is dropped.
-pub(super) fn assemble<K: Ord + Copy>(
-    receiving: &mut BTreeMap<K, (String, u8)>,
+pub(super) fn assemble<K: Ord + Copy, I: ChunkIndex>(
+    receiving: &mut BTreeMap<K, (String, I)>,
     request: K,
-    index: u8,
+    index: I,
     last: bool,
     text: PreeditText,
     max: usize,
 ) -> Result<Option<String>, ErrorCode> {
     let entry = receiving
         .entry(request)
-        .or_insert_with(|| (String::new(), 0));
-    if index == 0 {
-        *entry = (String::new(), 0);
+        .or_insert_with(|| (String::new(), I::FIRST));
+    if index == I::FIRST {
+        *entry = (String::new(), I::FIRST);
     } else if index != entry.1 {
         receiving.remove(&request);
         return Err(ErrorCode::InvalidOrder);
@@ -49,7 +69,7 @@ pub(super) fn assemble<K: Ord + Copy>(
         return Err(ErrorCode::QuotaExceeded);
     }
     entry.0.push_str(text.as_str());
-    entry.1 = index.wrapping_add(1);
+    entry.1 = index.next();
     if !last {
         return Ok(None);
     }

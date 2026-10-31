@@ -405,6 +405,10 @@ pub struct Scene {
     /// When the input being handled happened (`Scene::set_input_time`), stamped on the events it
     /// makes.
     input_time_ns: u64,
+    /// The keyboard's modifier keys held (Linux input codes), whose modifiers (`MODIFIER_*`)
+    /// every pointer event carries (ADR 0034): a Control-click on the dock, which does not have
+    /// the keyboard.
+    modifier_keys: BTreeSet<u32>,
     /// Per client: the serial at connect or of the latest user input delivered to it. A window
     /// mapped after the user interacted elsewhere does not take focus.
     activation: BTreeMap<ClientId, u64>,
@@ -495,6 +499,20 @@ pub struct Scene {
     displays: displays::Displays,
     /// The time, as the program running the compositor last told it (`set_clock`).
     clock: std::time::Duration,
+    /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
+    dock: dock::Dock,
+}
+
+/// The modifier (`MODIFIER_*`) a key is, by its Linux input code; 0 for any other key.
+fn modifier_of(key: u32) -> u8 {
+    use oxyos_protocol::{MODIFIER_ALT, MODIFIER_CONTROL, MODIFIER_SHIFT, MODIFIER_SUPER};
+    match key {
+        42 | 54 => MODIFIER_SHIFT,
+        29 | 97 => MODIFIER_CONTROL,
+        56 | 100 => MODIFIER_ALT,
+        125 | 126 => MODIFIER_SUPER,
+        _ => 0,
+    }
 }
 
 /// Largest logical size whose buffer at `scale_120` stays within `MAX_DIMENSION`. The
@@ -1061,6 +1079,8 @@ impl Scene {
             self.tell_controls(client);
             self.tell_notifications(client);
             self.tell_sheets(client);
+            self.tell_application_lists(client);
+            self.tell_trash(client);
         }
         Ok(())
     }
@@ -1079,6 +1099,7 @@ impl Scene {
         self.forget_menu_bar_client(client);
         self.application_outputs.remove(&client);
         self.forget_launches(client);
+        self.forget_dock_client(client);
         self.forget_system_requests(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
@@ -1500,7 +1521,27 @@ impl Scene {
             | Request::RemoveWorkspace { .. }
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
+            | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
+            Request::Pong { serial } => {
+                self.pong(client, serial);
+                Ok(())
+            }
+            Request::SetApplicationList {
+                serial,
+                list,
+                index,
+                last,
+                text,
+            } => self.application_list_request(client, serial, list, index, last, text),
+            Request::OpenUrl {
+                serial,
+                input,
+                index,
+                last,
+                text,
+            } => self.url_request(client, serial, input, index, last, text),
+            Request::EmptyTrash { input } => self.empty_trash_request(client, input),
             Request::SetControlLevel { .. }
             | Request::SetControlMuted { .. }
             | Request::SetWifiEnabled { .. }
@@ -2588,6 +2629,7 @@ impl Scene {
 
     fn emit(&mut self, client: ClientId, event: Event) {
         if self.clients.contains_key(&client) {
+            self.pings_for(client, &event);
             self.events.push((client, event));
         }
     }
@@ -3399,6 +3441,7 @@ impl Scene {
                 y,
                 button,
                 time_ns: self.input_time_ns,
+                modifiers: self.modifiers(),
             },
         );
     }
@@ -3878,12 +3921,32 @@ impl Scene {
     /// (ADR 0025), then the system shortcuts (ADR 0024), then the focused surface.
     pub fn key(&mut self, key: u32, pressed: bool) {
         self.user_input();
+        self.hold_modifier(key, pressed);
         if !self.reader_key(key, pressed)
             && !self.hardware_key(key, pressed)
             && !self.system_key(key, pressed)
         {
             self.surface_key(key, pressed);
         }
+    }
+
+    /// Follows the modifier keys held (Linux input codes, left and right).
+    pub(super) fn hold_modifier(&mut self, key: u32, pressed: bool) {
+        if modifier_of(key) == 0 {
+            return;
+        }
+        if pressed {
+            self.modifier_keys.insert(key);
+        } else {
+            self.modifier_keys.remove(&key);
+        }
+    }
+
+    /// The modifiers held now (`MODIFIER_*`).
+    fn modifiers(&self) -> u8 {
+        self.modifier_keys
+            .iter()
+            .fold(0, |held, key| held | modifier_of(*key))
     }
 
     fn surface_key(&mut self, key: u32, pressed: bool) {
@@ -4320,6 +4383,8 @@ mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
+mod dock;
+pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
 mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod system;

@@ -33,6 +33,8 @@ struct Window {
     /// How recently it was active, and whether it is hidden with its application (ADR 0024).
     used: u32,
     hidden: bool,
+    /// Its process answers the compositor's pings (ADR 0034).
+    responding: bool,
 }
 
 #[derive(Debug, Default)]
@@ -246,6 +248,11 @@ impl Scene {
                     self.quit_application(key);
                 }
             }
+            Request::ForceQuitApplication { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.force_quit_application(key)?;
+                }
+            }
             Request::FocusShellSurface { surface, serial } => {
                 self.focus_shell_surface(
                     SurfaceKey {
@@ -304,6 +311,7 @@ impl Scene {
                         size: node.size,
                         used,
                         hidden,
+                        responding: self.responding(key.client),
                     },
                 ))
             })
@@ -356,13 +364,19 @@ impl Scene {
             for (&number, window) in &now {
                 let before = told.windows.get(&number);
                 if before.is_none_or(|b| {
-                    (b.workspace, b.minimized, b.focused, b.launched)
-                        != (
-                            window.workspace,
-                            window.minimized,
-                            window.focused,
-                            window.launched,
-                        )
+                    (
+                        b.workspace,
+                        b.minimized,
+                        b.focused,
+                        b.launched,
+                        b.responding,
+                    ) != (
+                        window.workspace,
+                        window.minimized,
+                        window.focused,
+                        window.launched,
+                        window.responding,
+                    )
                 }) {
                     self.emit(
                         client,
@@ -372,6 +386,7 @@ impl Scene {
                             minimized: window.minimized,
                             focused: window.focused,
                             launched: window.launched,
+                            responding: window.responding,
                         },
                     );
                 }

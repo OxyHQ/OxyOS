@@ -279,3 +279,53 @@ fn a_scale_is_written_as_people_read_it() {
         210
     );
 }
+
+#[test]
+fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
+    let mut preferences = Preferences::default();
+    // Until the person changes it, the dock is the registry's: no list.
+    assert_eq!(preferences.dock, None);
+    assert!(!preferences.to_text().contains("dock"));
+    let ids = |list: &[&str]| list.iter().map(|id| id.to_string()).collect::<Vec<_>>();
+    preferences
+        .set_list(
+            ApplicationList::Dock,
+            &ids(&["so.oxy.stash", "so.oxy.allo"]),
+        )
+        .unwrap();
+    preferences
+        .set_list(ApplicationList::OpenAtLogin, &ids(&["so.oxy.inbox"]))
+        .unwrap();
+    let text = preferences.to_text();
+    assert!(text.contains("dock = so.oxy.stash,so.oxy.allo\n"));
+    assert!(text.contains("open_at_login = so.oxy.inbox\n"));
+    let back = Preferences::parse(&text);
+    assert_eq!(back.dock, Some(ids(&["so.oxy.stash", "so.oxy.allo"])));
+    assert_eq!(back.open_at_login, ids(&["so.oxy.inbox"]));
+    // An empty dock is the person's choice too, and stays one.
+    preferences.set_list(ApplicationList::Dock, &[]).unwrap();
+    assert_eq!(
+        Preferences::parse(&preferences.to_text()).dock,
+        Some(vec![])
+    );
+    // A bad id, one twice or too many: refused, nothing changed.
+    for bad in [
+        ids(&["so.oxy.stash", "so.oxy.stash"]),
+        ids(&["not an id"]),
+        ids(&[".hidden"]),
+        (0..=MAX_APPLICATIONS)
+            .map(|n| format!("so.oxy.app{n}"))
+            .collect(),
+    ] {
+        assert_eq!(
+            preferences.set_list(ApplicationList::OpenAtLogin, &bad),
+            Err(Refused::BadValue)
+        );
+    }
+    assert_eq!(preferences.open_at_login, ids(&["so.oxy.inbox"]));
+    // A bad line in the file keeps the default.
+    assert_eq!(
+        Preferences::parse("dock = so.oxy.stash,bad id\n").dock,
+        None
+    );
+}

@@ -8,6 +8,11 @@
 //! The file also keeps the displays' settings (`displays`): each display's mode and scale, and
 //! the arrangement of each set of displays. They are the session's to change, through its
 //! displays (docs/adr/0018-several-displays.mdx), never through [`Preferences::set`].
+//!
+//! And the person's lists of applications (docs/adr/0034-the-dock.mdx): those kept in the dock, in
+//! its order (`dock`, absent until the person changes it: the registry's then), and those the
+//! session opens at login (`open_at_login`), ids separated by commas. The shell changes them
+//! whole, through [`Preferences::set_list`], never through [`Preferences::set`].
 
 use std::fmt;
 use std::io;
@@ -87,6 +92,11 @@ pub struct Preferences {
     pub displays: Vec<(String, DisplaySettings)>,
     /// Each set of displays' arrangement, by the set's key, the one changed last at the end.
     pub arrangements: Vec<(String, Arrangement)>,
+    /// The applications kept in the dock, in its order; none until the person changes it (the
+    /// registry's entries say then, `X-OxyOS-Pinned`).
+    pub dock: Option<Vec<String>>,
+    /// The applications the session opens when it starts, in order.
+    pub open_at_login: Vec<String>,
 }
 
 impl Default for Preferences {
@@ -104,8 +114,55 @@ impl Default for Preferences {
             notification_previews: Previews::default(),
             displays: Vec::new(),
             arrangements: Vec::new(),
+            dock: None,
+            open_at_login: Vec::new(),
         }
     }
+}
+
+/// The most applications one of the person's lists holds.
+pub const MAX_APPLICATIONS: usize = 64;
+
+/// One of the person's lists of applications.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplicationList {
+    /// Kept in the dock, in its order.
+    Dock,
+    /// Opened when the session starts.
+    OpenAtLogin,
+}
+
+/// An application id, as the registry takes one (`oxyos_apps::valid_id`): a reverse domain name
+/// of ASCII letters, digits, `.`, `-` and `_`, at most 128 bytes.
+fn application_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && !id.starts_with('.')
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+/// A list of application ids: each valid, none twice, at most [`MAX_APPLICATIONS`].
+pub fn application_list<'a>(
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Result<Vec<String>, Refused> {
+    let mut list: Vec<String> = Vec::new();
+    for id in ids {
+        if !application_id(id) || list.iter().any(|kept| kept == id) {
+            return Err(Refused::BadValue);
+        }
+        list.push(id.to_owned());
+    }
+    if list.len() > MAX_APPLICATIONS {
+        return Err(Refused::BadValue);
+    }
+    Ok(list)
+}
+
+/// A list as the file keeps it: ids separated by commas, none for an empty one.
+fn list_from_file(value: &str) -> Result<Vec<String>, Refused> {
+    application_list(value.split(',').map(str::trim).filter(|id| !id.is_empty()))
 }
 
 /// Why a change was refused.
@@ -265,6 +322,17 @@ impl Preferences {
         );
     }
 
+    /// Replaces one of the person's lists of applications (the shell's change, docs/adr/0034):
+    /// each id valid, none twice, at most [`MAX_APPLICATIONS`]. Nothing changes if it is refused.
+    pub fn set_list(&mut self, list: ApplicationList, ids: &[String]) -> Result<(), Refused> {
+        let ids = application_list(ids.iter().map(String::as_str))?;
+        match list {
+            ApplicationList::Dock => self.dock = Some(ids),
+            ApplicationList::OpenAtLogin => self.open_at_login = ids,
+        }
+        Ok(())
+    }
+
     /// A display's or an arrangement's line of the file; anything else, or a bad one, nothing.
     fn read_display_line(&mut self, key: &str, value: &str) {
         if let Some(identity) = key.strip_prefix("display.") {
@@ -294,6 +362,14 @@ impl Preferences {
                 let (key, value) = (key.trim(), value.trim());
                 if key.starts_with("display.") || key.starts_with("arrangement.") {
                     preferences.read_display_line(key, value);
+                } else if key == "dock" {
+                    if let Ok(ids) = list_from_file(value) {
+                        preferences.dock = Some(ids);
+                    }
+                } else if key == "open_at_login" {
+                    if let Ok(ids) = list_from_file(value) {
+                        preferences.open_at_login = ids;
+                    }
                 } else {
                     // A bad line keeps the default; the next good one is still read.
                     let _ = preferences.set(key, value);
@@ -315,6 +391,15 @@ impl Preferences {
         }
         for (key, arrangement) in &self.arrangements {
             text.push_str(&format!("arrangement.{key} = {}\n", arrangement.text()));
+        }
+        if let Some(dock) = &self.dock {
+            text.push_str(&format!("dock = {}\n", dock.join(",")));
+        }
+        if !self.open_at_login.is_empty() {
+            text.push_str(&format!(
+                "open_at_login = {}\n",
+                self.open_at_login.join(",")
+            ));
         }
         text
     }

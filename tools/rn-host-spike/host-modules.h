@@ -140,6 +140,16 @@ struct ShellService {
       capture;
   std::function<bool(uint64_t serial)> endCapture;
   std::function<bool(uint32_t screenshot)> openScreenshot;
+  // The dock's application menu (docs/adr/0034-the-dock.mdx): the application of a window
+  // force-quit (the session ends what it started for it), one of the person's lists of
+  // applications replaced (OXYOS_APPLICATION_LIST_*; the ids in order), and a URL opened in the
+  // application that opens its scheme, citing the latest input: the request's serial, 0 if it could
+  // not be sent (`OxyOSShellLaunch` answers). False if not sent.
+  std::function<bool(uint32_t window)> forceQuitApplication;
+  std::function<bool(uint32_t list, const std::vector<std::string>& ids)> setApplicationList;
+  std::function<uint32_t(const std::string& url)> openUrl;
+  // The Trash emptied, citing the latest input: the session asks the person first.
+  std::function<bool()> emptyTrash;
 };
 
 // An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API

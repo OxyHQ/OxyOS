@@ -217,6 +217,7 @@ fn super_m_minimizes_the_active_window_into_the_dock() {
         minimized: true,
         focused: false,
         launched: false,
+        responding: true,
     }));
     let changes: Vec<AppearanceChange> = h
         .scene

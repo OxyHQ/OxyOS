@@ -2,6 +2,8 @@
 # applications.mdx, decision 13): a system application, a package of its own built from its checkout
 # (STASH_DIR, sample/packages.mjs) and always first in the dock, as a Mac's Finder is. Without its
 # package (no checkout given) it is not installed: its entry names where its package will be.
+# It opens its own `stash:` URLs (Expo Router's routes: the dock's Trash opens stash://trash,
+# docs/adr/0034-the-dock.mdx).
 [Desktop Entry]
 Type=Application
 Name=Stash
@@ -10,3 +12,4 @@ X-OxyOS-Bloom-Module=Stash
 X-OxyOS-Bloom-Bundle=/usr/lib/oxyos/apps/so.oxy.stash/index.hbc
 X-OxyOS-Runtime=1
 X-OxyOS-Pinned=1
+MimeType=x-scheme-handler/stash;

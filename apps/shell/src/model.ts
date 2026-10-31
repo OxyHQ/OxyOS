@@ -32,6 +32,11 @@ export type ShellWindow = {
   /** False when the session did not start the window's process: its `appId` is then only its
       own claim, and it is no registry application's (docs/adr/0013-launching-applications.mdx). */
   launched?: boolean;
+  /** The active window (the one with the keyboard): its application's dock menu checks it. */
+  focused?: boolean;
+  /** False while its process does not answer the platform (docs/adr/0034-the-dock.mdx): its dock
+      menu says so and offers Force Quit. */
+  responding?: boolean;
 };
 /** An entry of a menu in the top bar: a command (`checked` set when it has a check, `shortcut` its
     chord as shown), a submenu, or a separator. */
@@ -67,6 +72,12 @@ export type ShellSnapshot = {
   workspaceId: string;
   activeAppId?: string;
   menus: readonly ShellMenu[];
+  /** The applications the session opens at login, by id (docs/adr/0034-the-dock.mdx); absent
+      where the platform has none to offer. */
+  openAtLogin?: readonly string[];
+  /** The Trash at the dock's end (docs/adr/0034-the-dock.mdx): how many items it holds, where the
+      platform says; absent, the dock has no Trash. */
+  trash?: { items?: number };
 };
 /** Requests go to the platform owner. Rendering a shell never launches a fake app or manages native windows itself. */
 export type ShellActions = {
@@ -85,6 +96,16 @@ export type ShellActions = {
       switcher's H and Q (docs/adr/0024-system-shortcuts.mdx). */
   hideApp?: (id: string) => void;
   quitApp?: (id: string) => void;
+  /** The dock's application menu (docs/adr/0034-the-dock.mdx), where the platform can: the
+      application ended by the platform at once (it is told nothing and cannot refuse); the
+      applications kept in the dock replaced, in order; one opened at login or not. Each is an
+      intent: the next snapshot says what the platform kept. */
+  forceQuitApp?: (id: string) => void;
+  setDock?: (ids: readonly string[]) => void;
+  setOpenAtLogin?: (ids: readonly string[]) => void;
+  /** The Trash: shown in the file manager, and emptied (the platform asks the person first). */
+  openTrash?: () => void;
+  emptyTrash?: () => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

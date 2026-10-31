@@ -3,12 +3,12 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
-    AuthOutcome, BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock,
-    Control, DismissReason, ErrorCode, Format, GesturePhase, MenuField, MenuFlags, MenuKind,
-    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
-    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
-    SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind,
-    WifiState, Wire,
+    ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, CaptureDestination,
+    CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format, GesturePhase,
+    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
+    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
+    Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints,
+    TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -340,6 +340,30 @@ messages! {
         // `input`, an input it received (a choice without one is refused; a cancellation needs
         // none).
         222 => AnswerFileChooser { input: u64, index: u16, last: bool, text: PreeditText },
+        // The dock's application menu (ADR 0034). The session's shell (its `shell` grant) asks the
+        // session to force-quit the application of a window: the session ends at once every
+        // process it started for that application, which is told nothing and cannot refuse; one
+        // the session did not start (the shell, the login screen, the lock screen, a client
+        // claiming an id) is never ended.
+        230 => ForceQuitApplication { window: u32 },
+        // Any client answers Ping `serial`, as its library does while it reads events: an
+        // application that does not answer in time is not responding (WindowState).
+        231 => Pong { serial: u32 },
+        // The session's shell (its `shell` grant) replaces one of the person's lists of
+        // applications (ADR 0034): the applications kept in the dock, in its order, or those
+        // opened at login, their ids one a line in chunks (`index` 0 begins it, `last` sends it).
+        // The session validates it, keeps it in the user's preferences and tells the shell
+        // (ApplicationList); `serial`, the shell's own, names the change in PreferenceResult.
+        232 => SetApplicationList { serial: u32, list: ApplicationListKind, index: u16, last: bool, text: PreeditText },
+        // The session's shell (its `shell` grant) asks the session to open a URL, citing `input`,
+        // an input it received lately, in chunks as SetApplicationList's: the session starts the
+        // application whose entry declares its scheme (`x-scheme-handler/…`), with the URL as
+        // React Native's `Linking` initial URL, and answers with LaunchResult naming `serial`.
+        233 => OpenUrl { serial: u32, input: u64, index: u16, last: bool, text: PreeditText },
+        // The session's shell (its `shell` grant) asks the session to empty the Trash (the dock's
+        // Trash, ADR 0034), citing `input`, an input it received lately: the session asks the
+        // person in a system sheet, and empties every Trash of the user's only once they accept.
+        234 => EmptyTrash { input: u64 },
     }
 }
 
@@ -353,7 +377,10 @@ messages! {
         1 => Welcome { version: u16 },
         2 => Configure { surface: u32, serial: u64, rect: Rect, scale_120: u32, fullscreen: bool, maximized: bool },
         3 => PopupDone { surface: u32, reason: DismissReason },
-        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64 },
+        // `modifiers`: the keyboard's modifiers held (`MODIFIER_*`), whichever surface has the
+        // keyboard, as X11's and macOS's pointer events carry them: a Control-click or an
+        // Option-click on a surface that does not have the keyboard (the dock).
+        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64, modifiers: u8 },
         5 => Key { surface: u32, serial: u64, key: u32, pressed: bool, time_ns: u64 },
         6 => Focus { surface: u32, focused: bool },
         7 => Touch { surface: u32, serial: u64, kind: TouchKind, id: u32, x: i32, y: i32, time_ns: u64 },
@@ -410,7 +437,9 @@ messages! {
         // as SetTitle's, its closing; and the workspaces and the active one.
         // `launched`: the session started the window's process, so its application id is the
         // registry's (ADR 0013); otherwise it is the application's own claim.
-        37 => WindowState { window: u32, workspace: u32, minimized: bool, focused: bool, launched: bool },
+        // `responding`: its process answered the compositor's latest Ping in time (ADR 0034); one
+        // the compositor never pings (a client of an older version) is responding.
+        37 => WindowState { window: u32, workspace: u32, minimized: bool, focused: bool, launched: bool, responding: bool },
         38 => WindowTitle { window: u32, index: u8, last: bool, text: PreeditText },
         39 => WindowAppId { window: u32, index: u8, last: bool, text: PreeditText },
         40 => WindowClosed { window: u32 },
@@ -615,6 +644,18 @@ messages! {
         // the files the person chose, that they cancelled, or that the session refused, as JSON
         // text in chunks (`index` 0 begins it, `last` completes it).
         220 => FilesChosen { serial: u32, index: u16, last: bool, text: PreeditText },
+        // Is the client still responding (ADR 0034)? It answers Pong naming `serial`. Sent to a
+        // client given input, asked to close or activated, while no Ping to it is unanswered.
+        230 => Ping { serial: u32 },
+        // To the session's shell (ADR 0034): one of the person's lists of applications as the
+        // session keeps it, when the shell connects and whenever it changes, ids one a line in
+        // chunks as SetApplicationList's. `chosen`: the person has changed it; until then the
+        // dock's list is the registry's (each entry's `X-OxyOS-Pinned`) and it is empty.
+        231 => ApplicationList { list: ApplicationListKind, chosen: bool, index: u16, last: bool, text: PreeditText },
+        // To the session's shell (ADR 0034): how many items the user's Trashes hold, when the
+        // shell connects and whenever it changes: the dock's Trash shows it full or empty, and
+        // offers emptying it only when it is not.
+        232 => TrashItems { items: u32 },
     }
 }
 

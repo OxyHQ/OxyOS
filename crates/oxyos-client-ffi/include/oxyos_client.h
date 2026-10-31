@@ -109,6 +109,17 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_SCREENSHOT_SAVED 212
 /* File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8). */
 #define OXYOS_EVENT_FILES_CHOSEN 220
+/* The dock (docs/adr/0034-the-dock.mdx): to the shell, a chunk of one of the person's lists of
+ * applications as the session keeps it: code, OXYOS_APPLICATION_LIST_*; detail, the chunk's index
+ * (0 begins it); flag, OXYOS_LIST_LAST on the last and OXYOS_LIST_CHOSEN once the person changed
+ * it; text, the chunk. Ids one a line once whole. */
+#define OXYOS_EVENT_APPLICATION_LIST 231
+#define OXYOS_APPLICATION_LIST_DOCK 1
+#define OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN 2
+#define OXYOS_LIST_LAST 1
+#define OXYOS_LIST_CHOSEN 2
+/* To the shell: how many items the user's Trashes hold (code), when it connects and as it changes. */
+#define OXYOS_EVENT_TRASH_ITEMS 232
 /* A CAPTURE_MODE's detail. */
 #define OXYOS_CAPTURE_MODE_SELECTION 1
 #define OXYOS_CAPTURE_MODE_WINDOW 2
@@ -184,6 +195,13 @@ typedef struct OxyOSClient OxyOSClient;
 /* The session started the window's process: its application id is the registry's, not its claim
  * (docs/adr/0013-launching-applications.mdx). */
 #define OXYOS_WINDOW_LAUNCHED 4
+/* Its process answered the compositor's latest ping in time (docs/adr/0034-the-dock.mdx). */
+#define OXYOS_WINDOW_RESPONDING 8
+/* A POINTER event's modifiers (OxyOSEvent.modifiers). */
+#define OXYOS_MODIFIER_SHIFT 1
+#define OXYOS_MODIFIER_CONTROL 2
+#define OXYOS_MODIFIER_ALT 4
+#define OXYOS_MODIFIER_SUPER 8
 
 /* A PREFERENCES event's flag bits (docs/adr/0019-settings.mdx). */
 #define OXYOS_PREFERENCES_DARK 1
@@ -449,6 +467,9 @@ typedef struct OxyOSEvent {
   uint8_t flag;
   char text[33];
   uint64_t time_ns;
+  /* A POINTER event's keyboard modifiers held (OXYOS_MODIFIER_*), whichever surface has the
+   * keyboard; none from a compositor of a version before 8 (docs/adr/0034-the-dock.mdx). */
+  uint8_t modifiers;
 } OxyOSEvent;
 
 
@@ -628,6 +649,10 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
  * refuse) (docs/adr/0024-system-shortcuts.mdx). */
 #define OXYOS_MANAGE_HIDE_APPLICATION 8
 #define OXYOS_MANAGE_QUIT_APPLICATION 9
+/* Force-quits the application of `window`: the session ends at once the processes it started for
+ * it, which cannot refuse; never one it did not start (docs/adr/0034-the-dock.mdx). Refused to a
+ * compositor of a version before 8. */
+#define OXYOS_MANAGE_FORCE_QUIT_APPLICATION 10
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
@@ -715,6 +740,22 @@ int oxyos_client_lock_session(OxyOSClient* client);
  * registry (docs/adr/0013-launching-applications.mdx). A LAUNCH_RESULT answers: code, `serial`;
  * flag, whether it was started. */
 int oxyos_client_launch(OxyOSClient* client, uint32_t serial, const char* id, size_t length);
+/* The session's shell replaces one of the person's lists of applications (docs/adr/0034-the-dock.mdx):
+ * `list` an OXYOS_APPLICATION_LIST_*, `ids` `length` bytes of UTF-8, one id a line (NULL and 0 for an
+ * empty list). A PREFERENCE_RESULT answers (code, `serial`; flag, whether the session kept it) and
+ * an APPLICATION_LIST says what it keeps. Refused to a compositor of a version before 8. */
+int oxyos_client_set_application_list(OxyOSClient* client, uint32_t serial, uint32_t list, const char* ids,
+                                      size_t length);
+/* The session's shell asks the session to empty the Trash, citing `input`, an input it received: the
+ * session asks the person in a system sheet (docs/adr/0034-the-dock.mdx). Refused to a compositor of
+ * a version before 8. */
+int oxyos_client_empty_trash(OxyOSClient* client, uint64_t input);
+/* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
+ * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
+ * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a
+ * version before 8. */
+int oxyos_client_open_url(OxyOSClient* client, uint32_t serial, uint64_t input, const char* url,
+                          size_t length);
 /* Settings (the `settings` grant, docs/adr/0019-settings.mdx) changes the preference `key` (not
  * empty, no `=`) to `value` (may be empty), both NUL-terminated UTF-8, at most 128 bytes as
  * `key=value`. A PREFERENCE_RESULT answers: code, `serial`; flag, whether the session took it.

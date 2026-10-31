@@ -70,6 +70,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- urls_opened: the URLs the shell opened in the step (ADR 0034), exactly and in order, each
+  {"url", "application"}: the application started for it; a step that opens one and does not say
+  so fails;
 - screenshots: with the scenario's `screenshots` (files written as the session writes them, in the
   run's own Desktop and Documents, docs/adr/0024-system-shortcuts.mdx), the files saved in the
   step, exactly and in order ("saved": each its "name" as a regular expression, "folder", "output",
@@ -270,7 +273,8 @@ frame of the application's window shows TEXT (so a step after that one sees the 
 change it did not make), or `after_ms` after it first does (a change coming while the application
 sits idle). A step's `home` expectation checks the home once the step settled: each path given
 exists (true) or not (false), a file's text, and `trash` the names in the home's Trash (its
-`files/`), each with a `.trashinfo` naming where it was. A scenario's `locale` sets `LANG` and
+`files/`), each with a `.trashinfo` naming where it was; with a `shell`, the dock's Trash follows
+that home's Trash (ADR 0034). A scenario's `locale` sets `LANG` and
 `LC_ALL` for the run, and its `tz` the time zone (`TZ`).
 
 What applications keep (their data and cache directories by id, application.h) is under the run's
@@ -350,7 +354,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
@@ -420,7 +424,8 @@ def director_args(step, out):
         args.append("--until-sheet")
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
-    if kind in ("press_popup", "press_output", "move_output", "press_secondary", "double_press", "triple_press"):
+    if kind in ("press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output",
+                "double_press", "triple_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
     if kind == "double_drag":
         # A double click whose second press is held and dragged: [x0, y0, x1, y1].
@@ -447,6 +452,9 @@ def director_args(step, out):
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
+    if kind == "hold_output":
+        # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
+        return args + ["--hold-output", ",".join(map(str, value))]
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
@@ -1901,6 +1909,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         check_screenshots(expect["screenshots"], result, fail)
     elif (result.get("screenshots") or {}).get("saved"):
         fail(f"screenshots saved, none expected: {result['screenshots']['saved']}")
+    # The URLs the shell opened in the step (ADR 0034), exactly: each its URL and the application
+    # started for it. A step that opens one and does not say so fails.
+    urls = result.get("urls_opened") or []
+    if urls != expect.get("urls_opened", []):
+        fail(f"URLs opened: {urls}, expected {expect.get('urls_opened', [])}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "preferences" in expect:
@@ -2468,6 +2481,10 @@ def main():
         # output's shell's with ".shell.ID").
         shell_host, shell_bundle, _ = machine.run(scenario["shell"])
         command += ["--shell", f"{shell_host},{shell_bundle},{scenario['shell']}"]
+        # With a home of the run's own, the dock's Trash is its Trash, followed as the session
+        # follows the user's (ADR 0034); never the developer's.
+        if "home" in scenario:
+            command += ["--trash"]
     if scenario.get("file_chooser"):
         # The file chooser the session starts for the application's requests (ADR 0029, decision
         # 8): the module run as the file manager is, in its picker mode, its report the

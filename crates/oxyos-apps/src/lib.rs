@@ -1075,6 +1075,9 @@ pub struct Launched {
     pub opened: Option<PathBuf>,
     /// Whether it was started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
     pub chooser: bool,
+    /// The URL it was started to open (docs/adr/0034-the-dock.mdx), which it is given as its
+    /// `Linking` initial URL (`OXYOS_LAUNCH_URL`).
+    pub url: Option<String>,
 }
 
 /// How large a file chooser's window asks to be, in logical pixels: the compositor fits it to the
@@ -1182,11 +1185,22 @@ pub fn file_url(path: &Path) -> String {
     url
 }
 
-/// How a process is started: as the application, to open a file, or as the file chooser.
+/// A URL's scheme, lowercased, if it has a valid one (RFC 3986: a letter, then letters, digits,
+/// `+`, `-` and `.`, before `:`).
+pub fn url_scheme(url: &str) -> Option<String> {
+    let (scheme, _) = url.split_once(':')?;
+    let mut bytes = scheme.bytes();
+    let valid = bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'));
+    valid.then(|| scheme.to_ascii_lowercase())
+}
+
+/// How a process is started: as the application, to open a file or a URL, or as the file chooser.
 #[derive(Clone, Copy)]
 enum Start<'a> {
     Launch,
     Opening(&'a Path),
+    Url(&'a str),
     Chooser { shown: &'a str, development: bool },
 }
 
@@ -1304,6 +1318,47 @@ impl Launcher {
         Ok((id, pid))
     }
 
+    /// Opens `url` in the application that opens its scheme (docs/adr/0034-the-dock.mdx): the
+    /// first in the registry's order whose entry declares `x-scheme-handler/<scheme>` (`MimeType`,
+    /// as freedesktop.org's applications declare the schemes they open). It is started with the URL
+    /// as its `Linking` initial URL. A URL with no valid scheme (RFC 3986), a `file` URL (a file
+    /// is opened by its type, [`Launcher::open`]) or one no application opens is refused. The id
+    /// started and its pid.
+    pub fn open_url(&mut self, url: &str) -> Result<(String, u32), Error> {
+        let scheme = url_scheme(url).ok_or_else(|| Error(format!("{url:?} has no scheme")))?;
+        if scheme == "file" {
+            return Err(Error("a file is opened by its type, not as a URL".into()));
+        }
+        let handler = format!("x-scheme-handler/{scheme}");
+        let policy = self.policy();
+        let (applications, _) = registry(
+            &self.directories,
+            &self.languages,
+            &policy,
+            self.installed.as_deref(),
+            &*self.trusted,
+        );
+        let id = applications
+            .iter()
+            .find(|application| application.opens.iter().any(|opens| *opens == handler))
+            .map(|application| application.id.clone())
+            .ok_or_else(|| Error(format!("no application opens {scheme}: URLs")))?;
+        let pid = self.start(&id, Start::Url(url))?;
+        Ok((id, pid))
+    }
+
+    /// Ends at once a process it started (SIGKILL): the person's force quit
+    /// (docs/adr/0034-the-dock.mdx), which the application is told nothing of and cannot refuse.
+    /// A process it did not start is never ended: false. It is reaped once it exits.
+    pub fn force_quit(&self, pid: u32) -> bool {
+        if !self.children.iter().any(|(child, _)| child.id() == pid) {
+            return false;
+        }
+        rustix::process::Pid::from_raw(pid as i32).is_some_and(|pid| {
+            rustix::process::kill_process(pid, rustix::process::Signal::KILL).is_ok()
+        })
+    }
+
     fn launch_opening(&mut self, id: &str, opened: Option<&Path>) -> Result<u32, Error> {
         match opened {
             Some(file) => self.start(id, Start::Opening(file)),
@@ -1379,6 +1434,10 @@ impl Launcher {
                 command.env("OXYOS_FILE_CHOOSER", shown);
                 None
             }
+            Start::Url(url) => {
+                command.env("OXYOS_LAUNCH_URL", url);
+                None
+            }
             Start::Launch => None,
         };
         let child = command
@@ -1395,6 +1454,10 @@ impl Launcher {
                 capabilities,
                 opened,
                 chooser: matches!(how, Start::Chooser { .. }),
+                url: match how {
+                    Start::Url(url) => Some(url.to_string()),
+                    _ => None,
+                },
             },
         ));
         Ok(pid)

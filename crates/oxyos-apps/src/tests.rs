@@ -302,6 +302,68 @@ fn a_launch_is_told_its_grants_and_a_development_entry_none() {
 }
 
 #[test]
+fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_only_ours() {
+    let out = std::env::temp_dir().join(format!("oxyos-apps-url-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let stash = format!(
+        "[Desktop Entry]\nType=Application\nName=Stash\nMimeType=inode/directory;x-scheme-handler/stash;\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_LAUNCH_URL > {}\"\n",
+        out.display()
+    );
+    let sleeper = "[Desktop Entry]\nType=Application\nName=Sleeper\nExec=/bin/sleep 30\n";
+    let dir = Directory::new(
+        "url",
+        &[
+            ("so.oxy.stash.desktop", stash.as_str()),
+            ("so.oxy.sleeper.desktop", sleeper),
+        ],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]);
+    let (id, pid) = launcher.open_url("Stash://trash").unwrap();
+    assert_eq!(id, "so.oxy.stash");
+    assert_eq!(
+        launcher.application_of(pid).and_then(|l| l.url.as_deref()),
+        Some("Stash://trash")
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        "so.oxy.stash Stash://trash"
+    );
+    // No scheme, a file, a scheme nobody opens: refused, nothing started.
+    for url in ["trash", "1x://a", "file:///home", "mailto:ana@oxy.so"] {
+        assert!(launcher.open_url(url).is_err(), "{url}");
+    }
+    // A force quit ends a process it started, at once, and nothing it did not.
+    let sleeping = launcher.launch("so.oxy.sleeper").unwrap();
+    assert!(!launcher.force_quit(std::process::id()));
+    assert!(launcher.force_quit(sleeping));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let exited = launcher.reap();
+        if exited.iter().any(|(pid, _)| *pid == sleeping) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "it was not ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(url_scheme("stash://trash").as_deref(), Some("stash"));
+    assert_eq!(url_scheme("://x"), None);
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
 fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-launched-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);
@@ -336,6 +398,7 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
             capabilities: BTreeMap::new(),
             opened: None,
             chooser: false,
+            url: None,
         })
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

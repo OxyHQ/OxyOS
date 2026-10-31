@@ -148,6 +148,32 @@ bool ShellState::observe(const OxyOSEvent& event) {
       window.minimized = (event.flag & OXYOS_WINDOW_MINIMIZED) != 0;
       window.focused = (event.flag & OXYOS_WINDOW_FOCUSED) != 0;
       window.launched = (event.flag & OXYOS_WINDOW_LAUNCHED) != 0;
+      window.responding = (event.flag & OXYOS_WINDOW_RESPONDING) != 0;
+      return true;
+    }
+    case OXYOS_EVENT_TRASH_ITEMS:
+      if (trashItems_ == static_cast<int64_t>(event.code)) return false;
+      trashItems_ = event.code;
+      return true;
+    case OXYOS_EVENT_APPLICATION_LIST: {
+      // One of the person's lists of applications (docs/adr/0034-the-dock.mdx), in chunks.
+      auto& receiving = receivingLists_[event.code];
+      if (event.detail == 0) receiving.clear();
+      receiving.append(event.text, strnlen(event.text, sizeof(event.text)));
+      if (!(event.flag & OXYOS_LIST_LAST)) return false;
+      ApplicationList list{.chosen = (event.flag & OXYOS_LIST_CHOSEN) != 0};
+      size_t start = 0;
+      while (start < receiving.size()) {
+        size_t end = receiving.find('\n', start);
+        if (end == std::string::npos) end = receiving.size();
+        if (end > start) list.ids.push_back(receiving.substr(start, end - start));
+        start = end + 1;
+      }
+      receivingLists_.erase(event.code);
+      auto& kept = lists_[event.code];
+      if (kept.chosen == list.chosen && kept.ids == list.ids && kept.told) return false;
+      kept = std::move(list);
+      kept.told = true;
       return true;
     }
     case OXYOS_EVENT_WINDOW_TITLE:
@@ -290,6 +316,23 @@ bool ShellState::observe(const OxyOSEvent& event) {
   }
 }
 
+// The person's lists of applications as the session told them (docs/adr/0034-the-dock.mdx):
+// { dock: { chosen, ids } | null, openAtLogin: [ids] }, null until told.
+folly::dynamic ShellState::applicationLists() const {
+  auto ids = [](const ApplicationList& list) {
+    folly::dynamic array = folly::dynamic::array();
+    for (const auto& id : list.ids) array.push_back(id);
+    return array;
+  };
+  auto dock = lists_.find(OXYOS_APPLICATION_LIST_DOCK);
+  auto login = lists_.find(OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN);
+  return folly::dynamic::object("dock", dock == lists_.end()
+                                            ? folly::dynamic(nullptr)
+                                            : folly::dynamic::object("chosen", dock->second.chosen)(
+                                                  "ids", ids(dock->second)))(
+      "openAtLogin", login == lists_.end() ? folly::dynamic(nullptr) : ids(login->second));
+}
+
 // Oxy's API, where adding an account at the login screen signs in (docs/adr/0020-oxy-account-login.mdx):
 // OXYOS_OXY_API (a development server), else Oxy's own.
 std::string ShellState::oxyApi() {
@@ -340,7 +383,8 @@ folly::dynamic ShellState::state() const {
   folly::dynamic windows = folly::dynamic::array();
   for (const auto& [id, window] : windows_) {
     windows.push_back(folly::dynamic::object("id", id)("appId", window.appId)("title", window.title)(
-        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched)("width", window.width)("height", window.height)("used", window.used)("hidden", window.hidden));
+        "workspace", window.workspace)("minimized", window.minimized)("focused", window.focused)("launched", window.launched)("width", window.width)("height", window.height)("used", window.used)("hidden", window.hidden)(
+        "responding", window.responding));
   }
   folly::dynamic outputs = folly::dynamic::array();
   for (const auto& [id, output] : outputs_) {
@@ -370,7 +414,9 @@ folly::dynamic ShellState::state() const {
       "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaperUri())(
       "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls())(
       "notifications", std::move(notifications))(
-      "notificationPolicy", folly::dynamic::object("doNotDisturb", doNotDisturb_)("previews", previews_));
+      "notificationPolicy", folly::dynamic::object("doNotDisturb", doNotDisturb_)("previews", previews_))(
+      "applicationLists", applicationLists())("trashItems", trashItems_ < 0 ? folly::dynamic(nullptr)
+                                                                             : folly::dynamic(trashItems_));
 }
 
 }  // namespace oxyos

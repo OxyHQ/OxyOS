@@ -192,6 +192,18 @@ class Window {
   // The session's shell asks for an application of the registry (ADR 0013); a LAUNCH_RESULT with
   // `serial` answers. False if it could not be sent.
   bool launch(uint32_t serial, const std::string& id);
+  // The dock (docs/adr/0034-the-dock.mdx): one of the person's lists of applications replaced
+  // (OXYOS_APPLICATION_LIST_*, ids one a line; a PREFERENCE_RESULT with `serial` answers), a URL
+  // opened in the application that opens its scheme citing `input` (a LAUNCH_RESULT with `serial`
+  // answers), and the application of a window force-quit. False if it could not be sent (a
+  // compositor of a protocol before 8).
+  bool setApplicationList(uint32_t serial, uint32_t list, const std::string& ids);
+  bool openUrl(uint32_t serial, uint64_t input, const std::string& url);
+  bool forceQuitApplication(uint32_t window);
+  // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
+  bool emptyTrash(uint64_t input);
+  // The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx).
+  uint16_t protocolVersion() const;
   // The password for `account` (a login screen's; empty: the session's own user).
   bool authenticate(uint32_t id, const std::string& secret, const std::string& account = "");
   // The windows a shell surface shows live (docs/adr/0022-window-views.mdx), bottom to top,

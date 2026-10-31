@@ -2090,6 +2090,24 @@ pub fn entry_text(manifest: &Manifest, version_dir: &Path, runtime_abi: u32) -> 
         version_dir.join("index.hbc").display(),
         manifest.version_code
     ));
+    // What it opens (its manifest's `opens`): the kinds of file, and the URL schemes as
+    // freedesktop.org's entries declare them (`x-scheme-handler/…`, docs/adr/0034-the-dock.mdx).
+    let opens: Vec<String> = manifest
+        .opens
+        .types
+        .iter()
+        .cloned()
+        .chain(
+            manifest
+                .opens
+                .schemes
+                .iter()
+                .map(|scheme| format!("x-scheme-handler/{scheme}")),
+        )
+        .collect();
+    if !opens.is_empty() {
+        text.push_str(&format!("MimeType={};\n", opens.join(";")));
+    }
     text
 }
 

@@ -60,6 +60,16 @@
  * `activateNotification(id, action, reply)` opens one (action 0) or runs its action, citing the
  * latest input; `removeNotification(id)` removes one (0: all); `setDoNotDisturb(enabled)` is the
  * Control Center's (a preference change, as `setAppearance`); `announce(text, polite)` speaks.
+ *
+ * The dock (docs/adr/0034-the-dock.mdx): each window's `responding` (its process answers the
+ * compositor's pings); `applicationLists` in the state, { dock: { chosen, ids } | null, openAtLogin:
+ * [ids] | null } (the person's lists, null until the session told them: `chosen` false while the
+ * dock is the registry's), and `trashItems`, what the user's Trashes hold (null until told).
+ * `forceQuitApplication(window)` has the session end the application of a window;
+ * `setApplicationList('dock' | 'openAtLogin', ids)` replaces one of the lists; `openUrl(url)` opens
+ * a URL in the application that opens its scheme, citing the latest input (its serial; 0 not sent;
+ * `OxyOSShellLaunch` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
+ * person first.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
@@ -106,6 +116,10 @@ const actions = {
   minimizeWindow: (id) => native?.minimizeWindow(id),
   hideApplication: (id) => native?.hideApplication(id),
   quitApplication: (id) => native?.quitApplication(id),
+  forceQuitApplication: (id) => native?.forceQuitApplication(id) ?? false,
+  setApplicationList: (list, ids) => native?.setApplicationList(list, [...ids]) ?? false,
+  openUrl: (url) => native?.openUrl(url) ?? 0,
+  emptyTrash: () => native?.emptyTrash() ?? false,
   moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
   activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
   addWorkspace: () => native?.addWorkspace(),

@@ -320,6 +320,7 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyOSEvent, flag),
         offset_of!(OxyOSEvent, text),
         offset_of!(OxyOSEvent, time_ns),
+        offset_of!(OxyOSEvent, modifiers),
     ];
     assert_eq!(
         event.iter().find(|f| f.name == "text").map(|f| f.count),
@@ -342,7 +343,8 @@ fn the_header_matches_the_abi() {
             "rotation_256",
             "flag",
             "text",
-            "time_ns"
+            "time_ns",
+            "modifiers"
         ]
     );
     assert_eq!(c_offsets(&event), (rust.to_vec(), size_of::<OxyOSEvent>()));
@@ -393,6 +395,7 @@ fn events_convert_field_by_field() {
         y: 256 * 20,
         button: 272,
         time_ns: 5_000_000_123,
+        modifiers: OXYOS_MODIFIER_CONTROL | OXYOS_MODIFIER_ALT,
     })
     .unwrap();
     assert_eq!(
@@ -406,6 +409,7 @@ fn events_convert_field_by_field() {
             detail: PointerKind::Press as u32,
             code: 272,
             time_ns: 5_000_000_123,
+            modifiers: OXYOS_MODIFIER_CONTROL | OXYOS_MODIFIER_ALT,
             ..OxyOSEvent::default()
         }
     );
@@ -1644,6 +1648,7 @@ fn the_header_matches_the_window_management_abi() {
         minimized: false,
         focused: false,
         launched: false,
+        responding: true,
     };
     assert_eq!(u32::from(state.opcode()), OXYOS_EVENT_WINDOW_STATE);
     assert_eq!(
@@ -1739,6 +1744,7 @@ fn window_events_convert_field_by_field() {
         minimized: true,
         focused: true,
         launched: false,
+        responding: false,
     })
     .unwrap();
     assert_eq!(
@@ -4411,6 +4417,7 @@ fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
                     y: 512,
                     button: 272,
                     time_ns: 99,
+                    modifiers: 0,
                 },
                 None,
                 2,
@@ -4826,7 +4833,10 @@ fn files_are_asked_for_answered_and_chosen_through_the_c_abi() {
     let received = unsafe {
         let client = oxyos_client_connect(path.as_ptr());
         assert!(!client.is_null());
-        assert_eq!(oxyos_client_protocol_version(client), 7);
+        assert_eq!(
+            oxyos_client_protocol_version(client),
+            oxyos_protocol::VERSION
+        );
         assert_eq!(
             oxyos_client_choose_files(client, 7, 1, 42, text.as_ptr()),
             0
@@ -4926,6 +4936,174 @@ fn files_are_asked_for_answered_and_chosen_through_the_c_abi() {
     assert!(
         compositor.join().unwrap().is_err(),
         "nothing was sent before the connection closed"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn the_docks_requests_and_events_go_through_the_c_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_APPLICATION_LIST",
+            i64::from(OXYOS_EVENT_APPLICATION_LIST),
+        ),
+        (
+            "OXYOS_EVENT_TRASH_ITEMS",
+            i64::from(OXYOS_EVENT_TRASH_ITEMS),
+        ),
+        (
+            "OXYOS_APPLICATION_LIST_DOCK",
+            i64::from(OXYOS_APPLICATION_LIST_DOCK),
+        ),
+        (
+            "OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN",
+            i64::from(OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN),
+        ),
+        ("OXYOS_LIST_LAST", i64::from(OXYOS_LIST_LAST)),
+        ("OXYOS_LIST_CHOSEN", i64::from(OXYOS_LIST_CHOSEN)),
+        (
+            "OXYOS_WINDOW_RESPONDING",
+            i64::from(OXYOS_WINDOW_RESPONDING),
+        ),
+        ("OXYOS_MODIFIER_SHIFT", i64::from(OXYOS_MODIFIER_SHIFT)),
+        ("OXYOS_MODIFIER_CONTROL", i64::from(OXYOS_MODIFIER_CONTROL)),
+        ("OXYOS_MODIFIER_ALT", i64::from(OXYOS_MODIFIER_ALT)),
+        ("OXYOS_MODIFIER_SUPER", i64::from(OXYOS_MODIFIER_SUPER)),
+        (
+            "OXYOS_MANAGE_FORCE_QUIT_APPLICATION",
+            i64::from(OXYOS_MANAGE_FORCE_QUIT_APPLICATION),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    for declaration in [
+        "int oxyos_client_set_application_list(OxyOSClient* client, uint32_t serial, uint32_t list, const char* ids,\n                                      size_t length);",
+        "int oxyos_client_open_url(OxyOSClient* client, uint32_t serial, uint64_t input, const char* url,\n                          size_t length);",
+        "int oxyos_client_empty_trash(OxyOSClient* client, uint64_t input);",
+    ] {
+        assert!(HEADER.contains(declaration), "{declaration}");
+    }
+    // The session's list and the Trash, to the shell; a Ping never reaches a C client.
+    let list = convert(&Event::ApplicationList {
+        list: oxyos_protocol::ApplicationListKind::Dock,
+        chosen: true,
+        index: 1,
+        last: true,
+        text: PreeditText::new("so.oxy.inbox").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (list.kind, list.code, list.detail, list.flag),
+        (
+            OXYOS_EVENT_APPLICATION_LIST,
+            OXYOS_APPLICATION_LIST_DOCK,
+            1,
+            OXYOS_LIST_LAST | OXYOS_LIST_CHOSEN
+        )
+    );
+    assert_eq!(
+        CStr::from_bytes_until_nul(&list.text)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "so.oxy.inbox"
+    );
+    let trash = convert(&Event::TrashItems { items: 4 }).unwrap();
+    assert_eq!((trash.kind, trash.code), (OXYOS_EVENT_TRASH_ITEMS, 4));
+    assert!(convert(&Event::Ping { serial: 1 }).is_none());
+
+    // A compositor of version 8 is sent the list, the URL, the force quit and the Trash's emptying,
+    // and its Ping is answered by the library as the client reads.
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-dock-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.send_event(&Event::Ping { serial: 5 }, None).unwrap();
+        server
+            .send_event(&Event::TrashItems { items: 2 }, None)
+            .unwrap();
+        let mut received = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::EmptyTrash { .. });
+            received.push(request);
+            if done {
+                break received;
+            }
+        }
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let ids = "so.oxy.stash\nso.oxy.allo";
+    let url = "stash://trash";
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the buffers
+    // outlive the calls.
+    let received = unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        let mut event = OxyOSEvent::default();
+        // The Ping is answered and skipped: the first event the client is given is the Trash's.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while oxyos_client_poll(client, &mut event) != OXYOS_POLL_EVENT {
+            assert!(std::time::Instant::now() < deadline, "no event");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!((event.kind, event.code), (OXYOS_EVENT_TRASH_ITEMS, 2));
+        assert_eq!(
+            oxyos_client_set_application_list(
+                client,
+                3,
+                OXYOS_APPLICATION_LIST_DOCK,
+                ids.as_ptr().cast(),
+                ids.len()
+            ),
+            0
+        );
+        assert_eq!(
+            oxyos_client_set_application_list(client, 4, 9, ids.as_ptr().cast(), ids.len()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_open_url(client, 6, 42, url.as_ptr().cast(), url.len()),
+            0
+        );
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, 7, 0),
+            0
+        );
+        assert_eq!(oxyos_client_empty_trash(client, 43), 0);
+        let received = compositor.join().unwrap();
+        oxyos_client_close(client);
+        received
+    };
+    assert_eq!(
+        received,
+        [
+            Request::Pong { serial: 5 },
+            Request::SetApplicationList {
+                serial: 3,
+                list: oxyos_protocol::ApplicationListKind::Dock,
+                index: 0,
+                last: true,
+                text: PreeditText::new("so.oxy.stash\nso.oxy.allo").unwrap(),
+            },
+            Request::OpenUrl {
+                serial: 6,
+                input: 42,
+                index: 0,
+                last: true,
+                text: PreeditText::new("stash://trash").unwrap(),
+            },
+            Request::ForceQuitApplication { window: 7 },
+            Request::EmptyTrash { input: 43 },
+        ]
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

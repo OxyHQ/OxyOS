@@ -280,6 +280,14 @@ impl Scene {
         std::mem::take(&mut self.system.answered)
     }
 
+    /// The person's answer to the sheet `sheet`, once, if they answered it: a part of the program
+    /// that asks its own sheets takes its own answers, and leaves the others'.
+    pub fn take_sheet_answer(&mut self, sheet: u32) -> Option<bool> {
+        let answered = &mut self.system.answered;
+        let at = answered.iter().position(|answer| answer.sheet == sheet)?;
+        Some(answered.remove(at).accepted)
+    }
+
     pub(super) fn capability_request(
         &mut self,
         client: ClientId,
