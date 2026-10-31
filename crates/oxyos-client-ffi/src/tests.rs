@@ -292,8 +292,12 @@ fn the_header_matches_the_abi() {
         offset_of!(OxyOSEvent, rotation_256),
         offset_of!(OxyOSEvent, flag),
         offset_of!(OxyOSEvent, text),
+        offset_of!(OxyOSEvent, time_ns),
     ];
-    assert_eq!(event.last().map(|f| f.count), Some(TEXT_CHUNK_BYTES + 1));
+    assert_eq!(
+        event.iter().find(|f| f.name == "text").map(|f| f.count),
+        Some(TEXT_CHUNK_BYTES + 1)
+    );
     assert_eq!(
         names(&event),
         [
@@ -310,7 +314,8 @@ fn the_header_matches_the_abi() {
             "scale_65536",
             "rotation_256",
             "flag",
-            "text"
+            "text",
+            "time_ns"
         ]
     );
     assert_eq!(c_offsets(&event), (rust.to_vec(), size_of::<OxyOSEvent>()));
@@ -360,6 +365,7 @@ fn events_convert_field_by_field() {
         x: 256 * 10,
         y: 256 * 20,
         button: 272,
+        time_ns: 5_000_000_123,
     })
     .unwrap();
     assert_eq!(
@@ -372,6 +378,7 @@ fn events_convert_field_by_field() {
             y: 5120,
             detail: PointerKind::Press as u32,
             code: 272,
+            time_ns: 5_000_000_123,
             ..OxyOSEvent::default()
         }
     );
@@ -397,6 +404,7 @@ fn events_convert_field_by_field() {
         serial: 4,
         dx: 0,
         dy: 512,
+        time_ns: 5_000_000_123,
     })
     .unwrap();
     assert_eq!(
@@ -1727,6 +1735,7 @@ fn the_header_matches_the_window_management_abi() {
         y: 0,
         scale_65536: 0,
         rotation_256: 0,
+        time_ns: 5_000_000_123,
     };
     assert_eq!(u32::from(pinch.opcode()), OXYOS_EVENT_PINCH);
     assert_eq!(GesturePhase::Begin as u32, OXYOS_PINCH_BEGIN);
@@ -1745,6 +1754,7 @@ fn a_pinch_converts_field_by_field() {
         y: -512,
         scale_65536: 98304,
         rotation_256: -2560,
+        time_ns: 5_000_000_123,
     })
     .unwrap();
     assert_eq!(
@@ -3848,6 +3858,7 @@ fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
         key: 30,
         pressed: true,
         text: PreeditText::new("é").unwrap(),
+        time_ns: 5_000_000_123,
     })
     .unwrap();
     assert_eq!(
@@ -3867,6 +3878,7 @@ fn a_key_with_its_text_converts_to_a_key_event_carrying_it() {
         serial: 10,
         key: 30,
         pressed: false,
+        time_ns: 5_000_000_123,
     })
     .unwrap();
     assert_eq!(plain.text[0], 0, "a key without key text has none");

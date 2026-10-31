@@ -1,5 +1,7 @@
 #include "key-chords.h"
 
+#include "input.h"
+
 #include <string>
 
 namespace oxyos {
@@ -109,8 +111,9 @@ std::optional<folly::dynamic> KeyChords::press(const OxyOSEvent& event) {
     }
   }
   bool repeat = !held_.insert(event.code).second;
+  // `timeStamp`, as a W3C KeyboardEvent's: when the key was pressed, on performance.now()'s clock.
   return folly::dynamic::object("key", name)("code", code)("altKey", alt_)("ctrlKey", ctrl_)("metaKey", meta_)(
-      "shiftKey", shift_)("repeat", repeat);
+      "shiftKey", shift_)("repeat", repeat)("timeStamp", eventTime(event).toDOMHighResTimeStamp());
 }
 
 bool KeyChords::swallow(const OxyOSEvent& event) {

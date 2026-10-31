@@ -2381,10 +2381,15 @@ impl Compositor {
         };
         let (dx, dy) = self.display_offset;
         let trace = std::env::var_os("OXYOS_INPUT_TRACE").is_some();
-        for action in actions {
+        for oxyos_input::Timed { time_ns, action } in actions {
             if trace {
-                eprintln!("[input] {action:?} focus {:?}", self.scene.focus());
+                eprintln!(
+                    "[input] {action:?} at {time_ns} focus {:?}",
+                    self.scene.focus()
+                );
             }
+            // What it makes reaches the clients with when its device registered it.
+            self.scene.set_input_time(time_ns);
             match action {
                 oxyos_input::Action::Motion { x, y } => {
                     let (x, y) = (x.round() as i32 - dx, y.round() as i32 - dy);

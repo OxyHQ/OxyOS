@@ -23,8 +23,8 @@ pub use wire::{
 };
 
 /// Lowest and highest protocol versions this implementation speaks.
-pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 2;
+pub const MIN_VERSION: u16 = 3;
+pub const VERSION: u16 = 3;
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
 /// The longest password a lock surface may give (ADR 0010), as Linux-PAM's longest answer.

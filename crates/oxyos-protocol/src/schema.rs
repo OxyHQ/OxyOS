@@ -289,19 +289,22 @@ messages! {
 
 messages! {
     /// Compositor → client. Popup configures carry a position relative to the parent; clients
-    /// never learn global coordinates or other clients' geometry.
+    /// never learn global coordinates or other clients' geometry. An input event's `time_ns` is
+    /// when its device registered it, on CLOCK_MONOTONIC (libinput's time: the kernel's evdev
+    /// timestamp), as Wayland's input events carry `time` and Android's MotionEvent `eventTime`:
+    /// the client times input by it, never by when it got round to reading it.
     Event {
         1 => Welcome { version: u16 },
         2 => Configure { surface: u32, serial: u64, rect: Rect, scale_120: u32, fullscreen: bool, maximized: bool },
         3 => PopupDone { surface: u32, reason: DismissReason },
-        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32 },
-        5 => Key { surface: u32, serial: u64, key: u32, pressed: bool },
+        4 => Pointer { surface: u32, serial: u64, kind: PointerKind, x: i32, y: i32, button: u32, time_ns: u64 },
+        5 => Key { surface: u32, serial: u64, key: u32, pressed: bool, time_ns: u64 },
         6 => Focus { surface: u32, focused: bool },
-        7 => Touch { surface: u32, serial: u64, kind: TouchKind, id: u32, x: i32, y: i32 },
+        7 => Touch { surface: u32, serial: u64, kind: TouchKind, id: u32, x: i32, y: i32, time_ns: u64 },
         8 => Feedback { surface: u32, sequence: u64, outcome: Outcome, timestamp_ns: u64, clock: Clock },
         9 => Released { surface: u32, buffer: u64 },
         10 => ProtocolError { code: ErrorCode },
-        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32 },
+        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32, time_ns: u64 },
         12 => Text { surface: u32, serial: u64, text: TextChunk },
         13 => Preedit { surface: u32, serial: u64, text: PreeditText, cursor: u8 },
         // To the application: an assistive technology's action on one of its nodes.
@@ -343,7 +346,7 @@ messages! {
         33 => InputMethodSurrounding { text: TextChunk },
         34 => InputMethodSelection { anchor: u32, cursor: u32 },
         35 => InputMethodDone { serial: u32 },
-        36 => InputMethodKey { serial: u64, key: u32, pressed: bool, text: PreeditText },
+        36 => InputMethodKey { serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
         // To the session's shell (ADR 0009): each window, by a number the compositor gives it
         // (never a surface id), as it appears and changes, its title and application id in chunks
         // as SetTitle's, its closing; and the workspaces and the active one.
@@ -360,7 +363,7 @@ messages! {
         // lasts: at (x, y), the pointer (surface-local, as a Pointer event's), which a pinch does
         // not move; `scale_65536` the fingers' spread over their spread when it began (65536 = as
         // they started); `rotation_256` how far they turned since, in 1/256 degrees, clockwise.
-        43 => Pinch { surface: u32, serial: u64, phase: GesturePhase, x: i32, y: i32, scale_65536: u32, rotation_256: i32 },
+        43 => Pinch { surface: u32, serial: u64, phase: GesturePhase, x: i32, y: i32, scale_65536: u32, rotation_256: i32, time_ns: u64 },
         // To clients with the `lock` grant (ADR 0010): the session locked, when it does and when
         // they connect while it is, so they make their lock surfaces; and unlocked.
         44 => LockState { locked: bool },
@@ -486,7 +489,7 @@ messages! {
         // To a connection that asked for key text (SetKeyText): a key, as Key, with what the
         // session's layout typed with it (its compose sequences included; empty for a modifier, an
         // editing key, a control character or a dead key).
-        150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText },
+        150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
         // To a client with the `store`, `updates` or `privacy` grant: the session's answer to its
         // SystemRequest `serial`, JSON text in chunks; `serial` 0 is the account's update state as
         // it changes, unasked.

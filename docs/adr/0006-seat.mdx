@@ -22,6 +22,7 @@ The compositor runs as the user of a logind session on a seat, and logind hands 
 2. **Devices.** The DRM card and every input device come from `TakeDevice`.
    - The card arrives as DRM master while the session is active. The kernel refuses `SET_MASTER` to anyone but a card's opener, so the compositor never asks (`Display::open_from_seat`).
    - libinput opens and closes input devices through the seat (`Input::open_with`).
+   - Each input event reaches the client with libinput's time for it (the kernel's evdev timestamp, CLOCK_MONOTONIC), whatever the compositor's turn was doing when it was read (`Input::dispatch`, `Scene::set_input_time`).
 3. **Switches.** When another session takes the seat, logind pauses the session's devices: it drops DRM master and revokes the input devices.
    - **On the card's pause**, the compositor completes the frame on its way (bounded, since the flip may never come), stops showing frames, suspends libinput and acknowledges the pause (`PauseDeviceComplete`).
    - **On the card's resume**, it resumes libinput (devices are opened anew) and shows the frame again with a modeset.

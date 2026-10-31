@@ -189,7 +189,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_POLL_CLOSED (-1)
 #define OXYOS_ERROR (-2)
 
-/* One compositor event. Fields by kind:
+/* One compositor event. An input event (POINTER, KEY, TOUCH, SCROLL, PINCH) also carries
+ * `time_ns`: when its device registered it, on CLOCK_MONOTONIC, in nanoseconds (libinput's time;
+ * 0 when the compositor knows none), by which the client times it rather than by when it read it.
+ * Fields by kind:
  *   CONFIGURE   serial; x, y, width, height: the rect (logical; a popup's is relative to its
  *               parent); scale_120: scale * 120; flag: OXYOS_CONFIGURE_* bits (full screen,
  *               zoomed to the work area).
@@ -360,6 +363,7 @@ typedef struct OxyOSEvent {
   int32_t rotation_256;
   uint8_t flag;
   char text[33];
+  uint64_t time_ns;
 } OxyOSEvent;
 
 

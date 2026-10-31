@@ -108,6 +108,15 @@ pub enum Step {
         events: u32,
         hz: u32,
     },
+    /// `count` presses of the primary button at a window-local point, `interval_ms` apart by
+    /// their device's time, each injected when its time comes (the compositor serving the
+    /// application meanwhile, however long it takes to answer) and carrying that time: a hand
+    /// pressing twice for a double press, whatever the application was doing in between.
+    PressPaced {
+        at: (i32, i32),
+        count: u32,
+        interval_ms: u32,
+    },
     /// The pointer moved over the window, no button held, from one window-local point to another
     /// in `motions` even steps, `hz` of them a second, the compositor serving the application
     /// between them: a hand moving the mouse across a list. What the window showed meanwhile is
@@ -230,6 +239,11 @@ impl Step {
                 motions,
                 hz,
             } => format!("pointer moved from {from:?} to {to:?} in {motions} motions at {hz} Hz"),
+            Step::PressPaced {
+                at,
+                count,
+                interval_ms,
+            } => format!("{count} presses at {at:?}, {interval_ms} ms apart"),
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::KeyDown(codes) => format!("key {} held", chord(codes)),
             Step::KeyUp(codes) => format!("key {} released", chord(codes)),
@@ -334,6 +348,11 @@ impl Step {
                 "\"move_paced\":[{},{},{},{},{motions},{hz}]",
                 from.0, from.1, to.0, to.1
             ),
+            Step::PressPaced {
+                at,
+                count,
+                interval_ms,
+            } => format!("\"press_paced\":[{},{},{count},{interval_ms}]", at.0, at.1),
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
             Step::KeyUp(codes) => format!("\"key_up\":{codes:?}"),
@@ -481,7 +500,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -795,6 +814,19 @@ impl Launch {
                         to: (n[2], n[3]),
                         motions: n[4] as u32,
                         hz: n[5] as u32,
+                    }
+                }
+                Some("--press-paced") => {
+                    let n = numbers(args.next(), 4)?;
+                    if n[2] < 1 || n[3] < 0 {
+                        return Err(
+                            "--press-paced needs at least one press, 0 ms or more apart".into()
+                        );
+                    }
+                    Step::PressPaced {
+                        at: (n[0], n[1]),
+                        count: n[2] as u32,
+                        interval_ms: n[3] as u32,
                     }
                 }
                 Some("--expect-popup") => Step::ExpectPopup,
@@ -1176,6 +1208,13 @@ fn composed_since(compositor: &Compositor, from_ns: i64) -> String {
 fn monotonic_ns() -> i64 {
     let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     now.tv_sec * 1_000_000_000 + now.tv_nsec
+}
+
+/// A paced input's time: `due` after `origin` (CLOCK_MONOTONIC ns), the time it is scheduled for,
+/// which its events carry as their device's time (`Scene::set_input_time`) whenever the
+/// compositor got to them.
+fn paced_time(origin: i64, due: Duration) -> u64 {
+    u64::try_from(origin).unwrap_or(0) + u64::try_from(due.as_nanos()).unwrap_or(u64::MAX)
 }
 
 /// When a step's answer first appeared, when it settled, and the window then.
@@ -2050,6 +2089,11 @@ fn drag_paced(
             }
         }
     };
+    let origin = monotonic_ns() - i64::try_from(start.elapsed().as_nanos()).unwrap_or(0);
+    session
+        .compositor
+        .scene
+        .set_input_time(paced_time(origin, start.elapsed()));
     session.compositor.scene.pointer_motion(from.0, from.1);
     session.compositor.scene.pointer_button(BUTTON, true);
     let interval = Duration::from_secs(1) / hz;
@@ -2070,6 +2114,10 @@ fn drag_paced(
         session
             .compositor
             .scene
+            .set_input_time(paced_time(origin, due));
+        session
+            .compositor
+            .scene
             .pointer_motion(at(from.0, to.0), at(from.1, to.1));
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
@@ -2081,6 +2129,10 @@ fn drag_paced(
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
     }
+    session
+        .compositor
+        .scene
+        .set_input_time(paced_time(origin, due));
     session.compositor.scene.pointer_button(BUTTON, false);
     let deadline = start.elapsed() + Duration::from_secs(5);
     loop {
@@ -2197,6 +2249,7 @@ fn scroll_paced(
         .scene
         .pointer_motion(window.x + at.0, window.y + at.1);
     let start = Instant::now();
+    let origin = monotonic_ns();
     let interval = Duration::from_secs(1) / hz;
     let mut last = sequence(&session.compositor);
     let mut shown: Vec<Duration> = Vec::new();
@@ -2220,6 +2273,10 @@ fn scroll_paced(
         }
         let step = total * i / i64::from(events) - total * (i - 1) / i64::from(events);
         scrolled.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
         session.compositor.scene.pointer_scroll(0, step as i32);
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
@@ -2279,6 +2336,7 @@ fn move_paced(
         .scene
         .pointer_motion(window.x + from.0, window.y + from.1);
     let start = Instant::now();
+    let origin = monotonic_ns();
     let interval = Duration::from_secs(1) / hz;
     let mut last = sequence(&session.compositor);
     let mut shown: Vec<Duration> = Vec::new();
@@ -2302,6 +2360,10 @@ fn move_paced(
         let x = i64::from(from.0) + dx * i / i64::from(motions);
         let y = i64::from(from.1) + dy * i / i64::from(motions);
         moved.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
         session
             .compositor
             .scene
@@ -2342,6 +2404,44 @@ fn move_paced(
             .last()
             .map_or("null".to_string(), |ms| format!("{ms:.1}")),
     ))
+}
+
+/// Paced presses (`Step::PressPaced`): each press and its release when its time comes, carrying
+/// that time, with the compositor serving the application until then.
+fn press_paced(
+    session: &mut Session,
+    window: Rect,
+    at: (i32, i32),
+    count: u32,
+    interval_ms: u32,
+) -> Result<()> {
+    if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
+        return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
+    }
+    let start = Instant::now();
+    let origin = monotonic_ns();
+    let idle_wait = session.compositor.idle_wait;
+    for i in 0..count {
+        let due = Duration::from_millis(u64::from(interval_ms) * u64::from(i));
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+        }
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
+        session
+            .compositor
+            .scene
+            .pointer_motion(window.x + at.0, window.y + at.1);
+        session.compositor.scene.pointer_button(BUTTON, true);
+        session.compositor.scene.pointer_button(BUTTON, false);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+    }
+    session.compositor.idle_wait = idle_wait;
+    Ok(())
 }
 
 fn inside_output((x, y): (i32, i32)) -> Result<()> {
@@ -2536,7 +2636,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Grab { .. }
         | Step::DragPaced { .. }
         | Step::ScrollPaced { .. }
-        | Step::MovePaced { .. } => {}
+        | Step::MovePaced { .. }
+        | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
     }
@@ -2939,6 +3040,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         session.reader.take_announcements();
         let injected_ns = monotonic_ns();
+        // A step's input happened when it is injected; a paced step's each when it is due.
+        session
+            .compositor
+            .scene
+            .set_input_time(u64::try_from(injected_ns).unwrap_or(0));
         let mut dragged = None;
         let mut scrolled = None;
         let mut moved = None;
@@ -2984,6 +3090,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             _ if matches!(step, Step::ScrollPaced { .. }) => {
                 if let Step::ScrollPaced { at, dy, events, hz } = step {
                     scrolled = Some(scroll_paced(&mut session, window, *at, *dy, *events, *hz)?);
+                }
+                0
+            }
+            _ if matches!(step, Step::PressPaced { .. }) => {
+                if let Step::PressPaced {
+                    at,
+                    count,
+                    interval_ms,
+                } = step
+                {
+                    press_paced(&mut session, window, *at, *count, *interval_ms)?;
                 }
                 0
             }

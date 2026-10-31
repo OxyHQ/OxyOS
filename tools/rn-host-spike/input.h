@@ -9,6 +9,7 @@
 #include <oxyos_client.h>
 
 #include <react/renderer/core/ReactPrimitives.h>
+#include <react/timing/primitives.h>
 
 #include <chrono>
 #include <functional>
@@ -141,7 +142,15 @@ class PointerInput {
   // Offsets this host gave each scroll view; the state commit that carries one may still be
   // pending when the next scroll arrives.
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;
-  std::chrono::steady_clock::time_point epoch_ = std::chrono::steady_clock::now();
+  // When the event being handled happened (eventTime): what every event it makes carries.
+  facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
 };
+
+// When `event` happened, as its device registered it: the protocol's `time_ns`, CLOCK_MONOTONIC,
+// which is steady_clock here and so the clock of React Native's timestamps and of JavaScript's
+// `performance.now()`. React Native's events carry it as Android's carry a MotionEvent's
+// `eventTime`: a W3C pointer event's `timeStamp`, a touch's `timestamp`. An event the compositor
+// knows no time for happened now.
+facebook::react::HighResTimeStamp eventTime(const OxyOSEvent& event);
 
 }  // namespace oxyos

@@ -381,6 +381,9 @@ pub struct Scene {
     last_user_serial: u64,
     /// Counts the person's input, of every kind and wherever it goes (`Scene::activity`).
     activity: u64,
+    /// When the input being handled happened (`Scene::set_input_time`), stamped on the events it
+    /// makes.
+    input_time_ns: u64,
     /// Per client: the serial at connect or of the latest user input delivered to it. A window
     /// mapped after the user interacted elsewhere does not take focus.
     activation: BTreeMap<ClientId, u64>,
@@ -3012,6 +3015,14 @@ impl Scene {
         self.activity = self.activity.wrapping_add(1);
     }
 
+    /// When the input about to be handled happened, on CLOCK_MONOTONIC, in nanoseconds: its
+    /// device's time (libinput's, or the director's paced time), which every input event it makes
+    /// carries (`time_ns`), however late the client reads it. Events the scene makes of its own
+    /// (a pointer leaving a window that went) carry the latest input's.
+    pub fn set_input_time(&mut self, time_ns: u64) {
+        self.input_time_ns = time_ns;
+    }
+
     /// The keyboard's Caps Lock came on or went off: the surface with keyboard focus is told.
     pub fn set_caps_lock(&mut self, on: bool) {
         if self.caps_lock == on {
@@ -3052,6 +3063,7 @@ impl Scene {
                 x,
                 y,
                 button,
+                time_ns: self.input_time_ns,
             },
         );
     }
@@ -3358,6 +3370,7 @@ impl Scene {
                 serial,
                 dx,
                 dy,
+                time_ns: self.input_time_ns,
             },
         );
     }
@@ -3389,6 +3402,7 @@ impl Scene {
                 y,
                 scale_65536,
                 rotation_256,
+                time_ns: self.input_time_ns,
             },
         );
     }
@@ -3438,7 +3452,7 @@ impl Scene {
             self.last_user_serial = serial;
         }
         if let Some(target) = self.focus.filter(|f| self.visible(*f)) {
-            self.emit_key(target, serial, key, pressed, None);
+            self.emit_key(target, serial, key, pressed, None, self.input_time_ns);
         }
     }
 
@@ -3451,7 +3465,7 @@ impl Scene {
             self.last_user_serial = serial;
         }
         let left = match self.focus.filter(|f| self.visible(*f)) {
-            Some(target) => self.emit_key(target, serial, key, pressed, text),
+            Some(target) => self.emit_key(target, serial, key, pressed, text, self.input_time_ns),
             None => text,
         };
         if let Some(text) = left {
@@ -3459,8 +3473,9 @@ impl Scene {
         }
     }
 
-    /// Sends a key with `serial` to `target`. Returns the text still to send: none when it went
-    /// with the key in a KeyText; a text longer than one chunk goes as before.
+    /// Sends a key with `serial`, which happened at `time_ns`, to `target`. Returns the text still
+    /// to send: none when it went with the key in a KeyText; a text longer than one chunk goes as
+    /// before.
     pub(super) fn emit_key<'t>(
         &mut self,
         target: SurfaceKey,
@@ -3468,6 +3483,7 @@ impl Scene {
         key: u32,
         pressed: bool,
         text: Option<&'t str>,
+        time_ns: u64,
     ) -> Option<&'t str> {
         if pressed {
             self.record_press(serial, target, false);
@@ -3487,6 +3503,7 @@ impl Scene {
                         key,
                         pressed,
                         text,
+                        time_ns,
                     },
                 );
                 None
@@ -3499,6 +3516,7 @@ impl Scene {
                         serial,
                         key,
                         pressed,
+                        time_ns,
                     },
                 );
                 text
@@ -3525,6 +3543,7 @@ impl Scene {
                 id,
                 x: lx,
                 y: ly,
+                time_ns: self.input_time_ns,
             },
         );
     }
