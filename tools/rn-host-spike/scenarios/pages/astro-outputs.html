@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS outputs</title>
+<style>
+html, body { margin: 0; height: 100%; }
+body { background: #e9ecef; font: 18px sans-serif; }
+#metrics, #pace { position: absolute; left: 440px; width: 120px; height: 40px; background: #868e96; }
+#metrics { top: 10px; }
+#pace { top: 60px; }
+#said { position: absolute; left: 20px; top: 10px; }
+</style>
+</head>
+<body>
+<div id="said"></div>
+<div id="metrics"></div>
+<div id="pace"></div>
+<script>
+const ON_FIRST = { width: 1280, height: 720, availHeight: 720, dpr: 1 };
+const ON_SECOND = { width: 1280, height: 800, availHeight: 800, dpr: 1.5 };
+const matches = (want) => screen.width === want.width && screen.height === want.height &&
+  screen.availHeight === want.availHeight && devicePixelRatio === want.dpr;
+let shown = "";
+function measurePace() {
+  const stamps = [];
+  const frame = (time) => {
+    stamps.push(time);
+    if (stamps.length < 41) return requestAnimationFrame(frame);
+    const gaps = stamps.slice(1).map((t, i) => t - stamps[i]).sort((a, b) => a - b);
+    const median = gaps[gaps.length >> 1];
+    pace.style.background = median < 11 ? "#2f9e44" : median < 20 ? "#f08c00" : "#e03131";
+    said.textContent += ` · ${median.toFixed(1)} ms`;
+  };
+  requestAnimationFrame(frame);
+}
+function look() {
+  const now = `${screen.width}×${screen.height} avail ${screen.availHeight} @${devicePixelRatio}`;
+  if (now === shown) return;
+  shown = now;
+  said.textContent = now;
+  metrics.style.background = matches(ON_FIRST) ? "#2f9e44" : matches(ON_SECOND) ? "#1971c2" : "#e03131";
+  pace.style.background = "#868e96";
+  setTimeout(measurePace, 300);
+}
+look();
+setInterval(look, 200);
+</script>
+</body>
+</html>
