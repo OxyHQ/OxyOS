@@ -76,6 +76,10 @@ pub const OXYOS_PINCH_BEGIN: u32 = 1;
 pub const OXYOS_PINCH_UPDATE: u32 = 2;
 pub const OXYOS_PINCH_END: u32 = 3;
 pub const OXYOS_PINCH_CANCEL: u32 = 4;
+/// What a scroll came from (OxyOSEvent.detail of a SCROLL event).
+pub const OXYOS_SCROLL_WHEEL: u32 = 1;
+pub const OXYOS_SCROLL_FINGER: u32 = 2;
+pub const OXYOS_SCROLL_CONTINUOUS: u32 = 3;
 /// To a client with the `lock` grant (ADR 0010): whether the session is locked (flag).
 pub const OXYOS_EVENT_LOCK_STATE: u32 = 44;
 /// To a lock surface: what came of its password (detail, OXYOS_AUTH_*; code: the seconds until
@@ -680,6 +684,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             dx,
             dy,
             time_ns,
+            source,
+            stop,
         } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SCROLL,
@@ -688,6 +694,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 x: dx,
                 y: dy,
                 time_ns,
+                detail: source as u32,
+                flag: u8::from(stop),
                 ..out
             }
         }

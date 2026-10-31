@@ -16,8 +16,8 @@ use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
     BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
-    PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ShellKind,
-    Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
+    PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ScrollSource,
+    ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -376,6 +376,9 @@ pub struct Scene {
     /// The surface a touchpad pinch going on goes to (the one under the pointer when it began),
     /// or none if it began over nothing or its surface went.
     pinch: Option<SurfaceKey>,
+    /// The surface a touchpad's (or a continuous device's) scroll going on goes to, the one
+    /// under the pointer when it began, until its stop; none between scrolls.
+    scrolling: Option<SurfaceKey>,
     last_press: Option<Press>,
     /// Serial of the latest user press, key or touch-down, delivered or consumed.
     last_user_serial: u64,
@@ -2417,6 +2420,9 @@ impl Scene {
         if self.pinch == Some(key) {
             self.pinch = None;
         }
+        if self.scrolling == Some(key) {
+            self.scrolling = None;
+        }
         if self.capture == Some(key) {
             self.capture = None;
             self.swallowed_releases = self.buttons_down;
@@ -3357,9 +3363,30 @@ impl Scene {
 
     /// A wheel or touchpad scroll, in 1/256 logical pixels, for the surface under the pointer
     /// (or holding its capture). It is not a press: it authorizes no grab and activates nothing.
-    pub fn pointer_scroll(&mut self, dx: i32, dy: i32) {
+    /// A touchpad's or a continuous device's scroll goes on reaching the surface it began on
+    /// until its `stop` (the fingers lifted), which reaches it too, so the application that
+    /// scrolled hears the scroll end; a wheel's notches each go to the surface under the pointer.
+    pub fn pointer_scroll(&mut self, dx: i32, dy: i32, source: ScrollSource, stop: bool) {
         self.user_input();
-        let Some(target) = self.pointer_target() else {
+        let target = if source == ScrollSource::Wheel {
+            self.pointer_target()
+        } else {
+            if self.scrolling.is_none() {
+                self.scrolling = self.pointer_target();
+            }
+            // A grab opened or the session locked since it began: the rest reaches nobody.
+            let target = self.scrolling.filter(|&key| {
+                self.live(key).is_some()
+                    && (self.grab.is_empty() || self.in_grab(key))
+                    && (!self.locked
+                        || layer_of(&self.nodes[&self.root_of(key)].role) == Layer::Lock)
+            });
+            if stop {
+                self.scrolling = None;
+            }
+            target
+        };
+        let Some(target) = target else {
             return;
         };
         let serial = self.next_serial();
@@ -3371,6 +3398,8 @@ impl Scene {
                 dx,
                 dy,
                 time_ns: self.input_time_ns,
+                source,
+                stop,
             },
         );
     }

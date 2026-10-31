@@ -10,7 +10,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - focus_surface: the application surface with the compositor's keyboard focus;
 - react: the exact events delivered to React during the step, as "event@name" -> count, where
   name is the target's testID or the nearest ancestor's (`within`). Any delivered event the step
-  does not list fails it, which catches duplicated and leaked events;
+  does not list fails it, which catches duplicated and leaked events; a count may be [least, most]
+  for events one a frame (a glide's scroll events);
 - delivered: compositor input routed to the application per surface (exact), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
@@ -82,6 +83,14 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nothing new);
   and always, no frame composed in the drag drawing the window at another size than its
   buffer's ("scaled");
+- glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
+  ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
+  measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
+  the fling's distance, worked out here again from that velocity and the friction as Android's
+  SplineOverScroller works it out (within half a pixel of the host's); the view's offset from the
+  drag's end to the glide's end going only that way and covering that distance (or stopping at the
+  end it reaches), within a pixel, over at least "frames_min" frames; and its events in order:
+  scrollEndDrag, momentumScrollBegin, the glide's scrolls, momentumScrollEnd;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
   rate, the compositor serving the application between them, as a touchpad scrolls a list):
   "presented_min", the fewest frames the window showed;
@@ -215,6 +224,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 
 import argparse
 import json
+import math
 import re
 import shutil
 import struct
@@ -233,7 +243,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
 
@@ -270,6 +280,9 @@ def director_args(step):
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
+    if kind == "flick":
+        # The same, then the fingers lifting: [x, y, dy, events, hz].
+        return args + ["--flick", ",".join(map(str, value))]
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
@@ -638,6 +651,64 @@ def check_pixels(name, expect, screenshot, window, fail):
             fail(f"pixel {point} is #{''.join(f'{c:02x}' for c in got)}, expected {colour}")
 
 
+def android_fling_distance(velocity, friction):
+    """How far Android's SplineOverScroller flings at `velocity` dp a second with `friction`, for a
+    device of 160 dots per inch (dp): its getSplineFlingDistance."""
+    if velocity == 0:
+        return 0.0
+    inflexion, deceleration_rate = 0.35, math.log(0.78) / math.log(0.9)
+    physical = 9.80665 * 39.37 * 160.0 * 0.84
+    deceleration = math.log(inflexion * abs(velocity) / (friction * physical))
+    distance = friction * physical * math.exp(deceleration_rate / (deceleration_rate - 1.0) * deceleration)
+    return math.copysign(distance, velocity)
+
+
+def check_glide(wanted, report, start, end, fail):
+    """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
+    view = wanted["view"]
+    lines = [line for line in report if start <= line["t"] <= end
+             and (line.get("within") or line.get("target")) == view]
+    flings = [line for line in lines if line["kind"] == "fling"]
+    if len(flings) != 1:
+        fail(f"{view} was flung {len(flings)} times, expected once")
+        return
+    fling = flings[0]
+    lo, hi = wanted["velocity"]
+    if not lo <= fling["vy"] <= hi:
+        fail(f"{view} was flung at {fling['vy']:.0f} px/s, expected {lo} to {hi}")
+    distance = android_fling_distance(fling["vy"], fling["friction"])
+    if abs(distance - fling["dy"]) > 0.5:
+        fail(f"{view}'s fling goes {fling['dy']:.1f} px, Android's goes {distance:.1f} at {fling['vy']:.0f} px/s")
+    events = [line for line in lines if line["kind"] == "deliver"]
+    names = [line["event"] for line in events]
+    if "scrollEndDrag" not in names:
+        fail(f"{view} had no scrollEndDrag")
+        return
+    after = events[names.index("scrollEndDrag"):]
+    order = [line["event"] for line in after]
+    glide = order[2:-1]
+    if order[:2] != ["scrollEndDrag", "momentumScrollBegin"] or order[-1:] != ["momentumScrollEnd"] or \
+            any(name != "scroll" for name in glide):
+        fail(f"{view}'s events after the drag were {order}, expected scrollEndDrag, momentumScrollBegin, "
+             f"scrolls, momentumScrollEnd")
+        return
+    offsets = [after[0]["y"]] + [line["y"] for line in after[2:-1]]
+    steps = [b - a for a, b in zip(offsets, offsets[1:])]
+    if any(step * distance <= 0 for step in steps):
+        fail(f"{view} did not glide only one way: {steps}")
+    if len(steps) < wanted.get("frames_min", 0):
+        fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    covered, ended = offsets[-1] - offsets[0], after[-1].get("y")
+    reached_end = wanted.get("to_end", False)
+    if reached_end:
+        if abs(covered) >= abs(distance) + 1:
+            fail(f"{view} glided {covered:.1f} px, past the fling's {distance:.1f}")
+        if abs(ended - wanted.get("end_offset", ended)) > 0.01:
+            fail(f"{view} stopped at {ended}, expected its end {wanted['end_offset']}")
+    elif abs(covered - distance) > 1:
+        fail(f"{view} glided {covered:.1f} px, expected the fling's {distance:.1f}")
+
+
 def check_smooth(name, wanted, screenshot, fail):
     """The step's `smooth`: a region of the output that shows a smooth gradient (a wide blur)
     without banding."""
@@ -883,8 +954,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 label = line.get("within") or line["target"]
                 key = f"{line['event']}@{label}"
                 got[key] = got.get(key, 0) + 1
-        if got != expect["react"]:
-            fail(f"React received {got}, expected exactly {expect['react']}")
+        wanted = expect["react"]
+        within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
+        if set(got) != set(wanted) or not all(within(got[k], wanted[k]) for k in got):
+            fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else {}, expect["home"], fail)
     if "react_hover" in expect:
@@ -1173,6 +1246,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "glide" in expect:
+        check_glide(expect["glide"], report, start, end, fail)
     if "scrolled" in expect:
         # A paced scroll (`scroll_paced`): "presented_min", the fewest frames the window showed
         # while it scrolled.

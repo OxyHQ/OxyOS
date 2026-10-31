@@ -175,6 +175,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_PINCH_END 3
 #define OXYOS_PINCH_CANCEL 4
 
+/* What a scroll came from (OxyOSEvent.detail of a scroll event): a wheel's notches, fingers on a
+   touchpad, or a continuous device (a trackpoint's or a button's scrolling). */
+#define OXYOS_SCROLL_WHEEL 1
+#define OXYOS_SCROLL_FINGER 2
+#define OXYOS_SCROLL_CONTINUOUS 3
+
 /* Feedback outcomes (OxyOSEvent.detail of a feedback event). */
 #define OXYOS_OUTCOME_PRESENTED 1
 #define OXYOS_OUTCOME_DISCARDED 2
@@ -212,7 +218,10 @@ typedef struct OxyOSClient OxyOSClient;
  *               (docs/adr/0018-several-displays.mdx).
  *   RELEASED    serial: buffer id (the client reuses it; informational).
  *   SCROLL      serial; x, y: horizontal and vertical scroll distance in 1/256 logical pixels
- *               (positive moves the content's view right and down).
+ *               (positive moves the content's view right and down); detail: OXYOS_SCROLL_*;
+ *               flag: the stop that ends a touchpad's or a continuous scroll (its fingers lifted),
+ *               with no distance. A touchpad's scroll goes on reaching the surface it began on
+ *               until its stop.
  *   TEXT        serial; text: committed UTF-8 (whole characters), NUL-terminated.
  *   PREEDIT     serial; text: the composition (empty ends it), NUL-terminated; detail: the
  *               composing cursor, a byte offset into text.

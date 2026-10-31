@@ -30,9 +30,14 @@ pub enum Action {
         code: u32,
         pressed: bool,
     },
+    /// A scroll in logical pixels from `source`. A touchpad's or a continuous device's ends with
+    /// one whose `stop` is set and which carries no distance: libinput's axis value 0, the
+    /// fingers lifted (a wheel's notches have no end).
     Scroll {
         dx: f64,
         dy: f64,
+        source: ScrollSource,
+        stop: bool,
     },
     Key {
         code: u32,
@@ -76,6 +81,17 @@ pub enum Action {
 pub struct Timed {
     pub time_ns: u64,
     pub action: Action,
+}
+
+/// What a scroll came from, as libinput tells its pointer axis events apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollSource {
+    /// A wheel's notches (ScrollWheel).
+    Wheel,
+    /// Fingers on a touchpad (ScrollFinger).
+    Finger,
+    /// A continuous device: a trackpoint's or a button's scrolling (ScrollContinuous).
+    Continuous,
 }
 
 /// Where a touchpad gesture is.
@@ -614,13 +630,13 @@ impl Input {
                     })
                 }
                 input::Event::Pointer(PointerEvent::ScrollWheel(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push(scroll_action(&scroll, ScrollSource::Wheel))
                 }
                 input::Event::Pointer(PointerEvent::ScrollFinger(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push(scroll_action(&scroll, ScrollSource::Finger))
                 }
                 input::Event::Pointer(PointerEvent::ScrollContinuous(scroll)) => {
-                    actions.push(scroll_action(&scroll))
+                    actions.push(scroll_action(&scroll, ScrollSource::Continuous))
                 }
                 input::Event::Gesture(GestureEvent::Pinch(pinch)) => {
                     let (phase, angle) = match &pinch {
@@ -710,17 +726,26 @@ pub fn confine(area: &[(f64, f64, f64, f64)], x: f64, y: f64) -> (f64, f64) {
         .map_or((x, y), |(_, at)| at)
 }
 
-fn scroll_action(scroll: &impl PointerScrollEvent) -> Action {
-    let value = |axis| {
-        if scroll.has_axis(axis) {
-            scroll.scroll_value(axis)
-        } else {
-            0.0
-        }
-    };
+fn scroll_action(scroll: &impl PointerScrollEvent, source: ScrollSource) -> Action {
+    let axis = |axis| scroll.has_axis(axis).then(|| scroll.scroll_value(axis));
+    scroll_of(axis(Axis::Horizontal), axis(Axis::Vertical), source)
+}
+
+/// A scroll from the axes libinput gave (none for an axis it did not): a touchpad's or a
+/// continuous device's with every axis given at 0 is its stop (libinput's "scroll stop", sent
+/// when the fingers lift); a wheel's never is.
+fn scroll_of(horizontal: Option<f64>, vertical: Option<f64>, source: ScrollSource) -> Action {
+    let given = [horizontal, vertical]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let stop =
+        source != ScrollSource::Wheel && !given.is_empty() && given.iter().all(|v| *v == 0.0);
     Action::Scroll {
-        dx: value(Axis::Horizontal),
-        dy: value(Axis::Vertical),
+        dx: horizontal.unwrap_or(0.0),
+        dy: vertical.unwrap_or(0.0),
+        source,
+        stop,
     }
 }
 

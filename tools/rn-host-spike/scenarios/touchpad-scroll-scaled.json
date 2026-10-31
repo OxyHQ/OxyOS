@@ -1,0 +1,126 @@
+{
+  "about": "A touchpad's flicks (scenarios/touchpad-scroll.json) on a 1600x1000 display at 1.25 (ADR 0018): the same drags, velocities and glides of Android's distance in the window's logical pixels, drawn at the output's scale; the fast flick stops at the inbox's end; a wheel's notch moves at once.",
+  "window": [
+    1024,
+    640
+  ],
+  "outputs": "1600x1000@1.25",
+  "layout": "es",
+  "steps": [
+    {
+      "name": "a gentle flick: a drag of 80 at 600 a second, then a glide of Android's distance for it",
+      "do": [
+        "flick",
+        [
+          170,
+          300,
+          80,
+          8,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inbox": 1,
+          "scroll@inbox": [
+            12,
+            80
+          ],
+          "scrollEndDrag@inbox": 1,
+          "momentumScrollBegin@inbox": 1,
+          "momentumScrollEnd@inbox": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "scroll": 9
+          }
+        },
+        "glide": {
+          "view": "inbox",
+          "velocity": [
+            400,
+            800
+          ],
+          "frames_min": 8
+        },
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fast flick glides to the inbox's end and stops there",
+      "do": [
+        "flick",
+        [
+          170,
+          300,
+          120,
+          6,
+          60
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Last message"
+        ],
+        "react": {
+          "scrollBeginDrag@inbox": 1,
+          "scroll@inbox": [
+            7,
+            60
+          ],
+          "scrollEndDrag@inbox": 1,
+          "momentumScrollBegin@inbox": 1,
+          "momentumScrollEnd@inbox": 1
+        },
+        "delivered": {
+          "1": {
+            "scroll": 7
+          }
+        },
+        "glide": {
+          "view": "inbox",
+          "velocity": [
+            900,
+            1800
+          ],
+          "to_end": true,
+          "end_offset": 325.6,
+          "frames_min": 2
+        },
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a wheel's notch moves the inbox at once: no drag, no momentum (its end is 325.6 at 1.25, where the content's height is laid out in device pixels)",
+      "do": [
+        "scroll",
+        [
+          170,
+          300,
+          -50
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scroll@inbox": 1
+        },
+        "delivered": {
+          "1": {
+            "scroll": 1
+          }
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "scroll@inbox": 4
+        },
+        "delivered": {
+          "1": {
+            "scroll": 4
+          }
+        }
+      }
+    }
+  ]
+}

@@ -11,7 +11,7 @@
 
 use super::*;
 use oxyos_compositor_core::{physical, AppearanceChange, TextTransaction};
-use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle};
+use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle, ScrollSource};
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
@@ -101,12 +101,14 @@ pub enum Step {
     },
     /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
     /// second, the compositor serving the application between them: a touchpad's two fingers
-    /// scrolling a list. What the window showed meanwhile is measured (`scroll_paced`).
+    /// scrolling a list. What the window showed meanwhile is measured (`scroll_paced`). With
+    /// `lift`, the fingers then lift (the scroll's stop) and leave it gliding: a flick.
     ScrollPaced {
         at: (i32, i32),
         dy: i32,
         events: u32,
         hz: u32,
+        lift: bool,
     },
     /// `count` presses of the primary button at a window-local point, `interval_ms` apart by
     /// their device's time, each injected when its time comes (the compositor serving the
@@ -230,9 +232,16 @@ impl Step {
                 motions,
                 hz,
             } => format!("drag from {from:?} to {to:?} on the output in {motions} motions at {hz} Hz"),
-            Step::ScrollPaced { at, dy, events, hz } => {
-                format!("scroll by {dy} at {at:?} in {events} events at {hz} Hz")
-            }
+            Step::ScrollPaced {
+                at,
+                dy,
+                events,
+                hz,
+                lift,
+            } => format!(
+                "{} by {dy} at {at:?} in {events} events at {hz} Hz",
+                if *lift { "flick" } else { "scroll" }
+            ),
             Step::MovePaced {
                 from,
                 to,
@@ -336,9 +345,18 @@ impl Step {
                 "\"drag_paced\":[{},{},{},{},{motions},{hz}]",
                 from.0, from.1, to.0, to.1
             ),
-            Step::ScrollPaced { at, dy, events, hz } => {
-                format!("\"scroll_paced\":[{},{},{dy},{events},{hz}]", at.0, at.1)
-            }
+            Step::ScrollPaced {
+                at,
+                dy,
+                events,
+                hz,
+                lift,
+            } => format!(
+                "\"{}\":[{},{},{dy},{events},{hz}]",
+                if *lift { "flick" } else { "scroll_paced" },
+                at.0,
+                at.1
+            ),
             Step::MovePaced {
                 from,
                 to,
@@ -500,7 +518,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -802,6 +820,20 @@ impl Launch {
                         dy: n[2],
                         events: n[3] as u32,
                         hz: n[4] as u32,
+                        lift: false,
+                    }
+                }
+                Some("--flick") => {
+                    let n = numbers(args.next(), 5)?;
+                    if n[3] < 1 || n[4] < 1 {
+                        return Err("--flick needs at least one event at 1 Hz or more".into());
+                    }
+                    Step::ScrollPaced {
+                        at: (n[0], n[1]),
+                        dy: n[2],
+                        events: n[3] as u32,
+                        hz: n[4] as u32,
+                        lift: true,
                     }
                 }
                 Some("--move-paced") => {
@@ -2231,14 +2263,16 @@ fn drag_paced(
 /// the event wakes composing at once, as a touchpad's wakes a session's; then the compositor
 /// serving it until its window shows no new frame for SETTLE (or five seconds pass). Returns what
 /// the window did, as JSON: `events`; `presented`, the frames it showed meanwhile; and
-/// `latency_ms` (median and max), from each event to the first frame shown after it.
+/// `latency_ms` (median and max), from each event to the first frame shown after it. The events
+/// are a touchpad's; with `lift`, its stop follows the last one, a frame of the hand later, as
+/// the fingers lift.
 fn scroll_paced(
     session: &mut Session,
     window: Rect,
     at: (i32, i32),
     dy: i32,
-    events: u32,
-    hz: u32,
+    (events, hz): (u32, u32),
+    lift: bool,
 ) -> Result<String> {
     if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
         return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
@@ -2277,7 +2311,29 @@ fn scroll_paced(
             .compositor
             .scene
             .set_input_time(paced_time(origin, due));
-        session.compositor.scene.pointer_scroll(0, step as i32);
+        session
+            .compositor
+            .scene
+            .pointer_scroll(0, step as i32, ScrollSource::Finger, false);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+    }
+    if lift {
+        let due = interval * (events + 1);
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+            observe(&session.compositor, &mut shown);
+        }
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
+        session
+            .compositor
+            .scene
+            .pointer_scroll(0, 0, ScrollSource::Finger, true);
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut shown);
@@ -2499,7 +2555,9 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::Scroll { x, y, dy } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
-            compositor.scene.pointer_scroll(0, dy.saturating_mul(256));
+            compositor
+                .scene
+                .pointer_scroll(0, dy.saturating_mul(256), ScrollSource::Wheel, false);
         }
         Step::Pinch {
             x,
@@ -3088,8 +3146,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
             _ if matches!(step, Step::ScrollPaced { .. }) => {
-                if let Step::ScrollPaced { at, dy, events, hz } = step {
-                    scrolled = Some(scroll_paced(&mut session, window, *at, *dy, *events, *hz)?);
+                if let Step::ScrollPaced {
+                    at,
+                    dy,
+                    events,
+                    hz,
+                    lift,
+                } = step
+                {
+                    scrolled = Some(scroll_paced(
+                        &mut session,
+                        window,
+                        *at,
+                        *dy,
+                        (*events, *hz),
+                        *lift,
+                    )?);
                 }
                 0
             }

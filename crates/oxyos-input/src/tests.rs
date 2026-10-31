@@ -381,3 +381,40 @@ fn the_hardware_keys_codes_are_their_xf86_keys_on_every_layout_and_type_nothing(
         keyboard.key(SHIFT, false);
     }
 }
+
+#[test]
+fn a_touchpad_scroll_ends_where_its_axes_come_to_zero_and_a_wheels_never() {
+    let scroll = |dx, dy, source, stop| Action::Scroll {
+        dx,
+        dy,
+        source,
+        stop,
+    };
+    assert_eq!(
+        scroll_of(None, Some(4.5), ScrollSource::Finger),
+        scroll(0.0, 4.5, ScrollSource::Finger, false)
+    );
+    // libinput's scroll stop: the axes it was scrolling, at 0.
+    assert_eq!(
+        scroll_of(Some(0.0), Some(0.0), ScrollSource::Finger),
+        scroll(0.0, 0.0, ScrollSource::Finger, true)
+    );
+    assert_eq!(
+        scroll_of(None, Some(0.0), ScrollSource::Continuous),
+        scroll(0.0, 0.0, ScrollSource::Continuous, true)
+    );
+    // One axis still moving is no stop.
+    assert_eq!(
+        scroll_of(Some(0.0), Some(-2.0), ScrollSource::Finger),
+        scroll(0.0, -2.0, ScrollSource::Finger, false)
+    );
+    // A wheel has no end, and an event with no axis is none.
+    assert_eq!(
+        scroll_of(None, Some(0.0), ScrollSource::Wheel),
+        scroll(0.0, 0.0, ScrollSource::Wheel, false)
+    );
+    assert_eq!(
+        scroll_of(None, None, ScrollSource::Finger),
+        scroll(0.0, 0.0, ScrollSource::Finger, false)
+    );
+}

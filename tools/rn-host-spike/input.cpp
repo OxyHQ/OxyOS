@@ -297,7 +297,11 @@ void PointerInput::handle(const OxyOSEvent& event) {
   if (!content) return;
   if (event.kind == OXYOS_EVENT_PINCH) return pinch(*content, event);
   if (event.kind == OXYOS_EVENT_SCROLL) {
-    content_ = *content;
+    // A touchpad's drag stays with the surface it began on (the compositor sends it there).
+    if (!drag_) content_ = *content;
+    if (event.detail == OXYOS_SCROLL_FINGER) return fingerScroll(event.x / 256.0f, event.y / 256.0f, event.flag);
+    if (event.flag) return;  // a continuous device's stop moves nothing
+    stopGlide();
     return scroll(event.x / 256.0f, event.y / 256.0f);
   }
   float x = event.x / 256.0f, y = event.y / 256.0f;
@@ -312,6 +316,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
   }
   switch (event.detail) {
     case OXYOS_POINTER_PRESS:
+      stopGlide();
       if (event.code == kPrimaryButton && !down_ && !pinching_) {
         target_ = hitTest(tree_, content_, x, y);
         if (target_ < 0) return;
@@ -480,6 +485,171 @@ void PointerInput::scroll(float dx, float dy) {
     if (name == "AndroidTextInput" && scrollText_ && scrollText_(*at, dx, dy)) return;
     if (scrollView(*at, dx, dy, content_.surface)) return;
   }
+}
+
+namespace {
+
+// Android's ViewConfiguration: the slowest fling (MINIMUM_FLING_VELOCITY) and the fastest
+// (MAXIMUM_FLING_VELOCITY), in dp per second.
+constexpr float kMinimumFlingVelocity = 50, kMaximumFlingVelocity = 8000;
+
+// The friction a scroll view glides with: one minus its `decelerationRate`. The C++ props'
+// default (0.998) is iOS's and stands for none set, where Android's ScrollView keeps its own,
+// 0.985 (ViewConfiguration's scroll friction, 0.015); React Native's 'normal' and 'fast' arrive as
+// Android's numbers (processDecelerationRate takes Android's branch).
+float frictionOf(const ShadowView& view) {
+  auto props = std::dynamic_pointer_cast<const ScrollViewProps>(view.props);
+  float rate = props ? props->decelerationRate : 0.998f;
+  if (rate == 0.998f) rate = 0.985f;
+  return std::clamp(1.0f - rate, 0.001f, 1.0f);
+}
+
+}  // namespace
+
+void PointerInput::fingerScroll(float dx, float dy, bool stop) {
+  if (!drag_) {
+    if (stop) return;
+    stopGlide();
+    drag_ = Drag{};
+    drag_->surface = content_.surface;
+    // The scroll view this drag moves: the innermost that can move its way, unless a text input
+    // under the pointer takes it first (its text scrolls, with no momentum: Android's text view
+    // drags its text, which a touchpad's fingers would select instead).
+    Tag target = hitTest(tree_, content_, x_, y_);
+    for (auto path = ancestry(tree_, target); target >= 0 && !path.empty(); path.pop_back()) {
+      Tag at = path.back();
+      const auto& view = tree_.views().at(at).view;
+      if (std::string(view.componentName ? view.componentName : "") == "AndroidTextInput" && scrollText_) break;
+      auto range = scrollRange(at);
+      if (!range) continue;
+      auto [current, end] = *range;
+      bool moves = (dx > 0 && current.x < end.x) || (dx < 0 && current.x > 0) || (dy > 0 && current.y < end.y) ||
+                   (dy < 0 && current.y > 0);
+      if (!moves) continue;
+      drag_->view = at;
+      scrollEvent(at, drag_->surface, "scrollBeginDrag");
+      break;
+    }
+  }
+  // When its device registered the event (eventTime): the velocity is the fingers', however late
+  // the host handles their events.
+  double now = eventTime_.toDOMHighResTimeStamp();
+  if (drag_->view < 0) {
+    if (stop) {
+      drag_.reset();
+    } else {
+      scroll(dx, dy);
+    }
+    return;
+  }
+  Tag view = drag_->view;
+  uint32_t surface = drag_->surface;
+  if (!stop) {
+    drag_->moved.x += dx;
+    drag_->moved.y += dy;
+    drag_->velocity.add(now, drag_->moved.x, drag_->moved.y);
+    scrollView(view, dx, dy, surface);
+    return;
+  }
+  auto [vx, vy] = drag_->velocity.at(now);
+  drag_.reset();
+  if (tree_.views().find(view) == tree_.views().end()) return;
+  // Android's ScrollView takes the velocity at most at the fastest fling, and React Native tells
+  // JavaScript the tracker's, the finger's: against the offset, in dp per millisecond.
+  vx = std::clamp(vx, -kMaximumFlingVelocity, kMaximumFlingVelocity);
+  vy = std::clamp(vy, -kMaximumFlingVelocity, kMaximumFlingVelocity);
+  scrollEvent(view, surface, "scrollEndDrag", Point{-vx / 1000, -vy / 1000});
+  // React Native's ScrollView then always goes through its momentum (handlePostTouchScrolling),
+  // flung or not.
+  scrollEvent(view, surface, "momentumScrollBegin");
+  auto range = scrollRange(view);
+  Glide glide;
+  glide.view = view;
+  glide.surface = surface;
+  glide.from = range ? range->first : Point{};
+  glide.began = std::chrono::steady_clock::now();
+  float friction = frictionOf(tree_.views().at(view).view);
+  if (std::abs(vx) >= kMinimumFlingVelocity) glide.x = SplineFling(vx, friction);
+  if (std::abs(vy) >= kMinimumFlingVelocity) glide.y = SplineFling(vy, friction);
+  glide_ = glide;
+  if (std::getenv("OXYOS_HOST_TRACE")) {
+    std::cerr << "[input] fling " << view << " at " << vx << "," << vy << " dp/s: " << glide.y.distance() << " in "
+              << glide.y.durationMs() << " ms\n";
+  }
+  // What it was flung with (none too slow to fling: the momentum then ends on the next frame,
+  // where it is).
+  Report::get().fling(tree_.views().at(view).view, vx, vy, glide.x.distance(), glide.y.distance(),
+                      std::max(glide.x.durationMs(), glide.y.durationMs()), friction);
+}
+
+bool PointerInput::tick(bool ready) {
+  if (!glide_ || !ready) return false;
+  auto now = std::chrono::steady_clock::now();
+  auto period = refresh_ ? refresh_->period() : std::chrono::milliseconds(16);
+  if (glide_->stepped && now - *glide_->stepped < period) return false;
+  glide_->stepped = now;
+  auto range = scrollRange(glide_->view);
+  if (!range) {
+    glide_.reset();
+    return false;
+  }
+  double ms = std::chrono::duration<double, std::milli>(now - glide_->began).count();
+  auto [current, end] = *range;
+  Point to{static_cast<float>(glide_->from.x + glide_->x.at(ms)), static_cast<float>(glide_->from.y + glide_->y.at(ms))};
+  to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+  bool moved = scrollView(glide_->view, to.x - current.x, to.y - current.y, glide_->surface);
+  // It ends when its time is up, or at the end it was flung towards: OxyOS has no overscroll, so
+  // it stops there rather than going past and springing back as Android's does.
+  bool done = ms >= std::max(glide_->x.durationMs(), glide_->y.durationMs()) ||
+              ((glide_->x.distance() == 0 || to.x <= 0 || to.x >= end.x) &&
+               (glide_->y.distance() == 0 || to.y <= 0 || to.y >= end.y));
+  if (done) stopGlide();
+  return moved;
+}
+
+std::optional<std::chrono::steady_clock::time_point> PointerInput::nextFrame(bool ready) const {
+  if (!glide_ || !ready) return std::nullopt;
+  auto period = refresh_ ? refresh_->period() : std::chrono::milliseconds(16);
+  return glide_->stepped ? *glide_->stepped + period : std::chrono::steady_clock::now();
+}
+
+void PointerInput::stopGlide() {
+  if (!glide_) return;
+  Glide glide = *glide_;
+  glide_.reset();
+  if (tree_.views().find(glide.view) != tree_.views().end()) scrollEvent(glide.view, glide.surface, "momentumScrollEnd");
+}
+
+void PointerInput::scrollEvent(Tag tag, uint32_t surface, const char* kind, std::optional<Point> velocity) {
+  auto it = tree_.views().find(tag);
+  if (it == tree_.views().end()) return;
+  const auto& view = it->second.view;
+  auto range = scrollRange(tag);
+  auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter);
+  if (emitter && view.state) {
+    const auto& state = std::static_pointer_cast<const ConcreteState<ScrollViewState>>(view.state);
+    ScrollEvent event;
+    event.contentSize = state->getData().getContentSize();
+    event.contentOffset = range ? range->first : Point{};
+    event.containerSize = view.layoutMetrics.frame.size;
+    event.zoomScale = 1;
+    std::string name = kind;
+    if (name == "scrollBeginDrag") {
+      emitter->onScrollBeginDrag(event);
+    } else if (name == "scrollEndDrag") {
+      ScrollEndDragEvent end(event);
+      end.velocity = velocity.value_or(Point{});
+      emitter->onScrollEndDrag(end);
+    } else if (name == "momentumScrollBegin") {
+      emitter->onMomentumScrollBegin(event);
+    } else if (name == "momentumScrollEnd") {
+      emitter->onMomentumScrollEnd(event);
+    }
+  }
+  folly::dynamic extra = folly::dynamic::object;
+  if (range) extra = folly::dynamic::object("x", range->first.x)("y", range->first.y);
+  if (velocity) extra["vx"] = velocity->x, extra["vy"] = velocity->y;
+  Report::get().deliver(kind, surface, view, extra);
 }
 
 std::optional<std::pair<facebook::react::Point, facebook::react::Point>> PointerInput::scrollRange(Tag tag) const {

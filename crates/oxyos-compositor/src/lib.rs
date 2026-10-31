@@ -15,7 +15,7 @@ use oxyos_compositor_core::{
 };
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
-    AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request,
+    AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ScrollSource,
     ServerConnection, Size,
 };
 use rustix::event::{poll, PollFd, PollFlags};
@@ -2400,9 +2400,21 @@ impl Compositor {
                     self.scene.pointer_button(code, pressed)
                 }
                 // libinput's units are logical pixels; the protocol's are 1/256 of one.
-                oxyos_input::Action::Scroll { dx, dy } => self
-                    .scene
-                    .pointer_scroll((dx * 256.0).round() as i32, (dy * 256.0).round() as i32),
+                oxyos_input::Action::Scroll {
+                    dx,
+                    dy,
+                    source,
+                    stop,
+                } => self.scene.pointer_scroll(
+                    (dx * 256.0).round() as i32,
+                    (dy * 256.0).round() as i32,
+                    match source {
+                        oxyos_input::ScrollSource::Wheel => ScrollSource::Wheel,
+                        oxyos_input::ScrollSource::Finger => ScrollSource::Finger,
+                        oxyos_input::ScrollSource::Continuous => ScrollSource::Continuous,
+                    },
+                    stop,
+                ),
                 // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
                 oxyos_input::Action::Pinch {
                     phase,

@@ -3,8 +3,8 @@
 use super::*;
 use oxyos_ipc::{Listener, SharedBuffer};
 use oxyos_protocol::{
-    AccessibleAction, DismissReason, GesturePhase, PointerKind, PreeditText, ServerConnection,
-    MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
+    AccessibleAction, DismissReason, GesturePhase, PointerKind, PreeditText, ScrollSource,
+    ServerConnection, MAX_PREFERENCE_BYTES, NO_ACCESSIBLE_PARENT,
 };
 use std::mem::{offset_of, size_of};
 
@@ -405,11 +405,27 @@ fn events_convert_field_by_field() {
         dx: 0,
         dy: 512,
         time_ns: 5_000_000_123,
+        source: ScrollSource::Wheel,
+        stop: false,
     })
     .unwrap();
     assert_eq!(
-        (scroll.kind, scroll.x, scroll.y),
-        (OXYOS_EVENT_SCROLL, 0, 512)
+        (scroll.kind, scroll.x, scroll.y, scroll.detail, scroll.flag),
+        (OXYOS_EVENT_SCROLL, 0, 512, OXYOS_SCROLL_WHEEL, 0)
+    );
+    let stop = convert(&Event::Scroll {
+        surface: 1,
+        serial: 5,
+        dx: 0,
+        dy: 0,
+        time_ns: 6_000_000_000,
+        source: ScrollSource::Finger,
+        stop: true,
+    })
+    .unwrap();
+    assert_eq!(
+        (stop.kind, stop.x, stop.y, stop.detail, stop.flag),
+        (OXYOS_EVENT_SCROLL, 0, 0, OXYOS_SCROLL_FINGER, 1)
     );
     assert_eq!(convert(&Event::Welcome { version: 2 }), None);
 }
@@ -1692,6 +1708,9 @@ fn the_header_matches_the_window_management_abi() {
         ("OXYOS_PINCH_UPDATE", OXYOS_PINCH_UPDATE.into()),
         ("OXYOS_PINCH_END", OXYOS_PINCH_END.into()),
         ("OXYOS_PINCH_CANCEL", OXYOS_PINCH_CANCEL.into()),
+        ("OXYOS_SCROLL_WHEEL", OXYOS_SCROLL_WHEEL.into()),
+        ("OXYOS_SCROLL_FINGER", OXYOS_SCROLL_FINGER.into()),
+        ("OXYOS_SCROLL_CONTINUOUS", OXYOS_SCROLL_CONTINUOUS.into()),
         ("OXYOS_WINDOW_MINIMIZED", OXYOS_WINDOW_MINIMIZED.into()),
         ("OXYOS_WINDOW_FOCUSED", OXYOS_WINDOW_FOCUSED.into()),
         ("OXYOS_WINDOW_LAUNCHED", OXYOS_WINDOW_LAUNCHED.into()),
@@ -1742,6 +1761,9 @@ fn the_header_matches_the_window_management_abi() {
     assert_eq!(GesturePhase::Update as u32, OXYOS_PINCH_UPDATE);
     assert_eq!(GesturePhase::End as u32, OXYOS_PINCH_END);
     assert_eq!(GesturePhase::Cancel as u32, OXYOS_PINCH_CANCEL);
+    assert_eq!(ScrollSource::Wheel as u32, OXYOS_SCROLL_WHEEL);
+    assert_eq!(ScrollSource::Finger as u32, OXYOS_SCROLL_FINGER);
+    assert_eq!(ScrollSource::Continuous as u32, OXYOS_SCROLL_CONTINUOUS);
 }
 
 #[test]

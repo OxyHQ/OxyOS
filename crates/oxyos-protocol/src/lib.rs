@@ -18,8 +18,9 @@ pub use wire::{
     Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, Clock, Control, DismissReason,
     ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
     NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
-    PreeditStyle, PreeditText, ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut,
-    TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
+    SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
+    TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks.

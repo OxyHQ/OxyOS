@@ -1032,7 +1032,7 @@ fn activity_counts_the_persons_input_and_nothing_else() {
         &|scene| scene.pointer_motion(w.x + 5, w.y + 5),
         &|scene| scene.pointer_button(BUTTON, true),
         &|scene| scene.pointer_button(BUTTON, false),
-        &|scene| scene.pointer_scroll(0, 256),
+        &|scene| scene.pointer_scroll(0, 256, ScrollSource::Wheel, false),
         &|scene| scene.pointer_pinch(GesturePhase::Begin, 65536, 0),
         &|scene| scene.key(30, true),
         &|scene| scene.keyboard(30, false, None),
@@ -2278,7 +2278,8 @@ fn scrolls_go_to_the_surface_under_the_pointer_without_activating_it() {
     h.pump();
     h.clear_log();
     let focus = h.scene.focus();
-    h.scene.pointer_scroll(0, -256 * 40);
+    h.scene
+        .pointer_scroll(0, -256 * 40, ScrollSource::Wheel, false);
     let events = h.pump();
     assert_eq!(events.len(), 1);
     assert!(matches!(
@@ -2306,12 +2307,96 @@ fn scrolls_go_to_the_surface_under_the_pointer_without_activating_it() {
     let o = h.rect(other);
     h.scene.pointer_motion(o.x + 10, o.y + 10);
     h.pump();
-    h.scene.pointer_scroll(0, 256);
+    h.scene.pointer_scroll(0, 256, ScrollSource::Wheel, false);
     assert!(!h
         .pump()
         .iter()
         .any(|(_, e)| matches!(e, Event::Scroll { .. })));
     assert_eq!(h.scene.grab_chain(), &[menu_popup]);
+}
+
+#[test]
+fn a_touchpad_scroll_stays_with_its_surface_until_its_fingers_lift() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 200, 100);
+    let (w, o) = (h.rect(window), h.rect(other));
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.pump();
+    h.clear_log();
+    h.scene.pointer_scroll(0, 512, ScrollSource::Finger, false);
+    // The pointer crosses onto the other window while the fingers still scroll: the scroll and
+    // its stop stay the first window's, the stop with its source and no distance.
+    h.scene.pointer_motion(o.x + 10, o.y + 10);
+    h.pump();
+    h.clear_log();
+    h.scene.pointer_scroll(0, 256, ScrollSource::Finger, false);
+    h.scene.pointer_scroll(0, 0, ScrollSource::Finger, true);
+    let scrolls: Vec<_> = h
+        .pump()
+        .into_iter()
+        .filter(|(_, e)| matches!(e, Event::Scroll { .. }))
+        .collect();
+    assert_eq!(scrolls.len(), 2);
+    assert!(matches!(
+        scrolls[0],
+        (
+            APP,
+            Event::Scroll {
+                surface: 1,
+                dy: 256,
+                source: ScrollSource::Finger,
+                stop: false,
+                ..
+            }
+        )
+    ));
+    assert!(matches!(
+        scrolls[1],
+        (
+            APP,
+            Event::Scroll {
+                surface: 1,
+                dx: 0,
+                dy: 0,
+                source: ScrollSource::Finger,
+                stop: true,
+                ..
+            }
+        )
+    ));
+    // The next one begins where the pointer is now; a wheel's notch always goes there.
+    h.scene.pointer_scroll(0, 256, ScrollSource::Finger, false);
+    h.scene.pointer_scroll(0, 256, ScrollSource::Wheel, false);
+    let events = h.pump();
+    assert!(events
+        .iter()
+        .all(|(client, e)| !matches!(e, Event::Scroll { .. }) || *client == OTHER));
+    assert_eq!(
+        events
+            .iter()
+            .filter(|(_, e)| matches!(e, Event::Scroll { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn a_touchpad_scroll_reaches_nobody_once_the_session_locks() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.scene.pointer_scroll(0, 256, ScrollSource::Finger, false);
+    h.pump();
+    h.scene.lock();
+    h.clear_log();
+    h.scene.pointer_scroll(0, 256, ScrollSource::Finger, false);
+    h.scene.pointer_scroll(0, 0, ScrollSource::Finger, true);
+    assert!(!h
+        .pump()
+        .iter()
+        .any(|(client, e)| *client == APP && matches!(e, Event::Scroll { .. })));
 }
 
 #[test]
@@ -7264,7 +7349,7 @@ fn input_events_carry_when_their_device_registered_them() {
     h.scene.pointer_button(BUTTON, true);
     h.scene.set_input_time(1_300_000_000);
     h.scene.pointer_button(BUTTON, false);
-    h.scene.pointer_scroll(0, 256);
+    h.scene.pointer_scroll(0, 256, ScrollSource::Wheel, false);
     h.scene.set_input_time(1_400_000_000);
     h.scene.key(KEY_A, true);
     let times: Vec<(&str, u64)> = to(&logged(&mut h), APP)
