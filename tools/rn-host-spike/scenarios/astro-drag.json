@@ -1,0 +1,72 @@
+{
+  "about": "Drag and drop inside Astro on OxyOS (ADR 0029, decision 7): the oxyos platform runs Chromium's drag itself, its window's own drop handler fed by the pointer the press keeps, with no protocol. Run with the engine as `--client`; the page (pages/astro-drag.html) is Astro's tab, 190 px right of the window's edge and 47 px down; a paced drag is in output coordinates (the window at 140,111). An HTML5 draggable dropped on the zone turns it green with the text it carried, and the source learns the copy (purple); one released above the window drops nothing (orange). A platform with no drag handler ends every drag at once with no operation, the zone never green.",
+  "window": [
+    1000,
+    500
+  ],
+  "launch_settle_ms": 3000,
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-drag.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it",
+      "do": [
+        "press",
+        [
+          500,
+          400
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "the draggable dragged onto the zone at a hand's pace and released there: the zone took its text, the source its copy",
+      "do": [
+        "drag_paced",
+        [
+          450,
+          218,
+          880,
+          278,
+          40,
+          60
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "740,167": "#2f9e44",
+          "490,397": "#7048e8"
+        }
+      }
+    },
+    {
+      "name": "dragged again and released above the window: nothing dropped, the zone as it was",
+      "do": [
+        "drag_paced",
+        [
+          450,
+          218,
+          450,
+          40,
+          40,
+          60
+        ]
+      ],
+      "expect": {
+        "pixels": {
+          "740,167": "#2f9e44",
+          "490,397": "#e8590c"
+        }
+      }
+    }
+  ]
+}
