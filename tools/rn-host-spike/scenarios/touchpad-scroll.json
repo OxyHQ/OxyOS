@@ -1,0 +1,53 @@
+{
+  "about": "A touchpad's two fingers scrolling the sample's inbox (sample/App.tsx, Bloom's ScreenScrollView), as Android 14 gives them to a ScrollView (inputflinger's GestureConverter: a finger dragged, flung when it lifts by OverScroller): the first event begins a drag (onScrollBeginDrag), every event moves it, and the fingers lifting end it (onScrollEndDrag) with the velocity they left with, measured as Android's VelocityTracker measures it; the momentum events then frame a glide whose distance is Android's SplineOverScroller's for that velocity and the scroll friction, stepped once a frame, only ever one way. A gentle flick glides its distance; a fast one stops at the inbox's end, with no overscroll. A wheel's notch then moves at once, with no drag and no momentum. Without the protocol's scroll source and the fingers' lift, the touchpad's scroll stops dead when the fingers lift and no drag or momentum event is sent.",
+  "window": [1024, 640],
+  "layout": "es",
+  "steps": [
+    {
+      "name": "a gentle flick: a drag of 80 at 600 a second, then a glide of Android's distance for it",
+      "do": ["flick", [170, 300, 80, 8, 60]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inbox": 1,
+          "scroll@inbox": [12, 80],
+          "scrollEndDrag@inbox": 1,
+          "momentumScrollBegin@inbox": 1,
+          "momentumScrollEnd@inbox": 1
+        },
+        "delivered": {"1": {"enter": 1, "scroll": 9}},
+        "glide": {"view": "inbox", "velocity": [400, 800], "frames_min": 8},
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fast flick glides to the inbox's end and stops there",
+      "do": ["flick", [170, 300, 120, 6, 60]],
+      "expect": {
+        "texts": ["Last message"],
+        "react": {
+          "scrollBeginDrag@inbox": 1,
+          "scroll@inbox": [7, 60],
+          "scrollEndDrag@inbox": 1,
+          "momentumScrollBegin@inbox": 1,
+          "momentumScrollEnd@inbox": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "glide": {"view": "inbox", "velocity": [900, 1800], "to_end": true, "end_offset": 326, "frames_min": 2},
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a wheel's notch moves the inbox at once: no drag, no momentum",
+      "do": ["scroll", [170, 300, -50]],
+      "expect": {
+        "react": {"scroll@inbox": 1},
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"inbox": [0, 276]}
+      },
+      "expect_devices": {
+        "react": {"scroll@inbox": 4},
+        "delivered": {"1": {"scroll": 4}}
+      }
+    }
+  ]
+}

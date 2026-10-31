@@ -513,6 +513,8 @@ fn events() -> Vec<Event> {
             dx: 0,
             dy: -256 * 40,
             time_ns: 1_234_567_890_123,
+            source: ScrollSource::Wheel,
+            stop: false,
         },
         Event::Text {
             surface: 1,
@@ -1097,6 +1099,43 @@ fn rejects_invalid_field_values() {
     )
     .is_err());
     assert!(sink.is_empty());
+}
+
+#[test]
+fn a_scroll_says_its_source_and_whether_it_stopped() {
+    let scroll = |source: u8, stop: u8| {
+        let mut body = vec![11];
+        body.extend(1_u32.to_le_bytes());
+        body.extend(2_u64.to_le_bytes());
+        body.extend(0_i32.to_le_bytes());
+        body.extend((-256_i32).to_le_bytes());
+        body.extend(7_u64.to_le_bytes());
+        body.extend([source, stop]);
+        let mut packet = (body.len() as u32).to_le_bytes().to_vec();
+        packet.extend(body);
+        read_event(&mut Cursor::new(packet))
+    };
+    assert!(matches!(
+        scroll(2, 1).unwrap(),
+        Event::Scroll {
+            source: ScrollSource::Finger,
+            stop: true,
+            dy: -256,
+            ..
+        }
+    ));
+    assert!(matches!(
+        scroll(3, 0).unwrap(),
+        Event::Scroll {
+            source: ScrollSource::Continuous,
+            stop: false,
+            ..
+        }
+    ));
+    // No source 0 or past the last, and no stop other than 0 or 1.
+    assert!(scroll(0, 0).is_err());
+    assert!(scroll(4, 0).is_err());
+    assert!(scroll(1, 2).is_err());
 }
 
 #[test]

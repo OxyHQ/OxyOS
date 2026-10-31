@@ -80,6 +80,11 @@ class Report {
   // What gesture handlers recognized (gesture-handler.h): a state change or an update, as sent to
   // JavaScript, or the gesture taken from React Native.
   void gesture(const folly::dynamic& line);
+  // A scroll view flung by a touchpad's fingers (input.h): the velocity they left with (dp per
+  // second, along the offset) and the fling's distance on each axis, how long it lasts and its
+  // friction.
+  void fling(const facebook::react::ShadowView& view, float vx, float vy, double dx, double dy, double ms,
+             float friction);
   // How far a text input's text is now scrolled within it (textinput.h).
   void textScroll(const facebook::react::ShadowView& view, float x, float y);
   // A modal's window starting to animate in or out (modal.h): `event` is `in` or `out`, `kind`

@@ -1,10 +1,14 @@
 // Pointer input for the host's window: compositor pointer events become React Native touch
 // events on the view under the pointer, as Android's touch handling delivers them, so React
 // Native's responder system and Pressability work unchanged. Scrolls move the nearest scroll
-// view that can scroll, which owns its offset as a native scroll view does.
+// view that can scroll, which owns its offset as a native scroll view does: a wheel's notches at
+// once, a touchpad's fingers as Android 14 gives them to a ScrollView (a drag, flung when they
+// lift).
 #pragma once
 
+#include "display-refresh.h"
 #include "renderer.h"
+#include "scroll-physics.h"
 
 #include <oxyos_client.h>
 
@@ -84,8 +88,29 @@ class PointerInput {
   // scroll event, as the wheel does; true if it moved.
   bool scrollView(facebook::react::Tag tag, float dx, float dy, uint32_t surface);
 
+  // A scroll view flung by a touchpad's fingers glides once a frame of `refresh` (the window's
+  // display, display-refresh.h), as Android's OverScroller is stepped on each vsync: `tick`, once
+  // a turn of the loop, steps it when a frame is due and the window can take one (`ready`); true
+  // if it moved. `nextFrame` is when the next step is due, while one glides.
+  void pacedBy(const DisplayRefresh& refresh) { refresh_ = &refresh; }
+  bool tick(bool ready);
+  std::optional<std::chrono::steady_clock::time_point> nextFrame(bool ready) const;
+
  private:
   void scroll(float dx, float dy);
+  // A touchpad's scroll (OXYOS_SCROLL_FINGER), as Android 14 gives two fingers' swipe to a
+  // ScrollView (inputflinger's GestureConverter: a finger dragged): its first event begins a drag
+  // of the innermost scroll view that can move its way (onScrollBeginDrag), which every event
+  // then moves; its stop is the finger lifted: onScrollEndDrag with the velocity it left with,
+  // then the momentum events around the fling it starts, if it is fast enough.
+  void fingerScroll(float dx, float dy, bool stop);
+  // Ends the glide going on, if any, where it is (onMomentumScrollEnd): a press, a wheel or new
+  // fingers stop it, as a touch stops Android's.
+  void stopGlide();
+  // The scroll view's scroll event of `kind` (scrollBeginDrag, scrollEndDrag, momentumScrollBegin,
+  // momentumScrollEnd) at its offset; `velocity` for the end of a drag.
+  void scrollEvent(facebook::react::Tag tag, uint32_t surface, const char* kind,
+                   std::optional<facebook::react::Point> velocity = std::nullopt);
   // The pointer over (x, y) of `content` (none for nullopt: it left): a W3C pointermove to the view
   // under it, or a pointerleave once it left, from which React Native's pointer events processor
   // makes pointerover, pointerout, pointerenter and pointerleave for the views that listen, as
@@ -144,6 +169,27 @@ class PointerInput {
   std::unordered_map<facebook::react::Tag, facebook::react::Point> offsets_;
   // When the event being handled happened (eventTime): what every event it makes carries.
   facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
+  const DisplayRefresh* refresh_ = nullptr;
+  // The touchpad's drag going on: the scroll view it moves (-1 when its scroll went to a text
+  // input or no scroll view could move), on which surface, how far it has gone and its samples.
+  struct Drag {
+    facebook::react::Tag view = -1;
+    uint32_t surface = 0;
+    facebook::react::Point moved{};
+    ScrollVelocity velocity;
+  };
+  std::optional<Drag> drag_;
+  // The glide after it: the scroll view, where it began and when, its fling on each axis, and
+  // when it last stepped.
+  struct Glide {
+    facebook::react::Tag view = -1;
+    uint32_t surface = 0;
+    facebook::react::Point from{};
+    std::chrono::steady_clock::time_point began;
+    SplineFling x{0}, y{0};
+    std::optional<std::chrono::steady_clock::time_point> stepped;
+  };
+  std::optional<Glide> glide_;
 };
 
 // When `event` happened, as its device registered it: the protocol's `time_ns`, CLOCK_MONOTONIC,

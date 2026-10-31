@@ -6,8 +6,8 @@ use crate::wire::{
     AuthOutcome, BatteryState, BluetoothState, Clock, Control, DismissReason, ErrorCode, Format,
     GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
     PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
-    ReaderCommand, Rect, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints,
-    TextPurpose, TouchKind, WifiState, Wire,
+    ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
+    TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -304,7 +304,9 @@ messages! {
         8 => Feedback { surface: u32, sequence: u64, outcome: Outcome, timestamp_ns: u64, clock: Clock },
         9 => Released { surface: u32, buffer: u64 },
         10 => ProtocolError { code: ErrorCode },
-        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32, time_ns: u64 },
+        // A scroll by (dx, dy), from `source`; `stop` ends a touchpad's or a continuous scroll
+        // (its fingers lifted: libinput's axis value 0), carrying no distance.
+        11 => Scroll { surface: u32, serial: u64, dx: i32, dy: i32, time_ns: u64, source: ScrollSource, stop: bool },
         12 => Text { surface: u32, serial: u64, text: TextChunk },
         13 => Preedit { surface: u32, serial: u64, text: PreeditText, cursor: u8 },
         // To the application: an assistive technology's action on one of its nodes.

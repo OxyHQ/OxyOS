@@ -110,6 +110,11 @@ wire_enum! {
     GesturePhase: u8 { Begin = 1, Update = 2, End = 3, Cancel = 4 }
 }
 wire_enum! {
+    /// What a scroll came from (libinput's axis sources): a wheel's notches, fingers on a
+    /// touchpad, or a continuous device (a trackpoint's or a button's scrolling).
+    ScrollSource: u8 { Wheel = 1, Finger = 2, Continuous = 3 }
+}
+wire_enum! {
     /// What happened to a submitted frame. Released is a separate event: a presented frame keeps
     /// its buffer until replaced and until every consumer has finished.
     Outcome: u8 { Presented = 1, Discarded = 2 }
