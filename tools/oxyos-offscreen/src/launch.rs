@@ -48,6 +48,15 @@ pub enum Step {
     /// A left-button press at a point of the output held still for `ms` milliseconds, the
     /// compositor serving the clients meanwhile, then released: a long press (ADR 0034).
     HoldOutput { x: i32, y: i32, ms: u32 },
+    /// One of the output's steps (`press_output`, `press_secondary_output`, `move_output`,
+    /// `hold_output`) at the middle of the node named `name` the assistive technology holds on the
+    /// topmost shown surface that has one, as a person aims at what they see: a dock's icon by its
+    /// label, wherever the dock's row places it. Resolved to that step as it is run.
+    Named {
+        kind: NamedKind,
+        name: String,
+        ms: u32,
+    },
     /// Two left-button presses at a window-local logical point in quick succession, with nothing
     /// between them: a double click.
     DoublePress { x: i32, y: i32 },
@@ -199,6 +208,15 @@ pub enum Step {
     Menu(String),
 }
 
+/// What a `Step::Named` does at the node's middle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NamedKind {
+    Press,
+    PressSecondary,
+    Move,
+    Hold,
+}
+
 /// The points of a drag on the output after its first: eight even steps to its last.
 fn drag_points(from: (i32, i32), to: (i32, i32)) -> impl Iterator<Item = (i32, i32)> {
     const STEPS: i32 = 8;
@@ -224,6 +242,7 @@ impl Step {
             Step::HoldOutput { x, y, ms } => {
                 format!("press at ({x}, {y}) on the output held {ms} ms")
             }
+            Step::Named { kind, name, ms } => format!("{kind:?} at {name:?} ({ms} ms)"),
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
             Step::DoubleDrag { from, to } => format!("double press at {from:?} dragged to {to:?}"),
@@ -320,6 +339,9 @@ impl Step {
                 format!("\"press_secondary_output\":[{x},{y}]")
             }
             Step::HoldOutput { x, y, ms } => format!("\"hold_output\":[{x},{y},{ms}]"),
+            Step::Named { kind, name, ms } => {
+                format!("\"named\":[\"{kind:?}\",{},{ms}]", json_string(name))
+            }
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
             Step::DoubleDrag { from, to } => {
@@ -615,7 +637,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -868,6 +890,31 @@ impl Launch {
                 Some("--press-secondary-output") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressSecondaryOutput { x: n[0], y: n[1] }
+                }
+                Some(
+                    flag @ ("--press-named"
+                    | "--press-secondary-named"
+                    | "--move-named"
+                    | "--hold-named"),
+                ) => {
+                    let kind = match flag {
+                        "--press-named" => NamedKind::Press,
+                        "--press-secondary-named" => NamedKind::PressSecondary,
+                        "--move-named" => NamedKind::Move,
+                        _ => NamedKind::Hold,
+                    };
+                    let ms = if kind == NamedKind::Hold {
+                        let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                        value.parse::<u32>().map_err(|_| "--hold-named NAME MS")?
+                    } else {
+                        0
+                    };
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    Step::Named {
+                        kind,
+                        name: name.to_string(),
+                        ms,
+                    }
                 }
                 Some("--hold-output") => {
                     let n = numbers(args.next(), 3)?;
@@ -1995,6 +2042,41 @@ fn act(
             },
         )
         .map_err(|code| format!("accessibility action: {code:?}").into())
+}
+
+/// `step` with a `Step::Named` resolved to the output's step at the middle of its node: the node
+/// named so on the topmost shown surface that has one, as the assistive technology holds it (its
+/// rectangle in global coordinates, ADR 0003). Any other step as it is.
+fn named_step(session: &Session, step: &Step) -> Result<Step> {
+    let Step::Named { kind, name, ms } = step else {
+        return Ok(step.clone());
+    };
+    let (x, y) = session
+        .compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .rev()
+        .find_map(|item| match item {
+            RenderItem::Surface { key, .. } => {
+                let node = session
+                    .reader
+                    .trees
+                    .get(&key)?
+                    .iter()
+                    .find(|node| node.name == *name)?;
+                let (x, y, width, height) = node.rect;
+                Some((x + (width / 2) as i32, y + (height / 2) as i32))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))?;
+    Ok(match kind {
+        NamedKind::Press => Step::PressOutput { x, y },
+        NamedKind::PressSecondary => Step::PressSecondaryOutput { x, y },
+        NamedKind::Move => Step::MoveOutput { x, y },
+        NamedKind::Hold => Step::HoldOutput { x, y, ms: *ms },
+    })
 }
 
 /// The name a step's report gives a surface: the application's by its id, the session's
@@ -3281,6 +3363,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
+        // Resolved to the output's step before it is run (`named_step`).
+        Step::Named { .. } => return Err("a named step is resolved before it is run".into()),
     }
     Ok(())
 }
@@ -3690,6 +3774,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
+        // A step aimed at a node by its name, at where that node is now.
+        session.reader.absorb(&mut session.compositor);
+        let resolved = named_step(&session, step)?;
+        let step = &resolved;
         let may_stay = &settling.may_stay;
         session.compositor.input_log.clear();
         if let Step::SwitchTerminal(number) = step {

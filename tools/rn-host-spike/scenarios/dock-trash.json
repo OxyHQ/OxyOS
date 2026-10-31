@@ -21,10 +21,9 @@
     {
       "name": "a long press on the Trash: Open, and Empty Trash, which it can, holding a file",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          834,
-          693,
+          "Abrir Papelera",
           650
         ]
       ],
@@ -118,11 +117,8 @@
     {
       "name": "the person accepts: the Trash is emptied for good, the home's file stays",
       "do": [
-        "press_output",
-        [
-          750,
-          432
-        ]
+        "press_named",
+        "Vaciar"
       ],
       "expect": {
         "react": {},
@@ -146,10 +142,9 @@
     {
       "name": "its menu again: Empty Trash disabled, the Trash empty",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          834,
-          693,
+          "Abrir Papelera",
           650
         ]
       ],
@@ -200,11 +195,8 @@
     {
       "name": "a click on the Trash: the session opens stash://trash in Stash, whose entry declares its scheme",
       "do": [
-        "press_output",
-        [
-          834,
-          693
-        ]
+        "press_named",
+        "Abrir Papelera"
       ],
       "expect": {
         "react": {},

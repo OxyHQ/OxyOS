@@ -15,11 +15,8 @@
     {
       "name": "the pointer over Inbox's icon: its name above it, in a popup of its own the pointer passes through",
       "do": [
-        "move_output",
-        [
-          738,
-          773
-        ]
+        "move_named",
+        "Abrir Inbox"
       ],
       "expect": {
         "react": {},
@@ -103,11 +100,8 @@
     {
       "name": "Inbox from the dock: the session starts it and the dock marks it running; the press hides the name until the pointer leaves, as a desktop's tooltip",
       "do": [
-        "press_output",
-        [
-          738,
-          773
-        ]
+        "press_named",
+        "Abrir Inbox"
       ],
       "expect": {
         "react": {},
@@ -146,10 +140,9 @@
     {
       "name": "a long press on Inbox's icon opens its menu above it: the menu named Inbox, its window checked, its commands; its name's tooltip gone",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          738,
-          773,
+          "Abrir Inbox",
           650
         ]
       ],
@@ -288,11 +281,8 @@
     {
       "name": "and comes back over Inbox's icon: its name again",
       "do": [
-        "move_output",
-        [
-          738,
-          773
-        ]
+        "move_named",
+        "Abrir Inbox"
       ],
       "expect": {
         "react": {},
@@ -330,11 +320,8 @@
     {
       "name": "a secondary click on the icon opens the same menu, and the name goes while it is open",
       "do": [
-        "press_secondary_output",
-        [
-          738,
-          773
-        ]
+        "press_secondary_named",
+        "Abrir Inbox"
       ],
       "expect": {
         "react": {},
@@ -484,11 +471,8 @@
     {
       "name": "a Control-click on Inbox, not running: its menu, Open and Options, and nothing launched",
       "do": [
-        "press_output",
-        [
-          738,
-          773
-        ]
+        "press_named",
+        "Abrir Inbox"
       ],
       "expect": {
         "react": {},

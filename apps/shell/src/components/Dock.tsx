@@ -449,7 +449,7 @@ export const Dock = memo(function Dock({
               id={TRASH}
               name="Papelera"
               testID="dock-trash"
-              label="Papelera"
+              label="Abrir Papelera"
               menu={menu?.id === TRASH ? menu : null}
               setMenu={setMenu}
               activate={openTrash}
