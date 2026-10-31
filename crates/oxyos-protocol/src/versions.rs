@@ -28,9 +28,15 @@ const ADDED_IN_3: std::ops::RangeInclusive<u8> = 170..=174;
 /// the pointer, so never to an older client.
 const EVENTS_ADDED_IN_4: &[u8] = &[58];
 
+/// Opcodes version 5 added, in both directions: screenshots (ADR 0024, decision 10). CaptureMode
+/// is sent unasked, on Super+Shift+4 and 5.
+const ADDED_IN_5: std::ops::RangeInclusive<u8> = 200..=205;
+
 /// The version that introduced an event.
 pub fn event_since(event: &Event) -> u16 {
-    if EVENTS_ADDED_IN_4.contains(&event.opcode()) {
+    if ADDED_IN_5.contains(&event.opcode()) {
+        5
+    } else if EVENTS_ADDED_IN_4.contains(&event.opcode()) {
         4
     } else if ADDED_IN_3.contains(&event.opcode()) {
         3
@@ -42,7 +48,9 @@ pub fn event_since(event: &Event) -> u16 {
 /// The version that introduced a request: a compositor refuses it from a connection of an older
 /// one.
 pub fn request_since(request: &Request) -> u16 {
-    if ADDED_IN_3.contains(&request.opcode()) {
+    if ADDED_IN_5.contains(&request.opcode()) {
+        5
+    } else if ADDED_IN_3.contains(&request.opcode()) {
         3
     } else {
         2

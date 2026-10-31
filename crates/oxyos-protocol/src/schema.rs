@@ -3,7 +3,8 @@
 
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
-    AuthOutcome, BatteryState, BluetoothState, Clock, Control, DismissReason, ErrorCode, Format,
+    AuthOutcome, BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock,
+    Control, DismissReason, ErrorCode, Format,
     GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
     PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
     ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
@@ -296,6 +297,28 @@ messages! {
         // point signals, and the compositor signals the release point once it no longer reads it.
         // Timeline 0 is none: a buffer submitted without an acquire point is ready when submitted.
         174 => SetSync { surface: u32, acquire_timeline: u32, acquire_point: u64, release_timeline: u32, release_point: u64 },
+        // Screenshots (ADR 0024, decision 10). The session's shell (its `shell` and `shortcuts`
+        // grants) captures what the person chose in the screenshot interface the compositor
+        // opened (CaptureMode), citing that CaptureMode's `serial`: every display (`Screens`), a
+        // rectangle (`rect`, global logical pixels) of the display `output` (`Area`), or the window
+        // numbered `window` with its shadow (`Window`); the other fields are 0. It is saved to
+        // `destination`, which Super+Shift+3 then uses too. The capture ends the interface; one
+        // without it open, or citing another serial, is ignored. EndCapture ends it without one.
+        200 => Capture { serial: u64, kind: CaptureKind, output: u32, rect: Rect, window: u32, destination: CaptureDestination },
+        201 => EndCapture { serial: u64 },
+        // The session's shell: one of its own shell surfaces left out of every capture (its
+        // screenshot interface, the thumbnail of the last), or put back in.
+        202 => ExcludeFromCapture { surface: u32, excluded: bool },
+        // Any client: the parts of a surface never captured, its secure text fields (surface-local
+        // logical pixels, at most MAX_SECURE_REGIONS), drawn opaque black in a capture.
+        // ClearSecureRegions begins the list anew, each AddSecureRegion adds one, and the list
+        // goes with the surface's next Submit, shown with that frame.
+        203 => ClearSecureRegions { surface: u32 },
+        204 => AddSecureRegion { surface: u32, rect: Rect },
+        // The session's shell: open a screenshot the session saved (ScreenshotSaved), citing the
+        // serial of an input it received (the press on its thumbnail): the session starts the
+        // application that opens it.
+        205 => OpenScreenshot { screenshot: u32, serial: u64 },
     }
 }
 
@@ -535,6 +558,20 @@ messages! {
         // formats when it is no longer.
         173 => GpuScanout { surface: u32, formats: u32 },
         174 => GpuScanoutFormat { surface: u32, index: u32, format: Format, modifier: u64 },
+        // Screenshots (ADR 0024, decision 10), to the session's shell (its `shortcuts` grant).
+        // The screenshot interface to show or change: on every display's shell for the crosshair
+        // (Super+Shift+4), on the shell of `output` for the toolbar (Super+Shift+5). `serial` is a
+        // user input of the shell's, which Capture and FocusShellSurface cite; it is the same for
+        // every shell, and for every change until the interface ends.
+        200 => CaptureMode { mode: CaptureMode, serial: u64, output: u32 },
+        // While the interface is open: the window under the pointer, by its number, and its
+        // rectangle (global logical pixels, without its shadow), as the pointer moves onto
+        // another; 0 and an empty rectangle over none.
+        201 => CaptureTarget { window: u32, rect: Rect },
+        // A screenshot the session saved, numbered by it, of `output` (a window's: the display it
+        // is on), `width` x `height` pixels: its file's path in chunks (`index` 0 begins it,
+        // `last` completes it), to the shell of that output.
+        202 => ScreenshotSaved { screenshot: u32, output: u32, width: u32, height: u32, index: u8, last: bool, text: PreeditText },
     }
 }
 

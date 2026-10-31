@@ -98,6 +98,22 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_SWITCHER_CANCEL 6
 #define OXYOS_SHORTCUT_SEARCH 7
 #define OXYOS_SHORTCUT_MENU_BAR 8
+/* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
+#define OXYOS_EVENT_CAPTURE_MODE 200
+#define OXYOS_EVENT_CAPTURE_TARGET 201
+#define OXYOS_EVENT_SCREENSHOT_SAVED 202
+/* A CAPTURE_MODE's detail. */
+#define OXYOS_CAPTURE_MODE_SELECTION 1
+#define OXYOS_CAPTURE_MODE_WINDOW 2
+#define OXYOS_CAPTURE_MODE_TOOLBAR 3
+#define OXYOS_CAPTURE_MODE_CONFIRM 4
+#define OXYOS_CAPTURE_MODE_ENDED 5
+/* What oxyos_client_capture captures, and where it is saved. */
+#define OXYOS_CAPTURE_SCREENS 1
+#define OXYOS_CAPTURE_AREA 2
+#define OXYOS_CAPTURE_WINDOW 3
+#define OXYOS_CAPTURE_DESKTOP 1
+#define OXYOS_CAPTURE_DOCUMENTS 2
 /* Hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx). */
 #define OXYOS_EVENT_CONTROL_LEVEL 110
 #define OXYOS_EVENT_POWER 111
@@ -277,6 +293,23 @@ typedef struct OxyOSClient OxyOSClient;
  *               search; the keyboard to the top bar's menus, Super+F2); code: the output to show
  *               it on; serial: a user input of the shell's,
  *               which oxyos_client_focus_shell_surface may cite.
+ *   CAPTURE_MODE  to a shell with the `shortcuts` grant (docs/adr/0024-system-shortcuts.mdx,
+ *               decision 10): the screenshot interface to show or change. detail:
+ *               OXYOS_CAPTURE_MODE_* (SELECTION: the crosshair, on every display's shell, from
+ *               Super+Shift+4; WINDOW: picking a window instead, Space pressed; TOOLBAR: the
+ *               toolbar, Super+Shift+5, on the shell of `code`'s output; CONFIRM: Return pressed in
+ *               the toolbar, capture what it shows; ENDED: closed, by a capture, Escape, another
+ *               display's capture or the lock); code: the output the shortcut was pressed for;
+ *               serial: a user input of the shell's, the same until the interface ends, which
+ *               oxyos_client_capture, oxyos_client_end_capture and
+ *               oxyos_client_focus_shell_surface cite.
+ *   CAPTURE_TARGET  while the interface is open: code, the window under the pointer (0 for none);
+ *               x, y, width, height, its rectangle in the global space (logical), without its
+ *               shadow. Told as the pointer moves onto another.
+ *   SCREENSHOT_SAVED  a screenshot the session saved: code, its number (for
+ *               oxyos_client_open_screenshot); x, the output it is of (a window's: the one it is
+ *               on); width, height, its pixels; detail, the chunk's index (0 begins its path);
+ *               flag, whether it is the last; text, the chunk. To the shell of that output.
  *   The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx),
  *   to the session's shell when it connects and whenever they change:
  *   CONTROL_LEVEL  detail: OXYOS_CONTROL_*; code: its level, 0 to 65536 (all of it); flag:
@@ -570,6 +603,21 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
+/* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). The shell captures what the person
+ * chose, citing the CAPTURE_MODE's `serial`: every display (OXYOS_CAPTURE_SCREENS), the rectangle
+ * x, y, width, height (global, logical) of the display `output` (_AREA), or the window `window`
+ * with its shadow (_WINDOW); unused fields 0. Saved to `destination` (OXYOS_CAPTURE_DESKTOP,
+ * _DOCUMENTS), which Super+Shift+3 then uses too. It ends the interface; end_capture ends it
+ * without one. */
+int oxyos_client_capture(OxyOSClient* client, uint64_t serial, uint8_t kind, uint32_t output, int32_t x,
+                         int32_t y, uint32_t width, uint32_t height, uint32_t window, uint8_t destination);
+int oxyos_client_end_capture(OxyOSClient* client, uint64_t serial);
+/* One of the shell's own shell surfaces left out of every capture (its screenshot interface, its
+ * thumbnail), or put back. */
+int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, bool excluded);
+/* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
+ * citing `serial`, an input the shell received (the press on its thumbnail). */
+int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint64_t serial);
 /* Notifications (docs/adr/0026-notifications.mdx). One of a notification's actions: its id and label
  * (NUL-terminated UTF-8, not empty), a reply action's placeholder (may be empty; NULL for a button),
  * and whether it answers without bringing the application forward. */
@@ -752,6 +800,11 @@ typedef struct OxyOSWindowView {
  * surface's pixels, box-filtered; the shell never receives them. Only the session's shell may (the
  * `shell` grant); nothing of them shows while the session is locked. 0, or OXYOS_ERROR. */
 int oxyos_client_show_windows(OxyOSClient* client, uint32_t surface, const OxyOSWindowView* views, size_t count);
+
+/* The parts of a surface never captured, its secure text fields (docs/adr/0024-system-shortcuts.mdx,
+ * decision 10): `count` (at most 32) rectangles, surface-local and logical, replacing those it had,
+ * with the surface's next present. A screenshot draws them opaque black. 0, or OXYOS_ERROR. */
+int oxyos_client_set_secure_regions(OxyOSClient* client, uint32_t surface, const OxyOSRect* rects, size_t count);
 
 /* oxyos_client_present for a frame of which only `count` rectangles at `damage` changed since the
  * surface's previous frame (0: everything). The compositor hears the damage, and a reused buffer

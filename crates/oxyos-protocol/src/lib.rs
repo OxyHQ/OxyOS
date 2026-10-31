@@ -16,7 +16,8 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, Clock, Control, DismissReason,
+    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason,
     ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
     NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
     PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
@@ -28,7 +29,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 4;
+pub const VERSION: u16 = 5;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
@@ -75,6 +76,10 @@ pub const MAX_NOTIFICATION_ACTION_BYTES: usize = 64;
 pub const MAX_NOTIFICATION_REPLY_BYTES: usize = 1024;
 /// Most windows one shell surface shows live (`PlaceWindowView`, ADR 0022).
 pub const MAX_WINDOW_VIEWS: usize = 64;
+/// Most secure regions one surface leaves out of captures (`AddSecureRegion`, ADR 0024).
+pub const MAX_SECURE_REGIONS: usize = 32;
+/// The longest path of a screenshot told to the shell (`ScreenshotSaved`, ADR 0024), in bytes.
+pub const MAX_SCREENSHOT_PATH_BYTES: usize = 4096;
 /// A whole level of a control (`ControlLevel`, `SetControlLevel`, ADR 0025): 65536 is all of it.
 pub const FULL_LEVEL: u32 = 65_536;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.

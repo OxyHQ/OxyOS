@@ -176,6 +176,25 @@ wire_enum! {
     }
 }
 wire_enum! {
+    /// The screenshot interface the compositor asks the session's shell to show or change (ADR
+    /// 0024, decision 10), from Super+Shift+4 or Super+Shift+5 until a capture or its end: the
+    /// crosshair that drags a rectangle (`Selection`), picking a window instead (`Window`, Space
+    /// pressed during the crosshair; Space again is `Selection`), the toolbar (`Toolbar`), the
+    /// toolbar's capture (`Confirm`, Return pressed in it), and the end of it all (`Ended`: a
+    /// capture taken, Escape, another display's shell captured, or the session locked).
+    CaptureMode: u8 { Selection = 1, Window = 2, Toolbar = 3, Confirm = 4, Ended = 5 }
+}
+wire_enum! {
+    /// What a screenshot captures (ADR 0024, decision 10): every display, each its own file
+    /// (`Screens`), a rectangle of one display (`Area`), or one window with its shadow (`Window`).
+    CaptureKind: u8 { Screens = 1, Area = 2, Window = 3 }
+}
+wire_enum! {
+    /// Where a screenshot is saved (ADR 0024, decision 10): the user's Desktop or Documents
+    /// folder, as xdg-user-dirs names them.
+    CaptureDestination: u8 { Desktop = 1, Documents = 2 }
+}
+wire_enum! {
     /// A level the session controls (ADR 0025): the volume of the default output and of the
     /// default input (the microphone), and the backlight of the built-in display and of the
     /// keyboard.
