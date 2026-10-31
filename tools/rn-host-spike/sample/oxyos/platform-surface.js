@@ -114,6 +114,11 @@ function createWindow() {
     startMove: () => {
       nativeWindow.startMove();
     },
+    // The sizes the application's layout holds together at (`SetSizeLimits`): the compositor never
+    // configures the window outside them, by its edges or by zoom.
+    setSizeLimits: ({ minWidth, minHeight, maxWidth, maxHeight }) => {
+      nativeWindow.setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
+    },
   };
 }
 

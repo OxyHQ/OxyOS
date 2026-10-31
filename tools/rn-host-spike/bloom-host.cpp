@@ -868,8 +868,10 @@ int main(int argc, char** argv) {
             window->beginMove(lastPress);
             return true;
           },
+          // Bloom declares the sizes as its layout mounts, and clears them as it unmounts, after
+          // the window is gone.
           .setSizeLimits = [&window](uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight) {
-            window->setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
+            if (window) window->setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
           },
       };
     }

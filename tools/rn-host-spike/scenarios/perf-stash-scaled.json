@@ -191,8 +191,8 @@
       "do": [
         "press",
         [
-          741,
-          130
+          746,
+          114
         ]
       ],
       "expect": {
@@ -235,14 +235,32 @@
       "do": [
         "double_press",
         [
-          741,
-          130
+          746,
+          114
         ]
       ],
       "expect": {
         "react": {
           "touchStart@item-Downloads": 2,
-          "touchEnd@item-Downloads": 2
+          "touchEnd@item-Downloads": 2,
+          "loadStart@thumbnail-127.0.0.1_8080_(Nest Hub Max).png": 1,
+          "load@thumbnail-127.0.0.1_8080_(Nest Hub Max).png": 1,
+          "loadEnd@thumbnail-127.0.0.1_8080_(Nest Hub Max).png": 1,
+          "loadStart@thumbnail-cgqzbklp_400x400.jpg": 1,
+          "load@thumbnail-cgqzbklp_400x400.jpg": 1,
+          "loadEnd@thumbnail-cgqzbklp_400x400.jpg": 1,
+          "loadStart@thumbnail-photo_2026-08-16_20-57-49.jpg": 1,
+          "load@thumbnail-photo_2026-08-16_20-57-49.jpg": 1,
+          "loadEnd@thumbnail-photo_2026-08-16_20-57-49.jpg": 1,
+          "loadStart@thumbnail-Tierras de Valdoria (1).png": 1,
+          "load@thumbnail-Tierras de Valdoria (1).png": 1,
+          "loadEnd@thumbnail-Tierras de Valdoria (1).png": 1,
+          "loadStart@thumbnail-Tierras_de_Valdoria__1_-removebg-preview.png": 1,
+          "load@thumbnail-Tierras_de_Valdoria__1_-removebg-preview.png": 1,
+          "loadEnd@thumbnail-Tierras_de_Valdoria__1_-removebg-preview.png": 1,
+          "loadStart@thumbnail-Tierras de Valdoria.png": 1,
+          "load@thumbnail-Tierras de Valdoria.png": 1,
+          "loadEnd@thumbnail-Tierras de Valdoria.png": 1
         },
         "react_presses": {
           "pointerDown@item-Downloads": 2,
@@ -283,8 +301,8 @@
       "do": [
         "press",
         [
-          516,
-          130
+          521,
+          114
         ]
       ],
       "expect": {
@@ -408,8 +426,8 @@
       "do": [
         "press",
         [
-          1031,
-          33
+          1014,
+          26
         ]
       ],
       "expect": {
@@ -420,10 +438,10 @@
         "at": {
           "window": [
             {
-              "role": "Radio",
+              "role": "Button",
               "name": "as List",
               "state": [
-                "checked"
+                "selected"
               ]
             },
             {
@@ -456,8 +474,8 @@
       "do": [
         "press",
         [
-          580,
-          130
+          585,
+          114
         ]
       ],
       "expect": {
@@ -498,8 +516,8 @@
       "do": [
         "press_secondary",
         [
-          580,
-          186
+          585,
+          170
         ]
       ],
       "expect": {
@@ -578,8 +596,8 @@
       "do": [
         "press",
         [
-          246,
-          33
+          304,
+          26
         ]
       ],
       "expect": {
@@ -623,7 +641,7 @@
         "press",
         [
           86,
-          192
+          171
         ]
       ],
       "expect": {
