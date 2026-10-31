@@ -157,6 +157,61 @@ pub fn describe(
     parts.join(", ")
 }
 
+/// What changed in the focused text field, as the reader echoes it (TalkBack's text events,
+/// VoiceOver's typing echo).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextChange {
+    /// Typed or pasted at the caret.
+    Inserted(String),
+    /// Deleted at the caret, or the selection deleted.
+    Deleted(String),
+    /// Passed over by the caret: a character or a word.
+    Traversed(String),
+    /// The line the caret moved to.
+    Line(String),
+    /// Newly selected.
+    Selected(String),
+    /// No longer selected.
+    Unselected(String),
+}
+
+/// A run of text as said: a character that sounds like nothing by its name ("espacio").
+fn spoken(language: Language, text: &str) -> String {
+    let mut chars = text.chars();
+    let name = match (chars.next(), chars.next()) {
+        (Some(' '), None) => Some(language.pick("space", "espacio")),
+        (Some('\n'), None) => Some(language.pick("new line", "nueva línea")),
+        (Some('\t'), None) => Some(language.pick("tab", "tabulador")),
+        _ => None,
+    };
+    name.map_or_else(|| text.to_string(), str::to_string)
+}
+
+/// What the reader says of a change in the focused text field: what was typed, as it is; what
+/// was deleted, selected or unselected, followed by what happened to it ("a, borrado"); what the
+/// caret passed over; the line it moved to ("en blanco" for an empty one). Empty for nothing.
+pub fn describe_change(language: Language, change: &TextChange) -> String {
+    let l = |english, spanish| language.pick(english, spanish);
+    let (text, said) = match change {
+        TextChange::Inserted(text) | TextChange::Traversed(text) => (text, None),
+        TextChange::Line(line) if line.trim().is_empty() => {
+            return l("blank", "en blanco").to_string();
+        }
+        TextChange::Line(line) => (line, None),
+        TextChange::Deleted(text) => (text, Some(l("deleted", "borrado"))),
+        TextChange::Selected(text) => (text, Some(l("selected", "seleccionado"))),
+        TextChange::Unselected(text) => (text, Some(l("unselected", "deseleccionado"))),
+    };
+    if text.is_empty() {
+        return String::new();
+    }
+    let text = spoken(language, text);
+    match said {
+        Some(said) => format!("{text}, {said}"),
+        None => text,
+    }
+}
+
 /// A voice: says one utterance at a time.
 pub trait Backend {
     /// Starts saying `text`; what it was saying has been stopped if `interrupting`.

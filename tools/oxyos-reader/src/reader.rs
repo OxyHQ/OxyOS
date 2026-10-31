@@ -2,11 +2,12 @@
 //! compositor sends it (ADR 0003), its cursor over their elements, and what it says as they
 //! change, as its commands move the cursor, and as applications announce.
 
+use crate::editing;
 use oxyos_protocol::{
     AccessibleAction, AccessibleField, AccessibleRole, AccessibleState, Event, Politeness,
     ReaderCommand, Request,
 };
-use oxyos_speech::{describe, Language};
+use oxyos_speech::{describe, describe_change, Language};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A surface, by its client and its id, as the compositor names it.
@@ -18,6 +19,8 @@ pub struct Node {
     pub state: AccessibleState,
     pub name: String,
     pub value: String,
+    /// A text field's selection in bytes of its value (never a secure field's).
+    pub selection: Option<(u32, u32)>,
 }
 
 impl Node {
@@ -169,7 +172,19 @@ impl Reader {
                         state,
                         name: String::new(),
                         value: String::new(),
+                        selection: None,
                     });
+                }
+            }
+            Event::AccessibleSelection {
+                client,
+                surface,
+                index,
+                start,
+                end,
+            } => {
+                if let Some(Some(node)) = self.slot((client, surface), index) {
+                    node.selection = Some((start, end));
                 }
             }
             Event::AccessibleText {
@@ -200,6 +215,7 @@ impl Reader {
                                 state: AccessibleState::default(),
                                 name: String::new(),
                                 value: String::new(),
+                                selection: None,
                             })
                         })
                         .collect();
@@ -267,6 +283,7 @@ impl Reader {
         }
         let first = before.is_none();
         self.live_changes(key, before.as_deref());
+        self.text_changes(key, before.as_deref());
         // A popup that appears is said by its title, as TalkBack says the pane title of a window
         // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
         // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
@@ -328,6 +345,37 @@ impl Reader {
             .collect();
         for (text, politeness) in changed {
             self.say(text, politeness);
+        }
+    }
+
+    /// The focused text field edited, or its caret or selection moved, since the surface's
+    /// previous tree, as TalkBack and VoiceOver echo it: what was typed or deleted, what the caret
+    /// passed over, what was selected or unselected, at once (each keystroke's echo cuts off the
+    /// last). Only for the same field focused in both trees, with a selection in both: never an
+    /// unfocused field, a field newly focused (its focus says it) or a secure one (it has none).
+    fn text_changes(&mut self, key: Surface, before: Option<&[Node]>) {
+        let Some((surface, index)) = self.focused else {
+            return;
+        };
+        if surface != key {
+            return;
+        }
+        let (Some(old), Some(new)) = (
+            before.and_then(|nodes| nodes.get(index)),
+            self.trees[&key].get(index),
+        ) else {
+            return;
+        };
+        let focused = |node: &Node| node.state.contains(AccessibleState::FOCUSED);
+        if !focused(old) || !focused(new) || old.role != new.role {
+            return;
+        }
+        let (Some(was), Some(is)) = (old.selection, new.selection) else {
+            return;
+        };
+        if let Some(change) = editing::change((&old.value, was), (&new.value, is)) {
+            let text = describe_change(self.language, &change);
+            self.say(text, Politeness::Assertive);
         }
     }
 

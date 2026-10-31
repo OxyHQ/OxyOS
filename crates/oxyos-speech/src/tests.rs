@@ -122,6 +122,32 @@ fn an_element_is_said_by_its_name_value_state_and_role() {
 }
 
 #[test]
+fn a_text_change_is_said_with_what_happened_to_it() {
+    use TextChange as C;
+    let s = |text: &str| text.to_string();
+    let cases = [
+        (C::Inserted(s("a")), "a", "a"),
+        (C::Inserted(s(" ")), "espacio", "space"),
+        (C::Inserted(s("\n")), "nueva línea", "new line"),
+        (C::Inserted(s("hola mundo")), "hola mundo", "hola mundo"),
+        (C::Deleted(s("ñ")), "ñ, borrado", "ñ, deleted"),
+        (C::Deleted(s(" ")), "espacio, borrado", "space, deleted"),
+        (C::Traversed(s("\t")), "tabulador", "tab"),
+        (C::Traversed(s("mundo")), "mundo", "mundo"),
+        (C::Line(s("segunda")), "segunda", "segunda"),
+        (C::Line(s("")), "en blanco", "blank"),
+        (C::Selected(s("ab")), "ab, seleccionado", "ab, selected"),
+        (C::Unselected(s("b")), "b, deseleccionado", "b, unselected"),
+        (C::Inserted(s("")), "", ""),
+        (C::Selected(s("")), "", ""),
+    ];
+    for (change, spanish, english) in cases {
+        assert_eq!(describe_change(Language::Spanish, &change), spanish);
+        assert_eq!(describe_change(Language::English, &change), english);
+    }
+}
+
+#[test]
 fn polite_waits_its_turn_and_assertive_interrupts() {
     let mut speaker = Speaker::new(Memory::default());
     speaker.say("uno", Politeness::Polite).unwrap();

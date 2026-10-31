@@ -1,7 +1,8 @@
 //! OxyOS's screen reader (docs/adr/0014-screen-reader.mdx): an assistive technology the session
 //! starts on the reader's socket (`OXYOS_COMPOSITOR_SOCKET`), granted `accessibility` and
-//! `screen_reader`. It holds every surface's accessibility tree, says the element focused and
-//! what applications announce, and moves through the elements and activates them with its keys
+//! `screen_reader`. It holds every surface's accessibility tree, says the element focused, what
+//! is typed, deleted and selected in a focused text field and what applications announce, and
+//! moves through the elements and activates them with its keys
 //! (Ctrl+Alt+Right, Ctrl+Alt+Left, Ctrl+Alt+Space), which the compositor sends it alone.
 //!
 //! It speaks the session's language (Spanish or English, `LC_ALL`/`LC_MESSAGES`/`LANG`) with the
@@ -15,6 +16,7 @@ use oxyos_speech::{Language, Speaker};
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use std::os::fd::AsFd;
 
+mod editing;
 mod reader;
 #[cfg(test)]
 mod tests;

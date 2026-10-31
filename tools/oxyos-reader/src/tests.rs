@@ -398,3 +398,242 @@ fn a_menu_focusing_its_row_after_it_appears_is_said_whole() {
         }]
     );
 }
+
+/// A message window: a send button and a text field, `focused` the focused one's index (1 or
+/// 2), the field's value and its selection in bytes (none: a secure field's).
+fn message(focused: usize, value: &str, selection: Option<(u32, u32)>) -> Vec<Event> {
+    let mut nodes = vec![
+        (R::Generic, 0, "", ""),
+        (R::Button, 0, "Enviar", ""),
+        (R::TextInput, 0, "Mensaje", value),
+    ];
+    nodes[focused].1 |= FOCUSED;
+    let mut events = tree(WINDOW, &nodes);
+    if let Some((start, end)) = selection {
+        // As the compositor sends it: after the field's node, before its text.
+        let at = events
+            .iter()
+            .position(|event| matches!(event, Event::AccessibleNode { index: 2, .. }))
+            .unwrap();
+        events.insert(
+            at + 1,
+            Event::AccessibleSelection {
+                client: APP,
+                surface: WINDOW,
+                index: 2,
+                start,
+                end,
+            },
+        );
+    }
+    events
+}
+
+/// The message field focused, with `value` and its selection.
+fn typing(value: &str, start: u32, end: u32) -> Vec<Event> {
+    message(2, value, Some((start, end)))
+}
+
+/// A reader whose message field is focused with `value`, the caret at `caret`.
+fn focused_on(language: Language, value: &str, caret: u32) -> Reader {
+    let mut reader = Reader::new(language);
+    feed(&mut reader, &message(1, value, Some((caret, caret))));
+    feed(&mut reader, &typing(value, caret, caret));
+    reader
+}
+
+#[test]
+fn what_is_typed_is_said_as_it_is_typed() {
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &message(1, "", Some((0, 0))));
+    // Focused, it is said as any element; nothing is echoed.
+    assert_eq!(
+        feed(&mut reader, &typing("", 0, 0)),
+        ["Mensaje, campo de texto"]
+    );
+    for event in typing("h", 1, 1) {
+        reader.receive(&event);
+    }
+    // At once: each keystroke's echo cuts off the last, as TalkBack's.
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "h".into(),
+            politeness: Politeness::Assertive
+        }]
+    );
+    assert_eq!(feed(&mut reader, &typing("ho", 2, 2)), ["o"]);
+    assert_eq!(feed(&mut reader, &typing("ho ", 3, 3)), ["espacio"]);
+    assert_eq!(feed(&mut reader, &typing("ho ñ", 5, 5)), ["ñ"]);
+    // Typed before the end, beside the same letter: the letter typed, where the caret was.
+    assert_eq!(feed(&mut reader, &typing("ho ñ", 2, 2)), ["ñ"]);
+    assert_eq!(feed(&mut reader, &typing("hoo ñ", 3, 3)), ["o"]);
+    // A tree with nothing changed says nothing.
+    assert!(feed(&mut reader, &typing("hoo ñ", 3, 3)).is_empty());
+    let mut english = focused_on(Language::English, "a", 1);
+    assert_eq!(feed(&mut english, &typing("a ", 2, 2)), ["space"]);
+    assert_eq!(feed(&mut english, &typing("a \n", 3, 3)), ["new line"]);
+}
+
+#[test]
+fn what_is_deleted_is_said_deleted() {
+    let mut reader = focused_on(Language::Spanish, "hola mundo", 10);
+    // Backspace.
+    assert_eq!(
+        feed(&mut reader, &typing("hola mund", 9, 9)),
+        ["o, borrado"]
+    );
+    // A word of it (Ctrl+Backspace).
+    assert_eq!(feed(&mut reader, &typing("hola ", 5, 5)), ["mund, borrado"]);
+    assert_eq!(
+        feed(&mut reader, &typing("hola", 4, 4)),
+        ["espacio, borrado"]
+    );
+    // Delete, after the caret.
+    feed(&mut reader, &typing("hola", 0, 0));
+    assert_eq!(feed(&mut reader, &typing("ola", 0, 0)), ["h, borrado"]);
+    // A character of more than one byte.
+    let mut english = focused_on(Language::English, "año", 3);
+    assert_eq!(feed(&mut english, &typing("ao", 1, 1)), ["ñ, deleted"]);
+}
+
+#[test]
+fn the_caret_says_what_it_passes_over() {
+    let mut reader = focused_on(Language::Spanish, "hola mundo", 10);
+    // By character, either way.
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 9, 9)), ["o"]);
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 10, 10)), ["o"]);
+    // By word: the word, without the space passed.
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 5, 5)), ["mundo"]);
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 4, 4)), ["espacio"]);
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 0, 0)), ["hola"]);
+    assert_eq!(feed(&mut reader, &typing("hola mundo", 5, 5)), ["hola"]);
+    // Across lines: the line the caret moved to; over a line break alone, the break.
+    let lines = "uno\ndos\n\ntres";
+    let mut reader = focused_on(Language::Spanish, lines, 2);
+    assert_eq!(feed(&mut reader, &typing(lines, 6, 6)), ["dos"]);
+    assert_eq!(feed(&mut reader, &typing(lines, 7, 7)), ["s"]);
+    assert_eq!(feed(&mut reader, &typing(lines, 8, 8)), ["nueva línea"]);
+    assert_eq!(feed(&mut reader, &typing(lines, 12, 12)), ["tres"]);
+    // An empty line.
+    assert_eq!(feed(&mut reader, &typing(lines, 8, 8)), ["en blanco"]);
+    // An offset inside a character is taken to its start.
+    let mut reader = focused_on(Language::English, "ñu", 0);
+    assert_eq!(feed(&mut reader, &typing("ñu", 3, 3)), ["ñu"]);
+    assert_eq!(feed(&mut reader, &typing("ñu", 1, 1)), ["ñu"]);
+}
+
+#[test]
+fn a_selection_says_what_it_takes_and_gives_back() {
+    let mut reader = focused_on(Language::Spanish, "hola mundo", 5);
+    // Shift+Right twice, then back.
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 6)),
+        ["m, seleccionado"]
+    );
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 7)),
+        ["u, seleccionado"]
+    );
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 6)),
+        ["u, deseleccionado"]
+    );
+    // An arrow collapses it: what it held is unselected.
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 6, 6)),
+        ["m, deseleccionado"]
+    );
+    // Shift+Left from the caret, then Shift+Right past where it began.
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 6)),
+        ["m, seleccionado"]
+    );
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 4, 6)),
+        ["espacio, seleccionado"]
+    );
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 6)),
+        ["espacio, deseleccionado"]
+    );
+    // A word selected around the caret (a double click): the word.
+    feed(&mut reader, &typing("hola mundo", 7, 7));
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 5, 10)),
+        ["mundo, seleccionado"]
+    );
+    // Select All: the whole text, from a selection or the caret.
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo", 0, 10)),
+        ["hola mundo, seleccionado"]
+    );
+    let mut english = focused_on(Language::English, "hello world", 3);
+    assert_eq!(
+        feed(&mut english, &typing("hello world", 0, 11)),
+        ["hello world, selected"]
+    );
+    assert_eq!(
+        feed(&mut english, &typing("hello world", 0, 5)),
+        ["world, unselected"]
+    );
+}
+
+#[test]
+fn a_paste_or_what_replaces_the_selection_is_said_whole() {
+    let mut reader = focused_on(Language::Spanish, "hola ", 5);
+    assert_eq!(
+        feed(&mut reader, &typing("hola mundo cruel", 16, 16)),
+        ["mundo cruel"]
+    );
+    // Typed over a selection: what was typed.
+    feed(&mut reader, &typing("hola mundo cruel", 5, 16));
+    assert_eq!(feed(&mut reader, &typing("hola g", 6, 6)), ["g"]);
+    // The selection deleted.
+    feed(&mut reader, &typing("hola g", 0, 6));
+    assert_eq!(feed(&mut reader, &typing("", 0, 0)), ["hola g, borrado"]);
+}
+
+#[test]
+fn a_value_the_application_replaces_is_not_echoed() {
+    // Unfocused: nothing, whatever changes.
+    let mut reader = Reader::new(Language::Spanish);
+    feed(&mut reader, &message(1, "hola", Some((4, 4))));
+    feed(&mut reader, &message(1, "hola", Some((4, 4))));
+    assert!(feed(&mut reader, &message(1, "hola!", Some((5, 5)))).is_empty());
+    assert!(feed(&mut reader, &message(1, "hola!", Some((0, 0)))).is_empty());
+    assert!(feed(&mut reader, &message(1, "hola!", Some((0, 5)))).is_empty());
+    // Focused, a value replaced elsewhere than at the caret: nothing.
+    let mut reader = focused_on(Language::Spanish, "hola", 4);
+    assert!(feed(&mut reader, &typing("adiós", 6, 6)).is_empty());
+    assert!(feed(&mut reader, &typing("adiós amigo", 0, 0)).is_empty());
+}
+
+#[test]
+fn a_secure_field_says_nothing_of_its_text() {
+    // Its tree has no value and no selection: it is said focused, and nothing after.
+    let mut reader = Reader::new(Language::English);
+    feed(&mut reader, &message(1, "", None));
+    assert_eq!(
+        feed(&mut reader, &message(2, "", None)),
+        ["Mensaje, text field"]
+    );
+    assert!(feed(&mut reader, &message(2, "", None)).is_empty());
+    assert!(feed(&mut reader, &message(2, "", None)).is_empty());
+}
+
+#[test]
+fn a_field_newly_focused_is_said_and_not_echoed() {
+    let mut reader = focused_on(Language::Spanish, "hola", 4);
+    // Another element focused while the field changes: that element, and nothing of the field.
+    assert_eq!(
+        feed(&mut reader, &message(1, "holas", Some((5, 5)))),
+        ["Enviar, botón"]
+    );
+    // The field focused again, changed meanwhile: it is said, not echoed.
+    assert_eq!(
+        feed(&mut reader, &typing("holas!", 6, 6)),
+        ["Mensaje, holas!, campo de texto"]
+    );
+    assert_eq!(feed(&mut reader, &typing("holas!?", 7, 7)), ["?"]);
+}
