@@ -328,9 +328,12 @@ std::optional<std::pair<float, float>> Window::extent(uint32_t id) const {
   return std::nullopt;
 }
 
-void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial) {
+void Window::openPopup(uint32_t id, uint32_t parent, const OxyOSPositioner& positioner, uint64_t serial,
+                       bool tracking) {
   if (oxyos_client_create_popup(client_, id, parent, &positioner) != 0) failed("cannot open a popup");
   surfaces_[id] = Surface{};
+  // A compositor older than protocol version 9 refuses it, and the bar then switches menus by press.
+  if (tracking && serial != 0) oxyos_client_track_pointer(client_, id);
   if (serial != 0 && oxyos_client_grab_popup(client_, id, serial) != 0) failed("cannot grab the popup");
 }
 

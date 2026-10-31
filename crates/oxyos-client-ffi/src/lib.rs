@@ -3303,6 +3303,22 @@ pub unsafe extern "C" fn oxyos_client_grab_popup(
     unsafe { send(client, Request::GrabPopup { surface, serial }) }
 }
 
+/// Asks that the popup's parent go on tracking the pointer while the popup is the first of the
+/// grab chain (a menu bar's titles, ADR 0001), before `oxyos_client_grab_popup`. Refused (non-zero)
+/// by a compositor older than protocol version 9.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_track_pointer(
+    client: *mut OxyOSClient,
+    surface: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::TrackPointer { surface }) }
+}
+
 /// Destroys a surface and the buffers it drew with. 0 on success.
 ///
 /// # Safety

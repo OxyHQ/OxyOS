@@ -196,19 +196,14 @@
       }
     },
     {
-      "name": "Right with File open: Edit opens in its place, on its first enabled row (Undo is disabled)",
+      "name": "Right with File open: Edit opens in its place, on its first enabled row (Undo is disabled); the window hears nothing, the grab going straight from the one menu to the other",
       "do": [
         "key",
         106
       ],
       "expect": {
         "react": {},
-        "delivered": {
-          "1": {
-            "enter": 1,
-            "leave": 1
-          }
-        },
+        "delivered": {},
         "in_shell": {
           "texts": [
             "Undo",
@@ -239,12 +234,7 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {
-          "1": {
-            "enter": 1,
-            "leave": 1
-          }
-        },
+        "delivered": {},
         "in_shell": {
           "texts": [
             "New",
@@ -905,12 +895,7 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {
-          "1": {
-            "enter": 1,
-            "leave": 1
-          }
-        },
+        "delivered": {},
         "in_shell": {
           "texts": [
             "Ocultar Allo",
@@ -948,12 +933,7 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {
-          "1": {
-            "enter": 1,
-            "leave": 1
-          }
-        },
+        "delivered": {},
         "in_shell": {
           "texts": [
             "New",

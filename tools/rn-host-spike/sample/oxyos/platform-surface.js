@@ -42,6 +42,7 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
     pointX: true,
     pointY: true,
     tooltip: true,
+    trackingTag: true,
   },
   directEventTypes: {
     topDismiss: { registrationName: 'onDismiss' },
@@ -52,6 +53,7 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
 function PopupSurface({
   anchorRef,
   point,
+  trackingRef,
   side,
   align,
   sideOffset,
@@ -68,6 +70,13 @@ function PopupSurface({
   React.useLayoutEffect(() => {
     setAnchorTag(anchorRef.current ? findNodeHandle(anchorRef.current) : null);
   }, [anchorRef]);
+  // The view that goes on taking the pointer while the popup is open (a menu bar, Bloom's
+  // `trackingRef`): the host gives it the pointer's movement over it, and nothing else outside the
+  // popup.
+  const [trackingTag, setTrackingTag] = React.useState(-1);
+  React.useLayoutEffect(() => {
+    setTrackingTag(trackingRef?.current ? findNodeHandle(trackingRef.current) ?? -1 : -1);
+  }, [trackingRef]);
   if (anchorTag == null) return null;
   return (
     <OxyOSPopupView
@@ -84,6 +93,7 @@ function PopupSurface({
       // A tooltip (Bloom's native Tooltip) is a hint: shown without a grab, taking no input, its
       // text read as the bubble's own (docs/adr/0034-the-dock.mdx).
       tooltip={role === 'tooltip'}
+      trackingTag={trackingTag}
       accessibilityRole={role === 'tooltip' ? undefined : role}
       accessibilityLabel={label}
       onDismiss={(event) => onDismiss(event.nativeEvent.reason)}

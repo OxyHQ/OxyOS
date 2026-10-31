@@ -843,6 +843,10 @@ int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t
 int oxyos_client_create_popup(OxyOSClient* client, uint32_t surface, uint32_t parent,
                             const OxyOSPositioner* positioner);
 int oxyos_client_grab_popup(OxyOSClient* client, uint32_t surface, uint64_t serial);
+/* The popup's parent goes on tracking the pointer while the popup is the first of the grab chain
+ * (a menu bar's titles): its enter, motion and leave, nothing else. Before the grab; refused
+ * (non-zero) by a compositor older than protocol version 9. */
+int oxyos_client_track_pointer(OxyOSClient* client, uint32_t surface);
 /* Places an existing popup again (its anchor moved or its content resized). */
 int oxyos_client_reposition(OxyOSClient* client, uint32_t surface, const OxyOSPositioner* positioner);
 /* Publishes a surface's accessibility snapshot, replacing the previous one: `count` nodes in

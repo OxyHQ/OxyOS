@@ -394,6 +394,7 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
   std::vector<Tag> now;
   if (content) {
     Tag target = hitTest(tree_, *content, x, y);
+    if (target >= 0 && admits_ && !admits_(content->surface, target)) target = -1;
     if (target >= 0) now = ancestry(tree_, target);
   }
   uint32_t surface = content ? content->surface : hoveredSurface_;

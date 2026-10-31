@@ -4800,7 +4800,7 @@ fn files_are_asked_for_answered_and_chosen_through_the_c_abi() {
     let text = CStr::from_bytes_until_nul(&event.text).unwrap();
     assert_eq!(text.to_str().unwrap(), r#"/a%20b.png"]}"#);
 
-    // A compositor of version 7 is sent the request in chunks, the withdrawal and an answer.
+    // A compositor of this version (7 or later) is sent the request in chunks, the withdrawal and an answer.
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-choose-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
