@@ -13,5 +13,5 @@ fn two_independent_processes_negotiate_present_and_open_a_popup_without_a_displa
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(stdout.trim(), "{\"mode\":\"headless-metadata\",\"protocol\":4,\"clients\":2,\"frames\":7,\"popups_beyond_parent\":1,\"graphics\":false,\"bloom\":false,\"status\":\"passed\"}");
+    assert_eq!(stdout.trim(), "{\"mode\":\"headless-metadata\",\"protocol\":5,\"clients\":2,\"frames\":7,\"popups_beyond_parent\":1,\"graphics\":false,\"bloom\":false,\"status\":\"passed\"}");
 }

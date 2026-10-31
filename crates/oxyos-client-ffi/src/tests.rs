@@ -4522,3 +4522,22 @@ fn a_copy_of_any_types_is_offered_whole_and_each_paste_gets_its_own() {
         oxyos_client_close(client);
     }
 }
+
+#[test]
+fn the_keyboard_layout_comes_in_chunks_as_the_header_says() {
+    assert_eq!(
+        define("OXYOS_EVENT_KEYBOARD_LAYOUT"),
+        i64::from(OXYOS_EVENT_KEYBOARD_LAYOUT)
+    );
+    let chunk = convert(&Event::KeyboardLayout {
+        index: 0,
+        last: true,
+        text: oxyos_protocol::PreeditText::new("fr\tazerty\t").unwrap(),
+    })
+    .unwrap();
+    assert_eq!(
+        (chunk.kind, chunk.detail, chunk.flag),
+        (OXYOS_EVENT_KEYBOARD_LAYOUT, 0, 1)
+    );
+    assert_eq!(&chunk.text[..11], b"fr\tazerty\t\0");
+}

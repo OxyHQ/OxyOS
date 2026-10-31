@@ -396,6 +396,8 @@ pub struct Scene {
     inputs: BTreeMap<ClientId, std::collections::VecDeque<u64>>,
     /// The clipboard (ADR 0007): an offer its owner committed; empty if none.
     clipboard: Option<Clipboard>,
+    /// The session's keyboard layout, as clients are told it.
+    keyboard_layout: Option<String>,
     /// Offers the session made with copy_for_session, counted.
     next_session_offer: u32,
     /// Offers begun and not committed, by client and the client's offer number: their types.
@@ -963,8 +965,10 @@ impl Scene {
         self.check_grants(grants)?;
         self.clients.insert(client, Grants::default());
         self.activation.insert(client, self.serial);
-        // Every client draws as the user prefers from its first frame.
+        // Every client draws as the user prefers from its first frame, and knows the keys'
+        // layout before its first key.
         self.tell_drawing(client);
+        self.tell_keyboard_layout(client);
         self.grant(client, grants)
     }
 
@@ -2304,6 +2308,42 @@ impl Scene {
                 }
             }
             None => self.emit(client, Event::ClipboardEmpty {}),
+        }
+    }
+
+    /// The session's keyboard layout, `layout\tvariant\toptions` as XKB names them: told to
+    /// every client now and to each that connects (ADR 0029). A layout too long to tell is
+    /// refused.
+    pub fn set_keyboard_layout(&mut self, layout: &str) -> Result<(), ErrorCode> {
+        if layout.is_empty() || layout.len() > oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        if self.keyboard_layout.as_deref() == Some(layout) {
+            return Ok(());
+        }
+        self.keyboard_layout = Some(layout.to_string());
+        let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+        for client in clients {
+            self.tell_keyboard_layout(client);
+        }
+        Ok(())
+    }
+
+    fn tell_keyboard_layout(&mut self, client: ClientId) {
+        let Some(layout) = self.keyboard_layout.clone() else {
+            return;
+        };
+        let chunks = TextChunk::split(&layout);
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.emit(
+                client,
+                Event::KeyboardLayout {
+                    index: index as u8,
+                    last: index + 1 == count,
+                    text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+                },
+            );
         }
     }
 

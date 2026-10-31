@@ -360,6 +360,9 @@ fn main() -> Result<()> {
         });
     let input = oxyos_input::Input::open_with(bounds, &layout, Some((open, close)))?;
     eprintln!("[session] input from seat0, layout {layout}");
+    if let Err(code) = compositor.scene.set_keyboard_layout(&layout.names()) {
+        eprintln!("[session] layout {layout} not told to applications: {code:?}");
+    }
     compositor.input = Some(input);
     compositor.confine_pointer();
 

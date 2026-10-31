@@ -711,6 +711,11 @@ fn events() -> Vec<Event> {
             format: Format::Argb8888,
             modifier: 0x0100_0000_0000_0001,
         },
+        Event::KeyboardLayout {
+            index: 0,
+            last: true,
+            text: PreeditText::new("es\t\tcompose:ralt").unwrap(),
+        },
         Event::WindowState {
             window: 7,
             workspace: 1,
@@ -1292,6 +1297,8 @@ fn version_negotiation_selects_the_highest_common_version() {
     // A version 2 peer is still served (ADR 0033): its events are encoded as version 2 has them.
     assert_eq!(negotiate(2, 2), Ok(2));
     assert_eq!(negotiate(2, 3), Ok(3));
+    assert_eq!(negotiate(2, 4), Ok(4));
+    assert_eq!(negotiate(2, 5), Ok(5));
 }
 
 #[test]
@@ -1402,6 +1409,31 @@ fn resting_fingers_are_never_sent_to_a_client_of_version_3_or_older() {
     // Version 3 negotiated with a client that offers no more: everything else as before.
     assert_eq!(negotiate(2, 3), Ok(3));
     assert_eq!(negotiate(3, 4), Ok(4));
+}
+
+#[test]
+fn version_5_adds_what_a_version_4_connection_is_never_sent() {
+    let layout = Event::KeyboardLayout {
+        index: 0,
+        last: true,
+        text: PreeditText::new("fr\t\t").unwrap(),
+    };
+    assert_eq!(event_since(&layout), 5);
+    let mut nothing = Vec::new();
+    assert!(!write_event_for(&mut nothing, &layout, 4).unwrap());
+    assert!(nothing.is_empty());
+    let mut v5 = Vec::new();
+    assert!(write_event_for(&mut v5, &layout, 5).unwrap());
+    assert!(read_event_for(&mut Cursor::new(&v5), 4).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(&v5), 5).unwrap(), layout);
+    // Versions 4 and 5 grew no event: a version 3 connection's are version 5's, byte for byte.
+    for event in events() {
+        let (mut v3, mut v5) = (Vec::new(), Vec::new());
+        if write_event_for(&mut v3, &event, 3).unwrap() {
+            write_event_for(&mut v5, &event, 5).unwrap();
+            assert_eq!(v3, v5);
+        }
+    }
 }
 
 #[test]
