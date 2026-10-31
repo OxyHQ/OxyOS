@@ -1586,20 +1586,21 @@ void drawThroughRoundedLayer(const ViewTree& tree, const std::vector<Tag>& child
                              const Clip& clip, const ChildClip& box, const PixelBox& whole, const PixelBox& layerBox,
                              float opacity, Painter& painter, RenderStats& stats, const TextInputEdit& edit) {
   const float scale = painter.scale();
+  // The layer is the painter's own kind (on the GPU, a device image), as a blur's or a transformed
+  // view's is.
   Canvas content;
-  content.width = layerBox.x1 - layerBox.x0;
-  content.height = layerBox.y1 - layerBox.y0;
-  content.pixels.assign(static_cast<size_t>(content.width) * content.height, 0);
+  auto insideOwner = painter.child(content, scale);
+  Painter& inside = *insideOwner;
+  inside.allocate(layerBox.x1 - layerBox.x0, layerBox.y1 - layerBox.y0, 0);
   const float left = layerBox.x0 / scale, top = layerBox.y0 / scale;
-  Painter inside(content, scale);
   // A window shown live inside is still placed, within the box's rectangle, with its own corners.
   inside.placesWindows = painter.placesWindows;
   inside.toSurface = painter.toSurface.after(Affine::translation(left, top));
   inside.surfaceClip = painter.surfaceClip;
   Clip pixels{whole.x0 / scale - left, whole.y0 / scale - top, whole.x1 / scale - left, whole.y1 / scale - top};
   for (Tag child : children) drawView(tree, child, ox - left, oy - top, pixels, opacity, inside, stats, edit);
-  painter.image(asPicture(content), left, top, content.width / scale, content.height / scale, clip, box.x, box.y,
-                box.w, box.h, box.radii, 1.0f, std::nullopt);
+  painter.imageOf(content, left, top, content.width / scale, content.height / scale, clip, box.x, box.y, box.w,
+                  box.h, box.radii, 1.0f);
 }
 
 // The children of a view that clips them to a rounded box (`overflow: hidden` with a
