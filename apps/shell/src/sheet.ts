@@ -5,6 +5,9 @@
  * sheet (`OxyOSSheet`); the shell draws it over everything but the lock screen, and only the
  * shell's own press answers it, so no application can confirm one for the person. No password is
  * asked: the sheet is the proof a person chose.
+ *
+ * When the person asked for a change and the install service is not running, the session sends a
+ * sheet that says so (`unavailable`): one button, nothing to confirm.
  */
 
 export type Language = "es" | "en";
@@ -14,7 +17,8 @@ export type SheetText =
   | { kind: "install" | "update"; plan: Plan }
   | { kind: "uninstall"; id: string; name: string; version: string }
   | { kind: "consent"; update: AvailableUpdate }
-  | { kind: "permission"; id: string; capability: string; name?: string };
+  | { kind: "permission"; id: string; capability: string; name?: string }
+  | { kind: "unavailable"; action: "install" | "uninstall" | "update" };
 
 export type Plan = {
   id: string;
@@ -45,6 +49,7 @@ export type SheetView = {
   /** Each capability: its name and what the application says it is for. */
   lines: { label: string; detail?: string }[];
   accept: string;
+  /** Empty for a sheet that only tells: it has its one button, `accept`. */
   refuse: string;
   /** A removal deletes the account's data: its button says so. */
   destructive: boolean;
@@ -68,6 +73,14 @@ const words = {
     consentBody: (version: string) => `La versión ${version} usa:`,
     keyRotation: "El desarrollador firma esta versión con una clave nueva de su linaje.",
     later: "Se preguntará cuando la app lo use",
+    unavailable: {
+      install: "No se puede instalar la app",
+      uninstall: "No se puede eliminar la app",
+      update: "No se puede actualizar",
+    },
+    unavailableBody:
+      "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
+    ok: "Aceptar",
   },
   en: {
     install: (name: string) => `Install ${name}?`,
@@ -86,6 +99,14 @@ const words = {
     consentBody: (version: string) => `Version ${version} uses:`,
     keyRotation: "The developer signs this version with a new key of its lineage.",
     later: "Asked when the app uses it",
+    unavailable: {
+      install: "Can't Install the App",
+      uninstall: "Can't Delete the App",
+      update: "Can't Update",
+    },
+    unavailableBody:
+      "The service that installs apps on this computer isn't running. Try again once it's available.",
+    ok: "OK",
   },
 };
 
@@ -193,6 +214,15 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
         destructive: false,
       };
     }
+    case "unavailable":
+      return {
+        title: w.unavailable[sheet.action] ?? w.unavailable.install,
+        body: w.unavailableBody,
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+      };
   }
 }
 

@@ -58,6 +58,34 @@ impl Grants {
         }
         Ok(grants)
     }
+
+    /// Its grants' names, `,`-separated, as a launch tells the application them
+    /// (`OXYOS_APP_GRANTS`): the Bloom host gives JavaScript what a grant opens only with it (the
+    /// store's installer with `store`, docs/adr/0030-installing-applications.mdx, decision 9).
+    /// The compositor checks every request against the grant itself; this only says what to offer.
+    pub fn names(&self) -> String {
+        [
+            ("settings", self.settings),
+            ("store", self.store),
+            ("updates", self.updates),
+            ("privacy", self.privacy),
+        ]
+        .into_iter()
+        .filter(|(_, granted)| *granted)
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>()
+        .join(",")
+    }
+
+    /// Both grants together.
+    pub fn with(self, other: Grants) -> Grants {
+        Grants {
+            settings: self.settings || other.settings,
+            store: self.store || other.store,
+            updates: self.updates || other.updates,
+            privacy: self.privacy || other.privacy,
+        }
+    }
 }
 
 /// Where the image keeps its policy of system applications: in `/usr`, which is the image's
@@ -1178,6 +1206,8 @@ pub struct Launcher {
     trusted: Box<dyn Fn(&Path) -> bool>,
     /// Each process started, and what it was launched as, until it exits.
     children: Vec<(std::process::Child, Launched)>,
+    /// The development compositor's grants by id ([`Launcher::with_fixture_grants`]).
+    fixture_grants: Vec<(String, Grants)>,
 }
 
 impl Launcher {
@@ -1190,7 +1220,17 @@ impl Launcher {
             installed: None,
             trusted: Box::new(administrator_written),
             children: Vec::new(),
+            fixture_grants: Vec::new(),
         }
+    }
+
+    /// The development compositor's grants (`--grant ID=GRANT,...`), which a scenario gives as the
+    /// image's policy would: told to the applications it starts in their launch environment
+    /// (`OXYOS_APP_GRANTS`), as a system application's are. Never a session's: a session's grants
+    /// are the policy's alone.
+    pub fn with_fixture_grants(mut self, grants: Vec<(String, Grants)>) -> Self {
+        self.fixture_grants = grants;
+        self
     }
 
     /// The launcher with the install service's entries for the session's account (`installed`,
@@ -1321,9 +1361,15 @@ impl Launcher {
         // decision 8): an installed version uses only what its account granted, read here at
         // launch; a system or development application is not narrowed.
         let (origin, granted) = launch_capabilities(&application.origin, &capabilities);
+        let told = self
+            .fixture_grants
+            .iter()
+            .filter(|(fixed, _)| fixed == id)
+            .fold(grants, |all, (_, fixed)| all.with(*fixed));
         command
             .env("OXYOS_APP_ORIGIN", origin)
-            .env("OXYOS_APP_CAPABILITIES", granted);
+            .env("OXYOS_APP_CAPABILITIES", granted)
+            .env("OXYOS_APP_GRANTS", told.names());
         let opened = match how {
             Start::Opening(file) => {
                 command.env("OXYOS_LAUNCH_URL", file_url(file));

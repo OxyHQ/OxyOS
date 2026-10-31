@@ -43,19 +43,25 @@ class ChunkTexts {
 // What this launch may use (decision 8), as the session told it at launch (`OXYOS_APP_ORIGIN`,
 // `OXYOS_APP_CAPABILITIES`): an installed version only what its account granted, and what it is
 // granted at first use while it runs; a system or development application is not narrowed. A
-// decision revoked in Settings takes effect at the next launch.
+// decision revoked in Settings takes effect at the next launch. With them, its system grants
+// (`OXYOS_APP_GRANTS`, the image's policy's: `store`, `updates`...), so that JavaScript offers what
+// a grant opens only with it (the store's installer with `store`, decision 9); the compositor
+// checks every request against the grant itself.
 class LaunchCapabilities {
  public:
   static LaunchCapabilities fromEnvironment() {
     LaunchCapabilities launch;
     const char* origin = std::getenv("OXYOS_APP_ORIGIN");
     launch.origin_ = origin ? origin : "development";
-    if (const char* granted = std::getenv("OXYOS_APP_CAPABILITIES")) {
-      std::stringstream list(granted);
-      for (std::string name; std::getline(list, name, ',');) {
-        if (!name.empty()) launch.granted_.insert(name);
+    auto names = [](const char* list, std::set<std::string>& into) {
+      if (!list) return;
+      std::stringstream names(list);
+      for (std::string name; std::getline(names, name, ',');) {
+        if (!name.empty()) into.insert(name);
       }
-    }
+    };
+    names(std::getenv("OXYOS_APP_CAPABILITIES"), launch.granted_);
+    names(std::getenv("OXYOS_APP_GRANTS"), launch.grants_);
     return launch;
   }
 
@@ -66,12 +72,16 @@ class LaunchCapabilities {
   folly::dynamic describe() const {
     folly::dynamic granted = folly::dynamic::array;
     for (const auto& name : granted_) granted.push_back(name);
-    return folly::dynamic::object("origin", origin_)("capabilities", granted)("narrowed", narrowed());
+    folly::dynamic grants = folly::dynamic::array;
+    for (const auto& name : grants_) grants.push_back(name);
+    return folly::dynamic::object("origin", origin_)("capabilities", granted)("narrowed", narrowed())(
+        "grants", grants);
   }
 
  private:
   std::string origin_;
   std::set<std::string> granted_;
+  std::set<std::string> grants_;
 };
 
 // A capability asked at first use, by its protocol number (RequestCapability); 0 for another.

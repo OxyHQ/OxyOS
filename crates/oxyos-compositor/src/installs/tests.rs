@@ -16,13 +16,35 @@ fn the_vocabulary_is_read_strictly_by_grant_and_input() {
     assert_eq!(
         ask(r#"{"install":{"id":"so.oxy.notes"}}"#).unwrap(),
         Ask::Install {
-            id: "so.oxy.notes".into()
+            id: Some("so.oxy.notes".into()),
+            listing: None,
         }
     );
+    assert_eq!(
+        ask(r#"{"install":{"listing":"notes"}}"#).unwrap(),
+        Ask::Install {
+            id: None,
+            listing: Some("notes".into()),
+        }
+    );
+    assert_eq!(
+        ask(r#"{"status":{"listings":["notes"]}}"#).unwrap(),
+        Ask::Status {
+            ids: vec![],
+            listings: vec!["notes".into()],
+        }
+    );
+    // An install names exactly one application.
+    for unnamed in [
+        r#"{"install":{}}"#,
+        r#"{"install":{"id":"so.oxy.notes","listing":"notes"}}"#,
+    ] {
+        assert!(!ask(unnamed).unwrap().well_formed(), "{unnamed}");
+    }
     assert_eq!(ask(r#"{"state":{}}"#).unwrap(), Ask::State {});
     for refused in [
         r#"{"install":{"id":"so.oxy.notes","path":"/x"}}"#,
-        r#"{"install":{}}"#,
+        r#"{"install":{"listing":7}}"#,
         r#"{"run":{"command":"rm"}}"#,
         r#"{"state":{},"check":{}}"#,
         r#""state""#,
@@ -36,7 +58,10 @@ fn the_vocabulary_is_read_strictly_by_grant_and_input() {
         privacy,
         ..Default::default()
     };
-    let install = Ask::Install { id: "x".into() };
+    let install = Ask::Install {
+        id: Some("x".into()),
+        listing: None,
+    };
     assert!(install.allowed(&grants(true, false, false)));
     assert!(!install.allowed(&grants(false, true, true)));
     assert!(Ask::UpdateAll {}.allowed(&grants(false, true, false)));
@@ -46,7 +71,11 @@ fn the_vocabulary_is_read_strictly_by_grant_and_input() {
     assert!(!Ask::Privacy {}.allowed(&grants(true, true, false)));
     assert!(install.changes() && Ask::Check {}.changes() && Ask::UpdateAll {}.changes());
     assert!(!Ask::State {}.changes() && !Ask::Privacy {}.changes());
-    assert!(!Ask::Status { ids: vec![] }.changes());
+    assert!(!Ask::Status {
+        ids: vec![],
+        listings: vec![]
+    }
+    .changes());
 }
 
 #[test]
@@ -173,7 +202,8 @@ fn an_install_is_committed_only_once_the_sheet_is_accepted() {
         &socket,
         None,
         Ask::Install {
-            id: "so.oxy.notes".into(),
+            id: Some("so.oxy.notes".into()),
+            listing: None,
         },
         false,
     );
@@ -192,7 +222,8 @@ fn an_install_is_committed_only_once_the_sheet_is_accepted() {
         &socket,
         None,
         Ask::Install {
-            id: "so.oxy.notes".into(),
+            id: Some("so.oxy.notes".into()),
+            listing: None,
         },
         true,
     );
@@ -312,6 +343,120 @@ fn an_update_needing_consent_is_asked_and_only_consented_ones_switch() {
 
 #[test]
 fn without_the_service_a_request_fails_and_says_so() {
-    let (_, answers) = run(Path::new("/nonexistent/socket"), None, Ask::State {}, true);
+    let (sheets, answers) = run(Path::new("/nonexistent/socket"), None, Ask::State {}, true);
     assert_eq!(answers[0]["failed"]["reason"], "unavailable");
+    assert!(sheets.is_empty(), "a read shows no sheet");
+    assert_eq!(answers[0]["failed"].get("told"), None);
+}
+
+#[test]
+fn without_the_service_a_change_the_person_asked_for_is_said_in_the_sheet() {
+    for (request, action) in [
+        (
+            Ask::Install {
+                id: None,
+                listing: Some("notes".into()),
+            },
+            "install",
+        ),
+        (
+            Ask::Uninstall {
+                id: "so.oxy.notes".into(),
+            },
+            "uninstall",
+        ),
+        (Ask::UpdateAll {}, "update"),
+    ] {
+        let (sheets, answers) = run(Path::new("/nonexistent/socket"), None, request, true);
+        assert_eq!(sheets.len(), 1, "{action}");
+        let sheet: Value = serde_json::from_str(&sheets[0]).unwrap();
+        assert_eq!(sheet, json!({"kind": "unavailable", "action": action}));
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0]["failed"]["reason"], "unavailable");
+        assert_eq!(answers[0]["failed"]["told"], true);
+    }
+    // A check, which the person did not ask to change anything with, shows none.
+    let (sheets, _) = run(Path::new("/nonexistent/socket"), None, Ask::Check {}, true);
+    assert!(sheets.is_empty());
+}
+
+#[test]
+fn a_listing_is_resolved_by_the_service_then_installed_or_said_to_have_no_release() {
+    let (socket, asked) = service("listing", |request| match request {
+        Request::Resolve { listings, .. } => vec![Answer::Resolved(
+            listings
+                .iter()
+                .map(|l| {
+                    (
+                        l.clone(),
+                        (l == "notes").then(|| "so.oxy.notes".to_string()),
+                    )
+                })
+                .collect(),
+        )],
+        Request::Prepare { .. } => vec![Answer::Plan(plan())],
+        Request::Commit { .. } => vec![Answer::Committed(Committed {
+            id: "so.oxy.notes".into(),
+            version_code: 12,
+            switched: true,
+            at_next_launch: false,
+        })],
+        Request::List { .. } => vec![Answer::Applications(Vec::new())],
+        Request::UpdateState { .. } => vec![Answer::UpdateState(UpdateState {
+            checking: false,
+            checked_at: None,
+            check_failed: None,
+            automatic: true,
+            updates: Vec::new(),
+        })],
+        _ => vec![Answer::refused(oxyos_install::ipc::Reason::InvalidRequest)],
+    });
+    let (sheets, answers) = run(
+        &socket,
+        None,
+        Ask::Install {
+            id: None,
+            listing: Some("notes".into()),
+        },
+        true,
+    );
+    assert_eq!(sheets.len(), 1);
+    assert_eq!(answers.last().unwrap()["installed"]["id"], "so.oxy.notes");
+    assert!(asked
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|r| matches!(r, Request::Prepare { id, .. } if id == "so.oxy.notes")));
+
+    // No release of it for this machine: refused, and no sheet is shown.
+    let (sheets, answers) = run(
+        &socket,
+        None,
+        Ask::Install {
+            id: None,
+            listing: Some("mention".into()),
+        },
+        true,
+    );
+    assert!(sheets.is_empty());
+    assert_eq!(answers, [json!({"refused": {"reason": "noRelease"}})]);
+
+    // Status by listing: the resolved one with its id, the other with none.
+    let (_, answers) = run(
+        &socket,
+        None,
+        Ask::Status {
+            ids: vec![],
+            listings: vec!["notes".into(), "mention".into()],
+        },
+        true,
+    );
+    assert_eq!(
+        answers[0]["status"],
+        json!([
+            {"id": "so.oxy.notes", "listing": "notes", "installed": false, "version": null,
+             "versionCode": null, "update": null},
+            {"listing": "mention", "id": null},
+        ])
+    );
 }

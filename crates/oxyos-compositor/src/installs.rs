@@ -13,6 +13,11 @@
 //! platform's author's decision). The account's update state is watched on one connection and told
 //! to every client with `store` or `updates` as it changes: Atlas's Updates and Settings' Software
 //! Update show one state and never check on their own.
+//!
+//! The store names an application by its package id or by its store listing (a slug), which the
+//! install service resolves from the store's signed metadata (decision 12; oxy ADR 0053): the
+//! store hands the machine nothing else. When the person asks for a change and the install service
+//! is not there, the shell's sheet says so, and the store is told the person was told.
 
 use oxyos_compositor_core::{ClientId, Scene};
 use oxyos_install::ipc::{Answer, Request};
@@ -36,10 +41,21 @@ const SHORT: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Ask {
-    /// `store`: what the account has of each application.
-    Status { ids: Vec<String> },
-    /// `store`, with an input: install, after the person confirms in the sheet.
-    Install { id: String },
+    /// `store`: what the account has of each application, named by id or by listing.
+    Status {
+        #[serde(default)]
+        ids: Vec<String>,
+        #[serde(default)]
+        listings: Vec<String>,
+    },
+    /// `store`, with an input: install, after the person confirms in the sheet; named by its id
+    /// or its listing, exactly one.
+    Install {
+        #[serde(default)]
+        id: Option<String>,
+        #[serde(default)]
+        listing: Option<String>,
+    },
     /// `store`, with an input: remove, and the account's data, after the person confirms.
     Uninstall { id: String },
     /// `store`, with an input: open an installed application.
@@ -79,6 +95,25 @@ impl Ask {
     /// Whether it changes anything, so needs an input the client received.
     fn changes(&self) -> bool {
         !matches!(self, Ask::Status { .. } | Ask::State {} | Ask::Privacy {})
+    }
+
+    /// Whether it names what it asks about as it must: an install exactly one application.
+    fn well_formed(&self) -> bool {
+        match self {
+            Ask::Install { id, listing } => id.is_some() != listing.is_some(),
+            _ => true,
+        }
+    }
+
+    /// What it would change that the person asked for, so the sheet says the install service is
+    /// not there: installing, removing and updating; none for a read or a check.
+    fn sheet_action(&self) -> Option<&'static str> {
+        match self {
+            Ask::Install { .. } => Some("install"),
+            Ask::Uninstall { .. } => Some("uninstall"),
+            Ask::Update { .. } | Ask::UpdateAll {} => Some("update"),
+            _ => None,
+        }
     }
 }
 
@@ -261,7 +296,10 @@ impl Installs {
                 let text = json!({"refused": {"reason": reason}}).to_string();
                 scene.system_text(request.client, request.serial, &text);
             };
-            let Ok(ask) = serde_json::from_str::<Ask>(&request.text) else {
+            let Some(ask) = serde_json::from_str::<Ask>(&request.text)
+                .ok()
+                .filter(Ask::well_formed)
+            else {
                 refuse(scene, "invalidRequest");
                 continue;
             };
@@ -399,6 +437,36 @@ fn failed(error: impl std::fmt::Display) -> Value {
     json!({"failed": {"reason": "unavailable", "detail": error.to_string()}})
 }
 
+/// The install service is not there, and the person, who asked for `action`, was told so in the
+/// sheet: the store says nothing more.
+fn unavailable_told(error: impl std::fmt::Display) -> Value {
+    json!({"failed": {"reason": "unavailable", "detail": error.to_string(), "told": true}})
+}
+
+/// Each listing's package id, as the install service resolves it from the store's signed
+/// metadata (null: the store has no release of it this machine can run); or the service's answer
+/// when it is not that.
+fn resolve(
+    connection: &Connection,
+    listings: &[String],
+) -> std::io::Result<Result<BTreeMap<String, Option<String>>, Answer>> {
+    if listings.is_empty() {
+        return Ok(Ok(BTreeMap::new()));
+    }
+    Ok(
+        match ask(
+            connection,
+            &Request::Resolve {
+                listings: listings.to_vec(),
+                uid: None,
+            },
+        )? {
+            Answer::Resolved(resolved) => Ok(resolved),
+            other => Err(other),
+        },
+    )
+}
+
 /// An application's name in its account's entry (`Name=`), else its id.
 fn name_of(entry: &str, id: &str) -> String {
     std::fs::read_to_string(entry)
@@ -434,11 +502,26 @@ fn flow(
     };
     let connection = match connect(socket, timeout) {
         Ok(connection) => connection,
-        Err(error) => return answer(failed(error)),
+        // The person asked for a change the install service would make, and it is not there:
+        // the shell's sheet says so, and the store is told the person was told.
+        Err(error) => match request.sheet_action() {
+            Some(action) => {
+                back.sheet(client, json!({"kind": "unavailable", "action": action}));
+                return answer(unavailable_told(error));
+            }
+            None => return answer(failed(error)),
+        },
     };
     let result: std::io::Result<()> = (|| {
         match request {
-            Ask::Status { ids } => {
+            Ask::Status { ids, listings } => {
+                let resolved = match resolve(&connection, &listings)? {
+                    Ok(resolved) => resolved,
+                    Err(other) => {
+                        answer(to_json(&other));
+                        return Ok(());
+                    }
+                };
                 let listed = ask(&connection, &Request::List { uid: None })?;
                 let state = ask(&connection, &Request::UpdateState { uid: None })?;
                 let listed = match listed {
@@ -452,26 +535,54 @@ fn flow(
                     Answer::UpdateState(state) => state.updates,
                     _ => Vec::new(),
                 };
-                let status: Vec<Value> = ids
-                    .iter()
-                    .map(|id| {
-                        let installed = listed.iter().find(|l| &l.id == id);
-                        let update = updates.iter().find(|u| &u.id == id);
-                        json!({
-                            "id": id,
-                            "installed": installed.is_some(),
-                            "version": installed.map(|l| l.version.clone()),
-                            "versionCode": installed.map(|l| l.version_code),
-                            "update": update.map(|u| json!({
-                                "toVersion": u.to_version, "toVersionCode": u.to_version_code,
-                                "status": u.status,
-                            })),
-                        })
+                let of = |id: &str| {
+                    let installed = listed.iter().find(|l| l.id == id);
+                    let update = updates.iter().find(|u| u.id == id);
+                    json!({
+                        "id": id,
+                        "installed": installed.is_some(),
+                        "version": installed.map(|l| l.version.clone()),
+                        "versionCode": installed.map(|l| l.version_code),
+                        "update": update.map(|u| json!({
+                            "toVersion": u.to_version, "toVersionCode": u.to_version_code,
+                            "status": u.status,
+                        })),
                     })
-                    .collect();
+                };
+                let mut status: Vec<Value> = ids.iter().map(|id| of(id)).collect();
+                // A listing the store has no release of for this machine: its id is null.
+                status.extend(listings.iter().map(|listing| {
+                    match resolved.get(listing).cloned().flatten() {
+                        Some(id) => {
+                            let mut one = of(&id);
+                            one["listing"] = json!(listing);
+                            one
+                        }
+                        None => json!({"listing": listing, "id": null}),
+                    }
+                }));
                 answer(json!({ "status": status }));
             }
-            Ask::Install { id } => {
+            Ask::Install { id, listing } => {
+                let id = match (id, listing) {
+                    (Some(id), _) => id,
+                    (None, Some(listing)) => {
+                        match resolve(&connection, std::slice::from_ref(&listing))? {
+                            Ok(resolved) => match resolved.get(&listing).cloned().flatten() {
+                                Some(id) => id,
+                                None => {
+                                    answer(json!({"refused": {"reason": "noRelease"}}));
+                                    return Ok(());
+                                }
+                            },
+                            Err(other) => {
+                                answer(to_json(&other));
+                                return Ok(());
+                            }
+                        }
+                    }
+                    (None, None) => unreachable!("a request naming nothing is refused as it comes"),
+                };
                 let plan = match ask(&connection, &Request::Prepare { id, uid: None })? {
                     Answer::Plan(plan) => plan,
                     other => {
