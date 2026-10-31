@@ -21,6 +21,7 @@ import PinchProbe from './PinchProbe';
 import MaterialProbe from './MaterialProbe';
 import A11yProbe from './A11yProbe';
 import WindowProbe from './WindowProbe';
+import WorkspaceChromeProbe from './WorkspaceChromeProbe';
 import AnimatedProbe from './AnimatedProbe';
 import MenuBarProbe from './MenuBarProbe';
 import ExpoProbe from './ExpoProbe';
@@ -62,3 +63,5 @@ AppRegistry.registerComponent('OverscrollProbe', () => OverscrollProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
 AppRegistry.registerComponent('FrameProbe', () => FrameProbe);
 AppRegistry.registerComponent('ClipProbe', () => ClipProbe);
+
+AppRegistry.registerComponent('WorkspaceChromeProbe', () => WorkspaceChromeProbe);
