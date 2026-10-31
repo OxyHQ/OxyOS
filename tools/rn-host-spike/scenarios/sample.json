@@ -398,7 +398,7 @@
       }
     },
     {
-      "name": "More actions opens its submenu beside it, as a desktop's (Bloom 15.77.0): a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu",
+      "name": "More actions opens its submenu beside it, as a desktop's (Bloom 15.80.0): a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu",
       "do": ["press-popup", [60, 200]],
       "expect": {
         "popups": 2,
