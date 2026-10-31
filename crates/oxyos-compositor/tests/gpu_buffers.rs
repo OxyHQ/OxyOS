@@ -64,8 +64,8 @@ fn connect(socket: &Path) -> (Connection, Vec<Event>) {
     connection
         .send_request(
             &Request::Hello {
-                min_version: 2,
-                max_version: 2,
+                min_version: oxyos_protocol::MIN_VERSION,
+                max_version: oxyos_protocol::VERSION,
             },
             None,
         )
