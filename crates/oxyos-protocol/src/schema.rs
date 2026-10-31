@@ -547,6 +547,18 @@ messages! {
         // works out a key's meaning itself (a browser's shortcuts on a key that types nothing)
         // compiles with the same default rules and model.
         180 => KeyboardLayout { index: u8, last: bool, text: PreeditText },
+        // To every client, when it connects and as they change (ADR 0029, amending ADR 0018):
+        // each output the session shows, without its place in the global space, which stays the
+        // shell's: its size in logical pixels, scale in 120ths, refresh in mHz and whether it is
+        // the primary; then the part of it windows may cover (its work area, relative to it); and
+        // an output's removal. What a browser's display list holds (screen.width, devicePixelRatio,
+        // availHeight), and nothing of other clients.
+        200 => ApplicationOutput { output: u32, size: Size, scale_120: u32, refresh_mhz: u32, primary: bool },
+        201 => ApplicationOutputWorkArea { output: u32, rect: Rect },
+        202 => ApplicationOutputRemoved { output: u32 },
+        // To a surface's client, before its first Configure and whenever it changes: the output the
+        // surface is on (the one its Refresh is of).
+        203 => SurfaceOutput { surface: u32, output: u32 },
     }
 }
 

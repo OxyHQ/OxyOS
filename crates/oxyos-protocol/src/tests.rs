@@ -723,6 +723,22 @@ fn events() -> Vec<Event> {
             last: true,
             text: PreeditText::new("es\t\tcompose:ralt").unwrap(),
         },
+        Event::ApplicationOutput {
+            output: 2,
+            size: Size::new(1280, 720),
+            scale_120: 180,
+            refresh_mhz: 144_000,
+            primary: false,
+        },
+        Event::ApplicationOutputWorkArea {
+            output: 2,
+            rect: Rect::new(0, 28, 1280, 692),
+        },
+        Event::ApplicationOutputRemoved { output: 2 },
+        Event::SurfaceOutput {
+            surface: 1,
+            output: 2,
+        },
         Event::WindowState {
             window: 7,
             workspace: 1,
@@ -1435,6 +1451,12 @@ fn version_5_adds_what_a_version_4_connection_is_never_sent_and_may_not_send() {
         scale_120: 120,
     };
     assert_eq!(request_since(&image), 5);
+    let output = Event::SurfaceOutput {
+        surface: 1,
+        output: 2,
+    };
+    assert_eq!(event_since(&output), 5);
+    assert!(!write_event_for(&mut Vec::new(), &output, 4).unwrap());
     let mut nothing = Vec::new();
     assert!(!write_event_for(&mut nothing, &layout, 4).unwrap());
     assert!(nothing.is_empty());

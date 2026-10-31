@@ -506,6 +506,10 @@ pub struct Launch {
     pub seat: bool,
     /// `--layout LAYOUT`: the XKB layout keys are typed and read with (`us` by default).
     pub layout: String,
+    /// `--launch-settle MS`: how long the application's first frames must stay unchanged before
+    /// the steps begin (SETTLE by default): a browser shows its window before its interface draws
+    /// in it, for longer than SETTLE on a loaded machine.
+    pub launch_settle: Duration,
     /// `--input-method`: the session plays an input method (ime.rs).
     pub input_method: bool,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
@@ -566,7 +570,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -644,6 +648,7 @@ impl Launch {
         let mut dump_frames = None;
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
+        let mut launch_settle = SETTLE;
         let (mut seat, mut input_method) = (false, false);
         let mut shell = None;
         let mut lock_password = None;
@@ -753,6 +758,11 @@ impl Launch {
                 Some("--lock-password") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     lock_password = Some(value.to_string());
+                    continue;
+                }
+                Some("--launch-settle") => {
+                    let ms = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    launch_settle = Duration::from_millis(ms.parse()?);
                     continue;
                 }
                 Some("--layout") => {
@@ -1092,6 +1102,7 @@ impl Launch {
                 uinput,
                 seat,
                 layout,
+                launch_settle,
                 input_method,
                 shell,
                 lock_password,
@@ -1351,16 +1362,27 @@ struct Settled {
     settled_ns: i64,
 }
 
+/// What `settle` waits for: until when, what (to say when it gives up), and how long the surfaces
+/// must then stay unchanged.
+struct Wait<'a> {
+    deadline: Instant,
+    waiting_for: &'a str,
+    still: Duration,
+}
+
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
-/// popup opened or closed) and then stay unchanged for SETTLE. With `may_stay`, surfaces that do
-/// not change for SETTLE also count as settled (a step whose expected answer is nothing).
+/// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
+/// that do not change for it also count as settled (a step whose expected answer is nothing).
 fn settle(
     session: &mut Session,
     children: &mut Children,
     before: &[(u32, u64, Rect)],
     may_stay: bool,
-    deadline: Instant,
-    waiting_for: &str,
+    Wait {
+        deadline,
+        waiting_for,
+        still,
+    }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
 ) -> Result<Settled> {
@@ -1453,7 +1475,7 @@ fn settle(
             && !shell_changed
             && answered
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
-            && last.1.elapsed() >= SETTLE
+            && last.1.elapsed() >= still
         {
             if let Some(window) = session
                 .compositor
@@ -3346,15 +3368,25 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // its shell has already shown.
     let login = launch.command.is_empty();
     let primary = session.compositor.screens[0].rect;
-    let first = settle(
+    let first = match settle(
         &mut session,
         &mut children,
         &[],
         login,
-        deadline,
-        "the first frame",
+        Wait {
+            deadline,
+            waiting_for: "the first frame",
+            still: launch.launch_settle,
+        },
         login.then_some(primary),
-    )?;
+    ) {
+        Ok(first) => first,
+        Err(error) => {
+            // What the output showed when the launch gave up: what never stopped changing.
+            let _ = snapshot(&session.compositor, out, "launch-unsettled.png");
+            return Err(error);
+        }
+    };
     let mut window = first.window;
     if !login
         && (window.y..window.bottom() as i32).all(|y| {
@@ -3564,8 +3596,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &mut children,
             &before,
             *may_stay,
-            Instant::now() + STEP_DEADLINE,
-            &what,
+            Wait {
+                deadline: Instant::now() + STEP_DEADLINE,
+                waiting_for: &what,
+                still: SETTLE,
+            },
             Some(window),
         )?;
         window = answer.window;

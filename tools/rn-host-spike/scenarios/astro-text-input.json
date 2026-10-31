@@ -4,6 +4,7 @@
     1000,
     400
   ],
+  "launch_settle_ms": 3000,
   "layout": "fr",
   "client": [
     "--ozone-platform=oxyos",

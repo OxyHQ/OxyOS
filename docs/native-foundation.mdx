@@ -302,10 +302,14 @@ Input semantics:
 | Event | 173 | GpuScanout | 9 |
 | Event | 174 | GpuScanoutFormat | 21 |
 | Event | 180 | KeyboardLayout | 36 |
+| Event | 200 | ApplicationOutput | 22 |
+| Event | 201 | ApplicationOutputWorkArea | 21 |
+| Event | 202 | ApplicationOutputRemoved | 5 |
+| Event | 203 | SurfaceOutput | 9 |
 
 The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; the compositor serves every version from `MIN_VERSION` (2) to `VERSION` (5), each connection's events encoded as its version defines them, and refuses a request newer than the connection's ([ADR 0033](./adr/0033-protocol-versions)); anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Five carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), AttachDmabufPlane (a DMA-BUF), ImportTimeline (a DRM syncobj), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
-Not yet in the contract: the compositor's keymap itself (applications are told its XKB names, `KeyboardLayout`, ADR 0029) and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method): the field's state and transactions are in the protocol, an input method is not), accessibility bridging, and outputs told to applications (the shell is told them, [ADR 0018](./adr/0018-several-displays)). Versions only add: new opcodes and fields at the end of existing messages, as ADR 0033 says; do not freeze a version as an SDK ABI yet.
+Not yet in the contract: the compositor's keymap itself (applications are told its XKB names, `KeyboardLayout`, ADR 0029) and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method): the field's state and transactions are in the protocol, an input method is not), accessibility bridging, and outputs' places told to applications (the shell is told them, [ADR 0018](./adr/0018-several-displays); applications are told each output's size, scale, refresh and work area, and which output each surface is on, ADR 0029). Versions only add: new opcodes and fields at the end of existing messages, as ADR 0033 says; do not freeze a version as an SDK ABI yet.
 
 ## Transport and buffers
 

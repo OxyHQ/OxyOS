@@ -87,6 +87,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_BUFFER_FAILED 172
 #define OXYOS_EVENT_GPU_SCANOUT 173
 #define OXYOS_EVENT_KEYBOARD_LAYOUT 180
+#define OXYOS_EVENT_APPLICATION_OUTPUT 200
+#define OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA 201
+#define OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED 202
+#define OXYOS_EVENT_SURFACE_OUTPUT 203
 /* A DISPLAY's flag bits. */
 #define OXYOS_DISPLAY_PRIMARY 1
 #define OXYOS_DISPLAY_BUILTIN 2
@@ -375,6 +379,14 @@ typedef struct OxyOSClient OxyOSClient;
  *                      the last (then show it); `text` the chunk.
  *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
  *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+ *   APPLICATION_OUTPUT to every client when it connects and as it changes (ADR 0029): an output
+ *                      the session shows, never its place: code, its id; width, height, its size in
+ *                      logical pixels; scale_120; detail, its refresh in mHz; flag, the primary.
+ *   APPLICATION_OUTPUT_WORK_AREA  after it: code, the output; x, y, width, height, the part of it
+ *                      windows may cover, relative to it.
+ *   APPLICATION_OUTPUT_REMOVED  code: the output that went away.
+ *   SURFACE_OUTPUT     surface; code: the output it is on, before its first CONFIGURE and whenever it
+ *                      changes.
  *   KEYBOARD_LAYOUT    to every client when it connects and whenever it changes (ADR 0029): a chunk
  *                      of the session's keyboard layout, `layout\tvariant\toptions` as XKB names
  *                      them (variant and options may be empty), compiled with the default rules

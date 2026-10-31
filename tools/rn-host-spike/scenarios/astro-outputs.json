@@ -1,0 +1,81 @@
+{
+  "about": "Astro's displays on OxyOS (ADR 0029): Chromium's display list is the session's outputs (ApplicationOutput: size, scale, refresh, work area), its window's display the output it is on (SurfaceOutput), and its frames paced at that output's refresh (Refresh, Chromium's VSync interval). Run with the engine as `--client` on two outputs, the second 1920×1200 at 1.5 (1280×800 logical) paced at 120 Hz; the page (pages/astro-outputs.html) is Astro's tab, 190 px right of the window's edge and 47 px down. On the first output the page's screen is 1280×720 at 1 and its frames 16.7 ms apart; moved onto the second, its screen is 1280×800 at 1.5 and its frames 8.3 ms apart. The window's own size taken for the display, a screen that does not follow the window, or frames at 60 on the 120 Hz output fails it.",
+  "window": [
+    1000,
+    400
+  ],
+  "launch_settle_ms": 3000,
+  "outputs": "1280x720,1920x1200@1.5:120",
+  "client": [
+    "--ozone-platform=oxyos",
+    "--user-data-dir={out}/profile",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--window-size={width},{height}",
+    "file://{scenarios}/pages/astro-outputs.html"
+  ],
+  "steps": [
+    {
+      "name": "a press on the page once Astro shows it: its screen is the first output, 1280×720 at 1, its frames at 60",
+      "do": [
+        "press",
+        [
+          890,
+          347
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "the page measured its frames' pace on the first output",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "690,77": "#2f9e44",
+          "690,127": "#f08c00"
+        }
+      }
+    },
+    {
+      "name": "moved onto the second output: its screen is 1280×800 at 1.5 (the window at 260,160 there, drawn at 1.5)",
+      "do": [
+        "move-window",
+        [
+          1400,
+          0
+        ]
+      ],
+      "expect": {
+        "window_shown": true,
+        "screen_pixels": {
+          "2": {
+            "1425,355": "#1971c2"
+          }
+        }
+      }
+    },
+    {
+      "name": "and its frames come at the second output's 120 Hz",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "screen_pixels": {
+          "2": {
+            "1425,355": "#1971c2",
+            "1425,430": "#2f9e44"
+          }
+        }
+      }
+    }
+  ]
+}

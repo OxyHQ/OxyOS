@@ -4631,3 +4631,89 @@ fn a_pointer_image_goes_in_a_buffer_of_its_own_set_and_destroyed() {
         oxyos_client_close(client);
     }
 }
+
+#[test]
+fn outputs_are_told_to_applications_as_the_header_says() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_APPLICATION_OUTPUT",
+            OXYOS_EVENT_APPLICATION_OUTPUT,
+        ),
+        (
+            "OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA",
+            OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA,
+        ),
+        (
+            "OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED",
+            OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED,
+        ),
+        ("OXYOS_EVENT_SURFACE_OUTPUT", OXYOS_EVENT_SURFACE_OUTPUT),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    let output = convert(&Event::ApplicationOutput {
+        output: 2,
+        size: Size::new(1280, 720),
+        scale_120: 180,
+        refresh_mhz: 143_998,
+        primary: false,
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            output.kind,
+            output.code,
+            output.width,
+            output.height,
+            output.scale_120,
+            output.detail,
+            output.flag
+        ),
+        (
+            OXYOS_EVENT_APPLICATION_OUTPUT,
+            2,
+            1280,
+            720,
+            180,
+            143_998,
+            0
+        )
+    );
+    let area = convert(&Event::ApplicationOutputWorkArea {
+        output: 2,
+        rect: oxyos_protocol::Rect::new(0, 28, 1280, 692),
+    })
+    .unwrap();
+    assert_eq!(
+        (
+            area.kind,
+            area.code,
+            area.x,
+            area.y,
+            area.width,
+            area.height
+        ),
+        (
+            OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA,
+            2,
+            0,
+            28,
+            1280,
+            692
+        )
+    );
+    let on = convert(&Event::SurfaceOutput {
+        surface: 3,
+        output: 2,
+    })
+    .unwrap();
+    assert_eq!(
+        (on.kind, on.surface, on.code),
+        (OXYOS_EVENT_SURFACE_OUTPUT, 3, 2)
+    );
+    let gone = convert(&Event::ApplicationOutputRemoved { output: 2 }).unwrap();
+    assert_eq!(
+        (gone.kind, gone.code),
+        (OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED, 2)
+    );
+}

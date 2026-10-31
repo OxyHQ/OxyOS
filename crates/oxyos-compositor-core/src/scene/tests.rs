@@ -3882,10 +3882,26 @@ fn logged(h: &mut Harness) -> Vec<(ClientId, Event)> {
 }
 
 fn to(events: &[(ClientId, Event)], client: ClientId) -> Vec<Event> {
+    without_outputs(
+        events
+            .iter()
+            .filter(|(c, _)| *c == client)
+            .map(|(_, e)| *e)
+            .collect(),
+    )
+}
+
+/// `events` but what every client is told of the outputs when it connects (ApplicationOutput,
+/// its work area), which tests of something else leave out.
+fn without_outputs(events: Vec<Event>) -> Vec<Event> {
     events
-        .iter()
-        .filter(|(c, _)| *c == client)
-        .map(|(_, e)| *e)
+        .into_iter()
+        .filter(|event| {
+            !matches!(
+                event,
+                Event::ApplicationOutput { .. } | Event::ApplicationOutputWorkArea { .. }
+            )
+        })
         .collect()
 }
 
@@ -5018,7 +5034,7 @@ fn the_shell_locks_and_the_lock_screen_is_told() {
     assert!(h.scene.is_locked());
     assert!(!h.rendered(window));
     assert_eq!(
-        h.events_for(LOCKER),
+        without_outputs(h.events_for(LOCKER)),
         vec![Event::LockState { locked: true }]
     );
     // Telling is the lock grant's: the shell and applications are not told.
@@ -5057,13 +5073,13 @@ fn a_lock_screen_that_connects_while_locked_is_told_at_once() {
         .unwrap();
     h.pump();
     assert_eq!(
-        h.events_for(LOCKER),
+        without_outputs(h.events_for(LOCKER)),
         vec![Event::LockState { locked: true }]
     );
     // An application connecting is told nothing of it.
     h.scene.connect(9, Grants::default()).unwrap();
     h.pump();
-    assert!(h.events_for(9).is_empty());
+    assert!(without_outputs(h.events_for(9)).is_empty());
 }
 
 #[test]
@@ -6165,7 +6181,7 @@ fn every_client_is_told_the_preferences_it_draws_with_and_settings_every_one() {
     h.clear_log();
     h.scene.connect(SETTINGS, Grants::default()).unwrap();
     h.pump();
-    assert_eq!(h.events_for(SETTINGS), vec![preferences]);
+    assert_eq!(without_outputs(h.events_for(SETTINGS)), vec![preferences]);
     assert!(told_preferences(&h, SETTINGS).is_empty());
     h.scene
         .grant(
@@ -7707,4 +7723,105 @@ fn a_surfaces_pointer_image_is_the_pointers_until_a_shape_replaces_it() {
     .unwrap();
     assert_eq!(h.scene.pointer_image(), None);
     assert_eq!(h.scene.pointer_shape(), PointerShape::Hand);
+}
+
+#[test]
+fn applications_are_told_each_outputs_size_scale_refresh_and_work_area_but_not_its_place() {
+    let mut h = Harness::new();
+    h.scene
+        .add_output(Output {
+            id: 2,
+            rect: Rect::new(1920, 0, 1280, 720),
+            scale_120: 180,
+            refresh_mhz: 144_000,
+        })
+        .unwrap();
+    h.scene.connect(7, Grants::default()).unwrap();
+    h.pump();
+    let told: Vec<Event> = h
+        .events_for(7)
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event,
+                Event::ApplicationOutput { .. } | Event::ApplicationOutputWorkArea { .. }
+            )
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [
+            Event::ApplicationOutput {
+                output: 1,
+                size: Size::new(1920, 1080),
+                scale_120: 120,
+                refresh_mhz: 60_000,
+                primary: true,
+            },
+            Event::ApplicationOutputWorkArea {
+                output: 1,
+                rect: Rect::new(0, 0, 1920, 1080),
+            },
+            Event::ApplicationOutput {
+                output: 2,
+                size: Size::new(1280, 720),
+                scale_120: 180,
+                refresh_mhz: 144_000,
+                primary: false,
+            },
+            Event::ApplicationOutputWorkArea {
+                output: 2,
+                rect: Rect::new(0, 0, 1280, 720),
+            },
+        ]
+    );
+    // A window is told the output it is on before its first configure, and again when it is
+    // moved onto another.
+    h.clear_log();
+    let window = h.toplevel(7, 1, 400, 300);
+    let first: Vec<Event> = h.events_for(7);
+    let on = first
+        .iter()
+        .position(|event| {
+            *event
+                == Event::SurfaceOutput {
+                    surface: 1,
+                    output: 1,
+                }
+        })
+        .expect("told its output");
+    let configured = first
+        .iter()
+        .position(|event| matches!(event, Event::Configure { .. }))
+        .unwrap();
+    assert!(on < configured);
+    h.clear_log();
+    h.scene.move_window_to(window, (2000, 100));
+    h.present(window);
+    h.pump();
+    assert!(h.events_for(7).contains(&Event::SurfaceOutput {
+        surface: 1,
+        output: 2
+    }));
+    // An output's change and its removal are told; nothing else is told again.
+    h.clear_log();
+    h.scene.set_output_scale(2, 240).unwrap();
+    h.pump();
+    assert!(h.events_for(7).contains(&Event::ApplicationOutput {
+        output: 2,
+        size: Size::new(1280, 720),
+        scale_120: 240,
+        refresh_mhz: 144_000,
+        primary: false,
+    }));
+    assert!(!h
+        .events_for(7)
+        .iter()
+        .any(|event| matches!(event, Event::ApplicationOutput { output: 1, .. })));
+    h.clear_log();
+    h.scene.remove_output(2);
+    h.pump();
+    assert!(h
+        .events_for(7)
+        .contains(&Event::ApplicationOutputRemoved { output: 2 }));
 }
