@@ -3,7 +3,7 @@
 // directory is a directory every host writes its own report into, <application>-<pid>.jsonl (the
 // application's id, else its module): a session's applications profiled at once, each its own.
 //
-//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"texts":[…],"focus":"reply"}
+//   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"react_commits":0,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
 //   {"t":…,"kind":"stage","name":"load script"}                    (a stage of the start begins)
 //   {"t":…,"kind":"input","event":"pointer.press","surface":2}        (from the compositor)
@@ -39,6 +39,10 @@
 #include <string>
 #include <vector>
 
+namespace facebook::jsi {
+class Runtime;
+}
+
 namespace oxyos {
 
 class ViewTree;
@@ -63,6 +67,12 @@ class Report {
   void beginTurn();
   void endTurn();
   void javascript(double ms);
+  // React's commits (each render React finished, whether or not it changed a view), written with
+  // the next frame as `react_commits`, those since the frame before: React's renderers announce
+  // their commits to the global hook its DevTools install, which this installs in `runtime`
+  // before any renderer loads. A window resized lays its tree out natively, no commit of React's;
+  // only what JavaScript re-rendered for the new size is.
+  void watchReactCommits(facebook::jsi::Runtime& runtime);
   // A stage of the host's start beginning (the Hermes instance, Fabric's scheduler, the bundle).
   void stage(const char* name);
   // The window laid out at a new size (logical pixels), in `ms` (Fabric's commit with the new
@@ -147,6 +157,7 @@ class Report {
   std::chrono::steady_clock::time_point turn_{};  // when the work not yet counted began
   bool turning_ = false;
   double busyMs_ = 0, jsMs_ = 0;  // work since the last frame written
+  int reactCommits_ = 0;          // React's commits since the last frame written
 };
 
 }  // namespace oxyos

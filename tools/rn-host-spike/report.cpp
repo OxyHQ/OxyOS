@@ -3,6 +3,7 @@
 #include <react/renderer/components/view/ViewProps.h>
 
 #include <folly/json.h>
+#include <jsi/jsi.h>
 
 #include <cctype>
 #include <cstdlib>
@@ -132,10 +133,12 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
     turn_ = now;
   }
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
-      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", jsMs_)("damaged", damaged)("texts", std::move(list))(
+      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", jsMs_)("react_commits", reactCommits_)("damaged", damaged)(
+      "texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
   busyMs_ = 0;
   jsMs_ = 0;
+  reactCommits_ = 0;
 }
 
 void Report::stage(const char* name) {
@@ -157,6 +160,27 @@ void Report::endTurn() {
 
 void Report::javascript(double ms) {
   if (file_) jsMs_ += ms;
+}
+
+void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
+  using namespace facebook;
+  runtime.global().setProperty(
+      runtime, "__oxyosReactCommitted",
+      jsi::Function::createFromHostFunction(runtime, jsi::PropNameID::forAscii(runtime, "__oxyosReactCommitted"), 0,
+                                            [this](jsi::Runtime&, const jsi::Value&, const jsi::Value*, size_t) {
+                                              ++reactCommits_;
+                                              return jsi::Value::undefined();
+                                            }));
+  // The smallest hook React's renderers accept (react-reconciler's injectInternals): they inject
+  // themselves, then call onCommitFiberRoot after every commit.
+  static const char* hook =
+      "globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {"
+      "  supportsFiber: true, renderers: new Map(),"
+      "  inject(internals) { const id = this.renderers.size + 1; this.renderers.set(id, internals); return id; },"
+      "  onCommitFiberRoot() { __oxyosReactCommitted(); },"
+      "  onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, checkDCE() {},"
+      "};";
+  runtime.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(hook), "oxyos-report-react-commits");
 }
 
 void Report::layout(float width, float height, double ms) {

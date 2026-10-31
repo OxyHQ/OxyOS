@@ -1,0 +1,16 @@
+{
+  "about": "A Bloom panel shown and hidden with reduce motion on (sample/PanelProbe.tsx: AppShell's two-panel layout, its detail panel `visible` or not): what React commits for the panel and what Reanimated sets on it after that commit (its fade and its track's size, AppShellPanelLayout) reach the window at once, with no later commit of React's to carry them. Before the host ran the frame Reanimated's update asked for, the shown panel stayed invisible (opacity 0, no height) until something else committed.",
+  "module": "PanelProbe",
+  "window": [900, 600],
+  "settings": {"app": "so.oxy.settings", "preferences": {"reduce_motion": "true"}},
+  "steps": [
+    {"name": "The detail panel starts hidden", "do": ["wait", 800], "allow_unchanged": true,
+     "expect": {"texts": ["Show details"], "absent": ["The detail panel"]}},
+    {"name": "Show details: the panel shows, with nothing else committed after", "do": ["press", [400, 158]],
+     "expect": {"texts": ["Hide details", "The detail panel"]}},
+    {"name": "Hide details: it goes", "do": ["press", [120, 158]],
+     "expect": {"texts": ["Show details"], "absent": ["The detail panel"]}},
+    {"name": "Shown again", "do": ["press", [400, 158]],
+     "expect": {"texts": ["Hide details", "The detail panel"]}}
+  ]
+}

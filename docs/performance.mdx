@@ -155,6 +155,7 @@ pooled:
 | window drag | `perf-window-drag.json` | WindowProbe's title area dragged 250 px at a mouse's 125 Hz (`drag_paced`): the compositor moves the window, the application draws nothing |
 | window drag at 1.25 | `perf-window-drag-scaled.json` | the same beside the shell on a 1600×1000 output at 1.25, the ThinkPad's scale |
 | live resize | `window-resize.json` | the Inbox's edges dragged at 125 Hz: one configure in flight, the host lays out and draws every size |
+| Stash live resize | `perf-stash-resize.json`, steps 3–4 | Stash's right edge dragged 300 px in and out at 125 Hz, then the green bubble zooming it and back |
 | zoom | `windows.json`, steps 3–4 | the green bubble: the window's frame animated to the work area and back (a compositor transition) |
 | window views | `shell-thumbnails.json`, step 1 | the overview opening, Allo's window drawn live in its card ([ADR 0022](./adr/0022-window-views)) |
 | Settings scroll | `perf-settings-scroll.json` | Settings' sidebar scrolled 240 px down and back at a touchpad's 60 Hz (`scroll_paced`) |
@@ -250,6 +251,53 @@ border ring visiting every pixel of the box it encloses: 19 ms of a 25 ms frame)
 60 times a second for nothing). What JavaScript does cost: a re-render of the whole layout, as the
 Inbox's at its breakpoint from two panels to one (30–35 ms once, in a resize), and an
 application's first render.
+
+### A resize is native layout
+
+Every frame a host presents says, besides its work and JavaScript, how many times React committed
+since the frame before (`react_commits`: React's renderers announce each commit to the global
+hook of React's DevTools, which the host installs while it writes a report, `report.h`), whether
+or not the commit changed a view. A window resized should be Yoga's work alone (Fabric's commit
+of the new constraints, of no source): React commits only when the window crosses a threshold
+that changes what the application shows. `regress.py`'s `resize_work` expectation holds a step to
+that: React's commits in the whole step, the JavaScript a frame runs and its whole work, at the
+95th percentile, and a zoom's latency from the press to its frame (`window-resize.json`,
+`perf-stash-resize.json`).
+
+Bloom used to measure its shell and its panel groups with `onLayout` → `setState` and size the
+reading envelope and the panels in pixels: every frame of a resize was two renders of the whole
+layout, one commit behind the window each, and every component reading `useWindowDimensions` to
+compare it with a breakpoint re-rendered too. Bloom 15.81.0 (OxyHQ/Bloom#569) lays what follows
+the room out as flex and reads a width only at the thresholds it decides at; Stash draws its items
+as flex too (a column's share of the width, a picture's square). Before and after, on this machine
+idle (medians and 95th percentiles, ms):
+
+| resize | frames for the motions | React's commits | JavaScript a frame | work a frame |
+|---|---|---|---|---|
+| the sample's Inbox, 300 px in, before | 58 for 125 | 111 | 6.7 / 9.4 | 15.2 / 18.3 |
+| the sample's Inbox, 300 px in | 88 for 125 | 4 (its breakpoints) | 0.4 / 0.5 | 8.4 / 11.0 |
+| Stash, 300 px in, before | 48 for 150 | 99 | 18.6 / 30.9 | 23.3 / 35.8 |
+| Stash, 300 px in | 139 for 150 | one a frame (below) | 1.2 / 3.2 | 5.7 / 7.7 |
+| Stash's zoom, press to frame, before | | | | 61–66 |
+| Stash's zoom, press to frame | | | | 48–51 |
+
+(Composed on the CPU with Skia's raster backend, OxyOS c90a84a; "before" is Bloom d1342b53 and
+Stash 0be3e9f, "after" Bloom 15.81.0 and Stash with its items as flex. With the machine loaded,
+before, a Stash frame took 41–86 ms at the median, 34–66 of them JavaScript.)
+
+What Stash still commits on every frame is react-native-css re-evaluating every element whose
+classes have a media query (Tailwind's `sm:`, `md:`) on every change of the window's size, though
+no query's answer changed (nativewind/react-native-css#550 makes each query an observable of its
+answer), and the safe area provider's frame (react-native-safe-area-context keeps the window's
+frame in React state).
+
+**A flex basis that changes keeps its old size.** Fabric marks a node whose style changed dirty
+(`YogaLayoutableShadowNode::updateYogaProps`, `setDirty`) without clearing the flex basis Yoga
+computed for it, and Yoga reuses a computed basis for a definite `flexBasis` until it is cleared
+(`computeFlexBasisForChild`; only `markDirtyAndPropagate` clears it). A Bloom panel shown kept its
+neighbour at the content width its first commit gave it. Bloom's tracks therefore give a basis as
+their main-axis size under `flexBasis: auto`, which Yoga reads again on every layout
+(`panel-shown.json` checks it).
 
 ### Text layout
 
@@ -511,7 +559,12 @@ frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13
   - Every element styled with `className` renders twice when it mounts: react-native-css
     3.1.0-rc.0's `useNativeCss` (`src/native/react/useNativeCss.ts`, lines 112–120) drops its
     subscriptions in its state's initializer and, on mount, runs both its effects again, each a
-    `setState`: about a third of the JavaScript in switching to the list view.
+    `setState`: about a third of the JavaScript in switching to the list view. Fixed upstream
+    (nativewind/react-native-css#466, in its nightlies only); Oxy's applications take it with the
+    next release candidate rather than pin a nightly (NativeWind 5.0.0-rc.0 requires exactly
+    3.1.0-rc.0).
+- **react-native-css re-evaluates media queries on every frame of a resize** (above, *A resize is
+  native layout*): nativewind/react-native-css#550.
 - **A W3C event's `timeStamp` is when the host handed it to React**, not when the hand moved:
   the protocol carries no time for input. Behind a slow frame, two presses keep their order but
   arrive closer together than they were made. Input events need the device's time (libinput's)

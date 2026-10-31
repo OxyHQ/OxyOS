@@ -1,5 +1,5 @@
 {
-  "about": "The sample's Inbox (sample/App.tsx: AppShell's two panels, its content centred) resized live from its edges at a mouse's 125 Hz, the development compositor serving the application between motions (`drag_paced`), as ADR 0016's step 6 measures it: one configure in flight, each answered by a frame shown (one whose size changes nothing drawn too: shrunk a pixel, the centred content does not move), no more configures than frames, the edges not dragged never moving, and the window at exactly the pointer's size. Without one configure in flight, nearly every configure goes unanswered and the window shows a frame or two in the whole drag.",
+  "about": "The sample's Inbox (sample/App.tsx: AppShell's two panels, its content centred) resized live from its edges at a mouse's 125 Hz, the development compositor serving the application between motions (`drag_paced`), as ADR 0016's step 6 measures it: one configure in flight, each answered by a frame shown (one whose size changes nothing drawn too: shrunk a pixel, the centred content does not move), no more configures than frames, the edges not dragged never moving, and the window at exactly the pointer's size. Without one configure in flight, nearly every configure goes unanswered and the window shows a frame or two in the whole drag. Bloom lays the Inbox's shell and panels out as flex and reads the window only at its thresholds: React commits only when a drag crosses one (the two panels' minimum, `md`, `sm`), and a frame's JavaScript is the events a resize delivers. Before, the shell and the panel group re-rendered for every frame from their measured widths (34 to 57 commits a drag, 25 ms of JavaScript a frame).",
   "module": "OxyBloom",
   "window": [
     900,
@@ -35,6 +35,10 @@
             "top",
             "bottom"
           ]
+        },
+        "resize_work": {
+          "react_commits_max": 6,
+          "js_ms_p95_max": 2
         }
       }
     },
@@ -67,6 +71,10 @@
             "right",
             "bottom"
           ]
+        },
+        "resize_work": {
+          "react_commits_max": 6,
+          "js_ms_p95_max": 2
         }
       }
     },
@@ -98,6 +106,10 @@
             "top",
             "right"
           ]
+        },
+        "resize_work": {
+          "react_commits_max": 6,
+          "js_ms_p95_max": 2
         }
       }
     }
