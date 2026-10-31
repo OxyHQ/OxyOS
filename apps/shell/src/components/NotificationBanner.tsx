@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { memo, useState } from "react";
 import { Button, CloseButton } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
@@ -16,7 +16,7 @@ export const BANNER_WIDTH = 360;
  * field whose text goes with it. The card is one button for a screen reader, named by whose it is
  * and what it says; its actions and close are buttons of their own.
  */
-export function NotificationCard({
+export const NotificationCard = memo(function NotificationCard({
   notification,
   applications,
   now,
@@ -134,4 +134,4 @@ export function NotificationCard({
       ) : null}
     </Box>
   );
-}
+});

@@ -10,6 +10,9 @@ step's expected result) and measures, from what the processes report and from /p
   how long composing each took) and the frames the hosts drew (their loop's work per frame,
   `busy_ms`, and the part of it running JavaScript, `js_ms`, from the host's report), and the
   latency from input to the frame answering it;
+- the shell: what the session's shell pays for an event (shell-events.json): another window zoomed
+  and restored, which changes nothing the shell shows, and the pointer over the dock; for each, the
+  most JavaScript any one piece of the shell's work ran, against the scenario's budget;
 - responses: Stash used as a person uses it (perf-stash.json at 1, perf-stash-scaled.json at 1.25):
   for each input, the latency from it to the first frame that changed, against the scenario's
   budget, and the work the application's host did for it (`busy_ms` summed over the frames until
@@ -35,7 +38,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--check]
-               [interactions] [responses] [cold-start] [idle] [applications]
+               [interactions] [responses] [shell] [cold-start] [idle] [applications]
 
 `responses` needs packages built with STASH_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -86,6 +89,14 @@ INTERACTIONS = [
 RESPONSES = [
     ("Stash", "perf-stash.json"),
     ("Stash at 1.25", "perf-stash-scaled.json"),
+]
+
+# The shell's responses: (name, scenario). Each step that holds the shell to a `js_work` budget
+# (`in_shell`) is measured: the most JavaScript any one piece of the shell's work ran in it (a
+# frame's, or work that drew none: an event the shell is told), against that budget, which --check
+# holds the median to, and the frames the shell presented.
+SHELL_RESPONSES = [
+    ("the shell", "shell-events.json"),
 ]
 
 # Cold starts: (name, scenario without steps). The shell's own start is measured in the last.
@@ -359,6 +370,30 @@ def responses(options, name, scenario, out):
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
 
 
+def shell_responses(options, name, scenario, out):
+    """Each step of `scenario` that holds the shell to a `js_work` budget, over every run: the most
+    JavaScript one piece of the shell's work ran in it (its report's `timing` lines, frames and work
+    that drew none), and the frames the shell presented."""
+    path = SCENARIOS / scenario
+    steps = json.loads(path.read_text())["steps"]
+    measured = {}
+    for run in range(options.runs):
+        summary, _, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
+        start = summary["t_launch"]
+        for index, (step, result) in enumerate(zip(steps, summary["steps"])):
+            # From the step before's end, as regress.py checks it: the input and what followed.
+            work = [line for line in shell if line["kind"] == "timing" and start <= line["t"] <= result["t_settled"]]
+            start = result["t_settled"]
+            budget = step["expect"].get("in_shell", {}).get("js_work", {}).get("js_ms_max")
+            if budget is None:
+                continue
+            entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "frames": []})
+            entry["js"].append(max((line["parts"].get("javascript", 0) for line in work), default=0.0))
+            entry["frames"].append(sum(1 for line in work if line["presented"]))
+    return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "js_ms": percentiles(entry["js"]),
+             "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
+
+
 def slug(name):
     return "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
 
@@ -557,6 +592,14 @@ def show(results):
             print(f"{name}:")
             print(table(rows, ["input", "latency ms p50 / max", "budget", "app work ms p50 / max", "app JS ms p50 / max"]))
             print()
+    if "shell" in results:
+        for name, steps in results["shell"].items():
+            rows = [[step["step"], f"{step['js_ms']['p50']} / {step['js_ms']['max']}", step["budget_ms"],
+                     f"{step['frames']['p50']} / {step['frames']['max']}"] for step in steps]
+            print(f"{name}:")
+            print(table(rows, ["event", "shell JS ms p50 / max (the most of one piece of work)", "budget",
+                               "shell frames p50 / max"]))
+            print()
     if "cold_start" in results:
         rows = [[name, spread(r["first_frame_ms"]), ", ".join(f"{k} {v}" for k, v in r["stages_ms"].items())]
                 for name, r in results["cold_start"].items()]
@@ -591,6 +634,11 @@ def check(results):
             if step["budget_ms"] and step["latency_ms"] and step["latency_ms"]["p50"] > step["budget_ms"]:
                 over.append(f"{name}: {step['step']}: {step['latency_ms']['p50']} ms at the median "
                             f"(its budget is {step['budget_ms']} ms)")
+    for name, steps in results.get("shell", {}).items():
+        for step in steps:
+            if step["js_ms"]["p50"] > step["budget_ms"]:
+                over.append(f"{name}: {step['step']}: {step['js_ms']['p50']} ms of JavaScript at the median "
+                            f"(its budget is {step['budget_ms']} ms)")
     for name, processes in results.get("idle", {}).items():
         for who, m in processes.items():
             if who == "compositor":
@@ -607,7 +655,8 @@ def check(results):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("parts", nargs="*", help="interactions, responses, cold-start, idle, applications (all by default)")
+    parser.add_argument("parts", nargs="*",
+                        help="interactions, responses, shell, cold-start, idle, applications (all by default)")
     parser.add_argument("--offscreen", required=True)
     parser.add_argument("--runtimes", required=True, help="the runtimes (regress.py)")
     parser.add_argument("--packages", required=True, help="the applications' packages and the probes (regress.py)")
@@ -618,8 +667,9 @@ def main():
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    parts = options.parts or ["interactions", "responses", "cold-start", "idle", "applications"]
-    if not set(parts) <= {"interactions", "responses", "cold-start", "idle", "applications"}:
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "applications"]
+    parts = options.parts or every
+    if not set(parts) <= set(every):
         parser.error(f"unknown parts {parts}")
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-perf-"))
     out.mkdir(parents=True, exist_ok=True)
@@ -630,6 +680,8 @@ def main():
                                    for name, scenario, steps, what in INTERACTIONS}
     if "responses" in parts:
         results["responses"] = {name: responses(options, name, scenario, out) for name, scenario in RESPONSES}
+    if "shell" in parts:
+        results["shell"] = {name: shell_responses(options, name, scenario, out) for name, scenario in SHELL_RESPONSES}
     if "cold-start" in parts:
         results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS}
     if "idle" in parts:

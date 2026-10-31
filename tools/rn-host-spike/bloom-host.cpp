@@ -406,9 +406,13 @@ int main(int argc, char** argv) {
   TimerManager& timerManager = *ownedTimerManager;
   // OXYOS_HOST_JS_PROFILE=FILE: Hermes' sampling profiler records the application's JavaScript
   // (at OXYOS_HOST_JS_PROFILE_HZ samples a second, 1000 unless set) and the profile is written to
-  // FILE as the host ends (docs/performance.mdx). Off, Hermes has no sampler.
-  const char* jsProfile = std::getenv("OXYOS_HOST_JS_PROFILE");
-  if (jsProfile && !*jsProfile) jsProfile = nullptr;
+  // FILE as the host ends (docs/performance.mdx). A directory (a path ending in `/`, or one that
+  // exists) gets every host's own, <application>-<pid>.cpuprofile.json, as OXYOS_HOST_REPORT's: the
+  // shell and an application profiled in one run. Off, Hermes has no sampler.
+  const char* jsProfileEnv = std::getenv("OXYOS_HOST_JS_PROFILE");
+  const std::string jsProfilePath =
+      jsProfileEnv && *jsProfileEnv ? oxyos::perProcessPath(jsProfileEnv, applicationName, ".cpuprofile.json") : "";
+  const char* jsProfile = jsProfilePath.empty() ? nullptr : jsProfilePath.c_str();
   auto* hermesRoot = jsProfile ? jsi::castInterface<facebook::hermes::IHermesRootAPI>(facebook::hermes::makeHermesRootAPI())
                                : nullptr;
   if (hermesRoot) {
@@ -897,6 +901,10 @@ int main(int argc, char** argv) {
     // through it. A close asked by the application ends it as the shell's close request does.
     bool closeAsked = false;
     folly::dynamic toldWindowState = nullptr;
+    // The shell's state as JavaScript was last told it (OxyOSShellChanged): the compositor repeats
+    // what has not changed (a window's state, its size, the battery each time it is read), and
+    // only a change is told, as the window's state above.
+    folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
     std::map<std::string, std::string> toldPreferences;
@@ -1532,8 +1540,12 @@ int main(int argc, char** argv) {
           }
         }
         if (shellChanged) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSShellChanged", shellState.state()));
+          auto state = shellState.state();
+          if (state != toldShellState) {
+            toldShellState = state;
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSShellChanged", std::move(state)));
+          }
         }
         // An application's notifications (ADR 0026): what came of its posts, those no longer kept,
         // and that responses wait (JavaScript takes them, each once).

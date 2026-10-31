@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, StyleSheet, useColorScheme, type ImageSourcePropType } from "react-native";
 import { BloomScope } from "@oxy.so/bloom/appearance";
 import { Box } from "./primitives";
@@ -45,8 +45,30 @@ export type {
 /** The top bar's height (TopBar's `h-7`): what banners and the Notification Center begin below. */
 const TOP_BAR_HEIGHT = 28;
 
-/** OxyOS shell presentation. Native application surfaces belong to the compositor beneath it. */
-export function Shell({
+/** Where a region over the whole output is (the switcher, the overlays). */
+const WHOLE = StyleSheet.absoluteFill;
+const SWITCHER_AREA = {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: "center",
+  justifyContent: "center",
+} as const;
+const BANNER_AREA = { position: "absolute", top: TOP_BAR_HEIGHT + 8, right: 12, width: BANNER_WIDTH } as const;
+const NO_LEVELS: ShellControls = { levels: {} };
+
+/**
+ * OxyOS shell presentation. Native application surfaces belong to the compositor beneath it.
+ *
+ * Each region renders again only when what it shows changes: the regions are memoized, and what
+ * the shell gives them (its handlers, the parts of the snapshot each reads) stays the same while it
+ * does. A platform that keeps its snapshot's unchanged parts as they were (a window whose size alone
+ * changed leaves the applications and the menus as they were) has the shell render nothing for
+ * what shows nothing, and of the rest only the regions that show it.
+ */
+export const Shell = memo(function Shell({
   snapshot,
   actions,
   wallpaper,
@@ -105,7 +127,7 @@ export function Shell({
   const { Surface } = platform;
   const dark = useColorScheme() === "dark";
   const [controlCenter, setControlCenter] = useState(false);
-  const shownControls: ShellControls = controls ?? { levels: {} };
+  const shownControls: ShellControls = controls ?? NO_LEVELS;
   // The lock closes it, as it closes every other panel.
   useEffect(() => {
     if (lock?.locked) setControlCenter(false);
@@ -158,13 +180,22 @@ export function Shell({
   // Commands act on what is shown now, whichever render they arrive in.
   const latest = useRef({ snapshot, actions, switcher, view });
   latest.current = { snapshot, actions, switcher, view };
-  const dismiss = () => setView("desktop");
-  const toggle = (next: typeof view) =>
-    setView((current) => (current === next ? "desktop" : next));
-  const activateApp = (id: string) => {
-    actions.activateApp(id);
-    dismiss();
-  };
+  const dismiss = useCallback(() => setView("desktop"), []);
+  const toggleOverview = useCallback(
+    () => setView((current) => (current === "overview" ? "desktop" : "overview")),
+    [],
+  );
+  const toggleLauncher = useCallback(
+    () => setView((current) => (current === "launcher" ? "desktop" : "launcher")),
+    [],
+  );
+  const activateApp = useCallback(
+    (id: string) => {
+      latest.current.actions.activateApp(id);
+      setView("desktop");
+    },
+    [],
+  );
   // Each command once, in order: several may come in one render (Super+Tab released at once
   // opens the switcher and ends it with its choice, as a Mac's quick ⌘Tab switches back).
   const done = useRef(0);
@@ -235,20 +266,73 @@ export function Shell({
   useEffect(() => {
     setSwitcher((current) => current && followSwitcher(current, snapshot));
   }, [snapshot]);
-  const launcherArea = {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: dock ? DOCK_HEIGHT : 0,
-    display: view === "launcher" ? "flex" : "none",
-  } as const;
-  const menuCommand = (id: string) => {
-    if (id === "view.launcher") setView("launcher");
-    else if (id === "view.overview") setView("overview");
-    else if (id === "session.lock") lock?.lockSession();
-    else actions.menuCommand(id);
-  };
+  const launcherOpen = view === "launcher";
+  const launcherArea = useMemo(
+    () =>
+      ({
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: dock ? DOCK_HEIGHT : 0,
+        display: launcherOpen ? "flex" : "none",
+      }) as const,
+    [dock, launcherOpen],
+  );
+  const lockSession = lock?.lockSession;
+  const menuCommand = useCallback(
+    (id: string) => {
+      if (id === "view.launcher") setView("launcher");
+      else if (id === "view.overview") setView("overview");
+      else if (id === "session.lock") lockSession?.();
+      else latest.current.actions.menuCommand(id);
+    },
+    [lockSession],
+  );
+  const keyboardLost = useCallback(() => setBarLost((value) => value + 1), []);
+  // One of the two at a time, as a Mac's Control Center and Notification Center.
+  const toggleControlCenter = useCallback(() => {
+    setCenter(false);
+    setControlCenter((open) => !open);
+  }, []);
+  const hasNotifications = !!notifications;
+  const toggleCenter = useMemo(
+    () =>
+      hasNotifications
+        ? () => {
+            setControlCenter(false);
+            setCenter((open) => !open);
+          }
+        : undefined,
+    [hasNotifications],
+  );
+  const closeControlCenter = useCallback(() => setControlCenter(false), []);
+  const openSettings = useCallback(() => menuCommand("system.settings"), [menuCommand]);
+  const setDoNotDisturb = notifications?.setDoNotDisturb;
+  const doNotDisturbOn = !!notifications?.doNotDisturb;
+  const doNotDisturb = useMemo(
+    () => (setDoNotDisturb ? { on: doNotDisturbOn, set: setDoNotDisturb } : undefined),
+    [doNotDisturbOn, setDoNotDisturb],
+  );
+  const closeCenter = useCallback(() => setCenter(false), []);
+  const closeBanner = useCallback(() => setBanner(null), []);
+  const activateNotification = notifications?.activate;
+  const bannerId = banner?.id;
+  const activateBanner = useCallback(
+    (action: number, reply?: string) => {
+      if (bannerId === undefined) return;
+      activateNotification?.(bannerId, action, reply);
+      setBanner(null);
+    },
+    [activateNotification, bannerId],
+  );
+  const activateFromSwitcher = useCallback(
+    (id: string) => {
+      setSwitcher(null);
+      activateApp(id);
+    },
+    [activateApp],
+  );
   return (
     <BloomScope size="md">
       <Box testID="oxy-shell" className="flex-1 overflow-hidden bg-[#294ab4]">
@@ -260,7 +344,7 @@ export function Shell({
           edge="top"
           exclusive
           keyboard={barKeyboard}
-          onKeyboardLost={() => setBarLost((value) => value + 1)}
+          onKeyboardLost={keyboardLost}
         >
           <TopBar
             keyboardRequest={barRequest}
@@ -269,24 +353,14 @@ export function Shell({
             returnKeyboard={actions.returnKeyboard}
             menus={snapshot.menus}
             now={now}
-            overview={() => toggle("overview")}
-            launcher={() => toggle("launcher")}
+            overview={toggleOverview}
+            launcher={toggleLauncher}
             canLock={!!lock}
             onCommand={menuCommand}
-            controls={controls}
-            // One of the two at a time, as a Mac's Control Center and Notification Center.
-            controlCenter={() => {
-              setCenter(false);
-              setControlCenter((open) => !open);
-            }}
-            clock={
-              notifications
-                ? () => {
-                    setControlCenter(false);
-                    setCenter((open) => !open);
-                  }
-                : undefined
-            }
+            power={controls?.power}
+            network={controls?.network}
+            controlCenter={toggleControlCenter}
+            clock={toggleCenter}
           />
         </Surface>
         <Box
@@ -294,7 +368,7 @@ export function Shell({
           pointerEvents={view === "desktop" ? "box-none" : "auto"}
         >
           {view === "overview" && (
-            <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+            <Surface kind="overlay" style={WHOLE}>
               <Overview
                 snapshot={snapshot}
                 actions={actions}
@@ -312,11 +386,11 @@ export function Shell({
             shell starts, and kept while hidden, as macOS keeps Launchpad: opening it shows what
             is built. Hidden, it has no surfaces and takes no input. */}
         <Surface kind="backdrop" style={launcherArea}>
-          <LaunchpadBackdrop open={view === "launcher"} wallpaper={wallpaper} />
+          <LaunchpadBackdrop open={launcherOpen} wallpaper={wallpaper} />
         </Surface>
         <Surface kind="overlay" style={launcherArea}>
           <Launchpad
-            open={view === "launcher"}
+            open={launcherOpen}
             escapeRequest={escapeRequest}
             searchRequest={searchRequest}
             applications={snapshot.applications}
@@ -327,42 +401,24 @@ export function Shell({
           />
         </Surface>
         {switcher && (
-          <Surface
-            kind="overlay"
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
+          <Surface kind="overlay" style={SWITCHER_AREA}>
             <AppSwitcher
               switcher={switcher}
               applications={snapshot.applications}
-              activate={(id) => {
-                setSwitcher(null);
-                activateApp(id);
-              }}
+              activate={activateFromSwitcher}
             />
           </Surface>
         )}
         {/* The Control Center, from the top bar's button: over everything but the top bar,
             closed by a press outside it. */}
         {controlCenter && !lock?.locked && (
-          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+          <Surface kind="overlay" style={WHOLE}>
             <ControlCenter
               controls={shownControls}
               dark={dark}
-              close={() => setControlCenter(false)}
-              openSettings={() => menuCommand("system.settings")}
-              doNotDisturb={
-                notifications?.setDoNotDisturb
-                  ? { on: notifications.doNotDisturb, set: notifications.setDoNotDisturb }
-                  : undefined
-              }
+              close={closeControlCenter}
+              openSettings={openSettings}
+              doNotDisturb={doNotDisturb}
             />
           </Surface>
         )}
@@ -374,7 +430,7 @@ export function Shell({
             // At the right edge: a banner, which takes presses (a bezel has no edge and takes none).
             kind="notification"
             edge="right"
-            style={{ position: "absolute", top: TOP_BAR_HEIGHT + 8, right: 12, width: BANNER_WIDTH }}
+            style={BANNER_AREA}
           >
             <NotificationCard
               testID="notification-banner"
@@ -382,41 +438,39 @@ export function Shell({
               applications={snapshot.applications}
               now={now}
               closeLabel="Ocultar"
-              close={() => setBanner(null)}
+              close={closeBanner}
               onReplying={setReplying}
-              activate={(action, reply) => {
-                notifications.activate(banner.id, action, reply);
-                setBanner(null);
-              }}
+              activate={activateBanner}
             />
           </Surface>
         )}
         {notifications && center && !lock?.locked && (
-          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+          <Surface kind="overlay" style={WHOLE}>
             <NotificationCenter
               notifications={notifications}
               applications={snapshot.applications}
               now={now}
               top={TOP_BAR_HEIGHT}
-              close={() => setCenter(false)}
+              close={closeCenter}
             />
           </Surface>
         )}
         {dock && (
           <Surface kind="panel" edge="bottom" exclusive>
             <Dock
-              snapshot={snapshot}
+              applications={snapshot.applications}
+              windows={snapshot.windows}
               view={view}
               activateApp={activateApp}
-              toggleLauncher={() => toggle("launcher")}
-              toggleOverview={() => toggle("overview")}
+              toggleLauncher={toggleLauncher}
+              toggleOverview={toggleOverview}
             />
           </Surface>
         )}
         {/* The lock screen: a surface of its own, all the compositor shows while locked. The
             desktop stays as it was beneath, as it is when the session unlocks. */}
         {lock?.locked && (
-          <Surface kind="lock" style={StyleSheet.absoluteFill}>
+          <Surface kind="lock" style={WHOLE}>
             <LockScreen
               lock={lock}
               wallpaper={wallpaper}
@@ -432,7 +486,7 @@ export function Shell({
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
             to the person; only the shell's press answers it. */}
         {sheet && !lock?.locked && (
-          <Surface kind="overlay" style={StyleSheet.absoluteFill}>
+          <Surface kind="overlay" style={WHOLE}>
             <SystemSheet text={sheet.text} language={sheet.language} names={sheet.names} answer={sheet.answer} />
           </Surface>
         )}
@@ -443,11 +497,11 @@ export function Shell({
         )}
         {/* A hardware key's bezel, above everything, taking no input. */}
         {controls?.bezel && !lock?.locked && (
-          <Surface kind="notification" style={StyleSheet.absoluteFill}>
+          <Surface kind="notification" style={WHOLE}>
             <Bezel bezel={controls.bezel} levels={shownControls.levels} />
           </Surface>
         )}
       </Box>
     </BloomScope>
   );
-}
+});

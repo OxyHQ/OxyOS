@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
@@ -20,7 +20,7 @@ import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
-import type { ShellBattery, ShellControls, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
+import type { ShellBattery, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -181,52 +181,119 @@ const menuValue = (index: number, menu: ShellMenu) => `${index}:${menu.label}`;
 /** A menu hangs just under the bar, its rows' text under its title's (Bloom's own `alignOffset`). */
 const MENU_SIDE_OFFSET = 4;
 
-export function TopBar({
+/** The bar's status items: the battery and Wi-Fi as the session says they are, and only what it
+    said; each renders again only when what it shows changes. */
+const BatteryItem = memo(function BatteryItem({ power }: { power: ShellBattery }) {
+  const battery = batteryLabel(power);
+  if (battery === undefined) return null;
+  return (
+    <Box testID="shell-battery" accessible accessibilityLabel={`Batería: ${battery}`}>
+      <BatteryIcon power={power} />
+    </Box>
+  );
+});
+
+const WifiItem = memo(function WifiItem({ network }: { network: ShellNetwork }) {
+  const wifi = wifiLabel(network);
+  if (wifi === undefined) return null;
+  return (
+    <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
+      <WifiIcon network={network} />
+    </Box>
+  );
+});
+
+const TOP_BAR_STYLE = { zIndex: 30 };
+const TRANSPARENT_WHITE = { background: "transparent", foreground: "#fff" };
+const searchStyle = { ...menuStyle, width: 22, paddingHorizontal: 0 };
+const clockStyle = { ...menuStyle, paddingLeft: 4, paddingRight: 0 };
+const DATE_FORMAT = { weekday: "short", day: "numeric", month: "short" } as const;
+const TIME_FORMAT = { hour: "2-digit", minute: "2-digit" } as const;
+
+/** The search and the Control Center's buttons. */
+const BarButtons = memo(function BarButtons({
+  launcher,
+  controlCenter,
+}: {
+  launcher: () => void;
+  controlCenter: () => void;
+}) {
+  return (
+    <>
+      <Button
+        iconOnly
+        icon={RiSearchLine}
+        accessibilityLabel="Buscar aplicaciones"
+        appearance="plain"
+        style={searchStyle}
+        iconSize={13}
+        colors={TRANSPARENT_WHITE}
+        onPress={launcher}
+      />
+      <Button
+        iconOnly
+        icon={ControlsIcon}
+        iconSize={15}
+        testID="shell-control-center"
+        accessibilityLabel="Centro de control"
+        appearance="plain"
+        className="h-7 w-[22px] border-0 bg-transparent p-0"
+        colors={TRANSPARENT_WHITE}
+        onPress={controlCenter}
+      />
+    </>
+  );
+});
+
+/** The clock: the date and the time, which open the Notification Center. */
+const Clock = memo(function Clock({ now, onPress }: { now: Date; onPress?: () => void }) {
+  return (
+    <Button
+      testID="shell-clock"
+      appearance="plain"
+      accessibilityLabel="Centro de notificaciones"
+      // Where the clock's text always was (its old `ml-1`), now pressable.
+      style={clockStyle}
+      onPress={onPress}
+    >
+      <Text className="text-[12px] leading-4 font-normal text-white">
+        {now.toLocaleDateString("es", DATE_FORMAT)} {now.toLocaleTimeString("es", TIME_FORMAT)}
+      </Text>
+    </Button>
+  );
+});
+
+/**
+ * The menus of the bar: Oxy's, then the active window's (or the shell's). It renders again only
+ * when they change, a menu opens or the keyboard moves among them; never for the clock or the
+ * battery.
+ */
+const BarMenus = memo(function BarMenus({
   menus,
-  now,
   overview,
   launcher,
-  canLock = false,
+  canLock,
   onCommand,
-  controls,
-  controlCenter,
-  clock,
-  keyboardRequest = 0,
-  keyboardLost = 0,
+  keyboardRequest,
+  keyboardLost,
   onKeyboard,
   returnKeyboard,
 }: {
   menus: readonly ShellMenu[];
-  now: Date;
   overview: () => void;
   launcher: () => void;
-  /** Whether the session can be locked from here (the platform has a lock). */
-  canLock?: boolean;
+  canLock: boolean;
   onCommand: (id: string) => void;
-  /** The machine as the session says it is (docs/adr/0025-hardware-keys-and-control-center.mdx):
-      the battery and Wi-Fi are shown from it, and only what it said. */
-  controls?: ShellControls;
-  /** Opens the Control Center, or closes it. */
-  controlCenter: () => void;
-  /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
-  clock?: () => void;
-  /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
-      bar's first menu, as a Mac's Control-F2. */
-  keyboardRequest?: number;
-  /** Rises when the keyboard left the bar and its menus (a press in a window): the bar lets go. */
-  keyboardLost?: number;
-  /** Whether the bar wants the keyboard: its surface asks the platform for it. */
+  keyboardRequest: number;
+  keyboardLost: number;
   onKeyboard?: (wanted: boolean) => void;
-  /** Gives the keyboard back to the window that had it (the active one), as the bar is left. */
   returnKeyboard?: () => void;
 }) {
-  const battery = batteryLabel(controls?.power);
-  const wifi = wifiLabel(controls?.network);
   // The bar is Bloom's Menubar: the menu open, and the menu whose title has the keyboard (the
   // bar driven from it, Bloom's `focusValue`), undefined when the keyboard is elsewhere. Bloom
   // takes the bar's keys while it has the keyboard (← →, ↓ Return Space, a letter, Escape) and
   // the open menu's (its rows, its submenus).
-  const values = [OXY, ...menus.map((menu, index) => menuValue(index, menu))];
+  const values = useMemo(() => [OXY, ...menus.map((menu, index) => menuValue(index, menu))], [menus]);
   const [open, setOpen] = useState<string | undefined>(undefined);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   // Whether the bar holds the keyboard: leaving is said to the platform once, however many ways
@@ -263,7 +330,7 @@ export function TopBar({
   const last = values[values.length - 1];
   useEffect(() => {
     if (focused !== undefined && !values.includes(focused)) setFocused(last);
-  }, [focused, values.join("\n")]);
+  }, [focused, values]);
   // A row chosen from the keyboard leaves the bar, the keyboard back with the window first, so
   // the command acts where the person was (or moves it on, as the launcher's search does).
   const choose = (run: () => void) => () => {
@@ -274,114 +341,132 @@ export function TopBar({
   const highlight = (value: string) =>
     focused === value ? { backgroundColor: keyboardHighlight } : undefined;
   return (
+    <Menubar
+      label="Barra de menús"
+      value={open}
+      onValueChange={setOpen}
+      focusValue={focused}
+      onFocusValueChange={(value) => (value === undefined ? leave(true) : setFocused(value))}
+      style={barStyle}
+    >
+      <MenubarMenu value={OXY}>
+        <MenubarTrigger asChild label="Menú de Oxy" style={[{ borderRadius: 4 }, highlight(OXY)]}>
+          <Button
+            iconOnly
+            icon={OxyLogo}
+            accessibilityLabel="Menú de Oxy"
+            appearance="plain"
+            className="h-7 w-8 border-0 bg-transparent p-0"
+            iconSize={17}
+            colors={TRANSPARENT_WHITE}
+          />
+        </MenubarTrigger>
+        <MenubarContent label="Oxy" sideOffset={MENU_SIDE_OFFSET}>
+          <MenubarItem onPress={() => command("system.settings")}>Ajustes del sistema</MenubarItem>
+          <MenubarItem onPress={choose(launcher)}>Aplicaciones</MenubarItem>
+          <MenubarItem onPress={choose(overview)}>Ver escritorios</MenubarItem>
+          {canLock && (
+            <MenubarItem onPress={() => command("session.lock")}>Bloquear pantalla</MenubarItem>
+          )}
+        </MenubarContent>
+      </MenubarMenu>
+      {menus.map((menu, index) => {
+        const value = menuValue(index, menu);
+        const weight = index === 0 ? ("600" as const) : ("400" as const);
+        return (
+          <MenubarMenu key={value} value={value}>
+            <MenubarTrigger asChild label={menu.label} style={[{ borderRadius: 4 }, highlight(value)]}>
+              <Button
+                appearance="plain"
+                className="h-7 rounded border-0 bg-transparent px-2"
+                style={menuStyle}
+                textStyle={{ ...menuText, fontWeight: weight }}
+              >
+                <Text style={{ ...menuText, fontWeight: weight }}>{menu.label}</Text>
+              </Button>
+            </MenubarTrigger>
+            <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
+              <MenuEntries items={menu.items} onCommand={command} />
+            </MenubarContent>
+          </MenubarMenu>
+        );
+      })}
+    </Menubar>
+  );
+});
+
+/**
+ * The top bar: the menus, the battery and Wi-Fi, search, the Control Center and the clock. Each
+ * part is memoized and renders again only when what it shows changes: the clock each minute, the
+ * battery when the session says it changed, the menus when the active window's do.
+ */
+export const TopBar = memo(function TopBar({
+  menus,
+  now,
+  overview,
+  launcher,
+  canLock = false,
+  onCommand,
+  power,
+  network,
+  controlCenter,
+  clock,
+  keyboardRequest = 0,
+  keyboardLost = 0,
+  onKeyboard,
+  returnKeyboard,
+}: {
+  menus: readonly ShellMenu[];
+  now: Date;
+  overview: () => void;
+  launcher: () => void;
+  /** Whether the session can be locked from here (the platform has a lock). */
+  canLock?: boolean;
+  onCommand: (id: string) => void;
+  /** The battery and Wi-Fi as the session says they are
+      (docs/adr/0025-hardware-keys-and-control-center.mdx): only what it said is shown. */
+  power?: ShellBattery;
+  network?: ShellNetwork;
+  /** Opens the Control Center, or closes it. */
+  controlCenter: () => void;
+  /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
+  clock?: () => void;
+  /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
+      bar's first menu, as a Mac's Control-F2. */
+  keyboardRequest?: number;
+  /** Rises when the keyboard left the bar and its menus (a press in a window): the bar lets go. */
+  keyboardLost?: number;
+  /** Whether the bar wants the keyboard: its surface asks the platform for it. */
+  onKeyboard?: (wanted: boolean) => void;
+  /** Gives the keyboard back to the window that had it (the active one), as the bar is left. */
+  returnKeyboard?: () => void;
+}) {
+  return (
     <Box
       testID="shell-topbar"
       className="h-7 shrink-0 flex-row items-center justify-between px-3"
-      style={{ zIndex: 30 }}
+      style={TOP_BAR_STYLE}
     >
-      <Menubar
-        label="Barra de menús"
-        value={open}
-        onValueChange={setOpen}
-        focusValue={focused}
-        onFocusValueChange={(value) => (value === undefined ? leave(true) : setFocused(value))}
-        style={barStyle}
-      >
-        <MenubarMenu value={OXY}>
-          <MenubarTrigger asChild label="Menú de Oxy" style={[{ borderRadius: 4 }, highlight(OXY)]}>
-            <Button
-              iconOnly
-              icon={OxyLogo}
-              accessibilityLabel="Menú de Oxy"
-              appearance="plain"
-              className="h-7 w-8 border-0 bg-transparent p-0"
-              iconSize={17}
-              colors={{ background: "transparent", foreground: "#fff" }}
-            />
-          </MenubarTrigger>
-          <MenubarContent label="Oxy" sideOffset={MENU_SIDE_OFFSET}>
-            <MenubarItem onPress={() => command("system.settings")}>Ajustes del sistema</MenubarItem>
-            <MenubarItem onPress={choose(launcher)}>Aplicaciones</MenubarItem>
-            <MenubarItem onPress={choose(overview)}>Ver escritorios</MenubarItem>
-            {canLock && (
-              <MenubarItem onPress={() => command("session.lock")}>Bloquear pantalla</MenubarItem>
-            )}
-          </MenubarContent>
-        </MenubarMenu>
-        {menus.map((menu, index) => {
-          const value = menuValue(index, menu);
-          const weight = index === 0 ? ("600" as const) : ("400" as const);
-          return (
-            <MenubarMenu key={value} value={value}>
-              <MenubarTrigger asChild label={menu.label} style={[{ borderRadius: 4 }, highlight(value)]}>
-                <Button
-                  appearance="plain"
-                  className="h-7 rounded border-0 bg-transparent px-2"
-                  style={menuStyle}
-                  textStyle={{ ...menuText, fontWeight: weight }}
-                >
-                  <Text style={{ ...menuText, fontWeight: weight }}>{menu.label}</Text>
-                </Button>
-              </MenubarTrigger>
-              <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
-                <MenuEntries items={menu.items} onCommand={command} />
-              </MenubarContent>
-            </MenubarMenu>
-          );
-        })}
-      </Menubar>
+      <BarMenus
+        menus={menus}
+        overview={overview}
+        launcher={launcher}
+        canLock={canLock}
+        onCommand={onCommand}
+        keyboardRequest={keyboardRequest}
+        keyboardLost={keyboardLost}
+        onKeyboard={onKeyboard}
+        returnKeyboard={returnKeyboard}
+      />
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
-          {battery !== undefined && controls?.power && (
-            <Box testID="shell-battery" accessible accessibilityLabel={`Batería: ${battery}`}>
-              <BatteryIcon power={controls.power} />
-            </Box>
-          )}
-          {wifi !== undefined && controls?.network && (
-            <Box testID="shell-wifi" accessible accessibilityLabel={`Wi-Fi: ${wifi}`}>
-              <WifiIcon network={controls.network} />
-            </Box>
-          )}
+          {power && <BatteryItem power={power} />}
+          {network && <WifiItem network={network} />}
         </Box>
-        <Button
-          iconOnly
-          icon={RiSearchLine}
-          accessibilityLabel="Buscar aplicaciones"
-          appearance="plain"
-          style={{ ...menuStyle, width: 22, paddingHorizontal: 0 }}
-          iconSize={13}
-          colors={{ background: "transparent", foreground: "#fff" }}
-          onPress={launcher}
-        />
-        <Button
-          iconOnly
-          icon={ControlsIcon}
-          iconSize={15}
-          testID="shell-control-center"
-          accessibilityLabel="Centro de control"
-          appearance="plain"
-          className="h-7 w-[22px] border-0 bg-transparent p-0"
-          colors={{ background: "transparent", foreground: "#fff" }}
-          onPress={controlCenter}
-        />
-        <Button
-          testID="shell-clock"
-          appearance="plain"
-          accessibilityLabel="Centro de notificaciones"
-          // Where the clock's text always was (its old `ml-1`), now pressable.
-          style={{ ...menuStyle, paddingLeft: 4, paddingRight: 0 }}
-          onPress={clock}
-        >
-          <Text className="text-[12px] leading-4 font-normal text-white">
-            {now.toLocaleDateString("es", {
-              weekday: "short",
-              day: "numeric",
-              month: "short",
-            })}{" "}
-            {now.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
-          </Text>
-        </Button>
+        <BarButtons launcher={launcher} controlCenter={controlCenter} />
+        <Clock now={now} onPress={clock} />
       </Box>
     </Box>
   );
-}
+});
+

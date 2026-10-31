@@ -1,0 +1,60 @@
+{
+  "about": "What the session's shell pays for what it is told and what the pointer does over it, on the ThinkPad's display (1600×1000 at 1.25), from the shell's own report (`js_work`): another window zoomed by its green bubble and restored (Bloom's SettingsLayout in a window, sample/WindowProbe.tsx) changes that window's size in what the shell knows and nothing the shell shows, so the shell draws nothing for it and runs next to no JavaScript (it ran 14 to 19 ms when every change of the compositor rendered the whole shell again); the pointer entering the first application's icon in the dock (Stash's, or Inbox's where Stash's package is not built: the point is on either) renders what its hover changes (Bloom's Button and the dock's tooltip), moving over it renders nothing, and leaving it renders the same few again, never the dock's other icons or the rest of the shell.",
+  "module": "WindowProbe",
+  "window": [900, 600],
+  "shell": "OxyOSShell",
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The window opens between the top bar and the dock and is pressed: it is the active window",
+      "do": ["press", [600, 300]],
+      "expect": {
+        "window_rect": [190, 86, 900, 600],
+        "texts": ["active yes, zoomed no, full screen no"]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Its green bubble zooms it to the work area: its size changes in what the shell knows, nothing the shell shows, and the shell runs next to no JavaScript (it draws nothing; only its clock may turn over meanwhile)",
+      "do": ["press", [72, 26]],
+      "expect": {
+        "window_rect": [0, 28, 1280, 716],
+        "texts": ["active yes, zoomed yes, full screen no"],
+        "in_shell": {"js_work": {"js_ms_max": 2}}
+      }
+    },
+    {
+      "name": "Pressed again, it restores its frame: the shell again runs next to no JavaScript",
+      "do": ["press", [72, 26]],
+      "expect": {
+        "window_rect": [190, 86, 900, 600],
+        "texts": ["active yes, zoomed no, full screen no"],
+        "in_shell": {"js_work": {"js_ms_max": 2}}
+      }
+    },
+    {
+      "name": "The pointer enters the dock over its first application's icon: its hover renders the icon's button and the dock's tooltip, nothing else",
+      "do": ["move_output", [692, 772]],
+      "expect": {
+        "in_shell": {"js_work": {"js_ms_max": 4}}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "It moves over the same icon: nothing the shell shows changes, and next to no JavaScript runs",
+      "do": ["move_output", [697, 772]],
+      "expect": {
+        "in_shell": {"js_work": {"js_ms_max": 2}}
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "It leaves the dock for the desktop: the icon's hover and the tooltip end, as cheaply",
+      "do": ["move_output", [1200, 600]],
+      "expect": {
+        "in_shell": {"js_work": {"js_ms_max": 4}}
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

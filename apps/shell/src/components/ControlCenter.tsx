@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { memo, useEffect } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { Slider } from "@oxy.so/bloom/slider";
@@ -170,7 +170,7 @@ function LevelCard({
  * (docs/adr/0026-notifications.mdx) is a module of its own below them, where the session has
  * notifications.
  */
-export function ControlCenter({
+export const ControlCenter = memo(function ControlCenter({
   controls,
   dark,
   close,
@@ -288,4 +288,4 @@ export function ControlCenter({
       </Box>
     </Box>
   );
-}
+});

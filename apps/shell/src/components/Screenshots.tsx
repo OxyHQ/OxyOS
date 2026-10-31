@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Image,
@@ -71,7 +71,7 @@ const TIMERS: { timer: CaptureTimer; label: string }[] = [
  * opens it, dragging it right sends it away, and the screen reader says it was saved. The
  * interface never takes the keyboard: its keys are the compositor's.
  */
-export function Screenshots({
+export const Screenshots = memo(function Screenshots({
   screenshots,
   platform,
   dock,
@@ -333,7 +333,7 @@ export function Screenshots({
       />
     </>
   );
-}
+});
 
 /** The toolbar's row: the three captures, its options, Capturar and its close. */
 function CaptureToolbar({

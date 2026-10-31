@@ -182,6 +182,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
   work its `timing` line has, and that each summary's numbers are those of the frames presented
   since the summary before;
+- js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
+  work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
+  of them ran (an event the shell is told that changes nothing it shows, another window's zoom,
+  runs next to none); "presented", [least, most] frames presented (0: the step changed nothing
+  the host draws). In `in_shell`, the shell's;
 
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
@@ -1443,6 +1448,19 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
+    if "js_work" in expect:
+        # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
+        # frame, and the work that drew none but ran JavaScript.
+        wanted = expect["js_work"]
+        work = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        costly = max(work, key=lambda line: line["parts"].get("javascript", 0), default=None)
+        most = costly["parts"].get("javascript", 0) if costly else 0.0
+        if most > wanted.get("js_ms_max", float("inf")):
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript"
+                 f"{'' if costly['presented'] else ' (no frame)'}, expected at most {wanted['js_ms_max']}")
+        presented = sum(1 for line in work if line["presented"])
+        if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
+            fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
     if "window_frames" in expect:
         # The window's frames presented in the step: [at least, at most]. An animation draws several.
         low, high = expect["window_frames"]

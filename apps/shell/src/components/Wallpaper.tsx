@@ -1,11 +1,11 @@
-import React from "react";
+import React, { memo } from "react";
 import { Image, type ImageSourcePropType } from "react-native";
 
 /**
  * The wallpaper. On the desktop it is an image an assistive technology names; behind the
  * launcher and the lock screen it is `decorative`, and is not read.
  */
-export function Wallpaper({
+export const Wallpaper = memo(function Wallpaper({
   source,
   decorative = false,
 }: {
@@ -21,4 +21,4 @@ export function Wallpaper({
       style={{ width: "100%", height: "100%" }}
     />
   );
-}
+});
