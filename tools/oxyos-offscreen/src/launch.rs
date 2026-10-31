@@ -37,6 +37,9 @@ pub enum Step {
     PressPopup { x: i32, y: i32 },
     /// The same at a point of the output, wherever it is (the shell's panels and overlays).
     PressOutput { x: i32, y: i32 },
+    /// The pointer moved to a point of the output, no button held: a hover over the shell's
+    /// panels and their popups (a menu's row).
+    MoveOutput { x: i32, y: i32 },
     /// A secondary (right) button press and release at a window-local logical point: a context
     /// menu's.
     PressSecondary { x: i32, y: i32 },
@@ -208,6 +211,7 @@ impl Step {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
             Step::PressPopup { x, y } => format!("press at ({x}, {y}) in the popup"),
             Step::PressOutput { x, y } => format!("press at ({x}, {y}) on the output"),
+            Step::MoveOutput { x, y } => format!("pointer to ({x}, {y}) on the output"),
             Step::PressSecondary { x, y } => format!("secondary press at ({x}, {y})"),
             Step::DoublePress { x, y } => format!("double press at ({x}, {y})"),
             Step::TriplePress { x, y } => format!("triple press at ({x}, {y})"),
@@ -299,6 +303,7 @@ impl Step {
             Step::Press { x, y } => format!("\"press\":[{x},{y}]"),
             Step::PressPopup { x, y } => format!("\"press_popup\":[{x},{y}]"),
             Step::PressOutput { x, y } => format!("\"press_output\":[{x},{y}]"),
+            Step::MoveOutput { x, y } => format!("\"move_output\":[{x},{y}]"),
             Step::PressSecondary { x, y } => format!("\"press_secondary\":[{x},{y}]"),
             Step::DoublePress { x, y } => format!("\"double_press\":[{x},{y}]"),
             Step::TriplePress { x, y } => format!("\"triple_press\":[{x},{y}]"),
@@ -575,7 +580,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -801,6 +806,10 @@ impl Launch {
                 Some("--press-output") => {
                     let n = numbers(args.next(), 2)?;
                     Step::PressOutput { x: n[0], y: n[1] }
+                }
+                Some("--move-output") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::MoveOutput { x: n[0], y: n[1] }
                 }
                 Some("--press-secondary") => {
                     let n = numbers(args.next(), 2)?;
@@ -2064,6 +2073,12 @@ fn inject_through(
             on_outputs(*x, *y)?;
             press(devices, compositor, at(*x, *y))?;
         }
+        Step::MoveOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            let (px, py) = at(*x, *y);
+            devices.move_to(px, py)?;
+            compositor.read_input();
+        }
         Step::PressSecondary { x, y } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
@@ -2899,6 +2914,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::PressOutput { x, y } => {
             on_outputs(*x, *y)?;
             press(&mut compositor.scene, *x, *y);
+        }
+        Step::MoveOutput { x, y } => {
+            on_outputs(*x, *y)?;
+            compositor.scene.pointer_motion(*x, *y);
         }
         Step::PressSecondary { x, y } => {
             inside(window, *x, *y)?;

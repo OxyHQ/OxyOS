@@ -19,6 +19,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace facebook::react {
@@ -82,6 +83,9 @@ class PopupHost {
   uint32_t surfaceOf(facebook::react::Tag view) const;
   // What a popup surface shows, for pointer input; nullopt for any other surface.
   std::optional<SurfaceContent> content(uint32_t surface) const;
+  // Whether a popup surface was closed by the application (its view went away), not by the
+  // compositor: the keyboard it had goes back to its parent next, so its leaving is no loss.
+  bool closedByApplication(uint32_t surface) const { return closed_.count(surface) != 0; }
 
  private:
   struct Popup {
@@ -101,6 +105,7 @@ class PopupHost {
   AccessibilityBridge& accessibility_;
   Parent parent_;
   std::map<facebook::react::Tag, Popup> popups_;
+  std::set<uint32_t> closed_;
 };
 
 }  // namespace oxyos
