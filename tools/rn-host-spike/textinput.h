@@ -50,7 +50,9 @@ struct Placement {
 
 // The editing a focused input receives, as Android's EditText does it: a caret and selection
 // (arrows, by word with Ctrl, Up and Down across lines, Page Up and Page Down, Home and End,
-// Shift to extend, Ctrl+A, the pointer), deletion by character or word, committed text that
+// Shift to extend, Ctrl+A, the pointer: a press, a drag, Shift and a press, a double click
+// selecting a word and a triple click a paragraph, either dragged on by words or by paragraphs),
+// deletion by character or word, committed text that
 // replaces the selection, an input method's composition (preedit), which is part of the text
 // while it lasts, undo and redo (Ctrl+Z, Ctrl+Shift+Z), and text scrolled to keep the caret in
 // view.
@@ -130,6 +132,15 @@ class TextEditing {
   // Ctrl+V's text arriving for the input `tag`: replaces its selection, as one edit.
   void pasted(facebook::react::Tag tag, std::string text);
   void pointer(const OxyOSEvent& event);
+  // What a double click (a word) or a triple click (a paragraph) at `offset` selects, as Android's
+  // Editor selects it (selectCurrentWord, selectCurrentParagraph): [start, end) in bytes.
+  std::pair<size_t, size_t> unitAt(size_t offset) const;
+  // A drag after a double or triple click, at `offset`: the selection grows from what the click
+  // selected by whole words or paragraphs (Editor's updateWordBasedSelection and
+  // updateParagraphBasedSelection).
+  void extendByUnit(size_t offset);
+  // Selects from `anchor` to `caret` at once (one selection change).
+  void selectRange(size_t anchor, size_t caret);
   // The byte offset under a surface-local x, for the focused input.
   std::optional<size_t> offsetAt(uint32_t surface, float x, float y, bool inside) const;
   // Replaces bytes [from, to) with `insert` as the user's edit, the caret after it: new state,
@@ -210,6 +221,15 @@ class TextEditing {
   // The latest primary press: a press focuses its input on release (JavaScript sends `focus`),
   // and the caret goes where it was pressed.
   std::optional<std::pair<uint32_t, facebook::react::Point>> press_;
+  // Consecutive primary presses, as Android's Editor counts them (updateTapState): a press within
+  // the double-tap timeout of the last release, and within the double-tap slop of the press before
+  // it, is a double click; with a mouse, the one after that a triple click; the next a single
+  // press again. `lastRelease_` is when the last primary button went up (ms, CLOCK_MONOTONIC).
+  enum class Taps { Single, Double, Triple };
+  Taps taps_ = Taps::Single;
+  std::optional<double> lastRelease_;
+  // What the double or triple click being dragged selected, [start, end) in bytes.
+  std::pair<size_t, size_t> unit_{0, 0};
   int eventCount_ = 0;
 };
 
