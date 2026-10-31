@@ -200,6 +200,11 @@ pub enum Step {
     /// Milliseconds of real time with no input, the session served all along: what fades on its
     /// own clock (a hardware key's bezel, ADR 0025) has the time to.
     Wait(u64),
+    /// Real time, the session served all along, until the assistive technology holds a node named
+    /// `name` on a shown surface, at most `ms` milliseconds: an answer that comes on the
+    /// application's own clock (a store that is down asked again until it says it could not be
+    /// loaded), never after a set time it might outlast.
+    WaitNamed { name: String, ms: u64 },
     /// Another application copies these types with their contents (pasteboard.rs): the
     /// clipboard holds them, for the application to paste (ADR 0007).
     Clipboard(Vec<(TextChunk, Vec<u8>)>),
@@ -323,6 +328,7 @@ impl Step {
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
             Step::Wait(ms) => format!("{ms} ms waited"),
+            Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
@@ -479,6 +485,9 @@ impl Step {
                 format!("\"clipboard\":[{}]", types.join(","))
             }
             Step::Wait(ms) => format!("\"wait\":{ms}"),
+            Step::WaitNamed { name, ms } => {
+                format!("\"wait_named\":[{},{ms}]", json_string(name))
+            }
         }
     }
 }
@@ -637,7 +646,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] [--until-sheet] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1147,6 +1156,15 @@ impl Launch {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Wait(ms.parse()?)
                 }
+                Some("--wait-named") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let ms = ms.parse().map_err(|_| "--wait-named MS NAME")?;
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    Step::WaitNamed {
+                        name: name.to_string(),
+                        ms,
+                    }
+                }
                 Some("--scale") => {
                     let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Scale(scale.parse()?)
@@ -1283,6 +1301,28 @@ fn shell_surfaces(compositor: &Compositor) -> Vec<(SurfaceKey, u64, Rect)> {
                 if key.client > ClientId::MAX / 2 && key.client < crate::pasteboard::PASTEBOARD =>
             {
                 Some((key, frame.sequence, rect))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The windows of the applications the session launched (the shell's dock, a store's open), bottom
+/// to top: each where it is and the configure its shown frame answers. Not each frame's sequence:
+/// an application's content is checked from its own report (`.launched`) and may animate on for as
+/// long as it likes (a storefront's skeleton while the store is asked again), but what the session
+/// does to its window (it arrives, is zoomed, moved, resized or closed) is a step's answer.
+fn launched_windows(session: &Session) -> Vec<(SurfaceKey, Rect, u64)> {
+    session
+        .compositor
+        .scene
+        .render_list()
+        .into_iter()
+        .filter_map(|item| match item {
+            RenderItem::Surface { key, rect, frame }
+                if session.launched_clients.contains(&key.client) =>
+            {
+                Some((key, rect, frame.configure))
             }
             _ => None,
         })
@@ -1525,6 +1565,10 @@ fn settle(
     let mut last = (before.to_vec(), Instant::now());
     let mut shell_last = shell_surfaces(&session.compositor);
     let shell_before: Vec<SurfaceKey> = shell_last.iter().map(|(key, _, _)| *key).collect();
+    // The launched applications' windows count as the shell's do: a zoom of one changes neither
+    // the director's application nor the shell, and would otherwise settle only on something
+    // else changing (the menu bar's clock turning a minute).
+    let mut launched_last = launched_windows(session);
     let mut first_frame_ns = None;
     let mut first_flip_ns = None;
     let shown_before = session.compositor.screens[0].flips.len();
@@ -1552,7 +1596,10 @@ fn settle(
         session.reader.absorb(&mut session.compositor);
         let now = shown(&session.compositor);
         let shell_now = shell_surfaces(&session.compositor);
-        let shell_changed = shell_now != shell_last;
+        let launched_now = launched_windows(session);
+        let launched_changed = launched_now != launched_last;
+        launched_last = launched_now;
+        let shell_changed = shell_now != shell_last || launched_changed;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -1606,7 +1653,11 @@ fn settle(
                 RenderItem::Surface { key, frame, .. } if *key == window => Some(frame.configure),
                 _ => None,
             })
-            .is_none_or(|shown| Some(shown) == session.compositor.scene.configure_serial(window));
+            .is_none_or(|shown| Some(shown) == session.compositor.scene.configure_serial(window))
+            // A launched application's window too, zoomed from its title bar, say.
+            && launched_last.iter().all(|(key, _, shown)| {
+                Some(*shown) == session.compositor.scene.configure_serial(*key)
+            });
         // A sheet asked for is shown once the shell shows a surface it did not show before.
         let sheet_shown = !sheet
             || session.compositor.scene.sheets_waiting() > 0
@@ -2051,7 +2102,20 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
     let Step::Named { kind, name, ms } = step else {
         return Ok(step.clone());
     };
-    let (x, y) = session
+    let (x, y) = named_point(session, name)
+        .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))?;
+    Ok(match kind {
+        NamedKind::Press => Step::PressOutput { x, y },
+        NamedKind::PressSecondary => Step::PressSecondaryOutput { x, y },
+        NamedKind::Move => Step::MoveOutput { x, y },
+        NamedKind::Hold => Step::HoldOutput { x, y, ms: *ms },
+    })
+}
+
+/// The middle of the node named `name` on the topmost shown surface that has one, as the
+/// assistive technology holds it (global coordinates), if any.
+fn named_point(session: &Session, name: &str) -> Option<(i32, i32)> {
+    session
         .compositor
         .scene
         .render_list()
@@ -2064,19 +2128,12 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
                     .trees
                     .get(&key)?
                     .iter()
-                    .find(|node| node.name == *name)?;
+                    .find(|node| node.name == name)?;
                 let (x, y, width, height) = node.rect;
                 Some((x + (width / 2) as i32, y + (height / 2) as i32))
             }
             _ => None,
         })
-        .ok_or_else(|| format!("the assistive technology holds no node named {name:?}"))?;
-    Ok(match kind {
-        NamedKind::Press => Step::PressOutput { x, y },
-        NamedKind::PressSecondary => Step::PressSecondaryOutput { x, y },
-        NamedKind::Move => Step::MoveOutput { x, y },
-        NamedKind::Hold => Step::HoldOutput { x, y, ms: *ms },
-    })
 }
 
 /// The name a step's report gives a surface: the application's by its id, the session's
@@ -3350,6 +3407,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         // assistive technology's.
         Step::ExpectPopup
         | Step::Wait(_)
+        | Step::WaitNamed { .. }
         | Step::Clipboard(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
@@ -3839,19 +3897,40 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 inject_input_method(&mut session, step)?;
                 0
             }
-            _ if matches!(step, Step::Wait(_)) => {
-                if let Step::Wait(ms) = step {
-                    let until = Instant::now() + Duration::from_millis(*ms);
-                    while Instant::now() < until {
-                        session.compositor.serve(&session.listener)?;
-                        if let Some(pasteboard) = session.pasteboard.as_mut() {
-                            pasteboard.serve(&mut session.compositor);
-                        }
-                        session.serve_launches();
-                        session.serve_installs();
-                        session.serve_preferences();
-                        session.reader.absorb(&mut session.compositor);
+            _ if matches!(step, Step::Wait(_) | Step::WaitNamed { .. }) => {
+                // A wait for a node ends as soon as it is held; a plain wait, its time.
+                let name = match step {
+                    Step::WaitNamed { name, .. } => Some(name.as_str()),
+                    _ => None,
+                };
+                let ms = match step {
+                    Step::Wait(ms) | Step::WaitNamed { ms, .. } => *ms,
+                    _ => 0,
+                };
+                let until = Instant::now() + Duration::from_millis(ms);
+                loop {
+                    if name.is_some_and(|name| named_point(&session, name).is_some()) {
+                        break;
                     }
+                    if Instant::now() >= until {
+                        if let Some(name) = name {
+                            return Err(format!(
+                                "step {} ({}): the assistive technology held no node named {name:?} in {ms} ms",
+                                index + 1,
+                                step.describe()
+                            )
+                            .into());
+                        }
+                        break;
+                    }
+                    session.compositor.serve(&session.listener)?;
+                    if let Some(pasteboard) = session.pasteboard.as_mut() {
+                        pasteboard.serve(&mut session.compositor);
+                    }
+                    session.serve_launches();
+                    session.serve_installs();
+                    session.serve_preferences();
+                    session.reader.absorb(&mut session.compositor);
                 }
                 0
             }
@@ -4261,6 +4340,9 @@ mod tests {
             "180",
             "--idle",
             "300",
+            "--wait-named",
+            "45000",
+            "Try again",
             "--move-window",
             "-10,5",
             "--resize-window",
@@ -4292,7 +4374,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -4354,6 +4436,10 @@ mod tests {
                 },
                 Step::Scale(180),
                 Step::Idle(300),
+                Step::WaitNamed {
+                    name: "Try again".into(),
+                    ms: 45000
+                },
                 Step::MoveWindow { dx: -10, dy: 5 },
                 Step::ResizeWindow {
                     width: 800,
@@ -4374,6 +4460,7 @@ mod tests {
             &["--key", "x", "--", "app"],
             &["--key", "42+", "--", "app"],
             &["--drag", "1,2,3", "--", "app"],
+            &["--wait-named", "soon", "Try again", "--", "app"],
             &["--press", "1,2"],
             &["--press", "1,2", "--"],
         ] {

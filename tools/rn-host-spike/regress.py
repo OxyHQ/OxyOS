@@ -222,7 +222,16 @@ A step may aim at what is on screen by its accessible name instead of a point: `
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
-(`Abrir Inbox`), so a change of the dock's row moves no scenario's press.
+(`Abrir Inbox`), so a change of the dock's row moves no scenario's press. A `wait_named` step
+([name, ms]) waits, the session served all along, until the assistive technology holds a node so
+named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
+own clock (a store that is down, asked again until the application says so) is waited for as it
+shows, never for a set time it might outlast.
+
+A step settles once what the session shows stops changing: the director's application's frames,
+the shell's, and the windows of the applications the session launched (their place and size, and
+a frame for their latest configure, as a zoom from their title bar gives them), not each of their
+frames, which may animate for as long as they like (a storefront's skeleton while it loads).
 
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
@@ -364,7 +373,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu"}
 
 
 # A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
@@ -517,6 +526,10 @@ def director_args(step, out):
     if kind == "wait":
         # Milliseconds of real time with no input: what fades on its own clock (a bezel, ADR 0025).
         return args + ["--wait", str(value)]
+    if kind == "wait_named":
+        # Real time until the assistive technology holds a node of this name, at most so many
+        # milliseconds: [name, ms] (an answer on the application's own clock).
+        return args + ["--wait-named", str(value[1]), value[0]]
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
