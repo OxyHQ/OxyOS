@@ -11,7 +11,9 @@
 //! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
-//! choice), and Super+Space opens the launcher's search. While the session is locked none acts
+//! choice), and Super+Space opens the launcher's search. Screenshots are decision 10's
+//! (`screenshots.rs`): Super+Shift+3 is the compositor's, Super+Shift+4 and 5 open the shell's
+//! interface, whose keys are the system's while it is open. While the session is locked none acts
 //! and their keys reach nobody. The screen reader's keys come first (ADR 0014); the keymap's own
 //! (a terminal switch, the lock's Ctrl+Super+Q, the reader's Super+F5) never reach the scene as
 //! keys.
@@ -23,7 +25,7 @@
 //! application is activated again.
 
 use super::{appearances, ClientId, OutputId, Role, Scene, SurfaceKey};
-use oxyos_protocol::{DismissReason, ErrorCode, Event, ShellKind, SystemShortcut};
+use oxyos_protocol::{CaptureMode, DismissReason, ErrorCode, Event, ShellKind, SystemShortcut};
 use std::collections::{BTreeMap, BTreeSet};
 
 const LEFT_SUPER: u32 = 125;
@@ -35,6 +37,10 @@ const RIGHT_SHIFT: u32 = 54;
 const LEFT_ALT: u32 = 56;
 const RIGHT_ALT: u32 = 100;
 const ESCAPE: u32 = 1;
+/// The digits' row: 3, 4 and 5 (screenshots, decision 10).
+const KEY_3: u32 = 4;
+const KEY_4: u32 = 5;
+const KEY_5: u32 = 6;
 const TAB: u32 = 15;
 const Q: u32 = 16;
 const W: u32 = 17;
@@ -122,6 +128,14 @@ impl Scene {
         if !pressed {
             return self.system_keys.taken.remove(&key);
         }
+        // The screenshot interface open: every key is the system's, Super's shortcuts aside.
+        if self.capturing() && !self.system_keys.holds([LEFT_SUPER, RIGHT_SUPER]) {
+            self.system_keys.taken.insert(key);
+            if !self.locked {
+                self.capture_key(key);
+            }
+            return true;
+        }
         if !self.system_keys.holds([LEFT_SUPER, RIGHT_SUPER]) {
             return false;
         }
@@ -163,6 +177,20 @@ impl Scene {
         }
         if alt {
             return;
+        }
+        // Screenshots (decision 10). While the interface is open, only these act.
+        match (key, ctrl, shift) {
+            (KEY_3, false, true) => return self.capture_screens(),
+            (KEY_4, false, true) => {
+                self.dismiss_grab(DismissReason::OutsidePress);
+                return self.open_capture_interface(CaptureMode::Selection);
+            }
+            (KEY_5, false, true) => {
+                self.dismiss_grab(DismissReason::OutsidePress);
+                return self.open_capture_interface(CaptureMode::Toolbar);
+            }
+            _ if self.capturing() => return,
+            _ => {}
         }
         let action = match (key, ctrl, shift) {
             (TAB, false, _) => {
@@ -272,12 +300,7 @@ impl Scene {
         }
         let serial = self.next_serial();
         self.last_user_serial = serial;
-        let inputs = self.inputs.entry(client).or_default();
-        inputs.push_back(serial);
-        if inputs.len() > super::RECENT_INPUTS {
-            inputs.pop_front();
-        }
-        self.activation.insert(client, serial);
+        self.credit_input(client, serial);
         self.emit(
             client,
             Event::SystemShortcut {
