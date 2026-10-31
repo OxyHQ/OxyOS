@@ -230,6 +230,40 @@ target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)
 target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so)
 target_compile_options(oxyos-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
+# ---- Skia -------------------------------------------------------------------------------------
+# build.sh builds it from SKIA_DIR (its checkout, the include root) into SKIA_BUILD: static
+# libraries, Ganesh on Vulkan, against the system's FreeType, HarfBuzz and ICU above, so the process
+# has one of each. The Vulkan loader is not linked: Skia's Vulkan backend takes a vkGetInstanceProcAddr
+# the host opens at run time, and its headers are Skia's own copy.
+foreach(var SKIA_DIR SKIA_BUILD)
+  if(NOT DEFINED ${var})
+    message(FATAL_ERROR "${var} is required; run build.sh")
+  endif()
+endforeach()
+# What Skia's public configurations define for a dependent, as gn gives them (build.sh writes them
+# for the arguments it built with), and SK_RELEASE: its headers must see the build Skia is (an
+# SK_DEBUG build of a class can have other members).
+file(STRINGS ${SKIA_BUILD}/oxyos-skia-defines.txt SKIA_DEFINES)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SKIA_BUILD}/oxyos-skia-defines.txt)
+add_library(oxyos_skia INTERFACE)
+target_compile_definitions(oxyos_skia INTERFACE ${SKIA_DEFINES} SK_RELEASE)
+target_include_directories(oxyos_skia SYSTEM INTERFACE ${SKIA_DIR} ${SKIA_DIR}/include/third_party/vulkan)
+# Dependents first: the SVG module (which also carries the path operations, absent from libskia
+# without PDF), the paragraph, the shaper and Unicode, then Skia. The system libraries are linked by
+# soname: libpng, zlib and Expat have no development links on the Debian base.
+foreach(lib svg skparagraph skshaper skunicode_icu skunicode_core skresources skia)
+  target_link_libraries(oxyos_skia INTERFACE ${SKIA_BUILD}/lib${lib}.a)
+endforeach()
+target_link_libraries(oxyos_skia INTERFACE ${TEXT_LIBS} ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so
+  -l:libpng16.so.16 -l:libz.so.1 -l:libexpat.so.1 dl pthread m)
+# Nothing in the host calls it yet; the renderer will.
+target_link_libraries(oxyos-bloom-host oxyos_skia)
+
+# Skia's smoke test (not installed): a raster surface and Ganesh on a Vulkan device where there is
+# one, the same drawing on both, compared.
+add_executable(oxyos-skia-check skia-check.cpp)
+target_link_libraries(oxyos-skia-check oxyos_skia)
+
 # Debug aid: OXYOS_ASAN=ON instruments the host, its glue and the worklets/reanimated cores.
 option(OXYOS_ASAN "AddressSanitizer for the OxyOS host code" OFF)
 if(OXYOS_ASAN)
