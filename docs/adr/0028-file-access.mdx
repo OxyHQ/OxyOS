@@ -30,7 +30,7 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
    - **Who has it.** Only an application's window has the module. The shell and the login screen do not.
 
 2. **What a path may name** (the platform's rule, from #162):
-   - **Reached:** the person's home; the volumes mounted for them directly under `/media/USER` and `/run/media/USER` (from `/proc/self/mountinfo`); the application's own folders (decision 3); and its bundle's folder, which can be read and never changed.
+   - **Reached:** the person's home; the volumes mounted for them directly under `/media/USER` and `/run/media/USER` (from `/proc/self/mountinfo`, read once and again only when the kernel says it changed: the table kept open polls with `POLLPRI` after a mount or unmount, checked before each use); the application's own folders (decision 3); and its bundle's folder, which can be read and never changed.
    - **Refused,** with the reason:
      - a path that is not an absolute `file://` URI, or that has `.`, `..` or NUL in it;
      - anything else on the disk;

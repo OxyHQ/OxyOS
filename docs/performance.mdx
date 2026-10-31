@@ -340,6 +340,16 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   - **Stash was built without its React Compiler on OxyOS alone**: its app config asks Expo for
     it, and Expo asks babel-preset-expo through a Babel caller the OxyOS build does not have. Its
     own sources are now compiled with it as its Expo build compiles them.
+  - **The file service read the mount table for every call**: each path an application gave
+    (`Scope::reach`, `entry`, `folder`, the Trash's) asked which volumes are mounted, reading and
+    parsing `/proc/self/mountinfo` again, about 2 % of the host's work in Stash's steps. The table
+    is now read once and kept (`crates/oxyos-files/src/mounts.rs`), and read again only after the
+    kernel says it changed, as util-linux's libmount monitor learns it: the table kept open polls
+    with `POLLPRI` once a mount or unmount changed it, checked with no timeout before each use, so
+    nothing is stale and nothing waits. On the development machine (a 44-line table), the volumes
+    went from 90–97 µs a call to 0.2–0.3 µs (one `poll`), a path reached from about 100 µs to 3–7
+    µs. `mounts_tests.rs` counts the reads, and mounts and unmounts a volume in a mount namespace of
+    its own (`unshare`) to see each at once.
 
 ## What remains
 
@@ -358,8 +368,6 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
   the protocol carries no time for input. Behind a slow frame, two presses keep their order but
   arrive closer together than they were made. Input events need the device's time (libinput's)
   from the compositor to the application.
-- **The file service reads the mount table for every call** (`Scope::reach` reads
-  `/proc/self/mountinfo` to know the volumes): about 2 % of the host's work in Stash's steps.
 - **The GPU path's two changes are not yet seen on a display**: the session's log on the
   ThinkPad will say whether frames went with their completion and how long the GPU composed.
 - **A layout re-rendered whole costs 30–35 ms of JavaScript** (the Inbox at its breakpoint).

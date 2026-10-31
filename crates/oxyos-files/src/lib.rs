@@ -27,6 +27,7 @@ use std::io;
 pub mod access;
 pub mod entries;
 pub mod mime;
+mod mounts;
 pub mod places;
 mod scope;
 pub mod service;
@@ -156,5 +157,7 @@ pub fn valid_name(name: &str) -> Result<(), Error> {
 
 #[cfg(test)]
 mod access_tests;
+#[cfg(test)]
+mod mounts_tests;
 #[cfg(test)]
 mod tests;
