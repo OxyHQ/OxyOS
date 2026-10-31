@@ -19,12 +19,15 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
     edge: true,
     exclusive: true,
     keyboard: true,
+    excludeFromCapture: true,
   },
 }));
 
 // A region asking for the keyboard (`keyboard`) is given it by the host, citing the latest input;
 // once it had it, `onKeyboardLost` hears that it went elsewhere (OxyOSShellKeyboardLost).
-function Surface({ kind, edge, exclusive, keyboard, onKeyboardLost, style, children }) {
+// A region left out of screenshots (`excludeFromCapture`: the screenshot interface, its thumbnail)
+// is never in one (docs/adr/0024-system-shortcuts.mdx, decision 10).
+function Surface({ kind, edge, exclusive, keyboard, excludeFromCapture, onKeyboardLost, style, children }) {
   const lost = React.useRef(onKeyboardLost);
   lost.current = onKeyboardLost;
   React.useEffect(() => {
@@ -39,6 +42,7 @@ function Surface({ kind, edge, exclusive, keyboard, onKeyboardLost, style, child
       edge={edge ?? 'top'}
       exclusive={!!exclusive}
       keyboard={!!keyboard}
+      excludeFromCapture={!!excludeFromCapture}
       style={style}
       collapsable={false}
     >

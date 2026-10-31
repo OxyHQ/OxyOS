@@ -204,6 +204,10 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
       auto difference = compareFrames(canvasPixels(canvas), cpu.pixels);
       Report::get().renderCheck(popup.surface, difference.largest, difference.beyondThree, difference.pixels);
     }
+    // Its secure fields go with the frame (docs/adr/0024-system-shortcuts.mdx, decision 10).
+    if (auto secure = secureFields(tree_, tag); window_.setSecureRegions(popup.surface, secure)) {
+      Report::get().input("secure.regions", popup.surface, folly::dynamic::object("rects", toDynamic(secure)));
+    }
     window_.present(popup.surface, canvas);
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
     accessibility_.publish(popup.surface, tag);

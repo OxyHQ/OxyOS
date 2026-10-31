@@ -24,6 +24,8 @@ sha2 = "0.10"
 oxyos-net = { path = "../oxyos-net" }
 # An application's id, by the registry's own rule.
 oxyos-apps = { path = "../oxyos-apps" }
+# Where the user's folders are (xdg-user-dirs' `user-dirs.dirs`).
+oxyos-preferences = { path = "../oxyos-preferences" }
 
 [lints]
 workspace = true

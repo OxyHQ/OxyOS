@@ -289,6 +289,43 @@ std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, Tag root, Ta
   return std::move(w.out);
 }
 
+namespace {
+
+void collectSecure(const ViewTree& tree, Tag tag, bool isRoot, const Rect& origin, Point at,
+                   std::vector<OxyOSRect>& out) {
+  auto it = tree.views().find(tag);
+  if (it == tree.views().end()) return;
+  const auto& view = it->second.view;
+  auto name = componentName(view);
+  if (ownSurface(name) && !isRoot) return;
+  if (name == "AndroidTextInput" &&
+      std::static_pointer_cast<const AndroidTextInputProps>(view.props)->secureTextEntry) {
+    if (auto frame = windowFrame(tree, tag); frame && frame->size.width > 0 && frame->size.height > 0) {
+      Float x0 = std::floor(frame->origin.x - origin.origin.x + at.x);
+      Float y0 = std::floor(frame->origin.y - origin.origin.y + at.y);
+      Float x1 = std::ceil(frame->origin.x - origin.origin.x + at.x + frame->size.width);
+      Float y1 = std::ceil(frame->origin.y - origin.origin.y + at.y + frame->size.height);
+      out.push_back(OxyOSRect{static_cast<int32_t>(x0), static_cast<int32_t>(y0), static_cast<uint32_t>(x1 - x0),
+                              static_cast<uint32_t>(y1 - y0)});
+    }
+  }
+  for (Tag child : it->second.children) collectSecure(tree, child, false, origin, at, out);
+}
+
+}  // namespace
+
+std::vector<OxyOSRect> secureFields(const ViewTree& tree, Tag root, Point at) {
+  std::vector<OxyOSRect> out;
+  collectSecure(tree, root, true, windowFrame(tree, root).value_or(Rect{}), at, out);
+  return out;
+}
+
+folly::dynamic toDynamic(const std::vector<OxyOSRect>& rects) {
+  folly::dynamic list = folly::dynamic::array;
+  for (const auto& rect : rects) list.push_back(folly::dynamic::array(rect.x, rect.y, rect.width, rect.height));
+  return list;
+}
+
 folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes) {
   folly::dynamic list = folly::dynamic::array;
   for (const auto& node : nodes) {

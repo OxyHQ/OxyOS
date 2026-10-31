@@ -503,7 +503,51 @@ uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool n
   return static_cast<uint32_t>(serial);
 }
 
+bool Window::setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects) {
+  auto same = [](const OxyOSRect& a, const OxyOSRect& b) {
+    return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height;
+  };
+  auto& sent = secureRegions_[id];
+  if (sent.size() == rects.size() && std::equal(sent.begin(), sent.end(), rects.begin(), same)) return false;
+  // At most the protocol's 32: a surface with more fields than that is covered by their bounds.
+  std::vector<OxyOSRect> wire = rects;
+  if (wire.size() > 32) {
+    int64_t left = INT64_MAX, top = INT64_MAX, right = INT64_MIN, bottom = INT64_MIN;
+    for (const auto& r : rects) {
+      left = std::min<int64_t>(left, r.x);
+      top = std::min<int64_t>(top, r.y);
+      right = std::max<int64_t>(right, int64_t{r.x} + r.width);
+      bottom = std::max<int64_t>(bottom, int64_t{r.y} + r.height);
+    }
+    wire = {OxyOSRect{static_cast<int32_t>(left), static_cast<int32_t>(top), static_cast<uint32_t>(right - left),
+                      static_cast<uint32_t>(bottom - top)}};
+  }
+  if (oxyos_client_set_secure_regions(client_, id, wire.data(), wire.size()) != 0) {
+    if (disconnected()) return false;
+    failed("cannot set a surface's secure regions");
+  }
+  sent = rects;
+  return true;
+}
+
+bool Window::capture(uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect, uint32_t window,
+                     uint8_t destination) {
+  return oxyos_client_capture(client_, serial, kind, output, rect.x, rect.y, rect.width, rect.height, window,
+                              destination) == 0;
+}
+
+bool Window::endCapture(uint64_t serial) { return oxyos_client_end_capture(client_, serial) == 0; }
+
+void Window::excludeFromCapture(uint32_t id, bool excluded) {
+  if (oxyos_client_exclude_from_capture(client_, id, excluded) != 0) failed("cannot leave a surface out of captures");
+}
+
+bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
+  return oxyos_client_open_screenshot(client_, screenshot, serial) == 0;
+}
+
 void Window::destroy(uint32_t id) {
+  secureRegions_.erase(id);
   if (surfaces_.erase(id) == 0) return;
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
   if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");

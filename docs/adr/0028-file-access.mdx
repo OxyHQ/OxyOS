@@ -6,7 +6,7 @@ order: 37
 
 # ADR 0028: File access for applications
 
-Status: **accepted; implemented**, except opening a file in another application (decision 6), which is specified and waits for its protocol. Builds on [ADR 0015](./0015-application-model) (one application, the platform's capabilities through standard APIs), [ADR 0013](./0013-launching-applications) (launch records, the application id), [ADR 0030](./0030-installing-applications) (where an application's data lives), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and [ADR 0007](./0007-clipboard) (a request that cites the user's input). Supersedes the Files application of draft PR #162: its service, scope and Trash are kept here, and its application is not.
+Status: **accepted; implemented**, except opening a file in another application (decision 6), which is specified and waits for its protocol; its launch half is there, for screenshots ([ADR 0024](./0024-system-shortcuts), decision 10): an entry's `MimeType`, and the session starting the application that opens a file it wrote with the file in its launch record and as `Linking`'s initial URL. Builds on [ADR 0015](./0015-application-model) (one application, the platform's capabilities through standard APIs), [ADR 0013](./0013-launching-applications) (launch records, the application id), [ADR 0030](./0030-installing-applications) (where an application's data lives), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and [ADR 0007](./0007-clipboard) (a request that cites the user's input). Supersedes the Files application of draft PR #162: its service, scope and Trash are kept here, and its application is not.
 
 ## Problem
 

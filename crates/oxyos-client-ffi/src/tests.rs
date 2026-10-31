@@ -3404,6 +3404,105 @@ fn the_header_matches_the_system_shortcuts_abi() {
 }
 
 #[test]
+fn the_header_matches_the_screenshots_abi() {
+    for (name, value) in [
+        ("OXYOS_EVENT_CAPTURE_MODE", OXYOS_EVENT_CAPTURE_MODE),
+        ("OXYOS_EVENT_CAPTURE_TARGET", OXYOS_EVENT_CAPTURE_TARGET),
+        ("OXYOS_EVENT_SCREENSHOT_SAVED", OXYOS_EVENT_SCREENSHOT_SAVED),
+        ("OXYOS_CAPTURE_MODE_SELECTION", OXYOS_CAPTURE_MODE_SELECTION),
+        ("OXYOS_CAPTURE_MODE_WINDOW", OXYOS_CAPTURE_MODE_WINDOW),
+        ("OXYOS_CAPTURE_MODE_TOOLBAR", OXYOS_CAPTURE_MODE_TOOLBAR),
+        ("OXYOS_CAPTURE_MODE_CONFIRM", OXYOS_CAPTURE_MODE_CONFIRM),
+        ("OXYOS_CAPTURE_MODE_ENDED", OXYOS_CAPTURE_MODE_ENDED),
+        ("OXYOS_CAPTURE_SCREENS", OXYOS_CAPTURE_SCREENS.into()),
+        ("OXYOS_CAPTURE_AREA", OXYOS_CAPTURE_AREA.into()),
+        ("OXYOS_CAPTURE_WINDOW", OXYOS_CAPTURE_WINDOW.into()),
+        ("OXYOS_CAPTURE_DESKTOP", OXYOS_CAPTURE_DESKTOP.into()),
+        ("OXYOS_CAPTURE_DOCUMENTS", OXYOS_CAPTURE_DOCUMENTS.into()),
+    ] {
+        assert_eq!(define(name), i64::from(value), "{name}");
+    }
+    use oxyos_protocol::{CaptureDestination, CaptureKind, CaptureMode};
+    for (mode, constant) in [
+        (CaptureMode::Selection, OXYOS_CAPTURE_MODE_SELECTION),
+        (CaptureMode::Window, OXYOS_CAPTURE_MODE_WINDOW),
+        (CaptureMode::Toolbar, OXYOS_CAPTURE_MODE_TOOLBAR),
+        (CaptureMode::Confirm, OXYOS_CAPTURE_MODE_CONFIRM),
+        (CaptureMode::Ended, OXYOS_CAPTURE_MODE_ENDED),
+    ] {
+        let event = Event::CaptureMode {
+            mode,
+            serial: 41,
+            output: 2,
+        };
+        assert_eq!(u32::from(event.opcode()), OXYOS_EVENT_CAPTURE_MODE);
+        let event = convert(&event).unwrap();
+        assert_eq!(
+            (event.kind, event.serial, event.detail, event.code),
+            (OXYOS_EVENT_CAPTURE_MODE, 41, constant, 2)
+        );
+    }
+    for (kind, constant) in [
+        (CaptureKind::Screens, OXYOS_CAPTURE_SCREENS),
+        (CaptureKind::Area, OXYOS_CAPTURE_AREA),
+        (CaptureKind::Window, OXYOS_CAPTURE_WINDOW),
+    ] {
+        assert_eq!(kind as u8, constant);
+    }
+    assert_eq!(CaptureDestination::Desktop as u8, OXYOS_CAPTURE_DESKTOP);
+    assert_eq!(CaptureDestination::Documents as u8, OXYOS_CAPTURE_DOCUMENTS);
+    let target = Event::CaptureTarget {
+        window: 7,
+        rect: Rect::new(-40, 30, 640, 400),
+    };
+    let event = convert(&target).unwrap();
+    assert_eq!(
+        (
+            event.kind,
+            event.code,
+            event.x,
+            event.y,
+            event.width,
+            event.height
+        ),
+        (OXYOS_EVENT_CAPTURE_TARGET, 7, -40, 30, 640, 400)
+    );
+    let saved = Event::ScreenshotSaved {
+        screenshot: 3,
+        output: 2,
+        width: 2000,
+        height: 1250,
+        index: 1,
+        last: true,
+        text: PreeditText::new("a las 10.04.05.png").unwrap(),
+    };
+    let event = convert(&saved).unwrap();
+    assert_eq!(
+        (
+            event.kind,
+            event.code,
+            event.x,
+            event.width,
+            event.height,
+            event.detail,
+            event.flag
+        ),
+        (OXYOS_EVENT_SCREENSHOT_SAVED, 3, 2, 2000, 1250, 1, 1)
+    );
+    let text = CStr::from_bytes_until_nul(&event.text).unwrap();
+    assert_eq!(text.to_str().unwrap(), "a las 10.04.05.png");
+    for declaration in [
+        "int oxyos_client_capture(OxyOSClient* client, uint64_t serial, uint8_t kind, uint32_t output, int32_t x,\n                         int32_t y, uint32_t width, uint32_t height, uint32_t window, uint8_t destination);",
+        "int oxyos_client_end_capture(OxyOSClient* client, uint64_t serial);",
+        "int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, bool excluded);",
+        "int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint64_t serial);",
+        "int oxyos_client_set_secure_regions(OxyOSClient* client, uint32_t surface, const OxyOSRect* rects, size_t count);",
+    ] {
+        assert!(HEADER.contains(declaration), "{declaration}");
+    }
+}
+
+#[test]
 fn the_header_matches_the_window_views_abi() {
     assert_eq!(
         define("OXYOS_EVENT_WINDOW_SIZE"),

@@ -28,6 +28,18 @@
  * 'switcher-done' | 'switcher-cancel' | 'search' | 'menu-bar'; output the one to show it on).
  * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window.
  *
+ * Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): `capture` is the screenshot
+ * interface the compositor opened, { serial, mode: 'selection' | 'window' | 'toolbar', output, confirm }
+ * (Super+Shift+4's crosshair on every display, Space switching it to picking a window and back;
+ * Super+Shift+5's toolbar on `output`'s display; `confirm` counting Return pressed in the toolbar),
+ * null once it ended (a capture, Escape, another display's capture, the lock); `captureTarget` the
+ * window under the pointer while it is open, { window, x, y, width, height } in the global space
+ * (window 0: none); `screenshots` the latest saved, in order, [{ id, output, width, height, path }]
+ * (each on the display it is of). `capture(kind, output, rect, window, destination)` captures citing
+ * the interface's serial (kind 'screens' | 'area' | 'window', rect { x, y, width, height } global or
+ * null, destination 'desktop' | 'documents'); `endCapture()` ends it without one;
+ * `openScreenshot(id)` opens a saved one, citing the latest input (the press on its thumbnail).
+ *
  * The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx):
  * `controls` in the state is what the session says of the machine, { output, input, display,
  * keyboard: { level (0 to 1), muted, available } | null, power: { battery, percent, onAC, minutes }
@@ -59,6 +71,9 @@ export function useOxyOSShell() {
   const [authentication, setAuthentication] = React.useState(null);
   const [shortcuts, setShortcuts] = React.useState([]);
   const [bezels, setBezels] = React.useState([]);
+  const [capture, setCapture] = React.useState(null);
+  const [captureTarget, setCaptureTarget] = React.useState(null);
+  const [screenshots, setScreenshots] = React.useState([]);
   React.useEffect(() => {
     if (!native) return undefined;
     const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', setState);
@@ -77,6 +92,25 @@ export function useOxyOSShell() {
     const bezel = DeviceEventEmitter.addListener('OxyOSShellBezel', ({ control }) =>
       setBezels((last) => [...last.slice(-15), { id: (last[last.length - 1]?.id ?? 0) + 1, control }]),
     );
+    // The screenshot interface: opened, switched, confirmed, ended; one interface per serial.
+    const captured = DeviceEventEmitter.addListener('OxyOSShellCapture', ({ mode, serial, output }) => {
+      if (mode === 'ended') {
+        setCapture(null);
+        setCaptureTarget(null);
+        return;
+      }
+      setCapture((last) => {
+        const same = last && last.serial === serial;
+        if (mode === 'confirm') return same ? { ...last, confirm: last.confirm + 1 } : last;
+        return { serial, mode, output, confirm: same ? last.confirm : 0 };
+      });
+    });
+    const targeted = DeviceEventEmitter.addListener('OxyOSShellCaptureTarget', (target) =>
+      setCaptureTarget(target.window ? target : null),
+    );
+    const saved = DeviceEventEmitter.addListener('OxyOSShellScreenshot', (screenshot) =>
+      setScreenshots((last) => [...last.slice(-15), screenshot]),
+    );
     // A change between the first read and the subscription is not lost.
     setState(native.getState());
     return () => {
@@ -84,6 +118,9 @@ export function useOxyOSShell() {
       answers.remove();
       told.remove();
       bezel.remove();
+      captured.remove();
+      targeted.remove();
+      saved.remove();
     };
   }, []);
   return {
@@ -116,5 +153,12 @@ export function useOxyOSShell() {
     removeNotification: (id) => native?.removeNotification(id),
     setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
     announce: (text, polite) => native?.announce(text, polite),
+    capture,
+    captureTarget,
+    screenshots,
+    captureScreen: (kind, output, rect, window, destination) =>
+      capture ? (native?.capture(capture.serial, kind, output, rect ?? null, window ?? 0, destination) ?? false) : false,
+    endCapture: () => (capture ? (native?.endCapture(capture.serial) ?? false) : false),
+    openScreenshot: (id) => native?.openScreenshot(id) ?? false,
   };
 }

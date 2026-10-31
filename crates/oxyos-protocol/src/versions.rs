@@ -24,10 +24,18 @@ const GROWN_IN_3: &[(u8, &[u8])] = &[
 /// The opcodes each version added, by direction (a request and an event may share an opcode):
 /// version 3, GPU buffers (ADR 0031), both ways; version 4, a touchpad's resting fingers (Hold),
 /// sent unasked to the surface under the pointer; version 5, the session's keyboard layout and
-/// the outputs, told to every client, and a client's pointer images (ADR 0029).
+/// the outputs, told to every client, and a client's pointer images (ADR 0029); version 6,
+/// screenshots (ADR 0024, decision 10), both ways, `CaptureMode` sent unasked on Super+Shift+4
+/// and 5.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
-const EVENTS_ADDED: Added = &[(3, 170..=174), (4, 58..=58), (5, 180..=180), (5, 200..=203)];
-const REQUESTS_ADDED: Added = &[(3, 170..=174), (5, 190..=190)];
+const EVENTS_ADDED: Added = &[
+    (3, 170..=174),
+    (4, 58..=58),
+    (5, 180..=180),
+    (5, 200..=203),
+    (6, 210..=212),
+];
+const REQUESTS_ADDED: Added = &[(3, 170..=174), (5, 190..=190), (6, 210..=215)];
 
 fn since(added: Added, opcode: u8) -> u16 {
     added
