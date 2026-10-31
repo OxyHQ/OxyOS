@@ -265,7 +265,6 @@ export function Shell({
           <TopBar
             keyboardRequest={barRequest}
             keyboardLost={barLost}
-            keyboard={platform.keyboard}
             onKeyboard={setBarKeyboard}
             returnKeyboard={actions.returnKeyboard}
             menus={snapshot.menus}

@@ -770,6 +770,220 @@
       }
     },
     {
+      "name": "Down: Open…",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Open…",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: Open Recent, the row with a submenu",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "notes.txt"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Open Recent",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right on it is the menu's, not the bar's: its submenu opens beside it in a popup of its own, on its first row, and File stays open with its title's keyboard",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "notes.txt",
+            "Open Recent",
+            "New"
+          ],
+          "absent": [
+            "Undo"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Open Recent",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "notes.txt",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left inside the submenu is the menu's too: the submenu closes, back on Open Recent, File open",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Open Recent",
+            "New"
+          ],
+          "absent": [
+            "notes.txt"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Open Recent",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left on Open Recent is the bar's: the application's own menu opens in File's place, on its first enabled row",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Ocultar Allo",
+            "Salir de Allo"
+          ],
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Ocultar Allo",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: File again in its place, on New",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Ocultar Allo"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "New",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "Escape closes the menu, choosing nothing: the keyboard stays on its title",
       "do": [
         "key",

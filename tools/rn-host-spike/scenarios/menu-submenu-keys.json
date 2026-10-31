@@ -1,5 +1,5 @@
 {
-  "about": "Submenus from the keyboard in a Bloom menu in a compositor popup (sample/App.tsx's DropdownMenu and its inline 'More actions' submenu), as the WAI-ARIA menu pattern, macOS and Android menus take them (Bloom 15.72.0's popup navigation): ArrowRight on a row with a submenu opens it in place, the popup growing and placed again, and makes its first row active; ArrowLeft inside it, or Escape, closes it and makes its row active again, the menu staying open with the keyboard's focus; Escape outside a submenu closes the menu. Each key reaches the menu once (`key@message-actions`) and nothing else; which row is active is shown by what the next keys choose. Points are window-local logical pixels.",
+  "about": "Submenus from the keyboard in a Bloom menu in a compositor popup (sample/App.tsx's DropdownMenu and its 'More actions' submenu), in a window a pointer drives, so the submenu is a desktop's: a flyout beside its row in a popup of its own (Bloom 15.77.0), with the keys the WAI-ARIA menu pattern, macOS and Android menus give it (Bloom 15.72.0's popup navigation). ArrowRight on a row with a submenu opens it beside the row, its top at the row's and its left edge one 2px seam off the menu's right edge, a child of the menu's popup that takes the keyboard; its first row is active. ArrowLeft inside it, or Escape, closes it and gives the menu back the keyboard with its row active; Escape outside a submenu closes the menu. Each key reaches the popup with the keyboard once (`key@message-actions`, or `key@Submenu` for the flyout's) and nothing else; which row is active is shown by what the next keys choose. Points are window-local logical pixels.",
   "window": [
     1024,
     560
@@ -49,14 +49,14 @@
       }
     },
     {
-      "name": "ArrowRight on it opens its submenu in place: the popup grows and is placed again, the row expanded",
+      "name": "ArrowRight on it opens its submenu beside it: a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu, with the keyboard; the row expanded",
       "do": [
         "key",
         106
       ],
       "expect": {
-        "popups": 1,
-        "focus_surface": 2,
+        "popups": 2,
+        "focus_surface": 3,
         "texts": [
           "Copy link",
           "Print"
@@ -65,12 +65,8 @@
           "key@message-actions": 1
         },
         "popup_events": {
-          "reposition@message-actions": 1
+          "open@Submenu": 1
         },
-        "popup_size": [
-          266,
-          282
-        ],
         "at": {
           "popup": [
             {
@@ -89,11 +85,25 @@
               "name": "Print"
             }
           ]
-        }
+        },
+        "popup_rects": [
+          [
+            745,
+            473,
+            266,
+            222
+          ],
+          [
+            1013,
+            648,
+            266,
+            72
+          ]
+        ]
       }
     },
     {
-      "name": "ArrowLeft inside it closes the submenu: the popup shrinks back, the row collapsed",
+      "name": "ArrowLeft inside it closes the submenu: its popup goes, the menu has the keyboard again, the row collapsed",
       "do": [
         "key",
         105
@@ -106,26 +116,31 @@
           "Print"
         ],
         "react": {
-          "key@message-actions": 1
+          "key@Submenu": 1
         },
         "popup_events": {
-          "reposition@message-actions": 1
+          "close@3": 1
         },
-        "popup_size": [
-          266,
-          222
-        ],
         "at": {
           "popup": [
             {
               "role": "MenuItem",
               "name": "More actions",
               "state": [
-                "collapsed"
+                "collapsed",
+                "focused"
               ]
             }
           ]
-        }
+        },
+        "popup_rects": [
+          [
+            745,
+            473,
+            266,
+            222
+          ]
+        ]
       }
     },
     {
@@ -173,7 +188,7 @@
       ],
       "expect": {
         "popups": 1,
-        "focus_surface": 3,
+        "focus_surface": 4,
         "popup_size": [
           266,
           222
@@ -198,13 +213,13 @@
       }
     },
     {
-      "name": "ArrowRight opens its submenu",
+      "name": "ArrowRight opens its submenu beside it, with the keyboard",
       "do": [
         "key",
         106
       ],
       "expect": {
-        "popups": 1,
+        "popups": 2,
         "texts": [
           "Copy link",
           "Print"
@@ -212,37 +227,52 @@
         "react": {
           "key@message-actions": 1
         },
-        "popup_size": [
-          266,
-          282
-        ],
         "popup_events": {
-          "reposition@message-actions": 1
-        }
+          "open@Submenu": 1
+        },
+        "focus_surface": 5,
+        "popup_rects": [
+          [
+            745,
+            473,
+            266,
+            222
+          ],
+          [
+            1013,
+            648,
+            266,
+            72
+          ]
+        ]
       }
     },
     {
-      "name": "Escape inside the submenu closes the submenu alone: the menu stays open, focus in it",
+      "name": "Escape inside the submenu closes the submenu alone: its popup goes, the menu stays open with the keyboard",
       "do": [
         "key",
         1
       ],
       "expect": {
         "popups": 1,
-        "focus_surface": 3,
+        "focus_surface": 4,
         "absent": [
           "Copy link"
         ],
         "react": {
-          "key@message-actions": 1
+          "key@Submenu": 1
         },
-        "popup_size": [
-          266,
-          222
-        ],
         "popup_events": {
-          "reposition@message-actions": 1
-        }
+          "close@5": 1
+        },
+        "popup_rects": [
+          [
+            745,
+            473,
+            266,
+            222
+          ]
+        ]
       }
     },
     {
@@ -252,20 +282,31 @@
         106
       ],
       "expect": {
-        "popups": 1,
+        "popups": 2,
         "texts": [
           "Copy link"
         ],
         "react": {
           "key@message-actions": 1
         },
-        "popup_size": [
-          266,
-          282
-        ],
         "popup_events": {
-          "reposition@message-actions": 1
-        }
+          "open@Submenu": 1
+        },
+        "focus_surface": 6,
+        "popup_rects": [
+          [
+            745,
+            473,
+            266,
+            222
+          ],
+          [
+            1013,
+            648,
+            266,
+            72
+          ]
+        ]
       }
     },
     {
@@ -284,7 +325,11 @@
           "Chosen: Delete"
         ],
         "react": {
-          "key@message-actions": 1
+          "key@Submenu": 1
+        },
+        "popup_events": {
+          "close@4": 1,
+          "close@6": 1
         }
       }
     }

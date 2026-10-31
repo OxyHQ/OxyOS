@@ -1,19 +1,19 @@
-import React, { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
-} from "@oxy.so/bloom/dropdown-menu";
+  Menubar,
+  MenubarMenu,
+  MenubarTrigger,
+  MenubarContent,
+  MenubarItem,
+  MenubarCheckboxItem,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarSub,
+  MenubarSubTrigger,
+  MenubarSubContent,
+} from "@oxy.so/bloom/menubar";
 import { RiSearchLine } from "@oxy.so/bloom/icons/RiSearchLine";
 
 import Svg, { Rect, Circle, Path } from "react-native-svg";
@@ -21,11 +21,9 @@ import { Box } from "../primitives";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellControls, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
-import type { ShellKeyboard } from "../platform";
-import { barKey } from "../menu-bar-keys";
 
-/** A menu's entries as Bloom's rows: commands (with their check and chord), submenus and
-    separators. A choice calls `onCommand` with the entry's id; the menu closes. */
+/** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
+    and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
 function MenuEntries({
   items,
   onCommand,
@@ -39,28 +37,27 @@ function MenuEntries({
         if (item.kind === "separator") {
           return (
             <React.Fragment key={item.id}>
-              <DropdownMenuSeparator />
+              <MenubarSeparator />
             </React.Fragment>
           );
         }
         if (item.kind === "submenu") {
           return (
-            <DropdownMenuSub key={item.id}>
-              <DropdownMenuSubTrigger disabled={item.enabled === false}>
-                {item.label}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
+            <MenubarSub key={item.id}>
+              <MenubarSubTrigger disabled={item.enabled === false}>{item.label}</MenubarSubTrigger>
+              <MenubarSubContent label={item.label}>
                 <MenuEntries items={item.items} onCommand={onCommand} />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+              </MenubarSubContent>
+            </MenubarSub>
           );
         }
-        const chord = item.shortcut ? (
-          <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
-        ) : undefined;
+        // The chord as the session shows it (Ctrl, not the application's `Mod`), as the row's
+        // trailing hint. Never the row's `shortcut`: the application runs its own chords, and
+        // the shell would run them a second time.
+        const chord = item.shortcut ? <MenubarShortcut>{item.shortcut}</MenubarShortcut> : undefined;
         if (item.checked !== undefined) {
           return (
-            <DropdownMenuCheckboxItem
+            <MenubarCheckboxItem
               key={item.id}
               checked={item.checked}
               disabled={item.enabled === false}
@@ -68,18 +65,18 @@ function MenuEntries({
               onCheckedChange={() => onCommand(item.id)}
             >
               {item.label}
-            </DropdownMenuCheckboxItem>
+            </MenubarCheckboxItem>
           );
         }
         return (
-          <DropdownMenuItem
+          <MenubarItem
             key={item.id}
             disabled={item.enabled === false}
             trailing={chord}
             onPress={() => onCommand(item.id)}
           >
             {item.label}
-          </DropdownMenuItem>
+          </MenubarItem>
         );
       })}
     </>
@@ -165,6 +162,25 @@ const menuStyle = {
 const menuText = { color: "#fff", fontSize: 12, lineHeight: 16 };
 /** A menu's title with the keyboard on it, as a Mac's bar highlights it. */
 const keyboardHighlight = "#ffffff38";
+/** The bar is the panel's own row over the wallpaper: none of Bloom's in-window bar chrome. */
+const barStyle = {
+  height: 28,
+  paddingTop: 0,
+  paddingBottom: 0,
+  paddingLeft: 0,
+  paddingRight: 0,
+  gap: 0,
+  borderWidth: 0,
+  borderRadius: 0,
+  backgroundColor: "transparent",
+  boxShadow: "0 0 0 0 transparent",
+};
+/** The Oxy menu's value in the bar; the window's menus are theirs by place and name. */
+const OXY = "oxy";
+const menuValue = (index: number, menu: ShellMenu) => `${index}:${menu.label}`;
+/** A menu hangs just under the bar, its rows' text under its title's (Bloom's own `alignOffset`). */
+const MENU_SIDE_OFFSET = 4;
+
 export function TopBar({
   menus,
   now,
@@ -177,7 +193,6 @@ export function TopBar({
   clock,
   keyboardRequest = 0,
   keyboardLost = 0,
-  keyboard,
   onKeyboard,
   returnKeyboard,
 }: {
@@ -200,8 +215,6 @@ export function TopBar({
   keyboardRequest?: number;
   /** Rises when the keyboard left the bar and its menus (a press in a window): the bar lets go. */
   keyboardLost?: number;
-  /** The platform's keys before anything else, which drive the bar while it has the keyboard. */
-  keyboard?: ShellKeyboard;
   /** Whether the bar wants the keyboard: its surface asks the platform for it. */
   onKeyboard?: (wanted: boolean) => void;
   /** Gives the keyboard back to the window that had it (the active one), as the bar is left. */
@@ -209,179 +222,114 @@ export function TopBar({
 }) {
   const battery = batteryLabel(controls?.power);
   const wifi = wifiLabel(controls?.network);
-  // The bar from the keyboard: the menu whose title has the keyboard (0 the Oxy menu, then the
-  // active window's), and the one open; null when the keyboard is elsewhere.
-  const count = menus.length + 1;
-  const [focused, setFocused] = useState<number | null>(null);
-  const [open, setOpen] = useState<number | null>(null);
-  // Whether the open menu was opened from the bar's keys: it then starts on its first row, as a
-  // Mac's does (Bloom's `openFocus`); one opened by a press starts with none.
-  const [byKeys, setByKeys] = useState(false);
-  const titles = useRef<(React.ComponentRef<typeof View> | null)[]>([]);
-  const state = useRef({ focused, open, count });
-  state.current = { focused, open, count };
-  const leave = (giveBack: boolean) => {
-    setFocused(null);
-    setOpen(null);
-    onKeyboard?.(false);
-    if (giveBack) returnKeyboard?.();
-  };
+  // The bar is Bloom's Menubar: the menu open, and the menu whose title has the keyboard (the
+  // bar driven from it, Bloom's `focusValue`), undefined when the keyboard is elsewhere. Bloom
+  // takes the bar's keys while it has the keyboard (← →, ↓ Return Space, a letter, Escape) and
+  // the open menu's (its rows, its submenus).
+  const values = [OXY, ...menus.map((menu, index) => menuValue(index, menu))];
+  const [open, setOpen] = useState<string | undefined>(undefined);
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  // Whether the bar holds the keyboard: leaving is said to the platform once, however many ways
+  // it is left at once (a row chosen leaves before its command runs, and Bloom leaves again).
+  const holding = useRef(false);
+  const leave = useCallback(
+    (giveBack: boolean) => {
+      setFocused(undefined);
+      setOpen(undefined);
+      if (!holding.current) return;
+      holding.current = false;
+      onKeyboard?.(false);
+      if (giveBack) returnKeyboard?.();
+    },
+    [onKeyboard, returnKeyboard],
+  );
   const first = useRef(keyboardRequest);
   useEffect(() => {
     if (keyboardRequest === first.current) return;
     first.current = keyboardRequest;
-    setOpen(null);
-    setFocused(0);
+    setOpen(undefined);
+    setFocused(OXY);
+    holding.current = true;
     onKeyboard?.(true);
   }, [keyboardRequest]);
   const lost = useRef(keyboardLost);
   useEffect(() => {
     if (keyboardLost === lost.current) return;
     lost.current = keyboardLost;
-    if (state.current.focused !== null) leave(false);
+    if (holding.current) leave(false);
   }, [keyboardLost]);
-  // The assistive technology's focus follows the keyboard's title, as VoiceOver's does.
-  useEffect(() => {
-    if (focused === null || open !== null) return;
-    const view = titles.current[focused];
-    if (view) AccessibilityInfo.sendAccessibilityEvent(view, "focus");
-  }, [focused, open]);
   // The menus the bar shows can change under the keyboard (another window active): it stays on
-  // the bar, within it.
+  // the bar, on its last menu.
+  const last = values[values.length - 1];
   useEffect(() => {
-    if (focused !== null && focused >= count) setFocused(count - 1);
-  }, [count, focused]);
-  useEffect(() => {
-    if (focused === null || !keyboard) return;
-    return keyboard.subscribe((event) => {
-      const now = state.current;
-      if (now.focused === null) return false;
-      const action = barKey(event, now.open !== null);
-      switch (action) {
-        case "previous":
-        case "next": {
-          const step = action === "next" ? 1 : -1;
-          const to = (now.focused + step + now.count) % now.count;
-          setFocused(to);
-          if (now.open !== null) {
-            setByKeys(true);
-            setOpen(to);
-          }
-          return true;
-        }
-        case "open":
-          setByKeys(true);
-          setOpen(now.focused);
-          return true;
-        case "leave":
-          leave(true);
-          return true;
-        default:
-          return false;
-      }
-    });
-  }, [focused === null, keyboard]);
+    if (focused !== undefined && !values.includes(focused)) setFocused(last);
+  }, [focused, values.join("\n")]);
   // A row chosen from the keyboard leaves the bar, the keyboard back with the window first, so
   // the command acts where the person was (or moves it on, as the launcher's search does).
   const choose = (run: () => void) => () => {
-    if (state.current.focused !== null) leave(true);
+    if (holding.current) leave(true);
     run();
   };
   const command = (id: string) => choose(() => onCommand(id))();
-  const opened = (index: number) => ({
-    open: open === index,
-    openFocus: open === index && byKeys ? ("first" as const) : undefined,
-    onOpenChange: (next: boolean) => {
-      // Opened by its trigger (a press): no row active.
-      if (next) setByKeys(false);
-      setOpen((current) => (next ? index : current === index ? null : current));
-    },
-  });
-  const title = (index: number) => (view: React.ComponentRef<typeof View> | null) => {
-    titles.current[index] = view;
-  };
-  const highlight = (index: number) =>
-    focused === index ? { backgroundColor: keyboardHighlight } : undefined;
+  const highlight = (value: string) =>
+    focused === value ? { backgroundColor: keyboardHighlight } : undefined;
   return (
     <Box
       testID="shell-topbar"
       className="h-7 shrink-0 flex-row items-center justify-between px-3"
       style={{ zIndex: 30 }}
     >
-      <Box className="flex-row items-center gap-0">
-        <DropdownMenu {...opened(0)}>
-          <View ref={title(0)} collapsable={false} style={[{ borderRadius: 4 }, highlight(0)]}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                iconOnly
-                icon={OxyLogo}
-                accessibilityLabel="Menú de Oxy"
-                appearance="plain"
-                className="h-7 w-8 border-0 bg-transparent p-0"
-                iconSize={17}
-                colors={{ background: "transparent", foreground: "#fff" }}
-              />
-            </DropdownMenuTrigger>
-          </View>
-          <DropdownMenuContent
-            align="start"
-            label="Oxy"
-            size="sm"
-            minWidth={220}
-            className="rounded-lg"
-            style={{ borderRadius: 8 }}
-          >
-            <DropdownMenuItem onPress={() => command("system.settings")}>
-              Ajustes del sistema
-            </DropdownMenuItem>
-            <DropdownMenuItem onPress={choose(launcher)}>Aplicaciones</DropdownMenuItem>
-            <DropdownMenuItem onPress={choose(overview)}>
-              Ver escritorios
-            </DropdownMenuItem>
+      <Menubar
+        label="Barra de menús"
+        value={open}
+        onValueChange={setOpen}
+        focusValue={focused}
+        onFocusValueChange={(value) => (value === undefined ? leave(true) : setFocused(value))}
+        style={barStyle}
+      >
+        <MenubarMenu value={OXY}>
+          <MenubarTrigger asChild label="Menú de Oxy" style={[{ borderRadius: 4 }, highlight(OXY)]}>
+            <Button
+              iconOnly
+              icon={OxyLogo}
+              accessibilityLabel="Menú de Oxy"
+              appearance="plain"
+              className="h-7 w-8 border-0 bg-transparent p-0"
+              iconSize={17}
+              colors={{ background: "transparent", foreground: "#fff" }}
+            />
+          </MenubarTrigger>
+          <MenubarContent label="Oxy" sideOffset={MENU_SIDE_OFFSET}>
+            <MenubarItem onPress={() => command("system.settings")}>Ajustes del sistema</MenubarItem>
+            <MenubarItem onPress={choose(launcher)}>Aplicaciones</MenubarItem>
+            <MenubarItem onPress={choose(overview)}>Ver escritorios</MenubarItem>
             {canLock && (
-              <DropdownMenuItem onPress={() => command("session.lock")}>
-                Bloquear pantalla
-              </DropdownMenuItem>
+              <MenubarItem onPress={() => command("session.lock")}>Bloquear pantalla</MenubarItem>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {menus.map((menu, index) => (
-          <DropdownMenu key={`${index}:${menu.label}`} {...opened(index + 1)}>
-            <View ref={title(index + 1)} collapsable={false} style={[{ borderRadius: 4 }, highlight(index + 1)]}>
-              <DropdownMenuTrigger asChild>
+          </MenubarContent>
+        </MenubarMenu>
+        {menus.map((menu, index) => {
+          const value = menuValue(index, menu);
+          const weight = index === 0 ? ("600" as const) : ("400" as const);
+          return (
+            <MenubarMenu key={value} value={value}>
+              <MenubarTrigger asChild label={menu.label} style={[{ borderRadius: 4 }, highlight(value)]}>
                 <Button
                   appearance="plain"
                   className="h-7 rounded border-0 bg-transparent px-2"
                   style={menuStyle}
-                  textStyle={{
-                    ...menuText,
-                    fontWeight: index === 0 ? "600" : "400",
-                  }}
+                  textStyle={{ ...menuText, fontWeight: weight }}
                 >
-                  <Text
-                    style={{
-                      ...menuText,
-                      fontWeight: index === 0 ? "600" : "400",
-                    }}
-                  >
-                    {menu.label}
-                  </Text>
+                  <Text style={{ ...menuText, fontWeight: weight }}>{menu.label}</Text>
                 </Button>
-              </DropdownMenuTrigger>
-            </View>
-            <DropdownMenuContent
-              align="start"
-              label={menu.label}
-              size="sm"
-              minWidth={220}
-              className="rounded-lg"
-              style={{ borderRadius: 8 }}
-            >
-              <MenuEntries items={menu.items} onCommand={command} />
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ))}
-      </Box>
+              </MenubarTrigger>
+              <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
+                <MenuEntries items={menu.items} onCommand={command} />
+              </MenubarContent>
+            </MenubarMenu>
+          );
+        })}
+      </Menubar>
       <Box className="flex-row items-center gap-2.5">
         <Box className="flex-row items-center gap-4">
           {battery !== undefined && controls?.power && (
