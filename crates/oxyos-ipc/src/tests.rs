@@ -1,5 +1,5 @@
 use super::*;
-use oxyos_protocol::{Format, Size, MIN_VERSION, VERSION};
+use oxyos_protocol::{write_event, Format, Size, MIN_VERSION, VERSION};
 use std::os::unix::fs::MetadataExt;
 
 fn layout(width: u32, height: u32) -> BufferLayout {

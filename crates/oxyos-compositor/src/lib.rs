@@ -1093,6 +1093,14 @@ impl Compositor {
             Ok(None) => {}
             Err(code) => return self.fail(client, code),
         }
+        // A request of a newer version than the connection's is not one it has (ADR 0033).
+        if peer
+            .protocol
+            .version()
+            .is_some_and(|version| oxyos_protocol::request_since(&request) > version)
+        {
+            return self.fail(client, ErrorCode::InvalidMessage);
+        }
         let opcode = request.opcode();
         let fd = match (request, fd) {
             (Request::ClipboardReceive { .. }, Some(pipe)) => {
@@ -1245,11 +1253,14 @@ impl Compositor {
         }
         let mut unresponsive = Vec::new();
         for (client, peer) in &mut self.peers {
+            // Each client's events as its version defines them (ADR 0033).
+            let version = peer.protocol.version().unwrap_or(oxyos_protocol::VERSION);
             while let Some((event, pipe)) = peer.outbox.front() {
-                match peer
-                    .connection
-                    .try_send_event(event, pipe.as_ref().map(|pipe| pipe.as_fd()))
-                {
+                match peer.connection.try_send_event_for(
+                    event,
+                    pipe.as_ref().map(|pipe| pipe.as_fd()),
+                    version,
+                ) {
                     Ok(true) => {
                         peer.outbox.pop_front();
                     }

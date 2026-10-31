@@ -10,6 +10,7 @@
 use std::io::{self, Read, Write};
 
 mod schema;
+mod versions;
 mod wire;
 
 pub use schema::{Event, Request};
@@ -23,9 +24,13 @@ pub use wire::{
     TEXT_CHUNK_BYTES,
 };
 
-/// Lowest and highest protocol versions this implementation speaks.
-pub const MIN_VERSION: u16 = 3;
+/// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
+/// version from the oldest still supported to the current one, encoding each connection's events
+/// as its version defines them.
+pub const MIN_VERSION: u16 = 2;
 pub const VERSION: u16 = 3;
+
+pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
 /// The longest password a lock surface may give (ADR 0010), as Linux-PAM's longest answer.
