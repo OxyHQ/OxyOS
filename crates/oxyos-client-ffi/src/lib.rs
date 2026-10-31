@@ -14,9 +14,9 @@ use oxyos_client::{
 };
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
-    CaptureKind, Control, Event, Format,
-    Gravity, MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
-    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
+    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, PanelEdge, Politeness,
+    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk, TextHints,
+    TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;

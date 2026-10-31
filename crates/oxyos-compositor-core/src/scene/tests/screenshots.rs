@@ -144,7 +144,11 @@ fn super_shift_3_captures_every_display_and_its_keys_reach_nobody() {
     shot(&mut h, KEY_3);
     let events = logged(&mut h);
     assert_eq!(typed_to(&events, APP), []);
-    assert_eq!(modes_to(&events, SHELL), [], "no interface for the whole screen");
+    assert_eq!(
+        modes_to(&events, SHELL),
+        [],
+        "no interface for the whole screen"
+    );
     assert_eq!(
         h.scene.take_captures(),
         [CaptureRequest::Screens {
@@ -206,7 +210,10 @@ fn super_shift_4_opens_the_crosshair_on_every_display_and_its_keys_are_the_syste
     keys(&mut h, &[ESCAPE]);
     let events = logged(&mut h);
     assert_eq!(modes_to(&events, SHELL), [(CaptureMode::Ended, serial, 1)]);
-    assert_eq!(modes_to(&events, SHELL_2), [(CaptureMode::Ended, serial, 1)]);
+    assert_eq!(
+        modes_to(&events, SHELL_2),
+        [(CaptureMode::Ended, serial, 1)]
+    );
     assert_eq!(typed_to(&events, APP), []);
     assert!(!h.scene.capturing());
     assert_eq!(h.scene.take_captures(), []);
@@ -272,7 +279,13 @@ fn the_shell_captures_what_it_was_told_to_show_and_nothing_else() {
     );
     h.request(
         SHELL,
-        capture(serial + 1, CaptureKind::Screens, 0, Rect::new(0, 0, 0, 0), 0),
+        capture(
+            serial + 1,
+            CaptureKind::Screens,
+            0,
+            Rect::new(0, 0, 0, 0),
+            0,
+        ),
     )
     .unwrap();
     assert_eq!(h.scene.take_captures(), []);
@@ -331,7 +344,13 @@ fn the_shell_captures_what_it_was_told_to_show_and_nothing_else() {
     keys(&mut h, &[SPACE]);
     h.request(
         SHELL,
-        capture(serial, CaptureKind::Window, 0, Rect::new(0, 0, 0, 0), number),
+        capture(
+            serial,
+            CaptureKind::Window,
+            0,
+            Rect::new(0, 0, 0, 0),
+            number,
+        ),
     )
     .unwrap();
     assert_eq!(
@@ -628,4 +647,48 @@ fn a_saved_screenshot_is_told_to_the_shell_of_its_display() {
     assert!(chunks.last().unwrap().5 && chunks.iter().filter(|c| c.5).count() == 1);
     let told: String = chunks.iter().map(|c| c.6.as_str()).collect();
     assert_eq!(told, path);
+}
+
+#[test]
+fn a_press_on_the_interface_moves_no_focus_and_the_window_stays_active() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    // The crosshair: a shell overlay over the whole display.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 2,
+            kind: ShellKind::Overlay,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(1920, 1080),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 2));
+    h.activate(window);
+    shot(&mut h, KEY_4);
+    logged(&mut h);
+    let rect = h.rect(window);
+    h.click(rect.x + 10, rect.y + 10);
+    let events = logged(&mut h);
+    // The overlay has the press; the window keeps the keyboard and stays the active one.
+    assert!(to(&events, SHELL).iter().any(|event| matches!(
+        event,
+        Event::Pointer {
+            kind: PointerKind::Press,
+            ..
+        }
+    )));
+    assert!(!to(&events, APP)
+        .iter()
+        .any(|event| matches!(event, Event::Focus { .. } | Event::Activated { .. })));
+    assert_eq!(h.scene.focus(), Some(window));
+    // Closed, a press on a shell overlay is as before.
+    keys(&mut h, &[ESCAPE]);
+    h.click(rect.x + 10, rect.y + 10);
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 2)));
 }

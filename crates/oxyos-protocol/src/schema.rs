@@ -4,11 +4,11 @@
 use crate::wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState,
     AuthOutcome, BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock,
-    Control, DismissReason, ErrorCode, Format,
-    GesturePhase, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
-    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
-    ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
-    TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    Control, DismissReason, ErrorCode, Format, GesturePhase, MenuField, MenuFlags, MenuKind,
+    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
+    SecretChunk, ShellKind, Size, SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind,
+    WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;

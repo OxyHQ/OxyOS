@@ -252,7 +252,9 @@ fn main() -> Result<()> {
     // and Documents where xdg-user-dirs keeps them, named in the session's language, with the
     // sound theme's shutter. The login screen captures nothing.
     if !greeter {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
         let config_home = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
@@ -260,9 +262,7 @@ fn main() -> Result<()> {
         let folders = Box::new(move |destination| {
             let (variable, default) = match destination {
                 oxyos_protocol::CaptureDestination::Desktop => ("XDG_DESKTOP_DIR", "Desktop"),
-                oxyos_protocol::CaptureDestination::Documents => {
-                    ("XDG_DOCUMENTS_DIR", "Documents")
-                }
+                oxyos_protocol::CaptureDestination::Documents => ("XDG_DOCUMENTS_DIR", "Documents"),
             };
             oxyos_preferences::user_dirs::folder(&config_home, &home, variable, default)
         });

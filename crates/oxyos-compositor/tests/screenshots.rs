@@ -95,11 +95,7 @@ fn application(socket: std::path::PathBuf, seed: u32, secure: Option<Rect>) {
 
 /// The shell: its background on the primary and an overlay it leaves out of captures (a green
 /// square), forwarding what it is told of screenshots and windows, and sending what it is given.
-fn shell(
-    socket: std::path::PathBuf,
-    told: mpsc::Sender<Event>,
-    send: mpsc::Receiver<Request>,
-) {
+fn shell(socket: std::path::PathBuf, told: mpsc::Sender<Event>, send: mpsc::Receiver<Request>) {
     std::thread::spawn(move || {
         let mut shell = Client::connect(&socket).unwrap();
         for (surface, kind) in [(1, ShellKind::Background), (2, ShellKind::Overlay)] {
@@ -122,10 +118,15 @@ fn shell(
             .unwrap();
         loop {
             match shell.poll() {
-                Ok(oxyos_client::Poll::Event(Event::Configure { surface, serial, .. })) => {
+                Ok(oxyos_client::Poll::Event(Event::Configure {
+                    surface, serial, ..
+                })) => {
                     let (format, pixels): (Format, Vec<u8>) = if surface == 1 {
                         let colour = (0xff00_0000 | BACKGROUND).to_le_bytes();
-                        (Format::Xrgb8888, colour.repeat((LEFT.width * LEFT.height) as usize))
+                        (
+                            Format::Xrgb8888,
+                            colour.repeat((LEFT.width * LEFT.height) as usize),
+                        )
                     } else {
                         let mut pixels = vec![0; (LEFT.width * LEFT.height * 4) as usize];
                         for y in SQUARE.y..SQUARE.y + SQUARE.height as i32 {
@@ -334,10 +335,7 @@ fn every_display_is_captured_as_its_screen_composed_it_at_its_own_pixels() {
     // The right screen at 1.25: its real pixels, the window's 100 × 60 drawn as its 125 × 75.
     let right = &shot.captures[1];
     let window = s.rect(2);
-    let (wx, wy) = (
-        on_right(window.x - RIGHT.x),
-        on_right(window.y - RIGHT.y),
-    );
+    let (wx, wy) = (on_right(window.x - RIGHT.x), on_right(window.y - RIGHT.y));
     let drawn = pattern(Size::new(125, 75), 90);
     let at = |x: u32, y: u32| {
         let i = ((y * 125 + x) * 4) as usize;
@@ -399,11 +397,21 @@ fn an_area_at_1_25_is_the_pixels_its_rectangle_covers() {
     let capture = &shot.captures[0];
     // (60, 50) to (180, 130) logical on the screen are pixels (75, 63) to (225, 163), its edges
     // rounded as the screen places them.
-    assert_eq!((capture.output, capture.width, capture.height), (2, 150, 100));
+    assert_eq!(
+        (capture.output, capture.width, capture.height),
+        (2, 150, 100)
+    );
     assert_eq!(capture.pixels, crop(&s.compositor, 1, (75, 63, 225, 163)));
     // The crosshair ended with it.
     s.told("the end", |event| {
-        matches!(event, Event::CaptureMode { mode: CaptureMode::Ended, .. }).then_some(())
+        matches!(
+            event,
+            Event::CaptureMode {
+                mode: CaptureMode::Ended,
+                ..
+            }
+        )
+        .then_some(())
     });
     assert!(!s.compositor.scene.capturing());
 }
@@ -443,10 +451,7 @@ fn a_window_is_captured_with_its_shadow_over_nothing() {
     assert!(left > 0 && top > 0 && right < capture.width - 1 && bottom < capture.height - 1);
     // Inside its corners, its own pixels, exactly the screen's.
     let window = s.rect(2);
-    let (wx, wy) = (
-        on_right(window.x - RIGHT.x),
-        on_right(window.y - RIGHT.y),
-    );
+    let (wx, wy) = (on_right(window.x - RIGHT.x), on_right(window.y - RIGHT.y));
     for y in 16..75 - 16 {
         for x in 16..125 - 16 {
             assert_eq!(
@@ -503,14 +508,8 @@ fn the_session_writes_each_displays_png_and_tells_the_shell() {
     let mut s = session("writer");
     let desktop = s.directory.0.join("home/Escritorio");
     let folder = desktop.clone();
-    s.compositor.screenshots = Some(
-        Writer::spawn(
-            Box::new(move |_| folder.clone()),
-            Language::Spanish,
-            None,
-        )
-        .unwrap(),
-    );
+    s.compositor.screenshots =
+        Some(Writer::spawn(Box::new(move |_| folder.clone()), Language::Spanish, None).unwrap());
     s.shortcut(KEY_3);
     // Each screenshot's path in chunks, by its number: (output, width, height, path, whole).
     let mut told: std::collections::BTreeMap<u32, (u32, u32, u32, String, bool)> =
@@ -526,7 +525,14 @@ fn the_session_writes_each_displays_png_and_tells_the_shell() {
                     last,
                     text,
                     ..
-                } => Some((screenshot, output, width, height, last, text.as_str().to_owned())),
+                } => Some((
+                    screenshot,
+                    output,
+                    width,
+                    height,
+                    last,
+                    text.as_str().to_owned(),
+                )),
                 _ => None,
             });
         let entry = told
@@ -563,7 +569,10 @@ fn the_session_writes_each_displays_png_and_tells_the_shell() {
         .unwrap();
     let mut data = vec![0; reader.output_buffer_size().unwrap()];
     let info = reader.next_frame(&mut data).unwrap();
-    assert_eq!((info.width, info.height, info.color_type), (500, 375, png::ColorType::Rgb));
+    assert_eq!(
+        (info.width, info.height, info.color_type),
+        (500, 375, png::ColorType::Rgb)
+    );
     let screen = &s.compositor.screens[1];
     for (index, rgb) in data[..info.buffer_size()].chunks_exact(3).enumerate() {
         let (x, y) = (index as u32 % 500, index as u32 / 500);

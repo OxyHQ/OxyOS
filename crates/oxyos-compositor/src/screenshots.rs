@@ -142,7 +142,9 @@ pub fn encode_png(capture: &Capture) -> io::Result<Vec<u8>> {
                     let straight = |c: u8| match a {
                         0 => 0,
                         255 => c,
-                        a => ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8,
+                        a => {
+                            ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8
+                        }
                     };
                     data.extend([straight(r), straight(g), straight(b), a]);
                 }
@@ -259,7 +261,8 @@ impl Writer {
                     });
                     let mut first = 1;
                     for (screenshot, capture) in job.captures {
-                        let names = (first..first + MAX_NAMES).map(|n| job.language.file_name(job.at, n));
+                        let names =
+                            (first..first + MAX_NAMES).map(|n| job.language.file_name(job.at, n));
                         let path = encode_png(&capture)
                             .and_then(|bytes| write_new(&job.folder, names, &bytes))
                             .map(|(path, index)| {
@@ -379,16 +382,17 @@ mod tests {
             Language::of(&["es_ES".into(), "es".into()]),
             Language::Spanish
         );
-        assert_eq!(Language::of(&["fr_FR".into(), "en".into()]), Language::English);
+        assert_eq!(
+            Language::of(&["fr_FR".into(), "en".into()]),
+            Language::English
+        );
         assert_eq!(Language::of(&[]), Language::English);
         assert_eq!(Language::of(&["de_DE".into()]), Language::English);
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "oxyos-screenshots-{name}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("oxyos-screenshots-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -399,7 +403,10 @@ mod tests {
         let names = || (1..4).map(|n| Language::English.file_name(at(), n));
         let (first, index) = write_new(&dir.join("Desktop"), names(), b"one").unwrap();
         assert_eq!(index, 0);
-        assert_eq!(first, dir.join("Desktop/Screenshot 2026-10-31 at 09.04.05.png"));
+        assert_eq!(
+            first,
+            dir.join("Desktop/Screenshot 2026-10-31 at 09.04.05.png")
+        );
         // The same second again: the next number, the first left as it was.
         let (second, index) = write_new(&dir.join("Desktop"), names(), b"two").unwrap();
         assert_eq!(index, 1);
@@ -495,7 +502,10 @@ mod tests {
                 desktop.join("Captura de pantalla 2026-10-31 a las 09.04.05 (2).png"),
             ]
         );
-        assert_eq!((saved[1].output, saved[1].width, saved[1].height), (2, 4, 2));
+        assert_eq!(
+            (saved[1].output, saved[1].width, saved[1].height),
+            (2, 4, 2)
+        );
         assert_eq!(writer.path(2), Some(paths[1].as_path()));
         assert!(!documents.exists());
         std::fs::remove_dir_all(dir).unwrap();

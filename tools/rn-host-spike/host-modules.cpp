@@ -20,6 +20,7 @@
 #include <optional>
 #include <random>
 #include <set>
+#include <string_view>
 #include <tuple>
 #include <unistd.h>
 
@@ -1093,10 +1094,16 @@ std::shared_ptr<TurboModule> createHostModule(
         "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID")));
   } else if (name == "IntentAndroid") {
     // React Native's Linking, as its Android module answers it. OxyOS starts an application from
-    // its registry entry, never from a link, so it was opened by none; and no application on
-    // OxyOS opens links yet (there is no browser, nor a handler for a scheme), so none can be
-    // opened: asked, it says so, and opening one fails with the reason.
+    // its registry entry, never from a link: its initial URL is the file the session started it to
+    // open, if it did (a screenshot's thumbnail pressed, `file://`, its launch record's,
+    // docs/adr/0028-file-access.mdx, decision 6), as an Android intent's data is; else none. No
+    // application on OxyOS opens links yet (there is no browser, nor a handler for a scheme), so
+    // none can be opened: asked, it says so, and opening one fails with the reason.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      const char* url = std::getenv("OXYOS_LAUNCH_URL");
+      if (url && std::string_view(url).starts_with("file://")) {
+        return resolved(rt, jsi::String::createFromUtf8(rt, url));
+      }
       return resolved(rt, jsi::Value::null());
     });
     module->method("canOpenURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {

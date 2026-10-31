@@ -45,6 +45,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - screen_pixels: with the scenario's `outputs`, each output's by id: "x,y" in its own pixels
   (at its scale) -> "#rrggbb";
 - window_shown: whether the application's window is on the screen (a minimized one is not);
+- screenshots: with the scenario's `screenshots` (files written as the session writes them, in the
+  run's own Desktop and Documents, docs/adr/0024-system-shortcuts.mdx), the files saved in the
+  step, exactly and in order ("saved": each its "name" as a regular expression, "folder", "output",
+  "width", "height", "alpha" and "pixels" read from the PNG, "x,y" -> "#rrggbb" or "#rrggbbaa"),
+  and the screenshots the shell opened ("opened": each the "application" started for it); a step
+  that saves one and does not say so fails;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -670,6 +676,99 @@ def png_pixel_reader(path):
         return tuple(raw[at:at + 3])
 
     return pixel
+
+
+def png_reader(path):
+    """A function giving the colour at (x, y) of an 8-bit RGB or RGBA PNG, any filter (a
+    screenshot the session wrote, docs/adr/0024-system-shortcuts.mdx): (r, g, b) or (r, g, b, a);
+    and its width, height and colour type."""
+    data = pathlib.Path(path).read_bytes()
+    width, height, depth, kind = struct.unpack(">IIBB", data[16:26])
+    if depth != 8 or kind not in (2, 6):
+        raise ValueError(f"{path}: not 8-bit RGB or RGBA (depth {depth}, colour type {kind})")
+    channels = 3 if kind == 2 else 4
+    compressed, at = b"", 8
+    while at < len(data):
+        length, chunk = struct.unpack(">I4s", data[at:at + 8])
+        if chunk == b"IDAT":
+            compressed += data[at + 8:at + 8 + length]
+        at += 12 + length
+    raw, stride = zlib.decompress(compressed), width * channels
+    rows, previous = [], bytearray(stride)
+    for y in range(height):
+        kind_of_filter = raw[y * (stride + 1)]
+        line = bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        for i in range(stride):
+            left = line[i - channels] if i >= channels else 0
+            up = previous[i]
+            corner = previous[i - channels] if i >= channels else 0
+            if kind_of_filter == 1:
+                line[i] = (line[i] + left) & 0xff
+            elif kind_of_filter == 2:
+                line[i] = (line[i] + up) & 0xff
+            elif kind_of_filter == 3:
+                line[i] = (line[i] + (left + up) // 2) & 0xff
+            elif kind_of_filter == 4:
+                p = left + up - corner
+                pa, pb, pc = abs(p - left), abs(p - up), abs(p - corner)
+                line[i] = (line[i] + (left if pa <= pb and pa <= pc else up if pb <= pc else corner)) & 0xff
+        rows.append(line)
+        previous = line
+
+    def pixel(x, y):
+        if not (0 <= x < width and 0 <= y < height):
+            raise ValueError(f"{path}: ({x}, {y}) is outside {width}x{height}")
+        return tuple(rows[y][x * channels:(x + 1) * channels])
+
+    return pixel, width, height, kind
+
+
+def check_screenshots(wanted, result, fail):
+    """The step's `screenshots` (docs/adr/0024-system-shortcuts.mdx, decision 10): the files the
+    session saved in it, exactly and in order, each matching the keys given ("name", a regular
+    expression for its file's name; "folder", the run's folder it is in; "output", "width",
+    "height"; "alpha", whether it has an alpha channel (a window's); "pixels", "x,y" in its own
+    pixels -> "#rrggbb" or "#rrggbbaa"), and the screenshots the shell opened, each the application
+    started for it ("application")."""
+    told = result.get("screenshots") or {"saved": [], "opened": []}
+    saved = told["saved"]
+    if "saved" in wanted and len(saved) != len(wanted["saved"]):
+        fail(f"screenshots saved: {saved}, expected {len(wanted['saved'])}")
+    for want, got in zip(wanted.get("saved", []), saved):
+        if "error" in got:
+            fail(f"a screenshot was not saved: {got['error']}")
+            continue
+        path = pathlib.Path(got["path"])
+        if "name" in want and not re.fullmatch(want["name"], path.name):
+            fail(f"screenshot named {path.name!r}, expected {want['name']!r}")
+        if "folder" in want and path.parent.name != want["folder"]:
+            fail(f"screenshot in {path.parent}, expected the run's {want['folder']}")
+        for key in ("output", "width", "height"):
+            if key in want and got.get(key) != want[key]:
+                fail(f"screenshot {path.name}: {key} {got.get(key)}, expected {want[key]}")
+        if not path.is_file():
+            fail(f"screenshot {path} is not there")
+            continue
+        pixel, width, height, kind = png_reader(path)
+        if (width, height) != (got["width"], got["height"]):
+            fail(f"screenshot {path.name} is {width}x{height}, told {got['width']}x{got['height']}")
+        if "alpha" in want and (kind == 6) != want["alpha"]:
+            fail(f"screenshot {path.name}: alpha {kind == 6}, expected {want['alpha']}")
+        tolerance = want.get("pixel_tolerance", 0)
+        for point, colour in want.get("pixels", {}).items():
+            x, y = (int(value) for value in point.split(","))
+            expected = tuple(int(colour[i:i + 2], 16) for i in range(1, len(colour), 2))
+            got_colour = pixel(x, y)[:len(expected)]
+            if any(abs(a - b) > tolerance for a, b in zip(got_colour, expected)):
+                fail(f"screenshot {path.name} pixel {point} is "
+                     f"#{''.join(f'{c:02x}' for c in pixel(x, y))}, expected {colour}")
+    opened = told["opened"]
+    if "opened" in wanted:
+        if [o.get("application") for o in opened] != [w.get("application") for w in wanted["opened"]]:
+            fail(f"screenshots opened: {opened}, expected {wanted['opened']}")
+        for got in opened:
+            if not any(got["path"] == s.get("path") for s in saved) and not pathlib.Path(got["path"]).is_file():
+                fail(f"opened {got['path']}, which is not a screenshot saved")
 
 
 def check_pixels(name, expect, screenshot, window, fail):
@@ -1407,6 +1506,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 matches = got == value
             if not matches:
                 fail(f"the machine's {key} is {got!r}, expected {value!r}")
+    if "screenshots" in expect:
+        check_screenshots(expect["screenshots"], result, fail)
+    elif (result.get("screenshots") or {}).get("saved"):
+        fail(f"screenshots saved, none expected: {result['screenshots']['saved']}")
     if "window_shown" in expect and result.get("window_shown") != expect["window_shown"]:
         fail(f"window shown: {result.get('window_shown')}, expected {expect['window_shown']}")
     if "preferences" in expect:
@@ -1791,6 +1894,11 @@ def main():
     if scenario.get("outputs"):
         # Several outputs (ADR 0018), a shell on each.
         command += ["--outputs", scenario["outputs"]]
+    if scenario.get("screenshots"):
+        # Screenshots written as the session writes them (ADR 0024, decision 10), in the run's own
+        # Desktop and Documents.
+        shutil.rmtree(out / "screenshots", ignore_errors=True)
+        command += ["--screenshots", str(out / "screenshots")]
     if scenario.get("displays"):
         # The session's displays (ADR 0018), on virtual connectors described in a file of the run's
         # own: identity, kind, size in mm, modes (the preferred one marked), connector and name.

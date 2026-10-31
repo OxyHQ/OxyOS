@@ -1471,7 +1471,10 @@ fn screenshots_are_version_5_and_never_reach_an_older_peer() {
         destination: CaptureDestination::Desktop,
     };
     assert_eq!(request_since(&capture), 5);
-    assert_eq!(request_since(&Request::ClearSecureRegions { surface: 1 }), 5);
+    assert_eq!(
+        request_since(&Request::ClearSecureRegions { surface: 1 }),
+        5
+    );
     assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
     assert_eq!(negotiate(2, 5), Ok(5));
     assert_eq!(negotiate(2, 4), Ok(4));

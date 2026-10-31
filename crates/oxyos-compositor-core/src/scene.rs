@@ -3341,7 +3341,9 @@ impl Scene {
                 self.consume_press();
                 return;
             };
-            if self.grab.is_empty() {
+            // The screenshot interface's surfaces take presses, never the keyboard: the active
+            // application stays active (ADR 0024, decision 10).
+            if self.grab.is_empty() && !self.shows_capture_interface(target) {
                 let root = self.root_of(target);
                 let blocked = target == root && self.focus_target(root) != root;
                 self.activate(target);
@@ -4024,14 +4026,14 @@ pub use window_views::fitted;
 mod controls;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
-/// The system shortcuts and applications' windows (ADR 0024).
-mod shortcuts;
 /// Screenshots (ADR 0024, decision 10).
 mod screenshots;
-pub use screenshots::CaptureRequest;
+/// The system shortcuts and applications' windows (ADR 0024).
+mod shortcuts;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
 };
+pub use screenshots::CaptureRequest;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

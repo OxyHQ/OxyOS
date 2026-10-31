@@ -1214,7 +1214,12 @@ impl Launcher {
     /// declares the type (`MimeType`), else `fallback` (the file manager, which shows any file).
     /// It is started with the file in its launch record and as its `Linking` initial URL. The id
     /// started and its pid.
-    pub fn open(&mut self, file: &Path, kind: &str, fallback: &str) -> Result<(String, u32), Error> {
+    pub fn open(
+        &mut self,
+        file: &Path,
+        kind: &str,
+        fallback: &str,
+    ) -> Result<(String, u32), Error> {
         let policy = self.policy();
         let (applications, _) = registry(
             &self.directories,
@@ -1226,7 +1231,10 @@ impl Launcher {
         let id = applications
             .iter()
             .find(|application| application.opens.iter().any(|opens| opens == kind))
-            .map_or_else(|| fallback.to_string(), |application| application.id.clone());
+            .map_or_else(
+                || fallback.to_string(),
+                |application| application.id.clone(),
+            );
         let pid = self.launch_opening(&id, Some(file))?;
         Ok((id, pid))
     }

@@ -2205,7 +2205,10 @@ impl Compositor {
                         .iter()
                         .position(|screen| screen.id == output)
                         .and_then(|index| self.capture_area(index, rect, &all));
-                    (oxyos_protocol::CaptureKind::Area, capture.into_iter().collect())
+                    (
+                        oxyos_protocol::CaptureKind::Area,
+                        capture.into_iter().collect(),
+                    )
                 }
                 oxyos_compositor_core::CaptureRequest::Window { window, .. } => {
                     let parts: Vec<oxyos_gpu::Layer<'_>> = shown
@@ -2216,7 +2219,10 @@ impl Compositor {
                         .map(|(_, layer)| *layer)
                         .collect();
                     let capture = self.capture_window(window, &parts);
-                    (oxyos_protocol::CaptureKind::Window, capture.into_iter().collect())
+                    (
+                        oxyos_protocol::CaptureKind::Window,
+                        capture.into_iter().collect(),
+                    )
                 }
             };
             let shot = screenshots::Shot {
@@ -2271,8 +2277,10 @@ impl Compositor {
         let screen = &self.screens[index];
         let (output, width, height, scale_120) =
             (screen.id, screen.width, screen.height, screen.scale_120);
-        let placed: Vec<oxyos_gpu::Layer<'_>> =
-            layers.iter().filter_map(|layer| screen.layer(layer)).collect();
+        let placed: Vec<oxyos_gpu::Layer<'_>> = layers
+            .iter()
+            .filter_map(|layer| screen.layer(layer))
+            .collect();
         let pixels = self.compose_capture(width, height, DESKTOP, &placed)?;
         Some(screenshots::Capture {
             output,
@@ -2355,8 +2363,10 @@ impl Compositor {
             },
             None,
         );
-        let placed: Vec<oxyos_gpu::Layer<'_>> =
-            layers.iter().filter_map(|layer| canvas.layer(layer)).collect();
+        let placed: Vec<oxyos_gpu::Layer<'_>> = layers
+            .iter()
+            .filter_map(|layer| canvas.layer(layer))
+            .collect();
         let (width, height) = (canvas.width, canvas.height);
         let black = self.compose_capture(width, height, 0x00_00_00, &placed)?;
         let white = self.compose_capture(width, height, 0xff_ff_ff, &placed)?;

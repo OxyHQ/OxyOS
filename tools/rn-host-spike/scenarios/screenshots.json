@@ -1,0 +1,21 @@
+{
+  "about": "probe",
+  "module": "EditingProbe",
+  "window": [600, 360],
+  "shell": "OxyOSShell",
+  "app": {"id": "so.oxy.allo", "title": "Allo"},
+  "locale": "es_ES.UTF-8",
+  "screenshots": true,
+  "steps": [
+    {"name": "field", "do": ["press", [300, 42]], "expect": {}},
+    {"name": "s3", "do": ["key", [125, 42, 4]], "allow_unchanged": true, "expect": {"screenshots": {}}},
+    {"name": "s4", "do": ["key", [125, 42, 5]], "allow_unchanged": true, "expect": {}},
+    {"name": "type", "do": ["type", "ab"], "allow_unchanged": true, "expect": {}},
+    {"name": "drag", "do": ["drag_output", [100, 100, 300, 250]], "allow_unchanged": true, "expect": {"screenshots": {}}},
+    {"name": "s4b", "do": ["key", [125, 42, 5]], "allow_unchanged": true, "expect": {}},
+    {"name": "space", "do": ["key", [57]], "allow_unchanged": true, "expect": {}},
+    {"name": "pick", "do": ["press_output", [640, 350]], "allow_unchanged": true, "expect": {"screenshots": {}}},
+    {"name": "s5", "do": ["key", [125, 42, 6]], "allow_unchanged": true, "expect": {}},
+    {"name": "esc", "do": ["key", [1]], "allow_unchanged": true, "expect": {}}
+  ]
+}

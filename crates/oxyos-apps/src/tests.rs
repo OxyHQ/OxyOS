@@ -225,7 +225,9 @@ fn a_file_opens_in_the_application_declaring_its_type_with_its_url() {
     let (id, pid) = launcher.open(file, "image/png", "so.oxy.files").unwrap();
     assert_eq!(id, "so.oxy.viewer");
     assert_eq!(
-        launcher.application_of(pid).and_then(|l| l.opened.as_deref()),
+        launcher
+            .application_of(pid)
+            .and_then(|l| l.opened.as_deref()),
         Some(file)
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -238,7 +240,9 @@ fn a_file_opens_in_the_application_declaring_its_type_with_its_url() {
         "so.oxy.viewer file:///home/ada/Escritorio/Captura%20de%20pantalla%202026-10-31%20a%20las%2010.04.05.png"
     );
     // A type nobody declares: the fallback, the file manager.
-    let (id, _) = launcher.open(file, "application/pdf", "so.oxy.files").unwrap();
+    let (id, _) = launcher
+        .open(file, "application/pdf", "so.oxy.files")
+        .unwrap();
     assert_eq!(id, "so.oxy.files");
     launcher.end(std::time::Duration::from_secs(2));
     let _ = std::fs::remove_file(&out);

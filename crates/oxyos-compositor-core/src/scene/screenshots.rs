@@ -222,6 +222,19 @@ impl Scene {
         }
     }
 
+    /// Whether `key` is a shell surface of a shell showing the open interface: a press on it is
+    /// the interface's, and moves no focus.
+    pub(super) fn shows_capture_interface(&self, key: SurfaceKey) -> bool {
+        self.screenshots
+            .interface
+            .as_ref()
+            .is_some_and(|interface| interface.shells.contains(&key.client))
+            && self
+                .nodes
+                .get(&key)
+                .is_some_and(|node| matches!(node.role, Role::Shell { .. }))
+    }
+
     /// Whether the screenshot interface is open (from Super+Shift+4 or 5 until it ends).
     pub fn capturing(&self) -> bool {
         self.screenshots.interface.is_some()

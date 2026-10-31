@@ -16,13 +16,12 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
-    CaptureMode, Clock, Control, DismissReason,
-    ErrorCode, Format, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
-    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
-    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size,
-    SystemShortcut, TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, CaptureDestination,
+    CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format, GesturePhase,
+    Gravity, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
+    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
+    ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
+    TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
