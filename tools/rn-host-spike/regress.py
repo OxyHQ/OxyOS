@@ -246,7 +246,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
@@ -257,8 +257,11 @@ def director_args(step):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
-    if kind in ("press_popup", "press_output", "press_secondary", "double_press"):
+    if kind in ("press_popup", "press_output", "press_secondary", "double_press", "triple_press"):
         return args + [f"--{kind.replace('_', '-')}", f"{value[0]},{value[1]}"]
+    if kind == "double_drag":
+        # A double click whose second press is held and dragged: [x0, y0, x1, y1].
+        return args + ["--double-drag", ",".join(map(str, value))]
     if kind == "scroll":
         return args + ["--scroll", f"{value[0]},{value[1]},{value[2]}"]
     if kind == "pinch":

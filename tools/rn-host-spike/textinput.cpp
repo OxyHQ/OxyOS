@@ -3,6 +3,7 @@
 #include <folly/json.h>
 
 #include "input.h"
+#include "input.h"
 #include "report.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -14,6 +15,7 @@
 #include <unicode/utext.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -36,6 +38,16 @@ constexpr uint32_t kLeftShift = 42, kRightShift = 54;
 constexpr uint32_t kHome = 102, kUp = 103, kPageUp = 104, kLeft = 105, kRight = 106, kEnd = 107, kDown = 108,
                    kPageDown = 109, kDelete = 111;
 constexpr uint32_t kPrimaryButton = 272;
+// Android's ViewConfiguration: DOUBLE_TAP_TIMEOUT (ms) and DOUBLE_TAP_SLOP (dp, the logical
+// pixels' unit here), which Editor's tap state and its double-tap check use.
+constexpr double kDoubleTapTimeoutMs = 300;
+constexpr float kDoubleTapSlop = 100;
+
+// When an input event happened, in ms on CLOCK_MONOTONIC: its device's time (input.h's
+// eventTime, the protocol's `time_ns`), so two presses queued behind a slow frame are as far
+// apart as they were made, as Android's Editor reads a MotionEvent's time.
+double eventTimeMs(const OxyOSEvent& event) { return eventTime(event).toDOMHighResTimeStamp(); }
+
 // As the renderer draws it.
 constexpr float kCaretWidth = 1.5f;
 
@@ -272,6 +284,11 @@ void TextEditing::focus(Tag tag) {
   if (press_) pressed = offsetAt(press_->first, press_->second.x, press_->second.y, true);
   if (props->selectTextOnFocus) {
     anchor_ = 0;
+  } else if (pressed && taps_ != Taps::Single) {
+    // A double or triple click on an input without focus: its first press focused it.
+    unit_ = unitAt(*pressed);
+    anchor_ = unit_.first;
+    caret_ = unit_.second;
   } else if (pressed) {
     anchor_ = caret_ = *pressed;
   } else if (kept != unfocusedSelections_.end()) {
@@ -601,20 +618,87 @@ std::optional<size_t> TextEditing::offsetAt(uint32_t surface, float x, float y, 
 void TextEditing::pointer(const OxyOSEvent& event) {
   float x = event.x / 256.0f, y = event.y / 256.0f;
   if (event.detail == OXYOS_POINTER_PRESS && event.code == kPrimaryButton) {
+    // Editor's updateTapState, with its double-tap check: soon enough after the last release, and
+    // near the press before it.
+    bool soon = lastRelease_ && eventTimeMs(event) - *lastRelease_ <= kDoubleTapTimeoutMs;
+    bool near = press_ && press_->first == event.surface &&
+                std::hypot(x - press_->second.x, y - press_->second.y) < kDoubleTapSlop;
+    taps_ = !soon || !near ? Taps::Single
+            : taps_ == Taps::Single ? Taps::Double
+            : taps_ == Taps::Double ? Taps::Triple
+                                    : Taps::Single;
     press_ = {event.surface, Point{x, y}};
     // A press in the focused input moves its caret (Shift extends the selection) and starts a
-    // drag; a press in an unfocused input waits for its focus.
+    // drag; a double click selects the word under it and a triple click its paragraph, and their
+    // drag grows by words or paragraphs. A press in an unfocused input waits for its focus.
     if (focused_ < 0) return;
     if (auto at = offsetAt(event.surface, x, y, true)) {
       endComposition();
-      select(*at, shift_);
+      if (taps_ == Taps::Single) {
+        select(*at, shift_);
+      } else {
+        unit_ = unitAt(*at);
+        selectRange(unit_.first, unit_.second);
+      }
       dragging_ = true;
     }
   } else if (event.detail == OXYOS_POINTER_MOTION && dragging_) {
-    if (auto at = offsetAt(event.surface, x, y, false)) select(*at, true);
+    if (auto at = offsetAt(event.surface, x, y, false)) {
+      if (taps_ == Taps::Single) {
+        select(*at, true);
+      } else {
+        extendByUnit(*at);
+      }
+    }
   } else if ((event.detail == OXYOS_POINTER_RELEASE && event.code == kPrimaryButton) ||
              event.detail == OXYOS_POINTER_CANCEL || event.detail == OXYOS_POINTER_LEAVE) {
+    if (event.detail == OXYOS_POINTER_RELEASE) lastRelease_ = eventTimeMs(event);
     dragging_ = false;
+  }
+}
+
+std::pair<size_t, size_t> TextEditing::unitAt(size_t offset) const {
+  offset = std::min(offset, text_.size());
+  // A password, whose words cannot be seen, is selected whole, as Editor selects it.
+  if (secure()) return {0, text_.size()};
+  if (taps_ == Taps::Triple) {
+    // The paragraph: from the line break before it to the one ending it, which it includes
+    // (Editor's getParagraphsRange, through the layout's lines).
+    size_t start = offset == 0 ? 0 : text_.rfind('\n', offset - 1);
+    start = start == std::string::npos ? 0 : (offset == 0 ? 0 : start + 1);
+    size_t end = text_.find('\n', offset);
+    end = end == std::string::npos ? text_.size() : end + 1;
+    return {start, end};
+  }
+  // The word the offset is in or at the end of (WordIterator's getBeginning and getEnd); between
+  // words, the character there (Editor's fallback, getCharClusterRange).
+  // A word that starts at the offset is taken before one that ends there.
+  auto boundaries = wordBoundaries(text_);
+  std::optional<std::pair<size_t, size_t>> ending;
+  for (size_t i = 0; i + 1 < boundaries.size(); ++i) {
+    size_t from = boundaries[i].first, to = boundaries[i + 1].first;
+    if (!boundaries[i + 1].second) continue;
+    if (offset >= from && offset < to) return {from, to};
+    if (offset == to) ending = {from, to};
+  }
+  if (ending) return *ending;
+  if (offset < text_.size()) return {offset, nextBoundary(text_, offset)};
+  return {previousBoundary(text_, offset), offset};
+}
+
+void TextEditing::extendByUnit(size_t offset) {
+  auto [from, to] = unitAt(offset);
+  if (taps_ == Taps::Triple) {
+    // Editor's updateParagraphBasedSelection: the paragraphs from the one clicked to this one.
+    selectRange(std::min(from, unit_.first), std::max(to, unit_.second));
+    return;
+  }
+  // Editor's updateWordBasedSelection: forwards from the clicked word's start to the end of the
+  // word reached, backwards from its end to the start of the word reached.
+  if (offset >= unit_.first) {
+    selectRange(unit_.first, std::max(to, unit_.second));
+  } else {
+    selectRange(unit_.second, std::min(from, unit_.first));
   }
 }
 
@@ -721,10 +805,15 @@ void TextEditing::scrolled(const ShadowView& view, Point scroll, const TextInput
 }
 
 void TextEditing::select(size_t caret, bool extend) {
+  caret = std::min(caret, text_.size());
+  selectRange(extend ? anchor_ : caret, caret);
+}
+
+void TextEditing::selectRange(size_t anchor, size_t caret) {
   column_.reset();
   merging_ = false;
+  anchor = std::min(anchor, text_.size());
   caret = std::min(caret, text_.size());
-  size_t anchor = extend ? anchor_ : caret;
   if (anchor == anchor_ && caret == caret_) return;
   anchor_ = anchor;
   caret_ = caret;
