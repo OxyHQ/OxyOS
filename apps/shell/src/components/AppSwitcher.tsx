@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { memo, useEffect } from "react";
 import { AccessibilityInfo } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
@@ -17,7 +17,7 @@ const CELL = 88;
  * Super's release); a press on an icon activates that application at once. Each choice is said
  * to a screen reader, and every icon is a button naming its application, the chosen one selected.
  */
-export function AppSwitcher({
+export const AppSwitcher = memo(function AppSwitcher({
   switcher,
   applications,
   activate,
@@ -83,4 +83,4 @@ export function AppSwitcher({
       })}
     </Box>
   );
-}
+});

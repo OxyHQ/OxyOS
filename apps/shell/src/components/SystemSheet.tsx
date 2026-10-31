@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
@@ -17,7 +17,7 @@ const QUIET = "#5b6472";
  * to the person, over everything but the lock screen, in a shell surface no application draws,
  * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button.
  */
-export function SystemSheet({
+export const SystemSheet = memo(function SystemSheet({
   text,
   language = "es",
   names,
@@ -88,4 +88,4 @@ export function SystemSheet({
       </Box>
     </Box>
   );
-}
+});

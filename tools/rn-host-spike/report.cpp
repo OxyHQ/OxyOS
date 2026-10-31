@@ -25,6 +25,17 @@ int64_t monotonicNs() {
 
 }  // namespace
 
+std::string perProcessPath(std::string target, const std::string& application, const char* extension) {
+  std::error_code error;
+  if (target.empty() || (target.back() != '/' && !std::filesystem::is_directory(target, error))) return target;
+  // A directory: this process's own file in it, named by its application and pid.
+  std::filesystem::create_directories(target, error);
+  std::string name;
+  for (char c : application) name += std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' ? c : '_';
+  if (target.back() != '/') target += '/';
+  return target + (name.empty() ? std::string("host") : name) + "-" + std::to_string(getpid()) + extension;
+}
+
 Report& Report::get() {
   static Report report;
   return report;
@@ -35,16 +46,7 @@ Report::Report() = default;
 void Report::open(const std::string& application) {
   const char* path = std::getenv("OXYOS_HOST_REPORT");
   if (file_ || !path || !*path) return;
-  std::string target = path;
-  std::error_code error;
-  if (target.back() == '/' || std::filesystem::is_directory(target, error)) {
-    // A directory: this process's own report in it, named by its application and pid.
-    std::filesystem::create_directories(target, error);
-    std::string name;
-    for (char c : application) name += std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' ? c : '_';
-    if (target.back() != '/') target += '/';
-    target += (name.empty() ? std::string("host") : name) + "-" + std::to_string(getpid()) + ".jsonl";
-  }
+  std::string target = perProcessPath(path, application, ".jsonl");
   file_ = std::fopen(target.c_str(), "w");
   if (!file_) std::fprintf(stderr, "[host] cannot write the report to %s\n", target.c_str());
 }

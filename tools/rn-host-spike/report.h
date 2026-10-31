@@ -16,7 +16,8 @@
 //   {"t":…,"kind":"animated","target":"fade","props":{"opacity":0.42}}  (set by Animated's native driver)
 //   {"t":…,"kind":"committed","target":"jsbox","props":{"transform":[{"translateX":12.5}]}}  (on mount)
 //   {"t":…,"kind":"animation_frame","timestamp":1234.5,"callbacks":2}  (requestAnimationFrame's frame)
-//   {"t":…,"kind":"timing","work_ms":…,"parts":{…},"trigger":"pointer.press",…}  (frame-diagnostics.h)
+//   {"t":…,"kind":"timing","work_ms":…,"parts":{…},"trigger":"pointer.press",…}  (frame-diagnostics.h: each
+//       frame, and work without one, "presented": false, that was slow or ran JavaScript)
 //   {"t":…,"kind":"log","text":"[host so.oxy.stash] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
 //
@@ -46,6 +47,11 @@ class Runtime;
 namespace oxyos {
 
 class ViewTree;
+
+// The file a host writes something of its own to, given a path from its environment: the path
+// itself, or, when it ends in `/` or names a directory, `<application>-<pid><extension>` in it
+// (created), so that every host of a session writes its own beside the others'.
+std::string perProcessPath(std::string target, const std::string& application, const char* extension);
 
 class Report {
  public:

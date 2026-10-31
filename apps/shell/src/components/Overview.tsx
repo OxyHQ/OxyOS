@@ -1,4 +1,5 @@
 import React, {
+  memo,
   type ComponentType,
   useRef,
   useMemo,
@@ -189,7 +190,7 @@ function WindowThumbnail({
   );
 }
 
-export function Overview({
+export const Overview = memo(function Overview({
   snapshot,
   actions,
   dismiss,
@@ -537,4 +538,4 @@ export function Overview({
       )}
     </Box>
   );
-}
+});

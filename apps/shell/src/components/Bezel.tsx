@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { memo, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated } from "react-native";
 import { RiVolumeUpLine } from "@oxy.so/bloom/icons/RiVolumeUpLine";
 import { RiVolumeDownLine } from "@oxy.so/bloom/icons/RiVolumeDownLine";
@@ -45,7 +45,7 @@ function icon(control: ShellControl, level: ShellLevel) {
  * every press. Its level is the session's as it is now, so it follows the system while shown.
  * It takes no input, and says the level to a screen reader once per press.
  */
-export function Bezel({
+export const Bezel = memo(function Bezel({
   bezel,
   levels,
 }: {
@@ -131,4 +131,4 @@ export function Bezel({
       </Animated.View>
     </Box>
   );
-}
+});

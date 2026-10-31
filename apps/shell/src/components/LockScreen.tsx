@@ -1,4 +1,4 @@
-import React, { useRef, type ComponentRef, type ComponentType } from "react";
+import React, { memo, useRef, type ComponentRef, type ComponentType } from "react";
 import { StyleSheet, View, type ImageSourcePropType } from "react-native";
 import { BlurTargetView } from "expo-blur";
 import { Text } from "@oxy.so/bloom/typography";
@@ -56,7 +56,7 @@ export function LockBackdrop({
  * the time large, the user's picture and name, and the password field. It decides nothing: the
  * password goes to the session, and only the session unlocks.
  */
-export function LockScreen({
+export const LockScreen = memo(function LockScreen({
   lock,
   wallpaper,
   now,
@@ -125,4 +125,4 @@ export function LockScreen({
       />
     </LockBackdrop>
   );
-}
+});

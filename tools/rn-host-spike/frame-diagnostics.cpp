@@ -203,7 +203,9 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   if (presented && inputNs_ != 0) latency = static_cast<double>(monotonicNs() - inputNs_) / 1e6;
   std::string what = first_ && presented ? "the first frame" : trigger_.empty() ? "JavaScript" : trigger_;
 
-  if (presented || slow) {
+  // The report has every frame, and work that drew none when it was slow or ran JavaScript: what
+  // an event that changed nothing visible cost (the shell told of another window's change).
+  if (presented || slow || parts_[static_cast<size_t>(Part::JavaScript)] > 0) {
     auto& report = Report::get();
     if (report.enabled()) {
       folly::dynamic parts = folly::dynamic::object;

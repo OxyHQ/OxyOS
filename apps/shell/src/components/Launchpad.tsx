@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type ComponentRef } from "react";
+import React, { memo, useEffect, useRef, useState, type ComponentRef } from "react";
 import {
   StyleSheet,
   View,
@@ -32,6 +32,17 @@ const normalize = (value: string) =>
     .toLowerCase();
 type Entry = { app: ShellApplication } | { folder: ShellFolder };
 
+/** The search field's colours over the blurred desktop. One object for every render: Bloom derives
+    the scope's theme from it again whenever it is another. */
+const SEARCH_TOKENS = {
+  background: "#00000000",
+  surface: "#ffffff1f",
+  foreground: "#ffffff",
+  // A soft focus ring, as Launchpad's field has: the caret says it has the keyboard.
+  primary: "#ffffff66",
+  border: "#ffffff33",
+};
+
 const LABEL_SHADOW = {
   textShadowColor: "#00000059",
   textShadowOffset: { width: 0, height: 1 },
@@ -44,7 +55,7 @@ const LABEL_SHADOW = {
  * darkened as a Mac's Launchpad blurs the desktop. The compositor fades it in and out, never
  * scaling it, while the icons above settle.
  */
-export function LaunchpadBackdrop({
+export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
   open,
   wallpaper,
 }: {
@@ -80,7 +91,7 @@ export function LaunchpadBackdrop({
       />
     </Box>
   );
-}
+});
 
 /**
  * Launchpad, as a Mac's: the applications in pages of a grid over the blurred desktop, the
@@ -90,7 +101,7 @@ export function LaunchpadBackdrop({
  * by the compositor's motion (its icons settle from larger over a fading backdrop,
  * docs/adr/0011-transitions.mdx), on the display's time, not React's.
  */
-export function Launchpad({
+export const Launchpad = memo(function Launchpad({
   open,
   launch,
   dismiss,
@@ -250,14 +261,7 @@ export function Launchpad({
         <BloomColorScope
           seed="#4464ba"
           mode="dark"
-          tokens={{
-            background: "#00000000",
-            surface: "#ffffff1f",
-            foreground: "#ffffff",
-            // A soft focus ring, as Launchpad's field has: the caret says it has the keyboard.
-            primary: "#ffffff66",
-            border: "#ffffff33",
-          }}
+          tokens={SEARCH_TOKENS}
         >
           <Search
             ref={field}
@@ -452,7 +456,7 @@ export function Launchpad({
       )}
     </Box>
   );
-}
+});
 
 /** A folder's icon, as Launchpad's: a frosted tile showing its first nine applications. */
 function FolderIcon({

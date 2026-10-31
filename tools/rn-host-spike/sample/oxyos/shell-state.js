@@ -66,6 +66,69 @@ import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 const native = TurboModuleRegistry.get('OxyOSShell');
 
+/**
+ * `next` with every part equal to `previous`'s (deeply, as JSON) being `previous`'s own: the state
+ * the host told again is the same object, and of a new one only what changed is new. React then
+ * renders nothing for a state that changed nothing, and of one that changed something only what
+ * reads the parts that changed (each part compared by identity: a window's size changing leaves the
+ * applications, the menus and the other windows as they were).
+ */
+export function sharedWith(previous, next) {
+  if (previous === next) return previous;
+  if (typeof previous !== 'object' || typeof next !== 'object' || previous === null || next === null) return next;
+  if (Array.isArray(previous)) {
+    if (!Array.isArray(next)) return next;
+    let same = previous.length === next.length;
+    const shared = next.map((value, index) => {
+      const kept = index < previous.length ? sharedWith(previous[index], value) : value;
+      if (kept !== previous[index]) same = false;
+      return kept;
+    });
+    return same ? previous : shared;
+  }
+  if (Array.isArray(next)) return next;
+  const keys = Object.keys(next);
+  let same = keys.length === Object.keys(previous).length;
+  const shared = {};
+  for (const key of keys) {
+    const kept = Object.prototype.hasOwnProperty.call(previous, key) ? sharedWith(previous[key], next[key]) : next[key];
+    if (kept !== previous[key]) same = false;
+    shared[key] = kept;
+  }
+  return same ? previous : shared;
+}
+
+// The shell's actions on the compositor: intents, the same functions in every render, so that what
+// is given them is never new because of them.
+const actions = {
+  focusWindow: (id) => native?.focusWindow(id),
+  closeWindow: (id) => native?.closeWindow(id),
+  minimizeWindow: (id) => native?.minimizeWindow(id),
+  hideApplication: (id) => native?.hideApplication(id),
+  quitApplication: (id) => native?.quitApplication(id),
+  moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
+  activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
+  addWorkspace: () => native?.addWorkspace(),
+  removeWorkspace: (workspace) => native?.removeWorkspace(workspace),
+  lockSession: () => native?.lockSession(),
+  // Asks the session for an application of its registry (ADR 0013): the request's serial (0:
+  // not sent); `OxyOSShellLaunch` says whether it was started.
+  launch: (id) => native?.launch(id) ?? 0,
+  authenticate: (password, account) => native?.authenticate(password, account) ?? false,
+  accounts: () => native?.accounts() ?? null,
+  activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
+  setControlLevel: (control, level) => native?.setControlLevel(control, level),
+  setControlMuted: (control, muted) => native?.setControlMuted(control, muted),
+  setWifiEnabled: (enabled) => native?.setWifiEnabled(enabled),
+  setAppearance: (dark) => native?.setAppearance(dark),
+  refreshControls: () => native?.refreshControls(),
+  activateNotification: (id, action, reply) => native?.activateNotification(id, action, reply ?? ''),
+  removeNotification: (id) => native?.removeNotification(id),
+  setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
+  announce: (text, polite) => native?.announce(text, polite),
+  openScreenshot: (id) => native?.openScreenshot(id) ?? false,
+};
+
 export function useOxyOSShell() {
   const [state, setState] = React.useState(() => native?.getState() ?? null);
   const [authentication, setAuthentication] = React.useState(null);
@@ -76,13 +139,14 @@ export function useOxyOSShell() {
   const [screenshots, setScreenshots] = React.useState([]);
   React.useEffect(() => {
     if (!native) return undefined;
-    const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', setState);
+    const told = (next) => setState((previous) => sharedWith(previous, next));
+    const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', told);
     // Each answer is new, even one like the last (a second wrong password shakes again).
     const answers = DeviceEventEmitter.addListener('OxyOSShellAuthentication', ({ outcome, wait }) =>
       setAuthentication((last) => ({ id: (last?.id ?? 0) + 1, outcome, wait })),
     );
     // Each shortcut is new, even one like the last (Tab pressed again moves on).
-    const told = DeviceEventEmitter.addListener('OxyOSShellShortcut', ({ action, output }) =>
+    const shortcut = DeviceEventEmitter.addListener('OxyOSShellShortcut', ({ action, output }) =>
       setShortcuts((last) => [
         ...last.slice(-15),
         { id: (last[last.length - 1]?.id ?? 0) + 1, action, output },
@@ -105,60 +169,50 @@ export function useOxyOSShell() {
         return { serial, mode, output, confirm: same ? last.confirm : 0 };
       });
     });
+    // The window under the pointer, kept while it is the same one at the same place.
     const targeted = DeviceEventEmitter.addListener('OxyOSShellCaptureTarget', (target) =>
-      setCaptureTarget(target.window ? target : null),
+      setCaptureTarget((last) => sharedWith(last, target.window ? target : null)),
     );
     const saved = DeviceEventEmitter.addListener('OxyOSShellScreenshot', (screenshot) =>
       setScreenshots((last) => [...last.slice(-15), screenshot]),
     );
     // A change between the first read and the subscription is not lost.
-    setState(native.getState());
+    told(native.getState());
     return () => {
       subscription.remove();
       answers.remove();
-      told.remove();
+      shortcut.remove();
       bezel.remove();
       captured.remove();
       targeted.remove();
       saved.remove();
     };
   }, []);
-  return {
-    state,
-    focusWindow: (id) => native?.focusWindow(id),
-    closeWindow: (id) => native?.closeWindow(id),
-    minimizeWindow: (id) => native?.minimizeWindow(id),
-    hideApplication: (id) => native?.hideApplication(id),
-    quitApplication: (id) => native?.quitApplication(id),
-    shortcuts,
-    moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
-    activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
-    addWorkspace: () => native?.addWorkspace(),
-    removeWorkspace: (workspace) => native?.removeWorkspace(workspace),
-    authentication,
-    lockSession: () => native?.lockSession(),
-    // Asks the session for an application of its registry (ADR 0013): the request's serial (0:
-    // not sent); `OxyOSShellLaunch` says whether it was started.
-    launch: (id) => native?.launch(id) ?? 0,
-    authenticate: (password, account) => native?.authenticate(password, account) ?? false,
-    accounts: () => native?.accounts() ?? null,
-    activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
-    bezels,
-    setControlLevel: (control, level) => native?.setControlLevel(control, level),
-    setControlMuted: (control, muted) => native?.setControlMuted(control, muted),
-    setWifiEnabled: (enabled) => native?.setWifiEnabled(enabled),
-    setAppearance: (dark) => native?.setAppearance(dark),
-    refreshControls: () => native?.refreshControls(),
-    activateNotification: (id, action, reply) => native?.activateNotification(id, action, reply ?? ''),
-    removeNotification: (id) => native?.removeNotification(id),
-    setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
-    announce: (text, polite) => native?.announce(text, polite),
-    capture,
-    captureTarget,
-    screenshots,
-    captureScreen: (kind, output, rect, window, destination) =>
-      capture ? (native?.capture(capture.serial, kind, output, rect ?? null, window ?? 0, destination) ?? false) : false,
-    endCapture: () => (capture ? (native?.endCapture(capture.serial) ?? false) : false),
-    openScreenshot: (id) => native?.openScreenshot(id) ?? false,
-  };
+  // Capturing cites the interface open now: read when asked, so the function stays the same.
+  const open = React.useRef(capture);
+  open.current = capture;
+  const capturing = React.useMemo(
+    () => ({
+      captureScreen: (kind, output, rect, window, destination) => {
+        const now = open.current;
+        return now ? (native?.capture(now.serial, kind, output, rect ?? null, window ?? 0, destination) ?? false) : false;
+      },
+      endCapture: () => (open.current ? (native?.endCapture(open.current.serial) ?? false) : false),
+    }),
+    [],
+  );
+  return React.useMemo(
+    () => ({
+      ...actions,
+      ...capturing,
+      state,
+      shortcuts,
+      authentication,
+      bezels,
+      capture,
+      captureTarget,
+      screenshots,
+    }),
+    [capturing, state, shortcuts, authentication, bezels, capture, captureTarget, screenshots],
+  );
 }

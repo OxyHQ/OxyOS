@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box, PressArea, Scroll } from "../primitives";
@@ -14,7 +14,7 @@ import { BANNER_WIDTH, NotificationCard } from "./NotificationBanner";
  * of an application's cleared at once. Do Not Disturb is said at its top. A press beside it closes
  * it.
  */
-export function NotificationCenter({
+export const NotificationCenter = memo(function NotificationCenter({
   notifications,
   applications,
   now,
@@ -111,4 +111,4 @@ export function NotificationCenter({
       </Box>
     </Box>
   );
-}
+});

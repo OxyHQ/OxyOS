@@ -40,8 +40,11 @@ the profile to FILE as it ends: a Chrome trace (`traceEvents`, `samples`, `stack
 Chrome's DevTools (Performance, *Load profile*), Perfetto and speedscope open. Each frame is named
 by its function and its line and column in the bundle's source: an application's package keeps
 it (`bundle/index.js`); the probes' bundle (`bundle.mjs` with `HERMESC`) deletes it once Hermes
-compiled it, and building the same bundle without `HERMESC` writes it again, identical. A sample is taken by interrupting the JavaScript thread, so a profiled host turns more
-often than it would: its timings are its own.
+compiled it, and building the same bundle without `HERMESC` writes it again, identical. FILE may
+name a directory (a path ending in `/`, or one that exists), as `OXYOS_HOST_REPORT` may: every host
+then writes its own, `<application>-<pid>.cpuprofile.json`, so a scenario with the shell profiles
+the shell and the application side by side. A sample is taken by interrupting the JavaScript
+thread, so a profiled host turns more often than it would: its timings are its own.
 
 ```sh
 OXYOS_HOST_JS_PROFILE=$PWD/stash-profile.json python3 tools/rn-host-spike/regress.py \
@@ -189,6 +192,14 @@ focus the assistive technology holds and the popups, not only pixels. For each i
 from it to the first frame that changed (held to the scenario's budget, about four times what it
 takes on this machine unloaded) and the application's host's work until the step settled (each
 frame's `busy_ms`, summed) and the JavaScript in it.
+
+**The shell** (`perf.py shell`). What the session's shell pays for an event, in `shell-events.json`
+on the ThinkPad's display (1600 × 1000 at 1.25): another window activated, zoomed by its green
+bubble and restored (each changes what the shell knows of that window and nothing it shows), and
+the pointer entering the dock's first icon, moving over it and leaving. For each, the most
+JavaScript any one piece of the shell's work ran (its report's `timing` lines: a frame's work, and
+work that drew none but ran JavaScript, which the report now has too), held to the scenario's
+`js_work` budget at the median: 2 ms for another window's change, 4 for the dock's hover.
 
 **Cold start.** An application's process started by the compositor to its first frame on the
 output, and the host's stages in between (its report's `stage` lines): the process reaching
@@ -350,6 +361,26 @@ key 32 → 19, a row's press 47 → 33, a context menu 56 → 43, the list view 
 quarters of what remains in the list view is Stash's and Bloom's JavaScript (below, *What
 remains*); on the ThinkPad every number is three to four times this machine's.
 
+### The shell
+
+`shell-events.json`, three runs each of the shell before and after the fix below (the same host,
+which now reports work that drew no frame), medians of the most JavaScript one piece of the shell's
+work ran, in ms, on this machine loaded by other builds; the ThinkPad's log showed the same events
+at 16 to 20 ms (`handling a compositor event (no frame) took 17.1 ms … JavaScript 16.8`).
+
+| event | before | after | shell frames |
+|---|---|---|---|
+| another window pressed (activated) | 12.3 | 0.55 | none |
+| another window zoomed | 7.1 | 0.6 (1.1 with its clock turning over) | none |
+| another window restored | 9.0 | 0.57 | none |
+| the pointer enters the dock's first icon | 3.1 | 2.2 | one (Bloom's Button's hover) |
+| the pointer moves over the same icon | 0.05 | 0.07 | none |
+| the pointer leaves the dock | 2.1 | 1.2 | one |
+
+What remains of a hover is Bloom's Button rendering its hover (react-native-css's interaction
+state); of another window's change, the shell rendering itself and its dock with its regions
+skipped.
+
 ### Cold start
 
 The application's process started to its first frame on the output; the same before the fixes.
@@ -417,6 +448,19 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
 
 ## What was fixed
 
+- **Every change the compositor told the shell rendered the whole shell again**, 16 to 20 ms of
+  JavaScript on the ThinkPad, frame or no frame: another window's zoom, focus or size, the battery,
+  the clock each minute. The session's binding (`sample/oxyos/shell-state.js`) made a new state of
+  every event, and `ShellSession` new snapshots, actions and providers from it, so every region of
+  the shell, Launchpad's hidden icons and Bloom's providers among them, rendered again; Launchpad
+  derived its search's colour scope from a new token object each time. Now the host tells
+  `OxyOSShellChanged` only when the state changed; the binding keeps every unchanged part of a new
+  state as the same object (`sharedWith`) and its actions as the same functions; the session makes
+  each part of the snapshot from the parts it reads, its Bloom providers outside what renders
+  again; and the shell's regions (the top bar's menus, status, buttons and clock apart, the dock's
+  icons, Launchpad, the overview, the panels) are memoized with handlers that stay the same, so a
+  change renders what shows it. `shell-events.json` holds it (`js_work`) and `perf.py shell`
+  measures it.
 - **The compositor read every client's whole buffer for every frame** (`Compositor::pixels`),
   though only a new frame has new pixels and the GPU path keeps what it uploaded: 3 ms a frame
   at 1600 × 1000 here, more at the ThinkPad's 1920 × 1200. A frame is now read once, when it is
