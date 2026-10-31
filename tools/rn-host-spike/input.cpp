@@ -1,5 +1,7 @@
 #include "input.h"
 
+#include "overscroll.h"
+
 #include "report.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -295,9 +297,22 @@ void PointerInput::handle(const OxyOSEvent& event) {
   // A touchpad's fingers coming to rest stop the glide their last flick left on that surface, as
   // macOS stops a scroll's momentum under resting fingers: its momentum ends where it is, once,
   // with no scroll after. Resting fingers are no drag: no scrollBeginDrag (they may lift unmoved);
-  // moving on, they are a scroll, which begins one.
+  // moving on, they are a scroll, which begins one. A stretch springing back on that surface
+  // (overscroll) is caught where it is, as a finger landing on Android's catches it, and let go
+  // again when they lift or move on (a scroll that follows catches it again as its drag begins).
   if (event.kind == OXYOS_EVENT_HOLD) {
     if (event.detail == OXYOS_PINCH_BEGIN && glide_ && glide_->surface == event.surface) stopGlide();
+    double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    for (auto& [tag, overscroll] : overscroll_) {
+      if (overscroll.surface != event.surface) continue;
+      for (auto& edge : overscroll.axis) {
+        if (event.detail == OXYOS_PINCH_BEGIN) {
+          edge.pull(0);
+        } else if (!drag_) {
+          edge.release(ms);
+        }
+      }
+    }
     return;
   }
   if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
@@ -535,8 +550,29 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
                    (dy < 0 && current.y > 0);
       if (!moves) continue;
       drag_->view = at;
-      scrollEvent(at, drag_->surface, "scrollBeginDrag");
       break;
+    }
+    // None can move its way: the innermost scroll view that scrolls along the move's axis takes
+    // the drag all the same, as Android's ScrollView intercepts a drag whichever way it goes once
+    // its content scrolls, and may stretch past its end.
+    if (drag_->view < 0) {
+      int axis = std::abs(dy) >= std::abs(dx) ? 1 : 0;
+      for (auto path = ancestry(tree_, target); target >= 0 && !path.empty(); path.pop_back()) {
+        Tag at = path.back();
+        const auto& view = tree_.views().at(at).view;
+        if (std::string(view.componentName ? view.componentName : "") == "AndroidTextInput" && scrollText_) break;
+        auto range = scrollRange(at);
+        if (!range || scrollAxis(at) != axis || (axis ? range->second.y : range->second.x) <= 0) continue;
+        drag_->view = at;
+        break;
+      }
+    }
+    if (drag_->view >= 0) {
+      // A stretch springing back is caught where it is, as a touch catches Android's.
+      if (auto it = overscroll_.find(drag_->view); it != overscroll_.end()) {
+        for (auto& edge : it->second.axis) edge.pull(0);
+      }
+      scrollEvent(drag_->view, drag_->surface, "scrollBeginDrag");
     }
   }
   // When its device registered the event (eventTime): the velocity is the fingers', however late
@@ -556,11 +592,30 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
     drag_->moved.x += dx;
     drag_->moved.y += dy;
     drag_->velocity.add(now, drag_->moved.x, drag_->moved.y);
-    scrollView(view, dx, dy, surface);
+    // A stretch showing takes back a move the other way first; what is left scrolls, and what goes
+    // past an end pulls the stretch there. A move clamped at an end forgets the velocity so far,
+    // as Android's ScrollView clears its VelocityTracker when overScrollBy clamps.
+    float move[2] = {releaseStretch(view, 0, dx), releaseStretch(view, 1, dy)};
+    auto range = scrollRange(view);
+    scrollView(view, move[0], move[1], surface);
+    if (range) {
+      const float before[2] = {range->first.x, range->first.y}, end[2] = {range->second.x, range->second.y};
+      for (int axis = 0; axis < 2; ++axis) {
+        float to = before[axis] + move[axis];
+        if (move[axis] == 0 || (to >= 0 && to <= end[axis])) continue;
+        pullStretch(view, axis, move[axis], before[axis], end[axis]);
+        if (drag_) drag_->velocity.clear();
+      }
+    }
     return;
   }
   auto [vx, vy] = drag_->velocity.at(now);
   drag_.reset();
+  // The fingers lifting let the stretch go: it springs back (onRelease).
+  if (auto it = overscroll_.find(view); it != overscroll_.end()) {
+    double released = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    for (auto& edge : it->second.axis) edge.release(released);
+  }
   if (tree_.views().find(view) == tree_.views().end()) return;
   // Android's ScrollView takes the velocity at most at the fastest fling, and React Native tells
   // JavaScript the tracker's, the finger's: against the offset, in dp per millisecond.
@@ -591,9 +646,37 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
 }
 
 bool PointerInput::tick(bool ready) {
-  if (!glide_ || !ready) return false;
+  if (!ready) return false;
   auto now = std::chrono::steady_clock::now();
   auto period = refresh_ ? refresh_->period() : std::chrono::milliseconds(16);
+  // A stretch springing back steps once a frame, as EdgeEffect's spring is stepped as it is drawn.
+  bool receding = false;
+  for (const auto& [tag, overscroll] : overscroll_) {
+    for (const auto& edge : overscroll.axis) receding |= !edge.resting() && !edge.pulling();
+  }
+  if (receding && (!stretchStepped_ || now - *stretchStepped_ >= period)) {
+    stretchStepped_ = now;
+    double ms = std::chrono::duration<double, std::milli>(now.time_since_epoch()).count();
+    for (auto it = overscroll_.begin(); it != overscroll_.end();) {
+      auto found = tree_.views().find(it->first);
+      bool moved = false;
+      if (found != tree_.views().end()) {
+        Size size = found->second.view.layoutMetrics.frame.size;
+        moved |= it->second.axis[0].step(ms, size.width);
+        moved |= it->second.axis[1].step(ms, size.height);
+      }
+      Tag tag = it->first;
+      bool rests = found == tree_.views().end() || (it->second.axis[0].resting() && it->second.axis[1].resting());
+      if (moved || rests) {
+        stretchChanged_ = true;
+        if (found != tree_.views().end()) reportStretch(tag);
+      }
+      it = rests ? overscroll_.erase(it) : std::next(it);
+    }
+  } else if (!receding) {
+    stretchStepped_.reset();
+  }
+  if (!glide_) return false;
   if (glide_->stepped && now - *glide_->stepped < period) return false;
   glide_->stepped = now;
   auto range = scrollRange(glide_->view);
@@ -604,10 +687,25 @@ bool PointerInput::tick(bool ready) {
   double ms = std::chrono::duration<double, std::milli>(now - glide_->began).count();
   auto [current, end] = *range;
   Point to{static_cast<float>(glide_->from.x + glide_->x.at(ms)), static_cast<float>(glide_->from.y + glide_->y.at(ms))};
+  // A glide reaching an end strikes the stretch there with its velocity (onAbsorb), as Android's
+  // ScrollView.computeScroll does when the scroller crosses its range.
+  const float wanted[2] = {to.x, to.y}, ends[2] = {end.x, end.y};
+  const SplineFling* flings[2] = {&glide_->x, &glide_->y};
+  for (int axis = 0; axis < 2; ++axis) {
+    if (flings[axis]->distance() == 0 || (wanted[axis] >= 0 && wanted[axis] <= ends[axis])) continue;
+    if (!canOverscroll(glide_->view, axis)) continue;
+    auto& overscroll = overscroll_[glide_->view];
+    overscroll.surface = glide_->surface;
+    overscroll.side[axis] = wanted[axis] < 0 ? -1 : 1;
+    overscroll.axis[axis].absorb(flings[axis]->velocity(ms),
+                                 std::chrono::duration<double, std::milli>(now.time_since_epoch()).count());
+    stretchChanged_ = true;
+    reportStretch(glide_->view);
+  }
   to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
   bool moved = scrollView(glide_->view, to.x - current.x, to.y - current.y, glide_->surface);
-  // It ends when its time is up, or at the end it was flung towards: OxyOS has no overscroll, so
-  // it stops there rather than going past and springing back as Android's does.
+  // It ends when its time is up, or at the end it was flung towards, which the stretch then takes
+  // (as Android 12's ScrollView aborts its scroller once its edge absorbs it).
   bool done = ms >= std::max(glide_->x.durationMs(), glide_->y.durationMs()) ||
               ((glide_->x.distance() == 0 || to.x <= 0 || to.x >= end.x) &&
                (glide_->y.distance() == 0 || to.y <= 0 || to.y >= end.y));
@@ -616,9 +714,91 @@ bool PointerInput::tick(bool ready) {
 }
 
 std::optional<std::chrono::steady_clock::time_point> PointerInput::nextFrame(bool ready) const {
-  if (!glide_ || !ready) return std::nullopt;
+  if (!ready) return std::nullopt;
   auto period = refresh_ ? refresh_->period() : std::chrono::milliseconds(16);
-  return glide_->stepped ? *glide_->stepped + period : std::chrono::steady_clock::now();
+  std::optional<std::chrono::steady_clock::time_point> next;
+  if (glide_) next = glide_->stepped ? *glide_->stepped + period : std::chrono::steady_clock::now();
+  for (const auto& [tag, overscroll] : overscroll_) {
+    for (const auto& edge : overscroll.axis) {
+      if (edge.resting() || edge.pulling()) continue;
+      auto due = stretchStepped_ ? *stretchStepped_ + period : std::chrono::steady_clock::now();
+      next = next ? std::min(*next, due) : due;
+    }
+  }
+  return next;
+}
+
+std::map<Tag, Point> PointerInput::stretches() const {
+  std::map<Tag, Point> shown;
+  for (const auto& [tag, overscroll] : overscroll_) {
+    Point amount{overscroll.side[0] * overscroll.axis[0].amount(), overscroll.side[1] * overscroll.axis[1].amount()};
+    if (amount.x != 0 || amount.y != 0) shown[tag] = amount;
+  }
+  return shown;
+}
+
+int PointerInput::scrollAxis(Tag tag) const {
+  // Android's ScrollView scrolls vertically and its HorizontalScrollView horizontally; both are the
+  // host's ScrollView, told apart by what their content scrolls.
+  auto range = scrollRange(tag);
+  return range && range->second.x > 0 && range->second.y <= 0 ? 0 : 1;
+}
+
+bool PointerInput::canOverscroll(Tag tag, int axis) const {
+  auto it = tree_.views().find(tag);
+  auto range = scrollRange(tag);
+  if (it == tree_.views().end() || !range || scrollAxis(tag) != axis) return false;
+  switch (overScrollModeOf(*it->second.view.props)) {
+    case OverScrollMode::Always: return true;
+    case OverScrollMode::Never: return false;
+    case OverScrollMode::IfContentScrolls: return (axis ? range->second.y : range->second.x) > 0;
+  }
+  return false;
+}
+
+float PointerInput::releaseStretch(Tag tag, int axis, float delta) {
+  auto it = overscroll_.find(tag);
+  if (it == overscroll_.end() || delta == 0) return delta;
+  auto& edge = it->second.axis[axis];
+  int side = it->second.side[axis];
+  if (edge.distance() <= 0 || !((side < 0 && delta > 0) || (side > 0 && delta < 0))) return delta;
+  Size size = tree_.views().at(tag).view.layoutMetrics.frame.size;
+  float extent = axis ? size.height : size.width;
+  if (extent <= 0) return delta;
+  float consumed = -edge.pull(-std::abs(delta) / extent) * extent;
+  stretchChanged_ = true;
+  reportStretch(tag);
+  return delta > 0 ? std::max(0.0f, delta - consumed) : std::min(0.0f, delta + consumed);
+}
+
+void PointerInput::pullStretch(Tag tag, int axis, float delta, float before, float end) {
+  if (!canOverscroll(tag, axis)) return;
+  Size size = tree_.views().at(tag).view.layoutMetrics.frame.size;
+  float extent = axis ? size.height : size.width;
+  if (extent <= 0) return;
+  // As ScrollView.onTouchEvent pulls it: by the whole move, where it would have gone past the end.
+  auto& overscroll = overscroll_[tag];
+  overscroll.surface = drag_ ? drag_->surface : content_.surface;
+  float to = before + delta;
+  int side = to < 0 ? -1 : 1;
+  if (overscroll.side[axis] != side && overscroll.axis[axis].distance() > 0) return;
+  overscroll.side[axis] = side;
+  overscroll.axis[axis].pull(std::abs(delta) / extent);
+  (void)end;
+  stretchChanged_ = true;
+  reportStretch(tag);
+}
+
+void PointerInput::reportStretch(Tag tag) {
+  auto view = tree_.views().find(tag);
+  if (view == tree_.views().end()) return;
+  auto it = overscroll_.find(tag);
+  Point amount{}, distance{};
+  if (it != overscroll_.end()) {
+    amount = {it->second.side[0] * it->second.axis[0].amount(), it->second.side[1] * it->second.axis[1].amount()};
+    distance = {it->second.side[0] * it->second.axis[0].distance(), it->second.side[1] * it->second.axis[1].distance()};
+  }
+  Report::get().stretch(view->second.view, amount.x, amount.y, distance.x, distance.y);
 }
 
 void PointerInput::stopGlide() {

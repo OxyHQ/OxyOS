@@ -87,6 +87,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nothing new);
   and always, no frame composed in the drag drawing the window at another size than its
   buffer's ("scaled");
+- stretch: a scroll view ("view", by testID) stretched past an end in the step, as Android 12's
+  ScrollView stretches (EdgeEffect's stretch, overscroll in input.h), from the host's report of
+  each change of the stretch drawn along its axis ("axis", "y" by default; a share of its size,
+  negative past its start): "none", that it never stretched; "pulled", how far it is pulled at the
+  step's end, a share of its size, and "held", the stretch drawn then, worked out here again from
+  that distance as EdgeEffect's dampStretchVector works it out (within 1e-4); "peak", [least,
+  most] for the largest stretch drawn (by magnitude, signed by "side", -1 or 1); "rests", that it
+  went back to none by the step's end, only ever shrinking once it began to (a spring from rest
+  that does not overshoot), in at least "frames_min" changes; "caught_ms", that it was held still while it
+  showed for at least that long (fingers resting on the touchpad catching it as it sprang back);
 - glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
   ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
   measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
@@ -684,6 +694,58 @@ def android_fling_distance(velocity, friction):
     deceleration = math.log(inflexion * abs(velocity) / (friction * physical))
     distance = friction * physical * math.exp(deceleration_rate / (deceleration_rate - 1.0) * deceleration)
     return math.copysign(distance, velocity)
+
+
+def edge_stretch(distance):
+    """EdgeEffect's dampStretchVector: the stretch drawn for a pull of `distance` (a share of the
+    view's size)."""
+    sign = 1 if distance > 0 else -1
+    distance = abs(distance)
+    return sign * (0.016 * distance + 0.016 * (1 - math.exp(-distance * math.e / 0.33)))
+
+
+def check_stretch(wanted, report, start, end, fail):
+    """The step's `stretch`: a scroll view stretched past an end, as Android 12's ScrollView."""
+    view, axis = wanted["view"], wanted.get("axis", "y")
+    lines = [line for line in report if start <= line["t"] <= end and line["kind"] == "stretch"
+             and line.get("target") == view]
+    amounts = [line[axis] for line in lines]
+    if wanted.get("none"):
+        if any(amount != 0 for amount in amounts):
+            fail(f"{view} stretched {max(amounts, key=abs):.4f} along {axis}, expected no stretch")
+        return
+    if not amounts:
+        fail(f"{view} never stretched")
+        return
+    if "pulled" in wanted:
+        pulled = lines[-1]["pulled_" + axis]
+        if abs(pulled - wanted["pulled"]) > 1e-4:
+            fail(f"{view} is pulled {pulled:.5f} of its size at the step's end, expected {wanted['pulled']}")
+        expected = edge_stretch(pulled) if pulled else 0
+        if abs(amounts[-1] - expected) > 1e-4 or "held" in wanted and abs(amounts[-1] - wanted["held"]) > 1e-4:
+            fail(f"{view} is stretched {amounts[-1]:.5f} at the step's end, expected {expected:.5f} for that pull "
+                 f"(EdgeEffect's), {wanted.get('held')} by the scenario")
+    if "peak" in wanted:
+        side = wanted.get("side", 1)
+        peak = max(amounts, key=abs)
+        lo, hi = wanted["peak"]
+        if peak * side <= 0 or not lo <= abs(peak) <= hi:
+            fail(f"{view}'s largest stretch was {peak:.5f}, expected {lo} to {hi} on side {side}")
+    if "caught_ms" in wanted:
+        # Held still while stretched (fingers resting caught it): the longest time between two
+        # changes of a stretch that still showed.
+        held = max((b["t"] - a["t"]) / 1e6 for a, b in zip(lines, lines[1:]) if a[axis] != 0) if len(lines) > 1 else 0
+        if held < wanted["caught_ms"]:
+            fail(f"{view}'s stretch was held still at most {held:.0f} ms, expected at least {wanted['caught_ms']} ms")
+    if wanted.get("rests"):
+        if amounts[-1] != 0:
+            fail(f"{view} is still stretched {amounts[-1]:.5f} at the step's end")
+        top = max(range(len(amounts)), key=lambda i: abs(amounts[i]))
+        falling = [abs(a) for a in amounts[top:]]
+        if any(b > a + 1e-6 for a, b in zip(falling, falling[1:])):
+            fail(f"{view}'s stretch did not only shrink once it began to: {[round(a, 4) for a in amounts[top:]]}")
+        if len(falling) < wanted.get("frames_min", 0):
+            fail(f"{view}'s stretch went back in {len(falling) - 1} changes, expected at least {wanted['frames_min']}")
 
 
 def check_glide(wanted, report, start, end, fail):
@@ -1314,6 +1376,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
                      f"{line['t'] / 1e6:.1f} ms")
                 break
+    if "stretch" in expect:
+        check_stretch(expect["stretch"], report, start, end, fail)
     if "scrolled" in expect:
         # A paced scroll (`scroll_paced`): "presented_min", the fewest frames the window showed
         # while it scrolled.

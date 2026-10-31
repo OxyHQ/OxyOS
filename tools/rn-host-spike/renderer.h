@@ -94,6 +94,17 @@ class ViewTree {
   }
   facebook::react::Tag root() const { return root_; }
 
+  // Scroll views stretched past their ends (overscroll, input.h): each one's stretch along x and y,
+  // a share of its size along the axis, negative past its start (top, left), positive past its end.
+  void setStretches(std::map<facebook::react::Tag, facebook::react::Point> stretches) {
+    stretches_ = std::move(stretches);
+  }
+  const std::map<facebook::react::Tag, facebook::react::Point>& stretches() const { return stretches_; }
+  facebook::react::Point stretch(facebook::react::Tag tag) const {
+    auto it = stretches_.find(tag);
+    return it == stretches_.end() ? facebook::react::Point{} : it->second;
+  }
+
   // A modal animating in (modal.h): how it is presented; none when it is not animating.
   void present(facebook::react::Tag modal, std::optional<ModalPresentation> presentation) {
     if (presentation) {
@@ -121,6 +132,7 @@ class ViewTree {
   std::unordered_map<facebook::react::Tag, View> views_;
   facebook::react::Tag root_ = -1;
   std::map<facebook::react::Tag, ModalPresentation> presenting_;
+  std::map<facebook::react::Tag, facebook::react::Point> stretches_;
   std::vector<Leaving> leaving_;
 };
 

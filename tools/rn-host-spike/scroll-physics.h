@@ -3,6 +3,7 @@
 // (input.h). Logical pixels are Android's dp.
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <deque>
@@ -96,6 +97,16 @@ class SplineFling {
   }
   double durationMs() const { return durationMs_; }
   double distance() const { return distance_; }
+  // Its velocity `ms` after it began, logical pixels per second, signed as its distance
+  // (SplineOverScroller.update's mCurrVelocity: the spline's slope over its duration); none once
+  // its duration passed.
+  double velocity(double ms) const {
+    if (durationMs_ <= 0 || ms >= durationMs_) return 0;
+    const auto& spline = table();
+    const int index = std::min(static_cast<int>(kSamples * ms / durationMs_), kSamples - 1);
+    const double coefficient = (spline[index + 1] - spline[index]) * kSamples;
+    return coefficient * distance_ / durationMs_ * 1000.0;
+  }
   // How far it has gone `ms` after it began (SplineOverScroller.update's spline step); the whole
   // distance once its duration passed.
   double at(double ms) const {
@@ -147,6 +158,93 @@ class SplineFling {
   }
 
   double durationMs_ = 0, distance_ = 0;
+};
+
+// Android's stretch overscroll (EdgeEffect with TYPE_STRETCH, the default since Android 12), as
+// a ScrollView drives it at one edge of an axis: how far past its end the content is pulled, as a
+// share of the view's size along the axis (`distance`), which a drag pulls (onPullDistance) and
+// takes back when it moves the other way, the fingers lifting release (onRelease) and a fling
+// reaching the end strikes (onAbsorb); released or struck, it springs back to rest
+// (updateSpring). What is drawn is `amount()`, the stretch EdgeEffect gives the view's render
+// node (dampStretchVector). Constants are AOSP's EdgeEffect, from its source as recalled (no
+// copy of it is at hand): the spring's natural frequency 24.657 and damping ratio 0.98, a strike's
+// velocity multiplied by 13, rest under 0.001 of a pixel moving under 0.01 a second, and the
+// stretch 0.016 of the distance linearly plus 0.016 of (1 - e^(-distance·e/0.33)).
+class EdgeStretch {
+ public:
+  float distance() const { return distance_; }
+  bool resting() const { return state_ == State::Idle; }
+  bool pulling() const { return state_ == State::Pull; }
+  // onPullDistance: pulled by `delta` (a share of the view's size; negative takes it back),
+  // never below none; returns what it took.
+  float pull(float delta) {
+    float to = std::max(0.0f, distance_ + delta);
+    float taken = to - distance_;
+    if (taken == 0 && to == 0) return 0;
+    state_ = State::Pull;
+    distance_ = to;
+    velocity_ = 0;
+    return taken;
+  }
+  // onRelease: let go at `ms` (the host's clock, milliseconds): it springs back from where it is.
+  void release(double ms) {
+    if (state_ != State::Pull) return;
+    state_ = distance_ > 0 ? State::Recede : State::Idle;
+    velocity_ = 0;
+    started_ = ms;
+  }
+  // onAbsorb: a fling reaching the end at `velocity` (logical pixels per second, its magnitude)
+  // strikes it at `ms`.
+  void absorb(double velocity, double ms) {
+    state_ = State::Recede;
+    velocity_ = std::abs(velocity) * kAbsorbVelocityAdjustment;
+    started_ = ms;
+  }
+  // updateSpring, for a view `size` logical pixels along the axis: where the spring is at `ms`;
+  // true if it moved.
+  bool step(double ms, float size) {
+    if (state_ != State::Recede || size <= 0) return false;
+    const double dt = (ms - started_) / 1000.0;
+    if (dt < 0.001) return false;
+    started_ = ms;
+    const double damped = kNaturalFrequency * std::sqrt(1 - kDampingRatio * kDampingRatio);
+    const double cosCoefficient = distance_ * size;
+    const double sinCoefficient = (kDampingRatio * kNaturalFrequency * cosCoefficient + velocity_) / damped;
+    const double decay = std::exp(-kDampingRatio * kNaturalFrequency * dt);
+    const double displacement =
+        decay * (cosCoefficient * std::cos(damped * dt) + sinCoefficient * std::sin(damped * dt));
+    const double velocity = displacement * -kNaturalFrequency * kDampingRatio +
+                            decay * (-damped * cosCoefficient * std::sin(damped * dt) +
+                                     damped * sinCoefficient * std::cos(damped * dt));
+    float before = distance_;
+    distance_ = static_cast<float>(displacement / size);
+    velocity_ = velocity;
+    if (distance_ > 1) {
+      distance_ = 1;
+      velocity_ = 0;
+    }
+    // isAtEquilibrium: past rest, or still and within a thousandth of a pixel of it.
+    if (displacement < 0 || (std::abs(velocity) < kVelocityThreshold && displacement < kValueThreshold)) {
+      state_ = State::Idle;
+      distance_ = 0;
+      velocity_ = 0;
+    }
+    return distance_ != before;
+  }
+  // dampStretchVector: the stretch drawn, a share of the view's size.
+  float amount() const {
+    const double scalar = M_E / kExpStretchDistance;
+    return static_cast<float>(kLinearStretch * distance_ + kExpStretch * (1 - std::exp(-distance_ * scalar)));
+  }
+
+ private:
+  enum class State { Idle, Pull, Recede };
+  static constexpr double kNaturalFrequency = 24.657, kDampingRatio = 0.98, kAbsorbVelocityAdjustment = 13;
+  static constexpr double kVelocityThreshold = 0.01, kValueThreshold = 0.001;
+  static constexpr double kLinearStretch = 0.016, kExpStretch = 0.016, kExpStretchDistance = 0.33;
+  State state_ = State::Idle;
+  float distance_ = 0;
+  double velocity_ = 0, started_ = 0;
 };
 
 }  // namespace oxyos

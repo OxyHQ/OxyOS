@@ -103,6 +103,12 @@ class PointerInput {
   bool tick(bool ready);
   std::optional<std::chrono::steady_clock::time_point> nextFrame(bool ready) const;
 
+  // The scroll views stretched past their ends (overscroll): each one's stretch along x and y, a
+  // share of its size, negative past its start, positive past its end (ViewTree::setStretches).
+  std::map<facebook::react::Tag, facebook::react::Point> stretches() const;
+  // Whether a stretch changed since this was last asked: the window draws again.
+  bool takeStretchChanged() { return std::exchange(stretchChanged_, false); }
+
  private:
   void scroll(float dx, float dy);
   // A touchpad's scroll (OXYOS_SCROLL_FINGER), as Android 14 gives two fingers' swipe to a
@@ -114,6 +120,16 @@ class PointerInput {
   // Ends the glide going on, if any, where it is (onMomentumScrollEnd): a press, a wheel or new
   // fingers stop it, as a touch stops Android's.
   void stopGlide();
+  // Overscroll, as Android 12's ScrollView stretches (EdgeEffect, TYPE_STRETCH): the axis a scroll
+  // view scrolls along (0 for x, 1 for y), whether it may stretch along it (its overScrollMode:
+  // always, never, or only when its content scrolls, React Native's "auto"), the stretch showing
+  // taking back a move the other way (`ScrollView.releaseGlow`; returns what is left of the move),
+  // and a move from `before` that went past an end pulling it (`onPullDistance`).
+  int scrollAxis(facebook::react::Tag tag) const;
+  bool canOverscroll(facebook::react::Tag tag, int axis) const;
+  float releaseStretch(facebook::react::Tag tag, int axis, float delta);
+  void pullStretch(facebook::react::Tag tag, int axis, float delta, float before, float end);
+  void reportStretch(facebook::react::Tag tag);
   // The scroll view's scroll event of `kind` (scrollBeginDrag, scrollEndDrag, momentumScrollBegin,
   // momentumScrollEnd) at its offset; `velocity` for the end of a drag.
   void scrollEvent(facebook::react::Tag tag, uint32_t surface, const char* kind,
@@ -197,6 +213,16 @@ class PointerInput {
     std::optional<std::chrono::steady_clock::time_point> stepped;
   };
   std::optional<Glide> glide_;
+  // Each scroll view's stretch along each axis, and which end it is past (-1 its start, 1 its end),
+  // while one shows; when the receding ones last stepped.
+  struct Overscroll {
+    EdgeStretch axis[2];
+    int side[2] = {0, 0};
+    uint32_t surface = 0;
+  };
+  std::map<facebook::react::Tag, Overscroll> overscroll_;
+  std::optional<std::chrono::steady_clock::time_point> stretchStepped_;
+  bool stretchChanged_ = false;
 };
 
 // When `event` happened, as its device registered it: the protocol's `time_ns`, CLOCK_MONOTONIC,

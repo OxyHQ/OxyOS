@@ -28,6 +28,7 @@ import StoreProbe from './StoreProbe';
 import TextLayoutProbe from './TextLayoutProbe';
 import HoverProbe from './HoverProbe';
 import GlideProbe from './GlideProbe';
+import OverscrollProbe from './OverscrollProbe';
 import TimingProbe from './TimingProbe';
 import ClipProbe from './ClipProbe';
 
@@ -56,5 +57,6 @@ AppRegistry.registerComponent('StoreProbe', () => StoreProbe);
 AppRegistry.registerComponent('TextLayoutProbe', () => TextLayoutProbe);
 AppRegistry.registerComponent('HoverProbe', () => HoverProbe);
 AppRegistry.registerComponent('GlideProbe', () => GlideProbe);
+AppRegistry.registerComponent('OverscrollProbe', () => OverscrollProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
 AppRegistry.registerComponent('ClipProbe', () => ClipProbe);
