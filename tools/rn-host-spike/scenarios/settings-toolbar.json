@@ -1,5 +1,5 @@
 {
- "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Stash's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+].",
+ "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Stash's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. Its sidebar is one navigation the assistive technology receives holding its eleven rows, top to bottom, inside it (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
  "module": "OxyOSSettings",
  "window": [
   960,
@@ -18,7 +18,7 @@
  },
  "steps": [
   {
-   "name": "Its first page: the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
+   "name": "Its first page: the sidebar one navigation holding its eleven rows; the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
    "do": [
     "wait",
     1500
@@ -45,6 +45,72 @@
         "state": [
          "disabled"
         ]
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
        }
       ],
       "only": true
@@ -116,6 +182,72 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -166,6 +298,72 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -210,6 +408,72 @@
        {
         "role": "Button",
         "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
         "state": []
        }
       ],
@@ -264,6 +528,72 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -308,6 +638,72 @@
        {
         "role": "Button",
         "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
         "state": []
        }
       ],
@@ -362,6 +758,72 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -406,6 +868,72 @@
        {
         "role": "Button",
         "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
         "state": []
        }
       ],
@@ -457,6 +985,72 @@
         "state": [
          "disabled"
         ]
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Settings"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Appearance",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Wallpaper",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Notifications",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Lock Screen",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Displays",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Accessibility",
+        "state": [
+         "selected"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Keyboard",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Date & Time",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Software Update",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Privacy",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "About",
+        "state": []
        }
       ],
       "only": true

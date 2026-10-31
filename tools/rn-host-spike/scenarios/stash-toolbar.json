@@ -1,5 +1,5 @@
 {
- "about": "Stash's toolbar as Finder's (docs/adr/0016-windows.mdx): its PageHeader in the pane's Screen, the window's toolbar beside the sidebar, holding the sidebar's toggle, back and forward as ONE Bloom ButtonGroup. The assistive technology receives the group holding its three buttons (Bloom's group view is never flattened away from them: before, React Native's renderer mounted them beside an empty group), side by side inside it, and no other back or forward; back and forward are enabled only where the places visited have somewhere to go, and move with a press and with Ctrl+[ / Ctrl+] (Stash's Go menu).",
+ "about": "Stash's toolbar as Finder's (docs/adr/0016-windows.mdx): its PageHeader in the pane's Screen, the window's toolbar beside the sidebar, holding the sidebar's toggle, back and forward as ONE Bloom ButtonGroup. The assistive technology receives the group holding its three buttons (Bloom's group view is never flattened away from them: before, React Native's renderer mounted them beside an empty group), side by side inside it, and no other back or forward; back and forward are enabled only where the places visited have somewhere to go, and move with a press and with Ctrl+[ / Ctrl+] (Stash's Go menu). Its sidebar holds every place's row, and each section (Favourites, Oxy, Locations) is a group holding its own rows, top to bottom, inside it (before, the sections were empty nodes and the rows loose in the sidebar).",
  "module": "Stash",
  "window": [
   1024,
@@ -20,7 +20,7 @@
  },
  "steps": [
   {
-   "name": "The home first: the toolbar's sidebar toggle, back and forward are ONE group the assistive technology receives holding all three side by side (no empty group beside loose buttons), back and forward disabled; a press on each lands on it",
+   "name": "The home first: the sidebar holds each section as a group of its rows; the toolbar's sidebar toggle, back and forward are ONE group the assistive technology receives holding all three side by side (no empty group beside loose buttons), back and forward disabled; a press on each lands on it",
    "do": [
     "wait",
     1500
@@ -51,6 +51,89 @@
         "state": [
          "disabled"
         ]
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
        }
       ],
       "only": true
@@ -118,6 +201,89 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -172,6 +338,89 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -221,6 +470,89 @@
         "role": "Button",
         "name": "Forward",
         "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
        }
       ],
       "only": true
@@ -278,6 +610,89 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -327,6 +742,89 @@
         "role": "Button",
         "name": "Forward",
         "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
        }
       ],
       "only": true
@@ -384,6 +882,89 @@
        }
       ],
       "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ],
+      "only": true
      }
     ],
     "at": {
@@ -433,6 +1014,89 @@
         "role": "Button",
         "name": "Forward",
         "state": []
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Sidebar"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       },
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       },
+       {
+        "role": "Button",
+        "name": "Trash"
+       }
+      ]
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Favourites"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "home"
+       },
+       {
+        "role": "Button",
+        "name": "Documents"
+       },
+       {
+        "role": "Button",
+        "name": "Pictures"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Oxy"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Oxy Files"
+       },
+       {
+        "role": "Button",
+        "name": "Photos"
+       }
+      ],
+      "only": true
+     },
+     {
+      "group": {
+       "role": "Generic",
+       "name": "Locations"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Trash"
        }
       ],
       "only": true
