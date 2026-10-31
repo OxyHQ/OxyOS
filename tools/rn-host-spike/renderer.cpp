@@ -1071,6 +1071,12 @@ SkImageInfo infoOf(int width, int height) {
   return SkImageInfo::Make(width, height, kBGRA_8888_SkColorType, kPremul_SkAlphaType);
 }
 
+// A GPU canvas's surface: rows top to bottom, as the surface's buffers hold them (Ganesh's default
+// origin is the bottom left, OpenGL's).
+sk_sp<SkSurface> gpuSurface(GrDirectContext* context, int width, int height) {
+  return SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, infoOf(width, height), 0, kTopLeft_GrSurfaceOrigin,
+                                  nullptr);
+}
 // The surface a canvas is drawn through: its GPU surface, or its pixels wrapped.
 sk_sp<SkSurface> surfaceOf(Canvas& canvas) {
   if (canvas.gpu) return canvas.gpu->surface;
@@ -1085,7 +1091,7 @@ void adopt(Canvas& canvas) {
   GrDirectContext* context = activeContext();
   if (canvas.width <= 0 || canvas.height <= 0) return;
   if (context && !canvas.gpu) {
-    auto surface = SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, infoOf(canvas.width, canvas.height));
+    auto surface = gpuSurface(context, canvas.width, canvas.height);
     if (!surface) return;
     surface->writePixels(SkPixmap(infoOf(canvas.width, canvas.height), canvas.pixels.data(),
                                   static_cast<size_t>(canvas.width) * 4),
@@ -1105,7 +1111,7 @@ void allocate(Canvas& canvas, int width, int height, uint32_t value) {
   canvas.gpu.reset();
   canvas.pixels.clear();
   if (GrDirectContext* context = activeContext(); context && width > 0 && height > 0) {
-    if (auto surface = SkSurfaces::RenderTarget(context, skgpu::Budgeted::kNo, infoOf(width, height))) {
+    if (auto surface = gpuSurface(context, width, height)) {
       surface->getCanvas()->clear(fromPremultiplied(value));
       canvas.gpu = std::make_shared<GpuCanvas>(GpuCanvas{std::move(surface)});
       return;
