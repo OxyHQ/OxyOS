@@ -47,6 +47,13 @@ struct Display {
   }
 };
 
+// A length laid out on a scale's pixel grid (Yoga rounds layout to it: 64 logical pixels at 1.25
+// span 12.8 to 76.8) in whole pixels: its product with the scale, whole but for a float's error
+// (64.000004 × 1.25), which is no pixel more; only what reaches beyond the grid is.
+inline long gridPixels(float logical, float scale) {
+  return static_cast<long>(std::ceil(static_cast<double>(logical) * scale - 1e-3));
+}
+
 // A decoded image an Image view shows (images.h): `width` × `height` premultiplied pixels, sRGB,
 // as a Skia image (uploaded to the GPU once, when first drawn there), and the size it is drawn at by
 // `center` and `repeat`, in logical pixels. A picture is never changed once made.

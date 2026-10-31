@@ -239,6 +239,11 @@ impl Scene {
         }
     }
 
+    /// How many sheets are asked for and not yet answered nor withdrawn.
+    pub fn sheets_waiting(&self) -> usize {
+        self.system.sheets.len()
+    }
+
     /// Withdraws a sheet not answered: the shells are told.
     pub fn dismiss_sheet(&mut self, sheet: u32) {
         if self.system.sheets.remove(&sheet).is_none() {

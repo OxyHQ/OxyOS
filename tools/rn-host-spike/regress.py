@@ -196,6 +196,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   runs next to none); "presented", [least, most] frames presented (0: the step changed nothing
   the host draws). In `in_shell`, the shell's;
 
+A step with `until_sheet` asks the session for something it confirms in a system sheet (ADR 0030):
+it settles once the session has a sheet waiting and the shell shows a surface it did not show before
+the step, however long after the step's first answer that is (an update is staged, downloaded and
+verified, before its consent is asked), never after a set time.
+
 A step's `expect_devices` replaces expectations of its `expect` when its input comes through the
 virtual devices (`--uinput`), where a keyboard types one key at a time and a wheel scrolls one
 notch at a time: what React and the client receive is then counted per key and per notch. A
@@ -411,6 +416,8 @@ def check_diagnostics(report, log_text, failures, who="the application"):
 def director_args(step, out):
     kind, value = step["do"]
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
+    if step.get("until_sheet"):
+        args.append("--until-sheet")
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "press_secondary", "double_press", "triple_press"):

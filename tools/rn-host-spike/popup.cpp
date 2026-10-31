@@ -53,7 +53,13 @@ bool tracing() {
 
 }  // namespace
 
-OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size size) {
+uint32_t popupLength(float logical, float scale) {
+  const long scale120 = std::max(1L, std::lround(scale * 120));
+  const long pixels = std::max(1L, gridPixels(logical, scale120 / 120.0f));
+  return static_cast<uint32_t>((pixels - 1) * 120 / scale120 + 1);
+}
+
+OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size size, float scale) {
   // Zero-filled (padding included) so positioners compare bytewise.
   OxyOSPositioner p;
   std::memset(&p, 0, sizeof p);
@@ -68,8 +74,8 @@ OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size s
   p.anchor_y = static_cast<int32_t>(y0);
   p.anchor_width = static_cast<uint32_t>(std::max(1L, x1 - x0));
   p.anchor_height = static_cast<uint32_t>(std::max(1L, y1 - y0));
-  p.width = static_cast<uint32_t>(std::max(1.0f, std::ceil(size.width)));
-  p.height = static_cast<uint32_t>(std::max(1.0f, std::ceil(size.height)));
+  p.width = popupLength(size.width, scale);
+  p.height = popupLength(size.height, scale);
   auto offset = [](Float value) { return static_cast<int32_t>(std::lround(value)); };
   const std::string& side = props.side;
   const std::string& align = props.align;
@@ -176,7 +182,10 @@ void PopupHost::sync(uint64_t serial) {
       auto props = std::static_pointer_cast<const OxyOSPopupViewProps>(view.props);
       auto anchor = anchored(*props);
       if (popup.dismissed || !anchor || view.layoutMetrics.frame.size.width <= 0) continue;
-      auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size);
+      const auto* shown = window_.surface(popup.surface);
+      const auto* parent = window_.surface(anchor->first);
+      float scale = shown && shown->configure ? shown->scale : parent ? parent->scale : window_.scale();
+      auto placed = positioner(*props, anchor->second, view.layoutMetrics.frame.size, scale);
       if (std::memcmp(&placed, &popup.placed, sizeof placed) != 0) {
         window_.reposition(popup.surface, placed);
         popup.placed = placed;
@@ -193,7 +202,10 @@ void PopupHost::sync(uint64_t serial) {
     // Opened once its anchor is mounted and its content laid out.
     if (!anchor || size.width <= 0 || size.height <= 0) continue;
     uint32_t surface = window_.allocate();
-    auto placed = positioner(*props, anchor->second, size);
+    // Sized for its parent's scale: the compositor has not configured it yet. Once it has, the
+    // popup's own scale sizes it (above), on whichever output it was placed.
+    const auto* parent = window_.surface(anchor->first);
+    auto placed = positioner(*props, anchor->second, size, parent ? parent->scale : window_.scale());
     window_.openPopup(surface, anchor->first, placed, serial);
     popups_[tag] = Popup{.surface = surface, .placed = placed};
     Report::get().popup("open", surface, &view,

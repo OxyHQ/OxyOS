@@ -364,3 +364,75 @@ fn an_application_asks_for_a_capability_and_is_answered() {
         granted: false
     }));
 }
+
+#[test]
+fn a_sheet_asked_takes_the_keys_from_the_application_behind_it() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let surface = |h: &mut Harness, surface: u32, kind: ShellKind| {
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface,
+                kind,
+                edge: if kind == ShellKind::Panel {
+                    PanelEdge::Top
+                } else {
+                    PanelEdge::None
+                },
+                output: 1,
+                size: Size::new(400, 200),
+                exclusive: 0,
+            },
+        )
+        .unwrap();
+        h.present(key(SHELL, surface));
+    };
+    let focus = |h: &mut Harness, surface: u32| {
+        h.request(SHELL, Request::FocusShellSurface { surface, serial: 0 })
+            .unwrap();
+        h.pump();
+    };
+    // With no sheet asked, an overlay shown takes no keys without an input of the shell's.
+    surface(&mut h, 60, ShellKind::Overlay);
+    focus(&mut h, 60);
+    assert_eq!(h.scene.focus(), Some(window));
+    // A sheet asked: the overlay showing it takes them; a panel still does not.
+    let sheet = h.scene.show_sheet(Some(APP), "{}").unwrap();
+    surface(&mut h, 61, ShellKind::Panel);
+    focus(&mut h, 61);
+    assert_eq!(h.scene.focus(), Some(window));
+    focus(&mut h, 60);
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 60)));
+    // What is typed while it asks is the shell's, never the application's behind it.
+    h.clear_log();
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    h.scene.keyboard(KEY_A, false, None);
+    h.pump();
+    let keys = |events: Vec<Event>| {
+        events
+            .into_iter()
+            .filter(|event| matches!(event, Event::Key { .. } | Event::Text { .. }))
+            .count()
+    };
+    assert_eq!(keys(h.events_for(APP)), 0);
+    assert!(keys(h.events_for(SHELL)) > 0);
+    // Answered, its overlay goes and the window has the keys again; with no sheet waiting, the
+    // overlay asking again without an input is ignored.
+    h.request(
+        SHELL,
+        Request::SheetAnswer {
+            sheet,
+            accepted: false,
+            serial: 0,
+        },
+    )
+    .unwrap();
+    h.request(SHELL, Request::Destroy { surface: 60 }).unwrap();
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(window));
+    surface(&mut h, 62, ShellKind::Overlay);
+    focus(&mut h, 62);
+    assert_eq!(h.scene.focus(), Some(window));
+}

@@ -15,7 +15,7 @@
       "updates"
     ]
   },
-  "about": "An update needing the account's consent (docs/adr/0030-installing-applications.mdx, decisions 10 and 16): Inbox 1 installed, the store publishes 2, which adds network and oxy-account. A check finds it waiting for consent; Update All leaves it and the sheet asks; Cancelar keeps 1; Actualizar switches to 2, the previous kept until 2 shows a window.",
+  "about": "An update needing the account's consent (docs/adr/0030-installing-applications.mdx, decisions 10 and 16): Inbox 1 installed, the store publishes 2, which adds network and oxy-account. A check finds it waiting for consent; Update All leaves it and, once the update is staged, the sheet asks (the step waits for the sheet itself, which comes after the update's first answer) and has the keyboard: a key typed while it asks never reaches the store behind it; Cancelar keeps 1, and so does Escape; Actualizar switches to 2, the previous kept until 2 shows a window.",
   "installd": {
     "publish": [
       "so.oxy.inbox"
@@ -75,7 +75,7 @@
       }
     },
     {
-      "name": "Update All: the sheet asks for the new access",
+      "name": "Update All: once the update is staged the sheet asks for the new access, with the keyboard",
       "do": [
         "press",
         [
@@ -83,10 +83,53 @@
           90
         ]
       ],
+      "until_sheet": true,
       "expect": {
         "texts": [
           "Asked: 3"
-        ]
+        ],
+        "in_shell": {
+          "texts": [
+            "Inbox pide más acceso",
+            "La versión 0.2.0 usa:",
+            "Internet",
+            "Tu cuenta Oxy",
+            "Cancelar",
+            "Actualizar"
+          ]
+        },
+        "focus_surface": null,
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "leave": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "A letter typed while the sheet asks: the sheet has it, never the store behind it",
+      "do": [
+        "key",
+        30
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": null,
+        "delivered": {},
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Inbox pide más acceso",
+            "La versión 0.2.0 usa:",
+            "Internet",
+            "Tu cuenta Oxy",
+            "Cancelar",
+            "Actualizar"
+          ]
+        }
       }
     },
     {
@@ -118,12 +161,13 @@
       ],
       "expect": {
         "texts": [
-          "Check: updateState · UpdateAll: updated awaitingConsent · Status: status v1 update 2"
+          "Check: updateState · UpdateAll: updated awaitingConsent · Status: status v1 update 2",
+          "Answer 4: status v1 update 2"
         ]
       }
     },
     {
-      "name": "Update All again",
+      "name": "Update All again: the sheet asks again",
       "do": [
         "press",
         [
@@ -131,10 +175,83 @@
           90
         ]
       ],
+      "until_sheet": true,
       "expect": {
         "texts": [
           "Asked: 5"
+        ],
+        "in_shell": {
+          "texts": [
+            "Inbox pide más acceso",
+            "La versión 0.2.0 usa:",
+            "Internet",
+            "Tu cuenta Oxy",
+            "Cancelar",
+            "Actualizar"
+          ]
+        },
+        "focus_surface": null,
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "leave": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape, as Cancelar: the sheet goes, version 1 stays, and the store has the keyboard again",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "texts": [
+          "Answer 5: updated awaitingConsent"
+        ],
+        "focus_surface": 1,
+        "in_shell": {
+          "absent": [
+            "Inbox pide más acceso"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Update All a third time: the sheet asks again",
+      "do": [
+        "press",
+        [
+          250,
+          90
         ]
+      ],
+      "until_sheet": true,
+      "expect": {
+        "texts": [
+          "Asked: 6"
+        ],
+        "in_shell": {
+          "texts": [
+            "Inbox pide más acceso",
+            "La versión 0.2.0 usa:",
+            "Internet",
+            "Tu cuenta Oxy",
+            "Cancelar",
+            "Actualizar"
+          ]
+        },
+        "focus_surface": null,
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "leave": 1,
+            "focus.out": 1
+          }
+        }
       }
     },
     {

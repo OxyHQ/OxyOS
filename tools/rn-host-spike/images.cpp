@@ -10,6 +10,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 using namespace facebook::react;
 
@@ -80,8 +81,10 @@ void Images::sync(float scale) {
   for (const auto& [tag, entry] : tree_.views()) {
     if (!entry.view.componentName || std::string(entry.view.componentName) != "Image") continue;
     auto props = std::static_pointer_cast<const ImageProps>(entry.view.props);
+    // Its box in pixels, as it is drawn on the scale's pixel grid.
     auto content = entry.view.layoutMetrics.getContentFrame().size;
-    float width = std::ceil(content.width * scale), height = std::ceil(content.height * scale);
+    auto width = static_cast<float>(gridPixels(content.width, scale));
+    auto height = static_cast<float>(gridPixels(content.height, scale));
     auto source = chosen(props->sources, width, height);
     if (!source) {
       if (shown_.erase(tag)) tree_.setPicture(tag, nullptr);
@@ -94,21 +97,28 @@ void Images::sync(float scale) {
     shown.key = Key{resolved.path, static_cast<uint32_t>(std::max(0.0f, width)),
                     static_cast<uint32_t>(std::max(0.0f, height)),
                     static_cast<uint32_t>(covering ? OXYOS_IMAGE_FIT_COVERING : OXYOS_IMAGE_FIT_WITHIN)};
-    if (auto it = shown_.find(tag); it != shown_.end() && it->second.key == shown.key && it->second.uri == shown.uri) {
+    auto was = shown_.find(tag);
+    if (was != shown_.end() && was->second.key == shown.key && was->second.uri == shown.uri) {
       continue;
     }
+    // The same source at another size (the view laid out anew) is decoded again for it, and told
+    // no more: its loadStart was sent, and its load once it came.
+    const bool same = was != shown_.end() && was->second.uri == shown.uri && was->second.sourceScale == shown.sourceScale;
+    if (same) shown.told = was->second.told;
     if (!resolved.error.empty()) {
-      shown_[tag] = shown;
-      started(tag, shown);
-      failed(tag, shown, resolved.error);
+      auto& entry = shown_[tag] = shown;
+      if (!same) {
+        started(tag);
+        failed(tag, entry, resolved.error);
+      }
       continue;
     }
     // A picture another view already shows is the same picture.
     if (auto it = pictures_.find(shown.key); it != pictures_.end()) {
       if (auto picture = it->second.lock()) {
-        shown_[tag] = shown;
-        started(tag, shown);
-        loaded(tag, shown, picture);
+        auto& entry = shown_[tag] = shown;
+        if (!same) started(tag);
+        loaded(tag, entry, picture);
         continue;
       }
     }
@@ -125,14 +135,14 @@ void Images::sync(float scale) {
         std::string error = oxyos_last_error();
         loads_.erase(shown.loading);
         shown.loading = 0;
-        shown_[tag] = shown;
-        started(tag, shown);
-        failed(tag, shown, error);
+        auto& entry = shown_[tag] = shown;
+        if (!same) started(tag);
+        failed(tag, entry, error);
         continue;
       }
     }
     shown_[tag] = shown;
-    started(tag, shown);
+    if (!same) started(tag);
   }
 }
 
@@ -178,7 +188,7 @@ bool Images::deliver() {
   return changed;
 }
 
-void Images::started(Tag tag, const Shown&) {
+void Images::started(Tag tag) {
   auto view = tree_.views().find(tag);
   if (view == tree_.views().end()) return;
   auto props = std::static_pointer_cast<const ImageProps>(view->second.view.props);
@@ -189,8 +199,9 @@ void Images::started(Tag tag, const Shown&) {
   }
 }
 
-void Images::loaded(Tag tag, const Shown& shown, const std::shared_ptr<const Picture>& picture) {
+void Images::loaded(Tag tag, Shown& shown, const std::shared_ptr<const Picture>& picture) {
   tree_.setPicture(tag, picture);
+  if (std::exchange(shown.told, true)) return;
   auto view = tree_.views().find(tag);
   if (view == tree_.views().end()) return;
   auto props = std::static_pointer_cast<const ImageProps>(view->second.view.props);
@@ -209,12 +220,14 @@ void Images::loaded(Tag tag, const Shown& shown, const std::shared_ptr<const Pic
   }
 }
 
-void Images::failed(Tag tag, const Shown& shown, const std::string& error) {
-  // The view shows nothing, and the reason is told whether or not JavaScript listens.
-  tree_.setPicture(tag, nullptr);
+void Images::failed(Tag tag, Shown& shown, const std::string& error) {
   if (reported_.insert(shown.uri).second) {
     std::cerr << "[host] image " << shown.uri << " not shown: " << error << "\n";
   }
+  // Its source shown, decoded again at another size: the view keeps the picture it has.
+  if (std::exchange(shown.told, true)) return;
+  // The view shows nothing, and the reason is told whether or not JavaScript listens.
+  tree_.setPicture(tag, nullptr);
   auto view = tree_.views().find(tag);
   if (view == tree_.views().end()) return;
   auto props = std::static_pointer_cast<const ImageProps>(view->second.view.props);

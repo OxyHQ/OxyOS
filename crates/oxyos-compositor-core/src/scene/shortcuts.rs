@@ -452,13 +452,24 @@ impl Scene {
 
     /// A shell asks for the keyboard focus on one of its own panels or overlays, citing an input
     /// it received lately; without such an input, it is ignored. A surface it never had, or one of
-    /// a kind that never takes the keys (its background), is its mistake.
+    /// a kind that never takes the keys (its background), is its mistake. While a system sheet
+    /// waits for the person (ADR 0030), an overlay takes the keys with no input of the shell's:
+    /// the sheet is modal, the key window as a Mac's alert is, and what is typed while it asks is
+    /// never the application's behind it.
     pub(super) fn focus_shell_surface(
         &mut self,
         key: SurfaceKey,
         serial: u64,
     ) -> Result<(), ErrorCode> {
         let node = self.nodes.get(&key).ok_or(ErrorCode::UnknownSurface)?;
+        let sheet = self.sheets_waiting() > 0
+            && matches!(
+                node.role,
+                Role::Shell {
+                    kind: ShellKind::Overlay,
+                    ..
+                }
+            );
         match node.role {
             Role::Shell {
                 kind: ShellKind::Panel | ShellKind::Overlay | ShellKind::Notification,
@@ -477,7 +488,7 @@ impl Scene {
             .inputs
             .get(&key.client)
             .is_some_and(|inputs| inputs.contains(&serial));
-        if recent && self.focusable(key) && self.grab.is_empty() {
+        if (recent || sheet) && self.focusable(key) && self.grab.is_empty() {
             self.activate(key);
         }
         Ok(())

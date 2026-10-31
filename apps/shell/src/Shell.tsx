@@ -484,10 +484,17 @@ export const Shell = memo(function Shell({
           </Surface>
         )}
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
-            to the person; only the shell's press answers it. */}
+            to the person; only the shell's press answers it. It is modal, and has the keyboard as
+            a Mac's alert does: nothing typed while it asks reaches the application behind it. */}
         {sheet && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE}>
-            <SystemSheet text={sheet.text} language={sheet.language} names={sheet.names} answer={sheet.answer} />
+          <Surface kind="overlay" style={WHOLE} keyboard>
+            <SystemSheet
+              text={sheet.text}
+              language={sheet.language}
+              names={sheet.names}
+              answer={sheet.answer}
+              keyboard={platform.keyboard}
+            />
           </Surface>
         )}
         {/* Screenshots (ADR 0024, decision 10): the crosshair, the window picking and the toolbar
