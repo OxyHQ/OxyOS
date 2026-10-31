@@ -145,6 +145,8 @@ struct Node {
     output: OutputId,
     /// The refresh of its output its client was last told (`Refresh`, in mHz; 0: not yet).
     refresh_mhz: u32,
+    /// The output its client was last told it is on (`SurfaceOutput`; 0: not yet).
+    told_output: OutputId,
     mapped: bool,
     hidden: bool,
     dismissed: bool,
@@ -278,6 +280,16 @@ struct BufferEntry {
     destroyed: bool,
 }
 
+/// An output as applications are told it (ApplicationOutput, ApplicationOutputWorkArea).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ApplicationOutput {
+    size: Size,
+    scale_120: u32,
+    refresh_mhz: u32,
+    primary: bool,
+    work_area: Rect,
+}
+
 /// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
 #[derive(Clone, Debug)]
 struct Clipboard {
@@ -402,6 +414,8 @@ pub struct Scene {
     clipboard: Option<Clipboard>,
     /// The session's keyboard layout, as clients are told it.
     keyboard_layout: Option<String>,
+    /// What each client was last told of the outputs (ApplicationOutput), by output.
+    application_outputs: BTreeMap<ClientId, BTreeMap<OutputId, ApplicationOutput>>,
     /// Offers the session made with copy_for_session, counted.
     next_session_offer: u32,
     /// Pointer images clients set, counted.
@@ -975,6 +989,7 @@ impl Scene {
         // layout before its first key.
         self.tell_drawing(client);
         self.tell_keyboard_layout(client);
+        self.tell_application_outputs(Some(client));
         self.grant(client, grants)
     }
 
@@ -1056,6 +1071,7 @@ impl Scene {
         self.forget_shell_client(client);
         self.forget_switcher(client);
         self.forget_menu_bar_client(client);
+        self.application_outputs.remove(&client);
         self.forget_launches(client);
         self.forget_system_requests(client);
         self.forget_preference_changes(client);
@@ -1857,6 +1873,7 @@ impl Scene {
                 scale_120,
                 output,
                 refresh_mhz,
+                told_output: if refresh_mhz != 0 { output } else { 0 },
                 mapped: false,
                 hidden: false,
                 dismissed: false,
@@ -1894,8 +1911,17 @@ impl Scene {
                 self.roots.insert(index, key);
             }
         }
-        // Its client paces its frames by its output's refresh from the first one on.
+        // Its client knows the output it is on, and paces its frames by its refresh, from the
+        // first one on.
         if refresh_mhz != 0 {
+            self.tell_application_outputs(Some(key.client));
+            self.emit(
+                key.client,
+                Event::SurfaceOutput {
+                    surface: key.id,
+                    output,
+                },
+            );
             self.emit(
                 key.client,
                 Event::Refresh {
@@ -1916,15 +1942,32 @@ impl Scene {
             .map(|output| (output.id, output.refresh_mhz))
             .collect();
         let mut told = Vec::new();
+        let mut moved = Vec::new();
         for (key, node) in &mut self.nodes {
             let Some(&refresh_mhz) = refreshes.get(&node.output) else {
                 continue;
             };
-            if node.dismissed || node.refresh_mhz == refresh_mhz {
+            if node.dismissed {
+                continue;
+            }
+            if node.told_output != node.output {
+                node.told_output = node.output;
+                moved.push((*key, node.output));
+            }
+            if node.refresh_mhz == refresh_mhz {
                 continue;
             }
             node.refresh_mhz = refresh_mhz;
             told.push((*key, refresh_mhz));
+        }
+        for (key, output) in moved {
+            self.emit(
+                key.client,
+                Event::SurfaceOutput {
+                    surface: key.id,
+                    output,
+                },
+            );
         }
         for (key, refresh_mhz) in told {
             self.emit(
@@ -2342,6 +2385,80 @@ impl Scene {
             self.tell_keyboard_layout(client);
         }
         Ok(())
+    }
+
+    /// Tells each client (or only `only`) what changed of the outputs since it was last told:
+    /// each one's size, scale, refresh, whether it is the primary, and its work area relative to
+    /// it, never its place in the global space (ADR 0029).
+    fn tell_application_outputs(&mut self, only: Option<ClientId>) {
+        let now: BTreeMap<OutputId, ApplicationOutput> = self
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(index, output)| {
+                let area = self.work_area(output.id).unwrap_or(output.rect);
+                (
+                    output.id,
+                    ApplicationOutput {
+                        size: Size::new(output.rect.width, output.rect.height),
+                        scale_120: output.scale_120,
+                        refresh_mhz: output.refresh_mhz,
+                        primary: index == 0,
+                        work_area: Rect::new(
+                            area.x - output.rect.x,
+                            area.y - output.rect.y,
+                            area.width,
+                            area.height,
+                        ),
+                    },
+                )
+            })
+            .collect();
+        let clients: Vec<ClientId> = match only {
+            Some(client) => vec![client],
+            None => self.clients.keys().copied().collect(),
+        };
+        for client in clients {
+            if !self.clients.contains_key(&client) {
+                continue;
+            }
+            let told = self.application_outputs.remove(&client).unwrap_or_default();
+            for id in told.keys().filter(|id| !now.contains_key(id)) {
+                self.emit(client, Event::ApplicationOutputRemoved { output: *id });
+            }
+            for (&id, output) in &now {
+                let before = told.get(&id);
+                if before.map(|b| (b.size, b.scale_120, b.refresh_mhz, b.primary))
+                    != Some((
+                        output.size,
+                        output.scale_120,
+                        output.refresh_mhz,
+                        output.primary,
+                    ))
+                {
+                    self.emit(
+                        client,
+                        Event::ApplicationOutput {
+                            output: id,
+                            size: output.size,
+                            scale_120: output.scale_120,
+                            refresh_mhz: output.refresh_mhz,
+                            primary: output.primary,
+                        },
+                    );
+                }
+                if before.map(|b| b.work_area) != Some(output.work_area) {
+                    self.emit(
+                        client,
+                        Event::ApplicationOutputWorkArea {
+                            output: id,
+                            rect: output.work_area,
+                        },
+                    );
+                }
+            }
+            self.application_outputs.insert(client, now.clone());
+        }
     }
 
     fn tell_keyboard_layout(&mut self, client: ClientId) {
@@ -4064,6 +4181,8 @@ impl Scene {
     // ---- outputs for the transport/backend -----------------------------------------------
 
     pub fn drain_events(&mut self) -> Vec<(ClientId, Event)> {
+        // Every client, what changed of the outputs, before a surface is said to be on one.
+        self.tell_application_outputs(None);
         // Each surface's client, the refresh of its output where it changed (ADR 0018).
         self.tell_refreshes();
         // The shell is told what changed of windows and workspaces since it was last told.

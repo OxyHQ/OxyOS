@@ -75,14 +75,29 @@ fn connect(socket: &Path) -> (Connection, Vec<Event>) {
     (connection, Vec::new())
 }
 
+/// The next event but those every client is told whatever it does: the outputs and the keyboard
+/// layout (ADR 0029).
+fn next(connection: &Connection) -> Event {
+    loop {
+        match connection.recv_event().unwrap().0 {
+            Event::ApplicationOutput { .. }
+            | Event::ApplicationOutputWorkArea { .. }
+            | Event::ApplicationOutputRemoved { .. }
+            | Event::SurfaceOutput { .. }
+            | Event::KeyboardLayout { .. } => {}
+            event => return event,
+        }
+    }
+}
+
 /// The GPU offer that follows Welcome: the device and its formats.
 fn offer(connection: &Connection) -> (u64, Vec<(Format, u64)>) {
-    let (event, _) = connection.recv_event().unwrap();
+    let event = next(connection);
     let Event::GpuDevice { device, formats } = event else {
         panic!("expected GpuDevice after Welcome, got {event:?}");
     };
     let table = (0..formats)
-        .map(|index| match connection.recv_event().unwrap().0 {
+        .map(|index| match next(connection) {
             Event::GpuFormat {
                 index: told,
                 format,
@@ -179,8 +194,7 @@ fn without_a_render_node_a_plane_is_refused_and_no_gpu_is_offered() {
                 Some(memfd.as_fd()),
             )
             .unwrap();
-        let (event, _) = connection.recv_event().unwrap();
-        event
+        next(&connection)
     });
     serve_until(
         &mut compositor,
@@ -604,7 +618,7 @@ fn what_the_compositor_does_not_take_fails_the_connection() {
             offer(&connection);
             let buffer = filled(0xffff_ffff).unwrap();
             send(&connection, &buffer);
-            connection.recv_event().unwrap().0
+            next(&connection)
         });
         serve_until(
             &mut compositor,

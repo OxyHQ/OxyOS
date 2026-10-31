@@ -295,6 +295,10 @@ pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;
+pub const OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED: u32 = 202;
+pub const OXYOS_EVENT_SURFACE_OUTPUT: u32 = 203;
 /// A DISPLAY's `flag` bits.
 pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
 pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
@@ -1321,6 +1325,50 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SHEET_DISMISSED,
                 code: sheet,
+                ..out
+            }
+        }
+        Event::ApplicationOutput {
+            output,
+            size,
+            scale_120,
+            refresh_mhz,
+            primary,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT,
+                code: output,
+                width: size.width,
+                height: size.height,
+                scale_120,
+                detail: refresh_mhz,
+                flag: u8::from(primary),
+                ..out
+            }
+        }
+        Event::ApplicationOutputWorkArea { output, rect } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA,
+                code: output,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                ..out
+            }
+        }
+        Event::ApplicationOutputRemoved { output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED,
+                code: output,
+                ..out
+            }
+        }
+        Event::SurfaceOutput { surface, output } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SURFACE_OUTPUT,
+                surface,
+                code: output,
                 ..out
             }
         }
