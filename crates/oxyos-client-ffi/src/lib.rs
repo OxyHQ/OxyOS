@@ -243,6 +243,10 @@ pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
 pub const OXYOS_EVENT_CAPTURE_MODE: u32 = 210;
 pub const OXYOS_EVENT_CAPTURE_TARGET: u32 = 211;
 pub const OXYOS_EVENT_SCREENSHOT_SAVED: u32 = 212;
+/// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): a chunk of the session's answer
+/// to `oxyos_client_choose_files` (code: its serial; detail: the chunk's index, 0 begins it; flag:
+/// whether it is the last; text: the chunk), JSON once whole.
+pub const OXYOS_EVENT_FILES_CHOSEN: u32 = 220;
 /// A CAPTURE_MODE's `detail`, the protocol's `CaptureMode`.
 pub const OXYOS_CAPTURE_MODE_SELECTION: u32 = 1;
 pub const OXYOS_CAPTURE_MODE_WINDOW: u32 = 2;
@@ -988,6 +992,22 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 y: rect.y,
                 width: rect.width,
                 height: rect.height,
+                ..out
+            }
+        }
+        Event::FilesChosen {
+            serial,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_FILES_CHOSEN,
+                code: serial,
+                detail: u32::from(index),
+                flag: u8::from(last),
                 ..out
             }
         }
@@ -2799,6 +2819,79 @@ pub unsafe extern "C" fn oxyos_client_open_screenshot(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::OpenScreenshot { screenshot, serial }) }
+}
+
+/// Asks the session to let the person choose files for the toplevel `surface` (ADR 0029, decision
+/// 8; protocol version 7): `text`, NUL-terminated UTF-8 JSON of the session's vocabulary
+/// (`{"open": {...}}` or `{"save": {...}}`), citing `input`, the serial of a press or a key this
+/// connection received lately. FILES_CHOSEN events naming `serial` answer it, once. 0 on success;
+/// OXYOS_ERROR, sending nothing, to a compositor of an older version.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` a NUL-terminated string.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_choose_files(
+    client: *mut OxyOSClient,
+    serial: u32,
+    surface: u32,
+    input: u64,
+    text: *const c_char,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if text.is_null() {
+        return fail("null request");
+    }
+    // SAFETY: per the contract, a NUL-terminated string.
+    let Ok(text) = (unsafe { CStr::from_ptr(text) }).to_str() else {
+        return fail("a request is UTF-8");
+    };
+    status(client.choose_files(serial, surface, input, text))
+}
+
+/// Withdraws the request `serial` of `oxyos_client_choose_files`: its panel closes, and it is
+/// answered cancelled unless it was answered already. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_cancel_choose_files(
+    client: *mut OxyOSClient,
+    serial: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::CancelChooseFiles { serial }) }
+}
+
+/// The file chooser the session started (ADR 0029, decision 8) gives the person's answer:
+/// `text`, NUL-terminated UTF-8 JSON (`{"chosen": [URIs]}` or `{"cancelled": {}}`), citing
+/// `input`, the press or key that gave it (0 for a cancellation). 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` a NUL-terminated string.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_answer_file_chooser(
+    client: *mut OxyOSClient,
+    input: u64,
+    text: *const c_char,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if text.is_null() {
+        return fail("null answer");
+    }
+    // SAFETY: per the contract, a NUL-terminated string.
+    let Ok(text) = (unsafe { CStr::from_ptr(text) }).to_str() else {
+        return fail("an answer is UTF-8");
+    };
+    status(client.answer_file_chooser(input, text))
 }
 
 /// The session's shell's Control Center (ADR 0025): sets a level (`control`: OXYOS_CONTROL_*;

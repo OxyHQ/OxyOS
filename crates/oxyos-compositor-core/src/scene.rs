@@ -472,6 +472,8 @@ pub struct Scene {
     /// What the store, Settings and applications asked the session, and the shell's sheets
     /// (ADR 0030).
     system: system::System,
+    /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
+    choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
     /// Settings asked for (ADR 0019).
     preferences: preferences::Preferences,
@@ -1078,6 +1080,7 @@ impl Scene {
         self.application_outputs.remove(&client);
         self.forget_launches(client);
         self.forget_system_requests(client);
+        self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
         self.forget_notification_client(client);
@@ -1186,6 +1189,9 @@ impl Scene {
     pub fn handle(&mut self, client: ClientId, request: Request) -> Result<(), ErrorCode> {
         let grants = *self.clients.get(&client).ok_or(ErrorCode::InvalidOrder)?;
         let key = |id| SurfaceKey { client, id };
+        if let Some(handled) = self.sheet_request(client, &request) {
+            return handled;
+        }
         match request {
             Request::Hello { .. } => Err(ErrorCode::InvalidOrder),
             Request::Goodbye {} => {
@@ -1197,6 +1203,20 @@ impl Scene {
             }
             Request::CreateToplevel { surface, size } => {
                 self.check_new(key(surface))?;
+                // A file chooser's window is the sheet of the window it chooses for (ADR 0029,
+                // decision 8): a dialog of that window, though another client's.
+                if let Some((window, origin, size)) = self.sheet_for(key(surface), size) {
+                    let output = self.nodes[&window].output;
+                    self.insert(
+                        key(surface),
+                        Role::Dialog,
+                        Some(window),
+                        origin,
+                        size,
+                        output,
+                    );
+                    return Ok(());
+                }
                 let output = self
                     .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
                     .map_or(0, |o| o.id);
@@ -1515,6 +1535,24 @@ impl Scene {
                 last,
                 text,
             } => self.system_request(client, serial, input, index, last, text),
+            Request::ChooseFiles {
+                serial,
+                surface,
+                input,
+                index,
+                last,
+                text,
+            } => self.choose_files(client, serial, surface, input, index, last, text),
+            Request::CancelChooseFiles { serial } => {
+                self.cancel_choose_files(client, serial);
+                Ok(())
+            }
+            Request::AnswerFileChooser {
+                input,
+                index,
+                last,
+                text,
+            } => self.answer_file_chooser(client, input, index, last, text),
             Request::SheetAnswer {
                 sheet,
                 accepted,
@@ -2765,6 +2803,7 @@ impl Scene {
         self.forget_menus(key);
         self.forget_window_views(key);
         self.forget_screenshot_surface(key);
+        self.forget_chooser_surface(key);
         if self.active == Some(key) {
             self.active = None;
         }
@@ -4196,9 +4235,13 @@ impl Scene {
                         .activation
                         .get(&key.client)
                         .is_some_and(|serial| self.last_user_serial <= *serial);
-                    if activated {
+                    // A file chooser's sheet takes the keyboard of the window it is attached to
+                    // while that window is the active one (ADR 0029, decision 8); otherwise it
+                    // waits for its window to be activated, and never lowers it.
+                    let sheet = self.is_sheet(key);
+                    if activated || sheet && self.active == Some(self.root_of(key)) {
                         self.activate(key);
-                    } else {
+                    } else if !sheet {
                         self.lower_below_focus(key);
                     }
                 }
@@ -4281,6 +4324,9 @@ mod preferences;
 pub use preferences::{DrawingPreferences, PreferenceChange};
 mod system;
 pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
+/// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
+mod choosers;
+pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
 mod displays;
 pub use displays::{
     DisplayChange, DisplayInfo, DisplayRequest, ModeInfo, MAX_DISPLAY_MODES,

@@ -589,6 +589,53 @@ impl Client {
         Ok(())
     }
 
+    /// Asks the session to let the person choose files for the toplevel `surface` (ADR 0029,
+    /// decision 8): `text`, one request of the session's vocabulary as JSON, citing `input`, the
+    /// serial of a press or a key this connection received lately; a `FilesChosen` with `serial`
+    /// answers it, once. Refused here, sending nothing, to a compositor of a version before 7.
+    pub fn choose_files(
+        &self,
+        serial: u32,
+        surface: u32,
+        input: u64,
+        text: &str,
+    ) -> io::Result<()> {
+        let chunks = chooser_chunks(text)?;
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.send(&Request::ChooseFiles {
+                serial,
+                surface,
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: chunk,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Withdraws the request `serial` made with [`Client::choose_files`]: its panel closes.
+    pub fn cancel_choose_files(&self, serial: u32) -> io::Result<()> {
+        self.send(&Request::CancelChooseFiles { serial })
+    }
+
+    /// The file chooser the session started (ADR 0029, decision 8): the person's answer, JSON,
+    /// citing `input`, the press or key that gave it (0 for a cancellation).
+    pub fn answer_file_chooser(&self, input: u64, text: &str) -> io::Result<()> {
+        let chunks = chooser_chunks(text)?;
+        let count = chunks.len();
+        for (index, chunk) in chunks.into_iter().enumerate() {
+            self.send(&Request::AnswerFileChooser {
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: chunk,
+            })?;
+        }
+        Ok(())
+    }
+
     /// Posts a notification as `serial` (ADR 0026): its texts in chunks, each cut at a character
     /// to the protocol's limit, then the post; a `NotificationResult` with `serial` answers. Data
     /// longer than its limit is refused rather than cut (cut JSON is no JSON), as are more than
@@ -1138,4 +1185,18 @@ fn truncate(text: &str, limit: usize) -> &str {
         end -= 1;
     }
     &text[..end]
+}
+
+/// A file chooser's text in the protocol's chunks: 1 byte to MAX_CHOOSER_TEXT_BYTES.
+fn chooser_chunks(text: &str) -> io::Result<Vec<PreeditText>> {
+    if text.is_empty() || text.len() > oxyos_protocol::MAX_CHOOSER_TEXT_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "a file chooser's text is 1 byte to MAX_CHOOSER_TEXT_BYTES",
+        ));
+    }
+    Ok(TextChunk::split(text)
+        .iter()
+        .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
+        .collect())
 }

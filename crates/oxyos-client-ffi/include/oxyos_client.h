@@ -107,6 +107,8 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
 #define OXYOS_EVENT_SCREENSHOT_SAVED 212
+/* File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8). */
+#define OXYOS_EVENT_FILES_CHOSEN 220
 /* A CAPTURE_MODE's detail. */
 #define OXYOS_CAPTURE_MODE_SELECTION 1
 #define OXYOS_CAPTURE_MODE_WINDOW 2
@@ -412,6 +414,9 @@ typedef struct OxyOSClient OxyOSClient;
  *                      the last (then show it); `text` the chunk.
  *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
  *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+ *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
+ *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
+ *                      whole (ADR 0029, decision 8).
  *   APPLICATION_OUTPUT to every client when it connects and as it changes (ADR 0029): an output
  *                      the session shows, never its place: code, its id; width, height, its size in
  *                      logical pixels; scale_120; detail, its refresh in mHz; flag, the primary.
@@ -641,6 +646,26 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
 int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint64_t serial);
+/* File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; protocol version 7, see
+ * oxyos_client_protocol_version): any application asks the session to let the person choose files
+ * for its toplevel `surface` (an open or save panel shown as a sheet of that window), citing
+ * `input`, the serial of a press or a key this connection received lately; `text` is the request,
+ * NUL-terminated UTF-8 JSON:
+ *   {"open": {"multiple": false, "directory": false, "types": ["image/png", ".png", "image/*"],
+ *             "title": "...", "folder": "file:///..."}}
+ *   {"save": {"name": "untitled.txt", "types": [...], "title": "...", "folder": "file:///..."}}
+ * every field but the kind optional. FILES_CHOSEN events naming `serial` answer it, once, with
+ * {"chosen": ["file:///...", ...]}, {"cancelled": {}} or {"refused": {"reason": "..."}}
+ * (needsInput, busy: the window already has one, locked, invalidRequest, invalidWindow,
+ * unavailable). OXYOS_ERROR, sending nothing, to a compositor of an older version. A request is
+ * withdrawn with oxyos_client_cancel_choose_files (answered cancelled unless answered already).
+ * The chooser the session started (the file manager in its picker mode) answers with
+ * oxyos_client_answer_file_chooser: {"chosen": [...]} citing the press or key that chose, or
+ * {"cancelled": {}} (input 0). */
+int oxyos_client_choose_files(OxyOSClient* client, uint32_t serial, uint32_t surface, uint64_t input,
+                              const char* text);
+int oxyos_client_cancel_choose_files(OxyOSClient* client, uint32_t serial);
+int oxyos_client_answer_file_chooser(OxyOSClient* client, uint64_t input, const char* text);
 /* Notifications (docs/adr/0026-notifications.mdx). One of a notification's actions: its id and label
  * (NUL-terminated UTF-8, not empty), a reply action's placeholder (may be empty; NULL for a button),
  * and whether it answers without bringing the application forward. */
