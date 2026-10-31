@@ -65,7 +65,8 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
    - Down, Return or Space open the menu; inside it Up, Down, Home, End, a letter (typeahead), Return and Escape are Bloom's popup navigation, as in any menu ([ADR 0021](./0021-menu-bar));
    - a row chosen gives the keyboard back to the window, then runs (a window's command reaches its application once);
    - Escape in an open menu closes it, the keyboard staying on its title; Escape on the bar leaves it and gives the keyboard back to the window (`FocusWindow` of the active window: its focused field keeps its focus, as after any focus change);
-   - a press elsewhere (a window, the desktop) takes the keyboard from the bar, and the bar lets go of it.
+   - a press elsewhere (a window, the desktop) takes the keyboard from the bar, and the bar lets go of it;
+   - however the bar is left, the assistive technology's focus leaves it with the keyboard, as VoiceOver's leaves a Mac's menu bar for the window: the host drops the accessibility focus the bar's keys moved over its titles, and while the keyboard is elsewhere declines JavaScript's focus moves into the bar (Bloom gives a closed menu's trigger the focus back, which a row chosen would otherwise land on a title). The assistive technology's own focus moves go anywhere.
 
    Bloom's popups begin with no row active, so the first Down after opening a menu makes its first row active; a Mac's menu opened from the keyboard begins on its first item. That is Bloom's to give (an initial active row for a popup opened from the keyboard, `floating/popup-navigation.tsx`), and OxyOS takes it when Bloom has it.
 
