@@ -11,7 +11,9 @@
 
 use super::*;
 use oxyos_compositor_core::{physical, AppearanceChange, TextTransaction};
-use oxyos_protocol::{AccessibleAction, AccessibleState, GesturePhase, PreeditStyle, ScrollSource};
+use oxyos_protocol::{
+    AccessibleAction, AccessibleState, GesturePhase, PreeditStyle, ScrollSource, TextChunk,
+};
 
 /// Time the application's frames must stay unchanged to count as settled.
 const SETTLE: Duration = Duration::from_millis(750);
@@ -181,6 +183,9 @@ pub enum Step {
     /// Milliseconds of real time with no input, the session served all along: what fades on its
     /// own clock (a hardware key's bezel, ADR 0025) has the time to.
     Wait(u64),
+    /// Another application copies these types with their contents (pasteboard.rs): the
+    /// clipboard holds them, for the application to paste (ADR 0007).
+    Clipboard(Vec<(TextChunk, Vec<u8>)>),
 }
 
 /// The points of a drag on the output after its first: eight even steps to its last.
@@ -281,6 +286,7 @@ impl Step {
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
             Step::Wait(ms) => format!("{ms} ms waited"),
+            Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
         }
     }
 
@@ -418,6 +424,13 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Clipboard(contents) => {
+                let types: Vec<String> = contents
+                    .iter()
+                    .map(|(mime, _)| json_string(mime.as_str()))
+                    .collect();
+                format!("\"clipboard\":[{}]", types.join(","))
+            }
             Step::Wait(ms) => format!("\"wait\":{ms}"),
         }
     }
@@ -549,7 +562,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -936,6 +949,16 @@ impl Launch {
                 }
                 Some("--minimize-window") => Step::MinimizeWindow,
                 Some("--caps-lock") => Step::CapsLock,
+                Some("--clipboard") => {
+                    let list = args.next().ok_or(USAGE)?;
+                    let mut contents = Vec::new();
+                    for line in std::fs::read_to_string(list)?.lines() {
+                        let (mime, path) = line.split_once('\t').ok_or(USAGE)?;
+                        let mime = TextChunk::new(mime).ok_or("a type is 1 to 32 bytes")?;
+                        contents.push((mime, std::fs::read(path)?));
+                    }
+                    Step::Clipboard(contents)
+                }
                 Some("--a11y-action") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     let (spec, name) = value.split_once(',').ok_or(USAGE)?;
@@ -1104,7 +1127,7 @@ fn shell_surfaces(compositor: &Compositor) -> Vec<(SurfaceKey, u64, Rect)> {
         .into_iter()
         .filter_map(|item| match item {
             RenderItem::Surface { key, rect, frame }
-                if key.client > ClientId::MAX / 2 && key.client < crate::ime::IME =>
+                if key.client > ClientId::MAX / 2 && key.client < crate::pasteboard::PASTEBOARD =>
             {
                 Some((key, frame.sequence, rect))
             }
@@ -1356,6 +1379,9 @@ fn settle(
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
         }
+        if let Some(pasteboard) = session.pasteboard.as_mut() {
+            pasteboard.serve(&mut session.compositor);
+        }
         session.reader.absorb(&mut session.compositor);
         let now = shown(&session.compositor);
         let shell_now = shell_surfaces(&session.compositor);
@@ -1490,7 +1516,7 @@ fn delivered_json(session: &Session) -> String {
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {
             *counts.entry(surface).or_default().entry(kind).or_default() += 1;
-        } else if client > ClientId::MAX / 2 && client < crate::ime::IME {
+        } else if client > ClientId::MAX / 2 && client < crate::pasteboard::PASTEBOARD {
             shell += 1;
         } else if session.launched_clients.contains(&client) {
             *launched.entry(kind).or_default() += 1;
@@ -1537,6 +1563,61 @@ fn controls_json(fake: &oxyos_controls::Fake) -> String {
         })
         .collect();
     format!("{{{}}}", fields.join(","))
+}
+
+/// What the clipboard holds once a step settled, as the session reads it from its owner, each
+/// type through a pipe as any receiver pastes: `{"types": [...], "contents": {type: content}}`,
+/// or null when it holds nothing. Read again only when it changed.
+fn clipboard_json(session: &mut Session) -> Result<String> {
+    let Some((selection, types)) = session
+        .compositor
+        .scene
+        .clipboard()
+        .map(|(selection, types)| (selection, types.to_vec()))
+    else {
+        return Ok("null".to_string());
+    };
+    if let Some(json) = session
+        .pasteboard
+        .as_ref()
+        .and_then(|pasteboard| pasteboard.reported(selection))
+    {
+        return Ok(json.to_string());
+    }
+    let mut contents = Vec::new();
+    for mime in &types {
+        let reading = crate::pasteboard::Pasteboard::read(&mut session.compositor, *mime)?;
+        let bytes = match reading {
+            Some(reading) => {
+                while !reading.done() {
+                    session.compositor.serve(&session.listener)?;
+                    if let Some(pasteboard) = session.pasteboard.as_mut() {
+                        pasteboard.serve(&mut session.compositor);
+                    }
+                }
+                reading.take()
+            }
+            None => None,
+        };
+        contents.push(format!(
+            "{}:{}",
+            json_string(mime.as_str()),
+            crate::pasteboard::content_json(bytes.as_deref())
+        ));
+    }
+    let names: Vec<String> = types
+        .iter()
+        .map(|mime| json_string(mime.as_str()))
+        .collect();
+    let json = format!(
+        "{{\"types\":[{}],\"contents\":{{{}}}}}",
+        names.join(","),
+        contents.join(",")
+    );
+    if let Some(pasteboard) = session.pasteboard.as_mut() {
+        pasteboard.remember(selection, json.clone());
+    }
+    Ok(json)
 }
 
 pub fn json_string(text: &str) -> String {
@@ -1613,7 +1694,7 @@ fn act(
 fn surface_name(key: SurfaceKey) -> String {
     if key.client == CLIENT {
         key.id.to_string()
-    } else if key.client > ClientId::MAX / 2 && key.client < crate::ime::IME {
+    } else if key.client > ClientId::MAX / 2 && key.client < crate::pasteboard::PASTEBOARD {
         format!("shell-{}", key.id)
     } else {
         format!("{}-{}", key.client, key.id)
@@ -2819,6 +2900,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         // assistive technology's.
         Step::ExpectPopup
         | Step::Wait(_)
+        | Step::Clipboard(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
         | Step::Accessibility { .. }
@@ -2893,6 +2975,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
     }
+    session.pasteboard = Some(crate::pasteboard::Pasteboard::connect(
+        &mut session.compositor,
+    )?);
     // The shell's applications, from the registry, run with the shell's own Bloom host and bundle.
     if let Some(shell) = &launch.shell {
         session.launcher = Some(
@@ -3252,11 +3337,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     let until = Instant::now() + Duration::from_millis(*ms);
                     while Instant::now() < until {
                         session.compositor.serve(&session.listener)?;
+                        if let Some(pasteboard) = session.pasteboard.as_mut() {
+                            pasteboard.serve(&mut session.compositor);
+                        }
                         session.serve_launches();
                         session.serve_installs();
                         session.serve_preferences();
                         session.reader.absorb(&mut session.compositor);
                     }
+                }
+                0
+            }
+            _ if matches!(step, Step::Clipboard(_)) => {
+                if let (Step::Clipboard(contents), Some(pasteboard)) =
+                    (step, session.pasteboard.as_mut())
+                {
+                    pasteboard.copy(&mut session.compositor, contents.clone())?;
                 }
                 0
             }
@@ -3375,8 +3471,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let flip_latency = since_input(answer.first_flip_ns);
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
+        let clipboard = clipboard_json(&mut session)?;
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -3430,6 +3527,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.scene.disconnect(READER);
     if session.ime.take().is_some() {
         session.compositor.scene.disconnect(crate::ime::IME);
+    }
+    if session.pasteboard.take().is_some() {
+        session
+            .compositor
+            .scene
+            .disconnect(crate::pasteboard::PASTEBOARD);
+        session.compositor.local_pipes.clear();
     }
     // Its socket closes with the session; the shell, a client like the others, is waited for.
     session.compositor.shell_listener = None;

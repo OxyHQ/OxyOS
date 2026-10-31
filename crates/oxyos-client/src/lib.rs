@@ -878,6 +878,12 @@ impl Client {
     /// paste's pipe from a thread of its own; the compositor refuses the offer if the serial is
     /// not a recent input of this client or the client lost keyboard focus.
     pub fn copy(&mut self, serial: u64, contents: Vec<(TextChunk, Vec<u8>)>) -> io::Result<()> {
+        if contents.is_empty() || contents.len() > oxyos_protocol::MAX_CLIPBOARD_TYPES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a copy has 1 to 16 types",
+            ));
+        }
         self.next_offer = self.next_offer.wrapping_add(1);
         let offer = self.next_offer;
         self.send(&Request::ClipboardOffer { offer, serial })?;

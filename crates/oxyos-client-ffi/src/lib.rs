@@ -2843,6 +2843,68 @@ pub unsafe extern "C" fn oxyos_client_copy_text(
     status(client.copy(serial, vec![(mime, bytes)]))
 }
 
+/// One media type of a copy (`oxyos_client_copy`): `mime_length` bytes of its name (UTF-8, 1 to
+/// 32) and `length` bytes of its content.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OxyOSClipboardEntry {
+    pub mime: *const c_char,
+    pub mime_length: usize,
+    pub data: *const u8,
+    pub length: usize,
+}
+
+/// Copies `count` media types (1 to 16, each named once, the most faithful first) as the
+/// clipboard, with the serial of the user input that asked for it (ADR 0007): any type, text,
+/// HTML or an image. The client library keeps every content and writes the asked one into each
+/// paste itself. 0 on success; nothing is sent if an entry is not valid. The compositor may still
+/// refuse the copy, as for oxyos_client_copy_text.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `entries` points to `count` readable
+/// entries, each pointing to its readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_copy(
+    client: *mut OxyOSClient,
+    serial: u64,
+    entries: *const OxyOSClipboardEntry,
+    count: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    if count == 0 || count > oxyos_protocol::MAX_CLIPBOARD_TYPES || entries.is_null() {
+        return fail("a copy has 1 to 16 types");
+    }
+    // SAFETY: per the contract, `entries` points to `count` readable entries.
+    let entries = unsafe { std::slice::from_raw_parts(entries, count) };
+    let mut contents: Vec<(TextChunk, Vec<u8>)> = Vec::with_capacity(count);
+    for entry in entries {
+        if entry.mime.is_null() || (entry.data.is_null() && entry.length > 0) {
+            return fail("null type or content");
+        }
+        // SAFETY: per the contract, `mime` points to `mime_length` readable bytes.
+        let name =
+            unsafe { std::slice::from_raw_parts(entry.mime.cast::<u8>(), entry.mime_length) };
+        let Some(mime) = std::str::from_utf8(name).ok().and_then(TextChunk::new) else {
+            return fail("a type is UTF-8 of 1 to 32 bytes");
+        };
+        if contents.iter().any(|(named, _)| *named == mime) {
+            return fail("a type is named twice");
+        }
+        let data = if entry.length == 0 {
+            Vec::new()
+        } else {
+            // SAFETY: per the contract, `data` points to `length` readable bytes.
+            unsafe { std::slice::from_raw_parts(entry.data, entry.length) }.to_vec()
+        };
+        contents.push((mime, data));
+    }
+    status(client.copy(serial, contents))
+}
+
 /// Empties the clipboard if this client's copy is what it holds. 0 on success.
 ///
 /// # Safety

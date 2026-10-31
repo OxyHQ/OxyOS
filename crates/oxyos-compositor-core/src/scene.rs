@@ -37,8 +37,7 @@ pub const MIN_REFRESH_MHZ: u32 = 1_000;
 pub const MAX_REFRESH_MHZ: u32 = 1_000_000;
 pub const MAX_TOUCH_POINTS: usize = 10;
 pub const MAX_BUFFERS_PER_CLIENT: usize = 128;
-/// Media types an offer may name (ADR 0007).
-pub const MAX_CLIPBOARD_TYPES: usize = 16;
+pub use oxyos_protocol::MAX_CLIPBOARD_TYPES;
 /// Offers a client may have begun and not committed.
 pub const MAX_CLIPBOARD_OFFERS: usize = 4;
 /// The latest user inputs per client whose serials authorize clipboard requests.
@@ -397,6 +396,8 @@ pub struct Scene {
     inputs: BTreeMap<ClientId, std::collections::VecDeque<u64>>,
     /// The clipboard (ADR 0007): an offer its owner committed; empty if none.
     clipboard: Option<Clipboard>,
+    /// Offers the session made with copy_for_session, counted.
+    next_session_offer: u32,
     /// Offers begun and not committed, by client and the client's offer number: their types.
     offers: BTreeMap<(ClientId, u32), Vec<TextChunk>>,
     /// Names each clipboard content for receivers, never reused.
@@ -2304,6 +2305,57 @@ impl Scene {
             }
             None => self.emit(client, Event::ClipboardEmpty {}),
         }
+    }
+
+    /// What the clipboard holds: the name receivers know it by and its types.
+    pub fn clipboard(&self) -> Option<(u32, &[TextChunk])> {
+        self.clipboard
+            .as_ref()
+            .map(|clipboard| (clipboard.selection, clipboard.types.as_slice()))
+    }
+
+    /// The session copies content it holds as `owner`, a client of the scene the program running
+    /// the compositor plays (a development compositor's other application): no user input or
+    /// keyboard focus is asked of it, as the session is the one that asks them of applications.
+    /// Its pastes come to `owner` as ClipboardSend events, as any owner's.
+    pub fn copy_for_session(
+        &mut self,
+        owner: ClientId,
+        types: Vec<TextChunk>,
+    ) -> Result<(), ErrorCode> {
+        if !self.clients.contains_key(&owner) {
+            return Err(ErrorCode::Unauthorized);
+        }
+        if types.is_empty() || types.len() > MAX_CLIPBOARD_TYPES {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        self.next_session_offer = self.next_session_offer.wrapping_add(1);
+        self.selections += 1;
+        self.clipboard = Some(Clipboard {
+            owner,
+            offer: self.next_session_offer,
+            types,
+            selection: self.selections,
+        });
+        self.tell_clipboard();
+        Ok(())
+    }
+
+    /// The session reads `mime` of what the clipboard holds: its owner is asked for it as for a
+    /// paste (a ClipboardSend), and take_transfer then names the owner the session's pipe goes
+    /// to. False if the clipboard holds no such type.
+    pub fn paste_for_session(&mut self, mime: TextChunk) -> bool {
+        let Some(clipboard) = self
+            .clipboard
+            .as_ref()
+            .filter(|clipboard| clipboard.types.contains(&mime))
+        else {
+            return false;
+        };
+        let (owner, offer) = (clipboard.owner, clipboard.offer);
+        self.transfer = Some(owner);
+        self.emit(owner, Event::ClipboardSend { offer, mime });
+        true
     }
 
     /// The owner that must answer the paste the request handled last, if it was allowed: the

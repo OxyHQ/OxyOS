@@ -864,6 +864,19 @@ int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
  * client library keeps it and answers pastes itself. The compositor refuses a copy whose serial
  * is not a recent input of this client, or made without keyboard focus. */
 int oxyos_client_copy_text(OxyOSClient* client, uint64_t serial, const char* text, size_t length);
+/* One media type of a copy: `mime_length` bytes of its name (UTF-8, 1 to 32) and `length` bytes of
+ * its content. */
+typedef struct OxyOSClipboardEntry {
+  const char* mime;
+  size_t mime_length;
+  const uint8_t* data;
+  size_t length;
+} OxyOSClipboardEntry;
+/* Copies `count` media types (1 to 16, each named once, the most faithful first) as the clipboard,
+ * with the serial of the user input that asked for it: any type, text, HTML or an image. The
+ * client library keeps every content and answers pastes itself. Nothing is sent if an entry is not
+ * valid; the compositor may refuse the copy as it refuses oxyos_client_copy_text's. */
+int oxyos_client_copy(OxyOSClient* client, uint64_t serial, const OxyOSClipboardEntry* entries, size_t count);
 /* Empties the clipboard if this client's copy is what it holds. */
 int oxyos_client_clear_clipboard(OxyOSClient* client, uint64_t serial);
 /* Pastes `mime` of the content CLIPBOARD_TYPES named `selection`, with the serial of the user input

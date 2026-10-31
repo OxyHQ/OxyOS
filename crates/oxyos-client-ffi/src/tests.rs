@@ -277,6 +277,19 @@ fn the_header_matches_the_abi() {
     ];
     assert_eq!(c_offsets(&rect), (rust.to_vec(), size_of::<OxyOSRect>()));
 
+    let entry = fields("OxyOSClipboardEntry");
+    assert_eq!(names(&entry), ["mime", "mime_length", "data", "length"]);
+    let rust = [
+        offset_of!(OxyOSClipboardEntry, mime),
+        offset_of!(OxyOSClipboardEntry, mime_length),
+        offset_of!(OxyOSClipboardEntry, data),
+        offset_of!(OxyOSClipboardEntry, length),
+    ];
+    assert_eq!(
+        c_offsets(&entry),
+        (rust.to_vec(), size_of::<OxyOSClipboardEntry>())
+    );
+
     let event = fields("OxyOSEvent");
     let rust = [
         offset_of!(OxyOSEvent, kind),
@@ -4377,6 +4390,137 @@ fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
             (OXYOS_EVENT_POINTER, 4, 272, 0)
         );
         drop(compositor.join().unwrap());
+        oxyos_client_close(client);
+    }
+}
+
+fn clipboard_entry(mime: &str, data: &[u8]) -> OxyOSClipboardEntry {
+    OxyOSClipboardEntry {
+        mime: mime.as_ptr().cast(),
+        mime_length: mime.len(),
+        data: data.as_ptr(),
+        length: data.len(),
+    }
+}
+
+#[test]
+fn a_copy_of_any_types_is_offered_whole_and_each_paste_gets_its_own() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-copy-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let requests: Vec<Request> = (0..5).map(|_| server.recv_request().unwrap().0).collect();
+        let mut pastes = Vec::new();
+        for mime in ["image/png", "text/html"] {
+            let (read, write) = rustix::pipe::pipe().unwrap();
+            server
+                .send_event(
+                    &Event::ClipboardSend {
+                        offer: 1,
+                        mime: TextChunk::new(mime).unwrap(),
+                    },
+                    Some(write.as_fd()),
+                )
+                .unwrap();
+            drop(write);
+            pastes.push(read);
+        }
+        server.send_event(&Event::ClipboardEmpty {}, None).unwrap();
+        let contents: Vec<Vec<u8>> = pastes
+            .into_iter()
+            .map(|read| {
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut std::fs::File::from(read), &mut bytes).unwrap();
+                bytes
+            })
+            .collect();
+        (requests, contents)
+    });
+
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let png = [0x89, b'P', b'N', b'G', 0, 255];
+    let html = b"<b>hola</b>";
+    let text = b"hola";
+    // SAFETY: the client pointer comes from oxyos_client_connect, is used by this thread only and
+    // is closed once at the end; every entry points to live locals for each call.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_copy(client, 9, std::ptr::null(), 0),
+            OXYOS_ERROR,
+            "a copy of nothing is refused"
+        );
+        let twice = [
+            clipboard_entry("text/html", html),
+            clipboard_entry("text/html", text),
+        ];
+        assert_eq!(
+            oxyos_client_copy(client, 9, twice.as_ptr(), 2),
+            OXYOS_ERROR,
+            "a type named twice is refused"
+        );
+        let long = "application/x-a-type-past-32-bytes";
+        let too_long = [clipboard_entry(long, text)];
+        assert_eq!(
+            oxyos_client_copy(client, 9, too_long.as_ptr(), 1),
+            OXYOS_ERROR
+        );
+        let many: Vec<String> = (0..17).map(|i| format!("text/x-{i}")).collect();
+        let many: Vec<OxyOSClipboardEntry> =
+            many.iter().map(|m| clipboard_entry(m, text)).collect();
+        assert_eq!(
+            oxyos_client_copy(client, 9, many.as_ptr(), many.len()),
+            OXYOS_ERROR,
+            "more types than an offer takes are refused before anything is sent"
+        );
+        let entries = [
+            clipboard_entry("image/png", &png),
+            clipboard_entry("text/html", html),
+            clipboard_entry("text/plain;charset=utf-8", text),
+        ];
+        assert_eq!(oxyos_client_copy(client, 9, entries.as_ptr(), 3), 0);
+        let mut event = OxyOSEvent::default();
+        loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT if event.kind == OXYOS_EVENT_CLIPBOARD_EMPTY => break,
+                OXYOS_POLL_EVENT | OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll: {other}"),
+            }
+        }
+        let (requests, contents) = compositor.join().unwrap();
+        let mime = |m: &str| TextChunk::new(m).unwrap();
+        assert_eq!(
+            requests,
+            [
+                Request::ClipboardOffer {
+                    offer: 1,
+                    serial: 9
+                },
+                Request::ClipboardType {
+                    offer: 1,
+                    mime: mime("image/png")
+                },
+                Request::ClipboardType {
+                    offer: 1,
+                    mime: mime("text/html")
+                },
+                Request::ClipboardType {
+                    offer: 1,
+                    mime: mime("text/plain;charset=utf-8")
+                },
+                Request::ClipboardCommit { offer: 1 },
+            ]
+        );
+        assert_eq!(contents, [png.to_vec(), html.to_vec()]);
         oxyos_client_close(client);
     }
 }
