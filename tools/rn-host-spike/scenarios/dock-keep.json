@@ -14,10 +14,9 @@
     {
       "name": "a long press on Allo's icon: its menu, which takes the keyboard from Allo's window",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          796,
-          693,
+          "Abrir Allo",
           650
         ]
       ],
@@ -156,10 +155,9 @@
     {
       "name": "its menu again",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          796,
-          693,
+          "Abrir Allo",
           650
         ]
       ],
@@ -295,10 +293,9 @@
     {
       "name": "a long press on Inbox's icon, not running: Open and Options",
       "do": [
-        "hold_output",
+        "hold_named",
         [
-          738,
-          693,
+          "Abrir Inbox",
           650
         ]
       ],

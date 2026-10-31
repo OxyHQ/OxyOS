@@ -29,9 +29,6 @@
           600,
           360
         ],
-        "output_pixels": {
-          "767,684": "#926791"
-        },
         "react": {
           "touchStart@line": 1,
           "touchEnd@line": 1,
@@ -44,6 +41,14 @@
             "press": 1,
             "release": 1
           }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Abrir Allo"
+            }
+          ]
         }
       }
     },
@@ -55,9 +60,6 @@
       ],
       "expect": {
         "window_shown": false,
-        "output_pixels": {
-          "767,684": "#926791"
-        },
         "react": {},
         "delivered": {
           "1": {
@@ -75,17 +77,22 @@
               "ended": true
             }
           ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Abrir Allo"
+            }
+          ]
         }
       }
     },
     {
       "name": "its application in the dock brings it back: the shell asks the compositor to focus its newest window",
       "do": [
-        "press_output",
-        [
-          767,
-          693
-        ]
+        "press_named",
+        "Abrir Allo"
       ],
       "expect": {
         "window_shown": true,
