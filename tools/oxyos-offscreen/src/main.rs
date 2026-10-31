@@ -146,6 +146,9 @@ struct Session {
     /// applications.mdx, decision 7): its id, where its entry came from, and whether it was given
     /// `settings`; the run's summary reports them (`applications`).
     pub application_launches: Vec<(String, String, bool)>,
+    /// The screenshots the shell opened (docs/adr/0024-system-shortcuts.mdx, decision 10), each
+    /// its file and the application started to open it, until a step reports them.
+    pub screenshot_opens: Vec<(PathBuf, String)>,
     /// `--installed-fixture ROOT`: the install service's state directory a scenario wrote, which
     /// the shell it starts lists from too.
     pub installed_fixture: Option<PathBuf>,
@@ -217,6 +220,7 @@ impl Session {
             controls: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
+            screenshot_opens: Vec::new(),
             installed_fixture: None,
             displays: None,
         })
@@ -364,6 +368,22 @@ impl Session {
                 self.compositor.scene.notification_launch_failed(&id);
             }
         }
+        // A screenshot's thumbnail pressed (ADR 0024, decision 10): opened as the session opens it.
+        for screenshot in self.compositor.scene.take_screenshot_opens() {
+            let Some(path) = self
+                .compositor
+                .screenshots
+                .as_ref()
+                .and_then(|writer| writer.path(screenshot))
+                .map(Path::to_path_buf)
+            else {
+                continue;
+            };
+            match launcher.open(&path, "image/png", oxyos_apps::FILE_MANAGER) {
+                Ok((id, _)) => self.screenshot_opens.push((path, id)),
+                Err(error) => eprintln!("[launch] {}: {error}", path.display()),
+            }
+        }
         for request in self.compositor.scene.take_launches() {
             let launched = match launcher.launch(&request.id) {
                 Ok(pid) => {
@@ -442,6 +462,8 @@ impl Session {
         }
         // The render node the offer of GPU buffers holds goes with the session.
         self.compositor.withdraw_gpu_buffers();
+        // The screenshots' writer, its thread waited for (it has written all it was given).
+        self.compositor.screenshots = None;
         let fds = open_descriptors()?;
         if fds != self.baseline_fds {
             return Err(format!(

@@ -51,6 +51,8 @@ pub fn splash(size: Size) -> Option<Snapshot> {
         pixels: std::rc::Rc::new(pixels.into()),
         look: None,
         views: Vec::new(),
+        captured: true,
+        secure: Vec::new(),
     })
 }
 

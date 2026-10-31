@@ -405,6 +405,28 @@ fn requests() -> Vec<Request> {
             hotspot_y: 5,
             scale_120: 180,
         },
+        Request::Capture {
+            serial: 40,
+            kind: CaptureKind::Area,
+            output: 2,
+            rect: Rect::new(-100, 20, 640, 360),
+            window: 0,
+            destination: CaptureDestination::Documents,
+        },
+        Request::EndCapture { serial: 40 },
+        Request::ExcludeFromCapture {
+            surface: 4,
+            excluded: true,
+        },
+        Request::ClearSecureRegions { surface: 1 },
+        Request::AddSecureRegion {
+            surface: 1,
+            rect: Rect::new(20, 40, 240, 28),
+        },
+        Request::OpenScreenshot {
+            screenshot: 3,
+            serial: 41,
+        },
     ]
 }
 
@@ -738,6 +760,24 @@ fn events() -> Vec<Event> {
         Event::SurfaceOutput {
             surface: 1,
             output: 2,
+        },
+        Event::CaptureMode {
+            mode: CaptureMode::Selection,
+            serial: 40,
+            output: 2,
+        },
+        Event::CaptureTarget {
+            window: 7,
+            rect: Rect::new(120, 80, 600, 400),
+        },
+        Event::ScreenshotSaved {
+            screenshot: 3,
+            output: 2,
+            width: 2000,
+            height: 1250,
+            index: 1,
+            last: true,
+            text: PreeditText::new("at 10.04.05.png").unwrap(),
         },
         Event::WindowState {
             window: 7,
@@ -1472,6 +1512,51 @@ fn version_5_adds_what_a_version_4_connection_is_never_sent_and_may_not_send() {
             assert_eq!(v3, v5);
         }
     }
+}
+
+#[test]
+fn screenshots_are_version_6_and_never_reach_an_older_peer() {
+    let mode = Event::CaptureMode {
+        mode: CaptureMode::Toolbar,
+        serial: 9,
+        output: 1,
+    };
+    assert_eq!(event_since(&mode), 6);
+    for version in [2, 3, 4, 5] {
+        let mut nothing = Vec::new();
+        assert!(!write_event_for(&mut nothing, &mode, version).unwrap());
+        assert!(nothing.is_empty());
+    }
+    let mut v6 = Vec::new();
+    assert!(write_event_for(&mut v6, &mode, 6).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v6), 6).unwrap(), mode);
+    assert!(read_event_for(&mut Cursor::new(&v6), 5).is_err());
+    let capture = Request::Capture {
+        serial: 9,
+        kind: CaptureKind::Screens,
+        output: 0,
+        rect: Rect::new(0, 0, 0, 0),
+        window: 0,
+        destination: CaptureDestination::Desktop,
+    };
+    assert_eq!(request_since(&capture), 6);
+    assert_eq!(
+        request_since(&Request::ClearSecureRegions { surface: 1 }),
+        6
+    );
+    assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
+    assert_eq!(negotiate(2, 6), Ok(6));
+    assert_eq!(negotiate(2, 5), Ok(5));
+}
+
+#[test]
+fn screenshot_values_are_closed_sets() {
+    assert!(CaptureMode::from_raw(0).is_none());
+    assert!(CaptureMode::from_raw(6).is_none());
+    assert_eq!(CaptureMode::from_raw(5), Some(CaptureMode::Ended));
+    assert!(CaptureKind::from_raw(4).is_none());
+    assert!(CaptureDestination::from_raw(0).is_none());
+    assert!(CaptureDestination::from_raw(3).is_none());
 }
 
 #[test]

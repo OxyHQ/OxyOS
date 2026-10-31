@@ -29,6 +29,8 @@ pub mod arrangement;
 pub mod controls;
 mod gpu_buffers;
 pub mod scanout;
+/// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
+pub mod screenshots;
 pub use gpu_buffers::GpuFrame;
 pub mod displays;
 pub mod idle;
@@ -625,6 +627,16 @@ pub struct Compositor {
     /// With `--gpu`: the screen whose frame the Vulkan compositor's own output holds, which the
     /// next frame composed there for the same screen is relative to.
     gpu_holds: Option<OutputId>,
+    /// Captures the scene asked for, composed with the next frame's layers (ADR 0024, decision
+    /// 10).
+    pending_captures: Vec<oxyos_compositor_core::CaptureRequest>,
+    /// What writes screenshots as files, the session's; without one (tests, the development
+    /// compositor without a folder), each capture is kept in `shots`.
+    pub screenshots: Option<screenshots::Writer>,
+    pub shots: Vec<screenshots::Shot>,
+    /// With `records`: the screenshots the writer saved (or not), as the development compositor
+    /// reports them.
+    pub saved: Vec<screenshots::Saved>,
     /// Called once, when the first frame composed has flipped on a display: the session tells
     /// its service manager it is on screen, and the boot logo is let go
     /// (docs/adr/0017-boot-logo.mdx).
@@ -686,6 +698,12 @@ struct Content {
     clip: Option<oxyos_gpu::Rect>,
     /// Its pixels are those of the content at this index (the same window's frame, read once).
     shares: Option<usize>,
+    /// The surface it draws, or draws for (a window's shadow, the windows a shell surface shows
+    /// live), and whether a capture shows it (docs/adr/0024-system-shortcuts.mdx, decision 10);
+    /// a surface's secure regions (surface-local, logical), drawn black in a capture.
+    owner: Option<SurfaceKey>,
+    captured: bool,
+    secure: Vec<Rect>,
 }
 
 impl Content {
@@ -705,6 +723,9 @@ impl Content {
             look: None,
             clip: None,
             shares: None,
+            owner: None,
+            captured: true,
+            secure: Vec::new(),
         }
     }
 
@@ -735,6 +756,9 @@ impl Content {
             look: None,
             clip: None,
             shares: None,
+            owner: None,
+            captured: true,
+            secure: Vec::new(),
         };
         (shadow, drawn.radius)
     }
@@ -972,6 +996,10 @@ impl Compositor {
             idle: idle::Idle::default(),
             splash: Vec::new(),
             gpu_holds: None,
+            pending_captures: Vec::new(),
+            screenshots: None,
+            shots: Vec::new(),
+            saved: Vec::new(),
             on_first_flip: None,
         }
     }
@@ -1578,6 +1606,12 @@ impl Compositor {
     /// (`Scene::begin_frame_on`) and completes at its own flip.
     pub fn frame(&mut self) {
         self.follow_direct();
+        // Captures asked for (ADR 0024, decision 10) are composed with this frame's layers; locked,
+        // or at a login screen, none is.
+        self.pending_captures.extend(self.scene.take_captures());
+        if self.scene.is_locked() || self.login {
+            self.pending_captures.clear();
+        }
         // The pointer is on the cursor plane of the display it is over, placed by every commit,
         // in the shape the surface under it wants; the other displays hide it.
         let shape = self.scene.pointer_shape();
@@ -1744,7 +1778,7 @@ impl Compositor {
             let screen = &self.screens[index];
             started > 0 || screen.recompose || list != screen.composed || looks != screen.looks
         });
-        if !changed && !animating {
+        if !changed && !animating && self.pending_captures.is_empty() {
             for (&index, moved) in ready.iter().zip(&pointer_moved) {
                 let id = self.screens[index].id;
                 self.scene.end_frame_on(id, 0, Clock::Synthetic);
@@ -1862,13 +1896,15 @@ impl Compositor {
                         if arriving.opacity < 255 && self.transitions.lock_arriving(key) {
                             contents.push(Content::cover(rect));
                         }
+                        // What a capture shows of it (ADR 0024, decision 10).
+                        let captured = self.scene.captured(key);
                         // A window's shadow beneath it, and its corners: a window zooming has
                         // them as a window of the size it is drawn at, its corners on their way
                         // from one radius to the other.
                         let radius = look.map_or(0, |look| {
                             let cast = if zoomed.is_some() { placed } else { rect };
                             let corner = zooming.map_or_else(|| window::corner(look), |(_, r)| r);
-                            let (shadow, radius) = Content::shadow(
+                            let (mut shadow, radius) = Content::shadow(
                                 shadows,
                                 look,
                                 corner,
@@ -1876,10 +1912,15 @@ impl Compositor {
                                 placed,
                                 arriving.opacity,
                             );
+                            shadow.owner = Some(key);
+                            shadow.captured = captured;
                             contents.push(shadow);
                             radius
                         });
                         contents.push(Content {
+                            owner: Some(key),
+                            captured,
+                            secure: self.scene.secure_regions(key).to_vec(),
                             key: Some(key),
                             rect,
                             placed,
@@ -1965,6 +2006,9 @@ impl Compositor {
                     let placed = placed_within(surface_rect, surface_placed, rect);
                     let clip = placed_within(surface_rect, surface_placed, clip);
                     contents.push(Content {
+                        owner: Some(surface),
+                        captured: self.scene.captured(surface),
+                        secure: Vec::new(),
                         key: None,
                         rect: placed,
                         placed,
@@ -2000,6 +2044,9 @@ impl Compositor {
         // The splash over everything while the session starts, on every screen.
         for splash in &self.splash {
             contents.push(Content {
+                owner: None,
+                captured: true,
+                secure: Vec::new(),
                 key: None,
                 rect: splash.rect,
                 placed: splash.rect,
@@ -2021,7 +2068,7 @@ impl Compositor {
             let placed = at.place(snapshot.rect);
             in_transition(snapshot.rect, placed, snapshot.look, false);
             let radius = snapshot.look.map_or(0, |look| {
-                let (shadow, radius) = Content::shadow(
+                let (mut shadow, radius) = Content::shadow(
                     shadows,
                     look,
                     window::corner(look),
@@ -2029,10 +2076,14 @@ impl Compositor {
                     placed,
                     at.opacity,
                 );
+                shadow.captured = snapshot.captured;
                 contents.push(shadow);
                 radius
             });
             contents.push(Content {
+                owner: None,
+                captured: snapshot.captured,
+                secure: snapshot.secure.clone(),
                 key: None,
                 rect: snapshot.rect,
                 placed: at.place(snapshot.rect),
@@ -2052,6 +2103,9 @@ impl Compositor {
             for view in &snapshot.views {
                 let clip = placed_within(snapshot.rect, placed, view.clip);
                 contents.push(Content {
+                    owner: None,
+                    captured: snapshot.captured,
+                    secure: Vec::new(),
                     key: None,
                     rect: view.rect,
                     placed: placed_within(snapshot.rect, placed, view.rect),
@@ -2181,6 +2235,9 @@ impl Compositor {
                 self.reads.last().copied().unwrap_or(0.0),
             ));
         }
+        if !self.pending_captures.is_empty() {
+            self.compose_captures(&contents, &layers);
+        }
         // What each surface shown showed: what it is drawn from if it goes (ADR 0011).
         drop(layers);
         self.shown = contents
@@ -2196,11 +2253,271 @@ impl Compositor {
                         pixels: content.pixels,
                         look: content.look,
                         views: Vec::new(),
+                        captured: content.captured,
+                        secure: content.secure,
                     },
                 ))
             })
             .collect();
         self.shown_views = views_shown;
+    }
+
+    /// Composes the captures asked for from this frame's layers (ADR 0024, decision 10): what the
+    /// screens show, each at its own pixels, but what a capture never shows (a shell surface the
+    /// shell left out, the lock screen) and with every surface's secure regions opaque black over
+    /// it. The pointer is on its displays' cursor planes, never in a frame. Each capture goes to
+    /// the writer, or is kept in `shots`.
+    fn compose_captures(&mut self, contents: &[Content], layers: &[oxyos_gpu::Layer<'_>]) {
+        let mut shown: Vec<(Option<SurfaceKey>, oxyos_gpu::Layer<'_>)> = Vec::new();
+        for (content, layer) in contents.iter().zip(layers) {
+            if !content.captured {
+                continue;
+            }
+            shown.push((content.owner, *layer));
+            for region in &content.secure {
+                let within = Rect::new(
+                    content.rect.x.saturating_add(region.x),
+                    content.rect.y.saturating_add(region.y),
+                    region.width,
+                    region.height,
+                );
+                let left = within.x.max(content.rect.x);
+                let top = within.y.max(content.rect.y);
+                let right = within.right().min(content.rect.right());
+                let bottom = within.bottom().min(content.rect.bottom());
+                if right <= i64::from(left) || bottom <= i64::from(top) {
+                    continue;
+                }
+                let within = Rect::new(
+                    left,
+                    top,
+                    (right - i64::from(left)) as u32,
+                    (bottom - i64::from(top)) as u32,
+                );
+                let placed = placed_within(content.rect, content.placed, within);
+                shown.push((
+                    content.owner,
+                    oxyos_gpu::Layer {
+                        x: placed.x,
+                        y: placed.y,
+                        width: placed.width,
+                        height: placed.height,
+                        extent: (1, 1),
+                        paint: oxyos_gpu::Paint::Fill(0),
+                        source: None,
+                        changed: None,
+                        opacity: 255,
+                        radius: 0,
+                        filter: oxyos_gpu::Filter::Box,
+                        clip: content.clip,
+                    },
+                ));
+            }
+        }
+        for request in std::mem::take(&mut self.pending_captures) {
+            let destination = request.destination();
+            let (kind, captures) = match request {
+                oxyos_compositor_core::CaptureRequest::Screens { .. } => {
+                    let all: Vec<oxyos_gpu::Layer<'_>> =
+                        shown.iter().map(|(_, layer)| *layer).collect();
+                    let captures = (0..self.screens.len())
+                        .filter_map(|index| self.capture_screen(index, &all))
+                        .collect();
+                    (oxyos_protocol::CaptureKind::Screens, captures)
+                }
+                oxyos_compositor_core::CaptureRequest::Area { output, rect, .. } => {
+                    let all: Vec<oxyos_gpu::Layer<'_>> =
+                        shown.iter().map(|(_, layer)| *layer).collect();
+                    let capture = self
+                        .screens
+                        .iter()
+                        .position(|screen| screen.id == output)
+                        .and_then(|index| self.capture_area(index, rect, &all));
+                    (
+                        oxyos_protocol::CaptureKind::Area,
+                        capture.into_iter().collect(),
+                    )
+                }
+                oxyos_compositor_core::CaptureRequest::Window { window, .. } => {
+                    let parts: Vec<oxyos_gpu::Layer<'_>> = shown
+                        .iter()
+                        .filter(|(owner, _)| {
+                            owner.is_some_and(|owner| self.scene.part_of_window(owner, window))
+                        })
+                        .map(|(_, layer)| *layer)
+                        .collect();
+                    let capture = self.capture_window(window, &parts);
+                    (
+                        oxyos_protocol::CaptureKind::Window,
+                        capture.into_iter().collect(),
+                    )
+                }
+            };
+            let shot = screenshots::Shot {
+                kind,
+                destination,
+                captures,
+            };
+            if shot.captures.is_empty() {
+                continue;
+            }
+            match &mut self.screenshots {
+                Some(writer) => {
+                    writer.save(shot);
+                }
+                None => self.shots.push(shot),
+            }
+        }
+    }
+
+    /// Composes `layers` (the global space's, placed on a screen) at `width` × `height` over
+    /// `background`: on the CPU, as the reference, or on the GPU where only it composes (the
+    /// CPU then has no pixels of clients' GPU buffers).
+    fn compose_capture(
+        &mut self,
+        width: u32,
+        height: u32,
+        background: u32,
+        layers: &[oxyos_gpu::Layer<'_>],
+    ) -> Option<Vec<u32>> {
+        match (&mut self.gpu, self.gpu_only) {
+            (Some(gpu), true) => {
+                // The device's own output holds this capture now, not a screen's frame.
+                self.gpu_holds = None;
+                match gpu.compositor.compose(width, height, background, layers) {
+                    Ok(pixels) => Some(pixels),
+                    Err(error) => {
+                        eprintln!("[gpu] a capture: {error}");
+                        None
+                    }
+                }
+            }
+            _ => Some(oxyos_gpu::compose_cpu(width, height, background, layers)),
+        }
+    }
+
+    /// A screen as it shows `layers`, at its own pixels.
+    fn capture_screen(
+        &mut self,
+        index: usize,
+        layers: &[oxyos_gpu::Layer<'_>],
+    ) -> Option<screenshots::Capture> {
+        let screen = &self.screens[index];
+        let (output, width, height, scale_120) =
+            (screen.id, screen.width, screen.height, screen.scale_120);
+        let placed: Vec<oxyos_gpu::Layer<'_>> = layers
+            .iter()
+            .filter_map(|layer| screen.layer(layer))
+            .collect();
+        let pixels = self.compose_capture(width, height, DESKTOP, &placed)?;
+        Some(screenshots::Capture {
+            output,
+            width,
+            height,
+            scale_120,
+            pixels,
+            alpha: None,
+        })
+    }
+
+    /// A rectangle of the global space (logical) on a screen: the screen's capture, cut to the
+    /// pixels the rectangle covers there (its edges rounded as the screen places it).
+    fn capture_area(
+        &mut self,
+        index: usize,
+        rect: Rect,
+        layers: &[oxyos_gpu::Layer<'_>],
+    ) -> Option<screenshots::Capture> {
+        let screen = &self.screens[index];
+        let (x0, y0, x1, y1) = screen.place(rect.x, rect.y, rect.width, rect.height);
+        let clamp = |v: i32, most: u32| v.clamp(0, most as i32) as u32;
+        let (x0, x1) = (clamp(x0, screen.width), clamp(x1, screen.width));
+        let (y0, y1) = (clamp(y0, screen.height), clamp(y1, screen.height));
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+        let whole = self.capture_screen(index, layers)?;
+        let pixels = whole
+            .pixels
+            .chunks_exact(whole.width as usize)
+            .skip(y0 as usize)
+            .take((y1 - y0) as usize)
+            .flat_map(|row| row[x0 as usize..x1 as usize].iter().copied())
+            .collect();
+        Some(screenshots::Capture {
+            width: x1 - x0,
+            height: y1 - y0,
+            pixels,
+            ..whole
+        })
+    }
+
+    /// A window as its display shows it, with its shadow, popups and dialogs, at that display's
+    /// pixels, over nothing. Frames are composed opaque (ADR 0004): it is composed twice, over
+    /// black and over white, and each pixel's opacity is what the two differ by, since drawing over
+    /// a background is affine in it (source over: out = colour + (1 - alpha) × background), exact
+    /// where the window is opaque or absent and within a level in its shadow's edge.
+    fn capture_window(
+        &mut self,
+        window: SurfaceKey,
+        layers: &[oxyos_gpu::Layer<'_>],
+    ) -> Option<screenshots::Capture> {
+        let output = self.scene.output_of(window)?;
+        let scene_output = *self.scene.outputs().iter().find(|o| o.id == output)?;
+        let left = layers.iter().map(|l| l.x).min()?;
+        let top = layers.iter().map(|l| l.y).min()?;
+        let right = layers
+            .iter()
+            .map(|l| i64::from(l.x) + i64::from(l.width))
+            .max()?;
+        let bottom = layers
+            .iter()
+            .map(|l| i64::from(l.y) + i64::from(l.height))
+            .max()?;
+        let extent = Rect::new(
+            left,
+            top,
+            u32::try_from(right - i64::from(left)).ok()?,
+            u32::try_from(bottom - i64::from(top)).ok()?,
+        );
+        if extent.is_empty() {
+            return None;
+        }
+        // A screen of the window's extent, at its display's scale.
+        let canvas = Screen::new(
+            &Output {
+                rect: extent,
+                ..scene_output
+            },
+            None,
+        );
+        let placed: Vec<oxyos_gpu::Layer<'_>> = layers
+            .iter()
+            .filter_map(|layer| canvas.layer(layer))
+            .collect();
+        let (width, height) = (canvas.width, canvas.height);
+        let black = self.compose_capture(width, height, 0x00_00_00, &placed)?;
+        let white = self.compose_capture(width, height, 0xff_ff_ff, &placed)?;
+        let alpha = black
+            .iter()
+            .zip(&white)
+            .map(|(&over_black, &over_white)| {
+                // 255 - (white - black), on each channel; the most opaque the channels say.
+                let channel = |shift: u32| {
+                    let (b, w) = ((over_black >> shift) & 0xff, (over_white >> shift) & 0xff);
+                    255 - w.saturating_sub(b)
+                };
+                channel(16).max(channel(8)).max(channel(0)) as u8
+            })
+            .collect();
+        Some(screenshots::Capture {
+            output,
+            width,
+            height,
+            scale_120: scene_output.scale_120,
+            pixels: black,
+            alpha: Some(alpha),
+        })
     }
 
     /// Composes one screen's frame from what the turn gathered (`frame`), if anything on it
@@ -3083,6 +3400,10 @@ impl Compositor {
             for waker in &self.wakers {
                 fds.push(PollFd::from_borrowed_fd(waker.as_fd(), PollFlags::IN));
             }
+            // A screenshot written (ADR 0024, decision 10): the shell is told, for its thumbnail.
+            if let Some(writer) = &self.screenshots {
+                fds.push(PollFd::from_borrowed_fd(writer.wake_fd(), PollFlags::IN));
+            }
             // Acquire points a frame waits for, and the GPU finishing a frame that read a
             // client's buffer whose release waits for it (docs/adr/0031-gpu-buffers.mdx).
             for fd in self.gpu_buffers.wake_fds() {
@@ -3188,6 +3509,7 @@ impl Compositor {
         let framing = Instant::now();
         let frames = self.frames;
         self.frame();
+        self.follow_screenshots();
         let framed = framing.elapsed();
         self.follow_lock();
         self.flush();
@@ -3242,6 +3564,31 @@ impl Compositor {
             }
         }
         Ok(())
+    }
+
+    /// The screenshots the writer saved since the last call: the shell of each one's display is
+    /// told, for its thumbnail (ADR 0024, decision 10).
+    pub fn follow_screenshots(&mut self) {
+        let Some(writer) = &mut self.screenshots else {
+            return;
+        };
+        for saved in writer.finished() {
+            if self.records {
+                self.saved.push(saved.clone());
+            }
+            match saved.path {
+                Ok(path) => match path.to_str() {
+                    Some(text) => self.scene.screenshot_saved(
+                        saved.screenshot,
+                        saved.output,
+                        (saved.width, saved.height),
+                        text,
+                    ),
+                    None => eprintln!("[screenshots] {} is not UTF-8", path.display()),
+                },
+                Err(error) => eprintln!("[screenshots] not saved: {error}"),
+            }
+        }
     }
 
     /// Whether the lock is on screen: the session is locked and the frame every display shows

@@ -7160,6 +7160,7 @@ mod displays;
 /// The menu bar (ADR 0021).
 mod menus;
 mod notifications;
+mod screenshots;
 mod shortcuts;
 mod system;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------

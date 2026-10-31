@@ -1662,6 +1662,7 @@ name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
  "drm",
+ "jiff",
  "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor-core",
@@ -1678,6 +1679,7 @@ dependencies = [
  "oxyos-solar",
  "oxyos-vector",
  "oxyos-vt",
+ "png",
  "rustix",
  "serde",
  "serde_json",
@@ -1717,6 +1719,7 @@ dependencies = [
  "md-5",
  "oxyos-apps",
  "oxyos-net",
+ "oxyos-preferences",
  "rustix",
  "serde_json",
  "sha1",
@@ -1966,6 +1969,7 @@ dependencies = [
  "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
  "rustix",

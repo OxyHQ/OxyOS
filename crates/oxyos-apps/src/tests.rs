@@ -194,6 +194,62 @@ fn a_dock_place_is_a_number_from_one() {
 }
 
 #[test]
+fn a_file_opens_in_the_application_declaring_its_type_with_its_url() {
+    let out = std::env::temp_dir().join(format!("oxyos-apps-opened-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let writer = |name: &str, types: &str| {
+        format!(
+            "[Desktop Entry]\nType=Application\nName={name}\nMimeType={types}\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_LAUNCH_URL > {}\"\n",
+            out.display()
+        )
+    };
+    let viewer = writer("Viewer", "image/jpeg; image/png;");
+    let files = writer("Files", "");
+    let dir = Directory::new(
+        "open",
+        &[
+            ("so.oxy.viewer.desktop", viewer.as_str()),
+            ("so.oxy.files.desktop", files.as_str()),
+        ],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]);
+    let file = Path::new("/home/ada/Escritorio/Captura de pantalla 2026-10-31 a las 10.04.05.png");
+    let (id, pid) = launcher.open(file, "image/png", "so.oxy.files").unwrap();
+    assert_eq!(id, "so.oxy.viewer");
+    assert_eq!(
+        launcher
+            .application_of(pid)
+            .and_then(|l| l.opened.as_deref()),
+        Some(file)
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        "so.oxy.viewer file:///home/ada/Escritorio/Captura%20de%20pantalla%202026-10-31%20a%20las%2010.04.05.png"
+    );
+    // A type nobody declares: the fallback, the file manager.
+    let (id, _) = launcher
+        .open(file, "application/pdf", "so.oxy.files")
+        .unwrap();
+    assert_eq!(id, "so.oxy.files");
+    launcher.end(std::time::Duration::from_secs(2));
+    let _ = std::fs::remove_file(&out);
+    assert_eq!(file_url(Path::new("/a/ñ b")), "file:///a/%C3%B1%20b");
+}
+
+#[test]
 fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-launched-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);
@@ -225,6 +281,7 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
             grants: Grants::default(),
             origin: Origin::Development,
             capabilities: BTreeMap::new(),
+            opened: None,
         })
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -679,6 +736,7 @@ fn a_system_launch_runs_what_the_policy_names() {
         },
         pinned: None,
         origin: Origin::System,
+        opens: Vec::new(),
     };
     let host = entries.join("host");
     let bundle = entries.join("bundle.js");
@@ -969,6 +1027,7 @@ fn an_application_runs_on_its_runtimes_host() {
         },
         pinned: None,
         origin: Origin::Development,
+        opens: Vec::new(),
     };
     let session = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1085,6 +1144,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         },
         pinned: None,
         origin: Origin::System,
+        opens: Vec::new(),
     };
     let system = |host: &Path| SystemApplication {
         entry: root.join("so.oxy.settings.desktop"),

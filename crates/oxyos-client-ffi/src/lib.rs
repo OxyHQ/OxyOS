@@ -13,9 +13,10 @@ use oxyos_client::{
     Accessible, Client, Field, Menu, NotificationActionPost, NotificationPost, Poll,
 };
 use oxyos_protocol::{
-    AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, Control, Event, Format,
-    Gravity, MenuFlags, MenuKind, PanelEdge, Politeness, Positioner, PreeditText, Rect, Request,
-    SecretChunk, ShellKind, Size, TextChunk, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
+    AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
+    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, PanelEdge, Politeness,
+    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk, TextHints,
+    TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -232,6 +233,30 @@ pub const OXYOS_SHORTCUT_SWITCHER_DONE: u32 = 5;
 pub const OXYOS_SHORTCUT_SWITCHER_CANCEL: u32 = 6;
 pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
 pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
+/// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
+/// screenshot interface to show or change (serial: a user input of its own, the same until the
+/// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
+/// OXYOS_CAPTURE_MODE_*; code: the output the toolbar shows on), the window under the pointer while
+/// it is open (code: the window, 0 for none; x, y, width, height: its rectangle in the global space,
+/// logical, without its shadow), and a screenshot saved (code: its number; x: the output it is of;
+/// width, height: its pixels; detail: the chunk's index, 0 beginning its path; flag: whether it is
+/// the last; text: the chunk).
+pub const OXYOS_EVENT_CAPTURE_MODE: u32 = 210;
+pub const OXYOS_EVENT_CAPTURE_TARGET: u32 = 211;
+pub const OXYOS_EVENT_SCREENSHOT_SAVED: u32 = 212;
+/// A CAPTURE_MODE's `detail`, the protocol's `CaptureMode`.
+pub const OXYOS_CAPTURE_MODE_SELECTION: u32 = 1;
+pub const OXYOS_CAPTURE_MODE_WINDOW: u32 = 2;
+pub const OXYOS_CAPTURE_MODE_TOOLBAR: u32 = 3;
+pub const OXYOS_CAPTURE_MODE_CONFIRM: u32 = 4;
+pub const OXYOS_CAPTURE_MODE_ENDED: u32 = 5;
+/// What oxyos_client_capture captures, the protocol's `CaptureKind`.
+pub const OXYOS_CAPTURE_SCREENS: u8 = 1;
+pub const OXYOS_CAPTURE_AREA: u8 = 2;
+pub const OXYOS_CAPTURE_WINDOW: u8 = 3;
+/// Where it is saved, the protocol's `CaptureDestination`.
+pub const OXYOS_CAPTURE_DESKTOP: u8 = 1;
+pub const OXYOS_CAPTURE_DOCUMENTS: u8 = 2;
 
 /// Notifications (docs/adr/0026-notifications.mdx). To the application that posted one: what came
 /// of it (code: the session's number for it, 0 unless posted; detail: OXYOS_NOTIFICATION_POSTED,
@@ -940,6 +965,52 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: window,
                 detail: used,
                 flag: u8::from(hidden),
+                ..out
+            }
+        }
+        Event::CaptureMode {
+            mode,
+            serial,
+            output,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CAPTURE_MODE,
+                serial,
+                detail: mode as u32,
+                code: output,
+                ..out
+            }
+        }
+        Event::CaptureTarget { window, rect } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_CAPTURE_TARGET,
+                code: window,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                ..out
+            }
+        }
+        Event::ScreenshotSaved {
+            screenshot,
+            output,
+            width,
+            height,
+            index,
+            last,
+            text,
+        } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SCREENSHOT_SAVED,
+                code: screenshot,
+                x: output as i32,
+                width,
+                height,
+                detail: u32::from(index),
+                flag: u8::from(last),
                 ..out
             }
         }
@@ -2598,6 +2669,137 @@ pub unsafe extern "C" fn oxyos_client_focus_shell_surface(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::FocusShellSurface { surface, serial }) }
+}
+
+/// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): the session's shell captures
+/// what the person chose in the screenshot interface the compositor opened, citing `serial`, the
+/// CAPTURE_MODE's: every display (`kind` OXYOS_CAPTURE_SCREENS), the rectangle `x`, `y`, `width`,
+/// `height` (global, logical) of the display `output` (_AREA), or the window numbered `window` with
+/// its shadow (_WINDOW); the fields the kind does not use are 0. It is saved to `destination`
+/// (OXYOS_CAPTURE_DESKTOP, _DOCUMENTS), which Super+Shift+3 then uses too, and ends the interface;
+/// one citing another serial, or with the interface closed, is ignored. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn oxyos_client_capture(
+    client: *mut OxyOSClient,
+    serial: u64,
+    kind: u8,
+    output: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    window: u32,
+    destination: u8,
+) -> c_int {
+    let (Some(kind), Some(destination)) = (
+        CaptureKind::from_raw(kind),
+        CaptureDestination::from_raw(destination),
+    ) else {
+        return fail("unknown capture or destination");
+    };
+    let rect = Rect::new(x, y, width, height);
+    let request = Request::Capture {
+        serial,
+        kind,
+        output,
+        rect,
+        window,
+        destination,
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, request) }
+}
+
+/// Ends the screenshot interface without a capture (its toolbar closed), citing the CAPTURE_MODE's
+/// `serial`. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_end_capture(client: *mut OxyOSClient, serial: u64) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::EndCapture { serial }) }
+}
+
+/// Leaves one of the shell's own shell surfaces out of every capture (`excluded`), or puts it back:
+/// its screenshot interface, its thumbnail. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_exclude_from_capture(
+    client: *mut OxyOSClient,
+    surface: u32,
+    excluded: bool,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::ExcludeFromCapture { surface, excluded }) }
+}
+
+/// The parts of `surface` never captured, its secure text fields: `count` (at most 32) rectangles
+/// at `rects` (surface-local, logical; any pointer when 0), replacing those it had, with the
+/// surface's next present. A capture draws them opaque black. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `rects` points to `count` readable
+/// `OxyOSRect`s when `count` is not 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_secure_regions(
+    client: *mut OxyOSClient,
+    surface: u32,
+    rects: *const OxyOSRect,
+    count: usize,
+) -> c_int {
+    if count > oxyos_protocol::MAX_SECURE_REGIONS {
+        return fail("too many secure regions");
+    }
+    let rects = if count == 0 {
+        &[][..]
+    } else if rects.is_null() {
+        return fail("null secure regions");
+    } else {
+        // SAFETY: per the contract, `rects` points to `count` readable rectangles.
+        unsafe { std::slice::from_raw_parts(rects, count) }
+    };
+    // SAFETY: forwarded caller contract.
+    let cleared = unsafe { send(client, Request::ClearSecureRegions { surface }) };
+    if cleared != 0 {
+        return cleared;
+    }
+    for r in rects {
+        let rect = Rect::new(r.x, r.y, r.width, r.height);
+        // SAFETY: forwarded caller contract.
+        let sent = unsafe { send(client, Request::AddSecureRegion { surface, rect }) };
+        if sent != 0 {
+            return sent;
+        }
+    }
+    0
+}
+
+/// Opens the screenshot numbered `screenshot` (a SCREENSHOT_SAVED's code) in the application that
+/// opens it, citing `serial`, an input the shell received (the press on its thumbnail). 0 on
+/// success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_open_screenshot(
+    client: *mut OxyOSClient,
+    screenshot: u32,
+    serial: u64,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::OpenScreenshot { screenshot, serial }) }
 }
 
 /// The session's shell's Control Center (ADR 0025): sets a level (`control`: OXYOS_CONTROL_*;

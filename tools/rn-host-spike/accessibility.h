@@ -74,6 +74,16 @@ std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, facebook::re
 
 folly::dynamic toDynamic(const std::vector<AccessibleNode>& nodes);
 
+// The secure text fields (`secureTextEntry`) a surface shows, whose content is under `root` (the
+// root at `at` in the surface): their rectangles, surface-local logical pixels rounded outward to
+// whole ones, which no screenshot captures (docs/adr/0024-system-shortcuts.mdx, decision 10). As
+// with accessibility, views drawn on surfaces of their own (a popup, a shell region) are theirs;
+// unlike it, a field hidden from assistive technologies is still one.
+std::vector<OxyOSRect> secureFields(const ViewTree& tree, facebook::react::Tag root, facebook::react::Point at = {});
+
+// The same rectangles as the host's report writes them.
+folly::dynamic toDynamic(const std::vector<OxyOSRect>& rects);
+
 // Accessibility focus (Android's, apart from input focus), each surface's published snapshot,
 // and the assistive technology's actions on it.
 class AccessibilityBridge {

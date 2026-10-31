@@ -2,7 +2,8 @@
 //! favourite folders and the volumes mounted for the user.
 
 use crate::Scope;
-use std::path::{Path, PathBuf};
+use oxyos_preferences::user_dirs::named_folder;
+use std::path::PathBuf;
 
 /// A favourite folder: one of the XDG user directories (xdg-user-dirs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,59 +73,13 @@ pub fn favourites(scope: &Scope) -> Vec<(Favourite, PathBuf)> {
     Favourite::ALL
         .iter()
         .filter_map(|&favourite| {
-            let folder = user_dir(&named, favourite.variable(), scope.home())
+            let folder = named_folder(&named, favourite.variable(), scope.home())
                 .unwrap_or_else(|| scope.home().join(favourite.default_folder()));
             let canonical = std::fs::canonicalize(&folder).ok()?;
             (canonical.is_dir() && canonical.starts_with(scope.home()) && canonical != scope.home())
                 .then_some((favourite, canonical))
         })
         .collect()
-}
-
-/// A variable's folder in `user-dirs.dirs`: `NAME="$HOME/relative"` or `NAME="/absolute"`, its
-/// `\"`, `\\` and `\$` unescaped; the last line naming it wins.
-fn user_dir(file: &str, variable: &str, home: &Path) -> Option<PathBuf> {
-    let mut found = None;
-    for line in file.lines() {
-        let line = line.trim();
-        let Some(value) = line
-            .strip_prefix(variable)
-            .and_then(|rest| rest.trim_start().strip_prefix('='))
-        else {
-            continue;
-        };
-        let Some(quoted) = value
-            .trim()
-            .strip_prefix('"')
-            .and_then(|value| value.strip_suffix('"'))
-        else {
-            continue;
-        };
-        let mut text = String::new();
-        let mut chars = quoted.chars();
-        while let Some(c) = chars.next() {
-            if c == '\\' {
-                if let Some(next) = chars.next() {
-                    text.push(next);
-                }
-            } else {
-                text.push(c);
-            }
-        }
-        found = if let Some(rest) = text.strip_prefix("$HOME") {
-            let rest = rest.trim_start_matches('/');
-            Some(if rest.is_empty() {
-                home.to_path_buf()
-            } else {
-                home.join(rest)
-            })
-        } else if text.starts_with('/') {
-            Some(PathBuf::from(text))
-        } else {
-            None
-        };
-    }
-    found
 }
 
 /// A volume mounted for the user.

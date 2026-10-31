@@ -438,6 +438,9 @@ pub struct Scene {
     locked: bool,
     /// The system shortcuts' keys held and taken, and the application switcher (ADR 0024).
     system_keys: shortcuts::SystemKeys,
+    /// Screenshots: the interface open on the shells, captures asked for, secure regions and the
+    /// shell surfaces left out (ADR 0024, decision 10).
+    screenshots: screenshots::Screenshots,
     /// How recently each window was active, and the windows hidden with their application.
     applications: shortcuts::Applications,
     events: Vec<(ClientId, Event)>,
@@ -1070,6 +1073,7 @@ impl Scene {
         self.forget_input_method(client);
         self.forget_shell_client(client);
         self.forget_switcher(client);
+        self.forget_capture_shell(client);
         self.forget_menu_bar_client(client);
         self.application_outputs.remove(&client);
         self.forget_launches(client);
@@ -1146,6 +1150,7 @@ impl Scene {
         }
         if revoked.shell || revoked.shortcuts {
             self.forget_switcher(client);
+            self.forget_capture_shell(client);
         }
         if revoked.input_method {
             self.forget_input_method(client);
@@ -1485,6 +1490,12 @@ impl Scene {
             Request::ClearWindowViews { .. } | Request::PlaceWindowView { .. } => {
                 self.window_view_request(client, request)
             }
+            Request::Capture { .. }
+            | Request::EndCapture { .. }
+            | Request::ExcludeFromCapture { .. }
+            | Request::ClearSecureRegions { .. }
+            | Request::AddSecureRegion { .. }
+            | Request::OpenScreenshot { .. } => self.screenshot_request(client, request),
             Request::LaunchApplication {
                 serial,
                 index,
@@ -2277,6 +2288,7 @@ impl Scene {
             return Err(ErrorCode::InvalidBuffer);
         }
         self.send_window_views(key, frame.sequence);
+        self.send_secure_regions(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
         // What the client drew into this frame since its previous one: the damage it asked for,
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
@@ -2752,6 +2764,7 @@ impl Scene {
         self.forget_application_window(key);
         self.forget_menus(key);
         self.forget_window_views(key);
+        self.forget_screenshot_surface(key);
         if self.active == Some(key) {
             self.active = None;
         }
@@ -3231,6 +3244,7 @@ impl Scene {
         self.locked = true;
         self.dismiss_grab(DismissReason::Locked);
         self.cancel_switcher();
+        self.lock_screenshots();
         let popups: Vec<SurfaceKey> = self
             .nodes
             .iter()
@@ -3389,6 +3403,7 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        self.follow_capture_target();
         if let Some(moving) = self.moving {
             self.move_window(moving, x, y);
             return;
@@ -3597,7 +3612,9 @@ impl Scene {
                 self.consume_press();
                 return;
             };
-            if self.grab.is_empty() {
+            // The screenshot interface's surfaces take presses, never the keyboard: the active
+            // application stays active (ADR 0024, decision 10).
+            if self.grab.is_empty() && !self.shows_capture_interface(target) {
                 let root = self.root_of(target);
                 let blocked = target == root && self.focus_target(root) != root;
                 self.activate(target);
@@ -4055,6 +4072,7 @@ impl Scene {
         // A shell surface's windows shown live are shown with the frame they were sent with.
         for (key, sequence) in presenting {
             self.present_window_views(key, sequence);
+            self.present_secure_regions(key, sequence);
         }
         started
     }
@@ -4281,11 +4299,14 @@ pub use window_views::fitted;
 mod controls;
 /// The screen reader's keys (docs/adr/0014-screen-reader.mdx).
 mod reader;
+/// Screenshots (ADR 0024, decision 10).
+mod screenshots;
 /// The system shortcuts and applications' windows (ADR 0024).
 mod shortcuts;
 pub use controls::{
     BluetoothStatus, ControlLevel, ControlRequest, HardwareKey, NetworkStatus, PowerStatus,
 };
+pub use screenshots::CaptureRequest;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

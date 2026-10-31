@@ -130,6 +130,16 @@ struct ShellService {
   // What the shell says to assistive technologies: politely, after what they are saying (a
   // notification's banner), or at once.
   std::function<void(const std::string& text, bool polite)> announce;
+  // Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): a capture of what the person
+  // chose in the screenshot interface, citing its serial (OXYOS_CAPTURE_SCREENS, _AREA with a
+  // global logical rectangle of `output`, _WINDOW with the window's number; saved to
+  // OXYOS_CAPTURE_DESKTOP or _DOCUMENTS), the interface ended without one, and a saved screenshot
+  // opened in the application that opens it, citing the latest input. False if not sent.
+  std::function<bool(uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect, uint32_t window,
+                     uint8_t destination)>
+      capture;
+  std::function<bool(uint64_t serial)> endCapture;
+  std::function<bool(uint32_t screenshot)> openScreenshot;
 };
 
 // An application's notifications (docs/adr/0026-notifications.mdx), for expo-notifications' API

@@ -14,6 +14,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod displays;
+/// The user's folders (xdg-user-dirs).
+pub mod user_dirs;
 pub use displays::{Arrangement, DisplayMode, DisplaySettings};
 
 /// The longest value a preference takes, in bytes.

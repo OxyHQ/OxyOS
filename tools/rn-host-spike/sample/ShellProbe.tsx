@@ -19,6 +19,7 @@ import type {
   ShellMenu,
   ShellMenuItem,
   ShellNotifications,
+  ShellScreenshots,
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
 
@@ -177,7 +178,10 @@ function ProbeShell({
   controls = probeControls,
   notifications,
   sheet,
+  screenshots,
 }: {
+  /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
+  screenshots?: ShellScreenshots;
   /** The session's system sheet to show now (ADR 0030). */
   sheet?: React.ComponentProps<typeof Shell>['sheet'];
   platform?: React.ComponentProps<typeof Shell>['platform'];
@@ -212,6 +216,7 @@ function ProbeShell({
             controls={controls}
             notifications={notifications}
             sheet={sheet}
+            screenshots={screenshots}
           />
         </BloomProvider>
       </SafeAreaProvider>
@@ -424,6 +429,25 @@ export function ShellSession() {
     remove: (id) => shell.removeNotification(Number(id)),
     setDoNotDisturb: shell.setDoNotDisturb,
   };
+  // Screenshots (ADR 0024, decision 10): this display's place and scale, the interface the
+  // compositor opened, the window under the pointer and the screenshots saved.
+  type ToldOutput = { id: number; x: number; y: number; scale: number };
+  const here = (state.outputs ?? []).find((told: ToldOutput) => told.id === state.output) as ToldOutput | undefined;
+  const screenshots: ShellScreenshots = {
+    output: { id: state.output, x: here?.x ?? 0, y: here?.y ?? 0, scale: here?.scale ?? 1 },
+    active: shell.capture,
+    target: shell.captureTarget,
+    saved: shell.screenshots,
+    capture: (kind, output, rect, window, destination) => {
+      shell.captureScreen(kind, output, rect, window, destination);
+    },
+    end: () => {
+      shell.endCapture();
+    },
+    open: (id) => {
+      shell.openScreenshot(id);
+    },
+  };
   const first = dock ? sheets[0] : undefined;
   const firstText = first ? readSheet(first.text) : null;
   const names = Object.fromEntries(registry.map((app) => [app.id, app.name]));
@@ -444,6 +468,7 @@ export function ShellSession() {
       commands={shell.shortcuts}
       controls={controls}
       notifications={notifications}
+      screenshots={screenshots}
     />
   );
 }

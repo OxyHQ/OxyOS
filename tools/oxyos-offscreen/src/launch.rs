@@ -546,6 +546,10 @@ pub struct Launch {
     /// (docs/adr/0030-installing-applications.mdx, decision 7): its entries for this user are the
     /// registry's second source, taken as the service's. A fixture: a session's are root's.
     pub installed_fixture: Option<PathBuf>,
+    /// `--screenshots DIR`: screenshots are written as the session writes them
+    /// (docs/adr/0024-system-shortcuts.mdx, decision 10), in DIR's `Desktop` and `Documents`, named
+    /// in the session's language; each step's result says what was saved and opened.
+    pub screenshots: Option<PathBuf>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx), played as FILE describes it
     /// (`oxyos_controls::Fake`), which it writes back as the session changes it; each step's
@@ -657,6 +661,7 @@ impl Launch {
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut runtimes = None;
         let mut installed_fixture = None;
+        let mut screenshots = None;
         let mut screens = Vec::new();
         let mut displays = None;
         let mut command = Vec::new();
@@ -723,6 +728,10 @@ impl Launch {
                 }
                 Some("--installed-fixture") => {
                     installed_fixture = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
+                Some("--screenshots") => {
+                    screenshots = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--runtimes") => {
@@ -1114,6 +1123,7 @@ impl Launch {
                 installd,
                 runtimes,
                 installed_fixture,
+                screenshots,
                 controls,
                 outputs: screens,
                 displays,
@@ -1575,6 +1585,39 @@ fn delivered_json(session: &Session) -> String {
     }
     fields.push(format!("\"leaked\":{leaked}"));
     format!("{{{}}}", fields.join(","))
+}
+
+/// The screenshots saved in a step (ADR 0024, decision 10), each its path, output and size, and
+/// those the shell opened, each the application that opened it.
+fn screenshots_json(session: &mut Session) -> String {
+    let saved: Vec<String> = std::mem::take(&mut session.compositor.saved)
+        .into_iter()
+        .map(|saved| match saved.path {
+            Ok(path) => format!(
+                "{{\"path\":{},\"output\":{},\"width\":{},\"height\":{}}}",
+                json_string(&path.to_string_lossy()),
+                saved.output,
+                saved.width,
+                saved.height
+            ),
+            Err(error) => format!("{{\"error\":{}}}", json_string(&error)),
+        })
+        .collect();
+    let opened: Vec<String> = std::mem::take(&mut session.screenshot_opens)
+        .into_iter()
+        .map(|(path, application)| {
+            format!(
+                "{{\"path\":{},\"application\":{}}}",
+                json_string(&path.to_string_lossy()),
+                json_string(&application)
+            )
+        })
+        .collect();
+    format!(
+        "{{\"saved\":[{}],\"opened\":[{}]}}",
+        saved.join(","),
+        opened.join(",")
+    )
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -3087,6 +3130,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.installs = Some(installs);
     }
     session.installed_fixture = launch.installed_fixture.clone();
+    if let Some(folder) = &launch.screenshots {
+        // Written as the session writes them, into the run's own folders, with no shutter.
+        let (desktop, documents) = (folder.join("Desktop"), folder.join("Documents"));
+        session.compositor.screenshots = Some(oxyos_compositor::screenshots::Writer::spawn(
+            Box::new(move |destination| match destination {
+                oxyos_protocol::CaptureDestination::Desktop => desktop.clone(),
+                oxyos_protocol::CaptureDestination::Documents => documents.clone(),
+            }),
+            oxyos_compositor::screenshots::Language::of(&oxyos_apps::languages()),
+            None,
+        )?);
+    }
     if let Some(file) = &launch.controls {
         // A played machine, acted on in the turn itself, so a scenario is the same every run.
         let fake = oxyos_controls::Fake::from_file(file.clone())?;
@@ -3620,8 +3675,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         let clipboard = clipboard_json(&mut session)?;
+        let screenshots = screenshots_json(&mut session);
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"screenshots\":{screenshots},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
