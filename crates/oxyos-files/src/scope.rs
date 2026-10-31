@@ -15,11 +15,13 @@
 //! link cannot lead out of it. It is not a sandbox: without one (#35, #36) any program running as
 //! the user reaches what the user does.
 
-use crate::places::{self, Volume};
+use crate::mounts::MountTable;
+use crate::places::Volume;
 use crate::Error;
 use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// The application a scope is for: its id and its own folders, canonical.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,8 +39,9 @@ pub struct Scope {
     home: PathBuf,
     data_home: PathBuf,
     config_home: PathBuf,
-    media: Vec<PathBuf>,
-    mountinfo: PathBuf,
+    /// The mount table and the volumes it has mounted under `/media/USER` and `/run/media/USER`,
+    /// kept until it changes; one for the scope and every scope made from it.
+    mounts: Arc<MountTable>,
     uid: u32,
     application: Option<Application>,
     /// The folder the bundle the host runs is in (read, never changed), if it runs from one.
@@ -122,8 +125,10 @@ impl Scope {
             home,
             data_home: canonical(data_home),
             config_home: canonical(config_home),
-            media: media.iter().map(|path| canonical(path)).collect(),
-            mountinfo,
+            mounts: Arc::new(MountTable::new(
+                mountinfo,
+                media.iter().map(|path| canonical(path)).collect(),
+            )),
             uid,
             application: None,
             bundle: None,
@@ -196,7 +201,7 @@ impl Scope {
 
     /// The mount table this scope reads.
     pub fn mountinfo(&self) -> &Path {
-        &self.mountinfo
+        self.mounts.path()
     }
 
     /// The folder of the bundle the host runs, if any.
@@ -209,10 +214,16 @@ impl Scope {
         self.application.as_ref()
     }
 
-    /// The volumes mounted for the user now.
+    /// The volumes mounted for the user now: the mount table as last read, read again only when
+    /// it changed (`mounts`).
     pub fn volumes(&self) -> Vec<Volume> {
-        let table = std::fs::read_to_string(&self.mountinfo).unwrap_or_default();
-        places::volumes(&self.media, &table)
+        self.mounts.volumes()
+    }
+
+    /// How many times the scope read its mount table.
+    #[cfg(test)]
+    pub(crate) fn mount_table_reads(&self) -> u64 {
+        self.mounts.reads()
     }
 
     /// Every root and its folder: the home, the volumes, the application's folders.
