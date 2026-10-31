@@ -1,5 +1,7 @@
-// Text for the OxyOS React Native host: FreeType faces, HarfBuzz shaping, and greedy line breaking
-// at ICU's line break opportunities, ellipsized as Android's StaticLayout ellipsizes.
+// Text for the OxyOS React Native host: FreeType faces, HarfBuzz shaping, and line breaking at
+// ICU's line break opportunities by Android's break strategies (Minikin's optimal breaker for
+// highQuality, React Native's default, and balanced; greedy for simple), ellipsized as Android's
+// StaticLayout ellipsizes.
 // The same layout serves Fabric's measurement (TextLayoutManager) and drawing, so what Yoga sizes
 // is exactly what is painted.
 #pragma once

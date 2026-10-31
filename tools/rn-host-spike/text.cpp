@@ -12,6 +12,7 @@
 #include <unicode/ubrk.h>
 #include <unicode/utext.h>
 
+#include <algorithm>
 #include <cmath>
 #include <deque>
 #include <limits>
@@ -181,6 +182,7 @@ struct Token {
   std::vector<std::pair<size_t, float>> stops;  // each cluster's offset and its x in the token
   const Face* face = nullptr;  // the fragment's own face, which an ellipsis is shaped in
   float spacing = 0;
+  float size = 14;  // the fragment's font size, which Minikin's line penalty is reckoned from
 };
 
 // The token's clusters' x positions, with its end: where it can be cut.
@@ -307,6 +309,7 @@ ParagraphLayout TextEngine::layoutUncached(
       token.xHeight = primary.xHeight;
       token.face = &primary;
       token.spacing = spacing;
+      token.size = size;
       token.start = fragmentBase + i;
       token.breakBefore = breakable[fragmentBase + i];
       if (s[i] == '\n') {
@@ -412,7 +415,202 @@ ParagraphLayout TextEngine::layoutUncached(
   };
   bool bounded = std::isfinite(maxWidth);
   auto fits = [&](float width) { return !bounded || width <= maxWidth + 0.01f; };
+  // A word: the token at `t` and those after it a line cannot break before; its end.
+  auto wordEnd = [&](size_t t) {
+    size_t end = t + 1;
+    while (end < tokens.size() && !tokens[end].newline && !tokens[end].breakBefore) ++end;
+    return end;
+  };
   std::vector<Line> lines(1);
+  // Greedy breaking (Android's BREAK_STRATEGY_SIMPLE) of the tokens [from, to), a paragraph without
+  // hard breaks, onto the lines from the last.
+  auto greedy = [&](size_t from, size_t to) {
+    for (size_t t = from; t < to;) {
+      const Token& first = tokens[t];
+      size_t end = wordEnd(t);
+      float width = 0, ink = 0;
+      for (size_t k = t; k < end; ++k) {
+        ink = width + tokens[k].inkWidth;
+        width += tokens[k].width;
+      }
+      if (!lines.back().tokens.empty() && !fits(lines.back().width + ink)) {
+        lines.emplace_back();
+        lines.back().start = first.start;
+      }
+      if (fits(ink)) {
+        for (size_t k = t; k < end; ++k) place(lines.back(), tokens[k]);
+      } else {
+        // Wider than a line: as many of its clusters on each line as fit, at least one.
+        for (size_t k = t; k < end; ++k) {
+          const Token* rest = &tokens[k];
+          while (!fits(lines.back().width + rest->inkWidth)) {
+            Line& line = lines.back();
+            size_t index = 0;
+            while (index + 1 < rest->stops.size() && fits(line.width + stopX(*rest, index + 1))) ++index;
+            if (index == 0) {
+              if (!line.tokens.empty()) {
+                lines.emplace_back();
+                continue;
+              }
+              if (rest->stops.size() < 2) break;  // one cluster: it is the line
+              index = 1;
+            }
+            auto [before, after] = cut(*rest, index);
+            pieces.push_back(std::move(before));
+            place(line, pieces.back());
+            pieces.push_back(std::move(after));
+            rest = &pieces.back();
+            lines.emplace_back();
+          }
+          place(lines.back(), *rest);
+        }
+      }
+      t = end;
+    }
+  };
+
+  // Minikin's optimal line breaker (OptimalLineBreaker.cpp, which StaticLayout runs for
+  // BREAK_STRATEGY_HIGH_QUALITY and BALANCED) on the tokens [from, to), onto the lines from the
+  // last: of every way to break the paragraph at its break opportunities, the one with the least
+  // score, a line's score its slack squared plus a penalty for each line, so its lines are even
+  // rather than each as full as it can be. Its constants are Minikin's:
+  //   SCORE_OVERFULL 1e12, a line wider than the box (taken only when nothing else fits);
+  //   SCORE_DESPERATE 1e10, a break between a word's characters, offered only in a word wider than
+  //     the box (its "desperate" breaks), so as few are taken as can be;
+  //   the line penalty, LINE_PENALTY_MULTIPLIER (2) times the hyphen penalty, which is
+  //     0.5 × font size × the line's width (× 4 at hyphenation frequency normal), the largest of
+  //     the paragraph's runs (Android has no line penalty for justified text, which the host does
+  //     not lay out justified).
+  // The last line's slack is free with highQuality (a short last line costs nothing) and scored
+  // with balanced, which evens every line, the last too. As Minikin, it only looks back to the
+  // earliest break a line from which still fits (`active`), and stops looking back once a line's
+  // score alone is worse than the best (`bestHope`).
+  auto optimal = [&](size_t from, size_t to, bool balanced, HyphenationFrequency hyphenation) {
+    // A place to break: before the cluster `stop` of the token `token` (0: before the token), with
+    // the paragraph's width up to it if the line goes on past it (`preBreak`: a word's trailing
+    // spaces counted) and if a line ends there (`postBreak`: they hang past the line's end).
+    struct Candidate {
+      size_t token, stop;
+      double preBreak, postBreak;
+      float penalty;
+    };
+    constexpr float kScoreInfinity = std::numeric_limits<float>::max();
+    constexpr float kScoreOverfull = 1e12f;
+    constexpr float kScoreDesperate = 1e10f;
+    constexpr float kLinePenaltyMultiplier = 2.0f;
+    float linePenalty = 0;
+    for (size_t k = from; k < to; ++k) {
+      float hyphenPenalty = 0.5f * tokens[k].size * maxWidth;
+      if (hyphenation == HyphenationFrequency::Normal) hyphenPenalty *= 4.0f;
+      linePenalty = std::max(linePenalty, hyphenPenalty * kLinePenaltyMultiplier);
+    }
+    std::vector<Candidate> candidates{{from, 0, 0, 0, 0}};
+    double x = 0;  // the paragraph's width before the token
+    for (size_t t = from; t < to;) {
+      size_t end = wordEnd(t);
+      double width = 0, ink = 0;
+      for (size_t k = t; k < end; ++k) {
+        ink = width + tokens[k].inkWidth;
+        width += tokens[k].width;
+      }
+      if (!fits(static_cast<float>(ink))) {
+        // Wider than a line: a desperate break at each of its clusters.
+        double at = x;
+        for (size_t k = t; k < end; ++k) {
+          for (size_t stop = k == t ? 1 : 0; stop < tokens[k].stops.size(); ++stop) {
+            double here = at + stopX(tokens[k], stop);
+            candidates.push_back({k, stop, here, here, kScoreDesperate});
+          }
+          at += tokens[k].width;
+        }
+      }
+      candidates.push_back({end, 0, x + width, x + ink, 0});
+      x += width;
+      t = end;
+    }
+    // Each candidate's best score and the candidate its line begins at (every line has the box's
+    // width, so Minikin's line numbers are not needed).
+    struct Best {
+      float score;
+      size_t previous;
+    };
+    std::vector<Best> best{{0, 0}};
+    best.reserve(candidates.size());
+    size_t active = 0;
+    for (size_t i = 1; i < candidates.size(); ++i) {
+      const bool atEnd = i == candidates.size() - 1;
+      float bestScore = kScoreInfinity, bestHope = 0;
+      size_t bestPrevious = 0;
+      const double leftEdge = candidates[i].postBreak - maxWidth;
+      for (size_t j = active; j < i; ++j) {
+        const float jScore = best[j].score;
+        if (jScore + bestHope >= bestScore) continue;
+        // The slack of a line from j to i; within the host's rounding tolerance, none.
+        float delta = static_cast<float>(candidates[j].preBreak - leftEdge);
+        if (delta < 0 && delta >= -0.01f) delta = 0;
+        float widthScore = 0, additionalPenalty = 0;
+        if (delta < 0) {
+          widthScore = kScoreOverfull;
+        } else if (atEnd && !balanced) {
+          // A hyphen ending the last line but one weighs four times as much (Minikin's
+          // LAST_LINE_PENALTY_MULTIPLIER); with no hyphenation every penalty here is 0 or desperate.
+          additionalPenalty = 4.0f * candidates[j].penalty;
+        } else {
+          widthScore = delta * delta;
+        }
+        if (delta < 0) {
+          active = j + 1;
+        } else {
+          bestHope = widthScore;
+        }
+        const float score = jScore + widthScore + additionalPenalty;
+        if (score <= bestScore) {
+          bestScore = score;
+          bestPrevious = j;
+        }
+      }
+      best.push_back({bestScore + candidates[i].penalty + linePenalty, bestPrevious});
+    }
+    // The breaks taken, from the paragraph's end back to its start.
+    std::vector<size_t> taken;
+    for (size_t i = candidates.size() - 1; i > 0; i = best[i].previous) taken.push_back(i);
+    std::reverse(taken.begin(), taken.end());
+    size_t begin = 0;
+    for (size_t n = 0; n < taken.size(); ++n) {
+      const Candidate& a = candidates[begin];
+      const Candidate& b = candidates[taken[n]];
+      if (n > 0) {
+        lines.emplace_back();
+        lines.back().start = a.stop > 0 ? tokens[a.token].stops[a.stop].first : tokens[a.token].start;
+      }
+      Line& line = lines.back();
+      for (size_t k = a.token; k <= b.token && k < to; ++k) {
+        size_t first = k == a.token ? a.stop : 0;
+        size_t last = k == b.token ? b.stop : tokens[k].stops.size();
+        if (k == b.token && b.stop == 0) break;
+        if (first == 0 && last == tokens[k].stops.size()) {
+          place(line, tokens[k]);
+          continue;
+        }
+        Token part = tokens[k];
+        if (last < tokens[k].stops.size()) part = cut(part, last).first;
+        if (first > 0) part = cut(part, first).second;
+        pieces.push_back(std::move(part));
+        place(line, pieces.back());
+      }
+      begin = taken[n];
+    }
+  };
+
+  // Android's break strategy: highQuality unless the paragraph asks for another (React Native's
+  // default for Text and TextInput, TextAttributeProps' DEFAULT_BREAK_STRATEGY). Hyphenation, off
+  // in React Native's Android unless android_hyphenationFrequency asks for it, is not provided: a
+  // paragraph asking for it is not hyphenated, said once.
+  if (paragraph.android_hyphenationFrequency != HyphenationFrequency::None) {
+    static bool reported = false;
+    if (!reported) std::cerr << "[host] unsupported on OxyOS: android_hyphenationFrequency (no word is hyphenated)\n";
+    reported = true;
+  }
   for (size_t t = 0; t < tokens.size();) {
     const Token& first = tokens[t];
     if (first.newline) {
@@ -425,45 +623,21 @@ ParagraphLayout TextEngine::layoutUncached(
       ++t;
       continue;
     }
-    // A word: this token and those after it a line cannot break before.
-    size_t end = t + 1;
-    while (end < tokens.size() && !tokens[end].newline && !tokens[end].breakBefore) ++end;
+    // A paragraph: to the next hard break, broken on its own, as StaticLayout breaks each.
+    size_t end = t;
+    while (end < tokens.size() && !tokens[end].newline) ++end;
+    // One that fits on a line is that line whatever the strategy, as Android lays it out as a
+    // BoringLayout without breaking it: most labels, never weighed.
     float width = 0, ink = 0;
     for (size_t k = t; k < end; ++k) {
       ink = width + tokens[k].inkWidth;
       width += tokens[k].width;
     }
-    if (!lines.back().tokens.empty() && !fits(lines.back().width + ink)) {
-      lines.emplace_back();
-      lines.back().start = first.start;
-    }
-    if (fits(ink)) {
-      for (size_t k = t; k < end; ++k) place(lines.back(), tokens[k]);
+    if (!bounded || fits(ink) || paragraph.textBreakStrategy == TextBreakStrategy::Simple) {
+      greedy(t, end);
     } else {
-      // Wider than a line: as many of its clusters on each line as fit, at least one.
-      for (size_t k = t; k < end; ++k) {
-        const Token* rest = &tokens[k];
-        while (!fits(lines.back().width + rest->inkWidth)) {
-          Line& line = lines.back();
-          size_t index = 0;
-          while (index + 1 < rest->stops.size() && fits(line.width + stopX(*rest, index + 1))) ++index;
-          if (index == 0) {
-            if (!line.tokens.empty()) {
-              lines.emplace_back();
-              continue;
-            }
-            if (rest->stops.size() < 2) break;  // one cluster: it is the line
-            index = 1;
-          }
-          auto [before, after] = cut(*rest, index);
-          pieces.push_back(std::move(before));
-          place(line, pieces.back());
-          pieces.push_back(std::move(after));
-          rest = &pieces.back();
-          lines.emplace_back();
-        }
-        place(lines.back(), *rest);
-      }
+      optimal(t, end, paragraph.textBreakStrategy == TextBreakStrategy::Balanced,
+              paragraph.android_hyphenationFrequency);
     }
     t = end;
   }

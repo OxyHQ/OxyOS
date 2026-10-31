@@ -154,6 +154,25 @@ border ring visiting every pixel of the box it encloses: 19 ms of a 25 ms frame)
 Inbox's at its breakpoint from two panels to one (30–35 ms once, in a resize), and an
 application's first render.
 
+### Text layout
+
+Breaking lines as Android's default `highQuality` does (Minikin's optimal line breaker, `text.h`)
+instead of greedily costs nothing measurable: shaping dominates a paragraph's layout, and a
+paragraph that fits on a line is never weighed (Android lays it out as a `BoringLayout`). Every
+uncached layout (`TextEngine::layoutUncached`, the layouts Yoga's measurements and the frames
+miss in the cache) timed in the host, seven runs of each scenario alternating the greedy breaker
+and the optimal one, at the median:
+
+| scenario | layouts (lines) | greedy, ms (µs each) | optimal, ms (µs each) |
+|---|---|---|---|
+| `text-layout` (most paragraphs broken) | 79 (130) | 3.23 (40.8) | 3.34 (42.2) |
+| `settings` | 170 (170) | 5.17 (30.4) | 3.90 (22.9) |
+| `sample` (Inbox) | 328 (363) | 8.37 (25.5) | 8.96 (27.3) |
+
+The spread between runs (2.9 to 4.1 ms for `text-layout`, either breaker) is larger than the
+difference. The breaker looks back only to the earliest break a line from which still fits, as
+Minikin's does, so its work grows with a paragraph's breaks times the breaks on a line.
+
 ### Stash
 
 `perf-stash.json` and `perf-stash-scaled.json`, three runs each, alternating "before" (the host
