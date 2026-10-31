@@ -42,7 +42,7 @@ The display protocol carries accessibility, as it carries buffers. The composito
 
    A malformed snapshot is a protocol error, like any other malformed request.
 2. **Only an assistive technology reads trees.** A client whose credentials the session authority grants `accessibility` receives every surface's committed snapshot:
-   - `AccessibilityTree { client, surface, parent, nodes }`;
+   - `AccessibilityTree { client, surface, parent, nodes }`, `parent` the surface's parent surface (a popup's), 0 for a toplevel: an assistive technology tells a popup appearing by it, as TalkBack tells a popup window's state change ([ADR 0014](./0014-screen-reader));
    - the nodes, with rectangles in global coordinates and what they offer;
    - their text, custom actions' labels and selections;
    - `AccessibilityCommitted { client, surface }`.

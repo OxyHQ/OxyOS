@@ -11,10 +11,15 @@ const FOCUSED: u16 = AccessibleState::FOCUSED;
 
 /// The events of a committed tree of `surface`: each node's role, state, name and value.
 fn tree(surface: u32, nodes: &[(R, u16, &str, &str)]) -> Vec<Event> {
+    tree_of(surface, 0, nodes)
+}
+
+/// The same for a popup of the surface `parent` (0: none), as the compositor names it.
+fn tree_of(surface: u32, parent: u32, nodes: &[(R, u16, &str, &str)]) -> Vec<Event> {
     let mut events = vec![Event::AccessibilityTree {
         client: APP,
         surface,
-        parent: NO_ACCESSIBLE_PARENT,
+        parent,
         nodes: nodes.len() as u32,
     }];
     for (index, (role, bits, name, value)) in nodes.iter().enumerate() {
@@ -239,5 +244,157 @@ fn a_surface_gone_takes_the_cursor_with_it_and_the_next_surface_follows() {
     assert_eq!(
         command(&mut reader, ReaderCommand::Next),
         ["Volumen, slider"]
+    );
+}
+
+/// sample/App.tsx's menu in its popup: the menu, named by its label, and its rows, `focused` the
+/// focused row's index.
+fn menu(focused: Option<usize>) -> Vec<Event> {
+    let mut nodes = vec![
+        (R::Generic, 0, "", ""),
+        (R::Menu, 0, "Message actions", ""),
+        (R::MenuItem, 0, "Reply", ""),
+        (R::MenuItem, 0, "Forward", ""),
+        (R::MenuItem, 0, "Archive", ""),
+    ];
+    if let Some(index) = focused {
+        nodes[index].1 |= FOCUSED;
+    }
+    tree_of(MENU, WINDOW, &nodes)
+}
+
+const MENU: u32 = 2;
+
+/// The window behind the menu: its trigger, `focused` or not.
+fn trigger(focused: bool, expanded: bool) -> Vec<Event> {
+    let mut state = if expanded {
+        AccessibleState::EXPANDED
+    } else {
+        AccessibleState::COLLAPSED
+    };
+    if focused {
+        state |= FOCUSED;
+    }
+    tree(
+        WINDOW,
+        &[(R::Generic, 0, "", ""), (R::Button, state, "Open menu", "")],
+    )
+}
+
+#[test]
+fn a_menu_that_opens_is_said_by_its_title_then_its_focused_row() {
+    let mut reader = Reader::new(Language::English);
+    feed(&mut reader, &trigger(false, false));
+    feed(&mut reader, &trigger(false, true));
+    // Its title at once, as TalkBack says a popup window's pane title; its focused row after it.
+    for event in menu(Some(2)) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Message actions, menu".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Reply, menu item".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // The menu's next tree says nothing of it again; a row focused in it is said, at once.
+    assert!(feed(&mut reader, &menu(Some(2))).is_empty());
+    for event in menu(Some(4)) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "Archive, menu item".into(),
+            politeness: Politeness::Assertive
+        }]
+    );
+    // It closes, focus back on its trigger: the trigger is said, and nothing of the menu.
+    reader.receive(&Event::AccessibilityRemoved {
+        client: APP,
+        surface: MENU,
+    });
+    assert_eq!(
+        feed(&mut reader, &trigger(true, false)),
+        ["Open menu, collapsed, button"]
+    );
+    // Opened again, it is said again.
+    assert_eq!(
+        feed(&mut reader, &menu(Some(2))),
+        ["Message actions, menu", "Reply, menu item"]
+    );
+}
+
+#[test]
+fn only_a_popup_is_said_by_its_title() {
+    // A window's first tree, with a menu in it (a menu bar's, drawn in the window), says
+    // nothing of the menu: it is no popup appearing.
+    let mut reader = Reader::new(Language::English);
+    let nodes = [
+        (R::Generic, 0, "", ""),
+        (R::Menu, 0, "Message actions", ""),
+        (R::MenuItem, 0, "Reply", ""),
+    ];
+    assert!(feed(&mut reader, &tree(WINDOW, &nodes)).is_empty());
+    // A popup with no named menu or dialog (a tooltip) is said by nothing but its focus.
+    let tip = [(R::Generic, 0, "", ""), (R::Text, 0, "Saved", "")];
+    assert!(feed(&mut reader, &tree_of(MENU, WINDOW, &tip)).is_empty());
+}
+
+#[test]
+fn a_menu_focusing_its_row_after_it_appears_is_said_whole() {
+    // Bloom mounts the menu, then focuses its first row: the row follows the title, in the
+    // menu's next tree, rather than cutting it off.
+    let mut reader = Reader::new(Language::English);
+    feed(&mut reader, &trigger(false, true));
+    for event in menu(None).into_iter().chain(menu(Some(2))) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [
+            Utterance {
+                text: "Message actions, menu".into(),
+                politeness: Politeness::Assertive
+            },
+            Utterance {
+                text: "Reply, menu item".into(),
+                politeness: Politeness::Polite
+            },
+        ]
+    );
+    // The cursor moved by the reader's keys before any focus: a later focus is said at once.
+    reader.receive(&Event::AccessibilityRemoved {
+        client: APP,
+        surface: MENU,
+    });
+    assert_eq!(feed(&mut reader, &menu(None)), ["Message actions, menu"]);
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Open menu, expanded, button"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Message actions, menu"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Reply, menu item"]
+    );
+    for event in menu(Some(3)) {
+        reader.receive(&event);
+    }
+    assert_eq!(
+        reader.take_said(),
+        [Utterance {
+            text: "Forward, menu item".into(),
+            politeness: Politeness::Assertive
+        }]
     );
 }

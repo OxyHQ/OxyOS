@@ -1,0 +1,56 @@
+{
+  "about": "A menu open while the shell moves and resizes its window, at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25; sample.json checks it at 1): the sample app's menu (sample/App.tsx) opens at its trigger, whose frame is laid out on the 1.25 pixel grid (its top at 392.8 logical pixels); moving the window moves the menu with it in the same frame, without placing it again; resizing lays the window out again and the compositor places the menu at its trigger anew (it fits right of it in the narrower window), and growing it back places it again once the larger frame is shown. At every step the menu's top edge is drawn one device pixel above its trigger's, as at scale 1: the host takes the trigger's edges to the nearest whole logical pixels (393), where flooring its origin (392) drew the menu a device pixel higher. Points of `output_pixels` are the output's pixels: the menu's top border (#e1d7dd) and the trigger's pill (#fae2fa) down one column each.",
+  "window": [1024, 560],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the menu opens at its trigger, its top edge where the trigger's is drawn",
+      "do": ["press", [939, 411]],
+      "expect": {
+        "popups": 1, "focus_surface": 2,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "popup_events": {"open@message-actions": 1},
+        "window_rect": [128, 120, 1024, 560], "popup_rect": [744, 513, 267, 222],
+        "frame_px": {"window": [1280, 700], "popup": [334, 278]},
+        "output_pixels": {"1100,640": "#fff7f9", "1100,641": "#e1d7dd", "1330,641": "#fff7f9", "1330,642": "#fae2fa"}
+      }
+    },
+    {
+      "name": "the shell moves the window: the menu moves with it, not placed again",
+      "do": ["move-window", [-100, -20]],
+      "expect": {
+        "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {},
+        "window_rect": [28, 100, 1024, 560], "popup_rect": [644, 493, 267, 222],
+        "output_pixels": {"1000,615": "#fff7f9", "1000,616": "#e1d7dd", "1205,616": "#fff7f9", "1205,617": "#fae2fa"}
+      }
+    },
+    {
+      "name": "the shell resizes the window: the host lays it out again and the menu is placed at its trigger anew, right of it",
+      "do": ["resize-window", [900, 520]],
+      "expect": {
+        "popups": 1, "react": {}, "popup_events": {"reposition@message-actions": 1},
+        "window_rect": [28, 100, 900, 520], "popup_rect": [899, 493, 267, 222],
+        "frame_px": {"window": [1125, 650]},
+        "output_pixels": {"1200,615": "#0f1317", "1200,616": "#e1d7dd", "1060,616": "#fff7f9", "1060,617": "#fae2fa"}
+      }
+    },
+    {
+      "name": "the shell grows the window back: the menu is placed again, at its trigger, once the larger frame is shown",
+      "do": ["resize-window", [1024, 560]],
+      "expect": {
+        "popups": 1, "react": {}, "popup_events": {"reposition@message-actions": 2},
+        "window_rect": [28, 100, 1024, 560], "popup_rect": [644, 493, 267, 222],
+        "frame_px": {"window": [1280, 700]},
+        "output_pixels": {"1000,615": "#fff7f9", "1000,616": "#e1d7dd", "1205,616": "#fff7f9", "1205,617": "#fae2fa"}
+      }
+    },
+    {
+      "name": "the menu still takes its rows' presses where they are",
+      "do": ["press-popup", [60, 80]],
+      "expect": {
+        "popups": 0, "focus_surface": 1, "texts": ["Chosen: Archive"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1}
+      }
+    }
+  ]
+}
