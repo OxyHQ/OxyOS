@@ -427,6 +427,21 @@ fn requests() -> Vec<Request> {
             screenshot: 3,
             serial: 41,
         },
+        Request::ChooseFiles {
+            serial: 5,
+            surface: 1,
+            input: 42,
+            index: 0,
+            last: false,
+            text: PreeditText::new(r#"{"open":{"types":[".png"]}}"#).unwrap(),
+        },
+        Request::CancelChooseFiles { serial: 5 },
+        Request::AnswerFileChooser {
+            input: 43,
+            index: 1,
+            last: true,
+            text: PreeditText::new(r#"file:///home/ana/a.png"]}"#).unwrap(),
+        },
     ]
 }
 
@@ -778,6 +793,12 @@ fn events() -> Vec<Event> {
             index: 1,
             last: true,
             text: PreeditText::new("at 10.04.05.png").unwrap(),
+        },
+        Event::FilesChosen {
+            serial: 5,
+            index: 0,
+            last: true,
+            text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
         },
         Event::WindowState {
             window: 7,
@@ -1547,6 +1568,52 @@ fn screenshots_are_version_6_and_never_reach_an_older_peer() {
     assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
     assert_eq!(negotiate(2, 6), Ok(6));
     assert_eq!(negotiate(2, 5), Ok(5));
+}
+
+#[test]
+fn file_choosers_are_version_7_and_never_reach_an_older_peer() {
+    let chosen = Event::FilesChosen {
+        serial: 5,
+        index: 0,
+        last: true,
+        text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
+    };
+    assert_eq!(event_since(&chosen), 7);
+    for version in 2..=6 {
+        let mut nothing = Vec::new();
+        assert!(!write_event_for(&mut nothing, &chosen, version).unwrap());
+        assert!(nothing.is_empty());
+    }
+    let mut v7 = Vec::new();
+    assert!(write_event_for(&mut v7, &chosen, 7).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v7), 7).unwrap(), chosen);
+    assert!(read_event_for(&mut Cursor::new(&v7), 6).is_err());
+    let choose = Request::ChooseFiles {
+        serial: 5,
+        surface: 1,
+        input: 9,
+        index: 0,
+        last: true,
+        text: PreeditText::new(r#"{"save":{}}"#).unwrap(),
+    };
+    assert_eq!(request_since(&choose), 7);
+    assert_eq!(request_since(&Request::CancelChooseFiles { serial: 5 }), 7);
+    let answer = Request::AnswerFileChooser {
+        input: 0,
+        index: 0,
+        last: true,
+        text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
+    };
+    assert_eq!(request_since(&answer), 7);
+    assert_eq!(
+        request_since(&Request::OpenScreenshot {
+            screenshot: 1,
+            serial: 2
+        }),
+        6
+    );
+    assert_eq!(negotiate(2, 7), Ok(7));
+    assert_eq!(negotiate(2, 6), Ok(6));
 }
 
 #[test]

@@ -18,10 +18,16 @@
  * focused view (`OxyOSKeyboard`), so a menu's shortcut runs its item; a key Bloom takes goes no
  * further. Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
  * file manager needs beyond expo-file-system.
+ *
+ * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
+ * decision 8), `files.chooser` is what it was asked to show and how it answers; its window is the
+ * asking window's sheet, so it is not Bloom's `window` (no controls of its own) and has no menus of
+ * its own (the asking window's stand).
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
+import { answerChooser, chooserRequest } from './file-chooser';
 import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
@@ -124,7 +130,7 @@ function createWindow() {
   };
 }
 
-const window = windowConstants?.available ? createWindow() : undefined;
+const window = windowConstants?.available && !chooserRequest ? createWindow() : undefined;
 
 // The protocol's kinds and flags, and its limits: menus past them are not sent (the compositor
 // would refuse the window's menus whole).
@@ -207,7 +213,7 @@ function createMenuBar() {
   };
 }
 
-const menuBar = nativeMenuBar?.getConstants()?.available ? createMenuBar() : undefined;
+const menuBar = nativeMenuBar?.getConstants()?.available && !chooserRequest ? createMenuBar() : undefined;
 
 const nativeKeyboard = TurboModuleRegistry.get('OxyOSKeyboard');
 
@@ -309,6 +315,19 @@ function createFiles() {
     async emptyTrash() {
       await requestFiles('emptyTrash');
     },
+    // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
+    // session ends this process once it has the answer.
+    chooser: chooserRequest
+      ? Object.freeze({
+          request: chooserRequest,
+          choose(uris) {
+            answerChooser({ chosen: [...uris] });
+          },
+          cancel() {
+            answerChooser({ cancelled: {} });
+          },
+        })
+      : undefined,
   };
 }
 

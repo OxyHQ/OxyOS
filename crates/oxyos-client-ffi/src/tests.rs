@@ -4764,3 +4764,168 @@ fn outputs_are_told_to_applications_as_the_header_says() {
         (OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED, 2)
     );
 }
+
+#[test]
+fn files_are_asked_for_answered_and_chosen_through_the_c_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_FILES_CHOSEN"),
+        i64::from(OXYOS_EVENT_FILES_CHOSEN)
+    );
+    for declaration in [
+        "int oxyos_client_choose_files(OxyOSClient* client, uint32_t serial, uint32_t surface, uint64_t input,\n                              const char* text);",
+        "int oxyos_client_cancel_choose_files(OxyOSClient* client, uint32_t serial);",
+        "int oxyos_client_answer_file_chooser(OxyOSClient* client, uint64_t input, const char* text);",
+    ] {
+        assert!(HEADER.contains(declaration), "{declaration}");
+    }
+    let chosen = Event::FilesChosen {
+        serial: 7,
+        index: 2,
+        last: true,
+        text: PreeditText::new(r#"/a%20b.png"]}"#).unwrap(),
+    };
+    assert_eq!(u32::from(chosen.opcode()), OXYOS_EVENT_FILES_CHOSEN);
+    let event = convert(&chosen).unwrap();
+    assert_eq!(
+        (event.kind, event.code, event.detail, event.flag),
+        (OXYOS_EVENT_FILES_CHOSEN, 7, 2, 1)
+    );
+    let text = CStr::from_bytes_until_nul(&event.text).unwrap();
+    assert_eq!(text.to_str().unwrap(), r#"/a%20b.png"]}"#);
+
+    // A compositor of version 7 is sent the request in chunks, the withdrawal and an answer.
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-choose-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let request = r#"{"open":{"multiple":true,"types":["image/png",".png"]}}"#;
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let mut received = Vec::new();
+        loop {
+            let (request, _) = server.recv_request().unwrap();
+            let done = matches!(request, Request::AnswerFileChooser { last: true, .. });
+            received.push(request);
+            if done {
+                break received;
+            }
+        }
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let text = CString::new(request).unwrap();
+    let answer = CString::new(r#"{"cancelled":{}}"#).unwrap();
+    let empty = CString::new("").unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // outlive the calls.
+    let received = unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_protocol_version(client), 7);
+        assert_eq!(
+            oxyos_client_choose_files(client, 7, 1, 42, text.as_ptr()),
+            0
+        );
+        assert_eq!(
+            oxyos_client_choose_files(client, 8, 1, 42, std::ptr::null()),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_choose_files(client, 8, 1, 42, empty.as_ptr()),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_cancel_choose_files(client, 7), 0);
+        assert_eq!(
+            oxyos_client_answer_file_chooser(client, 0, answer.as_ptr()),
+            0
+        );
+        let received = compositor.join().unwrap();
+        oxyos_client_close(client);
+        received
+    };
+    let asked: Vec<(u32, u32, u64, u16, bool, String)> = received
+        .iter()
+        .filter_map(|request| match request {
+            Request::ChooseFiles {
+                serial,
+                surface,
+                input,
+                index,
+                last,
+                text,
+            } => Some((
+                *serial,
+                *surface,
+                *input,
+                *index,
+                *last,
+                text.as_str().to_string(),
+            )),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        asked.len() > 1,
+        "a request longer than a chunk goes in several"
+    );
+    for (number, (serial, surface, input, index, last, _)) in asked.iter().enumerate() {
+        assert_eq!((*serial, *surface, *input), (7, 1, 42));
+        assert_eq!(usize::from(*index), number);
+        assert_eq!(*last, number + 1 == asked.len());
+    }
+    let whole: String = asked.iter().map(|chunk| chunk.5.as_str()).collect();
+    assert_eq!(whole, request);
+    assert!(received.contains(&Request::CancelChooseFiles { serial: 7 }));
+    assert_eq!(
+        received.last(),
+        Some(&Request::AnswerFileChooser {
+            input: 0,
+            index: 0,
+            last: true,
+            text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
+        })
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+
+    // A compositor of version 6 is never sent a request it would close the connection for.
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-choose-6-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        server.recv_request().unwrap();
+        server
+            .send_event_for(&Event::Welcome { version: 6 }, None, 6)
+            .unwrap();
+        server.recv_request().map(|(request, _)| request)
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: as above.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_protocol_version(client), 6);
+        assert_eq!(
+            oxyos_client_choose_files(client, 7, 1, 42, text.as_ptr()),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_cancel_choose_files(client, 7), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_answer_file_chooser(client, 0, answer.as_ptr()),
+            OXYOS_ERROR
+        );
+        oxyos_client_close(client);
+    }
+    assert!(
+        compositor.join().unwrap().is_err(),
+        "nothing was sent before the connection closed"
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}

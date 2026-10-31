@@ -14,6 +14,8 @@ oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+# The account's files, which a file chooser's answer is checked against (ADR 0029, decision 8).
+oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-apps = { path = "../../crates/oxyos-apps" }

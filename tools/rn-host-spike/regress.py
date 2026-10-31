@@ -33,6 +33,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   owner through a pipe as any receiver pastes (ADR 0007): null, or "types" exactly and by type its
   text, {"contains": text}, or {"bytes": N, "png": [w, h]} for other bytes. A `clipboard` step
   ({type: content, "base64:..." for bytes}) is another application copying;
+- chooser: with the scenario's `file_chooser` module run as the file chooser the session starts
+  (ADR 0029, decision 8), its sheet once the step settled: null, or each key given matching
+  ("sheet": [x, y, width, height] on the output, "focused": it has the keyboard, "window_active":
+  the application's window is the active one); `in_chooser` checks its own texts and React
+  deliveries, as `in_shell` the shell's, and `delivered`'s "chooser" what it was delivered;
 - shell: with the scenario's `shell` module run as the session's shell (ADR 0009), its surfaces
   ("surfaces": output rectangles, compared as a set; "top": the topmost), the "work_area"
   they leave on the primary and "work_areas" on every output (by id), exactly, and whether the
@@ -1469,6 +1474,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         shell_step = {"name": f"{step.get('name', step['do'][0])}, in the shell", "do": step["do"],
                       "expect": expect["in_shell"]}
         check_step(index, shell_step, result, shell_report or [], start, failures, refresh_hz=refresh_hz)
+    if "in_chooser" in expect and screenshot is not None:
+        # The file chooser the session started (ADR 0029, decision 8), from its own report beside
+        # the director's (`.chooser.N`, one a request): their texts and React deliveries, in time.
+        chooser = sorted((json.loads(line)
+                          for path in pathlib.Path(screenshot).parent.glob("host-report.jsonl.chooser.*")
+                          for line in path.read_text().splitlines() if line.strip()),
+                         key=lambda line: line["t"])
+        chooser_step = {"name": f"{step.get('name', step['do'][0])}, in the file chooser",
+                        "do": step["do"], "expect": expect["in_chooser"]}
+        check_step(index, chooser_step, result, chooser, start, failures, refresh_hz=refresh_hz)
+    if "chooser" in expect:
+        # The file chooser's sheet (ADR 0029, decision 8): null, or where it is on the output, whether
+        # it has the keyboard and whether the application's window is the active one.
+        wanted, got = expect["chooser"], result.get("chooser")
+        if wanted is None or got is None:
+            if wanted != got:
+                fail(f"the file chooser's sheet is {got}, expected {wanted}")
+        else:
+            for key, value in wanted.items():
+                if got.get(key) != value:
+                    fail(f"the file chooser's sheet has {key} {got.get(key)}, expected {value}")
     if "in_launched" in expect and screenshot is not None:
         # An application the session launched (a store's open, the shell's dock), from its own
         # report beside the director's (`.launched`): its texts and React deliveries.
@@ -1494,9 +1520,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         delivered.pop("shell", None)
         # Applications the shell launched (ADR 0013): checked, exactly, only when the step says.
         launched = delivered.pop("launched", {})
+        # The file chooser (ADR 0029, decision 8): checked, exactly, only when the step says.
+        chooser = delivered.pop("chooser", {})
         wanted = dict(expect["delivered"])
         if "launched" in wanted and launched != wanted.pop("launched"):
             fail(f"the launched applications were delivered {launched}, expected exactly {expect['delivered']['launched']}")
+        if "chooser" in wanted and chooser != wanted.pop("chooser"):
+            fail(f"the file chooser was delivered {chooser}, expected exactly {expect['delivered']['chooser']}")
         if leaked:
             fail(f"{leaked} input events reached another client")
         if delivered != wanted:
@@ -2152,6 +2182,12 @@ def main():
         # output's shell's with ".shell.ID").
         shell_host, shell_bundle, _ = machine.run(scenario["shell"])
         command += ["--shell", f"{shell_host},{shell_bundle},{scenario['shell']}"]
+    if scenario.get("file_chooser"):
+        # The file chooser the session starts for the application's requests (ADR 0029, decision
+        # 8): the module run as the file manager is, in its picker mode, its report the
+        # application's with ".chooser".
+        chooser_host, chooser_bundle, _ = machine.run(scenario["file_chooser"])
+        command += ["--file-chooser", f"{chooser_host},{chooser_bundle},{scenario['file_chooser']}"]
     # The user's preferences (ADR 0019), in a file of the run's own: light unless the scenario says
     # otherwise, so what a scenario sees never depends on the time of day it runs at (an automatic
     # appearance follows the sun). With `settings`, the application the session would grant it to.

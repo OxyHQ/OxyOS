@@ -712,6 +712,38 @@ std::shared_ptr<TurboModule> createHostModule(
       return services.system.launch ? jsi::valueFromDynamic(rt, services.system.launch()) : jsi::Value::null();
     });
     module->listeners();
+  } else if (name == "OxyOSFileChooser") {
+    // File choosers (sample/oxyos/file-chooser.js, docs/adr/0029-chromium-on-oxyos.mdx, decision
+    // 8): files asked for this window, answered once by an `OxyOSFilesChosen` naming the request's
+    // serial; a request withdrawn; and, in the chooser the session started, what it was asked to
+    // show (`request`, null in any other application) and the person's answer. Both cite the
+    // latest press or key.
+    auto ready = [&services](jsi::Runtime& rt) {
+      if (!services.fileChooser.choose) throw jsi::JSError(rt, "OxyOSFileChooser: only an application's window has it");
+    };
+    module->constants(folly::dynamic::object(
+        "request", services.fileChooser.request.empty() ? folly::dynamic(nullptr)
+                                                        : folly::dynamic(services.fileChooser.request)));
+    module->method("choose", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSFileChooser.choose: the request's JSON");
+      return jsi::Value(static_cast<double>(services.fileChooser.choose(args[0].asString(rt).utf8(rt))));
+    });
+    module->method("cancel", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isNumber()) throw jsi::JSError(rt, "OxyOSFileChooser.cancel: the request's serial");
+      services.fileChooser.cancel(static_cast<uint32_t>(args[0].asNumber()));
+      return jsi::Value::undefined();
+    });
+    module->method("answer", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (services.fileChooser.request.empty()) {
+        throw jsi::JSError(rt, "OxyOSFileChooser.answer: this application was not started to choose files");
+      }
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSFileChooser.answer: the answer's JSON");
+      return jsi::Value(services.fileChooser.answer(args[0].asString(rt).utf8(rt)));
+    });
+    module->listeners();
   } else if (name == "OxyOSNotifications") {
     // An application's notifications, behind expo-notifications (sample/oxyos/expo-adapter.js,
     // docs/adr/0026-notifications.mdx): posting, withdrawing, and the responses the session gave.

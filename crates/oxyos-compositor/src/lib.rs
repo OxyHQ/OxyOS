@@ -32,6 +32,7 @@ pub mod scanout;
 /// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
 pub mod screenshots;
 pub use gpu_buffers::GpuFrame;
+pub mod choosers;
 pub mod displays;
 pub mod idle;
 pub mod installs;
@@ -537,6 +538,10 @@ pub struct Compositor {
     /// Descriptors that only wake a turn, readable when the program running the compositor has
     /// something of its own to do (a child of its exited); it reads them itself.
     pub wakers: Vec<std::os::fd::OwnedFd>,
+    /// File choosers started and not connected yet (ADR 0029, decision 8): by the pid the program
+    /// started each as, the request it serves. Its connection is attached to that request as it
+    /// says Hello, before any of its requests is read, so its first window is the request's sheet.
+    expected_choosers: HashMap<i32, u32>,
     /// With `--dump-frames`: the latest composed frame, as `oxyos_gpu::frame_file` writes it.
     pub keep_frame: bool,
     pub last_frame: Vec<u8>,
@@ -937,6 +942,7 @@ impl Compositor {
             reader_toggled: false,
             next_client: 0,
             next_shell_client: ClientId::MAX - 2,
+            expected_choosers: HashMap::new(),
             own_uid,
             // The shadows' profiles are the first two versions numbered.
             shadows: window::Shadows::new(0),
@@ -1100,6 +1106,21 @@ impl Compositor {
         }
     }
 
+    /// The process `pid`, just started, is the file chooser of request `id` (ADR 0029, decision 8):
+    /// its connection serves that request from its Hello on.
+    pub fn expect_chooser(&mut self, pid: u32, id: u32) {
+        if let Ok(pid) = i32::try_from(pid) {
+            self.expected_choosers.insert(pid, id);
+        }
+    }
+
+    /// The chooser started as `pid` will not connect (it exited, or its request ended first).
+    pub fn forget_chooser(&mut self, pid: u32) {
+        if let Ok(pid) = i32::try_from(pid) {
+            self.expected_choosers.remove(&pid);
+        }
+    }
+
     /// Closes connections that have not sent Hello in time.
     pub fn expire_pending(&mut self) {
         let expired: Vec<ClientId> = self
@@ -1175,9 +1196,13 @@ impl Compositor {
                 for event in self.gpu_buffers.announcement() {
                     peer.outbox.push_back((event, None));
                 }
-                let grants = peer.grants;
+                let (grants, pid) = (peer.grants, peer.pid);
                 if self.scene.connect(client, grants).is_err() {
                     self.fail(client, ErrorCode::Unauthorized);
+                    return;
+                }
+                if let Some(id) = self.expected_choosers.remove(&pid) {
+                    self.scene.attach_chooser(client, id);
                 }
                 return;
             }

@@ -17,7 +17,7 @@
 //!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
 //! - [`transfer`]: downloads into a file and uploads of one, through `oxyos-net`.
-//! - [`Service`] answers requests on the caller's thread (`expo-file-system`'s synchronous calls)
+//! - [`Service`] (the `service` feature, with `transfer`) answers requests on the caller's thread (`expo-file-system`'s synchronous calls)
 //!   or in order on a thread of its own, and says the changes watched, through one descriptor the
 //!   Bloom host polls (`OxyOSFiles`).
 
@@ -30,13 +30,16 @@ pub mod mime;
 mod mounts;
 pub mod places;
 mod scope;
+#[cfg(feature = "service")]
 pub mod service;
+#[cfg(feature = "service")]
 pub mod transfer;
 pub mod trash;
 pub mod uri;
 pub mod watch;
 
 pub use scope::{Access, Application, Root, Scope};
+#[cfg(feature = "service")]
 pub use service::Service;
 
 /// Why a request was not done.
@@ -155,9 +158,9 @@ pub fn valid_name(name: &str) -> Result<(), Error> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "service"))]
 mod access_tests;
 #[cfg(test)]
 mod mounts_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "service"))]
 mod tests;

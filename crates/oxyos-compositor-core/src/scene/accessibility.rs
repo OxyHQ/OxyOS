@@ -320,6 +320,8 @@ impl Scene {
             .nodes
             .get(&key)
             .and_then(|node| node.parent)
+            // A sheet of another client's window (a file chooser's) is a root of its own client.
+            .filter(|parent| parent.client == key.client)
             .map_or(0, |parent| parent.id);
         let targets = match only {
             Some(client) => vec![client],

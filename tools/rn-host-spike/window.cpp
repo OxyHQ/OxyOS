@@ -409,6 +409,18 @@ bool Window::requestCapability(uint32_t serial, uint64_t input, uint8_t capabili
   return oxyos_client_request_capability(client_, serial, input, capability) == 0;
 }
 
+bool Window::chooseFiles(uint32_t serial, uint64_t input, const std::string& text) {
+  return oxyos_client_choose_files(client_, serial, kToplevel, input, text.c_str()) == 0;
+}
+
+bool Window::cancelChooseFiles(uint32_t serial) {
+  return oxyos_client_cancel_choose_files(client_, serial) == 0;
+}
+
+bool Window::answerFileChooser(uint64_t input, const std::string& text) {
+  return oxyos_client_answer_file_chooser(client_, input, text.c_str()) == 0;
+}
+
 bool Window::setDisplayMode(uint32_t serial, uint32_t output, uint32_t width, uint32_t height, uint32_t refreshMhz) {
   return oxyos_client_set_display_mode(client_, serial, output, width, height, refreshMhz) == 0;
 }

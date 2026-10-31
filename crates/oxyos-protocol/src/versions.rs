@@ -26,7 +26,8 @@ const GROWN_IN_3: &[(u8, &[u8])] = &[
 /// sent unasked to the surface under the pointer; version 5, the session's keyboard layout and
 /// the outputs, told to every client, and a client's pointer images (ADR 0029); version 6,
 /// screenshots (ADR 0024, decision 10), both ways, `CaptureMode` sent unasked on Super+Shift+4
-/// and 5.
+/// and 5; version 7, file choosers (ADR 0029, decision 8), both ways, so the client library never
+/// sends a request a compositor of an older version would close the connection for.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -34,8 +35,14 @@ const EVENTS_ADDED: Added = &[
     (5, 180..=180),
     (5, 200..=203),
     (6, 210..=212),
+    (7, 220..=220),
 ];
-const REQUESTS_ADDED: Added = &[(3, 170..=174), (5, 190..=190), (6, 210..=215)];
+const REQUESTS_ADDED: Added = &[
+    (3, 170..=174),
+    (5, 190..=190),
+    (6, 210..=215),
+    (7, 220..=222),
+];
 
 fn since(added: Added, opcode: u8) -> u16 {
     added

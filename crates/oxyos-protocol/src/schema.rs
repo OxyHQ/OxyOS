@@ -325,6 +325,21 @@ messages! {
         // serial of an input it received (the press on its thumbnail): the session starts the
         // application that opens it.
         215 => OpenScreenshot { screenshot: u32, serial: u64 },
+        // File choosers (ADR 0029, decision 8): any application asks the session to let the
+        // person choose files for its toplevel `surface` (an open or save panel the session shows
+        // as a sheet of that window), citing `input`, a press or a key it received lately: one
+        // request of the session's vocabulary as JSON text in chunks (`index` 0 begins it, `last`
+        // completes it). FilesChosen naming `serial` answers it, once. No grant is needed: what it
+        // reaches is what the person chooses.
+        220 => ChooseFiles { serial: u32, surface: u32, input: u64, index: u16, last: bool, text: PreeditText },
+        // The asker withdraws its request `serial`: the panel closes, and it is answered cancelled
+        // unless it was answered already.
+        221 => CancelChooseFiles { serial: u32 },
+        // The chooser the session started for a request (the file manager in its picker mode),
+        // and no other client: the person's answer, JSON text in chunks as ChooseFiles', citing
+        // `input`, an input it received (a choice without one is refused; a cancellation needs
+        // none).
+        222 => AnswerFileChooser { input: u64, index: u16, last: bool, text: PreeditText },
     }
 }
 
@@ -596,6 +611,10 @@ messages! {
         // is on), `width` x `height` pixels: its file's path in chunks (`index` 0 begins it,
         // `last` completes it), to the shell of that output.
         212 => ScreenshotSaved { screenshot: u32, output: u32, width: u32, height: u32, index: u8, last: bool, text: PreeditText },
+        // To the application whose ChooseFiles `serial` it answers (ADR 0029, decision 8), once:
+        // the files the person chose, that they cancelled, or that the session refused, as JSON
+        // text in chunks (`index` 0 begins it, `last` completes it).
+        220 => FilesChosen { serial: u32, index: u16, last: bool, text: PreeditText },
     }
 }
 

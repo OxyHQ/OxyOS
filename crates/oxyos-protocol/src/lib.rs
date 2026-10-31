@@ -28,7 +28,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 6;
+pub const VERSION: u16 = 7;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
@@ -53,6 +53,9 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 128;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
+/// The most a ChooseFiles, AnswerFileChooser or FilesChosen may hold, in bytes (ADR 0029,
+/// decision 8): room for hundreds of chosen files' URIs.
+pub const MAX_CHOOSER_TEXT_BYTES: usize = 256 * 1024;
 /// Media types a clipboard offer may name (ADR 0007).
 pub const MAX_CLIPBOARD_TYPES: usize = 16;
 /// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).

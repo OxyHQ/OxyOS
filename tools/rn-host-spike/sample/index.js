@@ -35,6 +35,8 @@ import ClipProbe from './ClipProbe';
 import FidelityGallery, { fidelityPage } from './FidelityGallery';
 import FIDELITY_PAGES from './fidelity-pages.json';
 import PanelProbe from './PanelProbe';
+import FileChooserProbe from './FileChooserProbe';
+import FileChooserFixture from './FileChooserFixture';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -69,3 +71,5 @@ AppRegistry.registerComponent('ClipProbe', () => ClipProbe);
 AppRegistry.registerComponent('FidelityGallery', () => FidelityGallery);
 for (const { page } of FIDELITY_PAGES.slice(1)) AppRegistry.registerComponent(`FidelityGallery${page}`, () => fidelityPage(page));
 AppRegistry.registerComponent('PanelProbe', () => PanelProbe);
+AppRegistry.registerComponent('FileChooserProbe', () => FileChooserProbe);
+AppRegistry.registerComponent('FileChooserFixture', () => FileChooserFixture);

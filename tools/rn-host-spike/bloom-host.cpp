@@ -632,6 +632,11 @@ int main(int argc, char** argv) {
       services.applicationWindow = !shellMode;
       if (!shellMode) services.files = &files;
       services.shellWindow = shellMode;
+      // A file chooser the session started (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): what
+      // it shows, known before JavaScript starts, so Bloom's adapter is the chooser's from the start.
+      if (const char* request = shellMode ? nullptr : std::getenv("OXYOS_FILE_CHOOSER")) {
+        services.fileChooser.request = request;
+      }
       // The session's preferences (docs/adr/0019-settings.mdx), from the connection's first events.
       services.settings = {
           .drawing = [&window] {
@@ -1095,6 +1100,27 @@ int main(int argc, char** argv) {
     oxyos::ChunkTexts screenshotPaths;
     uint32_t systemSerial = 0;
     std::map<uint32_t, std::string> askedCapabilities;
+    // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
+    // requests, assembled from chunks. A request and an answer cite the latest press or key, as
+    // the session requires.
+    oxyos::ChunkTexts chosenTexts;
+    uint32_t chooserSerial = 0;
+    services.fileChooser.choose = [&window, &lastPress, &chooserSerial](const std::string& text) -> uint32_t {
+      ++chooserSerial;
+      return window->chooseFiles(chooserSerial, lastPress, text) ? chooserSerial : 0;
+    };
+    services.fileChooser.cancel = [&window](uint32_t serial) { window->cancelChooseFiles(serial); };
+    services.fileChooser.answer = [&window, &lastPress](const std::string& text) {
+      // A choice cites the press or key that made it; a cancellation cites nothing.
+      folly::dynamic answer;
+      try {
+        answer = folly::parseJson(text);
+      } catch (const std::exception&) {
+        return false;
+      }
+      bool chosen = answer.isObject() && answer.count("chosen") != 0;
+      return window->answerFileChooser(chosen ? lastPress : 0, text);
+    };
     services.system = {
         .request = [&window, &lastPress, &systemSerial](const std::string& text) -> uint32_t {
           ++systemSerial;
@@ -1249,7 +1275,7 @@ int main(int argc, char** argv) {
         std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
-        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
@@ -1272,6 +1298,11 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_SHEET_DISMISSED) sheetsGone.push_back(event);
+              if (event.kind == OXYOS_EVENT_FILES_CHOSEN) {
+                if (auto text = chosenTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
+                  filesChosen.emplace_back(event.code, std::move(*text));
+                }
+              }
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
@@ -1459,6 +1490,15 @@ int main(int argc, char** argv) {
                                                                folly::dynamic::object("sheet", sheet)("text", text)));
           oxyos::Report::get().input("sheet", oxyos::Window::kToplevel,
                                      folly::dynamic::object("sheet", sheet)("kind", described["kind"]));
+        }
+        // File choosers (ADR 0029, decision 8): each request's answer, once.
+        for (const auto& [serial, text] : filesChosen) {
+          auto answer = folly::parseJson(text);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSFilesChosen",
+                                                               folly::dynamic::object("serial", serial)("answer", answer)));
+          oxyos::Report::get().input("files_chosen", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("answer", answer));
         }
         for (const auto& gone : sheetsGone) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",

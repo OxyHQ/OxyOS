@@ -127,6 +127,13 @@ class Window {
   bool systemRequest(uint32_t serial, uint64_t input, const std::string& text);
   void sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial);
   bool requestCapability(uint32_t serial, uint64_t input, uint8_t capability);
+  // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): asks the session to let the
+  // person choose files for the window, citing `input`; a FILES_CHOSEN with `serial` answers.
+  // Withdraws it. The chooser the session started gives the person's answer. False if it could not
+  // be sent (a compositor of a protocol before 7).
+  bool chooseFiles(uint32_t serial, uint64_t input, const std::string& text);
+  bool cancelChooseFiles(uint32_t serial);
+  bool answerFileChooser(uint64_t input, const std::string& text);
   // The session's displays (docs/adr/0018-several-displays.mdx), told to Settings alone: each as
   // the session last told it, by its output (its name, modes, scale choices from the most space to
   // the largest text, the one its density recommends, its rectangle in the global space, scale,
