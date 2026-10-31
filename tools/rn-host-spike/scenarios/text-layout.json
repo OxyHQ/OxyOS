@@ -1,9 +1,9 @@
 {
-  "about": "How a paragraph breaks into lines and is cut at a number of lines (sample/TextLayoutProbe.tsx; text.h), as Android's StaticLayout does with the same props: lines break where ICU's line break rules allow (after a hyphen, not before an opening bracket glued to a letter), not only at spaces; a word wider than its line is broken between its characters, as many on each line as fit; at numberOfLines the last line shown holds the rest of its paragraph, ellipsized at its end (tail), at its start or middle when one line is shown (head, middle), cut without an ellipsis for clip; and no line is wider than its box. Each label is a file's name as Stash's icon view shows it, two centred lines of 12-point Inter in 84 points; the probe shows each line onTextLayout gave (an ellipsized line's text is all it stands for, as on Android). Before, lines broke only at spaces: a name with none was one line wider than its box, centred and cut on both sides ('e-setup-promp'), and a line cut at numberOfLines had no ellipsis.",
+  "about": "How a paragraph breaks into lines and is cut at a number of lines (sample/TextLayoutProbe.tsx; text.h), as Android's StaticLayout does with the same props: lines break where ICU's line break rules allow (after a hyphen, not before an opening bracket glued to a letter), not only at spaces; a word wider than its line is broken between its characters, as many on each line as fit; at numberOfLines the last line shown holds the rest of its paragraph, ellipsized at its end (tail), at its start or middle when one line is shown (head, middle), cut without an ellipsis for clip; and no line is wider than its box. A paragraph of several lines breaks by its textBreakStrategy, whose default is Android's, highQuality: Minikin's optimal line breaker, its lines even rather than each as full as it can be, the last line free ('The quick brown | fox jumps over the | lazy dog by the river | bank today.', where simple fills each line in turn: 'The quick brown fox | jumps over the lazy | ...'); balanced evens the last line too; a word wider than its box is broken where Minikin's desperate breaks score least ('Supercalifragili | sticexpialidocious', and the IP address's '127.0.0.1_80 | 80_(Nest...', where a greedy breaker fills the first line); a multiline text input breaks as a Text does, End taking its caret to its first line's end (15, before the space after 'brown', not 19 after 'fox'), with exactly the events React receives. Before, every strategy broke greedily. Each label is a file's name as Stash's icon view shows it, two centred lines of 12-point Inter in 84 points; the probe shows each line onTextLayout gave (an ellipsized line's text is all it stands for, as on Android). Before, lines broke only at spaces: a name with none was one line wider than its box, centred and cut on both sides ('e-setup-promp'), and a line cut at numberOfLines had no ellipsis.",
   "module": "TextLayoutProbe",
   "window": [
-    560,
-    400
+    1140,
+    640
   ],
   "steps": [
     {
@@ -18,17 +18,64 @@
           "hyphens: claude-setup- | prompt.md",
           "unbreakable: cgqzbklp_400 | x400.jpg",
           "tail: Tierras de  | Valdoria (1).png",
-          "brackets: 127.0.0.1_8080 | _(Nest Hub Max).png",
+          "brackets: 127.0.0.1_80 | 80_(Nest Hub Max).png",
           "unlimited: faircoin- | v3.0.3-linux- | x86_64.tar.gz",
           "head: Tierras de Valdoria (1).png",
           "middle: Tierras de Valdoria (1).png",
           "clip: Tierras de ",
-          "short: src.zip"
+          "short: src.zip",
+          "quick: The quick brown  | fox jumps over the  | lazy dog by the river  | bank today.",
+          "quick-highQuality: The quick brown  | fox jumps over the  | lazy dog by the river  | bank today.",
+          "quick-simple: The quick brown fox  | jumps over the lazy  | dog by the river  | bank today.",
+          "quick-balanced: The quick brown  | fox jumps over the  | lazy dog by the  | river bank today.",
+          "files: Your files stay on this  | computer and sync when you  | sign in to your account.",
+          "files-balanced: Your files stay on this  | computer and sync when  | you sign in to your account.",
+          "word: Supercalifragili | sticexpialidocious  | words are broken  | at once.",
+          "word-simple: Supercalifragilisti | cexpialidocious  | words are broken  | at once.",
+          "field selection: none"
         ],
         "absent": [
           "(overflows)",
           "not laid out"
         ]
+      }
+    },
+    {
+      "name": "a press at the start of the text input's first line focuses it there",
+      "do": [
+        "press",
+        [
+          472,
+          16
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "field selection: 0-0"
+        ],
+        "focus_input": "field",
+        "react": {
+          "touchStart@field": 1,
+          "touchEnd@field": 1,
+          "focus@field": 1,
+          "selectionChange@field": 1
+        }
+      }
+    },
+    {
+      "name": "End takes the caret to the end of the first line as the optimal breaker broke it",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "texts": [
+          "field selection: 15-15"
+        ],
+        "focus_input": "field",
+        "react": {
+          "selectionChange@field": 1
+        }
       }
     }
   ]
