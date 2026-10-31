@@ -1,0 +1,77 @@
+{
+	"about": "Native offscreen measurement of persistent workspace header clearance and a floating TabBar's shell slot; not a physical-device test.",
+	"module": "WorkspaceChromeProbe",
+	"window": [900, 600],
+	"steps": [
+		{
+			"name": "Measure initial workspace",
+			"do": ["a11y-action", ["activate", "Measure workspace"]],
+			"allow_unchanged": true,
+			"expect": {
+				"texts": [
+					"Panel under header yes",
+					"Content clears header yes",
+					"Bar measured yes",
+					"S0",
+					"H0/88 P0/600 C88 B526/74 S0"
+				]
+			}
+		},
+		{
+			"name": "Move scrolling content under persistent header",
+			"do": ["scroll", [450, 300, 80]],
+			"allow_unchanged": true,
+			"expect": {
+				"texts": ["Workspace not measured"],
+				"react": {
+					"scroll@workspace-scroll": 1
+				},
+				"scroll_offset": {
+					"workspace-scroll": [0, 80]
+				}
+			}
+		},
+		{
+			"name": "Measure scrolled workspace",
+			"do": ["a11y-action", ["activate", "Measure workspace"]],
+			"allow_unchanged": true,
+			"expect": {
+				"texts": [
+					"Panel under header yes",
+					"Content clears header yes",
+					"Bar measured yes",
+					"S80",
+					"H0/88 P0/600 C8 B526/74 S80"
+				]
+			}
+		},
+		{
+			"name": "Reset the same scroll owner",
+			"do": ["scroll", [450, 300, -80]],
+			"allow_unchanged": true,
+			"expect": {
+				"texts": ["Workspace not measured"],
+				"react": {
+					"scroll@workspace-scroll": 1
+				},
+				"scroll_offset": {
+					"workspace-scroll": [0, 0]
+				}
+			}
+		},
+		{
+			"name": "Measure reset workspace",
+			"do": ["a11y-action", ["activate", "Measure workspace"]],
+			"allow_unchanged": true,
+			"expect": {
+				"texts": [
+					"Panel under header yes",
+					"Content clears header yes",
+					"Bar measured yes",
+					"S0",
+					"H0/88 P0/600 C88 B526/74 S0"
+				]
+			}
+		}
+	]
+}

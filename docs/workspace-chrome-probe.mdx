@@ -1,0 +1,46 @@
+# Workspace header and bottom-bar regression
+
+`tools/rn-host-spike/scenarios/workspace-chrome.json` runs `WorkspaceChromeProbe`
+through the CPU offscreen compositor with the native Hermes/Fabric/Yoga host.
+It exercises Bloom's persistent workspace header, a route ScreenScrollView and
+a floating TabBar mounted in AppShell's bottom-bar slot.
+
+The 900×600 window has an 88-pixel header. The scenario independently expects
+the panel at y=0 with height 600, the first content row at y=88, and a 74-pixel
+bottom slot at y=526. A real wheel event moves the row to y=8 and reports offset
+80; reversing it returns both to their initial positions. Each scroll invalidates
+the previous measurement, and the asynchronous measurement rejects an old phase.
+Both the native report's scroll offset and React's received offset are checked.
+
+Use wheel input here: the host revision used for the initial evidence routes
+view commands to text editing and does not implement ScrollView's imperative
+`scrollTo`. Calling it would test an unsupported host command rather than scrolling.
+
+Build against an exact Bloom checkout using the ordinary native-host instructions
+in `docs/native-architecture.mdx`. With a compatible host already built, create
+a separate runtime output, rebuild its framework from that checkout and rebuild
+the probe bundle against that framework. Do not relabel an older framework as a
+new Bloom revision. Then run:
+
+```sh
+python3 tools/rn-host-spike/regress.py \
+  tools/rn-host-spike/scenarios/workspace-chrome.json \
+  --offscreen target/release/oxyos-offscreen \
+  --runtimes /path/to/exact-runtimes \
+  --packages /path/to/exact-packages \
+  --out /path/to/workspace-chrome-evidence
+```
+
+The fixture requires Bloom's `panelLayout.headerPlacement="scroll-under"` and
+TabBar's bottom-slot participation. These are tracked in Bloom PRs #566 and #567,
+on the composition candidate #563; they are not established by the version label
+alone while those changes remain unpublished.
+
+Initial verification reused the host built from OxyOS `4be10e9` and independently
+rebuilt the framework/probe for each exact Bloom source snapshot. Bloom
+`67114f2443416da551fd29c9e625b2d15c1fc1d5` failed 12 assertions: the panel began
+at y=88 with height 512, and the bottom slot measured zero. Bloom
+`d84afdc6764e01b62b9c0163fdb334e207072cf2` passed all five steps, including the
+literal geometry and both wheel offsets. This measures native layout and input
+on the offscreen CPU path; it does not verify a physical display, KMS, iOS/Android
+safe areas or mobile keyboard avoidance.
