@@ -3310,7 +3310,7 @@ impl Scene {
         hotspot: (u32, u32),
         scale_120: u32,
     ) -> Result<(), ErrorCode> {
-        if !self.nodes.get(&key).is_some_and(|node| !node.dismissed) {
+        if self.nodes.get(&key).is_none_or(|node| node.dismissed) {
             return Err(ErrorCode::UnknownSurface);
         }
         let layout = match self.buffers.get(&(key.client, buffer)) {
