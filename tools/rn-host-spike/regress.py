@@ -50,8 +50,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - at_group: groups in the window's tree as the assistive technology received it, nested as the
   application nested it (each node's parent): each {"group": node, "items": [node, ...]} has
   exactly one node matching "group", and each item matches exactly one node in the whole window,
-  nested in that group (at any depth), the items in order and side by side, left to right, inside
-  the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
+  nested in that group (at any depth), the items in order, each to the right of or below the last,
+  inside the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
   elsewhere. With "only": true the buttons the group holds are exactly its items;
 - at_hit: what a press lands on, by the tree's geometry: "x,y" (the window's coordinates, as
   `press` takes them) -> the node matching the keys given is the innermost one whose rectangle holds it;
@@ -1707,8 +1707,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if len(found) != len(spec["items"]):
                 continue
             rects = [tree[i]["rect"] for i in found]
-            if found != sorted(found) or any(a[0] + a[2] > b[0] for a, b in zip(rects, rects[1:])):
-                fail(f"the group's items are not in order side by side: {rects}")
+            # In reading order, each after the last: to its right (a toolbar's), or below it (a
+            # sidebar's rows).
+            if found != sorted(found) or any(a[0] + a[2] > b[0] and a[1] + a[3] > b[1]
+                                             for a, b in zip(rects, rects[1:])):
+                fail(f"the group's items are not in order, each after the last: {rects}")
             outer = tree[group]["rect"]
             for item, rect in zip(spec["items"], rects):
                 if not inside(rect, outer):
