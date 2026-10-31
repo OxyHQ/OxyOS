@@ -5,6 +5,8 @@
 #include <react/renderer/components/image/ImageEventEmitter.h>
 #include <react/renderer/components/image/ImageProps.h>
 
+#include <include/core/SkPixmap.h>
+
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -148,7 +150,11 @@ bool Images::deliver() {
       auto made = std::make_shared<Picture>();
       made->width = static_cast<int>(answer.width);
       made->height = static_cast<int>(answer.height);
-      made->pixels.assign(answer.pixels, answer.pixels + answer.length);
+      // Premultiplied R, G, B, A bytes, rows top to bottom (oxyos_images_answer), copied into the
+      // image Skia draws.
+      made->image = SkImages::RasterFromPixmapCopy(
+          SkPixmap(SkImageInfo::Make(made->width, made->height, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
+                   answer.pixels, static_cast<size_t>(made->width) * 4));
       made->naturalWidth = answer.natural_width / sourceScale;
       made->naturalHeight = answer.natural_height / sourceScale;
       picture = std::move(made);

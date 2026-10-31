@@ -4,6 +4,8 @@
 
 #include "renderer.h"
 
+#include <include/core/SkPicture.h>
+
 #include <optional>
 #include <unordered_map>
 #include <vector>
@@ -48,6 +50,8 @@ class WindowDamage {
     facebook::react::Rect at;  // window-local, as drawn (scroll offsets applied)
     std::vector<facebook::react::Tag> children;
     std::shared_ptr<const Picture> picture;
+    // An SVG view's elements, as svgPicture records them.
+    sk_sp<SkPicture> drawing;
   };
   using Views = std::unordered_map<facebook::react::Tag, Seen>;
   Views seen_;
