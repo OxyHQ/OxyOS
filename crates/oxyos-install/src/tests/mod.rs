@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 
 mod flows;
 mod ipc;
+mod listings;
 mod refusals;
 mod sandbox;
 mod tuf_client;
@@ -88,6 +89,8 @@ pub struct Pkg {
     pub lineage: Lineage,
     /// Release notes by language, the store's.
     pub notes: Vec<(&'static str, &'static str)>,
+    /// The store listing it belongs to, the store's.
+    pub listing: Option<&'static str>,
 }
 
 impl Pkg {
@@ -114,6 +117,7 @@ impl Pkg {
             store: TARGETS_KEY,
             lineage: Lineage::default(),
             notes: vec![("en", "Faster."), ("es", "Más rápida.")],
+            listing: Some("notes"),
         }
     }
 
@@ -210,6 +214,7 @@ impl Pkg {
             &key(self.store),
             &self.lineage,
             &self.notes,
+            self.listing,
         )
     }
 }

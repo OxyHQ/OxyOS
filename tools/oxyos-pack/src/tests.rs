@@ -228,7 +228,24 @@ fn the_install_service_installs_what_publish_published() {
     let (keys, repo) = (dir.0.join("store-keys"), dir.0.join("repository"));
     store_keys(&keys).unwrap();
     repository(&repo, &keys).unwrap();
-    publish(&dir.0.join("package"), &repo, &keys, &dir.0.join("key")).unwrap();
+    // Not a listing's slug: refused, nothing published.
+    let refused = publish(
+        &dir.0.join("package"),
+        &repo,
+        &keys,
+        &dir.0.join("key"),
+        Some("Inbox"),
+    )
+    .unwrap_err();
+    assert!(refused.contains("not a store listing"), "{refused}");
+    publish(
+        &dir.0.join("package"),
+        &repo,
+        &keys,
+        &dir.0.join("key"),
+        Some("inbox"),
+    )
+    .unwrap();
 
     // A machine: runtime 1 at api 1, this process's own account.
     let runtimes = dir.0.join("runtimes");
@@ -252,6 +269,12 @@ fn the_install_service_installs_what_publish_published() {
         now,
     )
     .unwrap();
+    // The listing it was published for names it on the machine.
+    let resolved = installer
+        .resolve(me.uid(), &["inbox".into(), "mention".into()])
+        .unwrap();
+    assert_eq!(resolved["inbox"].as_deref(), Some("so.oxy.inbox"));
+    assert_eq!(resolved["mention"], None);
     let prepared = installer.prepare(me.uid(), "so.oxy.inbox").unwrap();
     assert_eq!(prepared.plan.version_code, 1);
     installer.commit(&prepared, &mut |_| {}).unwrap();
@@ -279,7 +302,7 @@ fn the_install_service_installs_what_publish_published() {
         &dir.0.join("key"),
     )
     .unwrap();
-    publish(&two, &repo, &keys, &dir.0.join("key")).unwrap();
+    publish(&two, &repo, &keys, &dir.0.join("key"), None).unwrap();
     installer.check().unwrap();
     let state = installer.update_state(me.uid()).unwrap();
     assert_eq!(state.updates.len(), 1);

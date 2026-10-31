@@ -108,8 +108,9 @@ pub fn target_path(id: &str, version_code: u64, architecture: &str) -> String {
 
 /// A release's custom data: the store's statement signed by `store`, the developer's
 /// `signature`, the developer's key the machine pins (`published_key`), its `lineage` if any, and
-/// the store's release notes by language. `statement` is the store's; built by
-/// [`ReleaseStatement::of`] for a manifest the format reads.
+/// the store's release notes by language, and the store listing the release belongs to (its slug,
+/// which the machine resolves an application named by its listing with). `statement` is the
+/// store's; built by [`ReleaseStatement::of`] for a manifest the format reads.
 pub fn release_custom(
     statement: ReleaseStatement,
     signature: &DeveloperSignature,
@@ -117,6 +118,7 @@ pub fn release_custom(
     store: &SigningKey,
     lineage: &Lineage,
     notes: &[(&str, &str)],
+    listing: Option<&str>,
 ) -> Value {
     let release = store.sign_release(statement).to_canonical();
     let text =
@@ -139,6 +141,9 @@ pub fn release_custom(
                     .collect(),
             ),
         ));
+    }
+    if let Some(listing) = listing {
+        members.push(("listing", json::string(listing)));
     }
     json::object(vec![("oxyos", json::object(members))])
 }
@@ -351,15 +356,22 @@ impl Repository {
 
     /// Publishes a packed package (a directory with `manifest.json`, `manifest.sig` and its
     /// files): its files and manifest, the store's statement signed by the targets key, the
-    /// developer's signature and `developer`'s public key, then the next metadata.
+    /// developer's signature and `developer`'s public key, the store `listing` it belongs to if
+    /// any, then the next metadata.
     pub fn publish_package(
         &mut self,
         package: &Path,
         keys: &StoreKeys,
         developer: &PublicKey,
         notes: &[(&str, &str)],
+        listing: Option<&str>,
     ) -> io::Result<(String, u64)> {
         let invalid = |what: String| io::Error::new(io::ErrorKind::InvalidData, what);
+        if let Some(listing) = listing.filter(|l| !crate::install::valid_listing(l)) {
+            return Err(invalid(format!(
+                "{listing:?} is not a store listing (lowercase letters, digits and single hyphens)"
+            )));
+        }
         let manifest_bytes = fs::read(package.join("manifest.json"))?;
         let manifest =
             Manifest::parse(&manifest_bytes).map_err(|e| invalid(format!("the manifest: {e}")))?;
@@ -382,6 +394,7 @@ impl Repository {
             &keys.targets,
             &Lineage(Vec::new()),
             notes,
+            listing,
         );
         let path = target_path(&manifest.id, manifest.version_code, "any");
         self.add_release(&path, &manifest_bytes, &refs, custom)?;
