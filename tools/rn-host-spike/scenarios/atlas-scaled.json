@@ -144,10 +144,13 @@
       }
     },
     {
-      "name": "the store is down: the storefront waits while it is asked again, then says it could not be loaded, with Try again, and nothing crashed",
+      "name": "the store is down: the storefront waits while it is asked again, until it says it could not be loaded, with Try again, and nothing crashed",
       "do": [
-        "wait",
-        32000
+        "wait_named",
+        [
+          "Try again",
+          60000
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -163,12 +166,28 @@
       }
     },
     {
-      "name": "Try again, once the store answers: its storefront, each lockup's action Get",
+      "name": "Try again: Atlas asks the store again",
       "do": [
-        "press_output",
+        "press_named",
+        "Try again"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "react": {
+            "touchStart@content-panel-content": 1,
+            "touchEnd@content-panel-content": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "once the store answers: its storefront, each lockup's action Get",
+      "do": [
+        "wait_named",
         [
-          778,
-          389
+          "Spotlight",
+          30000
         ]
       ],
       "allow_unchanged": true,
