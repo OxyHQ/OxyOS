@@ -141,6 +141,12 @@ Tag hit(const ViewTree& tree, Tag tag, float x, float y, const GestureHit* gestu
   // A popup's or a shell region's subtree is in its own surface, not under the window's pointer;
   // a modal's is above the window's content (hitIn).
   if (ownSurface(name) || isModal(name)) return -1;
+  // react-native-screens' header configurations describe a header the platform draws from them
+  // (Android's toolbar, never the configuration's own view), and are laid out over their whole
+  // screen (`absoluteFill`): no view of their own, they are under no point. OxyOS draws no native
+  // stack header, so a screen showing one shows none (expo-router's stacks with `headerShown:
+  // false` show none anyway).
+  if (name == "RNSStackHeaderConfigAndroid" || name == "RNSScreenStackHeaderConfig") return -1;
   bool clips = name == "ScrollView" || (props && props->getClipsContentToBounds());
   if (clips && !inside) return -1;
   if (mode != PointerEventsMode::BoxOnly) {

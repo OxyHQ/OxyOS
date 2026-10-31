@@ -60,10 +60,15 @@ const { withReactNativeCSS } = bloomRequire('react-native-css/metro');
 // NativeWind's `className` resolution (`globalClassNamePolyfill`), which its package does not export.
 const { nativeResolver: classNameResolver } = require(path.join(NODE_MODULES, 'react-native-css/dist/commonjs/metro/resolver.js'));
 
-// An Expo Router application bundled from its own checkout (STASH_DIR, oxyos/application-build.js),
-// registered as module `Stash` by oxyos/stash-application.js; without one that module is empty.
+// An Expo Router application bundled from its own checkout (OXYOS_APPLICATION_DIR,
+// oxyos/application-build.js), registered as its module by oxyos/application.js; without one that
+// module is empty. The runtime's modules that run inside the application (its entry, and the
+// installer's registration in its own Oxy SDK, oxyos/store-registration.js) resolve what they name
+// as the application's root would.
 const APP = require('./oxyos/application-build');
-const APP_ENTRY = path.join(__dirname, 'oxyos', 'stash-application.js');
+const APP_ENTRY = path.join(__dirname, 'oxyos', 'application.js');
+const STORE_REGISTRATION = path.join(__dirname, 'oxyos', 'store-registration.js');
+const APP_ENTRIES = new Set([APP_ENTRY, STORE_REGISTRATION]);
 if (APP) {
   // babel-preset-expo's router plugin replaces `process.env.EXPO_ROUTER_APP_ROOT` (expo-router's
   // `_ctx`) with the path from the file to the project's `app/`, the project root
@@ -140,8 +145,9 @@ const APP_ORIGIN = APP && path.join(APP.dir, 'package.json');
 
 // The application's requests (its sources, what its checkout installed, and its entry here).
 function applicationRequest(context, moduleName, platform, resolve) {
-  // The runtime's entry resolves what it starts (expo-router) as the application's root would.
-  const entry = context.originModulePath === APP_ENTRY;
+  // The runtime's entry resolves what it starts (expo-router, the application's Oxy SDK) as the
+  // application's root would.
+  const entry = APP_ENTRIES.has(context.originModulePath);
   const origin = entry && isBare(moduleName) ? { ...context, originModulePath: APP_ORIGIN } : context;
   // Its own sources' TypeScript paths (`@/lib/config`), as Expo's Metro resolves them.
   const own = !entry && !context.originModulePath.includes(`${path.sep}node_modules${path.sep}`);
@@ -155,7 +161,9 @@ function applicationRequest(context, moduleName, platform, resolve) {
     throw new Error(`${moduleName} (imported by ${context.originModulePath}) matches the application's TypeScript paths, but none of ${candidates.join(', ')} exists`);
   }
   const ruled = (c, name, p) => {
-    if (isBare(name) && fs.existsSync(path.join(NODE_MODULES, packageOf(name)))) {
+    // A package the framework has (from the Bloom tree or this folder's: the Expo modules the host
+    // implements), or one the Bloom tree has.
+    if (isBare(name) && (FRAMEWORK?.packages[packageOf(name)] || fs.existsSync(path.join(NODE_MODULES, packageOf(name))))) {
       let shared = FRAMEWORK?.packages[packageOf(name)]
         ? sharedRequest({ ...c, resolveRequest: resolve }, name, p)
         : resolve({ ...c, originModulePath: BLOOM_ORIGIN }, name, p);
@@ -276,7 +284,7 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
       if (moduleName === '@oxy.so/bloom' || moduleName.startsWith('@oxy.so/bloom/')) {
         // The platform's own applications (apps/, this repository) declare the Bloom they need in
         // their package.json: a checkout of another stops the build. An application from its own
-        // checkout (STASH_DIR) is built as it is.
+        // checkout (OXYOS_APPLICATION_DIR) is built as it is.
         if (!(APP && APP.owns(context.originModulePath)) &&
             !accepted(context.originModulePath, '@oxy.so/bloom', path.join(BLOOM, 'package.json'))) {
           const declared = manifestOf(context.originModulePath).json;
@@ -290,7 +298,7 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
       }
       let result;
       try {
-        if (APP && (context.originModulePath === APP_ENTRY || APP.owns(context.originModulePath))) {
+        if (APP && (APP_ENTRIES.has(context.originModulePath) || APP.owns(context.originModulePath))) {
           result = applicationRequest(context, moduleName, platform, context.resolveRequest);
         } else if (inBloom(context.originModulePath) || context.originModulePath.startsWith(SAMPLE_MODULES)) {
           // The runtime's own packages (this folder's node_modules: the Expo modules the host
@@ -300,8 +308,12 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
         } else {
           result = context.resolveRequest(context, moduleName, platform);
         }
-        // No application: its entry is an empty module, and the bundle has no Stash.
+        // No application: its entry is an empty module, and the bundle has no application. An
+        // application whose Oxy SDK has no store installer seam is given no installer.
         if (!APP && result.type === 'sourceFile' && result.filePath === APP_ENTRY) return { type: 'empty' };
+        if (result.type === 'sourceFile' && result.filePath === STORE_REGISTRATION && !APP?.storeInstaller) {
+          return { type: 'sourceFile', filePath: path.join(__dirname, 'oxyos', 'no-store-registration.js') };
+        }
       } catch (error) {
         // A module that only exists as platform variants (.android/.ios/.web): OxyOS takes the
         // Android one, React Native's generic TurboModule-backed implementation.

@@ -1,7 +1,12 @@
 /**
  * An Expo Router application bundled from its own checkout, as the OxyOS runtime builds it
- * (metro.config.js, bundle.mjs): Stash (OxyHQ/Stash, `packages/frontend`), named by `STASH_DIR`.
- * Without it the bundle has no Stash module and builds as before.
+ * (metro.config.js, bundle.mjs): the checkout `OXYOS_APPLICATION_DIR` names (its Expo project,
+ * as Stash's or Atlas's `packages/frontend`), as the module `OXYOS_APPLICATION_MODULE` (its
+ * package's `entry.module`, the registry entry's `X-OxyOS-Bloom-Module`, beside which its app
+ * config is kept). One build holds one
+ * application; packages.mjs builds each application named by its own checkout's variable
+ * (`STASH_DIR`, `ATLAS_DIR`) this way. Without one the bundle has no application and builds as
+ * before.
  *
  * What the application's own Expo build would take from its project, read here the same way:
  * its environment files (`@expo/env`, as the Expo CLI loads them before bundling, so its
@@ -15,10 +20,11 @@ const fs = require('fs');
 const path = require('path');
 const { createRequire } = require('module');
 
-const named = process.env.STASH_DIR;
+const named = process.env.OXYOS_APPLICATION_DIR;
+const module_ = process.env.OXYOS_APPLICATION_MODULE;
 
 function fail(message) {
-  throw new Error(`STASH_DIR (${named}): ${message}`);
+  throw new Error(`OXYOS_APPLICATION_DIR (${named}): ${message}`);
 }
 
 /** The git checkout that holds `dir`: where its installed dependencies are (a monorepo's root). */
@@ -65,8 +71,28 @@ function aliased(alias, name) {
   return alias.targets.map((target) => target.replace('*', star));
 }
 
+/**
+ * Whether the application's own Oxy SDK has the store's installer seam (`@oxy.so/core` 7.10 and
+ * later, `setStoreInstaller`), into which the runtime registers the machine's installer for an
+ * application the policy gives `store` (oxyos/application.js). An application without it, or
+ * without the SDK, is never given one.
+ */
+function hasStoreInstallerSeam(appRequire) {
+  let manifest;
+  try {
+    manifest = appRequire('@oxy.so/core/package.json');
+  } catch {
+    return false;
+  }
+  const semver = createRequire(path.join(process.env.BLOOM_DIR, 'package.json'))('semver');
+  return semver.gte(semver.coerce(manifest.version) ?? '0.0.0', '7.10.0');
+}
+
 function describe() {
   if (!named) return null;
+  if (!module_ || !/^[A-Za-z][A-Za-z0-9]*$/.test(module_)) {
+    fail(`needs OXYOS_APPLICATION_MODULE, the module it registers as (${JSON.stringify(module_)})`);
+  }
   const dir = fs.realpathSync(path.resolve(named));
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
   // The runtime runs the application's root exactly as `expo-router/entry` does; an application
@@ -103,7 +129,10 @@ function describe() {
   return {
     dir,
     checkout,
+    /** The module it registers as (oxyos/application.js), and where its app config is kept. */
+    module: module_,
     appRoot: path.join(dir, 'app'),
+    storeInstaller: hasStoreInstallerSeam(appRequire),
     // Its public app config, as `Constants.expoConfig` gives it (bundle.mjs writes it next to the
     // bundle, where the host's ExponentConstants reads it, as Android reads `app.config` from the
     // APK's assets).

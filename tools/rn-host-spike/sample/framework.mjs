@@ -56,6 +56,9 @@ const native = [
   // of the application's routes, `_ctx`, which each application builds for itself; decision 17).
   'expo-router', 'expo-router/build/ExpoRoot', 'expo-router/build/head', 'expo-router/build/fast-refresh',
   '@expo/metro-runtime',
+  // Worklets' manifest, which a package built on worklets reads for the version it runs on
+  // (react-native-audio-api's check, in Atlas through the Alia SDK).
+  'react-native-worklets/package.json',
 ];
 // Bloom (and what its stylesheet compiles to at run time), every export an application may import
 // but those that are not code (its Tailwind preset, its CSS and token files).
@@ -86,8 +89,10 @@ const css = [
   'react-native-css', 'react-native-css/native', 'react-native-css/native-internal', 'react-native-css/components',
   'react-native-css/components/react-native-safe-area-context', 'react-native-css/utilities',
 ];
-// The runtime's own start, and Bloom's platform adapter for OxyOS.
-const own = ['./oxyos/framework-init', './oxyos/platform-surface', 'react-native/Libraries/Core/InitializeCore'];
+// The runtime's own start, Bloom's platform adapter for OxyOS, and the store's installer the runtime
+// registers in an application the policy gives `store` (oxyos/store-installer.js).
+const own = ['./oxyos/framework-init', './oxyos/platform-surface', './oxyos/store-installer',
+  'react-native/Libraries/Core/InitializeCore'];
 
 const provided = [...core, ...native, ...css, ...bloomExports, ...own];
 const generated = path.join(here, 'generated');
@@ -112,8 +117,9 @@ fs.rmSync(out, { recursive: true, force: true });
 process.on('exit', (code) => {
   if (code !== 0) fs.rmSync(out, { recursive: true, force: true });
 });
-// No application (STASH_DIR): the framework is the runtime's, built from no application's checkout.
-const { STASH_DIR: _application, ...environment } = process.env;
+// No application (OXYOS_APPLICATION_DIR): the framework is the runtime's, built from no
+// application's checkout.
+const { OXYOS_APPLICATION_DIR: _application, OXYOS_APPLICATION_MODULE: _module, ...environment } = process.env;
 const built = execFileSync('node', ['bundle.mjs', path.relative(here, entry), out], {
   cwd: here,
   env: { ...environment, OXYOS_FRAMEWORK_BUILD: '1', HERMESC: '' },

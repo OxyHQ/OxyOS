@@ -14,5 +14,9 @@ Only applications that run, or whose package is where it will be, are listed: no
 application OxyOS cannot start.
 
 - `so.oxy.stash`: Stash, the file manager (OxyHQ/Stash; ADR 0030, decision 13), a system
-  application. It has no OxyOS build yet, so its entry names where the image will carry its package
+  application, first in the dock. A package of its own built from its checkout (`STASH_DIR`,
+  `sample/packages.mjs`); without it, its entry names where the image will carry its package
   (`/usr/lib/oxyos/apps/so.oxy.stash/`) and the registry says it is not installed.
+- `so.oxy.atlas`: Atlas, the App Store (OxyHQ/Atlas; ADR 0030, decisions 13 and 14), a system
+  application, in the dock after Stash, with the policy's `store` and `updates` grants. Built from
+  its checkout (`ATLAS_DIR`) the same way, and not installed without it.
