@@ -105,6 +105,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nothing new);
   and always, no frame composed in the drag drawing the window at another size than its
   buffer's ("scaled");
+- resize_work: what a window resizing cost the application's host, from its report's frames in
+  the step: "react_commits_max", the most commits of React's (re-renders; a resize's own layout is
+  native and is none) in the whole step, one for each threshold the window's size crosses that
+  changes what the application shows; "js_ms_p95_max", the most JavaScript a frame may run at the
+  95th percentile (the events a resize delivers, onLayout and the dimensions, and nothing they
+  re-render); "busy_refreshes_p95_max", the most of a refresh of the display (`display_hz`) a
+  frame's whole work may take at the 95th percentile; "zoom_presented_ms_max", for a zoom (the
+  green bubble), the most time from its being asked to its frame presented, as the host's
+  diagnostics log it ("zoom (…): its configure … its frame presented N ms after");
 - stretch: a scroll view ("view", by testID) stretched past an end in the step, as Android 12's
   ScrollView stretches (EdgeEffect's stretch, overscroll in input.h), from the host's report of
   each change of the stretch drawn along its axis ("axis", "y" by default; a share of its size,
@@ -1647,6 +1656,41 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "resize_work" in expect:
+        # A window resized (`drag_paced` on an edge, a zoom): the application's host's frames in the
+        # step, the work each took, the JavaScript in it and React's commits.
+        wanted = expect["resize_work"]
+        # From the step's input on (a first step's window also holds the application's start).
+        begun = result.get("t_inject") or start
+        frames = [line for line in report if line["kind"] == "frame" and line.get("surface") == 1
+                  and begun <= line["t"] <= end and line.get("presented", True)]
+        if not frames:
+            fail("the window showed no frame in the resize")
+        commits = sum(line.get("react_commits", 0) for line in frames)
+        if commits > wanted.get("react_commits_max", float("inf")):
+            fail(f"React committed {commits} times in the resize (in {sum(1 for line in frames if line.get('react_commits'))} "
+                 f"of its {len(frames)} frames), expected at most {wanted['react_commits_max']}")
+        def p95(values):
+            ordered = sorted(values)
+            return ordered[min(len(ordered) - 1, round(0.95 * (len(ordered) - 1)))] if ordered else 0
+        js = p95([line.get("js_ms", 0) for line in frames])
+        if js > wanted.get("js_ms_p95_max", float("inf")):
+            fail(f"a frame of the resize ran {js:.1f} ms of JavaScript at the 95th percentile, expected at most "
+                 f"{wanted['js_ms_p95_max']}")
+        busy = p95([line.get("busy_ms", 0) for line in frames]) * refresh_hz / 1000
+        if busy > wanted.get("busy_refreshes_p95_max", float("inf")):
+            fail(f"a frame of the resize took {busy:.2f} refreshes of work at the 95th percentile, expected at most "
+                 f"{wanted['busy_refreshes_p95_max']}")
+        if "zoom_presented_ms_max" in wanted:
+            zooms = [float(m.group(1)) for m in (re.search(r"zoom \(.*\): its configure .* its frame presented ([\d.]+) ms after",
+                                                          line["text"])
+                                                 for line in report if line["kind"] == "log" and begun <= line["t"] <= end)
+                     if m]
+            if not zooms:
+                fail("the host logged no zoom in the step")
+            elif max(zooms) > wanted["zoom_presented_ms_max"]:
+                fail(f"the zoom's frame was presented {max(zooms)} ms after it was asked, expected at most "
+                     f"{wanted['zoom_presented_ms_max']}")
     if "glide" in expect:
         check_glide(expect["glide"], report, start, end, fail)
     if expect.get("scroll_times") == "dispatch":

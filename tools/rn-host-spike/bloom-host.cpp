@@ -505,6 +505,10 @@ int main(int argc, char** argv) {
         }));
     // ECMA-402's Intl, which Hermes has on Android from the platform (intl.h).
     oxyos::installIntl(rt);
+    // For the report (report.h, react_commits): each commit of React's reconciler, told through
+    // the hook React's renderers announce themselves and their commits to (its DevTools' global
+    // hook), whether or not the commit changed a view. Only while a report is written.
+    if (oxyos::Report::get().enabled()) oxyos::Report::get().watchReactCommits(rt);
     // In place of React Native's, which runs callbacks as a zero-delay timer.
     animationFrames.install(rt);
     TurboModuleBinding::install(

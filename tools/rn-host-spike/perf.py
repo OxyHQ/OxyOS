@@ -71,6 +71,8 @@ INTERACTIONS = [
      "the same beside the shell on a 1600x1000 output at 1.25, the ThinkPad's scale"),
     ("live resize", "window-resize.json", [1, 2, 3],
      "the Inbox's edges dragged at 125 Hz: one configure in flight, the host laying out and drawing each size"),
+    ("Stash live resize", "perf-stash-resize.json", [3, 4],
+     "Stash's right edge dragged 300 px in and back at 125 Hz: Bloom's shell, its panels and Stash's items are flex"),
     ("zoom", "windows.json", [3, 4],
      "the green bubble: the window's frame animated to the work area and back (a compositor transition)"),
     ("window views", "shell-thumbnails.json", [1],
