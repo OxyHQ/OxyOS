@@ -7,7 +7,7 @@ use oxyos_protocol::{
     ReaderCommand, Request,
 };
 use oxyos_speech::{describe, Language};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A surface, by its client and its id, as the compositor names it.
 pub type Surface = (u32, u32);
@@ -57,6 +57,11 @@ pub struct Reader {
     /// The order surfaces' trees arrived in: the cursor moves on through them.
     order: Vec<Surface>,
     receiving: BTreeMap<Surface, Vec<Option<Node>>>,
+    /// The surfaces that are another's popups (their trees name a parent surface).
+    popups: BTreeSet<Surface>,
+    /// A popup whose title was said and nothing focused in it yet: its first focus follows the
+    /// title rather than stopping it, in whichever of its trees it comes.
+    titled: Option<Surface>,
     announcing: BTreeMap<Surface, (String, Politeness)>,
     /// The element under the cursor.
     cursor: Option<(Surface, usize)>,
@@ -72,6 +77,8 @@ impl Reader {
             trees: BTreeMap::new(),
             order: Vec::new(),
             receiving: BTreeMap::new(),
+            popups: BTreeSet::new(),
+            titled: None,
             announcing: BTreeMap::new(),
             cursor: None,
             focused: None,
@@ -139,11 +146,14 @@ impl Reader {
             Event::AccessibilityTree {
                 client,
                 surface,
+                parent,
                 nodes,
-                ..
             } => {
                 self.receiving
                     .insert((client, surface), vec![None; nodes as usize]);
+                if parent != 0 {
+                    self.popups.insert((client, surface));
+                }
             }
             Event::AccessibleNode {
                 client,
@@ -199,6 +209,10 @@ impl Reader {
             Event::AccessibilityRemoved { client, surface } => {
                 let key = (client, surface);
                 self.receiving.remove(&key);
+                self.popups.remove(&key);
+                if self.titled == Some(key) {
+                    self.titled = None;
+                }
                 self.announcing.remove(&key);
                 self.trees.remove(&key);
                 self.order.retain(|surface| *surface != key);
@@ -251,7 +265,22 @@ impl Reader {
                 self.cursor = count.checked_sub(1).map(|last| (key, last));
             }
         }
+        let first = before.is_none();
         self.live_changes(key, before.as_deref());
+        // A popup that appears is said by its title, as TalkBack says the pane title of a window
+        // whose state changed (Android's TYPE_WINDOW_STATE_CHANGED for a popup window): the menu
+        // or dialog it holds, by its name and role ("Message actions, menu"). What is first focused
+        // in it is said after that, not over it, in this tree or a later one.
+        if first && self.popups.contains(&key) {
+            if let Some(title) = self.trees[&key].iter().position(|node| {
+                matches!(node.role, AccessibleRole::Menu | AccessibleRole::Dialog)
+                    && !node.name.trim().is_empty()
+            }) {
+                let text = self.describe((key, title));
+                self.say(text, Politeness::Assertive);
+                self.titled = Some(key);
+            }
+        }
         // The element the application focused: the cursor goes there and says it, unless it is
         // there already (the reader's own activation focused it).
         let focused = self.trees[&key]
@@ -261,10 +290,15 @@ impl Reader {
         match focused {
             Some(at) if self.focused != Some(at) => {
                 self.focused = Some(at);
+                let focus = if self.titled.take() == Some(key) {
+                    Politeness::Polite
+                } else {
+                    Politeness::Assertive
+                };
                 if self.cursor != Some(at) {
                     self.cursor = Some(at);
                     let text = self.describe(at);
-                    self.say(text, Politeness::Assertive);
+                    self.say(text, focus);
                 }
             }
             None if self.focused.is_some_and(|(surface, _)| surface == key) => {
@@ -328,6 +362,7 @@ impl Reader {
                 };
                 // At either end the cursor stays, saying nothing.
                 let at = *next?;
+                self.titled = None;
                 self.cursor = Some(at);
                 let text = self.describe(at);
                 self.say(text, Politeness::Assertive);

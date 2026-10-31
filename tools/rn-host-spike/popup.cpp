@@ -56,10 +56,17 @@ OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size s
   // Zero-filled (padding included) so positioners compare bytewise.
   OxyOSPositioner p;
   std::memset(&p, 0, sizeof p);
-  p.anchor_x = static_cast<int32_t>(std::floor(anchor.origin.x));
-  p.anchor_y = static_cast<int32_t>(std::floor(anchor.origin.y));
-  p.anchor_width = static_cast<uint32_t>(std::max(1.0f, std::ceil(anchor.size.width)));
-  p.anchor_height = static_cast<uint32_t>(std::max(1.0f, std::ceil(anchor.size.height)));
+  // The anchor's edges at the nearest whole logical pixels: a view laid out on a fractional
+  // scale's pixel grid (392.8 at 1.25) has its edges between them, and the protocol's anchor is
+  // whole. Taking each edge to the nearest keeps the popup where the view's edge is drawn (the
+  // compositor places 393 at the device pixel the view's 392.8 starts on); flooring its origin
+  // and ceiling its size moved a menu aligned with its trigger a device pixel off it.
+  const auto x0 = std::lround(anchor.origin.x), x1 = std::lround(anchor.origin.x + anchor.size.width);
+  const auto y0 = std::lround(anchor.origin.y), y1 = std::lround(anchor.origin.y + anchor.size.height);
+  p.anchor_x = static_cast<int32_t>(x0);
+  p.anchor_y = static_cast<int32_t>(y0);
+  p.anchor_width = static_cast<uint32_t>(std::max(1L, x1 - x0));
+  p.anchor_height = static_cast<uint32_t>(std::max(1L, y1 - y0));
   p.width = static_cast<uint32_t>(std::max(1.0f, std::ceil(size.width)));
   p.height = static_cast<uint32_t>(std::max(1.0f, std::ceil(size.height)));
   auto offset = [](Float value) { return static_cast<int32_t>(std::lround(value)); };

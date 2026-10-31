@@ -1,0 +1,181 @@
+{
+  "about": "menu-reader.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): the same, said exactly the same.",
+  "window": [
+    1024,
+    560
+  ],
+  "reader": {
+    "locale": "en_US.UTF-8"
+  },
+  "steps": [
+    {
+      "name": "a screen reader activates Open menu: the menu that appears is said by its title, as TalkBack says a popup window's pane title, then its focused row after it, not over it",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Open menu"
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "click@open-menu": 1
+        },
+        "spoken": [
+          {
+            "text": "Message actions, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Reply, menu item",
+            "interrupting": false
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Message actions"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Reply",
+              "state": [
+                "focused"
+              ]
+            }
+          ],
+          "window": [
+            {
+              "role": "Button",
+              "name": "Open menu",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Right moves the reader's cursor to the next row, said alone",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "react": {},
+        "spoken": [
+          {
+            "text": "Forward, menu item",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Space chooses it: the menu goes, saying nothing of its going, and the trigger, focused again, is said",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          57
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Forward"
+        ],
+        "react": {
+          "click@action-Forward": 1
+        },
+        "spoken": [
+          {
+            "text": "Open menu, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": [],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Open menu",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press opens the menu: it is said the same way",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        },
+        "spoken": [
+          {
+            "text": "Message actions, menu",
+            "interrupting": true
+          },
+          {
+            "text": "Reply, menu item",
+            "interrupting": false
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Escape closes it choosing nothing: the trigger is said",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Forward"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "spoken": [
+          {
+            "text": "Open menu, collapsed, button",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}
