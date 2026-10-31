@@ -1948,7 +1948,8 @@ fn announcements_json(announcements: &[crate::reader::Announcement]) -> String {
 }
 
 /// What the assistive technology holds, as it received it (reader.rs), by surface name:
-/// {surface: [{role, name, value, state, actions, custom, selection}]}.
+/// {surface: [{role, name, value, state, actions, custom, selection, parent, rect}]}: `parent` the
+/// index of the node it is nested in (null at the top), `rect` [x, y, width, height] on its surface.
 fn accessibility_json(reader: &crate::reader::Reader) -> String {
     let states = [
         (AccessibleState::DISABLED, "disabled"),
@@ -1998,8 +1999,12 @@ fn accessibility_json(reader: &crate::reader::Reader) -> String {
                     let selection = node
                         .selection
                         .map_or("null".to_string(), |(start, end)| format!("[{start},{end}]"));
+                    let parent = node
+                        .parent
+                        .map_or("null".to_string(), |index| index.to_string());
+                    let (x, y, width, height) = node.rect;
                     format!(
-                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}],\"actions\":[{}],\"custom\":[{}],\"selection\":{selection}}}",
+                        "{{\"role\":\"{:?}\",\"name\":{},\"value\":{},\"state\":[{}],\"actions\":[{}],\"custom\":[{}],\"selection\":{selection},\"parent\":{parent},\"rect\":[{x},{y},{width},{height}]}}",
                         node.role,
                         json_string(&node.name),
                         json_string(&node.value),

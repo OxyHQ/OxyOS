@@ -1,0 +1,459 @@
+{
+ "about": "Stash's toolbar as Finder's (docs/adr/0016-windows.mdx): its PageHeader in the pane's Screen, the window's toolbar beside the sidebar, holding the sidebar's toggle, back and forward as ONE Bloom ButtonGroup. The assistive technology receives the group holding its three buttons (Bloom's group view is never flattened away from them: before, React Native's renderer mounted them beside an empty group), side by side inside it, and no other back or forward; back and forward are enabled only where the places visited have somewhere to go, and move with a press and with Ctrl+[ / Ctrl+] (Stash's Go menu).",
+ "module": "Stash",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Pictures/": "",
+   "notes.txt": "hello",
+   "Documents/report.txt": "r",
+   "Pictures/photo.jpg": "x"
+  }
+ },
+ "steps": [
+  {
+   "name": "The home first: the toolbar's sidebar toggle, back and forward are ONE group the assistive technology receives holding all three side by side (no empty group beside loose buttons), back and forward disabled; a press on each lands on it",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": [
+         "disabled"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "home"
+      },
+      {
+       "role": "Button",
+       "name": "home",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "at_hit": {
+     "298,26": {
+      "role": "Button",
+      "name": "Back"
+     },
+     "333,26": {
+      "role": "Button",
+      "name": "Forward"
+     }
+    }
+   }
+  },
+  {
+   "name": "Documents, from the sidebar: Back enabled, nothing ahead",
+   "do": [
+    "press",
+    [
+     110,
+     177
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Pictures, from the sidebar",
+   "do": [
+    "press",
+    [
+     110,
+     209
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Pictures"
+      },
+      {
+       "role": "Button",
+       "name": "Pictures",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Back, pressed in the toolbar: Documents, Pictures ahead",
+   "do": [
+    "press",
+    [
+     298,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Forward, pressed in the toolbar: Pictures, nothing ahead",
+   "do": [
+    "press",
+    [
+     333,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Pictures"
+      },
+      {
+       "role": "Button",
+       "name": "Pictures",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+[ goes back: Documents",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+[ again: the home, nowhere further back",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": [
+         "disabled"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "home"
+      },
+      {
+       "role": "Button",
+       "name": "home",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+] goes forward: Documents",
+   "do": [
+    "key",
+    [
+     29,
+     27
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Stash"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Hide Sidebar"
+       },
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Documents"
+      },
+      {
+       "role": "Button",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

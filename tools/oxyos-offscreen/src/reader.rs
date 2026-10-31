@@ -24,6 +24,10 @@ pub struct Node {
     /// Its custom actions' labels.
     pub custom: Vec<String>,
     pub selection: Option<(u32, u32)>,
+    /// Its parent's index in the same tree, as the application nested it; None at the top.
+    pub parent: Option<u32>,
+    /// Where it is on its surface, in logical pixels: x, y, width, height.
+    pub rect: (i32, i32, u32, u32),
 }
 
 impl Node {
@@ -112,10 +116,11 @@ impl Reader {
                 client,
                 surface,
                 index,
+                parent,
                 role,
                 state,
                 actions,
-                ..
+                rect,
             } => {
                 if let Some(slot) = self.slot(key(client, surface), index) {
                     *slot = Some((
@@ -127,6 +132,9 @@ impl Reader {
                             value: String::new(),
                             custom: Vec::new(),
                             selection: None,
+                            parent: (parent != oxyos_protocol::NO_ACCESSIBLE_PARENT)
+                                .then_some(parent),
+                            rect: (rect.x, rect.y, rect.width, rect.height),
                         },
                         String::new(),
                     ));
