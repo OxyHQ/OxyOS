@@ -1138,6 +1138,7 @@ impl Heads for Card {
             screen.display = Some(head.display);
             screen.scanout = head.scanout;
             screen.pointer_images = head.pointer;
+            screen.client_pointer = None;
         }
     }
 
@@ -1148,6 +1149,7 @@ impl Heads for Card {
             if let Some(display) = screen.display.as_mut() {
                 display.clear_pointer_images();
                 screen.pointer_images = show_pointer(display, pointer.as_ref(), scale_120);
+                screen.client_pointer = None;
             }
         }
     }

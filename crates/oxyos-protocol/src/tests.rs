@@ -398,6 +398,13 @@ fn requests() -> Vec<Request> {
             release_timeline: 3,
             release_point: 11,
         },
+        Request::SetPointerImage {
+            surface: 1,
+            buffer: 3,
+            hotspot_x: 4,
+            hotspot_y: 5,
+            scale_120: 180,
+        },
     ]
 }
 
@@ -1413,13 +1420,21 @@ fn resting_fingers_are_never_sent_to_a_client_of_version_3_or_older() {
 }
 
 #[test]
-fn version_5_adds_what_a_version_4_connection_is_never_sent() {
+fn version_5_adds_what_a_version_4_connection_is_never_sent_and_may_not_send() {
     let layout = Event::KeyboardLayout {
         index: 0,
         last: true,
         text: PreeditText::new("fr\t\t").unwrap(),
     };
     assert_eq!(event_since(&layout), 5);
+    let image = Request::SetPointerImage {
+        surface: 1,
+        buffer: 2,
+        hotspot_x: 0,
+        hotspot_y: 0,
+        scale_120: 120,
+    };
+    assert_eq!(request_since(&image), 5);
     let mut nothing = Vec::new();
     assert!(!write_event_for(&mut nothing, &layout, 4).unwrap());
     assert!(nothing.is_empty());

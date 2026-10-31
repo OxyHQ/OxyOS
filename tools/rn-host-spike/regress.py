@@ -21,6 +21,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the compositor latched since the run began, at least "latched_min", and at least "waited_min"
   of them held until their acquire point signalled: frames that took the GPU path, not shared
   memory;
+- pointer_image: the client's image the pointer shows (ADR 0029), each key given matching (width,
+  height, hotspot, scale_120, middle as "#aarrggbb"), or null for a shape;
 - clipboard: what the clipboard holds once the step settled, as the session reads it from its
   owner through a pipe as any receiver pastes (ADR 0007): null, or "types" exactly and by type its
   text, {"contains": text}, or {"bytes": N, "png": [w, h]} for other bytes. A `clipboard` step
@@ -1140,6 +1142,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                         fail(f"the clipboard's {key} is {have!r}, expected {value!r}")
                 elif have != value:
                     fail(f"the clipboard's {key} is {have!r}, expected {value!r}")
+    if "pointer_image" in expect:
+        # The client's image the pointer shows (ADR 0029), each key given matching (width,
+        # height, hotspot, scale_120, middle as "#aarrggbb"), or null for a shape.
+        wanted, got = expect["pointer_image"], result.get("pointer_image")
+        if wanted is None or got is None:
+            if wanted != got:
+                fail(f"the pointer's image is {got}, expected {wanted}")
+        elif any(got.get(key) != value for key, value in wanted.items()):
+            fail(f"the pointer's image is {got}, expected {wanted}")
     if "pointer_shape" in expect and result.get("pointer_shape") != expect["pointer_shape"]:
         # The pointer's shape the compositor shows after the step, as the surface under it asked.
         fail(f"the pointer's shape is {result.get('pointer_shape')}, expected {expect['pointer_shape']}")

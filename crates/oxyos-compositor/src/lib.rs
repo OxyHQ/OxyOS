@@ -136,6 +136,9 @@ pub struct Screen {
     /// The display's pointer images for each shape the session has any for (the arrow for any
     /// other), with how long each shows: one image, or an animated cursor's steps.
     pub pointer_images: BTreeMap<oxyos_protocol::PointerShape, Vec<(usize, std::time::Duration)>>,
+    /// The client's pointer image the display keeps (its surface, the image's number and its
+    /// number on the display), shown at the display's scale.
+    pub client_pointer: Option<(SurfaceKey, u64, usize)>,
     /// What its last flip showed (the scene's displayed content once it completed).
     pub flipped: Vec<RenderItem>,
     /// Whether the frame being composed, and the one last shown, were of the locked session.
@@ -149,6 +152,37 @@ pub struct Screen {
 }
 
 impl Screen {
+    /// The display's number for a client's pointer image, put on its cursor plane at the
+    /// display's scale the first time it is shown; None when the display cannot show it (no
+    /// cursor plane, or larger than its plane takes), and the arrow is shown.
+    pub fn show_client_pointer(
+        &mut self,
+        key: SurfaceKey,
+        pointer: &ClientPointer,
+    ) -> Option<usize> {
+        let display = self.display.as_mut()?;
+        if let Some((shown_key, id, index)) = self.client_pointer {
+            if shown_key == key && id == pointer.id {
+                return Some(index);
+            }
+        }
+        let image = pointer_image_at(&pointer.image, pointer.scale_120, self.scale_120);
+        let index = match self.client_pointer {
+            Some((_, _, index)) => display.replace_pointer_image(index, &image).map(|()| index),
+            None => display.add_pointer_image(&image),
+        };
+        match index {
+            Ok(index) => {
+                self.client_pointer = Some((key, pointer.id, index));
+                Some(index)
+            }
+            Err(error) => {
+                eprintln!("[compositor] a client's pointer image not shown: {error}");
+                None
+            }
+        }
+    }
+
     /// A screen for `output`, composing `pixels` (its display's mode); none: its rectangle at
     /// its scale.
     pub fn new(output: &Output, pixels: Option<(u32, u32)>) -> Self {
@@ -178,6 +212,7 @@ impl Screen {
             pending_flip: None,
             pointer_flip: false,
             pointer_images: BTreeMap::new(),
+            client_pointer: None,
             flipped: Vec::new(),
             composing_locked: false,
             shown_locked: false,
@@ -439,6 +474,9 @@ pub struct Compositor {
     pub local_events: Vec<(ClientId, Event)>,
     /// Pipes of pastes a local client must answer, in the order of its ClipboardSend events.
     pub local_pipes: VecDeque<(ClientId, OwnedFd)>,
+    /// The pointer images clients set (ADR 0029), by surface: the scene's number for it, the
+    /// image as read from the client's buffer, and the scale it was drawn for.
+    pub client_pointers: HashMap<SurfaceKey, ClientPointer>,
     /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
     /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
     pub gpu: Option<Gpu>,
@@ -864,6 +902,7 @@ impl Compositor {
             local_clients: Default::default(),
             local_events: Vec::new(),
             local_pipes: VecDeque::new(),
+            client_pointers: HashMap::new(),
             gpu: None,
             gpu_only: false,
             direct_frames: 0,
@@ -1051,6 +1090,7 @@ impl Compositor {
     pub fn disconnect(&mut self, client: ClientId) {
         self.versions.retain(|(key, _), _| key.client != client);
         self.disconnect_gpu(client);
+        self.client_pointers.retain(|key, _| key.client != client);
         self.scene.disconnect(client);
         self.peers.remove(&client);
         self.retire();
@@ -1176,12 +1216,46 @@ impl Compositor {
                     self.next_version,
                 );
             }
-            Request::Destroy { surface } => self.versions.retain(|(key, _), _| {
-                *key != SurfaceKey {
+            Request::Destroy { surface } => {
+                let destroyed = SurfaceKey {
                     client,
                     id: surface,
+                };
+                self.versions.retain(|(key, _), _| *key != destroyed);
+                self.client_pointers.remove(&destroyed);
+            }
+            Request::SetPointerImage {
+                surface,
+                buffer,
+                hotspot_x,
+                hotspot_y,
+                scale_120,
+            } => {
+                let key = SurfaceKey {
+                    client,
+                    id: surface,
+                };
+                let image = self
+                    .peers
+                    .get(&client)
+                    .and_then(|peer| peer.buffers.get(&buffer))
+                    .and_then(|shared| read_pointer_image(shared, (hotspot_x, hotspot_y)));
+                match (image, self.scene.pointer_image_of(key)) {
+                    (Some(image), Some(id)) => {
+                        self.client_pointers.insert(
+                            key,
+                            ClientPointer {
+                                id,
+                                image,
+                                scale_120,
+                            },
+                        );
+                    }
+                    _ => {
+                        self.client_pointers.remove(&key);
+                    }
                 }
-            }),
+            }
             _ => {}
         }
         if goodbye {
@@ -1487,16 +1561,26 @@ impl Compositor {
         // The pointer is on the cursor plane of the display it is over, placed by every commit,
         // in the shape the surface under it wants; the other displays hide it.
         let shape = self.scene.pointer_shape();
+        let client_pointer = self.scene.pointer_image().and_then(|(key, id)| {
+            self.client_pointers
+                .get(&key)
+                .filter(|pointer| pointer.id == id)
+                .map(|pointer| (key, pointer))
+        });
         let clock = monotonic();
         let mut pointer_moved = vec![false; self.screens.len()];
         for (moved, screen) in pointer_moved.iter_mut().zip(&mut self.screens) {
             if screen.pending_flip.is_some() || self.away {
                 continue;
             }
-            let image = screen
-                .pointer_images
-                .get(&shape)
-                .map_or(0, |steps| pointer_step(steps, clock));
+            let custom =
+                client_pointer.and_then(|(key, pointer)| screen.show_client_pointer(key, pointer));
+            let image = custom.unwrap_or_else(|| {
+                screen
+                    .pointer_images
+                    .get(&shape)
+                    .map_or(0, |steps| pointer_step(steps, clock))
+            });
             let at = self.pointer.and_then(|at| screen.on_display(at));
             if let Some(display) = &mut screen.display {
                 *moved = display.set_pointer(at, image);
@@ -3402,6 +3486,75 @@ fn union_area(rects: &[oxyos_gpu::Rect]) -> u64 {
         }
     }
     area
+}
+
+/// A client's pointer image (ADR 0029), read from its buffer when it set it.
+#[derive(Clone, Debug)]
+pub struct ClientPointer {
+    /// The scene's number for it (Scene::pointer_image).
+    pub id: u64,
+    pub image: oxyos_kms::PointerImage,
+    /// The scale it was drawn for, in 120ths.
+    pub scale_120: u32,
+}
+
+/// The pixels of a pointer image from a client's buffer (premultiplied ARGB8888), with its
+/// hotspot; None if the buffer cannot be read.
+fn read_pointer_image(
+    shared: &SharedBuffer,
+    hotspot: (u32, u32),
+) -> Option<oxyos_kms::PointerImage> {
+    let extent = shared.layout().extent;
+    let mut row = vec![0u8; extent.width as usize * 4];
+    let mut pixels = Vec::with_capacity((extent.width * extent.height) as usize);
+    for y in 0..extent.height {
+        shared.read_row(y, &mut row).ok()?;
+        pixels.extend(
+            row.chunks_exact(4)
+                .map(|pixel| u32::from_le_bytes([pixel[0], pixel[1], pixel[2], pixel[3]])),
+        );
+    }
+    Some(oxyos_kms::PointerImage {
+        width: extent.width,
+        height: extent.height,
+        pixels,
+        hotspot,
+    })
+}
+
+/// `image`, drawn for `from_120`, as a display at `to_120` shows it: each of its pixels the
+/// nearest of the image's, the hotspot moved with them. The same image at its own scale.
+pub fn pointer_image_at(
+    image: &oxyos_kms::PointerImage,
+    from_120: u32,
+    to_120: u32,
+) -> oxyos_kms::PointerImage {
+    if from_120 == to_120 || from_120 == 0 {
+        return image.clone();
+    }
+    let scaled = |length: u32| {
+        ((u64::from(length) * u64::from(to_120) + u64::from(from_120) / 2) / u64::from(from_120))
+            .max(1) as u32
+    };
+    let (width, height) = (scaled(image.width), scaled(image.height));
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        let source_y = (u64::from(y) * u64::from(image.height) / u64::from(height)) as u32;
+        for x in 0..width {
+            let source_x = (u64::from(x) * u64::from(image.width) / u64::from(width)) as u32;
+            pixels.push(image.pixels[(source_y * image.width + source_x) as usize]);
+        }
+    }
+    let hotspot = (
+        (u64::from(image.hotspot.0) * u64::from(width) / u64::from(image.width)) as u32,
+        (u64::from(image.hotspot.1) * u64::from(height) / u64::from(image.height)) as u32,
+    );
+    oxyos_kms::PointerImage {
+        width,
+        height,
+        pixels,
+        hotspot: (hotspot.0.min(width - 1), hotspot.1.min(height - 1)),
+    }
 }
 
 /// The image of an animated pointer's `steps` at time `now`: the animation loops from time zero,

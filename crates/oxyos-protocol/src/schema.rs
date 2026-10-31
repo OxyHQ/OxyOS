@@ -296,6 +296,12 @@ messages! {
         // point signals, and the compositor signals the release point once it no longer reads it.
         // Timeline 0 is none: a buffer submitted without an acquire point is ready when submitted.
         174 => SetSync { surface: u32, acquire_timeline: u32, acquire_point: u64, release_timeline: u32, release_point: u64 },
+        // The pointer's image while it is over the surface, instead of a shape (ADR 0029): the
+        // pixels of an attached buffer (premultiplied ARGB8888, at most MAX_POINTER_IMAGE_SIDE on
+        // a side), read when this arrives, so the buffer may be destroyed at once; the hotspot in
+        // its pixels, and the scale it was drawn for in 120ths (a display of another scale shows
+        // it resized). A browser's custom cursors and the cursors OxyOS has no shape for.
+        190 => SetPointerImage { surface: u32, buffer: u64, hotspot_x: u32, hotspot_y: u32, scale_120: u32 },
     }
 }
 

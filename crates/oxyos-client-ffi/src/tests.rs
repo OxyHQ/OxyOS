@@ -4377,6 +4377,8 @@ fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
     unsafe {
         let client = oxyos_client_connect(path.as_ptr());
         assert!(!client.is_null(), "a version 2 compositor is spoken to");
+        assert_eq!(oxyos_client_protocol_version(client), 2);
+        assert_eq!(oxyos_client_protocol_version(std::ptr::null_mut()), 0);
         let mut event = OxyOSEvent::default();
         let pointer = loop {
             match oxyos_client_poll(client, &mut event) {
@@ -4542,4 +4544,90 @@ fn the_keyboard_layout_comes_in_chunks_as_the_header_says() {
         (OXYOS_EVENT_KEYBOARD_LAYOUT, 0, 1)
     );
     assert_eq!(&chunk.text[..11], b"fr\tazerty\t\0");
+}
+
+#[test]
+fn a_pointer_image_goes_in_a_buffer_of_its_own_set_and_destroyed() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-pointer-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        let (attach, fd) = server.recv_request().unwrap();
+        let shared = SharedBuffer::import(fd.unwrap(), attach.buffer_layout().unwrap()).unwrap();
+        let mut row = vec![0; 8];
+        shared.read_row(1, &mut row).unwrap();
+        let set = server.recv_request().unwrap().0;
+        let destroy = server.recv_request().unwrap().0;
+        (attach, row, set, destroy)
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let pixels: Vec<u8> = (0..24).collect();
+    // SAFETY: the client pointer comes from oxyos_client_connect, is used by this thread only and
+    // is closed once at the end; `pixels` holds two rows of 12 bytes.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(
+            oxyos_client_protocol_version(client),
+            oxyos_protocol::VERSION
+        );
+        assert_eq!(
+            oxyos_client_set_pointer_image(client, 1, 2, 2, 4, pixels.as_ptr(), 0, 0, 120),
+            OXYOS_ERROR,
+            "rows shorter than the image"
+        );
+        assert_eq!(
+            oxyos_client_set_pointer_image(client, 1, 2, 2, 12, pixels.as_ptr(), 2, 0, 120),
+            OXYOS_ERROR,
+            "a hotspot outside the image"
+        );
+        assert_eq!(
+            oxyos_client_set_pointer_image(client, 1, 300, 2, 1200, pixels.as_ptr(), 0, 0, 120),
+            OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_client_set_pointer_image(client, 1, 2, 2, 12, pixels.as_ptr(), 1, 1, 180),
+            0
+        );
+        let (attach, row, set, destroy) = compositor.join().unwrap();
+        let Request::AttachBuffer {
+            buffer,
+            format,
+            extent,
+            stride,
+            ..
+        } = attach
+        else {
+            panic!("{attach:?}");
+        };
+        assert_eq!(
+            (format, extent, stride),
+            (Format::Argb8888, Size::new(2, 2), 8)
+        );
+        assert_eq!(
+            row,
+            [12, 13, 14, 15, 16, 17, 18, 19],
+            "the stride's padding is left out"
+        );
+        assert_eq!(
+            set,
+            Request::SetPointerImage {
+                surface: 1,
+                buffer,
+                hotspot_x: 1,
+                hotspot_y: 1,
+                scale_120: 180
+            }
+        );
+        assert_eq!(destroy, Request::DestroyBuffer { buffer });
+        oxyos_client_close(client);
+    }
 }

@@ -57,6 +57,9 @@ pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
 pub const MAX_CLIPBOARD_TYPES: usize = 16;
 /// The longest keyboard layout told to clients, `layout\tvariant\toptions` (ADR 0029).
 pub const MAX_KEYBOARD_LAYOUT_BYTES: usize = 1024;
+/// The largest pointer image a client may set, on either side, in its pixels (ADR 0029): the
+/// largest cursor planes take 256.
+pub const MAX_POINTER_IMAGE_SIDE: u32 = 256;
 /// Most entries (menus, commands, submenus and separators) in one window's menus (ADR 0021).
 pub const MAX_MENU_ITEMS: u32 = 256;
 /// How deep a window's menus nest: a menu of the bar is at depth 1, its entries at 2; so at most

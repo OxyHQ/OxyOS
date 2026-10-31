@@ -536,6 +536,11 @@ const char* oxyos_last_error(void);
 OxyOSClient* oxyos_client_connect(const char* path);
 void oxyos_client_close(OxyOSClient* client);
 int oxyos_client_fd(OxyOSClient* client);
+/* The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx): the highest the
+ * compositor and this library share. A request newer than it fails and an event newer than it never
+ * arrives, so a client offers what needs a newer version only when it has it (a pointer image needs
+ * 5). 0 for no client. */
+uint16_t oxyos_client_protocol_version(OxyOSClient* client);
 
 int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height);
 
@@ -688,6 +693,15 @@ int oxyos_client_manage(OxyOSClient* client, uint8_t action, uint32_t window, ui
 #define OXYOS_POINTER_ZOOM_OUT 16
 /* The pointer's shape while it is over `surface`: one of OXYOS_POINTER_*. 0, or OXYOS_ERROR. */
 int oxyos_client_set_pointer_shape(OxyOSClient* client, uint32_t surface, uint8_t shape);
+/* The pointer's image while it is over `surface`, instead of a shape (ADR 0029): `width` by `height`
+ * pixels (1 to 256 each), rows of `stride` bytes of premultiplied ARGB8888 (little-endian B, G, R,
+ * A), its hotspot in them and the scale it was drawn for in 120ths (120 to 480; a display of
+ * another scale shows it resized). The compositor reads the pixels at once. A later shape replaces
+ * it. 0, or OXYOS_ERROR (nothing sent for an image that is not valid, or to a compositor of a
+ * protocol version before 5). */
+int oxyos_client_set_pointer_image(OxyOSClient* client, uint32_t surface, uint32_t width, uint32_t height,
+                                   uint32_t stride, const uint8_t* pixels, uint32_t hotspot_x, uint32_t hotspot_y,
+                                   uint32_t scale_120);
 /* A toplevel's own window (docs/adr/0016-windows.mdx). begin_move: the compositor moves it with
  * the pointer from the press `serial` names (the one being handled) until its buttons are up.
  * set_maximized zooms it to its output's work area or restores it; minimize puts it in the dock;

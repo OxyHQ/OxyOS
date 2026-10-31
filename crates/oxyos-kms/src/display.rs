@@ -297,6 +297,28 @@ impl Display {
         Ok(cursor.images.len() - 1)
     }
 
+    /// Puts `image` in place of the pointer image `index` keeps (one `add_pointer_image` gave),
+    /// in a buffer of its own; the old one is let go once the new one is made. Refused as
+    /// `add_pointer_image` refuses, or for the arrow or a number it does not keep.
+    pub fn replace_pointer_image(&mut self, index: usize, image: &PointerImage) -> io::Result<()> {
+        let Some(cursor) = self.cursor.as_mut() else {
+            return Err(not_found("no cursor plane"));
+        };
+        if index == 0 || index >= cursor.images.len() {
+            return Err(not_found("no such pointer image"));
+        }
+        let new = cursor_image(&self.card, cursor.size, image)?;
+        let old = std::mem::replace(&mut cursor.images[index], new);
+        let _ = self.card.destroy_framebuffer(old.framebuffer);
+        let _ = self.card.destroy_dumb_buffer(old.buffer);
+        if let Some((x, y, shown)) = self.shown_pointer {
+            if shown == index {
+                self.shown_pointer = Some((x, y, usize::MAX));
+            }
+        }
+        Ok(())
+    }
+
     /// Lets go of the pointer images kept (`add_pointer_image`) but the display's own arrow, which
     /// is then shown (the display is shown at another scale, its images chosen again for it).
     pub fn clear_pointer_images(&mut self) {

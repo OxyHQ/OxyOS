@@ -1552,6 +1552,20 @@ pub unsafe extern "C" fn oxyos_client_fd(client: *mut OxyOSClient) -> c_int {
     }
 }
 
+/// The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx): the highest
+/// the compositor and this library share. A request newer than it fails and an event newer than it
+/// never arrives, so a client offers what needs a newer version only when it has it. 0 for no
+/// client.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`, or null.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_protocol_version(client: *mut OxyOSClient) -> u16 {
+    // SAFETY: forwarded caller contract.
+    unsafe { self::client(client) }.map_or(0, |client| client.version())
+}
+
 /// Sends one request; 0 on success.
 ///
 /// # Safety
@@ -1986,6 +2000,57 @@ pub unsafe extern "C" fn oxyos_client_set_pointer_shape(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::SetPointerShape { surface, shape }) }
+}
+
+/// The pointer's image while it is over `surface`, instead of a shape (ADR 0029): `width` by
+/// `height` pixels (1 to 256 each), rows of `stride` bytes of premultiplied ARGB8888
+/// (little-endian B, G, R, A), its hotspot in them and the scale it was drawn for in 120ths (120
+/// to 480). A later shape replaces it. 0 on success; nothing is sent for an image that is not
+/// valid.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `pixels` points to `height` rows of
+/// `stride` readable bytes.
+#[allow(unsafe_code)]
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn oxyos_client_set_pointer_image(
+    client: *mut OxyOSClient,
+    surface: u32,
+    width: u32,
+    height: u32,
+    stride: u32,
+    pixels: *const u8,
+    hotspot_x: u32,
+    hotspot_y: u32,
+    scale_120: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    let row = width as usize * 4;
+    if pixels.is_null() || (stride as usize) < row || width == 0 || height == 0 {
+        return fail("no pixels, or rows shorter than the image");
+    }
+    if width > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+        || height > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+    {
+        return fail("a pointer image is 1 to 256 pixels on a side");
+    }
+    let mut tight = Vec::with_capacity(row * height as usize);
+    for y in 0..height as usize {
+        // SAFETY: per the contract, row `y` holds `stride` readable bytes, `row` of them pixels.
+        let line = unsafe { std::slice::from_raw_parts(pixels.add(y * stride as usize), row) };
+        tight.extend_from_slice(line);
+    }
+    status(client.set_pointer_image(
+        surface,
+        Size::new(width, height),
+        &tight,
+        (hotspot_x, hotspot_y),
+        scale_120,
+    ))
 }
 
 /// Moves a toplevel with the pointer, from the press `serial` names (the press being handled),
