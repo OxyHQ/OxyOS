@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, View } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import {
@@ -20,6 +21,8 @@ import { Box } from "../primitives";
 import { OxyLogo } from "./OxyLogo";
 import { batteryLabel, wifiBars, wifiLabel, wifiOn } from "../controls";
 import type { ShellBattery, ShellControls, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
+import type { ShellKeyboard } from "../platform";
+import { barKey } from "../menu-bar-keys";
 
 /** A menu's entries as Bloom's rows: commands (with their check and chord), submenus and
     separators. A choice calls `onCommand` with the entry's id; the menu closes. */
@@ -160,6 +163,8 @@ const menuStyle = {
   borderRadius: 4,
 };
 const menuText = { color: "#fff", fontSize: 12, lineHeight: 16 };
+/** A menu's title with the keyboard on it, as a Mac's bar highlights it. */
+const keyboardHighlight = "#ffffff38";
 export function TopBar({
   menus,
   now,
@@ -170,6 +175,11 @@ export function TopBar({
   controls,
   controlCenter,
   clock,
+  keyboardRequest = 0,
+  keyboardLost = 0,
+  keyboard,
+  onKeyboard,
+  returnKeyboard,
 }: {
   menus: readonly ShellMenu[];
   now: Date;
@@ -185,9 +195,102 @@ export function TopBar({
   controlCenter: () => void;
   /** The clock opens and closes the Notification Center, as a Mac's (docs/adr/0026-notifications.mdx). */
   clock?: () => void;
+  /** Rises at each Super+F2 (docs/adr/0024-system-shortcuts.mdx): the keyboard moves to the
+      bar's first menu, as a Mac's Control-F2. */
+  keyboardRequest?: number;
+  /** Rises when the keyboard left the bar and its menus (a press in a window): the bar lets go. */
+  keyboardLost?: number;
+  /** The platform's keys before anything else, which drive the bar while it has the keyboard. */
+  keyboard?: ShellKeyboard;
+  /** Whether the bar wants the keyboard: its surface asks the platform for it. */
+  onKeyboard?: (wanted: boolean) => void;
+  /** Gives the keyboard back to the window that had it (the active one), as the bar is left. */
+  returnKeyboard?: () => void;
 }) {
   const battery = batteryLabel(controls?.power);
   const wifi = wifiLabel(controls?.network);
+  // The bar from the keyboard: the menu whose title has the keyboard (0 the Oxy menu, then the
+  // active window's), and the one open; null when the keyboard is elsewhere.
+  const count = menus.length + 1;
+  const [focused, setFocused] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const titles = useRef<(React.ComponentRef<typeof View> | null)[]>([]);
+  const state = useRef({ focused, open, count });
+  state.current = { focused, open, count };
+  const leave = (giveBack: boolean) => {
+    setFocused(null);
+    setOpen(null);
+    onKeyboard?.(false);
+    if (giveBack) returnKeyboard?.();
+  };
+  const first = useRef(keyboardRequest);
+  useEffect(() => {
+    if (keyboardRequest === first.current) return;
+    first.current = keyboardRequest;
+    setOpen(null);
+    setFocused(0);
+    onKeyboard?.(true);
+  }, [keyboardRequest]);
+  const lost = useRef(keyboardLost);
+  useEffect(() => {
+    if (keyboardLost === lost.current) return;
+    lost.current = keyboardLost;
+    if (state.current.focused !== null) leave(false);
+  }, [keyboardLost]);
+  // The assistive technology's focus follows the keyboard's title, as VoiceOver's does.
+  useEffect(() => {
+    if (focused === null || open !== null) return;
+    const view = titles.current[focused];
+    if (view) AccessibilityInfo.sendAccessibilityEvent(view, "focus");
+  }, [focused, open]);
+  // The menus the bar shows can change under the keyboard (another window active): it stays on
+  // the bar, within it.
+  useEffect(() => {
+    if (focused !== null && focused >= count) setFocused(count - 1);
+  }, [count, focused]);
+  useEffect(() => {
+    if (focused === null || !keyboard) return;
+    return keyboard.subscribe((event) => {
+      const now = state.current;
+      if (now.focused === null) return false;
+      const action = barKey(event, now.open !== null);
+      switch (action) {
+        case "previous":
+        case "next": {
+          const step = action === "next" ? 1 : -1;
+          const to = (now.focused + step + now.count) % now.count;
+          setFocused(to);
+          if (now.open !== null) setOpen(to);
+          return true;
+        }
+        case "open":
+          setOpen(now.focused);
+          return true;
+        case "leave":
+          leave(true);
+          return true;
+        default:
+          return false;
+      }
+    });
+  }, [focused === null, keyboard]);
+  // A row chosen from the keyboard leaves the bar, the keyboard back with the window first, so
+  // the command acts where the person was (or moves it on, as the launcher's search does).
+  const choose = (run: () => void) => () => {
+    if (state.current.focused !== null) leave(true);
+    run();
+  };
+  const command = (id: string) => choose(() => onCommand(id))();
+  const opened = (index: number) => ({
+    open: open === index,
+    onOpenChange: (next: boolean) =>
+      setOpen((current) => (next ? index : current === index ? null : current)),
+  });
+  const title = (index: number) => (view: React.ComponentRef<typeof View> | null) => {
+    titles.current[index] = view;
+  };
+  const highlight = (index: number) =>
+    focused === index ? { backgroundColor: keyboardHighlight } : undefined;
   return (
     <Box
       testID="shell-topbar"
@@ -195,18 +298,20 @@ export function TopBar({
       style={{ zIndex: 30 }}
     >
       <Box className="flex-row items-center gap-0">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              iconOnly
-              icon={OxyLogo}
-              accessibilityLabel="Menú de Oxy"
-              appearance="plain"
-              className="h-7 w-8 border-0 bg-transparent p-0"
-              iconSize={17}
-              colors={{ background: "transparent", foreground: "#fff" }}
-            />
-          </DropdownMenuTrigger>
+        <DropdownMenu {...opened(0)}>
+          <View ref={title(0)} collapsable={false} style={[{ borderRadius: 4 }, highlight(0)]}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                iconOnly
+                icon={OxyLogo}
+                accessibilityLabel="Menú de Oxy"
+                appearance="plain"
+                className="h-7 w-8 border-0 bg-transparent p-0"
+                iconSize={17}
+                colors={{ background: "transparent", foreground: "#fff" }}
+              />
+            </DropdownMenuTrigger>
+          </View>
           <DropdownMenuContent
             align="start"
             label="Oxy"
@@ -215,42 +320,44 @@ export function TopBar({
             className="rounded-lg"
             style={{ borderRadius: 8 }}
           >
-            <DropdownMenuItem onPress={() => onCommand("system.settings")}>
+            <DropdownMenuItem onPress={() => command("system.settings")}>
               Ajustes del sistema
             </DropdownMenuItem>
-            <DropdownMenuItem onPress={launcher}>Aplicaciones</DropdownMenuItem>
-            <DropdownMenuItem onPress={overview}>
+            <DropdownMenuItem onPress={choose(launcher)}>Aplicaciones</DropdownMenuItem>
+            <DropdownMenuItem onPress={choose(overview)}>
               Ver escritorios
             </DropdownMenuItem>
             {canLock && (
-              <DropdownMenuItem onPress={() => onCommand("session.lock")}>
+              <DropdownMenuItem onPress={() => command("session.lock")}>
                 Bloquear pantalla
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
         {menus.map((menu, index) => (
-          <DropdownMenu key={`${index}:${menu.label}`}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                appearance="plain"
-                className="h-7 rounded border-0 bg-transparent px-2"
-                style={menuStyle}
-                textStyle={{
-                  ...menuText,
-                  fontWeight: index === 0 ? "600" : "400",
-                }}
-              >
-                <Text
-                  style={{
+          <DropdownMenu key={`${index}:${menu.label}`} {...opened(index + 1)}>
+            <View ref={title(index + 1)} collapsable={false} style={[{ borderRadius: 4 }, highlight(index + 1)]}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  appearance="plain"
+                  className="h-7 rounded border-0 bg-transparent px-2"
+                  style={menuStyle}
+                  textStyle={{
                     ...menuText,
                     fontWeight: index === 0 ? "600" : "400",
                   }}
                 >
-                  {menu.label}
-                </Text>
-              </Button>
-            </DropdownMenuTrigger>
+                  <Text
+                    style={{
+                      ...menuText,
+                      fontWeight: index === 0 ? "600" : "400",
+                    }}
+                  >
+                    {menu.label}
+                  </Text>
+                </Button>
+              </DropdownMenuTrigger>
+            </View>
             <DropdownMenuContent
               align="start"
               label={menu.label}
@@ -259,7 +366,7 @@ export function TopBar({
               className="rounded-lg"
               style={{ borderRadius: 8 }}
             >
-              <MenuEntries items={menu.items} onCommand={onCommand} />
+              <MenuEntries items={menu.items} onCommand={command} />
             </DropdownMenuContent>
           </DropdownMenu>
         ))}

@@ -44,6 +44,7 @@ Bloom already has a menu bar (`@oxy.so/bloom/menubar`, shadcn's): an application
    - **The application's own menu,** in bold, is the shell's. It holds the application's name from the registry (ADR 0013), About, Settings (when the application declares a `settings` item, see below), Hide and Quit (the application's close request, as the close bubble's). An application's first declared menu is not that menu.
    - **Choosing an item.** The shell sends the item's id. The compositor gives it to the window's client only if that window's menus have that id; the host hands it to Bloom, which runs the item.
    - **When nothing is active,** or the active window has no menus, the bar shows the shell's own menus.
+   - **From the keyboard,** Super+F2 moves the keyboard to the bar, as a Mac's Control-F2, and its menus are opened and chosen with the arrows, Return and Escape; the window stays the active one, and a choice or Escape gives it the keyboard back ([ADR 0024](./0024-system-shortcuts), decision 9).
    - **What is never sent.** Menus carry labels and chords, never the application's data; the compositor and the shell never run an application's command themselves.
 5. **Elsewhere,** a desktop's native runtime gives the menus to the system's bar (a Mac's `NSMenu`), and the web and phones keep Bloom's in-window bar; each with its own adapter, the application unchanged ([ADR 0015](./0015-application-model)).
 

@@ -142,6 +142,11 @@ export function Shell({
   );
   const [escapeRequest, setEscapeRequest] = useState(0);
   const [searchRequest, setSearchRequest] = useState(0);
+  // The top bar from the keyboard (Super+F2, docs/adr/0024-system-shortcuts.mdx): each request,
+  // whether its surface wants the keyboard, and each time the keyboard left it.
+  const [barRequest, setBarRequest] = useState(0);
+  const [barKeyboard, setBarKeyboard] = useState(false);
+  const [barLost, setBarLost] = useState(0);
   // The application switcher (docs/adr/0024-system-shortcuts.mdx), open while Super is held.
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
@@ -183,6 +188,12 @@ export function Shell({
             view = "launcher";
             setSearchRequest((value) => value + 1);
           }
+          break;
+        // Super+F2: the keyboard to the top bar's first menu; an overlay showing closes, as a
+        // press on the bar closes it.
+        case "menu-bar":
+          view = "desktop";
+          setBarRequest((value) => value + 1);
           break;
         case "switcher-next":
         case "switcher-previous": {
@@ -238,8 +249,19 @@ export function Shell({
         <Box className="absolute inset-0">
           <Wallpaper source={wallpaper} />
         </Box>
-        <Surface kind="panel" edge="top" exclusive>
+        <Surface
+          kind="panel"
+          edge="top"
+          exclusive
+          keyboard={barKeyboard}
+          onKeyboardLost={() => setBarLost((value) => value + 1)}
+        >
           <TopBar
+            keyboardRequest={barRequest}
+            keyboardLost={barLost}
+            keyboard={platform.keyboard}
+            onKeyboard={setBarKeyboard}
+            returnKeyboard={actions.returnKeyboard}
             menus={snapshot.menus}
             now={now}
             overview={() => toggle("overview")}

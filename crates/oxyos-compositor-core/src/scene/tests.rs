@@ -1779,6 +1779,63 @@ fn a_finished_move_leaves_no_pointer_capture_behind() {
 }
 
 #[test]
+fn a_key_on_an_open_menu_opens_its_sibling_once_it_closed() {
+    // The top bar from the keyboard (ADR 0024): Right on an open menu closes it and opens the
+    // next one, citing that key, which was the closed menu's.
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let serial = h.press(w.x + 10, w.y + 10);
+    h.scene.pointer_button(BUTTON, false);
+    let first = h.popup(window, 2, menu(Rect::new(0, 0, 40, 20), 200, 150));
+    h.request(APP, Request::GrabPopup { surface: 2, serial })
+        .unwrap();
+    h.present(first);
+    assert_eq!(h.scene.focus(), Some(first));
+    h.scene.keyboard(106, true, None);
+    let key_serial = h.scene.last_press.expect("the key").serial;
+    h.scene.keyboard(106, false, None);
+    // While the first is open, a sibling cannot take the grab, even with its key.
+    let early = h.popup(window, 3, menu(Rect::new(40, 0, 40, 20), 200, 150));
+    h.request(
+        APP,
+        Request::GrabPopup {
+            surface: 3,
+            serial: key_serial,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.dismissed(early), Some(DismissReason::GrabDenied));
+    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    // Closed, its key opens the sibling.
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    let next = h.popup(window, 4, menu(Rect::new(40, 0, 40, 20), 200, 150));
+    h.request(
+        APP,
+        Request::GrabPopup {
+            surface: 4,
+            serial: key_serial,
+        },
+    )
+    .unwrap();
+    h.present(next);
+    assert_eq!(h.dismissed(next), None);
+    assert_eq!(h.scene.grab_chain(), vec![next]);
+    // Another client's popup can never cite it.
+    let other = h.toplevel(OTHER, 1, 200, 200);
+    let theirs = h.popup(other, 2, menu(Rect::new(0, 0, 40, 20), 100, 100));
+    h.request(
+        OTHER,
+        Request::GrabPopup {
+            surface: 2,
+            serial: key_serial,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.dismissed(theirs), Some(DismissReason::GrabDenied));
+}
+
+#[test]
 fn a_consumed_press_invalidates_older_grab_serials() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

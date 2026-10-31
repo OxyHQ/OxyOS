@@ -830,6 +830,11 @@ int main(int argc, char** argv) {
     // field a shell region's surface was last asked to take it for (docs/adr/0024-system-shortcuts.mdx).
     uint32_t keyboardSurface = 0;
     facebook::react::Tag focusAskedFor = -1;
+    // The region asking for the keyboard (its `keyboard` prop: the top bar driven from the keyboard),
+    // the surface it was last asked for, and whether the keyboard reached it (the region or one of
+    // its popups) since.
+    uint32_t regionAskedFor = 0;
+    bool regionHeldKeyboard = false;
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
@@ -1413,8 +1418,9 @@ int main(int argc, char** argv) {
                                           "switcher-hide",
                                           "switcher-done",
                                           "switcher-cancel",
-                                          "search"};
-          const char* action = shortcut.detail <= OXYOS_SHORTCUT_SEARCH ? actions[shortcut.detail] : "";
+                                          "search",
+                                          "menu-bar"};
+          const char* action = shortcut.detail <= OXYOS_SHORTCUT_MENU_BAR ? actions[shortcut.detail] : "";
           folly::dynamic payload = folly::dynamic::object("action", action)("output", shortcut.code);
           oxyos::Report::get().input("shortcut.system", 0, payload);
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
@@ -1445,6 +1451,40 @@ int main(int argc, char** argv) {
             window->focusShellSurface(*surface, lastPress);
             oxyos::Report::get().input("focus.asked", *surface);
             focusAskedFor = field;
+          }
+        }
+        // A region asking for the keyboard (the top bar from Super+F2, docs/adr/0024-system-
+        // shortcuts.mdx) takes it as a field does above, citing the latest input (the shortcut).
+        // Once it held it, the keyboard leaving the region and its popups (a press in a window, the
+        // overview) is told to JavaScript, which leaves the bar: what has the keyboard is never a
+        // bar that no longer receives keys.
+        if (shellMode) {
+          uint32_t wanted = shellSurfaces.keyboardRegion().value_or(0);
+          if (wanted != regionAskedFor) {
+            regionAskedFor = wanted;
+            regionHeldKeyboard = false;
+            if (wanted != 0 && wanted != keyboardSurface) {
+              if (auto* shown = window->surface(wanted); shown && shown->shown) {
+                window->focusShellSurface(wanted, lastPress);
+                oxyos::Report::get().input("focus.asked", wanted);
+              } else {
+                regionAskedFor = 0;  // asked again once it is shown
+              }
+            }
+          }
+          // Held while the keyboard is on the region or a popup of this client's: anything but no
+          // surface of this client's, the shell's background or another region. (A popup closing
+          // is still the keyboard's surface until the compositor moves it back to the region.)
+          bool elsewhere = keyboardSurface == 0 || keyboardSurface == oxyos::Window::kToplevel ||
+                           (keyboardSurface != wanted && shellSurfaces.content(keyboardSurface).has_value());
+          bool held = wanted != 0 && !elsewhere;
+          if (held) {
+            regionHeldKeyboard = true;
+          } else if (regionHeldKeyboard) {
+            regionHeldKeyboard = false;
+            oxyos::Report::get().input("keyboard.lost", wanted);
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSShellKeyboardLost", folly::dynamic::object()));
           }
         }
         // What came of the lock screen's password (docs/adr/0010-lock-screen.mdx).

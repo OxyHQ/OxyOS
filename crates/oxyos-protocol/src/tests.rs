@@ -978,8 +978,9 @@ fn menu_kinds_fields_and_flags_are_closed_sets() {
 #[test]
 fn system_shortcuts_are_a_closed_set() {
     assert!(SystemShortcut::from_raw(0).is_none());
-    assert!(SystemShortcut::from_raw(8).is_none());
+    assert!(SystemShortcut::from_raw(9).is_none());
     assert_eq!(SystemShortcut::from_raw(7), Some(SystemShortcut::Search));
+    assert_eq!(SystemShortcut::from_raw(8), Some(SystemShortcut::MenuBar));
     let mut bytes = Vec::new();
     write_event(
         &mut bytes,

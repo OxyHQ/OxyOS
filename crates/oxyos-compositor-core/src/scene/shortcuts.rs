@@ -44,6 +44,7 @@ const H: u32 = 35;
 const GRAVE: u32 = 41;
 const M: u32 = 50;
 const SPACE: u32 = 57;
+const F2: u32 = 60;
 const LEFT: u32 = 105;
 const RIGHT: u32 = 106;
 
@@ -183,6 +184,16 @@ impl Scene {
                 let output = self.shortcut_output();
                 if let Some(client) = self.shortcut_shell(output) {
                     self.tell_shortcut(client, output, SystemShortcut::Search);
+                }
+                return;
+            }
+            // The keyboard to the top bar's menus, as a Mac's Control-F2: the shell takes it with
+            // `FocusShellSurface`, citing this shortcut. A menu open in a window closes first.
+            (F2, false, false) => {
+                self.dismiss_grab(DismissReason::OutsidePress);
+                let output = self.shortcut_output();
+                if let Some(client) = self.shortcut_shell(output) {
+                    self.tell_shortcut(client, output, SystemShortcut::MenuBar);
                 }
                 return;
             }

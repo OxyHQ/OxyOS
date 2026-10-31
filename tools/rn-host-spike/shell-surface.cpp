@@ -29,7 +29,8 @@ OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context
     : ViewProps(context, sourceProps, rawProps),
       kind(convertRawProp(context, rawProps, "kind", sourceProps.kind, std::string("panel"))),
       edge(convertRawProp(context, rawProps, "edge", sourceProps.edge, std::string("top"))),
-      exclusive(convertRawProp(context, rawProps, "exclusive", sourceProps.exclusive, false)) {}
+      exclusive(convertRawProp(context, rawProps, "exclusive", sourceProps.exclusive, false)),
+      keyboard(convertRawProp(context, rawProps, "keyboard", sourceProps.keyboard, false)) {}
 
 }  // namespace facebook::react
 
@@ -337,6 +338,16 @@ std::optional<uint32_t> ShellSurfaceHost::surfaceOf(Tag view) const {
   for (Tag at : ancestry(tree_, view)) {
     auto it = regions_.find(at);
     if (it != regions_.end()) return it->second.surface;
+  }
+  return std::nullopt;
+}
+
+std::optional<uint32_t> ShellSurfaceHost::keyboardRegion() const {
+  for (const auto& [tag, region] : regions_) {
+    auto view = tree_.views().find(tag);
+    if (view == tree_.views().end() || region.surface == 0) continue;
+    auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSShellSurfaceProps>(view->second.view.props);
+    if (props && props->keyboard) return region.surface;
   }
   return std::nullopt;
 }

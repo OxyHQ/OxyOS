@@ -72,6 +72,9 @@ export type ShellSnapshot = {
 export type ShellActions = {
   activateApp: (id: string) => void;
   focusWindow: (id: string) => void;
+  /** Gives the keyboard back to the active window, as the top bar driven from the keyboard is
+      left (docs/adr/0024-system-shortcuts.mdx); where the platform has no such focus, nothing. */
+  returnKeyboard?: () => void;
   closeWindow: (id: string) => void;
   activateWorkspace: (id: string) => void;
   /** Intent only. The owning platform publishes the confirmed assignment in its next snapshot. */
@@ -155,7 +158,9 @@ export type ShellCommand = {
     | "switcher-quit"
     | "switcher-hide"
     | "switcher-done"
-    | "switcher-cancel";
+    | "switcher-cancel"
+    // Super+F2: the keyboard to the top bar's menus, as a Mac's Control-F2.
+    | "menu-bar";
 };
 
 /** Whether `window` is the application `appId`'s: its id, given by the session's launch record

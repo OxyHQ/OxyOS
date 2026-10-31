@@ -682,6 +682,121 @@ fn the_shell_focuses_its_own_surface_only_with_an_input_it_received() {
 }
 
 #[test]
+fn super_f2_moves_the_keyboard_to_the_top_bar_and_the_shell_gives_it_back() {
+    const F2: u32 = 60;
+    const CTRL: u32 = 29;
+    let mut h = Harness::new();
+    dock(&mut h);
+    // The top bar: the panel the keyboard is moved to.
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 2,
+            kind: ShellKind::Panel,
+            edge: PanelEdge::Top,
+            output: 1,
+            size: Size::new(1, 28),
+            exclusive: 28,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 2));
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (at.x + 100, at.y + 100),
+        menu(Rect::new(90, 90, 20, 20), 200, 200),
+    );
+    logged(&mut h);
+    // Super+F2: a menu open in the window closes, the shell is told, the application hears
+    // nothing of the keys, and keeps the keyboard until the shell takes it.
+    chord(&mut h, &[F2]);
+    let events = logged(&mut h);
+    assert!(to(&events, APP).contains(&Event::PopupDone {
+        surface: popup.id,
+        reason: DismissReason::OutsidePress,
+    }));
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(shortcuts_to(&events, SHELL), [(SystemShortcut::MenuBar, 1)]);
+    assert!(input_to(&events, SHELL).is_empty());
+    let serial = to(&events, SHELL)
+        .iter()
+        .find_map(|event| match event {
+            Event::SystemShortcut { serial, .. } => Some(*serial),
+            _ => None,
+        })
+        .unwrap();
+    assert!(h.scene.inputs[&SHELL].contains(&serial));
+    assert_eq!(h.scene.focus(), Some(window));
+    // With other modifiers, it is no shortcut, and reaches nobody.
+    chord(&mut h, &[CTRL, F2]);
+    chord(&mut h, &[SHIFT, F2]);
+    let events = logged(&mut h);
+    assert!(shortcuts_to(&events, SHELL).is_empty());
+    assert_eq!(input_to(&events, APP), []);
+    // The shell takes the keyboard for its bar, citing the shortcut: the bar's keys are its own,
+    // and the window stays the active one, its menus on the bar.
+    h.request(SHELL, Request::FocusShellSurface { surface: 2, serial })
+        .unwrap();
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 2)));
+    assert_eq!(h.scene.active_window(), Some(window));
+    keys(&mut h, &[LEFT]);
+    keys(&mut h, &[RIGHT]);
+    let events = logged(&mut h);
+    assert_eq!(
+        keys_to(&events, SHELL),
+        [(LEFT, true), (LEFT, false), (RIGHT, true), (RIGHT, false)]
+    );
+    assert_eq!(input_to(&events, APP), []);
+    // A row chosen in a bar's menu (open from Down): the shell gives the keyboard back to the
+    // window before the menu closes, and the window has it once it closed, not the bar.
+    h.scene.keyboard(108, true, None);
+    let down = h.scene.last_press.expect("Down").serial;
+    h.scene.keyboard(108, false, None);
+    let bar_menu = h.popup(key(SHELL, 2), 3, menu(Rect::new(0, 0, 40, 28), 200, 150));
+    h.request(
+        SHELL,
+        Request::GrabPopup {
+            surface: 3,
+            serial: down,
+        },
+    )
+    .unwrap();
+    h.present(bar_menu);
+    assert_eq!(h.scene.focus(), Some(bar_menu));
+    h.request(
+        SHELL,
+        Request::FocusWindow {
+            window: h.scene.window_number(window).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(bar_menu));
+    h.request(SHELL, Request::Destroy { surface: 3 }).unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    logged(&mut h);
+    h.request(SHELL, Request::FocusShellSurface { surface: 2, serial })
+        .unwrap();
+    // Escape out of the bar: the shell gives the keyboard back to the window.
+    h.request(
+        SHELL,
+        Request::FocusWindow {
+            window: h.scene.window_number(window).unwrap(),
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.focus(), Some(window));
+    keys(&mut h, &[KEY_A]);
+    assert_eq!(
+        keys_to(&logged(&mut h), APP),
+        [(KEY_A, true), (KEY_A, false)]
+    );
+}
+
+#[test]
 fn a_shell_asking_for_its_lock_screen_s_focus_as_the_session_unlocks_is_not_refused() {
     // The shell's password field had the keys; the session unlocks, the keys go back to the
     // window, and the shell, whose field is still focused, asks for its lock surface: its request

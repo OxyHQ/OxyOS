@@ -1,0 +1,734 @@
+{
+  "about": "The session's menu bar from the keyboard (docs/adr/0024-system-shortcuts.mdx, decision 9), as a Mac's Control-F2: Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar, ADR 0021) with its note field focused. Super+F2 moves the keyboard to the bar's first menu, the Oxy menu, the window staying the active one and its field focused; Left and Right go across the menus and round the ends, opening the next one when one is open; Down, Return and Space open a menu, whose own keys (Down, End, Home, a letter, Return, Escape) are Bloom's popup navigation; a row chosen runs in the application once and gives the window the keyboard back; Escape closes the menu, then leaves the bar, the keyboard back with the field; a press in the window takes the keyboard from the bar. Every step checks what React receives, what the application is delivered, the focus and what the assistive technology holds.",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "a press in the note field focuses it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "expect": {
+        "focus_input": "note",
+        "react": {
+          "touchStart@note": 1,
+          "touchEnd@note": 1,
+          "focus@note": 1,
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "typing in it",
+      "do": [
+        "type",
+        "hola"
+      ],
+      "expect": {
+        "texts": [
+          "hola"
+        ],
+        "react": {
+          "change@note": 1,
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F2 moves the keyboard to the bar, on its first menu, the Oxy menu, as a Mac's Control-F2: the application hears nothing of the keys, its field keeps its focus, its menus stay on the bar",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "focus_input": "note",
+        "focus_surface": null,
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: the application's own menu",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right: File",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down opens File under its title, the assistive technology's focus on its first row",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Ctrl+N",
+            "Open…",
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "New",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: the menu's own keys go to it, its first row active",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right with File open: Edit opens in its place",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left: File again in its place",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "End: its last row",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Home: its first row again",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Return chooses New: it runs in the application once, and the keyboard is back with the window, its field focused",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "new documents: 1",
+          "hola"
+        ],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "menu.activated": 1
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "Open Recent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "what is typed goes to the field again",
+      "do": [
+        "type",
+        "!"
+      ],
+      "expect": {
+        "texts": [
+          "hola!",
+          "new documents: 1"
+        ],
+        "react": {
+          "keyPress@note": 1,
+          "change@note": 1,
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F2 again: the Oxy menu",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left goes round the end, to the window's last menu",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return opens Edit",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a letter finds its row: w, Wrap Lines (typeahead)",
+      "do": [
+        "type",
+        "w"
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "texts": [
+          "wrap lines: off"
+        ]
+      }
+    },
+    {
+      "name": "Return chooses it: it turns on in the application, the keyboard back with the field",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "texts": [
+          "wrap lines: on",
+          "new documents: 1"
+        ],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {
+          "menuActivated@menu-bar": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "menu.activated": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F2, Right and Right: File",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Right",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Space opens it",
+      "do": [
+        "key",
+        57
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes the menu, choosing nothing: the keyboard stays on its title",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        },
+        "texts": [
+          "new documents: 1"
+        ],
+        "in_shell": {
+          "absent": [
+            "Open Recent"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "focus_surface": null
+      }
+    },
+    {
+      "name": "Escape again leaves the bar: the keyboard back with the window, its field focused",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_input": "note",
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "what is typed goes to the field",
+      "do": [
+        "type",
+        "?"
+      ],
+      "expect": {
+        "texts": [
+          "hola!?"
+        ],
+        "react": {
+          "keyPress@note": 1,
+          "change@note": 1,
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F2 once more",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press in the window takes the keyboard from the bar, which lets go of it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "expect": {
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {
+          "touchStart@note": 1,
+          "touchEnd@note": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Left is the field's now, not the bar's: its caret moves",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "note",
+              "selection": [
+                5,
+                5
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

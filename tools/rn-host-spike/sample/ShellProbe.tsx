@@ -329,6 +329,11 @@ export function ShellSession() {
       if (window) shell.quitApplication(window.id);
     },
     focusWindow: (id) => shell.focusWindow(Number(id)),
+    // The top bar left from the keyboard (ADR 0024): the keyboard back with the window whose menus
+    // the bar shows, the active one.
+    returnKeyboard: () => {
+      if (bar?.window) shell.focusWindow(bar.window);
+    },
     closeWindow: (id) => shell.closeWindow(Number(id)),
     activateWorkspace: (id) => shell.activateWorkspace(Number(id)),
     moveWindowToWorkspace: (window, workspace) => shell.moveWindowToWorkspace(Number(window), Number(workspace)),
