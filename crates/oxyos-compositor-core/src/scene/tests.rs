@@ -7579,3 +7579,75 @@ fn every_client_is_told_the_keyboard_layout_before_its_first_key() {
     h.pump();
     assert_eq!(told(&h, APP), "", "only a change is told again");
 }
+
+#[test]
+fn a_surfaces_pointer_image_is_the_pointers_until_a_shape_replaces_it() {
+    use oxyos_protocol::PointerShape;
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let attach = |buffer, format, width, height| Request::AttachBuffer {
+        buffer,
+        format,
+        extent: Size::new(width, height),
+        stride: width * 4,
+        offset: 0,
+    };
+    h.request(APP, attach(40, oxyos_protocol::Format::Argb8888, 32, 32))
+        .unwrap();
+    h.request(APP, attach(41, oxyos_protocol::Format::Argb8888, 257, 8))
+        .unwrap();
+    h.request(APP, attach(42, oxyos_protocol::Format::Xrgb8888, 8, 8))
+        .unwrap();
+    let image = |buffer, hotspot_x, scale_120| Request::SetPointerImage {
+        surface: 1,
+        buffer,
+        hotspot_x,
+        hotspot_y: 0,
+        scale_120,
+    };
+    assert_eq!(
+        h.request(APP, image(41, 0, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(42, 0, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(40, 32, 120)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(40, 0, 600)),
+        Err(ErrorCode::InvalidGeometry)
+    );
+    assert_eq!(
+        h.request(APP, image(9, 0, 120)),
+        Err(ErrorCode::InvalidBuffer)
+    );
+    assert_eq!(
+        h.request(OTHER, image(40, 0, 120)),
+        Err(ErrorCode::UnknownSurface)
+    );
+    h.request(APP, image(40, 4, 240)).unwrap();
+    assert_eq!(h.scene.pointer_image_of(window), Some(1));
+    assert_eq!(h.scene.pointer_image(), None, "the pointer is not over it");
+    h.scene.pointer_motion(w.x + 50, w.y + 50);
+    assert_eq!(h.scene.pointer_image(), Some((window, 1)));
+    // A buffer destroyed after the image was set does not take the image with it: the program
+    // running the compositor read its pixels when it arrived.
+    h.request(APP, Request::DestroyBuffer { buffer: 40 })
+        .unwrap();
+    assert_eq!(h.scene.pointer_image(), Some((window, 1)));
+    h.request(
+        APP,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Hand,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.pointer_image(), None);
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Hand);
+}

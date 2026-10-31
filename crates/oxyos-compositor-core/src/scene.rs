@@ -15,7 +15,7 @@
 use crate::placement::{anchor_point, place};
 use crate::presentation::{Error as PresentError, Frame, Presentation};
 use oxyos_protocol::{
-    BufferLayout, Clock, DismissReason, ErrorCode, Event, GesturePhase, Outcome, PanelEdge,
+    BufferLayout, Clock, DismissReason, ErrorCode, Event, Format, GesturePhase, Outcome, PanelEdge,
     PointerKind, PointerShape, Positioner, PreeditStyle, PreeditText, Rect, Request, ScrollSource,
     ShellKind, Size, TextChunk, TouchKind, MAX_COORDINATE, MAX_DIMENSION,
 };
@@ -178,6 +178,10 @@ struct Node {
     workspace: u32,
     /// The pointer's shape while it is over the surface.
     pointer_shape: PointerShape,
+    /// The image the client set for the pointer over the surface instead of its shape, by the
+    /// number the scene gave it (SetPointerImage; the program running the compositor keeps its
+    /// pixels).
+    pointer_image: Option<u64>,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -400,6 +404,8 @@ pub struct Scene {
     keyboard_layout: Option<String>,
     /// Offers the session made with copy_for_session, counted.
     next_session_offer: u32,
+    /// Pointer images clients set, counted.
+    pointer_images: u64,
     /// Offers begun and not committed, by client and the client's offer number: their types.
     offers: BTreeMap<(ClientId, u32), Vec<TextChunk>>,
     /// Names each clipboard content for receivers, never reused.
@@ -1389,8 +1395,16 @@ impl Scene {
                     .filter(|node| !node.dismissed)
                     .ok_or(ErrorCode::UnknownSurface)?;
                 node.pointer_shape = shape;
+                node.pointer_image = None;
                 Ok(())
             }
+            Request::SetPointerImage {
+                surface,
+                buffer,
+                hotspot_x,
+                hotspot_y,
+                scale_120,
+            } => self.set_pointer_image(key(surface), buffer, (hotspot_x, hotspot_y), scale_120),
             Request::SetSizeLimits {
                 surface,
                 min_width,
@@ -1861,6 +1875,7 @@ impl Scene {
                 presenting_in: None,
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
+                pointer_image: None,
             },
         );
         match parent {
@@ -3270,6 +3285,53 @@ impl Scene {
     /// Compositor-owned move: no client round trip, so a stalled client still moves smoothly.
     /// The pointer's shape now: the one the surface under it wants, the arrow over none, and the
     /// move shape while the compositor moves a window.
+    /// The client's image for the pointer, when the surface under it set one and no window is
+    /// being moved or resized: the surface and the image's number.
+    pub fn pointer_image(&self) -> Option<(SurfaceKey, u64)> {
+        if self.moving.is_some() || self.resizing.is_some() || self.resize_hover.is_some() {
+            return None;
+        }
+        let key = self.pointer_focus?;
+        self.live(key)?.pointer_image.map(|image| (key, image))
+    }
+
+    /// The number of the image `key` set last for the pointer, if its pointer is one.
+    pub fn pointer_image_of(&self, key: SurfaceKey) -> Option<u64> {
+        self.nodes.get(&key)?.pointer_image
+    }
+
+    /// A pointer image: the surface's, from a buffer of its client's that is premultiplied
+    /// ARGB8888 and no larger than MAX_POINTER_IMAGE_SIDE, its hotspot inside it, drawn for a
+    /// scale from 1 to 4.
+    fn set_pointer_image(
+        &mut self,
+        key: SurfaceKey,
+        buffer: u64,
+        hotspot: (u32, u32),
+        scale_120: u32,
+    ) -> Result<(), ErrorCode> {
+        if !self.nodes.get(&key).is_some_and(|node| !node.dismissed) {
+            return Err(ErrorCode::UnknownSurface);
+        }
+        let layout = match self.buffers.get(&(key.client, buffer)) {
+            Some(entry) if !entry.destroyed => entry.layout,
+            _ => return Err(ErrorCode::InvalidBuffer),
+        };
+        let extent = layout.extent;
+        if layout.format != Format::Argb8888
+            || extent.width > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+            || extent.height > oxyos_protocol::MAX_POINTER_IMAGE_SIDE
+            || hotspot.0 >= extent.width
+            || hotspot.1 >= extent.height
+            || !(SCALE_DENOMINATOR..=4 * SCALE_DENOMINATOR).contains(&scale_120)
+        {
+            return Err(ErrorCode::InvalidGeometry);
+        }
+        self.pointer_images += 1;
+        self.nodes.get_mut(&key).expect("present").pointer_image = Some(self.pointer_images);
+        Ok(())
+    }
+
     pub fn pointer_shape(&self) -> PointerShape {
         if self.moving.is_some() {
             return PointerShape::Move;

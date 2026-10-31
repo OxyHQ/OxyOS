@@ -1565,6 +1565,25 @@ fn controls_json(fake: &oxyos_controls::Fake) -> String {
     format!("{{{}}}", fields.join(","))
 }
 
+/// The client's image the pointer shows once a step settled (ADR 0029): its size and hotspot in
+/// its pixels, the scale it was drawn for and its middle pixel as `#aarrggbb`; null for a shape.
+fn pointer_image_json(compositor: &Compositor) -> String {
+    let Some(pointer) = compositor.scene.pointer_image().and_then(|(key, id)| {
+        compositor
+            .client_pointers
+            .get(&key)
+            .filter(|pointer| pointer.id == id)
+    }) else {
+        return "null".to_string();
+    };
+    let image = &pointer.image;
+    let middle = image.pixels[((image.height / 2) * image.width + image.width / 2) as usize];
+    format!(
+        "{{\"width\":{},\"height\":{},\"hotspot\":[{},{}],\"scale_120\":{},\"middle\":\"#{middle:08x}\"}}",
+        image.width, image.height, image.hotspot.0, image.hotspot.1, pointer.scale_120
+    )
+}
+
 /// What the clipboard holds once a step settled, as the session reads it from its owner, each
 /// type through a pipe as any receiver pastes: `{"types": [...], "contents": {type: content}}`,
 /// or null when it holds nothing. Read again only when it changed.
@@ -3478,7 +3497,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let announcements = announcements_json(&session.reader.take_announcements());
         let clipboard = clipboard_json(&mut session)?;
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -3494,6 +3513,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             session.compositor.scene.pointer_shape(),
+            pointer_image_json(&session.compositor),
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             composed_since(&session.compositor, injected_ns),
