@@ -109,6 +109,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - latency_ms: budget from injecting the input to the first changed frame;
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default).
+- pixels_match: pairs of points, as `pixels` gives them, that show the same colour (each channel
+  within `pixel_tolerance`): an edge drawn one way matching the same edge drawn another (a child
+  clipped to a rounded box and a rounded background, anti-aliased alike); `output_pixels_match`
+  the same in output pixels, as `output_pixels` gives them;
   (Pointer enter/leave, which follow every motion, are left out of `react`, and so are the W3C
   pointer presses, every mouse button's pointerdown and pointerup;)
 - react_presses: those presses, exactly, as `react` checks its events;
@@ -707,6 +711,18 @@ def check_glide(wanted, report, start, end, fail):
             fail(f"{view} stopped at {ended}, expected its end {wanted['end_offset']}")
     elif abs(covered - distance) > 1:
         fail(f"{view} glided {covered:.1f} px, expected the fling's {distance:.1f}")
+
+
+def check_pixels_match(name, expect, screenshot, window, fail):
+    """The step's `pixels_match`: pairs of points of the window showing the same colour."""
+    pixel = png_pixel_reader(screenshot)
+    tolerance = expect.get("pixel_tolerance", 3)
+    hex_of = lambda c: "#" + "".join(f"{v:02x}" for v in c)
+    for a, b in expect["pixels_match"]:
+        (ax, ay), (bx, by) = ((int(v) for v in p.split(",")) for p in (a, b))
+        got_a, got_b = pixel(window[0] + ax, window[1] + ay), pixel(window[0] + bx, window[1] + by)
+        if any(abs(p - q) > tolerance for p, q in zip(got_a, got_b)):
+            fail(f"pixel {a} is {hex_of(got_a)} and pixel {b} {hex_of(got_b)}, expected the same")
 
 
 def check_smooth(name, wanted, screenshot, fail):
@@ -1345,6 +1361,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "output_pixels" in expect:
         # Colours anywhere on the output, "x,y" in output pixels (the shell's surfaces included).
         check_pixels(name, {**expect, "pixels": expect["output_pixels"]}, screenshot, [0, 0], fail)
+    if "output_pixels_match" in expect:
+        check_pixels_match(name, {**expect, "pixels_match": expect["output_pixels_match"]}, screenshot, [0, 0], fail)
     if "smooth" in expect:
         check_smooth(name, expect["smooth"], screenshot, fail)
     for output, pixels in expect.get("screen_pixels", {}).items():
@@ -1368,6 +1386,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"text field has {differing}, expected {wanted}")
     if "pixels" in expect:
         check_pixels(name, expect, screenshot, result.get("window"), fail)
+    if "pixels_match" in expect:
+        check_pixels_match(name, expect, screenshot, result.get("window"), fail)
     if "latency_ms" in expect and result.get("latency_ms") is not None:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
