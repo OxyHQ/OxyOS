@@ -42,6 +42,9 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether the region asks for the keyboard (the top bar from the keyboard, docs/adr/0024-system-
   // shortcuts.mdx): the host asks the compositor for its surface's focus, citing the latest input.
   bool keyboard{false};
+  // Whether its surface is left out of every screenshot (the screenshot interface itself and its
+  // thumbnail, docs/adr/0024-system-shortcuts.mdx, decision 10).
+  bool excludeFromCapture{false};
 };
 
 using OxyOSShellSurfaceShadowNode = ConcreteViewShadowNode<OxyOSShellSurfaceComponentName, OxyOSShellSurfaceProps>;
@@ -116,7 +119,11 @@ class ShellSurfaceHost {
     WindowDamage damage;
     // The windows it shows live, as last sent to the compositor (ADR 0022).
     std::vector<RenderStats::WindowView> windows;
+    // Whether the compositor was told to leave its surface out of captures (ADR 0024).
+    bool excluded = false;
   };
+  // Tells the compositor a region's `excludeFromCapture` when it differs from what it was told.
+  void exclude(Region& region, const facebook::react::OxyOSShellSurfaceProps& props);
   // Sends a region's windows shown live if they changed since last sent; true if they did.
   bool showWindows(Region& region, const std::vector<RenderStats::WindowView>& windows);
   const ViewTree& tree_;

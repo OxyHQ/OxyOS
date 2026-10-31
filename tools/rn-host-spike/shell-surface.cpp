@@ -30,7 +30,9 @@ OxyOSShellSurfaceProps::OxyOSShellSurfaceProps(const PropsParserContext& context
       kind(convertRawProp(context, rawProps, "kind", sourceProps.kind, std::string("panel"))),
       edge(convertRawProp(context, rawProps, "edge", sourceProps.edge, std::string("top"))),
       exclusive(convertRawProp(context, rawProps, "exclusive", sourceProps.exclusive, false)),
-      keyboard(convertRawProp(context, rawProps, "keyboard", sourceProps.keyboard, false)) {}
+      keyboard(convertRawProp(context, rawProps, "keyboard", sourceProps.keyboard, false)),
+      excludeFromCapture(
+          convertRawProp(context, rawProps, "excludeFromCapture", sourceProps.excludeFromCapture, false)) {}
 
 }  // namespace facebook::react
 
@@ -73,6 +75,15 @@ bool ShellSurfaceHost::showWindows(Region& region, const std::vector<RenderStats
   }
   Report::get().popup("shell.windows", region.surface, nullptr, folly::dynamic::object("windows", shown));
   return true;
+}
+
+void ShellSurfaceHost::exclude(Region& region, const OxyOSShellSurfaceProps& props) {
+  // The lock screen is never captured at all: the compositor captures nothing while locked.
+  bool excluded = props.excludeFromCapture && region.placed.kind != kLock;
+  if (excluded == region.excluded) return;
+  window_.excludeFromCapture(region.surface, excluded);
+  region.excluded = excluded;
+  Report::get().popup("shell.capture", region.surface, nullptr, folly::dynamic::object("excluded", excluded));
 }
 
 bool ShellSurfaceHost::Placement::operator==(const Placement& other) const {
@@ -170,7 +181,11 @@ void ShellSurfaceHost::sync() {
     if (!placed) continue;
     mounted.insert(tag);
     auto open = regions_.find(tag);
-    if (open != regions_.end() && open->second.placed == *placed) continue;
+    const auto& props = *std::static_pointer_cast<const OxyOSShellSurfaceProps>(view.props);
+    if (open != regions_.end() && open->second.placed == *placed) {
+      exclude(open->second, props);
+      continue;
+    }
     bool reopen = open == regions_.end() || open->second.placed.kind != placed->kind ||
                   open->second.placed.edge != placed->edge || open->second.placed.exclusive != placed->exclusive ||
                   !(open->second.placed.strip.size == placed->strip.size);
@@ -191,6 +206,8 @@ void ShellSurfaceHost::sync() {
       }
       window_.setInputRegion(surface, placed->input);
       regions_[tag] = Region{.surface = surface, .placed = *placed};
+      // Before its first frame: a surface left out of captures never shows in one.
+      exclude(regions_[tag], props);
       Report::get().popup("shell.open", surface, &view,
                           folly::dynamic::object("kind", placed->kind == kLock                      ? "lock"
                                                          : placed->kind == OXYOS_SHELL_OVERLAY        ? "overlay"
@@ -202,6 +219,7 @@ void ShellSurfaceHost::sync() {
       window_.setInputRegion(open->second.surface, placed->input);
       open->second.placed = *placed;
       open->second.dirty = true;
+      exclude(open->second, props);
     }
   }
   for (auto it = regions_.begin(); it != regions_.end();) {
@@ -320,6 +338,11 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
       auto x1 = static_cast<int32_t>(std::ceil((rect.origin.x + rect.size.width) * display.scale));
       auto y1 = static_cast<int32_t>(std::ceil((rect.origin.y + rect.size.height) * display.scale));
       pixels.push_back(OxyOSRect{x0, y0, static_cast<uint32_t>(x1 - x0), static_cast<uint32_t>(y1 - y0)});
+    }
+    // Its secure fields go with the frame (the lock screen's password, docs/adr/0024-system-
+    // shortcuts.mdx, decision 10).
+    if (auto secure = secureFields(tree_, tag, at); window_.setSecureRegions(region.surface, secure)) {
+      Report::get().input("secure.regions", region.surface, folly::dynamic::object("rects", toDynamic(secure)));
     }
     window_.present(region.surface, region.canvas, pixels);
     double area = 0;

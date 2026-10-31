@@ -25,6 +25,9 @@ export type ShellSurfaceProps = {
   keyboard?: boolean;
   /** The keyboard, once the region had it, went elsewhere (a press in a window). */
   onKeyboardLost?: () => void;
+  /** Whether no screenshot captures the region (the screenshot interface itself, its thumbnail,
+      docs/adr/0024-system-shortcuts.mdx, decision 10). */
+  excludeFromCapture?: boolean;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 };

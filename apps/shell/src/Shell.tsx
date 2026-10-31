@@ -9,6 +9,7 @@ import type {
   ShellLock,
   ShellNotification,
   ShellNotifications,
+  ShellScreenshots,
   ShellSnapshot,
 } from "./model";
 import { Wallpaper } from "./components/Wallpaper";
@@ -23,6 +24,7 @@ import { ControlCenter } from "./components/ControlCenter";
 import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
+import { Screenshots } from "./components/Screenshots";
 import type { Language, SheetText } from "./sheet";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
@@ -58,6 +60,7 @@ export function Shell({
   notifications,
   banners = true,
   sheet,
+  screenshots,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -95,6 +98,9 @@ export function Shell({
     names?: Record<string, string>;
     answer: (accepted: boolean) => void;
   };
+  /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
+      the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
+  screenshots?: ShellScreenshots;
 }) {
   const { Surface } = platform;
   const dark = useColorScheme() === "dark";
@@ -430,6 +436,11 @@ export function Shell({
           <Surface kind="overlay" style={StyleSheet.absoluteFill}>
             <SystemSheet text={sheet.text} language={sheet.language} names={sheet.names} answer={sheet.answer} />
           </Surface>
+        )}
+        {/* Screenshots (ADR 0024, decision 10): the crosshair, the window picking and the toolbar
+            the compositor opened, and the thumbnail of one saved; never while locked. */}
+        {screenshots && !lock?.locked && (
+          <Screenshots screenshots={screenshots} platform={platform} dock={dock} dockHeight={DOCK_HEIGHT} />
         )}
         {/* A hardware key's bezel, above everything, taking no input. */}
         {controls?.bezel && !lock?.locked && (
