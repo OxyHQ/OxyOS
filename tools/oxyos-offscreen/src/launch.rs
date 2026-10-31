@@ -520,6 +520,11 @@ pub struct Launch {
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
+    /// `--file-chooser PROGRAM,ARG...`: the file chooser the session starts for an application's
+    /// request (docs/adr/0029-chromium-on-oxyos.mdx, decision 8), run as `PROGRAM ARG... --window
+    /// W H` and told what to show in `OXYOS_FILE_CHOOSER`, as the file manager is in a session.
+    /// Without it, the shell's registry's file manager (with `--shell`), else none.
+    pub file_chooser: Option<Vec<std::ffi::OsString>>,
     /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
     /// development compositor's fixture in place of the session's PAM (lock.rs).
     pub lock_password: Option<String>,
@@ -579,7 +584,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [[--allow-unchanged] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -660,6 +665,7 @@ impl Launch {
         let mut launch_settle = SETTLE;
         let (mut seat, mut input_method) = (false, false);
         let mut shell = None;
+        let mut file_chooser = None;
         let mut lock_password = None;
         let (mut reader, mut reader_locale) = (None, None);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
@@ -708,6 +714,11 @@ impl Launch {
                 Some("--shell") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     shell = Some(value.split(',').map(Into::into).collect());
+                    continue;
+                }
+                Some("--file-chooser") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    file_chooser = Some(value.split(',').map(Into::into).collect());
                     continue;
                 }
                 Some("--reader") => {
@@ -1123,6 +1134,7 @@ impl Launch {
                 launch_settle,
                 input_method,
                 shell,
+                file_chooser,
                 lock_password,
                 reader,
                 reader_locale,
@@ -1562,12 +1574,15 @@ fn delivered_json(session: &Session) -> String {
     let mut counts: std::collections::BTreeMap<u32, std::collections::BTreeMap<&str, usize>> =
         Default::default();
     let mut launched: std::collections::BTreeMap<&str, usize> = Default::default();
+    let mut chooser: std::collections::BTreeMap<&str, usize> = Default::default();
     let (mut shell, mut leaked) = (0, 0);
     for &(client, surface, kind) in &compositor.input_log {
         if client == CLIENT {
             *counts.entry(surface).or_default().entry(kind).or_default() += 1;
         } else if client > ClientId::MAX / 2 && client < crate::pasteboard::PASTEBOARD {
             shell += 1;
+        } else if session.chooser_clients.contains(&client) {
+            *chooser.entry(kind).or_default() += 1;
         } else if session.launched_clients.contains(&client) {
             *launched.entry(kind).or_default() += 1;
         } else {
@@ -1592,8 +1607,45 @@ fn delivered_json(session: &Session) -> String {
             .collect();
         fields.push(format!("\"launched\":{{{}}}", kinds.join(",")));
     }
+    // What the file chooser received (ADR 0029, decision 8).
+    if !chooser.is_empty() {
+        let kinds: Vec<String> = chooser
+            .iter()
+            .map(|(k, n)| format!("\"{k}\":{n}"))
+            .collect();
+        fields.push(format!("\"chooser\":{{{}}}", kinds.join(",")));
+    }
     fields.push(format!("\"leaked\":{leaked}"));
     format!("{{{}}}", fields.join(","))
+}
+
+/// The file chooser's sheet shown (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): where it is
+/// on the output, whether it has the keyboard and whether the application's window is the active
+/// one; null with none.
+fn chooser_json(compositor: &Compositor) -> String {
+    let scene = &compositor.scene;
+    let Some((client, sheet)) = compositor.peers.keys().find_map(|client| {
+        let id = scene.chooser_of(*client)?;
+        Some((*client, scene.chooser_sheet(id)?))
+    }) else {
+        return "null".to_string();
+    };
+    let Some(rect) = compositor.surface_rect(client, sheet.id) else {
+        return "null".to_string();
+    };
+    format!(
+        "{{\"sheet\":[{},{},{},{}],\"focused\":{},\"window_active\":{}}}",
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        scene.focus() == Some(sheet),
+        scene.active_window()
+            == Some(SurfaceKey {
+                client: CLIENT,
+                id: WINDOW
+            }),
+    )
 }
 
 /// The screenshots saved in a step (ADR 0024, decision 10), each its path, output and size, and
@@ -3137,6 +3189,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    session.chooser_command = launch.file_chooser.clone();
     session.grants = launch.grants.clone();
     if let Some(socket) = &launch.installd {
         let installs = oxyos_compositor::installs::Installs::new(
@@ -3696,7 +3749,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let clipboard = clipboard_json(&mut session)?;
         let screenshots = screenshots_json(&mut session);
         answered.push(format!(
-            "{{{},\"screenshots\":{screenshots},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"screenshots\":{screenshots},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"clipboard\":{clipboard},\"menus\":{},\"chooser\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -3716,6 +3769,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             transitions_json(&mut session.compositor),
             session.controls.as_ref().map_or("null".to_string(), controls_json),
             menus_json(&session.compositor),
+            chooser_json(&session.compositor),
             composed_since(&session.compositor, injected_ns),
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
@@ -3748,6 +3802,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.input = None;
     session.compositor.authentication = None;
     drop(devices);
+    // Nor the file choosers': their processes and the mount table their answers were checked by.
+    session.end_choosers();
     // The assistive technology leaves with the session, like every other client.
     session.compositor.scene.disconnect(READER);
     if session.ime.take().is_some() {

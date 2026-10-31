@@ -27,7 +27,7 @@ pub const SHEET_TOP: u32 = 52;
 /// The room a sheet leaves beside and below it within its window, in logical pixels.
 pub const SHEET_MARGIN: u32 = 24;
 /// The smallest a sheet is made to fit its window: a window smaller than this has it overhang.
-pub const SHEET_MIN: Size = Size::new(420, 300);
+pub const SHEET_MIN: Size = Size::new(640, 440);
 
 /// A request to choose files, for the program running the compositor: the number the scene gave
 /// it (what `attach_chooser`, `answer_files` and the answers name), whose it is and its text.

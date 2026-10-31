@@ -217,6 +217,17 @@ struct SystemService {
   std::function<bool(const std::string& capability)> allows;
 };
 
+// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8), for an application's window:
+// asking the session for files (the request's serial, 0 if it was not sent) and withdrawing it;
+// and, in an application the session started as the chooser, what it was asked to show
+// (`OXYOS_FILE_CHOOSER`'s JSON; empty in any other) and the person's answer (whether it was sent).
+struct FileChooserService {
+  std::function<uint32_t(const std::string& text)> choose;
+  std::function<void(uint32_t serial)> cancel;
+  std::string request;
+  std::function<bool(const std::string& text)> answer;
+};
+
 struct HostServices {
   BlobStore& blobs;
   Networking& networking;
@@ -232,6 +243,7 @@ struct HostServices {
   SettingsService settings{};
   NotificationsService notifications{};
   SystemService system{};
+  FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
   // The user's files (files.h, docs/adr/0028-file-access.mdx): set for an application's window,

@@ -85,7 +85,7 @@ mod installd;
 use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
 use oxyos_compositor::{Authentication, Compositor, Gpu, LaunchRecord, Result};
-use oxyos_compositor_core::{Grants, ModeInfo, OutputId, Scene};
+use oxyos_compositor_core::{ClientId, Grants, ModeInfo, OutputId, Scene};
 use oxyos_ipc::Listener;
 use oxyos_protocol::{AuthOutcome, PointerShape};
 use rustix::fd::BorrowedFd;
@@ -465,6 +465,11 @@ fn main() -> Result<()> {
         Some(installs)
     };
     let mut versions = Versions::default();
+    // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): any application asks, the
+    // file manager answers in its picker mode, as a sheet of the asking window; answers are
+    // checked against the account's files.
+    let mut choosers =
+        oxyos_compositor::choosers::Choosers::new(oxyos_files::Scope::for_user().ok());
     let mut launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
             socket: socket.clone(),
@@ -501,6 +506,8 @@ fn main() -> Result<()> {
         }
         for (pid, launched) in launcher.reap() {
             eprintln!("[session] {} exited", launched.id);
+            choosers.exited(&mut compositor.scene, pid);
+            compositor.forget_chooser(pid);
             if let Some(note) = versions.exited(pid, &launched) {
                 installd.as_ref().inspect(|i| i.note(note));
             }
@@ -565,6 +572,50 @@ fn main() -> Result<()> {
             compositor
                 .scene
                 .launched(request.client, request.serial, launched);
+        }
+        // The files applications asked the person to choose (ADR 0029, decision 8): the file
+        // manager of the image's policy started for each in its picker mode, the request's sheet;
+        // the login screen starts none.
+        let askers: BTreeMap<ClientId, oxyos_compositor::choosers::Asker> = compositor
+            .peers
+            .iter()
+            .filter_map(|(client, peer)| {
+                let launched = launcher.application_of(peer.pid as u32)?;
+                Some((
+                    *client,
+                    oxyos_compositor::choosers::Asker {
+                        id: launched.id.clone(),
+                        name: launched.name.clone(),
+                    },
+                ))
+            })
+            .collect();
+        for start in choosers.serve(&mut compositor.scene, &|client| {
+            askers.get(&client).cloned()
+        }) {
+            let pid = if greeter {
+                None
+            } else {
+                match launcher.choose(oxyos_apps::FILE_MANAGER, &start.shown, false) {
+                    Ok(pid) => {
+                        eprintln!(
+                            "[session] choosing files with {} ({pid})",
+                            oxyos_apps::FILE_MANAGER
+                        );
+                        compositor.expect_chooser(pid, start.id);
+                        Some(pid)
+                    }
+                    Err(error) => {
+                        eprintln!("[session] no file chooser: {error}");
+                        None
+                    }
+                }
+            };
+            choosers.started(&mut compositor.scene, start.id, pid);
+        }
+        for pid in choosers.take_ended() {
+            compositor.forget_chooser(pid);
+            launcher.terminate(pid);
         }
         // A screenshot's thumbnail pressed (ADR 0024, decision 10): the session opens the file it
         // wrote in the application that opens PNGs, else the file manager, the file in its launch

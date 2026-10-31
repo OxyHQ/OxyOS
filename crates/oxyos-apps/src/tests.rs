@@ -278,10 +278,12 @@ fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
         launcher.application_of(pid),
         Some(&Launched {
             id: "so.oxy.writer".into(),
+            name: "Writer".into(),
             grants: Grants::default(),
             origin: Origin::Development,
             capabilities: BTreeMap::new(),
             opened: None,
+            chooser: false,
         })
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -641,6 +643,55 @@ fn a_system_application_is_the_policys_entry_and_no_one_elses() {
     .unwrap();
     let (apps, _) = registry(&[], &[], &through_link, None, &trusted);
     assert!(apps.is_empty(), "{apps:?}");
+}
+
+#[test]
+fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
+    let shell = Path::new("/bin/sh").canonicalize().unwrap();
+    let out = std::env::temp_dir().join(format!("oxyos-apps-chooser-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let entry = format!(
+        "[Desktop Entry]\nType=Application\nName=Stash\nExec=/bin/sh -c \"echo $OXYOS_APP_ID $OXYOS_FILE_CHOOSER > {}\"\n",
+        out.display()
+    );
+    let dir = Directory::new("chooser", &[("so.oxy.stash.desktop", &entry)]);
+    let policy_file = Directory::new("chooser-policy", &[]);
+    let path = policy_file.0.join("system-apps.json");
+    let mut launcher = test_launcher(&dir, Some(&path));
+    let shown = r#"{"mode":"open","multiple":false}"#;
+    // Not a system application: no chooser, unless the development compositor's fixture.
+    assert!(launcher.choose("so.oxy.stash", shown, false).is_err());
+    assert!(launcher.choose("so.oxy.none", shown, true).is_err());
+    let pid = launcher.choose("so.oxy.stash", shown, true).unwrap();
+    assert!(launcher.application_of(pid).is_some_and(|l| l.chooser));
+    launcher.end(std::time::Duration::from_secs(5));
+    // The policy's: started, told what to show.
+    std::fs::write(
+        &path,
+        policy_of("so.oxy.stash", &dir.0.canonicalize().unwrap(), &shell, ""),
+    )
+    .unwrap();
+    let root = {
+        let (entries, policies) = (as_if_root(&dir.0), as_if_root(&policy_file.0));
+        move |path: &Path| entries(path) || policies(path) || path == shell
+    };
+    launcher.trusted = Box::new(root);
+    let pid = launcher.choose("so.oxy.stash", shown, false).unwrap();
+    let launched = launcher.application_of(pid).unwrap();
+    assert!(launched.chooser && launched.origin == Origin::System);
+    assert_eq!(launched.name, "Stash");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap().trim(),
+        r#"so.oxy.stash {"mode":"open","multiple":false}"#
+    );
+    // A process it did not start is never signalled.
+    launcher.terminate(1);
+    let _ = std::fs::remove_file(&out);
 }
 
 #[test]

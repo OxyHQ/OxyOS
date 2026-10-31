@@ -155,6 +155,18 @@ struct Session {
     /// `--displays FILE`: the session's displays, on virtual connectors (displays.rs), shown and
     /// changed from Settings as a session's are.
     displays: Option<(oxyos_compositor::displays::Displays, displays::Virtual)>,
+    /// The session's side of file choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8),
+    /// answers checked against the run's home.
+    choosers: oxyos_compositor::choosers::Choosers,
+    /// `--file-chooser PROGRAM,ARG...`: the chooser started for each request; without it, the
+    /// shell's registry's file manager.
+    pub chooser_command: Option<Vec<std::ffi::OsString>>,
+    /// The choosers `--file-chooser` started, until they exit, and how many it started.
+    chooser_children: Vec<Child>,
+    choosers_started: usize,
+    /// The clients that served as a file chooser: what they are delivered is counted as the
+    /// chooser's (`delivered_json`), even once they are gone.
+    chooser_clients: std::collections::BTreeSet<ClientId>,
 }
 
 impl Session {
@@ -223,7 +235,143 @@ impl Session {
             screenshot_opens: Vec::new(),
             installed_fixture: None,
             displays: None,
+            choosers: oxyos_compositor::choosers::Choosers::new(
+                oxyos_files::Scope::for_user().ok(),
+            ),
+            chooser_command: None,
+            chooser_children: Vec::new(),
+            choosers_started: 0,
+            chooser_clients: Default::default(),
         })
+    }
+
+    /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8), as the session serves
+    /// them: each request read, its chooser started (the `--file-chooser` fixture, else the
+    /// registry's file manager) and attached as it connects, its answer checked and given to the
+    /// asker, and its process ended once the request ends.
+    fn serve_choosers(&mut self) {
+        let mut exited = Vec::new();
+        self.chooser_children
+            .retain_mut(|child| match child.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    exited.push(child.id());
+                    false
+                }
+            });
+        for pid in exited {
+            self.choosers.exited(&mut self.compositor.scene, pid);
+            self.compositor.forget_chooser(pid);
+        }
+        let askers: std::collections::BTreeMap<ClientId, oxyos_compositor::choosers::Asker> = self
+            .compositor
+            .peers
+            .iter()
+            .filter_map(|(client, peer)| {
+                let pid = peer.pid as u32;
+                let launched = self.launcher.as_ref().and_then(|l| l.application_of(pid));
+                let asker = match (launched, &self.app) {
+                    (Some(launched), _) => oxyos_compositor::choosers::Asker {
+                        id: launched.id.clone(),
+                        name: launched.name.clone(),
+                    },
+                    (None, Some((started, id))) if *started == pid => {
+                        oxyos_compositor::choosers::Asker {
+                            id: id.clone(),
+                            name: std::env::var("OXYOS_APP_TITLE").unwrap_or_else(|_| id.clone()),
+                        }
+                    }
+                    _ => return None,
+                };
+                Some((*client, asker))
+            })
+            .collect();
+        let starts = self.choosers.serve(&mut self.compositor.scene, &|client| {
+            askers.get(&client).cloned()
+        });
+        for start in starts {
+            let pid = match (&self.chooser_command, self.launcher.as_mut()) {
+                (Some(command), _) => self.spawn_chooser(command.clone(), &start.shown),
+                (None, Some(launcher)) => launcher
+                    .choose(oxyos_apps::FILE_MANAGER, &start.shown, true)
+                    .map_err(|error| error.to_string()),
+                (None, None) => Err("no file chooser".into()),
+            };
+            let pid = match pid {
+                Ok(pid) => {
+                    self.compositor.expect_chooser(pid, start.id);
+                    Some(pid)
+                }
+                Err(error) => {
+                    eprintln!("[choosers] request {}: {error}", start.id);
+                    None
+                }
+            };
+            self.choosers
+                .started(&mut self.compositor.scene, start.id, pid);
+        }
+        for pid in self.choosers.take_ended() {
+            self.compositor.forget_chooser(pid);
+            if let Some(launcher) = self.launcher.as_ref() {
+                launcher.terminate(pid);
+            }
+            if let Some(child) = self.chooser_children.iter().find(|c| c.id() == pid) {
+                if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
+                    let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+                }
+            }
+        }
+        for client in self.compositor.peers.keys() {
+            if self.compositor.scene.chooser_of(*client).is_some() {
+                self.chooser_clients.insert(*client);
+            }
+        }
+    }
+
+    /// The session ends: the choosers still running are ended and waited for, and the scope their
+    /// answers were checked by (which keeps the mount table open, to follow it) goes.
+    pub fn end_choosers(&mut self) {
+        for mut child in self.chooser_children.drain(..) {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.choosers = oxyos_compositor::choosers::Choosers::new(None);
+    }
+
+    /// Starts the `--file-chooser` fixture as a session starts the file manager to choose: on the
+    /// application's socket, told what to show, its report beside the application's.
+    fn spawn_chooser(
+        &mut self,
+        command: Vec<std::ffi::OsString>,
+        shown: &str,
+    ) -> std::result::Result<u32, String> {
+        let program = command.first().ok_or("an empty --file-chooser")?;
+        let (width, height) = oxyos_apps::CHOOSER_WINDOW;
+        let mut chooser = Command::new(program);
+        chooser
+            .args(&command[1..])
+            .args(["--window", &width.to_string(), &height.to_string()])
+            .env("OXYOS_COMPOSITOR_SOCKET", &self.socket)
+            .env("OXYOS_FILE_CHOOSER", shown)
+            .env("OXYOS_APP_ID", oxyos_apps::FILE_MANAGER)
+            .env_remove("OXYOS_APP_TITLE")
+            .env_remove("OXYOS_APP_UNRECORDED")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        if let Some(bundle) = command.get(1).map(Path::new).filter(|b| b.is_file()) {
+            let url = oxyos_apps::script_url(bundle);
+            chooser.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
+        }
+        if let Some(mut report) = std::env::var_os("OXYOS_HOST_REPORT") {
+            // Each chooser's own, numbered: a host's report starts its file afresh.
+            report.push(format!(".chooser.{}", self.choosers_started));
+            chooser.env("OXYOS_HOST_REPORT", report);
+        }
+        let child = chooser.spawn().map_err(|error| error.to_string())?;
+        self.choosers_started += 1;
+        let pid = child.id();
+        self.chooser_children.push(child);
+        Ok(pid)
     }
 
     /// The session's displays on the virtual connectors `file` describes (`--displays`), shown as
@@ -312,6 +460,7 @@ impl Session {
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
+        self.serve_choosers();
         let (launcher, app) = (&self.launcher, &self.app);
         let grant_settings = self.grant_settings.as_deref();
         let fixtures = &self.grants;
@@ -360,7 +509,10 @@ impl Session {
             }
             return;
         };
-        launcher.reap();
+        for (pid, _) in launcher.reap() {
+            self.choosers.exited(&mut self.compositor.scene, pid);
+            self.compositor.forget_chooser(pid);
+        }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {

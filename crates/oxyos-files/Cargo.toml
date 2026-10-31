@@ -20,12 +20,19 @@ base64 = "0.23"
 md-5 = "0.10"
 sha1 = "0.10"
 sha2 = "0.10"
-# Downloads and uploads of files.
-oxyos-net = { path = "../oxyos-net" }
+# Downloads and uploads of files (the `service` feature).
+oxyos-net = { path = "../oxyos-net", optional = true }
 # An application's id, by the registry's own rule.
 oxyos-apps = { path = "../oxyos-apps" }
 # Where the user's folders are (xdg-user-dirs' `user-dirs.dirs`).
 oxyos-preferences = { path = "../oxyos-preferences" }
+
+[features]
+# The service an application's host runs (`Service`, transfers through `oxyos-net`). Without it,
+# what a path may name and the operations on files alone: what the session checks a file
+# chooser's answer by (docs/adr/0029-chromium-on-oxyos.mdx, decision 8), with no network stack.
+default = ["service"]
+service = ["dep:oxyos-net"]
 
 [lints]
 workspace = true

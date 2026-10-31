@@ -205,11 +205,22 @@ fn a_sheet_fits_its_window_and_a_small_window_has_it_overhang() {
     ask(&mut h, APP, 1, 1, input, r#"{"open":{}}"#);
     let id = h.scene.take_file_requests()[0].id;
     let w = h.rect(window);
-    let sheet = attach_sheet(&mut h, id, 760, 480);
-    // 500 - 2 x 24 wide; 360 - 52 - 24 is under the least height, which it keeps.
+    let sheet = attach_sheet(&mut h, id, 800, 520);
+    // The room left in the window (452 x 284) is under the least a sheet is: it keeps that,
+    // centred, at the window's top, overhanging its sides and its bottom.
     let r = h.rect(sheet);
-    assert_eq!((r.width, r.height), (452, SHEET_MIN.height));
-    assert_eq!((r.x, r.y), (w.x + 24, w.y + SHEET_TOP as i32));
+    assert_eq!((r.width, r.height), (SHEET_MIN.width, SHEET_MIN.height));
+    assert_eq!((r.x, r.y), (w.x - 70, w.y));
+    // A larger window: what it asked, less the margins it must leave.
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 820, 700);
+    let input = press_in(&mut h, window, 40, 40);
+    ask(&mut h, APP, 1, 1, input, r#"{"open":{}}"#);
+    let id = h.scene.take_file_requests()[0].id;
+    let w = h.rect(window);
+    let sheet = attach_sheet(&mut h, id, 800, 520);
+    let r = h.rect(sheet);
+    assert_eq!(r, Rect::new(w.x + 24, w.y + SHEET_TOP as i32, 772, 520));
 }
 
 #[test]

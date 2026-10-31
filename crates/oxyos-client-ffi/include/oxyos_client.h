@@ -651,7 +651,7 @@ int oxyos_client_open_screenshot(OxyOSClient* client, uint32_t screenshot, uint6
  * for its toplevel `surface` (an open or save panel shown as a sheet of that window), citing
  * `input`, the serial of a press or a key this connection received lately; `text` is the request,
  * NUL-terminated UTF-8 JSON:
- *   {"open": {"multiple": false, "directory": false, "types": ["image/png", ".png", "image/*"],
+ *   {"open": {"multiple": false, "directory": false, "types": ["image/png", ".png"],
  *             "title": "...", "folder": "file:///..."}}
  *   {"save": {"name": "untitled.txt", "types": [...], "title": "...", "folder": "file:///..."}}
  * every field but the kind optional. FILES_CHOSEN events naming `serial` answer it, once, with

@@ -1032,6 +1032,8 @@ pub fn command(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launched {
     pub id: String,
+    /// The name the person knows it by (its entry's `Name`, in the session's languages).
+    pub name: String,
     pub grants: Grants,
     /// What it is to the platform: a system application, an installed version, or a development
     /// entry ([`Origin::verified`]).
@@ -1043,7 +1045,13 @@ pub struct Launched {
     /// The file it was started to open (docs/adr/0028-file-access.mdx, decision 6), which it is
     /// given as React Native's `Linking` initial URL (`OXYOS_LAUNCH_URL`).
     pub opened: Option<PathBuf>,
+    /// Whether it was started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
+    pub chooser: bool,
 }
+
+/// How large a file chooser's window asks to be, in logical pixels: the compositor fits it to the
+/// window it is a sheet of (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
+pub const CHOOSER_WINDOW: (u32, u32) = (800, 520);
 
 /// What the Bloom host is told of a launch: its origin (`system`, `installed`, `development`) and
 /// the capabilities granted, `,`-separated (an installed version's account's grants; empty for any
@@ -1146,6 +1154,14 @@ pub fn file_url(path: &Path) -> String {
     url
 }
 
+/// How a process is started: as the application, to open a file, or as the file chooser.
+#[derive(Clone, Copy)]
+enum Start<'a> {
+    Launch,
+    Opening(&'a Path),
+    Chooser { shown: &'a str, development: bool },
+}
+
 /// The processes a session started for applications (docs/adr/0013-launching-applications.mdx).
 pub struct Launcher {
     pub runtime: Runtime,
@@ -1209,6 +1225,15 @@ impl Launcher {
         self.launch_opening(id, None)
     }
 
+    /// Starts the file manager (`id`, [`FILE_MANAGER`] in a session) as a file chooser
+    /// (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): a process of its own, told what to show
+    /// in `OXYOS_FILE_CHOOSER` (`shown`, JSON), its window [`CHOOSER_WINDOW`]. Only a system
+    /// application of the image's policy is started, unless `development` (the development
+    /// compositor's fixture): what answers for the person must be what the image ships. Its pid.
+    pub fn choose(&mut self, id: &str, shown: &str, development: bool) -> Result<u32, Error> {
+        self.start(id, Start::Chooser { shown, development })
+    }
+
     /// Opens `file`, of the media type `kind`, in the application that opens it
     /// (docs/adr/0028-file-access.mdx, decision 6): the first in the registry's order whose entry
     /// declares the type (`MimeType`), else `fallback` (the file manager, which shows any file).
@@ -1240,6 +1265,13 @@ impl Launcher {
     }
 
     fn launch_opening(&mut self, id: &str, opened: Option<&Path>) -> Result<u32, Error> {
+        match opened {
+            Some(file) => self.start(id, Start::Opening(file)),
+            None => self.start(id, Start::Launch),
+        }
+    }
+
+    fn start(&mut self, id: &str, how: Start) -> Result<u32, Error> {
         let policy = self.policy();
         let application = find(
             &self.directories,
@@ -1253,10 +1285,24 @@ impl Launcher {
         let system = policy
             .get(id)
             .filter(|_| application.origin == Origin::System);
+        if let Start::Chooser {
+            development: false, ..
+        } = how
+        {
+            if system.is_none() {
+                return Err(Error(format!(
+                    "{id} is not a system application: it does not choose files"
+                )));
+            }
+        }
+        let mut runtime = self.runtime.clone();
+        if let Start::Chooser { .. } = how {
+            runtime.window = CHOOSER_WINDOW;
+        }
         let (mut command, grants) = match system {
             Some(system) => {
                 let (pinned, runtime) =
-                    pinned(&application, system, &self.runtime, &*self.trusted).ok_or_else(
+                    pinned(&application, system, &runtime, &*self.trusted).ok_or_else(
                         || {
                             Error(format!(
                                 "{id}: what it runs is not what the policy names, or not an administrator's"
@@ -1265,7 +1311,7 @@ impl Launcher {
                     )?;
                 (command(&pinned, &runtime)?, system.grants)
             }
-            None => (command(&application, &self.runtime)?, Grants::default()),
+            None => (command(&application, &runtime)?, Grants::default()),
         };
         let capabilities = match (&application.origin, &self.installed) {
             (Origin::Installed { .. }, Some(installed)) => capability_decisions(installed, id),
@@ -1278,9 +1324,17 @@ impl Launcher {
         command
             .env("OXYOS_APP_ORIGIN", origin)
             .env("OXYOS_APP_CAPABILITIES", granted);
-        if let Some(file) = opened {
-            command.env("OXYOS_LAUNCH_URL", file_url(file));
-        }
+        let opened = match how {
+            Start::Opening(file) => {
+                command.env("OXYOS_LAUNCH_URL", file_url(file));
+                Some(file.to_path_buf())
+            }
+            Start::Chooser { shown, .. } => {
+                command.env("OXYOS_FILE_CHOOSER", shown);
+                None
+            }
+            Start::Launch => None,
+        };
         let child = command
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
@@ -1289,10 +1343,12 @@ impl Launcher {
             child,
             Launched {
                 id: application.id,
+                name: application.name,
                 grants,
                 origin: application.origin,
                 capabilities,
-                opened: opened.map(Path::to_path_buf),
+                opened,
+                chooser: matches!(how, Start::Chooser { .. }),
             },
         ));
         Ok(pid)
@@ -1321,6 +1377,17 @@ impl Launcher {
             .iter()
             .find(|(child, _)| child.id() == pid)
             .map(|(_, launched)| launched)
+    }
+
+    /// Asks a process it started to end (SIGTERM): a file chooser whose request ended. It is
+    /// reaped once it exits.
+    pub fn terminate(&self, pid: u32) {
+        if !self.children.iter().any(|(child, _)| child.id() == pid) {
+            return;
+        }
+        if let Some(pid) = rustix::process::Pid::from_raw(pid as i32) {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+        }
     }
 
     /// Stops every process it started: asked first (SIGTERM), then killed after `grace`.

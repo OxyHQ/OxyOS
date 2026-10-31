@@ -1,0 +1,369 @@
+{
+  "about": "File choosers (scenarios/file-chooser.json) on a 1600x900 display at 1.25 (ADR 0018): the same requests and answers, the sheet at the same logical place, its points in the window's logical pixels.",
+  "module": "FileChooserProbe",
+  "window": [
+    800,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.chooserprobe",
+    "title": "File Chooser Probe"
+  },
+  "outputs": "1600x900@1.25",
+  "file_chooser": "FileChooserFixture",
+  "home": {
+    "items": {
+      "Pictures/a.png": "an image",
+      "Pictures/b b.png": "another image",
+      "Documents/": ""
+    }
+  },
+  "steps": [
+    {
+      "name": "Open, pressed: the request goes to the session, the chooser's window is the window's sheet at its top with the keyboard, the window still the active one",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 1",
+          "Answer: none yet"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open",
+            "Types: image/png .png",
+            "Title: Choose an image",
+            "Name: -",
+            "For: File Chooser Probe"
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press on the window beside its sheet: the window gets nothing, the sheet keeps the keyboard",
+      "do": [
+        "press",
+        [
+          10,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Answer: none yet"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "delivered": {
+          "1": {
+            "enter": 1
+          },
+          "chooser": {
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "A file outside the person's files, chosen in the sheet: not an answer, the sheet stays",
+      "do": [
+        "press",
+        [
+          144,
+          274
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Answer: none yet"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "delivered": {
+          "1": {
+            "leave": 1
+          },
+          "chooser": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "in_chooser": {
+          "react": {
+            "touchStart@choose-outside": 1,
+            "touchEnd@choose-outside": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a.png chosen: the application alone is told it, the sheet goes and the window takes presses again",
+      "do": [
+        "press",
+        [
+          144,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: chosen a.png"
+        ],
+        "chooser": null,
+        "in_chooser": {
+          "react": {
+            "touchStart@choose-a": 1,
+            "touchEnd@choose-a": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Open several, then both chosen",
+      "do": [
+        "press",
+        [
+          100,
+          508
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 2"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open multiple",
+            "Types: .png",
+            "Title: -"
+          ]
+        }
+      }
+    },
+    {
+      "name": "both chosen, each by its URI",
+      "do": [
+        "press",
+        [
+          144,
+          136
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: chosen a.png, b b.png"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "Folder, then Pictures chosen",
+      "do": [
+        "press",
+        [
+          100,
+          458
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 3"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open folders",
+            "Types: any"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pictures chosen: a folder for a folder",
+      "do": [
+        "press",
+        [
+          144,
+          182
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: chosen Pictures/"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "Save: the name suggested",
+      "do": [
+        "press",
+        [
+          100,
+          408
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 4"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: save",
+            "Types: text/plain",
+            "Name: Informe.txt"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Saved in Documents: the file to write, not there yet",
+      "do": [
+        "press",
+        [
+          144,
+          228
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: chosen Informe.txt"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "Open again, then Cancel in the sheet",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 5"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "Cancel: the application is told it was cancelled",
+      "do": [
+        "press",
+        [
+          144,
+          320
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Answer: cancelled"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "Withdraw: asked, and withdrawn by the application before the person answers; the sheet goes",
+      "do": [
+        "press",
+        [
+          100,
+          358
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Asked: 6"
+        ]
+      }
+    },
+    {
+      "name": "the withdrawn request answered cancelled, its sheet gone",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Answer: cancelled"
+        ],
+        "chooser": null
+      }
+    }
+  ]
+}
