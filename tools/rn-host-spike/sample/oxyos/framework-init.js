@@ -2,16 +2,18 @@
 // once in every application's JavaScript runtime, after React Native's InitializeCore and before the
 // application's own bundle.
 //
-// - Expo's native side, as the host provides it (expo-adapter.js, expo-file-system.js), for every
-//   application.
+// - Expo's native side, as the host provides it (expo-adapter.js, expo-file-system.js,
+//   expo-document-picker.js), for every application.
 // - The framework's assets (Bloom's fonts, React Native's images) are the runtime's, beside its
 //   framework, not the application's: an asset the framework's build marked (`oxyosFramework`,
 //   framework-asset-plugin.js) is resolved against the framework's URL, which the host gives
 //   (`OxyOSRuntime.frameworkURL`); every other asset against the application's bundle, as React
 //   Native resolves it.
 import './expo-adapter';
-// expo-file-system's native module, once the adapter installed Expo's globals (ADR 0028).
+// expo-file-system's native module, once the adapter installed Expo's globals (ADR 0028), and
+// expo-document-picker's, on the system's file chooser (ADR 0029, decision 8).
 import './expo-file-system';
+import './expo-document-picker';
 import { TurboModuleRegistry } from 'react-native';
 import AssetSourceResolver from 'react-native/Libraries/Image/AssetSourceResolver';
 import resolveAssetSource from 'react-native/Libraries/Image/resolveAssetSource';

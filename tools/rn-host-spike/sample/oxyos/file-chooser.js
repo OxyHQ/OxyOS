@@ -26,6 +26,26 @@ if (native) {
   });
 }
 
+/**
+ * The accepted types an Expo picker names (`image/png`, `image/*`, `.pdf`, one or a list; the
+ * wildcard of every type for any), as the session's vocabulary takes them: media types lowercased without their
+ * parameters, extensions as they are; any type, none at all. A type the vocabulary has no words
+ * for is left out rather than refusing the whole request.
+ */
+export function acceptedTypes(given) {
+  const list = given == null ? [] : Array.isArray(given) ? given : [given];
+  const types = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const type = item.startsWith('.') ? item : item.split(';')[0].trim().toLowerCase();
+    if (type === '*/*' || type === '*') return [];
+    const media = /^[a-z0-9!#$&^_.+-]+\/([a-z0-9!#$&^_.+-]+|\*)$/.test(type);
+    const extension = /^(\.[A-Za-z0-9_+-]+)+$/.test(type);
+    if ((media || extension) && type.length <= 128 && !types.includes(type)) types.push(type);
+  }
+  return types;
+}
+
 /** Whether this window can ask for files (the host has the module: an application's window). */
 export const chooserAvailable = native != null;
 

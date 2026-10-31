@@ -57,8 +57,8 @@ The file manager is **Stash** (OxyHQ/Stash), the Oxy application for the person'
      - **Downloads:** `File.downloadFileAsync` and download tasks. A status that is not 2xx makes no file. A task can be paused and resumed (`Range`).
      - **Uploads:** `File.upload`, upload tasks, and the legacy `uploadAsync` and `createUploadTask`, which the Oxy SDK's native uploads use. The body is the file's raw bytes or a multipart form, with progress.
      - **Form parts:** React Native's `FormData` parts that are files (`{uri, name, type}`, which the SDK's `assets.upload` sends) are opened through this scope. A part with any other URI fails the request.
+   - **Pickers:** `File.pickFileAsync` and `Directory.pickDirectoryAsync`, and expo-document-picker's `getDocumentAsync`, ask the system's file chooser ([ADR 0029](./0029-chromium-on-oxyos), decision 8), citing the person's latest press or key. A cancellation, and the session's refusal (a picker opened with no press of the person's, said), are what each API answers for a cancelled pick; a document's asset is first copied into the application's cache unless `copyToCacheDirectory` is false, as Expo copies it everywhere.
    - **What fails loudly, with the reason:**
-     - `File.pickFileAsync` and `Directory.pickDirectoryAsync`, until the host asks the system's file chooser for them ([ADR 0029](./0029-chromium-on-oxyos), decision 8).
      - `File.preview`; `canPreview` answers false until decision 6.
      - The legacy module beyond its folders and uploads.
 

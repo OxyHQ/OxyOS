@@ -14,11 +14,15 @@
  *   does, with the reason.
  * - Synchronous methods are synchronous (on the JavaScript thread, as on Android); asynchronous ones
  *   run on the service's thread.
- * - What OxyOS cannot do yet fails loudly: the system's file and folder pickers (there are none),
- *   and previewing a file (opening it in another application is not there yet: `canPreview` is
- *   false). `expo-file-system/legacy` (`ExponentFileSystem`) is its folders and its uploads, as
+ * - `File.pickFileAsync` and `Directory.pickDirectoryAsync` ask the system's file chooser
+ *   (file-chooser.js, docs/adr/0029-chromium-on-oxyos.mdx, decision 8), citing the person's latest
+ *   press or key: the panel is the session's, a sheet of this window, and the answer what the person
+ *   chose.
+ * - What OxyOS cannot do yet fails loudly: previewing a file (opening it in another application is
+ *   not there yet: `canPreview` is false). `expo-file-system/legacy` (`ExponentFileSystem`) is its folders and its uploads, as
  *   the Oxy SDK's native upload uses them; its other methods fail, naming the API to use instead.
  */
+import { acceptedTypes, chooseFiles } from './file-chooser';
 import {
   FilesError,
   callFiles,
@@ -94,7 +98,23 @@ async function later(what, uri, op, args, content, as) {
 }
 
 const unsupported = (what, reason) => codedError('ERR_FILE_SYSTEM_UNSUPPORTED', `${what} is not available on OxyOS: ${reason}`);
-const NO_PICKER = 'OxyOS has no system file picker yet';
+
+/**
+ * What the person chose in the system's file chooser for `what`; a cancellation, or the session's
+ * refusal (a picker opened with no press or key of the person's), thrown as the native side of
+ * expo-file-system throws them, which its `pickFileAsync` answers as a cancelled pick.
+ */
+async function chosen(what, request) {
+  const answer = await chooseFiles(request);
+  if (answer?.chosen) return answer.chosen;
+  if (answer?.cancelled) throw codedError('ERR_FILE_PICKER_CANCELLED', `${what}: the person cancelled`);
+  const reason = answer?.refused?.reason ?? 'unavailable';
+  console.warn(`expo-file-system: ${what}: OxyOS's file chooser refused (${reason})`);
+  throw codedError('ERR_FILE_PICKER_REFUSED', `${what}: OxyOS's file chooser refused it (${reason})`);
+}
+
+/** Where a picker opens, if the application said. */
+const startingIn = (initialUri) => (typeof initialUri === 'string' && initialUri ? { folder: initialUri } : {});
 const NO_PREVIEW = 'opening a file in another application is not there yet on OxyOS';
 
 const URI = Symbol('uri');
@@ -699,13 +719,16 @@ Object.assign(FileSystem, {
   async preview() {
     throw unsupported('File.preview', NO_PREVIEW);
   },
-  async pickDirectoryAsync() {
-    throw unsupported('Directory.pickDirectoryAsync', NO_PICKER);
+  async pickDirectoryAsync(initialUri) {
+    const [uri] = await chosen('Directory.pickDirectoryAsync', { open: { directory: true, ...startingIn(initialUri) } });
+    return { uri };
   },
-  async pickFileAsync() {
-    // File.pickFileAsync answers any failure as a cancelled pick: the reason is said here too.
-    console.warn(`expo-file-system: File.pickFileAsync is not available on OxyOS: ${NO_PICKER}; it answers as cancelled`);
-    throw unsupported('File.pickFileAsync', NO_PICKER);
+  async pickFileAsync(options) {
+    const multiple = options?.multipleFiles === true;
+    const uris = await chosen('File.pickFileAsync', {
+      open: { multiple, types: acceptedTypes(options?.mimeTypes), ...startingIn(options?.initialUri) },
+    });
+    return multiple ? uris.map((uri) => ({ uri })) : { uri: uris[0] };
   },
 });
 

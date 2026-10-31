@@ -1,0 +1,264 @@
+{
+  "about": "The system's file chooser with Stash's own picker mode (docs/adr/0029-chromium-on-oxyos.mdx, decision 8; OxyHQ/Stash's picker, built from its checkout, STASH_DIR): Expo's File.pickFileAsync and expo-document-picker's getDocumentAsync (sample/ExpoPickerProbe.tsx) ask, the session starts Stash as a sheet of the window with its sidebar's places, its icon grid and Cancel/Open; a folder opened from the sidebar, an image selected and opened, a document's copy in the application's cache, Stash opening again in the folder it last used for this application, and a cancellation. Needs Stash's package (packages.mjs with STASH_DIR).",
+  "module": "ExpoPickerProbe",
+  "window": [
+    800,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.expopickerprobe",
+    "title": "Expo Picker Probe"
+  },
+  "file_chooser": "Stash",
+  "home": {
+    "items": {
+      "Pictures/a.png": "an image",
+      "Pictures/b b.png": "another image",
+      "Documents/": ""
+    }
+  },
+  "steps": [
+    {
+      "name": "File.pickFileAsync for PNG images: Stash's picker, a sheet of the window",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "Stash shows the home: its places, Open disabled, Cancel",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Favourites",
+            "Documents",
+            "Pictures",
+            "Cancel",
+            "Open"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pictures in its sidebar",
+      "do": [
+        "press",
+        [
+          99,
+          205
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "the folder's images",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_chooser": {
+          "texts": [
+            "a.png",
+            "b b.png",
+            "2 items"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a.png selected",
+      "do": [
+        "press",
+        [
+          319,
+          175
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "Open: the File it resolves with, read; the sheet gone",
+      "do": [
+        "press",
+        [
+          725,
+          535
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: a.png \"an image\""
+        ],
+        "chooser": null,
+        "in_chooser": {
+          "react": {
+            "touchStart@chooser-confirm": 1,
+            "touchEnd@chooser-confirm": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "expo-document-picker's getDocumentAsync: Stash again, in the folder it last opened for this application",
+      "do": [
+        "press",
+        [
+          100,
+          408
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Document: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "Pictures, as last time",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_chooser": {
+          "texts": [
+            "a.png",
+            "b b.png"
+          ]
+        }
+      }
+    },
+    {
+      "name": "b b.png selected",
+      "do": [
+        "press",
+        [
+          444,
+          175
+        ]
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "Open: the asset a copy in the application's cache",
+      "do": [
+        "press",
+        [
+          725,
+          535
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Document: b b.png 13 bytes, a copy in the cache: another image"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "File.pickFileAsync again",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "Stash shows it",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_chooser": {
+          "texts": [
+            "Cancel"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Cancel: a cancelled pick",
+      "do": [
+        "press",
+        [
+          650,
+          535
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: cancelled"
+        ],
+        "chooser": null
+      }
+    }
+  ]
+}
