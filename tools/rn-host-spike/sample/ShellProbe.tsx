@@ -168,12 +168,24 @@ const probeControls: NonNullable<React.ComponentProps<typeof Shell>['controls']>
 // The fixture's wallpaper, where the system chose none.
 const FIXTURE_WALLPAPER = require('../../../assets/wallpapers/solar-gradients/frames/frame-08.jpg');
 
+/**
+ * OxyOS's platform as the shell has it: never the `menu-bar` capability. The shell's top bar is
+ * the session's menu bar (docs/adr/0021-menu-bar.mdx): its Bloom Menubar draws itself, and never
+ * hands its menus to a platform bar, which would leave its own bar empty. The session's shell is
+ * offered none; in a window (`--window`) the host offers the window's, as to any application's.
+ */
+const { menuBar: _windowMenuBar, ...shellPlatformBase } = oxyosSurfaces;
+const shellPlatform = {
+  ...shellPlatformBase,
+  capabilities: new Set([...oxyosSurfaces.capabilities].filter((capability) => capability !== 'menu-bar')),
+};
+
 /** What the shell is rendered in: the safe area and Bloom. Nothing it is given changes, so it
     renders once, and a change the shell shows renders the shell, never these. */
 function ShellProviders({ children }: { children: React.ReactNode }) {
   return (
     <SafeAreaProvider>
-      <BloomProvider mode="system" colorPreset="graphite" haptics={false} locale="es" platform={oxyosSurfaces}>
+      <BloomProvider mode="system" colorPreset="graphite" haptics={false} locale="es" platform={shellPlatform}>
         {children}
       </BloomProvider>
     </SafeAreaProvider>
