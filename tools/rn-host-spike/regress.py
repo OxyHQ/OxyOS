@@ -47,6 +47,14 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   them) or the application's popups, each node matching the keys given ({} matches any): role,
   name, value, state, actions (what it offers beyond activate and focus), custom (its custom
   actions' labels), selection;
+- at_group: groups in the window's tree as the assistive technology received it, nested as the
+  application nested it (each node's parent): each {"group": node, "items": [node, ...]} has
+  exactly one node matching "group", and each item matches exactly one node in the whole window,
+  nested in that group (at any depth), the items in order and side by side, left to right, inside
+  the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
+  elsewhere. With "only": true the buttons the group holds are exactly its items;
+- at_hit: what a press lands on, by the tree's geometry: "x,y" (the window's coordinates, as
+  `press` takes them) -> the node matching the keys given is the innermost one whose rectangle holds it;
 - announcements: what the assistive technology would have said in the step, exactly and in
   order: an application's announcements and live regions' changes, each matching the keys
   given (politeness, text, live);
@@ -1630,6 +1638,69 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             return "window" if surface == "1" else "shell" if surface.startswith("shell-") else "popup"
         wanted = role if role in ("window", "shell") else "popup"
         return [n for s, tree in result.get("a11y", {}).items() if place(s) == wanted for n in tree]
+    def matches(n, node):
+        return all(n.get(k) == v for k, v in node.items())
+
+    def inside(inner, outer):
+        x, y, w, h = inner
+        ox, oy, ow, oh = outer
+        return ox <= x and oy <= y and x + w <= ox + ow and y + h <= oy + oh
+
+    if "at_group" in expect:
+        tree = result.get("a11y", {}).get("1", [])
+
+        def nested_in(index, group):
+            seen = set()
+            parent = tree[index].get("parent")
+            while parent is not None and parent not in seen:
+                if parent == group:
+                    return True
+                seen.add(parent)
+                parent = tree[parent].get("parent") if 0 <= parent < len(tree) else None
+            return False
+
+        for spec in expect["at_group"]:
+            groups = [i for i, n in enumerate(tree) if matches(n, spec["group"])]
+            if len(groups) != 1:
+                fail(f"{len(groups)} window nodes match the group {spec['group']}, expected one")
+                continue
+            group = groups[0]
+            found = []
+            for item in spec["items"]:
+                hits = [i for i, n in enumerate(tree) if matches(n, item)]
+                if len(hits) != 1:
+                    fail(f"{len(hits)} window nodes match {item}, expected one (in {spec['group']})")
+                elif not nested_in(hits[0], group):
+                    fail(f"{item} is not in the group {spec['group']}: parent "
+                         f"{tree[hits[0]].get('parent')}, the group is node {group}")
+                else:
+                    found.append(hits[0])
+            if len(found) != len(spec["items"]):
+                continue
+            rects = [tree[i]["rect"] for i in found]
+            if found != sorted(found) or any(a[0] + a[2] > b[0] for a, b in zip(rects, rects[1:])):
+                fail(f"the group's items are not in order side by side: {rects}")
+            outer = tree[group]["rect"]
+            for item, rect in zip(spec["items"], rects):
+                if not inside(rect, outer):
+                    fail(f"{item} at {rect} is outside its group at {outer}")
+            if spec.get("only"):
+                held = [i for i, n in enumerate(tree) if n["role"] == "Button" and nested_in(i, group)]
+                if held != found:
+                    fail(f"the group holds the buttons {[tree[i]['name'] for i in held]}, "
+                         f"expected exactly {[tree[i]['name'] for i in found]}")
+    if "at_hit" in expect:
+        tree = result.get("a11y", {}).get("1", [])
+        wx, wy = (result.get("window") or [0, 0])[:2]
+        for point, node in expect["at_hit"].items():
+            px, py = (float(v) for v in point.split(","))
+            # A press is in the window's coordinates; the compositor hands the tree on in the
+            # output's.
+            under = [n for n in tree if inside((px + wx, py + wy, 0, 0), n["rect"])]
+            got = under[-1] if under else None
+            if got is None or not matches(got, node):
+                fail(f"a press at {point} lands on {got and {k: got[k] for k in ('role', 'name', 'rect')}}, "
+                     f"expected {node}")
     if "at" in expect:
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)

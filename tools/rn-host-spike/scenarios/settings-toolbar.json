@@ -1,0 +1,483 @@
+{
+ "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Stash's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+].",
+ "module": "OxyOSSettings",
+ "window": [
+  960,
+  600
+ ],
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "steps": [
+  {
+   "name": "Its first page: the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": [
+         "disabled"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Appearance"
+      },
+      {
+       "role": "Button",
+       "name": "Appearance",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "at_hit": {
+     "317,26": {
+      "role": "Button",
+      "name": "Back"
+     },
+     "352,26": {
+      "role": "Button",
+      "name": "Forward"
+     }
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Open navigation"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wallpaper, from the sidebar: visited, so Back is enabled; nothing ahead",
+   "do": [
+    "press",
+    [
+     136,
+     150
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Wallpaper"
+      },
+      {
+       "role": "Button",
+       "name": "Wallpaper",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Displays, from the sidebar",
+   "do": [
+    "press",
+    [
+     136,
+     270
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Displays"
+      },
+      {
+       "role": "Button",
+       "name": "Displays",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Back, pressed in the toolbar: Wallpaper again, Displays now ahead",
+   "do": [
+    "press",
+    [
+     317,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Wallpaper"
+      },
+      {
+       "role": "Button",
+       "name": "Wallpaper",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Forward, pressed in the toolbar: Displays, nothing ahead",
+   "do": [
+    "press",
+    [
+     352,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Displays"
+      },
+      {
+       "role": "Button",
+       "name": "Displays",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+[ goes back: Wallpaper",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Wallpaper"
+      },
+      {
+       "role": "Button",
+       "name": "Wallpaper",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+[ again: the first page, nowhere further back",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": [
+         "disabled"
+        ]
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Appearance"
+      },
+      {
+       "role": "Button",
+       "name": "Appearance",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+] goes forward: Wallpaper",
+   "do": [
+    "key",
+    [
+     29,
+     27
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": []
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Wallpaper"
+      },
+      {
+       "role": "Button",
+       "name": "Wallpaper",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A page chosen with pages ahead drops them: Accessibility, nothing ahead",
+   "do": [
+    "press",
+    [
+     136,
+     310
+    ]
+   ],
+   "expect": {
+    "at_group": [
+     {
+      "group": {
+       "role": "Group",
+       "name": "Back and forward"
+      },
+      "items": [
+       {
+        "role": "Button",
+        "name": "Back",
+        "state": []
+       },
+       {
+        "role": "Button",
+        "name": "Forward",
+        "state": [
+         "disabled"
+        ]
+       }
+      ],
+      "only": true
+     }
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Accessibility"
+      },
+      {
+       "role": "Button",
+       "name": "Accessibility",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
