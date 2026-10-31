@@ -26,6 +26,10 @@ void drawBackground(SkCanvas& canvas, const facebook::react::ViewProps& props,
 
 // Whether the view draws any background layer at all.
 bool drawsBackground(const facebook::react::ViewProps& props);
+// Whether Android would give the view a CompositeBackgroundDrawable (BackgroundStyleApplicator makes
+// one for any background style: a colour, rounded corners, a border, a shadow, an outline, an
+// image), whose outline its elevation's shadow is cast from.
+bool hasBackground(const facebook::react::ViewProps& props, const facebook::react::LayoutMetrics& layout);
 
 // How far outside its frame the view's background layers draw (outset shadows, the outline): the
 // frame grown by these, left, top, right and bottom, in logical pixels.

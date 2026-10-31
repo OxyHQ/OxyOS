@@ -781,6 +781,13 @@ bool drawsBackground(const ViewProps& props) {
   return false;
 }
 
+bool hasBackground(const ViewProps& props, const LayoutMetrics& layout) {
+  if (drawsBackground(props) || props.backgroundColor) return true;
+  auto border = props.resolveBorderMetrics(layout);
+  const auto& colors = border.borderColors;
+  return rounded(border.borderRadii) || colors.left || colors.top || colors.right || colors.bottom;
+}
+
 void drawBackground(SkCanvas& canvas, const ViewProps& props, const LayoutMetrics& layout, float x, float y, float w,
                     float h, float opacity, float scale) {
   if (opacity <= 0) return;

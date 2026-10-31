@@ -640,7 +640,8 @@ void drawChild(const ViewTree& tree, Tag child, float ox, float oy, const Clip& 
 }
 
 // A view's `elevation`, as Android casts it: HWUI's shadow of the view's outline (its background's:
-// the border box with its corners; a view without a background has none, so casts nothing) raised
+// the border box with its corners, which a view has once it has any background style: a colour, a
+// border, rounded corners, a shadow or an outline; one with none casts nothing, as on Android) raised
 // `elevation` pixels, by Skia's SkShadowUtils, with Android's light: 600 dp above the top of the
 // window, at its middle, 800 dp wide, an ambient shadow at 0.039 and a spot shadow at 0.19 of the
 // shadow colour (React Native's shadowColor, Android's outline ambient and spot colours; black by
@@ -649,14 +650,15 @@ void drawChild(const ViewTree& tree, Tag child, float ox, float oy, const Clip& 
 // is at the middle of its own surface.
 void drawElevation(SkCanvas& canvas, const ViewProps& props, const LayoutMetrics& layout, float x, float y, float w,
                    float h, float elevation, float opacity, float scale) {
-  if (!drawsBackground(props)) return;
+  if (!hasBackground(props, layout)) return;
   auto border = props.resolveBorderMetrics(layout);
   SkPath outline = SkPath::RRect(borderBox(border, x, y, w, h));
   SkColor4f color = faded(props.shadowColor, 1, SkColor4f{0, 0, 0, 1});
   auto alpha = [&](float share) { return SkColor4f{color.fR, color.fG, color.fB, color.fA * share * opacity}.toSkColor(); };
   SkISize device = canvas.getBaseLayerSize();
   const SkPoint3 light = SkPoint3::Make(device.width() / 2.0f, 0, 600 * scale);
-  bool opaque = faded(props.backgroundColor, 1).fA >= 1 && opacity >= 1;
+  // HWUI sees through a caster drawn translucent (its alpha below 1).
+  bool opaque = opacity >= 1;
   SkShadowUtils::DrawShadow(&canvas, outline, SkPoint3::Make(0, 0, elevation * scale), light, 800 * scale,
                             alpha(0.039f), alpha(0.19f), opaque ? kNone_ShadowFlag : kTransparentOccluder_ShadowFlag);
 }
@@ -739,9 +741,10 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     SkColor4f bg = props ? faded(props->backgroundColor, 1) : SkColor4f{0, 0, 0, 0};
     std::fprintf(stderr,
                  "[tree] %*s%s tag=%d frame=(%.0f,%.0f %.0fx%.0f) at=(%.0f,%.0f) bg=%.2f,%.2f,%.2f,%.2f opacity=%.2f "
-                 "z=%d\n",
+                 "z=%d elevation=%.1f shadows=%zu\n",
                  depth * 2, "", name.c_str(), tag, frame.origin.x, frame.origin.y, w, h, x, y, bg.fR, bg.fG, bg.fB,
-                 bg.fA, props ? props->opacity : 1.0f, props && props->zIndex ? *props->zIndex : 0);
+                 bg.fA, props ? props->opacity : 1.0f, props && props->zIndex ? *props->zIndex : 0,
+                 androidViewPropsOf(*view.props).elevation, props ? props->boxShadow.size() : size_t{0});
     ++depth;
   }
   SkCanvas& canvas = *draw.canvas;
