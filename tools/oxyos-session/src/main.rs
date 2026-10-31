@@ -484,6 +484,33 @@ fn main() -> Result<()> {
         oxyos_apps::languages(),
     )
     .with_installed(installed);
+    // The applications the person opens at login (docs/adr/0034-the-dock.mdx), in their order, as
+    // the session starts; none on the login screen. One the registry no longer lists is said and
+    // passed over.
+    if !greeter {
+        for id in &settings.preferences().open_at_login {
+            match launcher.launch(id) {
+                Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),
+                Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
+            }
+        }
+    }
+    // The dock's Trash (docs/adr/0034-the-dock.mdx): what the user's Trashes hold, told to the
+    // shell, and emptied when the person asks and accepts; none on the login screen.
+    let mut trash = if greeter {
+        None
+    } else {
+        match oxyos_files::Scope::for_user().and_then(oxyos_compositor::trash::Trash::new) {
+            Ok(trash) => {
+                compositor.wakers.push(trash.wake_fd()?);
+                Some(trash)
+            }
+            Err(error) => {
+                eprintln!("[session] the Trash is not followed: {error}");
+                None
+            }
+        }
+    };
     let mut shell_started = Instant::now();
     let ended = loop {
         // What woke the turn of children exiting: they are looked at below, every turn.
@@ -517,6 +544,9 @@ fn main() -> Result<()> {
             for note in versions.shown(&compositor.pids_showing_windows()) {
                 installd.as_ref().inspect(|i| i.note(note));
             }
+        }
+        if let Some(trash) = trash.as_mut() {
+            trash.serve(&mut compositor.scene);
         }
         if let Some(installs) = installs.as_mut() {
             let askers: std::collections::BTreeMap<_, _> = compositor
@@ -572,6 +602,40 @@ fn main() -> Result<()> {
             compositor
                 .scene
                 .launched(request.client, request.serial, launched);
+        }
+        // The URLs the shell opens (docs/adr/0034-the-dock.mdx): the application whose entry
+        // declares the scheme, started with the URL; only for the person's own input, and none
+        // from the login screen.
+        for request in compositor.scene.take_url_requests() {
+            let opened = !greeter
+                && request.with_input
+                && match launcher.open_url(&request.url) {
+                    Ok((id, pid)) => {
+                        eprintln!("[session] opened {} in {id} ({pid})", request.url);
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] {} not opened: {error}", request.url);
+                        false
+                    }
+                };
+            compositor
+                .scene
+                .launched(request.client, request.serial, opened);
+        }
+        // The person's force quits (docs/adr/0034-the-dock.mdx): the session ends the processes
+        // it started for the application, and none other (the shell, the login and lock screens
+        // are not its launches).
+        for pid in compositor.take_force_quits() {
+            if launcher.force_quit(pid) {
+                eprintln!("[session] force quit {pid}");
+            }
         }
         // The files applications asked the person to choose (ADR 0029, decision 8): the file
         // manager of the image's policy started for each in its picker mode, the request's sheet;

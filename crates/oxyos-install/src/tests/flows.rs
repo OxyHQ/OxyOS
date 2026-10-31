@@ -846,3 +846,17 @@ fn an_account_decides_the_capabilities_its_version_declares() {
         Err(InstallError::NotInstalled)
     ));
 }
+
+#[test]
+fn an_entry_declares_the_kinds_of_file_and_the_url_schemes_its_package_opens() {
+    let mut manifest = oxyos_package::Manifest::parse(&Pkg::notes(12).manifest()).unwrap();
+    let version = std::path::Path::new("/var/lib/oxyos/packages/so.oxy.notes/12");
+    assert!(!crate::install::entry_text(&manifest, version, 1).contains("MimeType"));
+    manifest.opens.types = vec!["text/plain".into()];
+    manifest.opens.schemes = vec!["notes".into()];
+    let entry = crate::install::entry_text(&manifest, version, 1);
+    assert!(
+        entry.contains("MimeType=text/plain;x-scheme-handler/notes;\n"),
+        "{entry}"
+    );
+}

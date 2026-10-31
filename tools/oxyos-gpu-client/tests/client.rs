@@ -213,6 +213,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
                 y: 10 << 8,
                 button: 272,
                 time_ns: 0,
+                modifiers: 0,
             },
             None,
         )
@@ -233,6 +234,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
                     y: 10 << 8,
                     button: 272,
                     time_ns: 0,
+                    modifiers: 0,
                 },
                 None,
             )

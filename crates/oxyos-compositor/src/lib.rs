@@ -41,6 +41,7 @@ pub mod motion;
 pub mod settings;
 pub mod splash;
 pub mod transitions;
+pub mod trash;
 pub mod window;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -1084,6 +1085,22 @@ impl Compositor {
             .collect()
     }
 
+    /// The processes of each application the shell asked to force-quit (docs/adr/0034-the-dock.mdx),
+    /// by their pids: the clients the session started for it, as their launch records name them.
+    /// The program running the compositor ends those it started, and none other.
+    pub fn take_force_quits(&mut self) -> Vec<u32> {
+        let mut pids: Vec<u32> = self
+            .scene
+            .take_force_quits()
+            .into_iter()
+            .flatten()
+            .filter_map(|client| u32::try_from(self.peers.get(&client)?.pid).ok())
+            .collect();
+        pids.sort_unstable();
+        pids.dedup();
+        pids
+    }
+
     pub fn name_clients(&mut self, record_of: &dyn Fn(u32) -> Option<LaunchRecord>) {
         for (client, peer) in self.peers.iter_mut() {
             if peer.named || peer.protocol.version().is_none() {
@@ -1197,10 +1214,13 @@ impl Compositor {
                     peer.outbox.push_back((event, None));
                 }
                 let (grants, pid) = (peer.grants, peer.pid);
+                let version = peer.protocol.version().unwrap_or(oxyos_protocol::VERSION);
                 if self.scene.connect(client, grants).is_err() {
                     self.fail(client, ErrorCode::Unauthorized);
                     return;
                 }
+                // Only a client of a version that answers pings is pinged (ADR 0034).
+                self.scene.set_version(client, version);
                 if let Some(id) = self.expected_choosers.remove(&pid) {
                     self.scene.attach_chooser(client, id);
                 }
@@ -3326,6 +3346,10 @@ impl Compositor {
         if let Some(deadline) = self.idle.deadline() {
             wait = wait.min(deadline.saturating_sub(self.now()));
         }
+        // An unanswered ping becomes late: the shell is told its windows are not responding.
+        if let Some(late) = self.scene.next_ping_deadline() {
+            wait = wait.min(late);
+        }
         if let Some(controls) = &self.controls {
             wait = wait.min(controls.next_wake(Instant::now()));
         }
@@ -3525,6 +3549,9 @@ impl Compositor {
         }
         self.follow_gpu_sync();
         self.expire_pending();
+        // Clients that did not answer a ping in time are not responding (ADR 0034).
+        self.scene.set_clock(self.now());
+        self.scene.check_responding();
         // A turn that waited until the deadline locks now, and composes the lock.
         self.follow_idle();
         self.authenticate();

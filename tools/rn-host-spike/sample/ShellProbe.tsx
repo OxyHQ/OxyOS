@@ -271,7 +271,9 @@ type ToldWindow = {
   height: number;
   used: number;
   hidden: boolean;
+  responding?: boolean;
 };
+type ToldLists = { dock: { chosen: boolean; ids: string[] } | null; openAtLogin: string[] | null };
 type Registered = { id: string; name: string; icon: { uri: string } | { svg: string } | null; pinned: number | null };
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
@@ -309,6 +311,9 @@ function shellWindow(window: ToldWindow): ShellSnapshot['windows'][number] {
       // How recently it was active, and hidden with its application (ADR 0024).
       used: window.used,
       hidden: window.hidden,
+      // The active window, and whether its process answers the compositor (ADR 0034).
+      focused: window.focused,
+      responding: window.responding !== false,
       // The window's proportions (ADR 0022): its card is drawn in them, and the compositor draws
       // the window in it live (the platform's WindowView).
       thumbnailSize: window.width > 0 && window.height > 0 ? { width: window.width, height: window.height } : undefined,
@@ -383,17 +388,27 @@ function SessionShell() {
   const windows = React.useMemo(() => toldWindows.map(shellWindow), [toldWindows]);
   // The session's applications (ADR 0013): those kept in the dock by their place, then the others
   // by name, as the registry gives them. One without artwork is left out: the shell draws only an
-  // application's own.
+  // application's own. The dock's places are the person's once they changed them (ADR 0034), else
+  // the registry's (each entry's X-OxyOS-Pinned).
   const registry: Registered[] = state?.applications ?? NO_TOLD;
-  const applications = React.useMemo(
-    () =>
-      registry
-        .filter((app) => app.icon !== null)
-        .map((app, order) => ({ app, order }))
-        .sort((a, b) => (a.app.pinned ?? Infinity) - (b.app.pinned ?? Infinity) || a.order - b.order)
-        .map(({ app }) => ({ id: app.id, name: app.name, icon: app.icon!, pinned: app.pinned !== null })),
-    [registry],
-  );
+  const lists: ToldLists | null = state?.applicationLists ?? null;
+  const kept = lists?.dock?.chosen ? lists.dock.ids : null;
+  const applications = React.useMemo(() => {
+    const place = (app: Registered): number | null => {
+      if (!kept) return app.pinned;
+      const index = kept.indexOf(app.id);
+      return index < 0 ? null : index + 1;
+    };
+    return registry
+      .filter((app) => app.icon !== null)
+      .map((app, order) => ({ app, order, place: place(app) }))
+      .sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.order - b.order)
+      .map(({ app, place }) => ({ id: app.id, name: app.name, icon: app.icon!, pinned: place !== null }));
+  }, [registry, kept]);
+  // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
+  const openAtLogin = lists?.openAtLogin ?? undefined;
+  const trashItems: number | null = state?.trashItems ?? null;
+  const trash = React.useMemo(() => (trashItems === null ? undefined : { items: trashItems }), [trashItems]);
   const workspaceCount: number = state?.workspaces ?? 0;
   const workspaces = React.useMemo(
     () => Array.from({ length: workspaceCount }, (_, index) => ({ id: String(index), name: `Escritorio ${index + 1}` })),
@@ -408,10 +423,23 @@ function SessionShell() {
   const activeAppId = toldWindows.find((window) => window.focused)?.appId;
   const workspaceId = String(state?.active ?? 0);
   const shown: ShellSnapshot = React.useMemo(
-    () => ({ ...snapshot, applications, folders: NO_FOLDERS, windows, workspaces, workspaceId, activeAppId, menus }),
-    [applications, windows, workspaces, workspaceId, activeAppId, menus],
+    () => ({
+      ...snapshot,
+      applications,
+      folders: NO_FOLDERS,
+      windows,
+      workspaces,
+      workspaceId,
+      activeAppId,
+      menus,
+      openAtLogin,
+      trash,
+    }),
+    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash],
   );
-  // The actions read the state when they act, so they are made once.
+  // The actions read the state when they act, so they are made once (and again once the session
+  // told the person's lists, which a session of an older protocol never does).
+  const listsTold = lists !== null;
   const latest = React.useRef({ toldWindows, bar });
   latest.current = { toldWindows, bar };
   const act: ShellActions = React.useMemo(() => {
@@ -437,6 +465,22 @@ function SessionShell() {
       quitApp: (id) => {
         const window = recent(id);
         if (window) shell.quitApplication(window.id);
+      },
+      // The dock's application menu (ADR 0034), where the session speaks it (it told the lists):
+      // the session ends a force-quit application's processes; the lists are the person's, kept by
+      // the session; the Trash is shown in the file manager, Stash, at its Trash, and emptied by the
+      // session once the person accepts its sheet.
+      forceQuitApp: (id) => {
+        const window = recent(id);
+        if (window) shell.forceQuitApplication(window.id);
+      },
+      setDock: listsTold ? (ids) => shell.setApplicationList('dock', ids) : undefined,
+      setOpenAtLogin: listsTold ? (ids) => shell.setApplicationList('openAtLogin', ids) : undefined,
+      openTrash: () => {
+        shell.openUrl('stash://trash');
+      },
+      emptyTrash: () => {
+        shell.emptyTrash();
       },
       focusWindow: (id) => shell.focusWindow(Number(id)),
       // The top bar left from the keyboard (ADR 0024): the keyboard back with the window whose
@@ -469,7 +513,7 @@ function SessionShell() {
       },
     };
     return actions;
-  }, []);
+  }, [listsTold]);
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const locked = !!state?.locked;
   const user = state?.user;

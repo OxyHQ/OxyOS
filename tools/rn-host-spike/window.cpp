@@ -353,6 +353,23 @@ bool Window::launch(uint32_t serial, const std::string& id) {
   return oxyos_client_launch(client_, serial, id.data(), id.size()) == 0;
 }
 
+bool Window::setApplicationList(uint32_t serial, uint32_t list, const std::string& ids) {
+  return oxyos_client_set_application_list(client_, serial, list, ids.empty() ? nullptr : ids.data(), ids.size()) ==
+         0;
+}
+
+bool Window::openUrl(uint32_t serial, uint64_t input, const std::string& url) {
+  return oxyos_client_open_url(client_, serial, input, url.data(), url.size()) == 0;
+}
+
+bool Window::forceQuitApplication(uint32_t window) {
+  return oxyos_client_manage(client_, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, window, 0) == 0;
+}
+
+bool Window::emptyTrash(uint64_t input) { return oxyos_client_empty_trash(client_, input) == 0; }
+
+uint16_t Window::protocolVersion() const { return oxyos_client_protocol_version(client_); }
+
 void Window::lockSession() {
   if (oxyos_client_lock_session(client_) != 0) failed("cannot lock the session");
 }

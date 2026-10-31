@@ -11,5 +11,9 @@
   },
   "architectures": [
     "any"
-  ]
+  ],
+  "capabilities": [
+    { "name": "url-schemes", "purpose": { "en": "To open at a place of its own: the dock's Trash opens it at its Trash.", "es": "Para abrirse en un lugar suyo: la Papelera del Dock lo abre en su Papelera." } }
+  ],
+  "opens": { "schemes": ["stash"] }
 }

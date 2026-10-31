@@ -42,6 +42,9 @@ class OxyOSPopupViewProps final : public ViewProps {
   bool hasPoint{false};
   Float pointX{0};
   Float pointY{0};
+  // A tooltip (Bloom's `role: 'tooltip'`, docs/adr/0034-the-dock.mdx): shown without a grab and
+  // taking no input, presses passing through it to what is under it.
+  bool tooltip{false};
 };
 
 using OxyOSPopupViewShadowNode = ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps>;

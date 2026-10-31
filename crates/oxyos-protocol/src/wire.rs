@@ -91,6 +91,11 @@ wire_enum! {
     ShellKind: u8 { Background = 1, Panel = 2, Overlay = 3, Notification = 4, Backdrop = 5 }
 }
 wire_enum! {
+    /// One of the person's lists of applications (ADR 0034): those kept in the dock, in its
+    /// order, and those the session opens at login.
+    ApplicationListKind: u8 { Dock = 1, OpenAtLogin = 2 }
+}
+wire_enum! {
     PanelEdge: u8 { None = 0, Top = 1, Bottom = 2, Left = 3, Right = 4 }
 }
 wire_enum! {

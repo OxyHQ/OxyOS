@@ -327,9 +327,13 @@ impl Installs {
                 self.threads.push(thread);
             }
         }
-        for answered in scene.take_sheet_answers() {
-            if let Some(reply) = self.sheets.remove(&answered.sheet) {
-                let _ = reply.send(answered.accepted);
+        // Its own sheets' answers: the dock's Trash asks its own (trash.rs).
+        let asked: Vec<u32> = self.sheets.keys().copied().collect();
+        for sheet in asked {
+            if let Some(accepted) = scene.take_sheet_answer(sheet) {
+                if let Some(reply) = self.sheets.remove(&sheet) {
+                    let _ = reply.send(accepted);
+                }
             }
         }
         for request in scene.take_capability_requests() {

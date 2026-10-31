@@ -41,6 +41,7 @@ const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
     hasPoint: true,
     pointX: true,
     pointY: true,
+    tooltip: true,
   },
   directEventTypes: {
     topDismiss: { registrationName: 'onDismiss' },
@@ -80,7 +81,10 @@ function PopupSurface({
       hasPoint={point != null}
       pointX={point?.x ?? 0}
       pointY={point?.y ?? 0}
-      accessibilityRole={role}
+      // A tooltip (Bloom's native Tooltip) is a hint: shown without a grab, taking no input, its
+      // text read as the bubble's own (docs/adr/0034-the-dock.mdx).
+      tooltip={role === 'tooltip'}
+      accessibilityRole={role === 'tooltip' ? undefined : role}
       accessibilityLabel={label}
       onDismiss={(event) => onDismiss(event.nativeEvent.reason)}
       // Keys the compositor sends to the popup while it has keyboard focus, as W3C key names.

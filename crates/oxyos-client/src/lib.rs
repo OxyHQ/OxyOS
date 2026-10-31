@@ -615,6 +615,72 @@ impl Client {
         Ok(())
     }
 
+    /// The session's shell (its `shell` grant) replaces one of the person's lists of applications
+    /// (docs/adr/0034-the-dock.mdx): the ids in order, one a line in chunks; a `PreferenceResult`
+    /// with `serial` answers, and the session's `ApplicationList` says what it keeps. Refused
+    /// here, sending nothing, to a compositor of a version before 8, or an id with a line break.
+    pub fn set_application_list(
+        &self,
+        serial: u32,
+        list: oxyos_protocol::ApplicationListKind,
+        ids: &[&str],
+    ) -> io::Result<()> {
+        let text = ids.join("\n");
+        if ids.iter().any(|id| id.is_empty() || id.contains('\n'))
+            || text.len() > oxyos_protocol::MAX_APPLICATION_LIST_BYTES
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "an application list is ids of one line each, at most MAX_APPLICATION_LIST_BYTES",
+            ));
+        }
+        let chunks = TextChunk::split(&text);
+        let chunks: Vec<PreeditText> = if chunks.is_empty() {
+            vec![PreeditText::default()]
+        } else {
+            chunks
+                .iter()
+                .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
+                .collect()
+        };
+        let count = chunks.len();
+        for (index, text) in chunks.into_iter().enumerate() {
+            self.send(&Request::SetApplicationList {
+                serial,
+                list,
+                index: index as u16,
+                last: index + 1 == count,
+                text,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The session's shell (its `shell` grant) asks the session to open `url` in the application
+    /// whose entry declares its scheme (docs/adr/0034-the-dock.mdx), citing `input`, an input this
+    /// connection received; a `LaunchResult` with `serial` answers. Refused here, sending nothing,
+    /// to a compositor of a version before 8.
+    pub fn open_url(&self, serial: u32, input: u64, url: &str) -> io::Result<()> {
+        if url.is_empty() || url.len() > oxyos_protocol::MAX_URL_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a URL is 1 byte to MAX_URL_BYTES",
+            ));
+        }
+        let chunks = TextChunk::split(url);
+        let count = chunks.len();
+        for (index, chunk) in chunks.iter().enumerate() {
+            self.send(&Request::OpenUrl {
+                serial,
+                input,
+                index: index as u16,
+                last: index + 1 == count,
+                text: PreeditText::new(chunk.as_str()).expect("a chunk fits"),
+            })?;
+        }
+        Ok(())
+    }
+
     /// Withdraws the request `serial` made with [`Client::choose_files`]: its panel closes.
     pub fn cancel_choose_files(&self, serial: u32) -> io::Result<()> {
         self.send(&Request::CancelChooseFiles { serial })
@@ -1069,6 +1135,12 @@ impl Client {
                 if let Some(entry) = self.buffers.iter_mut().find(|b| b.id == buffer) {
                     entry.busy = false;
                 }
+                Ok(event)
+            }
+            // Still responding (docs/adr/0034-the-dock.mdx): answered as the client reads its
+            // events, so a process stuck in its own work does not answer.
+            Event::Ping { serial } => {
+                self.send(&Request::Pong { serial })?;
                 Ok(event)
             }
             Event::ProtocolError { code } => Err(io::Error::other(format!("{code:?}"))),

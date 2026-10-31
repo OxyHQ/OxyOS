@@ -16,21 +16,32 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, AuthOutcome, BatteryState, BluetoothState, BufferLayout, CaptureDestination,
-    CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format, GesturePhase,
-    Gravity, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome,
-    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
-    ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut, TextChunk,
-    TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
+    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, ErrorCode, Format,
+    GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome,
+    Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
+    PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind, Size, SystemShortcut,
+    TextChunk, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 7;
+pub const VERSION: u16 = 8;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
+/// The keyboard's modifiers a Pointer event carries (version 8), as bits.
+pub const MODIFIER_SHIFT: u8 = 1;
+pub const MODIFIER_CONTROL: u8 = 2;
+pub const MODIFIER_ALT: u8 = 4;
+pub const MODIFIER_SUPER: u8 = 8;
+/// The most applications one of the person's lists holds (SetApplicationList, ADR 0034), and the
+/// most bytes it takes: an id is at most 128 bytes, one a line.
+pub const MAX_APPLICATION_LIST: usize = 64;
+pub const MAX_APPLICATION_LIST_BYTES: usize = MAX_APPLICATION_LIST * 129;
+/// The longest URL the shell opens (OpenUrl, ADR 0034), in bytes.
+pub const MAX_URL_BYTES: usize = 2048;
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.
 pub const MAX_PACKET_BYTES: usize = 64;
 /// The longest password a lock surface may give (ADR 0010), as Linux-PAM's longest answer.

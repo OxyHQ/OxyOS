@@ -442,6 +442,23 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new(r#"file:///home/ana/a.png"]}"#).unwrap(),
         },
+        Request::ForceQuitApplication { window: 7 },
+        Request::Pong { serial: 9 },
+        Request::SetApplicationList {
+            serial: 3,
+            list: ApplicationListKind::Dock,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.stash\nso.oxy.inbox").unwrap(),
+        },
+        Request::EmptyTrash { input: 3 },
+        Request::OpenUrl {
+            serial: 4,
+            input: 12,
+            index: 0,
+            last: true,
+            text: PreeditText::new("stash://trash").unwrap(),
+        },
     ]
 }
 
@@ -468,6 +485,7 @@ fn events() -> Vec<Event> {
             y: 7,
             button: 272,
             time_ns: 1_234_567_890_123,
+            modifiers: MODIFIER_CONTROL | MODIFIER_ALT,
         },
         Event::Key {
             surface: 1,
@@ -800,12 +818,22 @@ fn events() -> Vec<Event> {
             last: true,
             text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
         },
+        Event::Ping { serial: 9 },
+        Event::TrashItems { items: 3 },
+        Event::ApplicationList {
+            list: ApplicationListKind::OpenAtLogin,
+            chosen: true,
+            index: 0,
+            last: true,
+            text: PreeditText::new("so.oxy.inbox").unwrap(),
+        },
         Event::WindowState {
             window: 7,
             workspace: 1,
             minimized: false,
             focused: true,
             launched: false,
+            responding: false,
         },
         Event::WindowTitle {
             window: 7,
@@ -1398,6 +1426,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         y: -256,
         button: 272,
         time_ns: 1_234_567_890,
+        modifiers: 0,
     };
     let mut v2 = Vec::new();
     assert!(write_event_for(&mut v2, &pointer, 2).unwrap());
@@ -1420,9 +1449,63 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
             y: -256,
             button: 272,
             time_ns: 0,
+            modifiers: 0,
         }
     );
     assert_eq!(read_event_for(&mut Cursor::new(&v3), 3).unwrap(), pointer);
+    // Version 8 adds the modifiers held: 35 bytes; a version 7 writer leaves them out, and its
+    // reader reads none held.
+    let held = Event::Pointer {
+        surface: 1,
+        serial: 9,
+        kind: PointerKind::Press,
+        x: 512,
+        y: -256,
+        button: 272,
+        time_ns: 1_234_567_890,
+        modifiers: MODIFIER_CONTROL,
+    };
+    let mut v8 = Vec::new();
+    assert!(write_event_for(&mut v8, &held, 8).unwrap());
+    assert_eq!(u32::from_le_bytes(v8[..4].try_into().unwrap()), 35);
+    assert_eq!(read_event_for(&mut Cursor::new(&v8), 8).unwrap(), held);
+    let mut v7 = Vec::new();
+    assert!(write_event_for(&mut v7, &held, 7).unwrap());
+    assert_eq!(&v7[4..], &v8[4..38]);
+    assert_eq!(read_event_for(&mut Cursor::new(&v7), 7).unwrap(), pointer);
+    // A window's state from a compositor of version 7 says its process is responding.
+    let state = Event::WindowState {
+        window: 3,
+        workspace: 0,
+        minimized: false,
+        focused: true,
+        launched: true,
+        responding: false,
+    };
+    let mut v7 = Vec::new();
+    write_event_for(&mut v7, &state, 7).unwrap();
+    assert_eq!(u32::from_le_bytes(v7[..4].try_into().unwrap()), 12);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v7), 7).unwrap(),
+        Event::WindowState {
+            window: 3,
+            workspace: 0,
+            minimized: false,
+            focused: true,
+            launched: true,
+            responding: true,
+        }
+    );
+    // The dock's messages (ADR 0034) are version 8's: a Ping is never sent to version 7.
+    let ping = Event::Ping { serial: 4 };
+    let mut nothing = Vec::new();
+    assert!(!write_event_for(&mut nothing, &ping, 7).unwrap());
+    assert_eq!(event_since(&ping), 8);
+    assert_eq!(
+        request_since(&Request::ForceQuitApplication { window: 1 }),
+        8
+    );
+    assert_eq!(request_since(&Request::Pong { serial: 1 }), 8);
     // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
     let scroll = Event::Scroll {
         surface: 1,

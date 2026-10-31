@@ -322,6 +322,12 @@ void PointerInput::handle(const OxyOSEvent& event) {
     return;
   }
   if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
+  if (event.kind == OXYOS_EVENT_POINTER && pointerModifiers_) {
+    ctrl_ = (event.modifiers & OXYOS_MODIFIER_CONTROL) != 0;
+    shift_ = (event.modifiers & OXYOS_MODIFIER_SHIFT) != 0;
+    alt_ = (event.modifiers & OXYOS_MODIFIER_ALT) != 0;
+    meta_ = (event.modifiers & OXYOS_MODIFIER_SUPER) != 0;
+  }
   auto content = surfaces_(event.surface);
   if (!content) return;
   if (event.kind == OXYOS_EVENT_PINCH) return pinch(*content, event);

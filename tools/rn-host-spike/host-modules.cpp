@@ -529,6 +529,42 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.launch: an application id");
       return jsi::Value(static_cast<double>(services.shell.launch(args[0].asString(rt).utf8(rt))));
     });
+    // The dock's application menu (docs/adr/0034-the-dock.mdx): `forceQuitApplication(window)`,
+    // `setApplicationList('dock' | 'openAtLogin', ids)` and `openUrl(url)` (its serial, 0 if not
+    // sent; `OxyOSShellLaunch` answers).
+    module->method("forceQuitApplication", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args,
+                                                                      size_t count) {
+      ready(rt);
+      return jsi::Value(services.shell.forceQuitApplication(number(rt, args, count, 0)));
+    });
+    module->method("setApplicationList", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 2 || !args[0].isString() || !args[1].isObject() || !args[1].asObject(rt).isArray(rt)) {
+        throw jsi::JSError(rt, "OxyOSShell.setApplicationList: 'dock' or 'openAtLogin', and the ids");
+      }
+      auto name = args[0].asString(rt).utf8(rt);
+      uint32_t list = name == "dock"          ? OXYOS_APPLICATION_LIST_DOCK
+                      : name == "openAtLogin" ? OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN
+                                              : 0;
+      if (list == 0) throw jsi::JSError(rt, "OxyOSShell.setApplicationList: 'dock' or 'openAtLogin'");
+      auto array = args[1].asObject(rt).asArray(rt);
+      std::vector<std::string> ids;
+      for (size_t i = 0; i < array.size(rt); ++i) {
+        auto id = array.getValueAtIndex(rt, i);
+        if (!id.isString()) throw jsi::JSError(rt, "OxyOSShell.setApplicationList: ids are strings");
+        ids.push_back(id.asString(rt).utf8(rt));
+      }
+      return jsi::Value(services.shell.setApplicationList(list, ids));
+    });
+    module->method("emptyTrash", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      ready(rt);
+      return jsi::Value(services.shell.emptyTrash());
+    });
+    module->method("openUrl", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.openUrl: a URL");
+      return jsi::Value(static_cast<double>(services.shell.openUrl(args[0].asString(rt).utf8(rt))));
+    });
     module->method("lockSession", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
       ready(rt);
       services.shell.lock();
@@ -1123,19 +1159,20 @@ std::shared_ptr<TurboModule> createHostModule(
         "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
                                                                        : folly::dynamic(nullptr))(
         "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
-        "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID")));
+        "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
+        // What the session started it to open (its launch record's: a file, or a URL of its own
+        // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
+        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : "")));
   } else if (name == "IntentAndroid") {
-    // React Native's Linking, as its Android module answers it. OxyOS starts an application from
-    // its registry entry, never from a link: its initial URL is the file the session started it to
-    // open, if it did (a screenshot's thumbnail pressed, `file://`, its launch record's,
-    // docs/adr/0028-file-access.mdx, decision 6), as an Android intent's data is; else none. No
-    // application on OxyOS opens links yet (there is no browser, nor a handler for a scheme), so
-    // none can be opened: asked, it says so, and opening one fails with the reason.
+    // React Native's Linking, as its Android module answers it. Its initial URL is what the
+    // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
+    // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
+    // its entry declares (the dock's Trash opening Stash at stash://trash, docs/adr/0034-the-dock.mdx);
+    // else none. An application does not open links yet (there is no browser, and no request for
+    // one), so none can be opened: asked, it says so, and opening one fails with the reason.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       const char* url = std::getenv("OXYOS_LAUNCH_URL");
-      if (url && std::string_view(url).starts_with("file://")) {
-        return resolved(rt, jsi::String::createFromUtf8(rt, url));
-      }
+      if (url && *url) return resolved(rt, jsi::String::createFromUtf8(rt, url));
       return resolved(rt, jsi::Value::null());
     });
     module->method("canOpenURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {

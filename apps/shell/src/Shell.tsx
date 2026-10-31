@@ -35,6 +35,7 @@ import {
   type Switcher,
 } from "./switcher";
 import { inPlace, type ShellPlatform } from "./platform";
+import { belongsTo } from "./model";
 export type { ShellCommand } from "./model";
 export type {
   ShellPlatform,
@@ -180,15 +181,25 @@ export const Shell = memo(function Shell({
   // Commands act on what is shown now, whichever render they arrive in.
   const latest = useRef({ snapshot, actions, switcher, view });
   latest.current = { snapshot, actions, switcher, view };
-  const dismiss = useCallback(() => setView("desktop"), []);
-  const toggleOverview = useCallback(
-    () => setView((current) => (current === "overview" ? "desktop" : "overview")),
-    [],
-  );
-  const toggleLauncher = useCallback(
-    () => setView((current) => (current === "launcher" ? "desktop" : "launcher")),
-    [],
-  );
+  // The application whose windows the overview shows alone (the dock menu's Show All Windows, as
+  // a Mac's App Exposé, docs/adr/0034-the-dock.mdx); none, every window.
+  const [overviewApp, setOverviewApp] = useState<string | null>(null);
+  const dismiss = useCallback(() => {
+    setView("desktop");
+    setOverviewApp(null);
+  }, []);
+  const toggleOverview = useCallback(() => {
+    setOverviewApp(null);
+    setView((current) => (current === "overview" ? "desktop" : "overview"));
+  }, []);
+  const toggleLauncher = useCallback(() => {
+    setOverviewApp(null);
+    setView((current) => (current === "launcher" ? "desktop" : "launcher"));
+  }, []);
+  const showAllWindows = useCallback((id: string) => {
+    setOverviewApp(id);
+    setView("overview");
+  }, []);
   const activateApp = useCallback(
     (id: string) => {
       latest.current.actions.activateApp(id);
@@ -260,12 +271,21 @@ export const Shell = memo(function Shell({
       }
     }
     setSwitcher(current);
+    if (view !== latest.current.view) setOverviewApp(null);
     setView(view);
   }, [command, commands]);
   // An application quit while the switcher is open leaves it.
   useEffect(() => {
     setSwitcher((current) => current && followSwitcher(current, snapshot));
   }, [snapshot]);
+  // Show All Windows: the overview with that application's windows alone.
+  const overviewSnapshot = useMemo(
+    () =>
+      overviewApp
+        ? { ...snapshot, windows: snapshot.windows.filter((win) => belongsTo(win, overviewApp)) }
+        : snapshot,
+    [snapshot, overviewApp],
+  );
   const launcherOpen = view === "launcher";
   const launcherArea = useMemo(
     () =>
@@ -282,6 +302,7 @@ export const Shell = memo(function Shell({
   const lockSession = lock?.lockSession;
   const menuCommand = useCallback(
     (id: string) => {
+      if (id === "view.launcher" || id === "view.overview") setOverviewApp(null);
       if (id === "view.launcher") setView("launcher");
       else if (id === "view.overview") setView("overview");
       else if (id === "session.lock") lockSession?.();
@@ -370,7 +391,7 @@ export const Shell = memo(function Shell({
           {view === "overview" && (
             <Surface kind="overlay" style={WHOLE}>
               <Overview
-                snapshot={snapshot}
+                snapshot={overviewSnapshot}
                 actions={actions}
                 dismiss={dismiss}
                 escapeRequest={escapeRequest}
@@ -460,8 +481,13 @@ export const Shell = memo(function Shell({
             <Dock
               applications={snapshot.applications}
               windows={snapshot.windows}
+              activeAppId={snapshot.activeAppId}
+              openAtLogin={snapshot.openAtLogin}
+              trash={snapshot.trash}
+              actions={actions}
               view={view}
               activateApp={activateApp}
+              showAllWindows={showAllWindows}
               toggleLauncher={toggleLauncher}
               toggleOverview={toggleOverview}
             />

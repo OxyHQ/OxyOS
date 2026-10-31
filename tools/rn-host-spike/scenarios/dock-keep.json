@@ -1,0 +1,416 @@
+{
+  "about": "Keep in Dock and Open at Login from the dock's menu, from the keyboard (docs/adr/0034-the-dock.mdx): Allo (sample/EditingProbe.tsx) runs and is not kept; its menu's Options submenu keeps it in the dock and opens it at login; Inbox, kept and not running, is taken out of the dock and leaves it. Each change is the person's list, which the session keeps in the user's preferences file: what dock-kept.json starts from, as a shell started again would.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "a long press on Allo's icon: its menu, which takes the keyboard from Allo's window",
+      "do": [
+        "hold_output",
+        [
+          796,
+          693,
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "Opciones",
+            "Salir"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Allo"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: Allo's window",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Allo",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Down: Show All Windows",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Down: Hide",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Right opens Options beside its row, on Keep in Dock, not checked: Allo is not kept",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Mantener en el Dock",
+            "Abrir al iniciar sesión"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Mantener en el Dock",
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Abrir al iniciar sesión",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return keeps it: the menu closes, and the session keeps the person's dock",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Mantener en el Dock",
+            "Salir"
+          ]
+        }
+      }
+    },
+    {
+      "name": "its menu again",
+      "do": [
+        "hold_output",
+        [
+          796,
+          693,
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Opciones"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: Allo's window",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Allo",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Down: Show All Windows",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Down: Hide",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Right: Keep in Dock is checked now",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Mantener en el Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: Open at Login",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Abrir al iniciar sesión",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return: opened at login, kept by the session",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Abrir al iniciar sesión"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a long press on Inbox's icon, not running: Open and Options",
+      "do": [
+        "hold_output",
+        [
+          738,
+          693,
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Abrir",
+            "Opciones"
+          ],
+          "absent": [
+            "Salir"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Inbox"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down: Open",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Right: Keep in Dock, checked",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Mantener en el Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return takes Inbox out of the dock: not running, it leaves it",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "absent": [
+            "Mantener en el Dock"
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Abrir Inbox"
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Abrir Stash"
+            },
+            {
+              "role": "Button",
+              "name": "Abrir Allo"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "dock": "so.oxy.stash,so.oxy.atlas,so.oxy.allo",
+      "open_at_login": "so.oxy.allo"
+    }
+  }
+}

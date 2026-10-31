@@ -48,7 +48,11 @@ class ShellState {
   //   notifications: [{ id, appId, title, subtitle, body, actions: [{ label, reply: placeholder or
   //   null }], postedAt: ms since the epoch, banner, withheld }] (docs/adr/0026-notifications.mdx:
   //   oldest first; `banner` as the compositor last told it, `withheld` its texts kept from the
-  //   locked shell), notificationPolicy: { doNotDisturb, previews } }
+  //   locked shell), notificationPolicy: { doNotDisturb, previews },
+  //   applicationLists: { dock: { chosen, ids } | null, openAtLogin: [ids] | null } (the person's
+  //   lists of applications, docs/adr/0034-the-dock.mdx: null until told),
+  //   trashItems: what the user's Trashes hold, null until told }
+  // A window also has `responding`: its process answers the compositor's pings.
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
   // outputs the compositor's, in the global space's logical pixels, empty until it has told them.
   folly::dynamic state() const;
@@ -78,7 +82,21 @@ class ShellState {
     // with its application (docs/adr/0024-system-shortcuts.mdx).
     uint32_t used = 0;
     bool hidden = false;
+    // Its process answers the compositor's pings (docs/adr/0034-the-dock.mdx).
+    bool responding = true;
   };
+  // The person's lists of applications (docs/adr/0034-the-dock.mdx), by OXYOS_APPLICATION_LIST_*,
+  // and those being received.
+  struct ApplicationList {
+    bool chosen = false;
+    std::vector<std::string> ids;
+    bool told = false;
+  };
+  std::map<uint32_t, ApplicationList> lists_;
+  std::map<uint32_t, std::string> receivingLists_;
+  folly::dynamic applicationLists() const;
+  // How many items the user's Trashes hold, as the session told it; -1 until told.
+  int64_t trashItems_ = -1;
   std::map<uint32_t, Window> windows_;
   // A title or application id being received, by window.
   std::map<uint32_t, std::string> title_, appId_;

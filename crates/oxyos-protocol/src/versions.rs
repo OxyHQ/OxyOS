@@ -8,17 +8,21 @@ use crate::schema::{Event, Request};
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io::{self, Read, Write};
 
-/// What version 3 added to the end of events version 2 had: the opcode, how many bytes, and what
-/// they are when a version 2 compositor sends the event (no device time; a scroll of pixels from a
-/// continuous source, never a stop).
-const GROWN_IN_3: &[(u8, &[u8])] = &[
-    (4, &[0; 8]),
-    (5, &[0; 8]),
-    (7, &[0; 8]),
-    (11, &[0, 0, 0, 0, 0, 0, 0, 0, 3, 0]),
-    (36, &[0; 8]),
-    (43, &[0; 8]),
-    (150, &[0; 8]),
+/// What versions added to the end of events an older version had, in the order they added it:
+/// the version, the opcode, and what the added bytes are when a compositor of an older version
+/// sends the event. Version 3: each input event's device time (none) and a scroll's source and
+/// stop (pixels from a continuous source, never a stop). Version 8: a pointer event's modifiers
+/// (none held) and whether a window's process is responding (it is).
+const GROWN: &[(u16, u8, &[u8])] = &[
+    (3, 4, &[0; 8]),
+    (3, 5, &[0; 8]),
+    (3, 7, &[0; 8]),
+    (3, 11, &[0, 0, 0, 0, 0, 0, 0, 0, 3, 0]),
+    (3, 36, &[0; 8]),
+    (3, 43, &[0; 8]),
+    (3, 150, &[0; 8]),
+    (8, 4, &[0]),
+    (8, 37, &[1]),
 ];
 
 /// The opcodes each version added, by direction (a request and an event may share an opcode):
@@ -27,7 +31,8 @@ const GROWN_IN_3: &[(u8, &[u8])] = &[
 /// the outputs, told to every client, and a client's pointer images (ADR 0029); version 6,
 /// screenshots (ADR 0024, decision 10), both ways, `CaptureMode` sent unasked on Super+Shift+4
 /// and 5; version 7, file choosers (ADR 0029, decision 8), both ways, so the client library never
-/// sends a request a compositor of an older version would close the connection for.
+/// sends a request a compositor of an older version would close the connection for; version 8,
+/// the dock's application menu (ADR 0034), both ways, `Ping` sent unasked.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -36,12 +41,14 @@ const EVENTS_ADDED: Added = &[
     (5, 200..=203),
     (6, 210..=212),
     (7, 220..=220),
+    (8, 230..=232),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
     (5, 190..=190),
     (6, 210..=215),
     (7, 220..=222),
+    (8, 230..=234),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
@@ -62,14 +69,14 @@ pub fn request_since(request: &Request) -> u16 {
     since(REQUESTS_ADDED, request.opcode())
 }
 
-fn grown(opcode: u8, version: u16) -> &'static [u8] {
-    if version >= 3 {
-        return &[];
-    }
-    GROWN_IN_3
+/// The bytes versions newer than `version` added to the end of the event `opcode`, in order: what
+/// a writer for `version` leaves out, and what a reader of `version` puts back.
+fn grown(opcode: u8, version: u16) -> Vec<u8> {
+    GROWN
         .iter()
-        .find(|(grown, _)| *grown == opcode)
-        .map_or(&[], |(_, fields)| fields)
+        .filter(|(since, grown, _)| *grown == opcode && *since > version)
+        .flat_map(|(_, _, fields)| fields.iter().copied())
+        .collect()
 }
 
 /// Writes `event` as `version` defines it; false, writing nothing, when `version` does not have it.
@@ -96,7 +103,7 @@ pub fn read_event_for(reader: &mut impl Read, version: u16) -> io::Result<Event>
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body)?;
-    body.extend_from_slice(grown(body[0], version));
+    body.extend_from_slice(&grown(body[0], version));
     let event = Event::decode(&body)?;
     if event_since(&event) > version {
         return Err(invalid("an event the connection's version does not have"));

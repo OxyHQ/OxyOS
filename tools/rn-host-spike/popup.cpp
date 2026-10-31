@@ -32,7 +32,8 @@ OxyOSPopupViewProps::OxyOSPopupViewProps(
       alignOffset(convertRawProp(context, rawProps, "alignOffset", sourceProps.alignOffset, 0.0f)),
       hasPoint(convertRawProp(context, rawProps, "hasPoint", sourceProps.hasPoint, false)),
       pointX(convertRawProp(context, rawProps, "pointX", sourceProps.pointX, 0.0f)),
-      pointY(convertRawProp(context, rawProps, "pointY", sourceProps.pointY, 0.0f)) {}
+      pointY(convertRawProp(context, rawProps, "pointY", sourceProps.pointY, 0.0f)),
+      tooltip(convertRawProp(context, rawProps, "tooltip", sourceProps.tooltip, false)) {}
 
 }  // namespace facebook::react
 
@@ -206,7 +207,9 @@ void PopupHost::sync(uint64_t serial) {
     // popup's own scale sizes it (above), on whichever output it was placed.
     const auto* parent = window_.surface(anchor->first);
     auto placed = positioner(*props, anchor->second, size, parent ? parent->scale : window_.scale());
-    window_.openPopup(surface, anchor->first, placed, serial);
+    // A tooltip takes no grab and no input: the pointer over it is still over its trigger.
+    window_.openPopup(surface, anchor->first, placed, props->tooltip ? 0 : serial);
+    if (props->tooltip) window_.setInputRegion(surface, OxyOSRect{0, 0, 0, 0});
     popups_[tag] = Popup{.surface = surface, .placed = placed};
     Report::get().popup("open", surface, &view,
                         folly::dynamic::object("anchor", Report::name(tree_.views().at(props->anchorTag).view))(

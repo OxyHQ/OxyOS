@@ -18,7 +18,9 @@ export type SheetText =
   | { kind: "uninstall"; id: string; name: string; version: string }
   | { kind: "consent"; update: AvailableUpdate }
   | { kind: "permission"; id: string; capability: string; name?: string }
-  | { kind: "unavailable"; action: "install" | "uninstall" | "update" };
+  | { kind: "unavailable"; action: "install" | "uninstall" | "update" }
+  // The dock's Trash emptied (docs/adr/0034-the-dock.mdx): how many items go for good.
+  | { kind: "empty-trash"; items: number };
 
 export type Plan = {
   id: string;
@@ -81,6 +83,10 @@ const words = {
     unavailableBody:
       "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
     ok: "Aceptar",
+    emptyTrash: "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?",
+    emptyTrashBody: (items: number) =>
+      `${items === 1 ? "Se eliminará 1 ítem" : `Se eliminarán ${items} ítems`}. No puedes deshacer esta acción.`,
+    emptyTrashButton: "Vaciar",
   },
   en: {
     install: (name: string) => `Install ${name}?`,
@@ -107,6 +113,10 @@ const words = {
     unavailableBody:
       "The service that installs apps on this computer isn't running. Try again once it's available.",
     ok: "OK",
+    emptyTrash: "Are you sure you want to permanently erase the items in the Trash?",
+    emptyTrashBody: (items: number) =>
+      `${items === 1 ? "1 item is erased" : `${items} items are erased`}. You can't undo this action.`,
+    emptyTrashButton: "Empty",
   },
 };
 
@@ -202,6 +212,15 @@ export function sheetView(sheet: SheetText, language: Language, names: Record<st
         destructive: false,
       };
     }
+    case "empty-trash":
+      return {
+        title: w.emptyTrash,
+        body: w.emptyTrashBody(sheet.items),
+        lines: [],
+        accept: w.emptyTrashButton,
+        refuse: w.cancel,
+        destructive: true,
+      };
     case "permission": {
       const name = names[sheet.id] ?? sheet.name ?? sheet.id;
       const what = capabilities[sheet.capability]?.[language][1] ?? sheet.capability;

@@ -260,6 +260,7 @@ impl Scene {
     /// answer; otherwise the key, then its text, go to the focused surface.
     pub fn keyboard(&mut self, key: u32, pressed: bool, text: Option<&str>) {
         self.user_input();
+        self.hold_modifier(key, pressed);
         if self.reader_key(key, pressed)
             || self.hardware_key(key, pressed)
             || self.system_key(key, pressed)

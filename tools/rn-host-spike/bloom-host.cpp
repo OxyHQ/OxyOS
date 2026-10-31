@@ -763,6 +763,7 @@ int main(int argc, char** argv) {
       if (auto content = shellSurfaces.content(surface)) return content;
       return popups.content(surface);
     });
+    pointer.takesPointerModifiers(window->protocolVersion() >= 8);
     oxyos::TextEditing editing(tree, [&](facebook::react::Tag view) -> std::optional<oxyos::Placement> {
       auto frame = oxyos::windowFrame(tree, view);
       if (!frame) return std::nullopt;
@@ -969,6 +970,8 @@ int main(int argc, char** argv) {
     // The Control Center's preference changes (the appearance, Do Not Disturb), numbered together:
     // each PREFERENCE_RESULT names one.
     uint32_t controlSerial = 0;
+    // Launches and the URLs the shell opens are numbered together: each LAUNCH_RESULT names one.
+    uint32_t launchSerial = 0;
     if (shellMode) {
       services.shell = {
           .state = [&shellState] { return shellState.state(); },
@@ -976,9 +979,9 @@ int main(int argc, char** argv) {
             window->manage(action, target, workspace);
           },
           .lock = [&window] { window->lockSession(); },
-          .launch = [&window, serial = uint32_t{0}](const std::string& id) mutable -> uint32_t {
-            ++serial;
-            return window->launch(serial, id) ? serial : 0;
+          .launch = [&window, &launchSerial](const std::string& id) -> uint32_t {
+            ++launchSerial;
+            return window->launch(launchSerial, id) ? launchSerial : 0;
           },
           .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account) {
             auto surface = shellSurfaces.lockSurface();
@@ -1046,6 +1049,36 @@ int main(int argc, char** argv) {
             bool sent = window->openScreenshot(screenshot, lastPress);
             oxyos::Report::get().input("screenshot.open", 0,
                                        folly::dynamic::object("screenshot", screenshot)("sent", sent));
+            return sent;
+          },
+          // The dock's application menu (docs/adr/0034-the-dock.mdx): a list's change is a
+          // preference change, numbered with the Control Center's; a URL cites the press that chose
+          // it, numbered with the launches.
+          .forceQuitApplication = [&window](uint32_t target) {
+            bool sent = window->forceQuitApplication(target);
+            oxyos::Report::get().input("application.force_quit", 0,
+                                       folly::dynamic::object("window", target)("sent", sent));
+            return sent;
+          },
+          .setApplicationList = [&window, &controlSerial](uint32_t list, const std::vector<std::string>& ids) {
+            std::string text;
+            for (const auto& id : ids) text += (text.empty() ? "" : "\n") + id;
+            bool sent = window->setApplicationList(++controlSerial, list, text);
+            folly::dynamic told = folly::dynamic::array();
+            for (const auto& id : ids) told.push_back(id);
+            oxyos::Report::get().input("application.list", 0,
+                                       folly::dynamic::object("list", list)("ids", told)("sent", sent));
+            return sent;
+          },
+          .openUrl = [&window, &lastPress, &launchSerial](const std::string& url) -> uint32_t {
+            ++launchSerial;
+            bool sent = window->openUrl(launchSerial, lastPress, url);
+            oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
+            return sent ? launchSerial : 0;
+          },
+          .emptyTrash = [&window, &lastPress] {
+            bool sent = window->emptyTrash(lastPress);
+            oxyos::Report::get().input("trash.empty", 0, folly::dynamic::object("sent", sent));
             return sent;
           },
       };
