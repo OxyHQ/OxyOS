@@ -3038,6 +3038,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             phases_ms: Vec::new(),
         });
     }
+    // Clients' GPU buffers where a render node has timelines (docs/adr/0031-gpu-buffers.mdx).
+    session.compositor.offer_gpu_buffers();
     // The session's shell first, as a session starts it: the application's window is then placed
     // in the work area its panels leave.
     let shell = match &launch.shell {
@@ -3305,7 +3307,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         let announcements = announcements_json(&session.reader.take_announcements());
         answered.push(format!(
-            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}{}}}",
+            "{{{},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"shell\":{},\"window_shown\":{},\"pointer_shape\":\"{:?}\",\"transitions\":{},\"controls\":{},\"composed\":{}{}{}{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -3327,6 +3329,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
             moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),
+            // Frames of the application's GPU buffers so far (docs/adr/0031-gpu-buffers.mdx).
+            session.compositor.gpu_frames(CLIENT).0,
+            session.compositor.gpu_frames(CLIENT).1,
         ));
         snapshots.push(snapshot(
             &session.compositor,

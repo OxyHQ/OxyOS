@@ -5,7 +5,7 @@ use oxyos_protocol::{
 };
 
 /// A connected client and the compositor's end, past the handshake.
-fn connected() -> (Client, Connection) {
+pub(crate) fn connected() -> (Client, Connection) {
     let (client, server) = Connection::pair().unwrap();
     let compositor = std::thread::spawn(move || {
         let mut protocol = ServerConnection::new();

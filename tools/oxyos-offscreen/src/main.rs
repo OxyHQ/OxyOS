@@ -436,6 +436,8 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // The render node the offer of GPU buffers holds goes with the session.
+        self.compositor.withdraw_gpu_buffers();
         let fds = open_descriptors()?;
         if fds != self.baseline_fds {
             return Err(format!(

@@ -28,6 +28,7 @@ ring = "0.17"
 
 [dev-dependencies]
 oxyos-ipc = { path = "../oxyos-ipc" }
+oxyos-dmabuf = { path = "../oxyos-dmabuf" }
 
 # The workspace forbids `unsafe`. A C ABI needs it, so this crate denies it instead and allows it
 # item by item; every unsafe block states why it is sound.

@@ -27,6 +27,7 @@ pub mod application;
 pub mod apps;
 pub mod files;
 pub mod gestures;
+pub mod gpu;
 pub mod images;
 pub mod intl;
 pub mod net;
@@ -293,6 +294,18 @@ pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
 pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
 
+/// GPU buffers (docs/adr/0031-gpu-buffers.mdx). The compositor's table of what it imports is
+/// complete (`detail`: how many formats, `oxyos_client_gpu_formats`) or withdrawn (0: shared
+/// memory only).
+pub const OXYOS_EVENT_GPU_DEVICE: u32 = 170;
+/// The compositor could not import the GPU buffer `serial`: allocate again, or use shared memory.
+pub const OXYOS_EVENT_BUFFER_FAILED: u32 = 172;
+/// `surface`'s scanout formats are complete (`detail`: how many,
+/// `oxyos_client_gpu_scanout_formats`) or there are none now (0).
+pub const OXYOS_EVENT_GPU_SCANOUT: u32 = 173;
+/// The linear modifier, which any device reads.
+pub const OXYOS_MODIFIER_LINEAR: u64 = 0;
+
 /// Pixel formats (DRM fourcc codes), as the protocol's `Format`.
 pub const OXYOS_FORMAT_XRGB8888: u32 = 0x3432_5258;
 pub const OXYOS_FORMAT_ARGB8888: u32 = 0x3432_5241;
@@ -503,6 +516,25 @@ fn status(result: std::io::Result<()>) -> c_int {
         Ok(()) => 0,
         Err(error) => fail(error),
     }
+}
+
+/// The GPU table or a surface's scanout formats the event just read completed or withdrew, as an
+/// event (ADR 0031).
+pub fn gpu_change(client: &mut Client) -> Option<OxyOSEvent> {
+    let out = OxyOSEvent::default();
+    Some(match client.take_gpu_change()? {
+        oxyos_client::GpuChange::Device(count) => OxyOSEvent {
+            kind: OXYOS_EVENT_GPU_DEVICE,
+            detail: count,
+            ..out
+        },
+        oxyos_client::GpuChange::Scanout(surface, count) => OxyOSEvent {
+            kind: OXYOS_EVENT_GPU_SCANOUT,
+            surface,
+            detail: count,
+            ..out
+        },
+    })
 }
 
 /// Converts a compositor event; `None` for events a client never sees (the handshake).
@@ -760,6 +792,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibilityRemoved { .. }
         | Event::ScreenReaderCommand { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
+        // GPU buffers (ADR 0031): a failed import is told at once; the tables once complete
+        // (`gpu_change`), from the client's state.
+        Event::BufferFailed { buffer } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_BUFFER_FAILED,
+                serial: buffer,
+                ..out
+            }
+        }
+        Event::GpuDevice { .. }
+        | Event::GpuFormat { .. }
+        | Event::GpuScanout { .. }
+        | Event::GpuScanoutFormat { .. } => return None,
         // What the clipboard holds, for the client with keyboard focus (ADR 0007).
         Event::ClipboardTypes { selection, count } => {
             out = OxyOSEvent {
@@ -3058,7 +3103,7 @@ pub unsafe extern "C" fn oxyos_client_poll(
     loop {
         match client.poll() {
             Ok(Poll::Event(event)) => {
-                if let Some(event) = convert(&event) {
+                if let Some(event) = convert(&event).or_else(|| gpu_change(client)) {
                     *out = event;
                     return OXYOS_POLL_EVENT;
                 }
