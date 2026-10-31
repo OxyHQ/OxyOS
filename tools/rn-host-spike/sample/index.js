@@ -28,6 +28,7 @@ import StoreProbe from './StoreProbe';
 import TextLayoutProbe from './TextLayoutProbe';
 import HoverProbe from './HoverProbe';
 import TimingProbe from './TimingProbe';
+import ClipProbe from './ClipProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -54,3 +55,4 @@ AppRegistry.registerComponent('StoreProbe', () => StoreProbe);
 AppRegistry.registerComponent('TextLayoutProbe', () => TextLayoutProbe);
 AppRegistry.registerComponent('HoverProbe', () => HoverProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
+AppRegistry.registerComponent('ClipProbe', () => ClipProbe);

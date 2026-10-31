@@ -341,12 +341,13 @@ class Painter {
       return picture.pixels[(static_cast<size_t>(ty) * picture.width + tx) * 4 + c] / 255.0f;
     };
     // A picture whose texels fall on the device pixels one to one (as Images decodes one at the
-    // size it is drawn), whole pixels inside the box, unrounded, untinted and opaque: each pixel
-    // is its texel, the bilinear sample at a texel's centre, and an opaque one is copied. A
-    // translucent texel is blended as below.
+    // size it is drawn, and as a view's children drawn on their own are), whole pixels inside the
+    // box, untinted and opaque: each pixel is its texel, the bilinear sample at a texel's centre,
+    // and an opaque one is copied. A translucent texel is blended as below, and so is a pixel a
+    // rounded box does not cover whole (a corner's), at the coverage below.
     auto whole = [](float value) { return std::abs(value - std::round(value)) < 1e-3f; };
     const float left = dx * scale_, top = dy * scale_;
-    if (!rounded && !tint && opacity >= 1 && whole(left) && whole(top) &&
+    if (!tint && opacity >= 1 && whole(left) && whole(top) &&
         std::abs(dw * scale_ - picture.width) < 1e-3f && std::abs(dh * scale_ - picture.height) < 1e-3f &&
         whole(box.x0 * scale_) && whole(box.y0 * scale_) && whole(box.x1 * scale_) && whole(box.y1 * scale_)) {
       // The picture's edges and the box's are whole only to within a rounding error (at 1.25,
@@ -363,20 +364,30 @@ class Painter {
       for (int py = by0; py < by1; ++py) {
         const uint8_t* row = picture.pixels.data() + static_cast<size_t>(py - oy) * picture.width * 4;
         uint32_t* out = canvas_.pixels.data() + static_cast<size_t>(py) * canvas_.width;
+        const float ly = py * s;
+        // The row's pixels the rounded box covers whole, which need no coverage of their own.
+        auto [solidFrom, solidTo] =
+            rounded ? clearRun(ly, s, bx, by, bw, bh, radii, box) : std::pair{bx0, bx1};
         for (int px = bx0; px < bx1; ++px) {
           const uint8_t* t = row + static_cast<size_t>(px - ox) * 4;
-          if (t[3] == 255) {
+          if (t[3] == 0) continue;  // as below: nothing where the sample has no alpha
+          float coverage = 1;
+          if (px < solidFrom || px >= solidTo) {
+            coverage = roundedCoverage(px * s, ly, s, bx, by, bw, bh, radii);
+            if (coverage <= 0) continue;
+          }
+          if (t[3] == 255 && coverage >= 1) {
             out[px] = 0xff000000u | (uint32_t{t[0]} << 16) | (uint32_t{t[1]} << 8) | t[2];
             continue;
           }
-          if (t[3] == 0) continue;  // as below: nothing where the sample has no alpha
-          const float alpha = t[3] / 255.0f;
+          const float alpha = t[3] / 255.0f * coverage;
           uint32_t& dst = out[px];
           auto channel = [&](int shift, float src) {
             float d = ((dst >> shift) & 0xff) / 255.0f;
             return static_cast<uint32_t>(std::lround(std::clamp(src + d * (1 - alpha), 0.0f, 1.0f) * 255)) << shift;
           };
-          dst = channel(24, alpha) | channel(16, t[0] / 255.0f) | channel(8, t[1] / 255.0f) | channel(0, t[2] / 255.0f);
+          dst = channel(24, alpha) | channel(16, t[0] / 255.0f * coverage) | channel(8, t[1] / 255.0f * coverage) |
+                channel(0, t[2] / 255.0f * coverage);
         }
       }
       return;
@@ -1090,6 +1101,187 @@ void drawMasked(const ViewTree& tree, Tag tag, float x, float y, float w, float 
                 opacity, std::nullopt);
 }
 
+// What a view that clips its children (`overflow` other than visible, and a ScrollView) clips them
+// to, as Android's BackgroundStyleApplicator.clipToPaddingBox: its padding box, inside its borders,
+// with the inner edge of its rounded corners, which is where its border ring's hole is drawn.
+struct ChildClip {
+  float x, y, w, h;
+  BorderRadii radii;
+  bool rounded() const {
+    return radii.topLeft.horizontal > 0 || radii.topRight.horizontal > 0 || radii.bottomLeft.horizontal > 0 ||
+           radii.bottomRight.horizontal > 0;
+  }
+};
+
+ChildClip paddingBox(const BorderMetrics& border, float x, float y, float w, float h) {
+  const auto& widths = border.borderWidths;
+  BorderRadii inner = border.borderRadii;
+  inner.topLeft.horizontal = std::max(0.0f, inner.topLeft.horizontal - std::max(widths.left, widths.top));
+  inner.topRight.horizontal = std::max(0.0f, inner.topRight.horizontal - std::max(widths.right, widths.top));
+  inner.bottomLeft.horizontal = std::max(0.0f, inner.bottomLeft.horizontal - std::max(widths.left, widths.bottom));
+  inner.bottomRight.horizontal = std::max(0.0f, inner.bottomRight.horizontal - std::max(widths.right, widths.bottom));
+  return ChildClip{x + widths.left, y + widths.top, std::max(0.0f, w - widths.left - widths.right),
+                   std::max(0.0f, h - widths.top - widths.bottom), inner};
+}
+
+// The device pixels of a logical rectangle within `clip`, whole pixels taken outward, before the
+// painter's region limits them: [x0, x1) × [y0, y1).
+PixelBox devicePixels(const Painter& painter, float x, float y, float w, float h, const Clip& clip) {
+  Clip visible = clip.intersect(Clip{x, y, x + w, y + h});
+  if (visible.empty()) return {};
+  float scale = painter.scale();
+  return PixelBox{static_cast<int>(std::floor(visible.x0 * scale)), static_cast<int>(std::floor(visible.y0 * scale)),
+                  static_cast<int>(std::ceil(visible.x1 * scale)), static_cast<int>(std::ceil(visible.y1 * scale))};
+}
+
+// The device pixels of each corner's square of `box` (top left, top right, bottom left, bottom
+// right) that the painter paints, whole pixels taken outward: the only pixels the rounded box does
+// not cover whole (Painter::coveredWhole). Empty for a square corner, or where nothing is painted.
+std::array<PixelBox, 4> cornerSquares(const ChildClip& box, const PixelBox& painted, float scale) {
+  const float limit = std::min(box.w, box.h) / 2;
+  const float tl = std::min(box.radii.topLeft.horizontal, limit), tr = std::min(box.radii.topRight.horizontal, limit);
+  const float bl = std::min(box.radii.bottomLeft.horizontal, limit),
+              br = std::min(box.radii.bottomRight.horizontal, limit);
+  const float corners[4][3] = {{box.x, box.y, tl},
+                               {box.x + box.w - tr, box.y, tr},
+                               {box.x, box.y + box.h - bl, bl},
+                               {box.x + box.w - br, box.y + box.h - br, br}};
+  std::array<PixelBox, 4> squares{};
+  for (int i = 0; i < 4; ++i) {
+    const auto& [cx, cy, r] = corners[i];
+    if (r <= 0) continue;
+    PixelBox square{std::max(static_cast<int>(std::floor(cx * scale)), painted.x0),
+                    std::max(static_cast<int>(std::floor(cy * scale)), painted.y0),
+                    std::min(static_cast<int>(std::ceil((cx + r) * scale)), painted.x1),
+                    std::min(static_cast<int>(std::ceil((cy + r) * scale)), painted.y1)};
+    if (!square.empty()) squares[i] = square;
+  }
+  return squares;
+}
+
+// Whether some child drawn at (ox, oy) draws within the device pixels `square`.
+bool childReaches(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy, const PixelBox& square,
+                  float scale) {
+  Rect area{{square.x0 / scale, square.y0 / scale},
+            {(square.x1 - square.x0) / scale, (square.y1 - square.y0) / scale}};
+  for (Tag child : children) {
+    auto found = tree.views().find(child);
+    if (found == tree.views().end()) continue;
+    std::string name = found->second.view.componentName ? found->second.view.componentName : "";
+    if (ownSurface(name) || isModal(name)) continue;
+    Rect drawn = viewTransform(found->second.view).bounds(localBounds(tree, child));
+    drawn.origin.x += ox, drawn.origin.y += oy;
+    Rect common = Rect::intersect(drawn, area);
+    if (common.size.width > 0 && common.size.height > 0) return true;
+  }
+  return false;
+}
+
+// The children drawn on their own over the device pixels `layerBox`, then drawn onto the canvas
+// with the rounded box's coverage (Painter::image), within `clip`. The children are clipped in the
+// layer to the box's whole pixels (`whole`), so the partial pixels at its edges hold them whole and
+// are covered once, by the rounded box's coverage.
+void drawThroughRoundedLayer(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy,
+                             const Clip& clip, const ChildClip& box, const PixelBox& whole, const PixelBox& layerBox,
+                             float opacity, Painter& painter, RenderStats& stats, const TextInputEdit& edit) {
+  const float scale = painter.scale();
+  Canvas content;
+  content.width = layerBox.x1 - layerBox.x0;
+  content.height = layerBox.y1 - layerBox.y0;
+  content.pixels.assign(static_cast<size_t>(content.width) * content.height, 0);
+  const float left = layerBox.x0 / scale, top = layerBox.y0 / scale;
+  Painter inside(content, scale);
+  // A window shown live inside is still placed, within the box's rectangle, with its own corners.
+  inside.placesWindows = painter.placesWindows;
+  inside.toSurface = painter.toSurface.after(Affine::translation(left, top));
+  inside.surfaceClip = painter.surfaceClip;
+  Clip pixels{whole.x0 / scale - left, whole.y0 / scale - top, whole.x1 / scale - left, whole.y1 / scale - top};
+  for (Tag child : children) drawView(tree, child, ox - left, oy - top, pixels, opacity, inside, stats, edit);
+  painter.image(asPicture(content), left, top, content.width / scale, content.height / scale, clip, box.x, box.y,
+                box.w, box.h, box.radii, 1.0f, std::nullopt);
+}
+
+// The children of a view that clips them to a rounded box (`overflow: hidden` with a
+// `borderRadius`), as Android clips them to its padding box's path, anti-aliased as a rounded
+// background is (Painter::image's rounded coverage): Android's own anti-aliased clip, a layer kept
+// by the path's mask (clipWithAntiAliasing). Pictures, transformed views and other rounded clips
+// inside are drawn in the layer as anywhere else. Only the corners' squares need the layer: a box
+// much larger than its corners (a window's content) is drawn directly, clipped to its rectangle,
+// in the bands of rows and columns its corners leave, and through a layer in each corner a child
+// reaches; a smaller one (a round picture) through one layer over all of it. A corner no child
+// reaches needs nothing.
+void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy, Clip clip,
+                        const ChildClip& box, float opacity, Painter& painter, RenderStats& stats,
+                        const TextInputEdit& edit) {
+  Clip inner = clip.intersect(Clip{box.x, box.y, box.x + box.w, box.y + box.h});
+  PixelBox whole = devicePixels(painter, box.x, box.y, box.w, box.h, clip);
+  const std::array<int, 4> region = painter.region();
+  PixelBox painted{std::max(whole.x0, region[0]), std::max(whole.y0, region[1]), std::min(whole.x1, region[2]),
+                   std::min(whole.y1, region[3])};
+  const float scale = painter.scale();
+  auto direct = [&](RenderStats& into) {
+    for (Tag child : children) drawView(tree, child, ox, oy, inner, opacity, painter, into, edit);
+  };
+  std::array<PixelBox, 4> squares = painted.empty() ? std::array<PixelBox, 4>{} : cornerSquares(box, painted, scale);
+  std::array<bool, 4> cut{};
+  long cornerArea = 0;
+  bool overlapping = false;
+  for (int i = 0; i < 4; ++i) {
+    if (squares[i].empty()) continue;
+    cut[i] = childReaches(tree, children, ox, oy, squares[i], scale);
+    cornerArea += static_cast<long>(squares[i].x1 - squares[i].x0) * (squares[i].y1 - squares[i].y0);
+    for (int j = 0; j < i; ++j) {
+      const PixelBox& a = squares[i];
+      const PixelBox& b = squares[j];
+      if (!b.empty() && a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1) overlapping = true;
+    }
+  }
+  if (std::none_of(cut.begin(), cut.end(), [](bool c) { return c; })) {
+    direct(stats);
+    return;
+  }
+  const long area = static_cast<long>(painted.x1 - painted.x0) * (painted.y1 - painted.y0);
+  if (overlapping || area < 4 * cornerArea) {
+    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, painted, opacity, painter, stats, edit);
+    return;
+  }
+  // The bands: the painted rows cut where a corner's square begins or ends, each row band's
+  // columns those the corners covering it leave. The views' texts and windows are counted once,
+  // with the first band drawn (or a walk painting nothing, if none is).
+  std::vector<int> breaks{painted.y0, painted.y1};
+  for (const auto& square : squares) {
+    if (!square.empty()) breaks.insert(breaks.end(), {square.y0, square.y1});
+  }
+  std::sort(breaks.begin(), breaks.end());
+  breaks.erase(std::unique(breaks.begin(), breaks.end()), breaks.end());
+  RenderStats again;
+  bool counted = false;
+  for (size_t b = 0; b + 1 < breaks.size(); ++b) {
+    int y0 = breaks[b], y1 = breaks[b + 1], x0 = painted.x0, x1 = painted.x1;
+    for (int i = 0; i < 4; ++i) {
+      if (squares[i].empty() || squares[i].y0 > y0 || squares[i].y1 < y1) continue;
+      if (i % 2 == 0) {
+        x0 = std::max(x0, squares[i].x1);
+      } else {
+        x1 = std::min(x1, squares[i].x0);
+      }
+    }
+    if (x0 >= x1) continue;
+    painter.limit(x0, y0, x1, y1);
+    direct(counted ? again : stats);
+    counted = true;
+  }
+  if (!counted) {
+    painter.limit(0, 0, 0, 0);
+    direct(stats);
+  }
+  painter.limit(region[0], region[1], region[2], region[3]);
+  for (int i = 0; i < 4; ++i) {
+    if (!cut[i]) continue;
+    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, squares[i], opacity, painter, again, edit);
+  }
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Painter& painter,
               RenderStats& stats, const TextInputEdit& edit, bool untransformed) {
   auto it = tree.views().find(tag);
@@ -1135,6 +1327,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     ++depth;
   }
   Clip childClip = clip;
+  std::optional<ChildClip> clipsTo;
   float childOx = x, childOy = y;
   if (props) {
     opacity *= props->opacity;
@@ -1167,7 +1360,8 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
                    w - widths.left - widths.right, h - widths.top - widths.bottom);
     }
     if (props->getClipsContentToBounds() || name == "ScrollView") {
-      childClip = clip.intersect(Clip{x, y, x + w, y + h});
+      clipsTo = paddingBox(border, x, y, w, h);
+      childClip = clip.intersect(Clip{clipsTo->x, clipsTo->y, clipsTo->x + clipsTo->w, clipsTo->y + clipsTo->h});
     }
   }
 
@@ -1248,6 +1442,10 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     return;
   }
 
+  if (clipsTo && clipsTo->rounded()) {
+    drawRoundedClipped(tree, it->second.children, childOx, childOy, clip, *clipsTo, opacity, painter, stats, edit);
+    return;
+  }
   for (Tag child : it->second.children) {
     drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, edit);
   }

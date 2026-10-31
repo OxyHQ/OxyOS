@@ -1,0 +1,176 @@
+{
+  "about": "clip.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25), the window's pixels checked in the output's own (the window at 550,313 of a 1600x1000 output): the same clipping, the edges anti-aliased at the output's pixels, the clipped child's edge the same as the round background's and the nested clip's the same as the round button's, pixel for pixel; the same presses, hit by rectangles.",
+  "module": "ClipProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "each child is drawn within its view's padding box and rounded corners, the edges anti-aliased as a rounded background is",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "output_pixels": {
+          "576,339": "#ffffff",
+          "625,388": "#d03030",
+          "617,338": "#e89898",
+          "616,338": "#f3cbcb",
+          "701,339": "#ffffff",
+          "750,388": "#3050d0",
+          "826,339": "#ffffff",
+          "875,388": "#3050d0",
+          "576,464": "#ffffff",
+          "579,513": "#30a050",
+          "625,468": "#30a050",
+          "587,475": "#30a050",
+          "625,513": "#d08000",
+          "716,465": "#ffffff",
+          "750,513": "#8030c0",
+          "829,467": "#ffffff",
+          "875,513": "#d03030",
+          "952,341": "#ffffff",
+          "987,375": "#3050d0",
+          "701,564": "#ffffff",
+          "775,594": "#3050d0",
+          "848,624": "#ffffff"
+        },
+        "output_pixels_match": [
+          [
+            "740,338",
+            "865,338"
+          ],
+          [
+            "726,343",
+            "851,343"
+          ],
+          [
+            "784,352",
+            "909,352"
+          ],
+          [
+            "705,365",
+            "830,365"
+          ],
+          [
+            "700,384",
+            "825,384"
+          ],
+          [
+            "704,409",
+            "829,409"
+          ],
+          [
+            "785,422",
+            "910,422"
+          ],
+          [
+            "726,432",
+            "851,432"
+          ],
+          [
+            "615,338",
+            "865,463"
+          ],
+          [
+            "660,352",
+            "910,477"
+          ],
+          [
+            "575,391",
+            "825,516"
+          ],
+          [
+            "590,423",
+            "840,548"
+          ],
+          [
+            "710,563",
+            "870,563"
+          ],
+          [
+            "840,564",
+            "1000,564"
+          ],
+          [
+            "704,567",
+            "864,567"
+          ],
+          [
+            "848,570",
+            "1008,570"
+          ],
+          [
+            "700,575",
+            "860,575"
+          ],
+          [
+            "848,616",
+            "1008,616"
+          ],
+          [
+            "703,620",
+            "863,620"
+          ],
+          [
+            "843,623",
+            "1003,623"
+          ]
+        ],
+        "absent": [
+          "Pressed: the avatar"
+        ]
+      }
+    },
+    {
+      "name": "a press in the round button's clipped corner presses it: hit by its rectangle",
+      "do": [
+        "press",
+        [
+          23,
+          23
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the avatar"
+        ],
+        "react": {
+          "touchStart@avatar": 1,
+          "touchEnd@avatar": 1
+        },
+        "output_pixels": {
+          "576,339": "#ffffff",
+          "625,388": "#d03030"
+        }
+      }
+    },
+    {
+      "name": "a press where a child overflows the view clipping it reaches the page, not the child",
+      "do": [
+        "press",
+        [
+          10,
+          160
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        },
+        "texts": [
+          "Pressed: the avatar"
+        ],
+        "output_pixels": {
+          "563,513": "#ffffff"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

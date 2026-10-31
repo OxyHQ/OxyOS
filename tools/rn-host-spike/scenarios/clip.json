@@ -1,0 +1,171 @@
+{
+  "about": "Views clipping their children (sample/ClipProbe.tsx), as Android's ReactViewGroup clips them with `overflow: hidden` (BackgroundStyleApplicator.clipToPaddingBox): to the padding box, inside the borders and along the rounded corners, anti-aliased. A square picture in a round button is round, its edge the same as a round picture's inside another rounded clip; a square child in a round view is round with exactly the edge of the round background beside it; a child under an 8-pixel border leaves the border and its rounded inner corners drawn; a turned child, a rounded clip inside another and a rounded clip itself scaled leave the corners of their boxes empty; a card much wider than its corners, drawn directly but in its corners, has exactly the edge of the rounded background of its size beside it. Presses are hit by rectangles, as Android's TouchTargetHelper hits them: one in the round button's clipped corner presses it, and one where a child overflows its clipping view reaches the page.",
+  "module": "ClipProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "each child is drawn within its view's padding box and rounded corners, the edges anti-aliased as a rounded background is",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "pixels": {
+          "21,21": "#ffffff",
+          "60,60": "#d03030",
+          "53,20": "#e89898",
+          "52,20": "#f3cbcb",
+          "221,21": "#ffffff",
+          "241,23": "#ffffff",
+          "260,60": "#3050d0",
+          "152,20": "#cbd3f3",
+          "137,26": "#e5e9f9",
+          "121,121": "#ffffff",
+          "23,160": "#30a050",
+          "60,124": "#30a050",
+          "29,129": "#30a050",
+          "60,160": "#d08000",
+          "133,121": "#ffffff",
+          "160,160": "#8030c0",
+          "223,123": "#ffffff",
+          "241,123": "#ffffff",
+          "260,160": "#d03030",
+          "322,22": "#ffffff",
+          "336,22": "#ffffff",
+          "337,22": "#cbd3f3",
+          "350,50": "#3050d0",
+          "121,201": "#ffffff",
+          "180,225": "#3050d0",
+          "238,248": "#ffffff"
+        },
+        "pixels_match": [
+          [
+            "152,20",
+            "252,20"
+          ],
+          [
+            "153,20",
+            "253,20"
+          ],
+          [
+            "150,21",
+            "250,21"
+          ],
+          [
+            "137,26",
+            "237,26"
+          ],
+          [
+            "121,53",
+            "221,53"
+          ],
+          [
+            "188,88",
+            "288,88"
+          ],
+          [
+            "52,20",
+            "252,120"
+          ],
+          [
+            "53,20",
+            "253,120"
+          ],
+          [
+            "37,26",
+            "237,126"
+          ],
+          [
+            "88,88",
+            "288,188"
+          ],
+          [
+            "127,200",
+            "255,200"
+          ],
+          [
+            "125,201",
+            "253,201"
+          ],
+          [
+            "123,203",
+            "251,203"
+          ],
+          [
+            "121,206",
+            "249,206"
+          ],
+          [
+            "120,210",
+            "248,210"
+          ],
+          [
+            "120,242",
+            "248,242"
+          ],
+          [
+            "122,245",
+            "250,245"
+          ],
+          [
+            "125,248",
+            "253,248"
+          ]
+        ],
+        "absent": [
+          "Pressed: the avatar"
+        ]
+      }
+    },
+    {
+      "name": "a press in the round button's clipped corner presses it: hit by its rectangle",
+      "do": [
+        "press",
+        [
+          23,
+          23
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pressed: the avatar"
+        ],
+        "react": {
+          "touchStart@avatar": 1,
+          "touchEnd@avatar": 1
+        },
+        "pixels": {
+          "21,21": "#ffffff",
+          "60,60": "#d03030"
+        }
+      }
+    },
+    {
+      "name": "a press where a child overflows the view clipping it reaches the page, not the child",
+      "do": [
+        "press",
+        [
+          10,
+          160
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "touchStart@page": 1,
+          "touchEnd@page": 1
+        },
+        "texts": [
+          "Pressed: the avatar"
+        ],
+        "pixels": {
+          "10,160": "#ffffff"
+        }
+      }
+    }
+  ]
+}
