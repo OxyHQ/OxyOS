@@ -58,11 +58,6 @@ using namespace facebook::react;
 
 namespace oxyos {
 
-// A canvas drawn on the GPU: a Ganesh surface on the device the compositor shares
-// (docs/adr/0031-gpu-buffers.mdx, decision 12, skia-gpu.h).
-struct GpuCanvas {
-  sk_sp<SkSurface> surface;
-};
 void ViewTree::apply(const ShadowViewMutationList& mutations) {
   for (const auto& m : mutations) {
     switch (m.type) {
@@ -544,26 +539,59 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   auto target = tree.views().find(blurTarget.target);
   if (!blurAt || !targetAt || target == tree.views().end()) return;
   SkCanvas& canvas = *draw.canvas;
-  canvas.save();
-  canvas.clipRRect(borderBox(border, x, y, w, h), true);
-  SkPaint layer;
-  layer.setAlphaf(opacity);
-  if (blurTarget.radius > 0) {
-    layer.setImageFilter(SkImageFilters::Blur(blurTarget.radius, blurTarget.radius, SkTileMode::kClamp, nullptr));
-  }
-  canvas.saveLayer(nullptr, &layer);
+  // Only the part of the view the canvas paints (its clip, the damage among it) is worked out.
+  SkRect visible = SkRect::MakeXYWH(x, y, w, h);
+  SkRect painted;
+  if (!canvas.getLocalClipBounds(&painted) || !visible.intersect(painted)) return;
+  // As Dimezis' BlurView draws it: the target drawn reduced into a picture of its own, blurred there
+  // and stretched back over the view. A wide blur (16 device pixels of deviation or more:
+  // Launchpad's backdrop, 37 at 1.25) is worked out k times smaller (an eighth of the deviation, at
+  // most 8), by what the Gaussian has left to do at that size (drawing it reduced and stretching it
+  // back blur by about k²/4 of variance between them); what a blur that wide keeps is far coarser
+  // than k pixels, so it is within a level or two of the blur at full size, for a k²th of the work.
+  // The picture is kept in half floats and stretched back dithered, so its gradients, shallower
+  // than a level per pixel, never band.
+  const float sigma = blurTarget.radius * draw.scale;
+  const int k = sigma >= 16 ? std::min(8, static_cast<int>(sigma / 8)) : 1;
+  const float reducedScale = draw.scale / k;
+  const float reducedSigma = k > 1 ? std::sqrt(std::max(0.25f, sigma * sigma - k * k / 4.0f)) / k : sigma;
+  // What the blur reads around a pixel: three deviations.
+  const int margin = static_cast<int>(std::ceil(3 * reducedSigma));
+  const float left = visible.fLeft - margin / reducedScale, top = visible.fTop - margin / reducedScale;
+  const int width = static_cast<int>(std::ceil(visible.width() * reducedScale)) + 2 * margin;
+  const int height = static_cast<int>(std::ceil(visible.height() * reducedScale)) + 2 * margin;
+  const SkImageInfo info = SkImageInfo::Make(width, height, kRGBA_F16Norm_SkColorType, kPremul_SkAlphaType);
+  sk_sp<SkSurface> drawn = canvas.makeSurface(info);
+  sk_sp<SkSurface> blurred = canvas.makeSurface(info);
+  if (!drawn || !blurred) return;
   // The target where it is relative to this view.
   Affine map = viewTransform(target->second.view);
   float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx;
   float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty;
-  Draw inside = draw;
-  inside.placesWindows = false;
+  SkCanvas& reduced = *drawn->getCanvas();
+  reduced.scale(reducedScale, reducedScale);
+  reduced.translate(-left, -top);
   RenderStats unseen;
-  inside.stats = &unseen;
+  Draw inside{&reduced, reducedScale, &unseen, draw.edit};
+  inside.placesWindows = false;
   ++drawingBlurTarget;
   drawView(tree, blurTarget.target, targetX, targetY, kUnclipped, 1.0f, inside);
   --drawingBlurTarget;
-  canvas.restore();
+  SkPaint gaussian;
+  gaussian.setBlendMode(SkBlendMode::kSrc);
+  if (reducedSigma > 0) {
+    // The picture's edges extended, as Dimezis' blur reads past them.
+    gaussian.setImageFilter(SkImageFilters::Blur(reducedSigma, reducedSigma, SkTileMode::kClamp, nullptr));
+  }
+  blurred->getCanvas()->drawImage(drawn->makeImageSnapshot(), 0, 0, SkSamplingOptions(), &gaussian);
+  SkPaint stretched;
+  stretched.setAlphaf(opacity);
+  stretched.setDither(true);
+  canvas.save();
+  canvas.clipRRect(borderBox(border, x, y, w, h), true);
+  canvas.drawImageRect(blurred->makeImageSnapshot(),
+                       SkRect::MakeXYWH(left, top, width / reducedScale, height / reducedScale),
+                       SkSamplingOptions(SkFilterMode::kLinear), &stretched);
   canvas.restore();
 }
 
@@ -1430,7 +1458,6 @@ CpuPaintScope::CpuPaintScope() { ++cpuOnly; }
 
 CpuPaintScope::~CpuPaintScope() { --cpuOnly; }
 
-uint32_t gpuCanvasId(const Canvas&) { return 0; }
 
 std::vector<uint32_t> canvasPixels(const Canvas& canvas) {
   if (!canvas.gpu) return canvas.pixels;

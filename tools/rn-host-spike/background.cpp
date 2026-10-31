@@ -25,8 +25,13 @@ namespace oxyos {
 namespace {
 
 constexpr uint32_t kBlack = 0xff000000u;
+// What a colour React Native's C++ props hold no value for is drawn as. They cannot tell a colour
+// left out from `transparent`: both are its UndefinedColor, 0. Android, whose drawables read the
+// JavaScript value itself, draws a border or outline left without a colour black; here it is drawn
+// transparent, as `transparent` must be (Bloom gives every border it draws a colour).
+constexpr uint32_t kUnset = 0;
 
-// A colour as Android's ARGB int; `unset` for a colour not given.
+// A colour as Android's ARGB int; `unset` for a colour the props hold no value for.
 uint32_t argb(const SharedColor& color, uint32_t unset) {
   if (!color) return unset;
   auto c = colorComponentsFromColor(color);
@@ -112,7 +117,7 @@ float adjustRadiusForSpread(float radius, float spread) {
 // OutsetBoxShadowDrawable.draw.
 void drawOutsetShadow(SkCanvas& canvas, const BoxShadow& shadow, const BorderRadii& radii, const SkRect& bounds,
                       float opacity, float scale) {
-  SkPaint paint = paintOf(argb(shadow.color, kBlack), opacity, false);
+  SkPaint paint = paintOf(argb(shadow.color, kUnset), opacity, false);
   // BLUR_RADIUS_SIGMA_SCALE: CSS's blur radius is twice the deviation.
   if (auto sigma = blurSigma(shadow.blurRadius * 0.5f, scale)) {
     paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, *sigma));
@@ -140,7 +145,7 @@ void drawOutsetShadow(SkCanvas& canvas, const BoxShadow& shadow, const BorderRad
 // InsetBoxShadowDrawable.draw.
 void drawInsetShadow(SkCanvas& canvas, const BoxShadow& shadow, const BorderMetrics& border, const SkRect& bounds,
                      float opacity, float scale) {
-  SkPaint paint = paintOf(argb(shadow.color, kBlack), opacity);
+  SkPaint paint = paintOf(argb(shadow.color, kUnset), opacity);
   if (auto sigma = blurSigma(shadow.blurRadius * 0.5f, scale)) {
     paint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, *sigma));
   }
@@ -248,10 +253,10 @@ void drawRoundedBorder(SkCanvas& canvas, const ViewProps& props, const BorderMet
   canvas.save();
   canvas.clipRRect(rrectOf(outer, radiiOf(r)), SkClipOp::kIntersect, true);
   if (w.top > 0 || w.bottom > 0 || w.left > 0 || w.right > 0) {
-    // The `borderWidth` shorthand and the `borderColor` one (black when not given).
+    // The `borderWidth` shorthand and the `borderColor` one (getBorderColor(ALL)).
     auto all = props.yogaStyle.border(facebook::yoga::Edge::All).value();
     float full = all.isDefined() ? all.unwrap() : 0;
-    uint32_t allColor = argb(props.borderColors.all.value_or(SharedColor{}), kBlack);
+    uint32_t allColor = argb(props.borderColors.all.value_or(SharedColor{}), kUnset);
     bool sameWidths = w.top == full && w.bottom == full && w.left == full && w.right == full;
     bool sameColors = colors[0] == allColor && colors[1] == allColor && colors[2] == allColor && colors[3] == allColor;
     if (sameWidths && sameColors) {
@@ -374,9 +379,9 @@ void drawRectangularBorder(SkCanvas& canvas, const BorderMetrics& border, const 
 
 void drawBorder(SkCanvas& canvas, const ViewProps& props, const BorderMetrics& border, const SkRect& bounds,
                 float opacity, float scale) {
-  // BorderColors.resolve: a side without a colour is black.
-  uint32_t colors[4] = {argb(border.borderColors.left, kBlack), argb(border.borderColors.top, kBlack),
-                        argb(border.borderColors.right, kBlack), argb(border.borderColors.bottom, kBlack)};
+  // BorderColors.resolve, each side its own colour, the cascade (left, start, all) resolved by the props.
+  uint32_t colors[4] = {argb(border.borderColors.left, kUnset), argb(border.borderColors.top, kUnset),
+                        argb(border.borderColors.right, kUnset), argb(border.borderColors.bottom, kUnset)};
   if (rounded(border.borderRadii)) {
     drawRoundedBorder(canvas, props, border, bounds, colors, opacity, scale);
   } else {
@@ -392,7 +397,7 @@ void drawOutline(SkCanvas& canvas, const ViewProps& props, const BorderMetrics& 
   float offset = props.outlineOffset;
   float grow = width * 0.5f + offset - 0.8f / scale;
   SkRect rect = bounds.makeOutset(grow, grow);
-  SkPaint paint = paintOf(argb(props.outlineColor, kBlack), opacity);
+  SkPaint paint = paintOf(argb(props.outlineColor, kUnset), opacity);
   paint.setStyle(SkPaint::kStroke_Style);
   paint.setStrokeWidth(width);
   paint.setPathEffect(

@@ -182,8 +182,6 @@ struct CpuPaintScope {
   CpuPaintScope();
   ~CpuPaintScope();
 };
-// The painter's canvas a canvas drawn on the GPU is (0 for one drawn on the CPU).
-uint32_t gpuCanvasId(const Canvas& canvas);
 // A canvas's pixels, read back from the GPU when it is drawn there.
 std::vector<uint32_t> canvasPixels(const Canvas& canvas);
 // The largest difference of any channel between two frames of one size, and how many pixels

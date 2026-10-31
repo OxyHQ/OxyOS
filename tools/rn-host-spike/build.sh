@@ -130,8 +130,13 @@ skia_args="$skia_args skia_use_partition_alloc=false skia_use_perfetto=false ski
 # - The headers of the system libraries. RTTI on: the host is built with it, and a host class
 #   deriving from a Skia class with an out-of-line virtual function (SkDrawable, for one) needs the
 #   base's typeinfo, which Skia built without RTTI does not emit.
+# - Text's gamma as Chromium sets it on Linux (its skia/BUILD.gn and SkUserConfig.h): gray glyph
+#   masks corrected too (SK_GAMMA_APPLY_TO_A8), with an exponent of 1.2 and a contrast of 0.2.
+#   Skia's defaults leave gray masks linear, and text then draws thinner than Bloom's does in
+#   Chromium. (Android's HWUI builds Skia with 1.4 and 0.0.)
 skia_args="$skia_args extra_cflags=[\"-I$WORK/text/usr/include/harfbuzz\", \"-I$WORK/icu/usr/include\",
-  \"-I$WORK/skia-sysroot/usr/include\"] extra_cflags_cc=[\"-frtti\"]"
+  \"-I$WORK/skia-sysroot/usr/include\", \"-DSK_GAMMA_APPLY_TO_A8\", \"-DSK_GAMMA_EXPONENT=1.2\",
+  \"-DSK_GAMMA_CONTRAST=0.2\"] extra_cflags_cc=[\"-frtti\"]"
 skia_libs="libskia.a libskshaper.a libskunicode_core.a libskunicode_icu.a libskparagraph.a libsvg.a
   libskresources.a"
 skia_stamp=$(printf '%s\n' "$SKIA_REVISION" "$skia_args")

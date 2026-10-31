@@ -2,6 +2,7 @@
 
 #include "frame-diagnostics.h"
 #include "report.h"
+#include "skia-gpu.h"
 
 #include <algorithm>
 #include <chrono>
@@ -265,8 +266,7 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   auto started = std::chrono::steady_clock::now();
   if (canvas.gpu) {
     // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
-    sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
-                                   gpuCanvasId(canvas), format, damage.data(), damage.size());
+    sequence = presentGpu(gpuPaint(), client_, id, target.configure, canvas, format, damage);
     // The compositor gone (the session ends): nothing more is presented; the next poll says so.
     if (sequence < 0 && disconnected()) return;
     if (sequence < 0) {
