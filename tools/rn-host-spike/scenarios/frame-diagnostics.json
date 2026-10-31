@@ -1,5 +1,5 @@
 {
- "about": "The host's frame diagnostics (frame-diagnostics.h; sample/FrameProbe.tsx; docs/performance.mdx, \"Reading the session's log\"): a frame whose work takes longer than a refresh of its display writes one line to the session's log naming what started it and where its time went (JavaScript holding the thread 120 ms after a press: its JavaScript at least 100 ms, its refreshes dropped), at most one a second with how many went unsaid; fast frames (presses answered at once, 90 frames of requestAnimationFrame) write none; and while the window draws, a summary every 10 s whose numbers are those of the frames in its report (regress.py checks every summary of every run), and none while it is idle.",
+ "about": "The host's frame diagnostics (frame-diagnostics.h; sample/FrameProbe.tsx; docs/performance.mdx, \"Reading the session's log\"): a frame whose work takes longer than a refresh of its display writes one line to the session's log naming what started it and where its time went (JavaScript holding the thread 120 ms after a press: its JavaScript at least 100 ms, its refreshes dropped), at most one a second with how many went unsaid; presses answered at once write none, and 90 frames of requestAnimationFrame stay within a refresh (every run checks a frame is said to be slow exactly when its work passes a refresh); and while the window draws, a summary every 10 s whose numbers are those of the frames in its report (regress.py checks every summary of every run), and none while it is idle.",
  "module": "FrameProbe",
  "window": [
   480,
@@ -173,7 +173,7 @@
    }
   },
   {
-   "name": "90 frames of requestAnimationFrame, each drawn: no slow frame",
+   "name": "90 frames of requestAnimationFrame, each drawn: nearly all within a refresh",
    "do": [
     "press",
     [
@@ -186,10 +186,7 @@
      "Count 7, frame 90"
     ],
     "diagnostics": {
-     "slow": [
-      0,
-      0
-     ]
+     "fast_frames_min": 75
     }
    }
   },

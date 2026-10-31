@@ -153,9 +153,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
   "slow_line", a slow line written in the step having each key given ("subject", a pattern it
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
-  unsaid); "summaries", [least, most] summaries written; "logged", patterns (regular expressions) each
+  unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
+  presented within a refresh; "logged", patterns (regular expressions) each
   matching a line written in the step. Every run also checks, for each host's report, that every
-  line its diagnostics wrote is in the log (the hosts' stderr), that a slow frame's line names the
+  line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
+  its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
   work its `timing` line has, and that each summary's numbers are those of the frames presented
   since the summary before;
 
@@ -322,6 +324,12 @@ def check_diagnostics(report, log_text, failures, who="the application"):
     frames, last_slow = [], None
     for line in report:
         if line["kind"] == "timing":
+            # Slow exactly when its work, and its wait beyond a refresh, pass a refresh: a fast
+            # frame is never said to be slow, however loaded the machine.
+            late = line["work_ms"] + max(0.0, line["wait_ms"] - line["refresh_ms"])
+            if abs(late - line["late_ms"]) > 1e-6 or line["slow"] != (late > line["refresh_ms"]):
+                failures.append(f"{who}'s frame of {line['work_ms']:.2f} ms (waiting {line['wait_ms']:.2f}, a refresh "
+                                f"{line['refresh_ms']:.2f}) is {'' if line['slow'] else 'not '}said to be slow")
             if line["presented"]:
                 frames.append(line)
             if line["slow"]:
@@ -1301,6 +1309,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         slow_frames = [line for line in report if line["kind"] == "timing" and line["slow"]
                        and start <= line["t"] <= end]
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
+        fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
+                       and start <= line["t"] <= end]
+        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+            fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
             if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "

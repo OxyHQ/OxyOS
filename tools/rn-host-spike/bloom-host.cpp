@@ -367,9 +367,11 @@ int main(int argc, char** argv) {
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
   // The application this process runs, as its report and the session's log name it: the id the
-  // session launched it with, else its module.
+  // session launched it with, else its module (the shell's always: an id in its environment is
+  // whatever started it passing its own on).
   const char* launchedId = std::getenv("OXYOS_APP_ID");
-  const std::string applicationName = launchedId && *launchedId ? launchedId : argv[2];
+  const bool asShell = std::string(argv[3]) == "--shell";
+  const std::string applicationName = launchedId && *launchedId && !asShell ? launchedId : argv[2];
   oxyos::Report::get().open(applicationName);
   stage("main");
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];

@@ -101,9 +101,10 @@ development compositor, which draws from the CPU). How to read them:
   frame*, or *JavaScript* (its own work: a promise, an event emitted the turn before). Work that
   ends without a frame (an input whose answer changed nothing visible) is said as *handling … (no
   frame)*. At most one slow line a second; the next says how many went unsaid.
-- **Input to present** is from the earliest input behind the frame, by its device's time
+- **Input to present** is from the earliest input since the frame before, by its device's time
   (libinput's), to the frame handed to the compositor: what the person waited, the compositor's
-  composition and the display's flip not included.
+  composition and the display's flip not included. (During an animation, an input that arrives as
+  a frame is drawn counts toward that frame, though its answer is in the next.)
 - **The summary** comes every 10 s while the window draws: its frames, their work's median, 95th
   percentile and most, the latency from input, how many were slow and the refreshes dropped.
   Nothing is written while the window is idle; a host that ends writes the frames since the last.
@@ -134,13 +135,15 @@ before `probar.sh` starts it), a profiling run records every application without
 change. A file path is one host's report, as before (`regress.py`'s).
 
 **Checked.** `scenarios/frame-diagnostics.json` (`sample/FrameProbe.tsx`) makes frames fast and
-slow: presses answered at once and 90 frames of requestAnimationFrame write no slow line; a
-press whose JavaScript holds the thread 120 ms writes one, its JavaScript at least 100 ms and its
-refreshes dropped; three within a second write one, and the next says the two unsaid; the idle
-window writes one summary, then nothing. Every run of every scenario also checks that each line a
-host's diagnostics wrote is in the log, that a slow line names the work its frame's `timing` line
-has, and that each summary's numbers are those of the frames since the summary before
-(`regress.py`, `check_diagnostics`).
+slow: presses answered at once write no slow line, and 90 frames of requestAnimationFrame stay
+within a refresh; a press whose JavaScript holds the thread 120 ms writes one, its JavaScript at
+least 100 ms and its refreshes dropped; three within a second write one, and the next says the
+two unsaid; the idle window writes one summary, then nothing. Every run of every scenario also
+checks that each line a host's diagnostics wrote is in the log, whole; that a frame is said to be
+slow exactly when its work (and its wait beyond a refresh) passes a refresh, so a fast frame never
+is, however loaded the machine; that a slow line names the work its frame's `timing` line has;
+and that each summary's numbers are those of the frames since the summary before (`regress.py`,
+`check_diagnostics`).
 
 ## Method
 

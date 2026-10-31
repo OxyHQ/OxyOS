@@ -11,6 +11,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <ctime>
+#include <unistd.h>
 
 namespace oxyos {
 
@@ -178,7 +179,14 @@ std::string FrameDiagnostics::partsText() const {
 
 void FrameDiagnostics::log(const std::string& line) {
   std::string text = "[host " + application_ + "] " + line;
-  std::fprintf(stderr, "%s\n", text.c_str());
+  // One write, so that the line arrives whole among what the session's other processes write to
+  // the same log (a pipe takes a write this short at once).
+  std::string written = text + "\n";
+  for (size_t done = 0; done < written.size();) {
+    ssize_t n = ::write(STDERR_FILENO, written.data() + done, written.size() - done);
+    if (n <= 0) break;
+    done += static_cast<size_t>(n);
+  }
   auto& report = Report::get();
   if (report.enabled()) report.diagnostic("log", folly::dynamic::object("text", text));
 }
