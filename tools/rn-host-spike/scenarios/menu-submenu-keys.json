@@ -1,0 +1,292 @@
+{
+  "about": "Submenus from the keyboard in a Bloom menu in a compositor popup (sample/App.tsx's DropdownMenu and its inline 'More actions' submenu), as the WAI-ARIA menu pattern, macOS and Android menus take them (Bloom 15.72.0's popup navigation): ArrowRight on a row with a submenu opens it in place, the popup growing and placed again, and makes its first row active; ArrowLeft inside it, or Escape, closes it and makes its row active again, the menu staying open with the keyboard's focus; Escape outside a submenu closes the menu. Each key reaches the menu once (`key@message-actions`) and nothing else; which row is active is shown by what the next keys choose. Points are window-local logical pixels.",
+  "window": [
+    1024,
+    560
+  ],
+  "layout": "us",
+  "steps": [
+    {
+      "name": "open the menu",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "popup_size": [
+          266,
+          222
+        ],
+        "absent": [
+          "Copy link"
+        ],
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        }
+      }
+    },
+    {
+      "name": "End makes the last row active: More actions, which has a submenu",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "popups": 1,
+        "absent": [
+          "Copy link"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {}
+      }
+    },
+    {
+      "name": "ArrowRight on it opens its submenu in place: the popup grows and is placed again, the row expanded",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "texts": [
+          "Copy link",
+          "Print"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {
+          "reposition@message-actions": 1
+        },
+        "popup_size": [
+          266,
+          282
+        ],
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "More actions",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Copy link"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Print"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "ArrowLeft inside it closes the submenu: the popup shrinks back, the row collapsed",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "absent": [
+          "Copy link",
+          "Print"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {
+          "reposition@message-actions": 1
+        },
+        "popup_size": [
+          266,
+          222
+        ],
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "More actions",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the active row is More actions again: ArrowUp goes to the row above it, Delete",
+      "do": [
+        "key",
+        103
+      ],
+      "expect": {
+        "popups": 1,
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {}
+      }
+    },
+    {
+      "name": "Enter chooses Delete and closes the menu, focus back in the window",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Delete"
+        ],
+        "absent": [
+          "Nothing chosen"
+        ],
+        "react": {
+          "key@message-actions": 1
+        }
+      }
+    },
+    {
+      "name": "reopen the menu",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "popup_size": [
+          266,
+          222
+        ],
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        }
+      }
+    },
+    {
+      "name": "End, to More actions",
+      "do": [
+        "key",
+        107
+      ],
+      "expect": {
+        "popups": 1,
+        "react": {
+          "key@message-actions": 1
+        }
+      }
+    },
+    {
+      "name": "ArrowRight opens its submenu",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Copy link",
+          "Print"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_size": [
+          266,
+          282
+        ],
+        "popup_events": {
+          "reposition@message-actions": 1
+        }
+      }
+    },
+    {
+      "name": "Escape inside the submenu closes the submenu alone: the menu stays open, focus in it",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "absent": [
+          "Copy link"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_size": [
+          266,
+          222
+        ],
+        "popup_events": {
+          "reposition@message-actions": 1
+        }
+      }
+    },
+    {
+      "name": "ArrowRight opens the submenu again and makes its first row active",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "popups": 1,
+        "texts": [
+          "Copy link"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_size": [
+          266,
+          282
+        ],
+        "popup_events": {
+          "reposition@message-actions": 1
+        }
+      }
+    },
+    {
+      "name": "Enter chooses Copy link, the submenu's first row, and closes the menu",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Copy link"
+        ],
+        "absent": [
+          "Chosen: Delete"
+        ],
+        "react": {
+          "key@message-actions": 1
+        }
+      }
+    }
+  ]
+}
