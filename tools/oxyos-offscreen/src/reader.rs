@@ -26,7 +26,7 @@ pub struct Node {
     pub selection: Option<(u32, u32)>,
     /// Its parent's index in the same tree, as the application nested it; None at the top.
     pub parent: Option<u32>,
-    /// Where it is on its surface, in logical pixels: x, y, width, height.
+    /// Where it is, in the global space's logical pixels (ADR 0003): x, y, width, height.
     pub rect: (i32, i32, u32, u32),
 }
 
