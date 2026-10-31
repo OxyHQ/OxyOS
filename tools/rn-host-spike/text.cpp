@@ -3,13 +3,12 @@
 #include <react/renderer/graphics/Color.h>
 #include <react/utils/hash_combine.h>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
-#include FT_MULTIPLE_MASTERS_H
-#include FT_TRUETYPE_TABLES_H
-#include <hb-ft.h>
+#include <hb-ot.h>
 #include <hb.h>
+#include <unicode/brkiter.h>
+#include <unicode/locid.h>
 #include <unicode/ubrk.h>
+#include <unicode/unistr.h>
 #include <unicode/utext.h>
 
 #include <algorithm>
@@ -21,19 +20,18 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <tuple>
 
 using namespace facebook::react;
 
 namespace oxyos {
 
-namespace {
+// HarfBuzz's positions are in units of this fraction of a logical pixel: a font's scale is its
+// size times this, so advances keep their fractions, as Minikin's floats do.
+constexpr float kShapingUnits = 65536.0f;
 
-struct Face {
-  FT_Face ft = nullptr;
-  hb_font_t* hb = nullptr;
-  float ascent = 0, descent = 0, capHeight = 0, xHeight = 0;
-};
+namespace {
 
 uint32_t argb(const SharedColor& color) {
   if (!color) return 0xff000000;
@@ -54,16 +52,90 @@ uint32_t next(const std::string& text, size_t& i) {
   return cp;
 }
 
+bool covers(const Face& face, uint32_t cp) {
+  hb_codepoint_t glyph = 0;
+  return hb_font_get_nominal_glyph(face.hb, cp, &glyph) && glyph != 0;
+}
+
+// The OpenType features `fontVariant` asks for, as Android's ReactTypefaceUtils turns each into
+// Paint.setFontFeatureSettings.
+std::vector<hb_feature_t> features(const TextAttributes& attributes) {
+  std::vector<hb_feature_t> out;
+  if (!attributes.fontVariant) return out;
+  auto variant = static_cast<int>(*attributes.fontVariant);
+  auto add = [&](const char* tag) {
+    out.push_back(hb_feature_t{hb_tag_from_string(tag, 4), 1, HB_FEATURE_GLOBAL_START, HB_FEATURE_GLOBAL_END});
+  };
+  if (variant & static_cast<int>(FontVariant::SmallCaps)) add("smcp");
+  if (variant & static_cast<int>(FontVariant::OldstyleNums)) add("onum");
+  if (variant & static_cast<int>(FontVariant::LiningNums)) add("lnum");
+  if (variant & static_cast<int>(FontVariant::TabularNums)) add("tnum");
+  if (variant & static_cast<int>(FontVariant::ProportionalNums)) add("pnum");
+  static const char* kStylistic[] = {"ss01", "ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss08", "ss09", "ss10",
+                                     "ss11", "ss12", "ss13", "ss14", "ss15", "ss16", "ss17", "ss18", "ss19", "ss20"};
+  for (int k = 0; k < 20; ++k) {
+    if (variant & static_cast<int>(FontVariant::StylisticOne) << k) add(kStylistic[k]);
+  }
+  return out;
+}
+
+// A fragment's string as Android shows it: `textTransform` applied (React Native's TextTransform,
+// with the default locale's case rules).
+std::string transformed(const std::string& text, const TextAttributes& attributes) {
+  if (!attributes.textTransform || *attributes.textTransform == TextTransform::None ||
+      *attributes.textTransform == TextTransform::Unset) {
+    return text;
+  }
+  icu::UnicodeString string = icu::UnicodeString::fromUTF8(text);
+  switch (*attributes.textTransform) {
+    case TextTransform::Uppercase:
+      string.toUpper(icu::Locale::getDefault());
+      break;
+    case TextTransform::Lowercase:
+      string.toLower(icu::Locale::getDefault());
+      break;
+    case TextTransform::Capitalize: {
+      // Each word's first letter in upper case, the rest kept, as Android's capitalize.
+      UErrorCode status = U_ZERO_ERROR;
+      std::unique_ptr<icu::BreakIterator> words(
+          icu::BreakIterator::createWordInstance(icu::Locale::getDefault(), status));
+      if (U_FAILURE(status)) break;
+      words->setText(string);
+      icu::UnicodeString out;
+      int32_t start = words->first();
+      for (int32_t end = words->next(); end != icu::BreakIterator::DONE; start = end, end = words->next()) {
+        icu::UnicodeString word(string, start, end - start);
+        int32_t first = word.moveIndex32(0, 1);
+        icu::UnicodeString head(word, 0, first);
+        head.toUpper(icu::Locale::getDefault());
+        out += head;
+        out += icu::UnicodeString(word, first);
+      }
+      string = out;
+      break;
+    }
+    default:
+      break;
+  }
+  std::string out;
+  string.toUTF8String(out);
+  return out;
+}
+
 }  // namespace
 
 struct TextEngine::Impl {
-  FT_Library library = nullptr;
   std::map<std::string, std::string> families;
   std::vector<std::string> fallbacks;
-  std::map<std::tuple<std::string, int, int>, Face> faces;
-  // Each face's file, weight and size, so a glyph laid out in it is drawn at another size.
-  std::map<void*, std::tuple<std::string, int, float>> origins;
-  std::map<std::pair<void*, uint32_t>, Bitmap> bitmaps;
+  // Each file's HarfBuzz face, opened once, and what it is: its axes of weight and optical size,
+  // whether it is italic, and its weight (OS/2's usWeightClass).
+  struct File {
+    hb_face_t* hb = nullptr;
+    bool weightAxis = false, opticalAxis = false, italic = false;
+    int weight = 400;
+  };
+  std::map<std::string, File> files;
+  std::map<std::tuple<std::string, int, int, bool>, Face> faces;
   std::recursive_mutex mutex;
   // ICU's line break iterator, opened once (its rules are loaded when it is).
   UBreakIterator* lineBreaks = nullptr;
@@ -88,41 +160,93 @@ struct TextEngine::Impl {
   std::list<std::pair<LayoutKey, ParagraphLayout>> recent;
   std::unordered_map<LayoutKey, std::list<std::pair<LayoutKey, ParagraphLayout>>::iterator, LayoutHash> layouts;
 
-  Face& face(const std::string& path, int weight, float size) {
-    auto key = std::make_tuple(path, weight, static_cast<int>(std::lround(size * 64)));
-    auto it = faces.find(key);
-    if (it != faces.end()) return it->second;
-    Face entry;
-    if (FT_New_Face(library, path.c_str(), 0, &entry.ft) != 0) {
-      std::cerr << "[text] cannot open font " << path << "\n";
-      return faces[key] = entry;
-    }
-    FT_Set_Char_Size(entry.ft, 0, static_cast<FT_F26Dot6>(std::lround(size * 64)), 72, 72);
-    FT_MM_Var* axes = nullptr;
-    if (FT_HAS_MULTIPLE_MASTERS(entry.ft) && FT_Get_MM_Var(entry.ft, &axes) == 0) {
-      std::vector<FT_Fixed> coords(axes->num_axis);
-      for (FT_UInt a = 0; a < axes->num_axis; ++a) {
-        coords[a] = axes->axis[a].def;
-        if (axes->axis[a].tag == FT_MAKE_TAG('w', 'g', 'h', 't')) {
-          auto clamped = std::clamp<FT_Fixed>(weight << 16, axes->axis[a].minimum, axes->axis[a].maximum);
-          coords[a] = clamped;
-        }
+  File* file(const std::string& path) {
+    if (auto it = files.find(path); it != files.end()) return it->second.hb ? &it->second : nullptr;
+    File entry;
+    if (hb_blob_t* blob = hb_blob_create_from_file_or_fail(path.c_str())) {
+      hb_face_t* face = hb_face_create(blob, 0);
+      hb_blob_destroy(blob);
+      // A file that is not a font gives an empty face: no glyphs.
+      if (hb_face_get_glyph_count(face) > 0) {
+        entry.hb = face;
+      } else {
+        hb_face_destroy(face);
       }
-      FT_Set_Var_Design_Coordinates(entry.ft, axes->num_axis, coords.data());
-      FT_Done_MM_Var(library, axes);
     }
-    origins[entry.ft] = {path, weight, size};
-    entry.hb = hb_ft_font_create_referenced(entry.ft);
-    hb_ft_font_changed(entry.hb);
-    entry.ascent = entry.ft->size->metrics.ascender / 64.0f;
-    entry.descent = -entry.ft->size->metrics.descender / 64.0f;
-    // Cap and x heights come from the OS/2 table when the font has one (version 2 or later).
-    if (auto* os2 = static_cast<TT_OS2*>(FT_Get_Sfnt_Table(entry.ft, FT_SFNT_OS2)); os2 && os2->version >= 2) {
-      float scale = size / entry.ft->units_per_EM;
-      entry.capHeight = os2->sCapHeight * scale;
-      entry.xHeight = os2->sxHeight * scale;
+    if (!entry.hb) {
+      files[path] = entry;
+      return nullptr;
     }
-    return faces[key] = entry;
+    hb_ot_var_axis_info_t axis;
+    entry.weightAxis = hb_ot_var_find_axis_info(entry.hb, HB_TAG('w', 'g', 'h', 't'), &axis);
+    entry.opticalAxis = hb_ot_var_find_axis_info(entry.hb, HB_TAG('o', 'p', 's', 'z'), &axis);
+    hb_blob_t* os2 = hb_face_reference_table(entry.hb, HB_TAG('O', 'S', '/', '2'));
+    unsigned length = 0;
+    const char* data = hb_blob_get_data(os2, &length);
+    auto u16 = [data](unsigned at) {
+      return static_cast<unsigned>(static_cast<unsigned char>(data[at]) << 8 | static_cast<unsigned char>(data[at + 1]));
+    };
+    if (data && length >= 64) {
+      entry.weight = static_cast<int>(u16(4));
+      // fsSelection: ITALIC (bit 0) or OBLIQUE (bit 9).
+      entry.italic = (u16(62) & 0x201) != 0;
+    }
+    hb_blob_destroy(os2);
+    return &(files[path] = entry);
+  }
+
+  Face* face(const std::string& path, int weight, float size, bool italic) {
+    auto key = std::make_tuple(path, weight, static_cast<int>(std::lround(size * 64)), italic);
+    if (auto it = faces.find(key); it != faces.end()) return it->second.hb ? &it->second : nullptr;
+    File* source = file(path);
+    if (!source) {
+      if (!path.empty()) std::cerr << "[text] cannot open font " << path << "\n";
+      faces[key] = Face{};
+      return nullptr;
+    }
+    Face entry;
+    entry.path = path;
+    entry.weight = weight;
+    entry.variable = source->weightAxis;
+    entry.size = size;
+    entry.fakeItalic = italic && !source->italic;
+    // Minikin's fake bold (FontFamily::computeFakery): a weight of 600 or more asked of a font at
+    // least 200 lighter, its weight not on an axis.
+    entry.fakeBold = !source->weightAxis && weight >= 600 && weight - source->weight >= 200;
+    // The optical size the font is set at, as CSS's font-optical-sizing: auto sets it (Chromium,
+    // and Apple's text), on a font with the axis: its size in pixels.
+    if (source->opticalAxis) entry.opticalSize = size;
+    entry.hb = hb_font_create(source->hb);
+    hb_ot_font_set_funcs(entry.hb);
+    auto scale = static_cast<int>(std::lround(size * kShapingUnits));
+    hb_font_set_scale(entry.hb, scale, scale);
+    // The weight on the `wght` axis and the optical size on `opsz`, which HarfBuzz (and Skia,
+    // drawing them) clamps to their ranges.
+    std::vector<hb_variation_t> variations;
+    if (source->weightAxis) variations.push_back({HB_TAG('w', 'g', 'h', 't'), static_cast<float>(weight)});
+    if (source->opticalAxis) variations.push_back({HB_TAG('o', 'p', 's', 'z'), size});
+    if (!variations.empty()) {
+      hb_font_set_variations(entry.hb, variations.data(), static_cast<unsigned>(variations.size()));
+    }
+    auto metric = [&](hb_ot_metrics_tag_t tag) -> std::optional<float> {
+      hb_position_t position = 0;
+      if (!hb_ot_metrics_get_position(entry.hb, tag, &position)) return std::nullopt;
+      return position / kShapingUnits;
+    };
+    entry.ascent = std::ceil(metric(HB_OT_METRICS_TAG_HORIZONTAL_ASCENDER).value_or(size));
+    entry.descent = std::ceil(-metric(HB_OT_METRICS_TAG_HORIZONTAL_DESCENDER).value_or(0));
+    entry.capHeight = metric(HB_OT_METRICS_TAG_CAP_HEIGHT).value_or(0);
+    entry.xHeight = metric(HB_OT_METRICS_TAG_X_HEIGHT).value_or(0);
+    // HWUI's drawTextDecorations: the font's own underline where it states one (post's, below the
+    // baseline), else Skia's standard offset (1/9 of the size) and thickness (1/18); the
+    // strike-through 6/21 of the size above the baseline, 1/18 thick.
+    auto thickness = metric(HB_OT_METRICS_TAG_UNDERLINE_SIZE);
+    auto offset = metric(HB_OT_METRICS_TAG_UNDERLINE_OFFSET);
+    entry.underlineThickness = thickness && *thickness > 0 ? *thickness : size / 18;
+    entry.underlineTop = offset && thickness && *thickness > 0 ? -*offset : size / 9;
+    entry.strikeTop = -size * 6 / 21;
+    entry.strikeThickness = size / 18;
+    return &(faces[key] = std::move(entry));
   }
 
   std::string pathFor(const std::string& family) {
@@ -139,18 +263,14 @@ TextEngine& TextEngine::shared() {
   return engine;
 }
 
-TextEngine::TextEngine() : impl_(std::make_unique<Impl>()) {
-  FT_Init_FreeType(&impl_->library);
-}
+TextEngine::TextEngine() : impl_(std::make_unique<Impl>()) {}
 
 bool TextEngine::registerFamily(const std::string& family, const std::string& path) {
   std::lock_guard lock(impl_->mutex);
-  FT_Face face = nullptr;
-  if (FT_New_Face(impl_->library, path.c_str(), 0, &face) != 0) {
+  if (!impl_->file(path)) {
     std::cerr << "[text] cannot open font " << path << " for " << family << "\n";
     return false;
   }
-  FT_Done_Face(face);
   impl_->families[family] = path;
   return true;
 }
@@ -183,7 +303,33 @@ struct Token {
   const Face* face = nullptr;  // the fragment's own face, which an ellipsis is shaped in
   float spacing = 0;
   float size = 14;  // the fragment's font size, which Minikin's line penalty is reckoned from
+  // What the fragment draws with its glyphs (GlyphRun).
+  bool underline = false, strikethrough = false;
+  uint32_t shadowColor = 0;
+  float shadowDx = 0, shadowDy = 0, shadowRadius = 0;
+  const std::vector<hb_feature_t>* features = nullptr;
 };
+
+// Shapes `length` bytes of `text` from `offset` in `face` (HarfBuzz, the font's unhinted
+// advances), calling `glyph(id, cluster, x offset, advance)` for each glyph, in logical pixels.
+template <typename Each>
+void shape(const Face& face, const std::string& text, size_t offset, size_t length,
+           const std::vector<hb_feature_t>* features, Each glyph) {
+  hb_buffer_t* buffer = hb_buffer_create();
+  hb_buffer_add_utf8(buffer, text.data(), static_cast<int>(text.size()), static_cast<unsigned>(offset),
+                     static_cast<int>(length));
+  hb_buffer_guess_segment_properties(buffer);
+  hb_shape(face.hb, buffer, features && !features->empty() ? features->data() : nullptr,
+           features ? static_cast<unsigned>(features->size()) : 0);
+  unsigned count = 0;
+  auto* infos = hb_buffer_get_glyph_infos(buffer, &count);
+  auto* positions = hb_buffer_get_glyph_positions(buffer, &count);
+  for (unsigned g = 0; g < count; ++g) {
+    glyph(infos[g].codepoint, infos[g].cluster, positions[g].x_offset / kShapingUnits,
+          positions[g].x_advance / kShapingUnits);
+  }
+  hb_buffer_destroy(buffer);
+}
 
 // The token's clusters' x positions, with its end: where it can be cut.
 float stopX(const Token& token, size_t index) {
@@ -257,10 +403,15 @@ ParagraphLayout TextEngine::layoutUncached(
   std::vector<Token> tokens;
   std::optional<TextAlignment> alignment;
 
-  // Where a line may break, over the whole paragraph (a break depends on the text on both sides,
-  // whatever fragments it is in): ICU's line break rules (UAX #14), as Android's.
+  // Each fragment's string as it is shown (textTransform applied), and where a line may break, over
+  // the whole paragraph (a break depends on the text on both sides, whatever fragments it is in):
+  // ICU's line break rules (UAX #14), as Android's.
+  std::vector<std::string> shown;
   std::string whole;
-  for (const auto& fragment : text.getFragments()) whole += fragment.string;
+  for (const auto& fragment : text.getFragments()) {
+    shown.push_back(fragment.isAttachment() ? fragment.string : transformed(fragment.string, fragment.textAttributes));
+    whole += shown.back();
+  }
   std::vector<bool> breakable(whole.size() + 1, false);
   {
     UErrorCode status = U_ZERO_ERROR;
@@ -282,34 +433,64 @@ ParagraphLayout TextEngine::layoutUncached(
     utext_close(utext);
   }
 
+  // Each fragment's OpenType features, alive as long as its tokens (ellipses are shaped with them).
+  std::deque<std::vector<hb_feature_t>> fragmentFeatures;
   size_t base = 0;  // where the fragment starts in the paragraph's string
+  size_t index = 0;
   for (const auto& fragment : text.getFragments()) {
+    const std::string& s = shown[index++];
     size_t fragmentBase = base;
-    base += fragment.string.size();
+    base += s.size();
     if (fragment.isAttachment()) continue;
     const auto& attributes = fragment.textAttributes;
     if (!alignment) alignment = attributes.alignment;
     float size = std::isnan(attributes.fontSize) ? 14.0f : attributes.fontSize;
     if (!std::isnan(attributes.fontSizeMultiplier)) size *= attributes.fontSizeMultiplier;
     int weight = attributes.fontWeight ? static_cast<int>(*attributes.fontWeight) : 400;
-    Face& primary = impl_->face(impl_->pathFor(attributes.fontFamily), weight, size);
-    if (!primary.ft) continue;
+    bool italic = attributes.fontStyle && *attributes.fontStyle != FontStyle::Normal;
+    Face* primary = impl_->face(impl_->pathFor(attributes.fontFamily), weight, size, italic);
+    if (!primary) continue;
     uint32_t color = argb(attributes.foregroundColor);
+    // Android's letter spacing (Paint.setLetterSpacing, em = letterSpacing / fontSize, as React
+    // Native's CustomLetterSpacingSpan sets it), which Minikin adds to each cluster, half before it
+    // and half after.
     float spacing = std::isnan(attributes.letterSpacing) ? 0 : attributes.letterSpacing;
+    fragmentFeatures.push_back(features(attributes));
+    const std::vector<hb_feature_t>* featureList = &fragmentFeatures.back();
+    auto decoration = attributes.textDecorationLineType.value_or(TextDecorationLineType::None);
+    bool underline = decoration == TextDecorationLineType::Underline ||
+                     decoration == TextDecorationLineType::UnderlineStrikethrough;
+    bool strikethrough = decoration == TextDecorationLineType::Strikethrough ||
+                         decoration == TextDecorationLineType::UnderlineStrikethrough;
+    // React Native's Android text shadow: drawn when it is offset or blurred, in its colour, or
+    // ReactTextAttributeProps' default (0x55000000) when none is given.
+    float shadowDx = attributes.textShadowOffset ? attributes.textShadowOffset->width : 0;
+    float shadowDy = attributes.textShadowOffset ? attributes.textShadowOffset->height : 0;
+    float shadowRadius = std::isnan(attributes.textShadowRadius) ? 0 : attributes.textShadowRadius;
+    uint32_t shadowColor = 0;
+    if (shadowDx != 0 || shadowDy != 0 || shadowRadius != 0) {
+      shadowColor = attributes.textShadowColor ? argb(attributes.textShadowColor) : 0x55000000u;
+    }
 
-    const std::string& s = fragment.string;
     size_t i = 0;
     while (i < s.size()) {
       Token token;
       token.color = color;
       token.lineHeight = attributes.lineHeight;
-      token.ascent = primary.ascent;
-      token.descent = primary.descent;
-      token.capHeight = primary.capHeight;
-      token.xHeight = primary.xHeight;
-      token.face = &primary;
+      token.ascent = primary->ascent;
+      token.descent = primary->descent;
+      token.capHeight = primary->capHeight;
+      token.xHeight = primary->xHeight;
+      token.face = primary;
       token.spacing = spacing;
       token.size = size;
+      token.underline = underline;
+      token.strikethrough = strikethrough;
+      token.shadowColor = shadowColor;
+      token.shadowDx = shadowDx;
+      token.shadowDy = shadowDy;
+      token.shadowRadius = shadowRadius;
+      token.features = featureList;
       token.start = fragmentBase + i;
       token.breakBefore = breakable[fragmentBase + i];
       if (s[i] == '\n') {
@@ -331,12 +512,12 @@ ParagraphLayout TextEngine::layoutUncached(
       while (segment < i) {
         size_t probe = segment;
         uint32_t cp = next(s, probe);
-        Face* face = &primary;
-        if (cp != ' ' && FT_Get_Char_Index(primary.ft, cp) == 0) {
+        Face* face = primary;
+        if (cp != ' ' && !covers(*primary, cp)) {
           for (const auto& path : impl_->fallbacks) {
-            Face& candidate = impl_->face(path, weight, size);
-            if (candidate.ft && FT_Get_Char_Index(candidate.ft, cp) != 0) {
-              face = &candidate;
+            Face* candidate = impl_->face(path, weight, size, italic);
+            if (candidate && covers(*candidate, cp)) {
+              face = candidate;
               break;
             }
           }
@@ -345,33 +526,33 @@ ParagraphLayout TextEngine::layoutUncached(
         while (end < i) {
           size_t look = end;
           uint32_t c = next(s, look);
-          bool covered = c == ' ' || FT_Get_Char_Index(face->ft, c) != 0;
-          bool primaryCovers = c == ' ' || FT_Get_Char_Index(primary.ft, c) != 0;
-          if (!covered || (face != &primary && primaryCovers)) break;
+          bool covered = c == ' ' || covers(*face, c);
+          bool primaryCovers = c == ' ' || covers(*primary, c);
+          if (!covered || (face != primary && primaryCovers)) break;
           end = look;
         }
-        hb_buffer_t* buffer = hb_buffer_create();
-        hb_buffer_add_utf8(buffer, s.data(), static_cast<int>(s.size()), static_cast<unsigned>(segment),
-                           static_cast<int>(end - segment));
-        hb_buffer_guess_segment_properties(buffer);
-        hb_shape(face->hb, buffer, nullptr, 0);
-        unsigned count = 0;
-        auto* infos = hb_buffer_get_glyph_infos(buffer, &count);
-        auto* positions = hb_buffer_get_glyph_positions(buffer, &count);
-        for (unsigned g = 0; g < count; ++g) {
-          // HarfBuzz's clusters are byte offsets into the fragment's string.
-          size_t cluster = fragmentBase + infos[g].cluster;
-          if (token.stops.empty() || token.stops.back().first != cluster) token.stops.emplace_back(cluster, pen);
-          token.glyphs.push_back({infos[g].codepoint, pen + positions[g].x_offset / 64.0f, face->ft});
-          token.clusters.push_back(cluster);
-          pen += positions[g].x_advance / 64.0f + spacing;
-          if (infos[g].cluster < wordEnd) token.inkWidth = pen;
-        }
-        hb_buffer_destroy(buffer);
+        shape(*face, s, segment, end - segment, featureList,
+              [&](uint32_t id, uint32_t at, float offset, float advance) {
+                // HarfBuzz's clusters are byte offsets into the fragment's string.
+                size_t cluster = fragmentBase + at;
+                if (token.stops.empty() || token.stops.back().first != cluster) {
+                  // A cluster's spacing is half before it and half after; where one cluster's
+                  // ends and the next's begins is the stop between them.
+                  if (!token.stops.empty()) pen += spacing - spacing / 2;
+                  token.stops.emplace_back(cluster, pen);
+                  pen += spacing / 2;
+                }
+                token.glyphs.push_back({id, pen + offset, face});
+                token.clusters.push_back(cluster);
+                pen += advance;
+                if (at < wordEnd) token.inkWidth = pen + (spacing - spacing / 2);
+              });
         token.ascent = std::max(token.ascent, face->ascent);
         token.descent = std::max(token.descent, face->descent);
         segment = end;
       }
+      // The last cluster's spacing after it.
+      if (!token.stops.empty()) pen += spacing - spacing / 2;
       token.width = pen;
       token.text = s.substr(start, i - start);
       tokens.push_back(std::move(token));
@@ -675,36 +856,23 @@ ParagraphLayout TextEngine::layoutUncached(
       if (!clusters.empty() && (!fits(total) || more)) {
         // The ellipsis, in the attributes of the text it replaces.
         auto ellipsisFor = [&](const Token& like) {
-          Token ellipsis;
-          ellipsis.color = like.color;
-          ellipsis.lineHeight = like.lineHeight;
-          ellipsis.ascent = like.ascent;
-          ellipsis.descent = like.descent;
-          ellipsis.capHeight = like.capHeight;
-          ellipsis.xHeight = like.xHeight;
-          ellipsis.face = like.face;
-          ellipsis.spacing = like.spacing;
-          ellipsis.start = like.start;
+          Token ellipsis = like;
+          ellipsis.glyphs.clear();
+          ellipsis.clusters.clear();
+          ellipsis.stops.clear();
+          ellipsis.newline = false;
           ellipsis.breakBefore = false;
-          const Face* face = like.face;
+          ellipsis.width = ellipsis.inkWidth = 0;
           static const std::string kEllipsis = "…";
-          if (face && face->ft) {
-            hb_buffer_t* buffer = hb_buffer_create();
-            hb_buffer_add_utf8(buffer, kEllipsis.data(), static_cast<int>(kEllipsis.size()), 0,
-                               static_cast<int>(kEllipsis.size()));
-            hb_buffer_guess_segment_properties(buffer);
-            hb_shape(face->hb, buffer, nullptr, 0);
-            unsigned count = 0;
-            auto* infos = hb_buffer_get_glyph_infos(buffer, &count);
-            auto* positions = hb_buffer_get_glyph_positions(buffer, &count);
-            float pen = 0;
-            for (unsigned g = 0; g < count; ++g) {
-              ellipsis.glyphs.push_back({infos[g].codepoint, pen + positions[g].x_offset / 64.0f, face->ft});
-              ellipsis.clusters.push_back(like.start);
-              pen += positions[g].x_advance / 64.0f + like.spacing;
-            }
-            hb_buffer_destroy(buffer);
-            ellipsis.width = ellipsis.inkWidth = pen;
+          if (const Face* face = like.face) {
+            float pen = like.spacing / 2;
+            shape(*face, kEllipsis, 0, kEllipsis.size(), like.features,
+                  [&](uint32_t id, uint32_t, float offset, float advance) {
+                    ellipsis.glyphs.push_back({id, pen + offset, face});
+                    ellipsis.clusters.push_back(like.start);
+                    pen += advance;
+                  });
+            ellipsis.width = ellipsis.inkWidth = pen + (like.spacing - like.spacing / 2);
           }
           ellipsis.text = kEllipsis;
           return ellipsis;
@@ -804,6 +972,15 @@ ParagraphLayout TextEngine::layoutUncached(
       run.color = token->color;
       run.baseline = baseline;
       for (const auto& glyph : token->glyphs) run.glyphs.push_back({glyph.id, x + glyph.x, glyph.face});
+      // Decorated over its advance, the line's trailing spaces left out.
+      run.left = x;
+      run.right = x + (token == line.tokens.back() ? token->inkWidth : token->width);
+      run.underline = token->underline;
+      run.strikethrough = token->strikethrough;
+      run.shadowColor = token->shadowColor;
+      run.shadowDx = token->shadowDx;
+      run.shadowDy = token->shadowDy;
+      run.shadowRadius = token->shadowRadius;
       x += token->width;
       result.runs.push_back(std::move(run));
     }
@@ -819,40 +996,6 @@ ParagraphLayout TextEngine::layoutUncached(
   }
   result.height = top;
   return result;
-}
-
-const TextEngine::Bitmap& TextEngine::rasterize(void* face, uint32_t glyph, float scale) {
-  std::lock_guard lock(impl_->mutex);
-  // Drawn at the surface's scale: the same face at the size in device pixels, not the logical
-  // glyph moved to scaled positions.
-  if (scale != 1.0f) {
-    auto origin = impl_->origins.find(face);
-    if (origin != impl_->origins.end()) {
-      const auto& [path, weight, size] = origin->second;
-      Face& scaled = impl_->face(path, weight, size * scale);
-      if (scaled.ft) face = scaled.ft;
-    }
-  }
-  auto key = std::make_pair(face, glyph);
-  auto it = impl_->bitmaps.find(key);
-  if (it != impl_->bitmaps.end()) return it->second;
-  Bitmap bitmap;
-  auto ft = static_cast<FT_Face>(face);
-  if (FT_Load_Glyph(ft, glyph, FT_LOAD_DEFAULT | FT_LOAD_TARGET_LIGHT) == 0 &&
-      FT_Render_Glyph(ft->glyph, FT_RENDER_MODE_NORMAL) == 0) {
-    const auto& source = ft->glyph->bitmap;
-    bitmap.width = static_cast<int>(source.width);
-    bitmap.height = static_cast<int>(source.rows);
-    bitmap.left = ft->glyph->bitmap_left;
-    bitmap.top = ft->glyph->bitmap_top;
-    bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * bitmap.height);
-    for (int y = 0; y < bitmap.height; ++y) {
-      for (int x = 0; x < bitmap.width; ++x) {
-        bitmap.pixels[static_cast<size_t>(y) * bitmap.width + x] = source.buffer[y * source.pitch + x];
-      }
-    }
-  }
-  return impl_->bitmaps[key] = std::move(bitmap);
 }
 
 }  // namespace oxyos

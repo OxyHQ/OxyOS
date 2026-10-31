@@ -38,15 +38,28 @@ struct Field {
 fn fields(name: &str) -> Vec<Field> {
     let start = HEADER.find(&format!("typedef struct {name} {{")).unwrap();
     let body = &HEADER[start..];
-    let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
-    body.split(';')
+    let mut body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
+    // Without its comments.
+    let mut code = String::new();
+    while let Some(at) = body.find("/*") {
+        code.push_str(&body[..at]);
+        body = &body[at + body[at..].find("*/").unwrap() + 2..];
+    }
+    code.push_str(body);
+    code.split(';')
         .filter_map(|field| {
-            let mut words = field.split_whitespace();
-            let mut kind = words.next()?;
-            if kind == "const" {
-                kind = words.next()?;
-            }
-            let declarator = words.next()?;
+            // The declarator is the last word; any word before it ending in '*' makes a pointer
+            // (`const char* const* names`).
+            let words: Vec<&str> = field
+                .split_whitespace()
+                .filter(|word| *word != "const")
+                .collect();
+            let (&declarator, kinds) = words.split_last()?;
+            let kind = if kinds.iter().any(|word| word.ends_with('*')) {
+                "*"
+            } else {
+                *kinds.first()?
+            };
             let size = match kind {
                 "uint8_t" | "char" | "bool" => 1,
                 "uint16_t" => 2,
@@ -1490,129 +1503,6 @@ fn text_input_through_the_c_abi() {
 }
 
 #[test]
-fn the_header_matches_the_vector_abi() {
-    use crate::vector::*;
-    for (name, value) in [
-        ("OXYOS_SHAPE_PATH", OXYOS_SHAPE_PATH),
-        ("OXYOS_SHAPE_RECT", OXYOS_SHAPE_RECT),
-        ("OXYOS_SHAPE_ELLIPSE", OXYOS_SHAPE_ELLIPSE),
-        ("OXYOS_SHAPE_LINE", OXYOS_SHAPE_LINE),
-        ("OXYOS_CAP_BUTT", OXYOS_CAP_BUTT),
-        ("OXYOS_CAP_ROUND", OXYOS_CAP_ROUND),
-        ("OXYOS_CAP_SQUARE", OXYOS_CAP_SQUARE),
-        ("OXYOS_JOIN_MITER", OXYOS_JOIN_MITER),
-        ("OXYOS_JOIN_ROUND", OXYOS_JOIN_ROUND),
-        ("OXYOS_JOIN_BEVEL", OXYOS_JOIN_BEVEL),
-    ] {
-        assert_eq!(define(name), i64::from(value), "{name}");
-    }
-    let shape = fields("OxyOSVectorShape");
-    assert_eq!(
-        names(&shape),
-        [
-            "kind",
-            "data",
-            "data_length",
-            "geometry",
-            "transform",
-            "fill",
-            "even_odd",
-            "fill_color",
-            "stroke",
-            "cap",
-            "join",
-            "stroke_color",
-            "stroke_width",
-            "miter_limit",
-            "dash",
-            "dash_count",
-            "dash_offset"
-        ]
-    );
-    let rust = [
-        offset_of!(OxyOSVectorShape, kind),
-        offset_of!(OxyOSVectorShape, data),
-        offset_of!(OxyOSVectorShape, data_length),
-        offset_of!(OxyOSVectorShape, geometry),
-        offset_of!(OxyOSVectorShape, transform),
-        offset_of!(OxyOSVectorShape, fill),
-        offset_of!(OxyOSVectorShape, even_odd),
-        offset_of!(OxyOSVectorShape, fill_color),
-        offset_of!(OxyOSVectorShape, stroke),
-        offset_of!(OxyOSVectorShape, cap),
-        offset_of!(OxyOSVectorShape, join),
-        offset_of!(OxyOSVectorShape, stroke_color),
-        offset_of!(OxyOSVectorShape, stroke_width),
-        offset_of!(OxyOSVectorShape, miter_limit),
-        offset_of!(OxyOSVectorShape, dash),
-        offset_of!(OxyOSVectorShape, dash_count),
-        offset_of!(OxyOSVectorShape, dash_offset),
-    ];
-    assert_eq!(
-        c_offsets(&shape),
-        (rust.to_vec(), size_of::<OxyOSVectorShape>())
-    );
-}
-
-#[test]
-fn shapes_are_drawn_through_the_c_abi() {
-    use crate::vector::*;
-    let data = "M0 0H4V4H0Z";
-    let shape = |kind, data: &str| OxyOSVectorShape {
-        kind,
-        data: data.as_ptr().cast(),
-        data_length: data.len(),
-        geometry: [4.0, 4.0, 4.0, 4.0, 0.0, 0.0],
-        transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        fill: 1,
-        even_odd: 0,
-        fill_color: 0xff00_ff00,
-        stroke: 0,
-        cap: OXYOS_CAP_BUTT,
-        join: OXYOS_JOIN_MITER,
-        stroke_color: 0,
-        stroke_width: 0.0,
-        miter_limit: 4.0,
-        dash: std::ptr::null(),
-        dash_count: 0,
-        dash_offset: 0.0,
-    };
-    let shapes = [
-        shape(OXYOS_SHAPE_PATH, data),
-        shape(OXYOS_SHAPE_RECT, ""),
-        shape(OXYOS_SHAPE_PATH, "M0 0 L"),
-    ];
-    let mut pixels = vec![0u8; 8 * 8 * 4];
-    // SAFETY: the shapes, their data and the pixels outlive the call, with the counts given.
-    let skipped = unsafe {
-        oxyos_vector_render(
-            shapes.as_ptr(),
-            shapes.len(),
-            8,
-            8,
-            pixels.as_mut_ptr(),
-            pixels.len(),
-        )
-    };
-    let pixel = |x: usize, y: usize| &pixels[(y * 8 + x) * 4..(y * 8 + x) * 4 + 4];
-    assert_eq!(skipped, 1);
-    // Green, opaque: R, G, B, A.
-    assert_eq!(pixel(0, 0), [0, 255, 0, 255]);
-    assert_eq!(pixel(5, 5), [0, 255, 0, 255]);
-    assert_eq!(pixel(5, 0), [0, 0, 0, 0]);
-    // Too few bytes for the picture, or an unknown kind: refused.
-    // SAFETY: as above, with a length smaller than the picture.
-    let refused =
-        unsafe { oxyos_vector_render(shapes.as_ptr(), 1, 8, 8, pixels.as_mut_ptr(), 255) };
-    assert_eq!(refused, OXYOS_ERROR);
-    let unknown = [shape(9, data)];
-    // SAFETY: as above.
-    let refused =
-        unsafe { oxyos_vector_render(unknown.as_ptr(), 1, 8, 8, pixels.as_mut_ptr(), 256) };
-    assert_eq!(refused, OXYOS_ERROR);
-}
-
-#[test]
 fn the_header_matches_the_shell_surface_abi() {
     for (name, value) in [
         ("OXYOS_SHELL_BACKGROUND", ShellKind::Background as i64),
@@ -2365,6 +2255,15 @@ fn declaration(name: &str) -> String {
             "uint64_t" => "u64".into(),
             "bool" => "bool".into(),
             "OxyOSClient*" => format!("*mut {}", std::any::type_name::<OxyOSClient>()),
+            "OxyOSPaint*" => format!("*mut {}", std::any::type_name::<crate::paint::OxyOSPaint>()),
+            "OxyOSPaintVulkan*" => format!(
+                "*mut {}",
+                std::any::type_name::<crate::paint::OxyOSPaintVulkan>()
+            ),
+            "OxyOSPaintPresentTimes*" => format!(
+                "*mut {}",
+                std::any::type_name::<crate::paint::OxyOSPaintPresentTimes>()
+            ),
             "const OxyOSRect*" => format!("*const {}", std::any::type_name::<OxyOSRect>()),
             "size_t*" => "*mut usize".into(),
             "const uint8_t*" => "*const u8".into(),
@@ -4336,13 +4235,10 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
     std::fs::remove_dir_all(home).unwrap();
 }
 
-/// The painter's structs as the header lays them out (docs/adr/0031, decision 12).
+/// The painter's structs and calls as the header lays them out (docs/adr/0031, decision 12).
 #[test]
-fn the_painters_structs_match_the_header() {
-    use crate::paint::{
-        OxyOSPaintCommon, OxyOSPaintFill, OxyOSPaintGlyph, OxyOSPaintImage, OxyOSPaintLayer,
-        OxyOSPaintSmooth,
-    };
+fn the_painters_abi_matches_the_header() {
+    use crate::paint::{OxyOSPaint, OxyOSPaintPresentTimes, OxyOSPaintVulkan};
     use std::mem::{offset_of, size_of};
     macro_rules! layout {
         ($name:ident, [$($field:ident),*]) => {{
@@ -4353,18 +4249,22 @@ fn the_painters_structs_match_the_header() {
         }};
     }
     layout!(
-        OxyOSPaintCommon,
-        [x0, y0, x1, y1, scale, clip, color, opacity]
+        OxyOSPaintVulkan,
+        [
+            get_instance_proc_addr,
+            instance,
+            physical_device,
+            device,
+            queue,
+            queue_family,
+            api_version,
+            instance_extensions,
+            instance_extension_count,
+            device_extensions,
+            device_extension_count,
+            features
+        ]
     );
-    layout!(OxyOSPaintFill, [rect, radii, hole, hole_rect, hole_radii]);
-    layout!(
-        OxyOSPaintImage,
-        [picture, canvas, rect, bounds, radii, tinted]
-    );
-    layout!(OxyOSPaintLayer, [canvas, layer_scale, origin, inverse]);
-    layout!(OxyOSPaintGlyph, [x, y, mask]);
-    layout!(OxyOSPaintSmooth, [source, sigma, rect, bounds, radii]);
-    use crate::paint::OxyOSPaintPresentTimes;
     layout!(
         OxyOSPaintPresentTimes,
         [
@@ -4383,52 +4283,100 @@ fn the_painters_structs_match_the_header() {
             operations
         ]
     );
+    let new: extern "C" fn(u64) -> *mut OxyOSPaint = crate::paint::oxyos_paint_new;
+    let vulkan: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSPaintVulkan) -> c_int =
+        crate::paint::oxyos_paint_vulkan;
+    let present: unsafe extern "C" fn(
+        *mut OxyOSPaint,
+        *mut OxyOSClient,
+        u32,
+        u64,
+        u64,
+        u32,
+        u32,
+        u32,
+        *const OxyOSRect,
+        usize,
+    ) -> i64 = crate::paint::oxyos_paint_present;
+    let last: unsafe extern "C" fn(*mut OxyOSPaint, *mut OxyOSPaintPresentTimes) -> c_int =
+        crate::paint::oxyos_paint_last_present;
+    assert_eq!(
+        declaration("oxyos_paint_new"),
+        format!("unsafe {}", type_of(new))
+    );
+    for (name, rust) in [
+        ("oxyos_paint_vulkan", type_of(vulkan)),
+        ("oxyos_paint_present", type_of(present)),
+        ("oxyos_paint_last_present", type_of(last)),
+    ] {
+        assert_eq!(declaration(name), rust, "{name}");
+    }
 }
 
-/// A painter through the C ABI: a canvas cleared, a rounded fill into it and read back, as the
-/// Bloom host draws on the GPU; skipped without a Vulkan device.
+/// A painter through the C ABI: its Vulkan objects as Skia is given them, and a present without a
+/// client refused; skipped without a Vulkan device. Presenting itself is `oxyos-paint`'s test.
 #[test]
 #[allow(unsafe_code)]
-fn a_painter_draws_and_reads_back_through_the_c_abi() {
+fn a_painter_gives_its_vulkan_objects_through_the_c_abi() {
     use crate::paint::*;
-    // SAFETY: every pointer below is live for its call.
+    // SAFETY: every pointer below is live for its call; the painter is freed once.
     unsafe {
         let paint = oxyos_paint_new(0);
         if paint.is_null() {
-            eprintln!("no Vulkan device for painting, skipped");
+            eprintln!("no Vulkan device, skipped");
             return;
         }
         assert!(!oxyos_paint_device_name(paint).is_null());
-        let canvas = oxyos_paint_canvas(paint, 4, 4, 0xffff_ffff);
-        assert_ne!(canvas, 0);
-        let common = OxyOSPaintCommon {
-            x0: 0,
-            y0: 0,
-            x1: 4,
-            y1: 4,
-            scale: 1.0,
-            clip: [-1e9, -1e9, 1e9, 1e9],
-            color: [0.0, 0.0, 0.0, 1.0],
-            opacity: 1.0,
-        };
-        let fill = OxyOSPaintFill {
-            rect: [1.0, 1.0, 2.0, 2.0],
-            ..OxyOSPaintFill::default()
-        };
-        assert_eq!(oxyos_paint_fill(paint, canvas, &common, &fill), 0);
-        let mut out = [0u32; 16];
+        assert_eq!(oxyos_paint_vulkan(paint, std::ptr::null_mut()), OXYOS_ERROR);
+        let mut out = std::mem::MaybeUninit::<OxyOSPaintVulkan>::zeroed();
+        assert_eq!(oxyos_paint_vulkan(paint, out.as_mut_ptr()), 0);
+        let vulkan = out.assume_init();
+        assert!(!vulkan.get_instance_proc_addr.is_null());
+        assert!(vulkan.instance != 0 && vulkan.physical_device != 0);
+        assert!(vulkan.device != 0 && vulkan.queue != 0);
+        assert_eq!(vulkan.api_version, (1 << 22) | (1 << 12), "Vulkan 1.1");
+        assert_eq!(vulkan.instance_extension_count, 0);
+        let names: Vec<String> =
+            std::slice::from_raw_parts(vulkan.device_extensions, vulkan.device_extension_count)
+                .iter()
+                .map(|&name| CStr::from_ptr(name).to_string_lossy().into_owned())
+                .collect();
+        // It presents only with DMA-BUF export enabled, and names what it enabled.
+        let dmabuf = names
+            .iter()
+            .any(|name| name == "VK_EXT_external_memory_dma_buf");
+        assert!(!oxyos_paint_exports(paint) || dmabuf);
+        // VkPhysicalDeviceFeatures2: sType, pNext (none), then robustBufferAccess, disabled.
+        let features = vulkan.features.cast::<u8>();
         assert_eq!(
-            oxyos_paint_canvas_read(paint, canvas, out.as_mut_ptr(), 16),
-            16
+            features.cast::<u32>().read(),
+            1_000_059_000,
+            "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2"
         );
-        assert_eq!(out[0], 0xffff_ffff);
-        assert_eq!(out[5], 0xff00_0000);
+        assert!(features.add(8).cast::<*const u8>().read().is_null());
+        assert_eq!(features.add(16).cast::<u32>().read(), 0);
+        let rect = OxyOSRect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 4,
+        };
         assert_eq!(
-            oxyos_paint_fill(paint, 999, &common, &fill),
-            0,
-            "no such canvas: nothing"
+            oxyos_paint_present(
+                paint,
+                std::ptr::null_mut(),
+                1,
+                1,
+                0,
+                4,
+                4,
+                OXYOS_FORMAT_XRGB8888,
+                &rect,
+                1
+            ),
+            -1,
+            "no client"
         );
-        oxyos_paint_canvas_free(paint, canvas);
         oxyos_paint_free(paint);
     }
 }

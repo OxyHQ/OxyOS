@@ -2,6 +2,7 @@
 
 #include "frame-diagnostics.h"
 #include "report.h"
+#include "skia-gpu.h"
 
 #include <algorithm>
 #include <chrono>
@@ -206,9 +207,9 @@ void Window::choosePainter() {
     usePainter(StartedPaint{nullptr, "the compositor offers no GPU buffers"});
     return;
   }
-  // Opening the device and compiling the painter's pipelines takes long (seconds on lavapipe): it
-  // is done on a thread of its own, so this one keeps answering the application, and the frames
-  // until it is ready are drawn on the CPU.
+  // Opening the device and making Skia's context on it take long (seconds on lavapipe): they are
+  // done on a thread of its own, so this one keeps answering the application, and the frames until
+  // they are ready are drawn on the CPU.
   painterReady_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
   if (painterReady_ < 0) failed("eventfd");
   starting_ = std::async(std::launch::async, [device, ready = painterReady_] {
@@ -219,8 +220,14 @@ void Window::choosePainter() {
     };
     OxyOSPaint* paint = oxyos_paint_new(device);
     if (!paint) return started(StartedPaint{nullptr, oxyos_last_error()});
-    if (oxyos_paint_exports(paint)) return started(StartedPaint{paint, ""});
-    std::string why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
+    std::string why;
+    if (!oxyos_paint_exports(paint)) {
+      why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
+    } else if (!skiaContext(paint)) {
+      why = std::string("Skia cannot draw on ") + oxyos_paint_device_name(paint);
+    } else {
+      return started(StartedPaint{paint, ""});
+    }
     oxyos_paint_free(paint);
     return started(StartedPaint{nullptr, why});
   });
@@ -265,8 +272,7 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   auto started = std::chrono::steady_clock::now();
   if (canvas.gpu) {
     // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
-    sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
-                                   gpuCanvasId(canvas), format, damage.data(), damage.size());
+    sequence = presentGpu(gpuPaint(), client_, id, target.configure, canvas, format, damage);
     // The compositor gone (the session ends): nothing more is presented; the next poll says so.
     if (sequence < 0 && disconnected()) return;
     if (sequence < 0) {

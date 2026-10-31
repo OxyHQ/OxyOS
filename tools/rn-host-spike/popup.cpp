@@ -229,8 +229,8 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
         CpuPaintScope onCpu;
         drawPopup(tree_, tag, Display{surface->width, surface->height, surface->scale}, cpu, edit);
       }
-      auto difference = compareFrames(canvasPixels(canvas), cpu.pixels);
-      Report::get().renderCheck(popup.surface, difference.largest, difference.beyondThree, difference.pixels);
+      auto difference = compareFrames(canvasPixels(canvas), cpu.pixels, cpu.width);
+      Report::get().renderCheck(popup.surface, difference);
     }
     // Its secure fields go with the frame (docs/adr/0024-system-shortcuts.mdx, decision 10).
     if (auto secure = secureFields(tree_, tag); window_.setSecureRegions(popup.surface, secure)) {

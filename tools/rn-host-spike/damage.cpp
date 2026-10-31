@@ -19,8 +19,9 @@ namespace {
 // Every view the window draws, where it draws it: the traversal `drawView` makes, popup subtrees
 // left out (they are drawn in their own surfaces), and an SVG view's elements too (they are its
 // picture: what changes in them changes the picture).
-// Each view's rectangle where it is drawn: `parent` maps its parent's coordinates to the window's.
-// A transformed view's is the bounding box of its transformed frame.
+// Each view's rectangle where it is drawn: its frame with what it draws outside it (renderer.h's
+// inkBounds: outset shadows, outline, filter), `parent` mapping its parent's coordinates to the
+// window's. A transformed view's is the bounding box of that, transformed.
 void collect(const ViewTree& tree, Tag tag, const Affine& parent, std::unordered_map<Tag, Rect>& at,
              std::unordered_map<Tag, const View*>& views) {
   auto it = tree.views().find(tag);
@@ -30,7 +31,7 @@ void collect(const ViewTree& tree, Tag tag, const Affine& parent, std::unordered
   // A modal is drawn at the window's origin, wherever it is in the tree.
   bool modal = view.componentName && isModal(view.componentName);
   Affine map = modal ? Affine{} : parent.after(viewTransform(view));
-  at[tag] = map.bounds(Rect{{0, 0}, view.layoutMetrics.frame.size});
+  at[tag] = map.bounds(inkBounds(view));
   views[tag] = &it->second;
   if (view.componentName && isSvgView(view.componentName)) return;
   if (view.componentName && std::string(view.componentName) == "ScrollView" && view.state) {
@@ -96,7 +97,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   for (const auto& [tag, rect] : at) {
     const View& view = *views.at(tag);
     bool svg = view.view.componentName && isSvgView(view.view.componentName);
-    now[tag] = Seen{view.view, rect, view.children, svg ? svgPicture(tree, tag, display.scale) : view.picture};
+    now[tag] = Seen{view.view, rect, view.children, view.picture, svg ? svgPicture(tree, tag) : nullptr};
   }
 
   // A window resized at the same scale is compared view by view as at the same size: what the
@@ -120,7 +121,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
       const auto& then = old->second;
       // A new picture changes the view's own drawing, under its children.
-      if (then.picture != seen.picture) damage.push_back(seen.at);
+      if (then.picture != seen.picture || then.drawing != seen.drawing) damage.push_back(seen.at);
       bool props = !drawsTheSame(then.view, seen.view);
       bool state = then.view.state != seen.view.state;
       // OXYOS_DAMAGE_TRACE: what drew a subtree again, and why.

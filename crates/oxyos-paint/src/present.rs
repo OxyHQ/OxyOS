@@ -1,18 +1,18 @@
 //! The device and the surfaces' GPU buffers (docs/adr/0031-gpu-buffers.mdx): images exported as
 //! DMA-BUF with a modifier from the compositor's table, attached once, each with a timeline of its
 //! own (a timeline's points signal in order and buffers are released out of order); a frame's
-//! completion goes into its acquire point, and a buffer is drawn into again once its release point
-//! has signalled.
+//! completion goes into its acquire point, and a buffer is copied into again once its release
+//! point has signalled.
 
 #![allow(unsafe_code)]
 
-use super::{name, Error, Paint, Result};
+use super::{name, Error, Paint, PresentTimes, Result, Source, Vulkan};
 use ash::vk;
 use oxyos_client::{Client, SyncPoints};
 use oxyos_protocol::{Format, Rect, Size};
 use std::collections::VecDeque;
 use std::ffi::CStr;
-use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, FromRawFd, OwnedFd};
 
 /// Buffers kept for one size: one shown, one queued, one drawn into.
 const BUFFERS: usize = 3;
@@ -21,14 +21,25 @@ const HISTORY: usize = 8;
 
 const USAGE: vk::ImageUsageFlags = vk::ImageUsageFlags::TRANSFER_DST;
 
+/// The version the instance is created with: Vulkan 1.1, which has the external memory and
+/// semaphore queries in its core, and the least Skia's Ganesh draws on.
+const API_VERSION: u32 = vk::API_VERSION_1_1;
+
+/// Presenting in DMA-BUFs needs them all.
+const EXPORT: [&CStr; 3] = [
+    ash::khr::external_memory_fd::NAME,
+    ash::ext::external_memory_dma_buf::NAME,
+    ash::ext::image_drm_format_modifier::NAME,
+];
+
 pub(crate) struct Gpu {
-    _entry: ash::Entry,
+    entry: ash::Entry,
     instance: ash::Instance,
     physical: vk::PhysicalDevice,
     pub(crate) device: ash::Device,
-    pub(crate) queue: vk::Queue,
+    queue: vk::Queue,
     pub(crate) family: u32,
-    pub(crate) memory: vk::PhysicalDeviceMemoryProperties,
+    memory: vk::PhysicalDeviceMemoryProperties,
     memory_fd: ash::khr::external_memory_fd::Device,
     modifiers: ash::ext::image_drm_format_modifier::Device,
     /// Each frame's completion, exported as a sync file; None: waited for on the CPU.
@@ -38,30 +49,61 @@ pub(crate) struct Gpu {
     pub(crate) same_device: bool,
     /// The modifiers B8G8R8A8_UNORM images are exported in as transfer destinations, with planes.
     exportable: Vec<(u64, u32)>,
+    /// The physical device's own Vulkan version.
+    device_api_version: u32,
+    /// What the instance and the device were created with, as a renderer sharing the device must
+    /// be told ([`Paint::vulkan`]).
+    instance_extensions: Vec<&'static CStr>,
+    device_extensions: Vec<&'static CStr>,
+    features: Box<vk::PhysicalDeviceFeatures2<'static>>,
+}
+
+/// A physical device the painter may open.
+struct Candidate {
+    physical: vk::PhysicalDevice,
+    same_device: bool,
+    name: String,
+    api_version: u32,
+    available: Vec<vk::ExtensionProperties>,
+}
+
+impl Candidate {
+    fn has(&self, name: &CStr) -> bool {
+        self.available
+            .iter()
+            .any(|extension| extension.extension_name_as_c_str() == Ok(name))
+    }
+
+    fn exports(&self) -> bool {
+        EXPORT.iter().all(|name| self.has(name))
+    }
 }
 
 impl Gpu {
     /// The device whose render node is `device`, else the first that exports DMA-BUF with
-    /// modifiers (then with linear ones alone).
+    /// modifiers, else any; each with Vulkan 1.1.
     pub(crate) fn open(device: u64) -> Result<Self> {
         let entry =
             // SAFETY: loading the system's Vulkan loader; nothing else in this process races with it.
             unsafe { ash::Entry::load() }.map_err(|error| Error(format!("no Vulkan: {error}")))?;
         let app = vk::ApplicationInfo::default()
             .application_name(c"oxyos-paint")
-            .api_version(vk::API_VERSION_1_1);
-        // SAFETY: the create info outlives the call.
+            .api_version(API_VERSION);
+        // No instance extension: what the painter and Skia query of the device is core in 1.1.
+        let instance_extensions: Vec<&'static CStr> = Vec::new();
+        let names: Vec<*const std::ffi::c_char> = instance_extensions
+            .iter()
+            .map(|name| name.as_ptr())
+            .collect();
+        // SAFETY: the create info and the names outlive the call.
         let instance = unsafe {
             entry.create_instance(
-                &vk::InstanceCreateInfo::default().application_info(&app),
+                &vk::InstanceCreateInfo::default()
+                    .application_info(&app)
+                    .enabled_extension_names(&names),
                 None,
             )
         }?;
-        let wanted = [
-            ash::khr::external_memory_fd::NAME,
-            ash::ext::external_memory_dma_buf::NAME,
-            ash::ext::image_drm_format_modifier::NAME,
-        ];
         // SAFETY: the instance is live.
         let physicals = unsafe { instance.enumerate_physical_devices() }.unwrap_or_default();
         let mut candidates = Vec::new();
@@ -69,51 +111,67 @@ impl Gpu {
             // SAFETY: `physical` was enumerated from this live instance.
             let available = unsafe { instance.enumerate_device_extension_properties(physical) }
                 .unwrap_or_default();
-            let has = |name: &CStr| {
-                available
-                    .iter()
-                    .any(|extension| extension.extension_name_as_c_str() == Ok(name))
+            let mut candidate = Candidate {
+                physical,
+                same_device: false,
+                name: String::new(),
+                api_version: 0,
+                available,
             };
-            // Painting needs none of them; presenting in DMA-BUFs needs them all.
-            let exports = wanted.iter().all(|name| has(name));
             let mut drm = vk::PhysicalDeviceDrmPropertiesEXT::default();
-            let label;
             {
                 let mut properties = vk::PhysicalDeviceProperties2::default();
-                if has(ash::ext::physical_device_drm::NAME) {
+                if candidate.has(ash::ext::physical_device_drm::NAME) {
                     properties = properties.push_next(&mut drm);
                 }
                 // SAFETY: `physical` is live; the chain outlives the call.
                 unsafe { instance.get_physical_device_properties2(physical, &mut properties) };
-                label = name(&properties.properties.device_name);
+                candidate.name = name(&properties.properties.device_name);
+                candidate.api_version = properties.properties.api_version;
             }
             let render = (drm.has_render == vk::TRUE)
                 .then(|| rustix::fs::makedev(drm.render_major as u32, drm.render_minor as u32));
-            candidates.push((
-                physical,
-                render == Some(device) && device != 0,
-                label,
-                has(ash::ext::queue_family_foreign::NAME),
-                has(ash::khr::external_semaphore_fd::NAME),
-                exports,
-            ));
+            candidate.same_device = render == Some(device) && device != 0;
+            if candidate.api_version >= API_VERSION {
+                candidates.push(candidate);
+            }
         }
         // The compositor's device first, then one that exports, then any.
-        candidates.sort_by_key(|candidate| (!candidate.1, !candidate.5));
-        let Some((physical, same_device, label, foreign, semaphore, exports)) =
-            candidates.into_iter().next()
-        else {
+        candidates.sort_by_key(|candidate| (!candidate.same_device, !candidate.exports()));
+        let Some(chosen) = candidates.into_iter().next() else {
             // SAFETY: nothing was made from the instance.
             unsafe { instance.destroy_instance(None) };
-            return Err(Error("no Vulkan device".into()));
+            return Err(Error("no Vulkan 1.1 device".into()));
         };
+        match Self::open_device(&instance, &chosen) {
+            Ok(opened) => Ok(Self::with_device(
+                entry,
+                instance,
+                chosen,
+                instance_extensions,
+                opened,
+            )),
+            Err(error) => {
+                // SAFETY: nothing made from the instance is left.
+                unsafe { instance.destroy_instance(None) };
+                Err(error)
+            }
+        }
+    }
+
+    /// The device on `chosen`: a graphics queue (Skia's Ganesh draws with one; a graphics queue
+    /// copies too), every core feature but `robustBufferAccess`, and the extensions below where
+    /// the device has them.
+    fn open_device(instance: &ash::Instance, chosen: &Candidate) -> Result<Opened> {
+        let physical = chosen.physical;
         // SAFETY: `physical` is live.
         let families = unsafe { instance.get_physical_device_queue_family_properties(physical) };
         let family = families
             .iter()
-            .position(|family| family.queue_flags.contains(vk::QueueFlags::COMPUTE))
-            .ok_or_else(|| Error("no compute queue".into()))? as u32;
-        let sync_file = semaphore && {
+            .position(|family| family.queue_flags.contains(vk::QueueFlags::GRAPHICS))
+            .ok_or_else(|| Error("no graphics queue".into()))? as u32;
+        let foreign = chosen.has(ash::ext::queue_family_foreign::NAME);
+        let sync_file = chosen.has(ash::khr::external_semaphore_fd::NAME) && {
             let mut properties = vk::ExternalSemaphoreProperties::default();
             // SAFETY: `physical` is live; Vulkan 1.1 has the query in its core.
             unsafe {
@@ -128,38 +186,55 @@ impl Gpu {
                 .external_semaphore_features
                 .contains(vk::ExternalSemaphoreFeatureFlags::EXPORTABLE)
         };
-        let mut extensions: Vec<*const std::ffi::c_char> = if exports {
-            wanted.iter().map(|name| name.as_ptr()).collect()
-        } else {
-            Vec::new()
-        };
+        // Each only where the device has it; none is required (without the first three nothing
+        // is presented, and the caller draws in shared memory).
+        let mut extensions: Vec<&'static CStr> = Vec::new();
+        if chosen.exports() {
+            // The surfaces' images, exported as DMA-BUF with a DRM format modifier.
+            extensions.extend(EXPORT);
+            // What VK_EXT_image_drm_format_modifier requires before Vulkan 1.2.
+            if chosen.has(ash::khr::image_format_list::NAME) {
+                extensions.push(ash::khr::image_format_list::NAME);
+            }
+        }
+        // The images handed to the compositor's queue and taken back (QUEUE_FAMILY_FOREIGN;
+        // QUEUE_FAMILY_EXTERNAL without it).
         if foreign {
-            extensions.push(ash::ext::queue_family_foreign::NAME.as_ptr());
+            extensions.push(ash::ext::queue_family_foreign::NAME);
         }
+        // Each frame's completion, exported as a sync file into its acquire point.
         if sync_file {
-            extensions.push(ash::khr::external_semaphore_fd::NAME.as_ptr());
+            extensions.push(ash::khr::external_semaphore_fd::NAME);
         }
+        // The driver's identity, which Skia's caps read (before Vulkan 1.2) to apply their
+        // workarounds for that driver; a query, nothing more.
+        if chosen.has(ash::khr::driver_properties::NAME) {
+            extensions.push(ash::khr::driver_properties::NAME);
+        }
+        // Every core feature the device has but robustBufferAccess, as Skia's own Vulkan tools
+        // enable them: bounds checks on every buffer access cost, and Skia does not rely on them.
+        let mut features = Box::new(vk::PhysicalDeviceFeatures2::default());
+        // SAFETY: `physical` is live; Vulkan 1.1 has the query in its core; there is no chain.
+        unsafe { instance.get_physical_device_features2(physical, &mut features) };
+        features.features.robust_buffer_access = vk::FALSE;
+        let names: Vec<*const std::ffi::c_char> =
+            extensions.iter().map(|name| name.as_ptr()).collect();
         let priorities = [1.0];
         let queues = [vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
             .queue_priorities(&priorities)];
-        // SAFETY: `physical` belongs to the instance; the infos and names outlive the call.
+        // SAFETY: `physical` belongs to the instance; the infos, the features and the names
+        // outlive the call; the features are the chain's only link (pEnabledFeatures is null).
         let device = unsafe {
             instance.create_device(
                 physical,
                 &vk::DeviceCreateInfo::default()
                     .queue_create_infos(&queues)
-                    .enabled_extension_names(&extensions),
+                    .enabled_extension_names(&names)
+                    .push_next(&mut *features),
                 None,
             )
         }?;
-        // SAFETY: the device was created with a queue in `family`; `physical` is live.
-        let (queue, memory) = unsafe {
-            (
-                device.get_device_queue(family, 0),
-                instance.get_physical_device_memory_properties(physical),
-            )
-        };
         let completion = if sync_file {
             let mut export = vk::ExportSemaphoreCreateInfo::default()
                 .handle_types(vk::ExternalSemaphoreHandleTypeFlags::SYNC_FD);
@@ -174,18 +249,51 @@ impl Gpu {
             .map(|semaphore| {
                 (
                     semaphore,
-                    ash::khr::external_semaphore_fd::Device::new(&instance, &device),
+                    ash::khr::external_semaphore_fd::Device::new(instance, &device),
                 )
             })
         } else {
             None
         };
+        Ok(Opened {
+            device,
+            family,
+            foreign,
+            completion,
+            extensions,
+            features,
+        })
+    }
+
+    fn with_device(
+        entry: ash::Entry,
+        instance: ash::Instance,
+        chosen: Candidate,
+        instance_extensions: Vec<&'static CStr>,
+        opened: Opened,
+    ) -> Self {
+        let Opened {
+            device,
+            family,
+            foreign,
+            completion,
+            extensions,
+            features,
+        } = opened;
+        // SAFETY: the device was created with a queue in `family`; the physical device is live.
+        let (queue, memory) = unsafe {
+            (
+                device.get_device_queue(family, 0),
+                instance.get_physical_device_memory_properties(chosen.physical),
+            )
+        };
+        let exports = chosen.exports();
         let mut gpu = Self {
             memory_fd: ash::khr::external_memory_fd::Device::new(&instance, &device),
             modifiers: ash::ext::image_drm_format_modifier::Device::new(&instance, &device),
-            _entry: entry,
+            entry,
             instance,
-            physical,
+            physical: chosen.physical,
             device,
             queue,
             family,
@@ -196,14 +304,34 @@ impl Gpu {
             } else {
                 vk::QUEUE_FAMILY_EXTERNAL
             },
-            name: label,
-            same_device,
+            name: chosen.name,
+            same_device: chosen.same_device,
             exportable: Vec::new(),
+            device_api_version: chosen.api_version,
+            instance_extensions,
+            device_extensions: extensions,
+            features,
         };
         if exports {
             gpu.exportable = gpu.exportable_modifiers();
         }
-        Ok(gpu)
+        gpu
+    }
+
+    pub(crate) fn vulkan(&self) -> Vulkan<'_> {
+        Vulkan {
+            get_instance_proc_addr: self.entry.static_fn().get_instance_proc_addr,
+            instance: self.instance.handle(),
+            physical_device: self.physical,
+            device: self.device.handle(),
+            queue: self.queue,
+            queue_family: self.family,
+            api_version: API_VERSION,
+            device_api_version: self.device_api_version,
+            instance_extensions: &self.instance_extensions,
+            device_extensions: &self.device_extensions,
+            features: &self.features,
+        }
     }
 
     pub(crate) fn exportable_is_empty(&self) -> bool {
@@ -416,6 +544,16 @@ impl Drop for Gpu {
     }
 }
 
+/// What `Gpu::open_device` made, before the rest of the `Gpu` is.
+struct Opened {
+    device: ash::Device,
+    family: u32,
+    foreign: bool,
+    completion: Option<(vk::Semaphore, ash::khr::external_semaphore_fd::Device)>,
+    extensions: Vec<&'static CStr>,
+    features: Box<vk::PhysicalDeviceFeatures2<'static>>,
+}
+
 struct Image {
     image: vk::Image,
     memory: vk::DeviceMemory,
@@ -484,13 +622,13 @@ pub(crate) fn present(
     client: &mut Client,
     surface: u32,
     configure: u64,
-    canvas: u32,
+    source: Source,
     format: Format,
     damage: &[Rect],
 ) -> Result<u64> {
-    let (offset, width, height) = paint
-        .canvas_offset(canvas)
-        .ok_or_else(|| Error("no such canvas".into()))?;
+    if source.image == vk::Image::null() || source.width == 0 || source.height == 0 {
+        return Err(Error("no image to present".into()));
+    }
     let table = client
         .gpu()
         .ok_or_else(|| Error("the compositor offers no GPU buffers".into()))?
@@ -519,15 +657,7 @@ pub(crate) fn present(
     }
     let mut chain = paint.surfaces.remove(&surface).unwrap_or_default();
     let result = present_in(
-        paint,
-        client,
-        &mut chain,
-        surface,
-        configure,
-        (offset, width, height),
-        format,
-        damage,
-        &modifiers,
+        paint, client, &mut chain, surface, configure, source, format, damage, &modifiers,
     );
     paint.surfaces.insert(surface, chain);
     result
@@ -559,6 +689,50 @@ pub(crate) fn best_shared(offered: &[u64], exportable: &[(u64, u32)]) -> Vec<u64
         .collect()
 }
 
+/// What a buffer that holds frame `written` (0: none) lacks for this frame of `width` × `height`
+/// with `damage`, clipped to it: everything when it holds none, when the frame says nothing of
+/// its damage or when the history does not reach back to it, else the damage of every frame
+/// since, and this one's.
+pub(crate) fn missed(
+    history: &VecDeque<Presented>,
+    written: u64,
+    (width, height): (u32, u32),
+    damage: &[Rect],
+) -> Vec<Rect> {
+    let whole = vec![Rect::new(0, 0, width, height)];
+    let since: Option<Vec<Rect>> = if written == 0 || damage.is_empty() {
+        None
+    } else {
+        let reaches = history.iter().any(|(sequence, ..)| *sequence <= written);
+        reaches
+            .then(|| {
+                history
+                    .iter()
+                    .filter(|(sequence, ..)| *sequence > written)
+                    .try_fold(damage.to_vec(), |mut all, (_, size, rects)| {
+                        if *size != (width, height) {
+                            return None;
+                        }
+                        all.extend(rects.as_ref()?);
+                        Some(all)
+                    })
+            })
+            .flatten()
+    };
+    since
+        .unwrap_or(whole)
+        .into_iter()
+        .filter_map(|rect| {
+            let x0 = rect.x.max(0) as u32;
+            let y0 = rect.y.max(0) as u32;
+            let x1 = (i64::from(rect.x) + i64::from(rect.width)).clamp(0, i64::from(width)) as u32;
+            let y1 =
+                (i64::from(rect.y) + i64::from(rect.height)).clamp(0, i64::from(height)) as u32;
+            (x0 < x1 && y0 < y1).then(|| Rect::new(x0 as i32, y0 as i32, x1 - x0, y1 - y0))
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn present_in(
     paint: &mut Paint,
@@ -566,13 +740,14 @@ fn present_in(
     chain: &mut Swapchain,
     surface: u32,
     configure: u64,
-    (offset, width, height): (u64, u32, u32),
+    source: Source,
     format: Format,
     damage: &[Rect],
     modifiers: &[u64],
 ) -> Result<u64> {
+    let (width, height) = (source.width, source.height);
     let started = std::time::Instant::now();
-    let mut times = super::PresentTimes::default();
+    let mut times = PresentTimes::default();
     let mut since = started;
     let mut lap = || {
         let now = std::time::Instant::now();
@@ -596,7 +771,8 @@ fn present_in(
         });
     chain.buffers = keep;
     if !stale.is_empty() {
-        paint.begin()?;
+        // The copy in flight may still write one of them.
+        paint.wait()?;
         for buffer in stale {
             Swapchain::drop_buffer(&paint.gpu, client, buffer);
         }
@@ -664,160 +840,40 @@ fn present_in(
         }
     };
     times.release_ms += lap();
-    // What this buffer lacks: everything when new or when the history does not reach back, else
-    // the damage of every frame since it was written, and this one's.
-    let whole = vec![Rect::new(0, 0, width, height)];
-    let written = chain.buffers[index].written;
-    let missed: Option<Vec<Rect>> = if written == 0 || damage.is_empty() {
-        None
-    } else {
-        let reaches = chain
-            .history
-            .iter()
-            .any(|(sequence, ..)| *sequence <= written);
-        reaches
-            .then(|| {
-                chain
-                    .history
-                    .iter()
-                    .filter(|(sequence, ..)| *sequence > written)
-                    .try_fold(damage.to_vec(), |mut all, (_, size, rects)| {
-                        if *size != (width, height) {
-                            return None;
-                        }
-                        all.extend(rects.as_ref()?);
-                        Some(all)
-                    })
-            })
-            .flatten()
-    };
-    let regions: Vec<Rect> = missed
-        .unwrap_or(whole)
-        .into_iter()
-        .filter_map(|rect| {
-            let x0 = rect.x.max(0) as u32;
-            let y0 = rect.y.max(0) as u32;
-            let x1 = (i64::from(rect.x) + i64::from(rect.width)).clamp(0, i64::from(width)) as u32;
-            let y1 =
-                (i64::from(rect.y) + i64::from(rect.height)).clamp(0, i64::from(height)) as u32;
-            (x0 < x1 && y0 < y1).then(|| Rect::new(x0 as i32, y0 as i32, x1 - x0, y1 - y0))
-        })
-        .collect();
+    let regions = missed(
+        &chain.history,
+        chain.buffers[index].written,
+        (width, height),
+        damage,
+    );
     lap();
-    paint.begin()?;
+    // The command buffer is reused: the copy before must be done.
+    paint.wait()?;
     times.wait_ms = lap();
-    paint.begin_commands()?;
-    times.record_ms = lap();
-    times.operations = paint.dispatches.len() as u32;
+    times.operations = regions.len() as u32;
     let buffer = &chain.buffers[index];
+    record(paint, source.image, buffer, &regions)?;
+    times.record_ms = lap();
     let gpu = &paint.gpu;
-    let device = &gpu.device;
-    let command = paint.command;
-    let first = buffer.released_at == 0;
-    // SAFETY: the command buffer is recording; every handle is live; each region lies within the
-    // image and the canvas.
-    unsafe {
-        device.cmd_pipeline_barrier(
-            command,
-            vk::PipelineStageFlags::COMPUTE_SHADER | vk::PipelineStageFlags::HOST,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::DependencyFlags::empty(),
-            &[vk::MemoryBarrier::default()
-                .src_access_mask(vk::AccessFlags::SHADER_WRITE | vk::AccessFlags::HOST_WRITE)
-                .dst_access_mask(vk::AccessFlags::TRANSFER_READ)],
-            &[],
-            &[],
-        );
-        // Back from the compositor's queue with what it held, or new.
-        let (old, from, to) = if first {
-            (
-                vk::ImageLayout::UNDEFINED,
-                vk::QUEUE_FAMILY_IGNORED,
-                vk::QUEUE_FAMILY_IGNORED,
-            )
-        } else {
-            (vk::ImageLayout::GENERAL, gpu.foreign, gpu.family)
-        };
-        device.cmd_pipeline_barrier(
-            command,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            &[vk::ImageMemoryBarrier::default()
-                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                .old_layout(old)
-                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .src_queue_family_index(from)
-                .dst_queue_family_index(to)
-                .image(buffer.image.image)
-                .subresource_range(range())],
-        );
-        let copies: Vec<vk::BufferImageCopy> = regions
-            .iter()
-            .map(|rect| {
-                vk::BufferImageCopy::default()
-                    .buffer_offset(
-                        (offset
-                            + u64::from(rect.y as u32) * u64::from(width)
-                            + u64::from(rect.x as u32))
-                            * 4,
-                    )
-                    .buffer_row_length(width)
-                    .image_subresource(vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    })
-                    .image_offset(vk::Offset3D {
-                        x: rect.x,
-                        y: rect.y,
-                        z: 0,
-                    })
-                    .image_extent(vk::Extent3D {
-                        width: rect.width,
-                        height: rect.height,
-                        depth: 1,
-                    })
-            })
-            .collect();
-        if !copies.is_empty() {
-            device.cmd_copy_buffer_to_image(
-                command,
-                paint.heap.buffer,
-                buffer.image.image,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &copies,
-            );
-        }
-        // To the compositor's queue.
-        device.cmd_pipeline_barrier(
-            command,
-            vk::PipelineStageFlags::TRANSFER,
-            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
-            vk::DependencyFlags::empty(),
-            &[],
-            &[],
-            &[vk::ImageMemoryBarrier::default()
-                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                .new_layout(vk::ImageLayout::GENERAL)
-                .src_queue_family_index(gpu.family)
-                .dst_queue_family_index(gpu.foreign)
-                .image(buffer.image.image)
-                .subresource_range(range())],
-        );
-    }
     let signal: Vec<vk::Semaphore> = gpu
         .completion
         .iter()
         .map(|(semaphore, _)| *semaphore)
         .collect();
-    paint.submit(&signal)?;
+    let commands = [paint.command];
+    // SAFETY: the command buffer has ended recording; the queue and fence are live; the caller
+    // uses the queue from this thread alone.
+    unsafe {
+        gpu.device.queue_submit(
+            gpu.queue,
+            &[vk::SubmitInfo::default()
+                .command_buffers(&commands)
+                .signal_semaphores(&signal)],
+            paint.fence,
+        )?;
+    }
+    paint.submitted = true;
     times.submit_ms = lap();
-    let buffer = &chain.buffers[index];
     let (acquire, release) = (buffer.released_at + 1, buffer.released_at + 2);
     // The frame's completion is its acquire point: as a sync file, or signalled once done.
     let fence = match &paint.gpu.completion {
@@ -866,8 +922,123 @@ fn present_in(
     if chain.history.len() > HISTORY {
         chain.history.pop_front();
     }
-    let _ = buffer.image.fd.as_raw_fd();
     Ok(sequence)
+}
+
+/// Records into the painter's command buffer the copy of `regions` of `source` into `buffer`: the
+/// source's drawing (submitted before, on the same queue) made visible to the copy, the buffer
+/// taken back from the compositor's queue (or new), the copy, and the buffer handed to the
+/// compositor's queue. The source stays in TRANSFER_SRC_OPTIMAL on the painter's family.
+fn record(paint: &Paint, source: vk::Image, buffer: &Buffer, regions: &[Rect]) -> Result<()> {
+    let gpu = &paint.gpu;
+    let device = &gpu.device;
+    let command = paint.command;
+    let first = buffer.released_at == 0;
+    // Back from the compositor's queue with what it held, or new.
+    let (old, from, to) = if first {
+        (
+            vk::ImageLayout::UNDEFINED,
+            vk::QUEUE_FAMILY_IGNORED,
+            vk::QUEUE_FAMILY_IGNORED,
+        )
+    } else {
+        (vk::ImageLayout::GENERAL, gpu.foreign, gpu.family)
+    };
+    let acquire = [
+        // Whatever wrote the source before (a render pass, a transfer, on this queue).
+        vk::ImageMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::MEMORY_WRITE)
+            .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+            .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+            .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(source)
+            .subresource_range(range()),
+        vk::ImageMemoryBarrier::default()
+            .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+            .old_layout(old)
+            .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+            .src_queue_family_index(from)
+            .dst_queue_family_index(to)
+            .image(buffer.image.image)
+            .subresource_range(range()),
+    ];
+    let layers = vk::ImageSubresourceLayers {
+        aspect_mask: vk::ImageAspectFlags::COLOR,
+        mip_level: 0,
+        base_array_layer: 0,
+        layer_count: 1,
+    };
+    let copies: Vec<vk::ImageCopy> = regions
+        .iter()
+        .map(|rect| {
+            let offset = vk::Offset3D {
+                x: rect.x,
+                y: rect.y,
+                z: 0,
+            };
+            vk::ImageCopy {
+                src_subresource: layers,
+                src_offset: offset,
+                dst_subresource: layers,
+                dst_offset: offset,
+                extent: vk::Extent3D {
+                    width: rect.width,
+                    height: rect.height,
+                    depth: 1,
+                },
+            }
+        })
+        .collect();
+    // SAFETY: the command buffer is not in use (the caller waited for its last submission); every
+    // handle is live; each region lies within the source and the buffer, both of its size.
+    unsafe {
+        device.reset_command_buffer(command, vk::CommandBufferResetFlags::empty())?;
+        device.begin_command_buffer(
+            command,
+            &vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT),
+        )?;
+        device.cmd_pipeline_barrier(
+            command,
+            vk::PipelineStageFlags::ALL_COMMANDS,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &acquire,
+        );
+        if !copies.is_empty() {
+            device.cmd_copy_image(
+                command,
+                source,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                buffer.image.image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &copies,
+            );
+        }
+        // To the compositor's queue.
+        device.cmd_pipeline_barrier(
+            command,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &[vk::ImageMemoryBarrier::default()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .new_layout(vk::ImageLayout::GENERAL)
+                .src_queue_family_index(gpu.family)
+                .dst_queue_family_index(gpu.foreign)
+                .image(buffer.image.image)
+                .subresource_range(range())],
+        );
+        device.end_command_buffer(command)?;
+    }
+    Ok(())
 }
 
 fn range() -> vk::ImageSubresourceRange {

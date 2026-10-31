@@ -1,5 +1,5 @@
 {
-  "about": "clip.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25), the window's pixels checked in the output's own (the window at 550,313 of a 1600x1000 output): the same clipping, the edges anti-aliased at the output's pixels, the clipped child's edge the same as the round background's and the nested clip's the same as the round button's, pixel for pixel; the same presses, hit by rectangles.",
+  "about": "clip.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25), the window's pixels checked in the output's own (the window at 550,313 of a 1600x1000 output): the same clipping, the edges anti-aliased at the output's pixels, the clipped child's edge the same as the round background's and the nested clip's the same as the round button's, pixel for pixel; the same presses, hit by rectangles. Edge pixels are held within 30 levels in the first step: Skia's raster and Vulkan backends anti-alias a rounded clip and a rounded fill each their own way (ADR 0031, decision 13), up to 27 levels apart on an edge at 1.25.",
   "module": "ClipProbe",
   "window": [
     400,
@@ -14,11 +14,12 @@
       ],
       "allow_unchanged": true,
       "expect": {
+        "pixel_tolerance": 30,
         "output_pixels": {
           "576,339": "#ffffff",
           "625,388": "#d03030",
-          "617,338": "#e89898",
-          "616,338": "#f3cbcb",
+          "617,338": "#edaeae",
+          "616,338": "#f4cece",
           "701,339": "#ffffff",
           "750,388": "#3050d0",
           "826,339": "#ffffff",
