@@ -1,0 +1,47 @@
+{
+  "about": "Actual Bloom AppShell header clearance measured through the native host after compact navigation changes. Tests shared geometry, not a physical display.",
+  "module": "CompactAdaptiveWindowProbe",
+  "window": [900, 600],
+  "steps": [
+    {
+      "name": "Collapsed sidebar leaves the controls clear",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Native window connected", "Sidebar collapsed", "Header room yes"]
+      }
+    },
+    {
+      "name": "The collapsed sidebar control is below the window controls and accepts a pointer press",
+      "do": ["press", [22, 62]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar expanded", "Header not measured"]
+      }
+    },
+    {
+      "name": "Expanded sidebar keeps the header beyond controls",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar expanded", "Header room yes"]
+      }
+    },
+    {
+      "name": "Collapse navigation again",
+      "do": ["a11y-action", ["activate", "Toggle sidebar"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar collapsed", "Header not measured"]
+      }
+    },
+    {
+      "name": "After animation the header still clears controls",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar collapsed", "Header room yes"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "about": "The same native compact panel composition in a 400-point window, checking window-control clearance and pointer access with limited available width.",
+  "module": "CompactPanelWindowProbe",
+  "window": [400, 600],
+  "steps": [
+    {
+      "name": "Collapsed sidebar leaves the controls clear",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Native window connected", "Sidebar collapsed", "Header room yes"]
+      }
+    },
+    {
+      "name": "The collapsed sidebar control is below the window controls and accepts a pointer press",
+      "do": ["press", [22, 62]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar expanded", "Header not measured"]
+      }
+    },
+    {
+      "name": "Expanded sidebar keeps the header beyond controls",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar expanded", "Header room yes", "Panel width recorded"]
+      }
+    },
+    {
+      "name": "Collapse navigation again",
+      "do": ["a11y-action", ["activate", "Toggle sidebar"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar collapsed", "Header not measured", "Panel not measured"]
+      }
+    },
+    {
+      "name": "Collapsed navigation returns its width to the panel and keeps the header clear",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": ["Sidebar collapsed", "Header room yes", "Panel width recovered yes"]
+      }
+    },
+    {
+      "name": "Increase window width by 100 points",
+      "do": ["drag_output", [843, 300, 943, 300]],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [440, 60, 500, 600]
+      }
+    },
+    {
+      "name": "The panel receives the added window width",
+      "do": ["a11y-action", ["activate", "Measure header"]],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Sidebar collapsed",
+          "Header room yes",
+          "Panel width recovered yes",
+          "Panel resize yes"
+        ]
+      }
+    }
+  ]
+}
