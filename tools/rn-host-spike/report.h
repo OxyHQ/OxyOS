@@ -1,5 +1,7 @@
 // What the host showed and delivered, for regression checks (tools/rn-host-spike/regress.py):
-// with OXYOS_HOST_REPORT=<path>, one JSON object per line.
+// with OXYOS_HOST_REPORT=<path>, one JSON object per line. A path that ends in `/` or names a
+// directory is a directory every host writes its own report into, <application>-<pid>.jsonl (the
+// application's id, else its module): a session's applications profiled at once, each its own.
 //
 //   {"t":…,"kind":"frame","surface":1,"width":…,"height":…,"render_ms":…,"busy_ms":…,"js_ms":…,"texts":[…],"focus":"reply"}
 //   {"t":…,"kind":"layout","width":…,"height":…,"ms":…}         (the window laid out at a new size)
@@ -14,6 +16,9 @@
 //   {"t":…,"kind":"animated","target":"fade","props":{"opacity":0.42}}  (set by Animated's native driver)
 //   {"t":…,"kind":"committed","target":"jsbox","props":{"transform":[{"translateX":12.5}]}}  (on mount)
 //   {"t":…,"kind":"animation_frame","timestamp":1234.5,"callbacks":2}  (requestAnimationFrame's frame)
+//   {"t":…,"kind":"timing","work_ms":…,"parts":{…},"trigger":"pointer.press",…}  (frame-diagnostics.h)
+//   {"t":…,"kind":"log","text":"[host so.oxy.stash] a frame after …"}  (a line written to the log)
+//   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
 //
 // `t` is CLOCK_MONOTONIC in nanoseconds, the clock oxyos-offscreen stamps its steps with, so the
 // two logs line up. Views are named by testID, else by accessibility label, else component#tag.
@@ -39,6 +44,8 @@ class ViewTree;
 class Report {
  public:
   static Report& get();
+  // Opens the report OXYOS_HOST_REPORT names, if any, for `application` (its id, else its module).
+  void open(const std::string& application);
   bool enabled() const { return file_ != nullptr; }
 
   // A presented frame (its size in pixels) and the text it shows, in drawing order.
@@ -123,6 +130,9 @@ class Report {
   void accessibilityEvent(const std::string& type, const facebook::react::ShadowView& view, const std::string& within);
   // A surface's accessibility tree (accessibility.h), written when it changed.
   void accessibility(uint32_t surface, const folly::dynamic& nodes);
+
+  // What the frame diagnostics write (frame-diagnostics.h): a line of `kind`.
+  void diagnostic(const char* kind, folly::dynamic&& line);
 
   static std::string name(const facebook::react::ShadowView& view);
 

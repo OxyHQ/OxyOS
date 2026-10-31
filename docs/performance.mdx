@@ -48,6 +48,103 @@ OXYOS_HOST_JS_PROFILE=$PWD/stash-profile.json python3 tools/rn-host-spike/regres
   tools/rn-host-spike/scenarios/perf-stash.json --offscreen ... --runtimes ... --packages ...
 ```
 
+## Reading the session's log
+
+A session writes what is slow to its log as it happens, so a machine that feels slow says why
+without anyone running a tool on it. On the ThinkPad the log is `~/oxyos-validation/probar.log`
+(the session's stderr, its applications' with it). Nothing needs turning on; each line costs a
+few clock reads a turn, and while nothing happens nothing is written.
+
+**The compositor** writes a turn whose work took longer than a refresh of the fastest display, at
+most once a second (`[compositor] a turn worked 38.4 ms: before its wait …, the devices …, the
+clients …, the frame … (uploading …, waiting for the GPU …), events …`), and every ten seconds
+in which the GPU composed frames, how long they took (`[compositor] the GPU composed N frames in
+the last 10 s: … median, … at the 95th percentile, … at most`).
+
+**Each Bloom host** (an application, the shell, the login screen) writes, named by the
+application's id (else its module), lines of five kinds (`tools/rn-host-spike/frame-diagnostics.h`):
+
+```text
+[host so.oxy.frameprobe] a frame after pointer.press took 127.4 ms, 7 dropped (a refresh is 16.7 ms): events 0.6,
+  JavaScript 126.2 (commits 0.2, of which Yoga layout 0.2 and text 0.0), animation 0.1, mount 0.0, drawing 0.2,
+  presenting 0.2 from the CPU, other 0.1; waiting for the compositor 0.0; 2 turns; input to present 127.8 ms
+[host so.oxy.frameprobe] in the last 10.0 s: 91 frames, their work 3.5 ms median, 8.5 at the 95th percentile,
+  123.3 at most; input to present 129.6 ms median, 129.6 at the 95th percentile (2 inputs); 1 slow, 7 dropped
+  (a refresh is 16.7 ms)
+[host so.oxy.stash] a resize to 1102x680: its frame presented 104.5 ms after the configure (laying it out 0.8,
+  settling 65.8, cut short at a refresh; the frame's work 104.6, waiting for the compositor 0.0)
+[host so.oxy.stash] a live resize: 6 frames for 6 configures over 712 ms; configure to frame 104.5 ms median,
+  187.6 at most; laying out 0.8 ms median, 1.8 at most; 6 settles cut short at a refresh
+[host so.oxy.stash] zoom (to fill the work area): its configure 47.9 ms after it was asked, its frame presented 472.9 ms after
+```
+
+(each is one line in the log; these from `frame-diagnostics.json` and `stash-window.json` on the
+development compositor, which draws from the CPU). How to read them:
+
+- **A frame's work** is everything the host's loop did since the frame before, its sleeping left
+  out: each moment is charged to one part. *events*: handling the compositor's events (a key's
+  menu shortcut runs JavaScript there). *JavaScript*: React's handlers, render and commits, and the
+  callbacks of timers and requestAnimationFrame; of it, *commits* is Fabric's commits as their
+  telemetry has them, *Yoga layout* their layout and *text* the text measured in it.
+  *animation*: Animated's native driver, worklets and Reanimated, a fling, gesture handlers.
+  *mount*: applying a commit to the host's tree. *drawing*: the damage and the painter recording
+  (on the GPU) or rasterizing (on the CPU) the frame. *presenting*: handing it to the compositor,
+  on the GPU with `sync`, the wait for its buffer, or from the CPU (copying it into shared memory).
+  *other*: the rest (images, accessibility, popups' placement). *waiting for the compositor*:
+  the time the frame was ready but the one before it was not yet answered, which is not work;
+  *turns*, the loop's turns it took.
+- **A frame is slow** when its work, plus any wait for the compositor beyond one refresh (a
+  frame in flight is answered within one), is longer than a refresh of its window's display:
+  16.7 ms at 60 Hz, 8.3 at 120. Its *dropped* are the refreshes it missed. The line names what
+  started the work: an input (`pointer.press`, `key`, `scroll`, `touch`, `text input`, …), *a
+  resize*, *an animation frame*, *a timer*, *data arriving*, *an image arriving*, *the first
+  frame*, or *JavaScript* (its own work: a promise, an event emitted the turn before). Work that
+  ends without a frame (an input whose answer changed nothing visible) is said as *handling … (no
+  frame)*. At most one slow line a second; the next says how many went unsaid.
+- **Input to present** is from the earliest input since the frame before, by its device's time
+  (libinput's), to the frame handed to the compositor: what the person waited, the compositor's
+  composition and the display's flip not included. (During an animation, an input that arrives as
+  a frame is drawn counts toward that frame, though its answer is in the next.)
+- **The summary** comes every 10 s while the window draws: its frames, their work's median, 95th
+  percentile and most, the latency from input, how many were slow and the refreshes dropped.
+  Nothing is written while the window is idle; a host that ends writes the frames since the last.
+- **A resize** is from the configure that changed the window's size (as received) to the frame
+  presented for it: *laying it out* (Fabric's commit with the new size), *settling* (the wait
+  for JavaScript's own layout at that size, up to a refresh: *cut short at a refresh* when the
+  application was still laying out). The first of a live resize is written as it is presented,
+  then one line when the edges stop (no frame for half a second).
+- **The window's operations**: a zoom from the request to the configure that zoomed it and to the
+  frame presented at the new size; a minimize to the window losing its activation; a close (the
+  application's own, or the session's: the dock, the switcher) to the loop leaving and the
+  process's teardown. One not answered within 3 s is said too.
+
+What to look for: a slow frame whose *JavaScript* dominates is the application's own work (its
+JavaScript profile, above, says which functions); *drawing* or *presenting* is the host's painter
+(on the GPU, a large *sync* is the GPU being slow or busy); a large *waiting for the compositor*
+with little work is the compositor not answering in time (its own slow turns, above, say why);
+*input to present* far above the frame's work is the host busy with something else when the
+input came. A resize whose *settling* is cut short at every size is an application laying itself
+out several times per size.
+
+**Recording every application at once.** `OXYOS_HOST_REPORT` (the host's report, `report.h`) may
+name a directory (a path ending in `/`, or one that exists): every host then writes its own,
+`<application id>-<pid>.jsonl`, the shell's and every application's side by side, each with its
+frames' `timing` lines (the parts above, as numbers), its log lines (`log`) and its summaries
+(`timing_summary`). In the session's environment (`OXYOS_HOST_REPORT=$HOME/oxyos-validation/reports/`
+before `probar.sh` starts it), a profiling run records every application without any other
+change. A file path is one host's report, as before (`regress.py`'s).
+
+**Checked.** `scenarios/frame-diagnostics.json` (`sample/FrameProbe.tsx`) makes frames fast and
+slow: presses answered at once write no slow line, and 90 frames of requestAnimationFrame stay
+within a refresh; a press whose JavaScript holds the thread 120 ms writes one, its JavaScript at
+least 100 ms and its refreshes dropped; three within a second write one, and the next says the
+two unsaid; the idle window writes one summary, then nothing. Every run of every scenario also
+checks that each line a host's diagnostics wrote is in the log, whole; that a frame is said to be
+slow exactly when its work (and its wait beyond a refresh) passes a refresh, so a fast frame never
+is, however loaded the machine; that a slow line names the work its frame's `timing` line has;
+and that each summary's numbers are those of the frames since the summary before (`regress.py`,
+`check_diagnostics`).
+
 ## Method
 
 **Interactions.** Five scenarios (in `tools/rn-host-spike/scenarios/`), each run three times and
