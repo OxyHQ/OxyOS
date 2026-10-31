@@ -376,6 +376,9 @@ pub struct Scene {
     /// The surface a touchpad pinch going on goes to (the one under the pointer when it began),
     /// or none if it began over nothing or its surface went.
     pinch: Option<SurfaceKey>,
+    /// The surface a touchpad's resting fingers go to (the one under the pointer when they began
+    /// to rest), until they lift or move on.
+    hold: Option<SurfaceKey>,
     /// The surface a touchpad's (or a continuous device's) scroll going on goes to, the one
     /// under the pointer when it began, until its stop; none between scrolls.
     scrolling: Option<SurfaceKey>,
@@ -2452,6 +2455,9 @@ impl Scene {
 
     /// Clears input state that refers to `key` without delivering events to it.
     fn detach_input(&mut self, key: SurfaceKey) {
+        if self.hold == Some(key) {
+            self.hold = None;
+        }
         if self.pinch == Some(key) {
             self.pinch = None;
         }
@@ -3466,6 +3472,38 @@ impl Scene {
                 y,
                 scale_65536,
                 rotation_256,
+                time_ns: self.input_time_ns,
+            },
+        );
+    }
+
+    /// A touchpad's fingers resting on it (libinput's hold gesture), as a scroll's beginning
+    /// would: to the surface under the pointer when they began to rest, until they lift or move
+    /// on (End, Cancel), however the pointer moves meanwhile. An application stops what its last
+    /// scroll set gliding under them. Resting fingers are no press: they authorize no grab and
+    /// activate nothing. Ones that began over no surface, or whose surface went, reach nothing.
+    pub fn pointer_hold(&mut self, phase: GesturePhase, fingers: u8) {
+        self.user_input();
+        if phase == GesturePhase::Begin {
+            self.hold = self.pointer_target();
+        }
+        let Some(target) = self.hold else {
+            return;
+        };
+        if phase != GesturePhase::Begin {
+            self.hold = None;
+        }
+        if self.live(target).is_none() {
+            return;
+        }
+        let serial = self.next_serial();
+        self.emit(
+            target.client,
+            Event::Hold {
+                surface: target.id,
+                serial,
+                phase,
+                fingers,
                 time_ns: self.input_time_ns,
             },
         );

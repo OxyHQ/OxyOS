@@ -148,6 +148,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_OUTPUT 55
 #define OXYOS_EVENT_OUTPUT_REMOVED 56
 #define OXYOS_EVENT_REFRESH 57
+#define OXYOS_EVENT_HOLD 58
 /* What came of a lock surface's password (OxyOSEvent.detail of an AUTHENTICATION_RESULT). */
 #define OXYOS_AUTH_ACCEPTED 1
 #define OXYOS_AUTH_REJECTED 2
@@ -201,7 +202,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_POLL_CLOSED (-1)
 #define OXYOS_ERROR (-2)
 
-/* One compositor event. An input event (POINTER, KEY, TOUCH, SCROLL, PINCH) also carries
+/* One compositor event. An input event (POINTER, KEY, TOUCH, SCROLL, PINCH, HOLD) also carries
  * `time_ns`: when its device registered it, on CLOCK_MONOTONIC, in nanoseconds (libinput's time;
  * 0 when the compositor knows none), by which the client times it rather than by when it read it.
  * Fields by kind:
@@ -291,6 +292,10 @@ typedef struct OxyOSClient OxyOSClient;
  *               pinch began (65536 = as they started); rotation_256: how far they have turned
  *               since, in 1/256 degrees, clockwise. A pinch stays with the surface under the
  *               pointer when it began until it ends or is cancelled.
+ *   HOLD        serial; detail: OXYOS_PINCH_BEGIN when a touchpad's fingers land and rest still,
+ *               _END when they lift without moving, _CANCEL when they move on (a scroll or a
+ *               pinch follows) or a button is pressed; code: how many fingers rest. It stays with
+ *               the surface under the pointer when the fingers began to rest until they end.
  *   CAPS_LOCK   flag: whether Caps Lock is on; to the surface with keyboard focus when it changes,
  *               and after its FOCUS when it is on (a surface gains focus with it off unless told).
  *   To a client with the `lock` grant (ADR 0010):
@@ -1261,11 +1266,15 @@ int oxyos_gestures_relate(OxyOSGestures* gestures, int32_t tag, const int32_t* w
 void oxyos_gestures_drop(OxyOSGestures* gestures, int32_t tag);
 /* JavaScript sets a handler's state (_setGestureStateSync, _setGestureStateAsync). */
 int oxyos_gestures_set_state(OxyOSGestures* gestures, int32_t tag, int32_t state);
-/* One event of the pointer stream: `action` about pointer `index` of the `count` down, at `time`
- * milliseconds, of `pointer_type` (0 touch, 1 stylus, 2 mouse). For a pointer going down, `hits`
- * are the views under it, deepest first, then that view's ancestors to the root. */
+/* One event of the pointer stream: `action` about pointer `index` of the `count` down, handled at
+ * `time` and registered by its device at `event_time`, both in milliseconds of the monotonic clock
+ * (timers run on the first, velocities and detectors measure by the second, as RNGH's Android
+ * handlers post their timers when they handle a MotionEvent and measure by its eventTime), of
+ * `pointer_type` (0 touch, 1 stylus, 2 mouse). For a pointer going down, `hits` are the views under
+ * it, deepest first, then that view's ancestors to the root. */
 int oxyos_gestures_touch(OxyOSGestures* gestures, uint8_t action, size_t index, const OxyOSGesturePointer* pointers,
-                         size_t count, uint64_t time, uint8_t pointer_type, const int32_t* hits, size_t hit_count,
+                         size_t count, uint64_t time, uint64_t event_time, uint8_t pointer_type,
+                         const int32_t* hits, size_t hit_count,
                          OxyOSGestureFrameFn frame, void* context);
 /* Time passed: handlers' timers due by `now` fire. */
 void oxyos_gestures_tick(OxyOSGestures* gestures, uint64_t now);

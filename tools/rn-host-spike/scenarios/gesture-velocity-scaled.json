@@ -1,0 +1,75 @@
+{
+  "about": "gesture-velocity.json at a fractional scale (1.25, a 1600x1000 output, the window at 340,220 of its logical 1280x800): the same pans, in logical pixels, ending at 1000 px/s, the busy one too.",
+  "module": "GlideProbe",
+  "window": [
+    600,
+    360
+  ],
+  "steps": [
+    {
+      "name": "a pan of 200 pixels in 200 ms ends at 1000 px/s",
+      "do": [
+        "drag_paced",
+        [
+          680,
+          370,
+          880,
+          370,
+          20,
+          100
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pan 1 ended at 1000 px/s"
+        ],
+        "react": {
+          "touchStart@pan": 1,
+          "touchMove@pan": 1,
+          "touchCancel@pan": 1
+        },
+        "gesture_states": [
+          "PanGestureHandler@pan UNDETERMINED>BEGAN",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@pan BEGAN>ACTIVE",
+          "PanGestureHandler@pan ACTIVE>END"
+        ],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "the same pan behind 300 ms of busy JavaScript, its motions handled together: still 1000 px/s",
+      "do": [
+        "drag_paced",
+        [
+          680,
+          370,
+          880,
+          370,
+          20,
+          100
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pan 2 ended at 1000 px/s"
+        ],
+        "react": {
+          "touchStart@pan": 1,
+          "touchMove@pan": 1,
+          "touchCancel@pan": 1
+        },
+        "gesture_states": [
+          "PanGestureHandler@pan UNDETERMINED>BEGAN",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@pan BEGAN>ACTIVE",
+          "PanGestureHandler@pan ACTIVE>END"
+        ],
+        "focus_surface": 1
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

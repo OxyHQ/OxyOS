@@ -28,7 +28,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 4;
 
 pub use versions::{event_since, read_event_for, request_since, write_event_for};
 /// Upper bound on a packet payload (opcode plus fields). No message reaches it.

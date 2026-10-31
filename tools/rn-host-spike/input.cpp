@@ -292,6 +292,14 @@ void PointerInput::handle(const OxyOSEvent& event) {
     return;
   }
   // Protocol positions and distances are in 1/256 logical pixels.
+  // A touchpad's fingers coming to rest stop the glide their last flick left on that surface, as
+  // macOS stops a scroll's momentum under resting fingers: its momentum ends where it is, once,
+  // with no scroll after. Resting fingers are no drag: no scrollBeginDrag (they may lift unmoved);
+  // moving on, they are a scroll, which begins one.
+  if (event.kind == OXYOS_EVENT_HOLD) {
+    if (event.detail == OXYOS_PINCH_BEGIN && glide_ && glide_->surface == event.surface) stopGlide();
+    return;
+  }
   if (event.kind != OXYOS_EVENT_SCROLL && event.kind != OXYOS_EVENT_POINTER && event.kind != OXYOS_EVENT_PINCH) return;
   auto content = surfaces_(event.surface);
   if (!content) return;
@@ -620,9 +628,32 @@ void PointerInput::stopGlide() {
   if (tree_.views().find(glide.view) != tree_.views().end()) scrollEvent(glide.view, glide.surface, "momentumScrollEnd");
 }
 
+// When a scroll event is dispatched, in milliseconds of the monotonic clock (performance.now()'s):
+// its `timestamp`, as React Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it
+// is obtained, for every kind (the scroll, the drag's begin and end, the momentum's). Not the
+// device's time of the input behind it: a glide's scrolls have no input behind them, and Android
+// stamps a wheel's or a drag's scroll when the view scrolls, not with its MotionEvent's time.
+static double dispatchTime() { return HighResTimeStamp::now().toDOMHighResTimeStamp(); }
+
+// A scroll event whose `timestamp` reaches JavaScript in whole precision. React Native's C++
+// ScrollEvent holds it as a Float of seconds, which on this platform is a float: a monotonic clock's
+// seconds since boot in 24 bits come to JavaScript in steps of 31 ms. Android's ScrollEvent sends
+// its uptimeMillis as a double; so does this payload, the rest of it React Native's own.
+template <typename Base>
+struct ExactlyStamped : Base {
+  ExactlyStamped(const Base& event, double ms) : Base(event), ms(ms) {}
+  double ms;
+  facebook::jsi::Value asJSIValue(facebook::jsi::Runtime& runtime) const override {
+    auto value = Base::asJSIValue(runtime);
+    value.asObject(runtime).setProperty(runtime, "timestamp", ms);
+    return value;
+  }
+};
+
 void PointerInput::scrollEvent(Tag tag, uint32_t surface, const char* kind, std::optional<Point> velocity) {
   auto it = tree_.views().find(tag);
   if (it == tree_.views().end()) return;
+  const double dispatched = dispatchTime();
   const auto& view = it->second.view;
   auto range = scrollRange(tag);
   auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter);
@@ -633,21 +664,19 @@ void PointerInput::scrollEvent(Tag tag, uint32_t surface, const char* kind, std:
     event.contentOffset = range ? range->first : Point{};
     event.containerSize = view.layoutMetrics.frame.size;
     event.zoomScale = 1;
+    event.timestamp = static_cast<Float>(dispatched / 1000);  // seconds
     std::string name = kind;
-    if (name == "scrollBeginDrag") {
-      emitter->onScrollBeginDrag(event);
-    } else if (name == "scrollEndDrag") {
+    // As ScrollViewEventEmitter dispatches each (onScrollBeginDrag and the rest), stamped exactly.
+    if (name == "scrollEndDrag") {
       ScrollEndDragEvent end(event);
       end.velocity = velocity.value_or(Point{});
-      emitter->onScrollEndDrag(end);
-    } else if (name == "momentumScrollBegin") {
-      emitter->onMomentumScrollBegin(event);
-    } else if (name == "momentumScrollEnd") {
-      emitter->onMomentumScrollEnd(event);
+      emitter->dispatchEvent(name, std::make_shared<ExactlyStamped<ScrollEndDragEvent>>(end, dispatched));
+    } else if (name == "scrollBeginDrag" || name == "momentumScrollBegin" || name == "momentumScrollEnd") {
+      emitter->dispatchEvent(name, std::make_shared<ExactlyStamped<ScrollEvent>>(event, dispatched));
     }
   }
-  folly::dynamic extra = folly::dynamic::object;
-  if (range) extra = folly::dynamic::object("x", range->first.x)("y", range->first.y);
+  folly::dynamic extra = folly::dynamic::object("timestamp", dispatched);
+  if (range) extra["x"] = range->first.x, extra["y"] = range->first.y;
   if (velocity) extra["vx"] = velocity->x, extra["vy"] = velocity->y;
   Report::get().deliver(kind, surface, view, extra);
 }
@@ -679,6 +708,7 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
   Size viewport = view.layoutMetrics.frame.size;
   Size content = state->getData().getContentSize();
   offsets_[tag] = next;
+  const double dispatched = dispatchTime();
   auto data = state->getData();
   data.contentOffset = next;
   state->updateState(std::move(data));
@@ -688,10 +718,12 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
     event.contentOffset = next;
     event.containerSize = viewport;
     event.zoomScale = 1;
-    event.timestamp = static_cast<Float>(eventTime_.toDOMHighResTimeStamp() / 1000);  // seconds
-    emitter->onScroll(event);
+    event.timestamp = static_cast<Float>(dispatched / 1000);  // seconds
+    // As ScrollViewEventEmitter::onScroll dispatches it (a unique event: coalesced), stamped exactly.
+    emitter->dispatchUniqueEvent("scroll", std::make_shared<ExactlyStamped<ScrollEvent>>(event, dispatched));
   }
-  Report::get().deliver("scroll", surface, view, folly::dynamic::object("x", next.x)("y", next.y));
+  Report::get().deliver("scroll", surface, view,
+                        folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched));
   if (std::getenv("OXYOS_HOST_TRACE")) {
     std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"
               << content.height << "\n";

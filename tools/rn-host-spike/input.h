@@ -15,6 +15,7 @@
 #include <react/renderer/core/ReactPrimitives.h>
 #include <react/timing/primitives.h>
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <map>
@@ -75,6 +76,12 @@ class PointerInput {
                                        const std::vector<facebook::react::Point>& fingers)>
                         feed) {
     fingers_ = std::move(feed);
+  }
+  // When the device registered the event being handled, in milliseconds of the monotonic clock
+  // (the protocol's time_ns; when it carries none, when the host got it): what gesture handlers
+  // measure velocities by, as Android's VelocityTracker reads a MotionEvent's eventTime.
+  uint64_t eventTimeMs() const {
+    return static_cast<uint64_t>(std::max(0.0, eventTime_.toDOMHighResTimeStamp()));
   }
   // The window's scale: a pinch's fingers start a set number of its pixels apart.
   void setScale(float scale) { scale_ = scale; }

@@ -782,6 +782,7 @@ int main(int argc, char** argv) {
                                      const std::vector<facebook::react::Point>& fingers) {
       gestures->fingers(action, index, content, fingers);
     });
+    gestures->eventTimeMs = [&pointer] { return pointer.eventTimeMs(); };
     gestures->onCancelResponder = [&pointer] { pointer.cancelResponder(); };
     gestures->onIntercept = [&editing] { editing.releaseDrag(); };
     editing.useClipboard({
@@ -811,6 +812,10 @@ int main(int argc, char** argv) {
                 folly::dynamic::object("text", editing.logged(std::string(event.text)))("cursor", event.detail));
       } else if (event.kind == OXYOS_EVENT_SCROLL) {
         r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
+      } else if (event.kind == OXYOS_EVENT_HOLD && event.detail >= OXYOS_PINCH_BEGIN &&
+                 event.detail <= OXYOS_PINCH_CANCEL) {
+        static const char* hold[] = {"", "hold.begin", "", "hold.end", "hold.cancel"};
+        if (*hold[event.detail]) r.input(hold[event.detail], event.surface, folly::dynamic::object("fingers", event.code));
       } else if (event.kind == OXYOS_EVENT_FOCUS) {
         r.input(event.flag ? "focus.in" : "focus.out", event.surface);
       } else if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION) {

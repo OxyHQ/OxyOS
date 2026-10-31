@@ -2199,6 +2199,67 @@ fn an_in_flight_buffer_of_a_destroyed_surface_cannot_back_another_surface() {
 }
 
 #[test]
+fn resting_fingers_go_to_the_surface_under_the_pointer_when_they_began_until_they_lift() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 200, 100);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.pump();
+    h.clear_log();
+    let focus = h.scene.focus();
+    let holds = |events: Vec<(ClientId, Event)>| -> Vec<_> {
+        events
+            .into_iter()
+            .filter_map(|(client, e)| match e {
+                Event::Hold {
+                    surface,
+                    phase,
+                    fingers,
+                    time_ns,
+                    ..
+                } => Some((client, surface, phase, fingers, time_ns)),
+                _ => None,
+            })
+            .collect()
+    };
+    // An end with no hold begun reaches nobody.
+    h.scene.pointer_hold(GesturePhase::End, 2);
+    assert!(holds(h.pump()).is_empty());
+    // They began over the window, with their device's time; the window keeps them until they
+    // lift, the pointer over the other window meanwhile.
+    h.scene.set_input_time(5_000_000_000);
+    h.scene.pointer_hold(GesturePhase::Begin, 2);
+    let o = h.rect(other);
+    h.scene.pointer_motion(o.x + 10, o.y + 10);
+    h.scene.set_input_time(5_100_000_000);
+    h.scene.pointer_hold(GesturePhase::End, 2);
+    assert_eq!(
+        holds(h.pump()),
+        [
+            (APP, 1, GesturePhase::Begin, 2, 5_000_000_000),
+            (APP, 1, GesturePhase::End, 2, 5_100_000_000),
+        ]
+    );
+    // Fingers moving on (Cancel) end one too; then they begin anew over the other window.
+    h.scene.pointer_hold(GesturePhase::Begin, 3);
+    h.scene.pointer_hold(GesturePhase::Cancel, 3);
+    let events = holds(h.pump());
+    assert_eq!(
+        events
+            .iter()
+            .map(|e| (e.0, e.1, e.2, e.3))
+            .collect::<Vec<_>>(),
+        [
+            (OTHER, 1, GesturePhase::Begin, 3),
+            (OTHER, 1, GesturePhase::Cancel, 3)
+        ]
+    );
+    // Resting fingers are no press: focus and stacking are unchanged.
+    assert_eq!(h.scene.focus(), focus);
+}
+
+#[test]
 fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

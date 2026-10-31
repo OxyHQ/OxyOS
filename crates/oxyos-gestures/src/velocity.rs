@@ -23,12 +23,12 @@ impl Tracker {
     pub(crate) fn add(&mut self, event: &Event) {
         if self
             .last_time
-            .is_some_and(|last| event.time >= last + STOPPED_MS)
+            .is_some_and(|last| event.event_time >= last + STOPPED_MS)
         {
             // Nothing moved for too long: every pointer has stopped.
             self.samples.clear();
         }
-        self.last_time = Some(event.time);
+        self.last_time = Some(event.event_time);
         let actor = event.pointers.get(event.index).map(|p| p.id);
         match event.action {
             Action::Down => {
@@ -61,7 +61,7 @@ impl Tracker {
         }
         for pointer in &event.pointers {
             let history = self.samples.entry(pointer.id).or_default();
-            history.push_back((event.time, pointer.x, pointer.y));
+            history.push_back((event.event_time, pointer.x, pointer.y));
             while history.len() > HISTORY {
                 history.pop_front();
             }

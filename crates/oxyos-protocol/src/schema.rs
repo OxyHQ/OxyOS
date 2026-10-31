@@ -424,6 +424,12 @@ messages! {
         // its display is driven at another mode): the display's frames, which its client paces
         // its own by (a frame of animation each refresh), never an assumed 60 a second.
         57 => Refresh { surface: u32, refresh_mhz: u32 },
+        // A touchpad's fingers resting on it, still (libinput's hold gesture): Begin when they
+        // land and stay, End when they lift without moving, Cancel when they move on (a scroll or
+        // a pinch follows) or a button is pressed. To the surface under the pointer when it began,
+        // for as long as it lasts. A scroll gliding on after a flick stops under resting fingers,
+        // as macOS stops it; `fingers` is how many rest.
+        58 => Hold { surface: u32, serial: u64, phase: GesturePhase, fingers: u8, time_ns: u64 },
         // To the session's shell (ADR 0021): the active window's menus, as that window committed
         // them, whenever they or the active window change: MenuBar with the window's number (0:
         // none is active), the commit's serial (0: it declared none) and how many entries follow,

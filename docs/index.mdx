@@ -12,7 +12,7 @@ OxyOS is being rebuilt as a native Linux platform: an Oxy display compositor and
 
 ## Status
 
-- The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 3), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. The compositor session itself drives no display yet. `oxyos-gpu` composes frames on the CPU and on Vulkan, and `oxyos-kms` shows them on a real output through DRM/KMS ([ADR 0004](./adr/0004-gpu-composition)). The Bloom host renders Bloom offscreen.
+- The root Rust workspace is a headless foundation: a schema-generated experimental protocol (version 4), compositor policy for surface roles, popups, input, focus and the lock primitive, and a two-process metadata probe. The compositor session itself drives no display yet. `oxyos-gpu` composes frames on the CPU and on Vulkan, and `oxyos-kms` shows them on a real output through DRM/KMS ([ADR 0004](./adr/0004-gpu-composition)). The Bloom host renders Bloom offscreen.
 - `config/` builds a console-only Debian base system. There is no graphical session, and no OxyOS image is published until the native session is in it. The base is built, boot-tested in QEMU and audited locally (`tools/image/`), for amd64 and arm64; how OxyOS will be installed is [ADR 0023](./adr/0023-installing-oxyos), and on which ARM machines, [ADR 0032](./adr/0032-arm).
 - The earlier React/Tauri shell on labwc/greetd is retired. See [Retired desktop stack](./retired-desktop-stack).
 

@@ -2587,6 +2587,15 @@ impl Compositor {
                     (scale.max(0.0) * 65536.0).round() as u32,
                     (rotation * 256.0).round() as i32,
                 ),
+                oxyos_input::Action::Hold { phase, fingers } => self.scene.pointer_hold(
+                    match phase {
+                        oxyos_input::GesturePhase::Begin => GesturePhase::Begin,
+                        oxyos_input::GesturePhase::Update => GesturePhase::Update,
+                        oxyos_input::GesturePhase::End => GesturePhase::End,
+                        oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
+                    },
+                    u8::try_from(fingers).unwrap_or(u8::MAX),
+                ),
                 oxyos_input::Action::Key {
                     code,
                     pressed,
@@ -3439,6 +3448,15 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         // A transaction counts once, whatever parts it has.
         Event::TextInputDone { surface, .. } => (surface, "text_input"),
         Event::Scroll { surface, .. } => (surface, "scroll"),
+        Event::Hold { surface, phase, .. } => (
+            surface,
+            match phase {
+                GesturePhase::Begin => "hold.begin",
+                GesturePhase::End => "hold.end",
+                GesturePhase::Cancel => "hold.cancel",
+                GesturePhase::Update => return None,
+            },
+        ),
         Event::PopupDone { surface, .. } => (surface, "popup.done"),
         Event::Focus { surface, focused } => {
             (surface, if focused { "focus.in" } else { "focus.out" })

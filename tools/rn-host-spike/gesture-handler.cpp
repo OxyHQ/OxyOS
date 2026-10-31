@@ -248,7 +248,10 @@ void GestureHandlerHost::pointer(Phase phase, const SurfaceContent& content, flo
   }
   static const uint8_t actions[] = {OXYOS_GESTURE_DOWN, OXYOS_GESTURE_MOVE, OXYOS_GESTURE_UP, OXYOS_GESTURE_CANCEL};
   // The pointer is a mouse's (RNGH's pointer type 2).
-  if (oxyos_gestures_touch(gestures_, actions[static_cast<int>(phase)], 0, &point, 1, now(), 2, hits.data(),
+  const uint64_t handled = now();
+  const uint64_t registered = eventTimeMs ? std::min(eventTimeMs(), handled) : handled;
+  if (oxyos_gestures_touch(gestures_, actions[static_cast<int>(phase)], 0, &point, 1, handled, registered, 2,
+                           hits.data(),
                            hits.size(), &GestureHandlerHost::frameOf, this) != 0) {
     reportOnce(oxyos_last_error());
   }
@@ -273,7 +276,10 @@ void GestureHandlerHost::fingers(uint8_t action, size_t index, const SurfaceCont
       hits.assign(path.rbegin(), path.rend());
     }
   }
-  if (oxyos_gestures_touch(gestures_, action, index, pointers.data(), pointers.size(), now(), 0, hits.data(),
+  const uint64_t handled = now();
+  const uint64_t registered = eventTimeMs ? std::min(eventTimeMs(), handled) : handled;
+  if (oxyos_gestures_touch(gestures_, action, index, pointers.data(), pointers.size(), handled, registered, 0,
+                           hits.data(),
                            hits.size(), &GestureHandlerHost::frameOf, this) != 0) {
     reportOnce(oxyos_last_error());
   }

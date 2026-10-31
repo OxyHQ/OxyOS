@@ -455,6 +455,13 @@ fn events() -> Vec<Event> {
             rotation_256: -2560,
             time_ns: 1_234_567_890_123,
         },
+        Event::Hold {
+            surface: 1,
+            serial: 8,
+            phase: GesturePhase::Begin,
+            fingers: 2,
+            time_ns: 1_234_567_890_123,
+        },
         Event::LaunchResult {
             serial: 3,
             launched: true,
@@ -1371,6 +1378,30 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
     assert_eq!(request_since(&Request::ImportTimeline { timeline: 1 }), 3);
     assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
     assert_eq!(event_since(&device), 3);
+}
+
+#[test]
+fn resting_fingers_are_never_sent_to_a_client_of_version_3_or_older() {
+    let hold = Event::Hold {
+        surface: 1,
+        serial: 2,
+        phase: GesturePhase::Begin,
+        fingers: 2,
+        time_ns: 5_000_000_123,
+    };
+    assert_eq!(event_since(&hold), 4);
+    for version in [2, 3] {
+        let mut nothing = Vec::new();
+        assert!(!write_event_for(&mut nothing, &hold, version).unwrap());
+        assert!(nothing.is_empty());
+    }
+    let mut v4 = Vec::new();
+    assert!(write_event_for(&mut v4, &hold, 4).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(&v4), 4).unwrap(), hold);
+    assert!(read_event_for(&mut Cursor::new(&v4), 3).is_err());
+    // Version 3 negotiated with a client that offers no more: everything else as before.
+    assert_eq!(negotiate(2, 3), Ok(3));
+    assert_eq!(negotiate(3, 4), Ok(4));
 }
 
 #[test]

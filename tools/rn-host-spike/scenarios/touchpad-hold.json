@@ -1,0 +1,43 @@
+{
+  "about": "A touchpad's glide and the fingers that stop it (sample/GlideProbe.tsx, input.h): a flick leaves the list gliding its Android distance (SplineOverScroller's, for the lift's velocity), its scroll events each stamped when the host dispatched it, as React Native's Android ScrollEvent takes SystemClock.uptimeMillis() when it is obtained: the glide's scrolls rising, the momentum's begin and end stamped (before, every glide scroll carried the lift's device time and the drag's and momentum's events none). A second flick, and two fingers coming to rest on the touchpad 150 ms after the lift (libinput's hold gesture, carried by the protocol's Hold event): the glide stops where they find it, short of its distance, its momentum ended once in the frame the host handled the hold, no scroll after it, as macOS stops a scroll under resting fingers; the fingers lifting unmoved begin no drag (before, the protocol had no hold and the glide ran its full distance under them).",
+  "module": "GlideProbe",
+  "window": [600, 360],
+  "steps": [
+    {
+      "name": "a flick glides its distance, every scroll event stamped when it was dispatched",
+      "do": ["flick", [150, 150, 120, 6, 60]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [8, 60],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {"1": {"enter": 1, "scroll": 7}},
+        "glide": {"view": "list", "velocity": [900, 1500], "frames_min": 8},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 1: scrolls stamped rising yes, momentum stamped yes, ended at 387"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "another flick, and fingers resting on the touchpad 150 ms after the lift: the glide stops under them, its momentum ending once, and lifting unmoved they begin no drag",
+      "do": ["flick_hold", [150, 150, 120, 6, 60, 150]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [8, 40],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {"1": {"scroll": 7, "hold.begin": 1, "hold.end": 1}},
+        "glide": {"view": "list", "velocity": [900, 1500], "held": true},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 2: scrolls stamped rising yes, momentum stamped yes"],
+        "focus_surface": 1
+      }
+    }
+  ]
+}

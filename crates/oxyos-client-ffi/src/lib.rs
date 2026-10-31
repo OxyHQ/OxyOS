@@ -142,6 +142,9 @@ pub const OXYOS_EVENT_OUTPUT_REMOVED: u32 = 56;
 /// To every surface's client (ADR 0018): the refresh of the output the surface is on (detail, in
 /// mHz), before its first CONFIGURE and whenever it changes; its frames are paced by it.
 pub const OXYOS_EVENT_REFRESH: u32 = 57;
+/// A touchpad's fingers resting on it, still (libinput's hold gesture), over one of the client's
+/// surfaces (detail: OXYOS_PINCH_BEGIN, _END or _CANCEL; code: how many fingers rest).
+pub const OXYOS_EVENT_HOLD: u32 = 58;
 pub const OXYOS_AUTH_ACCEPTED: u32 = 1;
 pub const OXYOS_AUTH_REJECTED: u32 = 2;
 pub const OXYOS_AUTH_BUSY: u32 = 3;
@@ -707,6 +710,23 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 detail: phase as u32,
                 scale_65536,
                 rotation_256,
+                time_ns,
+                ..out
+            }
+        }
+        Event::Hold {
+            surface,
+            serial,
+            phase,
+            fingers,
+            time_ns,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_HOLD,
+                surface,
+                serial,
+                detail: phase as u32,
+                code: fingers.into(),
                 time_ns,
                 ..out
             }

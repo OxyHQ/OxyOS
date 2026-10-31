@@ -106,7 +106,14 @@ pub struct Touch {
     pub action: Action,
     pub index: usize,
     pub pointers: Vec<Pointer>,
+    /// When the host handles it, in milliseconds of the monotonic clock: what timers and
+    /// durations run on, as RNGH's Android handlers post them with `Handler.postDelayed` and read
+    /// `SystemClock.uptimeMillis()` as they handle an event.
     pub time: u64,
+    /// When its device registered it, on the same clock: what velocities and detectors measure
+    /// by, as Android's `VelocityTracker`, `ScaleGestureDetector` and RNGH's rotation detector
+    /// read a MotionEvent's `eventTime`. Behind a slow frame it is earlier than `time`.
+    pub event_time: u64,
     pub pointer_type: PointerType,
 }
 

@@ -94,7 +94,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   SplineOverScroller works it out (within half a pixel of the host's); the view's offset from the
   drag's end to the glide's end going only that way and covering that distance (or stopping at the
   end it reaches), within a pixel, over at least "frames_min" frames; and its events in order:
-  scrollEndDrag, momentumScrollBegin, the glide's scrolls, momentumScrollEnd;
+  scrollEndDrag, momentumScrollBegin, the glide's scrolls, momentumScrollEnd. With "held" (a
+  `flick_hold` step: fingers coming to rest on the touchpad while it glides), the glide instead
+  stops where the resting fingers find it, as macOS stops a scroll under resting fingers: short of
+  the fling's distance, its momentumScrollEnd once, in the frame the host handled their hold's
+  begin (`hold.begin`), and no scroll after it;
+- scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
+  the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
+  Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
+  device's time of the input behind it, nor nothing;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
   rate, the compositor serving the application between them, as a touchpad scrolls a list):
   "presented_min", the fewest frames the window showed;
@@ -251,7 +259,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "press_secondary", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait"}
 
@@ -294,6 +302,10 @@ def director_args(step):
     if kind == "flick":
         # The same, then the fingers lifting: [x, y, dy, events, hz].
         return args + ["--flick", ",".join(map(str, value))]
+    if kind == "flick_hold":
+        # A flick, then two fingers resting on the touchpad that long after the lift and lifting
+        # 150 ms later: [x, y, dy, events, hz, after_ms].
+        return args + ["--flick-hold", ",".join(map(str, value))]
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
@@ -711,6 +723,25 @@ def check_glide(wanted, report, start, end, fail):
         fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get("y")
     reached_end = wanted.get("to_end", False)
+    if wanted.get("held"):
+        holds = [line for line in report if start <= line["t"] <= end and line["kind"] == "input"
+                 and line.get("event") == "hold.begin"]
+        if len(holds) != 1:
+            fail(f"the host handled {len(holds)} hold begins, expected one")
+            return
+        held = holds[0]["t"]
+        ends = [line for line in after if line["event"] == "momentumScrollEnd"]
+        if len(ends) != 1:
+            fail(f"{view} ended its momentum {len(ends)} times, expected once")
+        if after[-1]["t"] < held or after[-1]["t"] - held > 2e6:
+            fail(f"{view}'s momentum ended {(after[-1]['t'] - held) / 1e6:.1f} ms from the fingers' rest, "
+                 f"expected as the host handled it")
+        late = [line for line in after if line["event"] == "scroll" and line["t"] > held]
+        if late:
+            fail(f"{view} scrolled {len(late)} times after the fingers came to rest")
+        if abs(covered) >= abs(distance) - 1:
+            fail(f"{view} glided {covered:.1f} px of the fling's {distance:.1f}: the resting fingers did not stop it")
+        return
     if reached_end:
         if abs(covered) >= abs(distance) + 1:
             fail(f"{view} glided {covered:.1f} px, past the fling's {distance:.1f}")
@@ -1271,6 +1302,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
     if "glide" in expect:
         check_glide(expect["glide"], report, start, end, fail)
+    if expect.get("scroll_times") == "dispatch":
+        kinds = {"scroll", "scrollBeginDrag", "scrollEndDrag", "momentumScrollBegin", "momentumScrollEnd"}
+        lines = [line for line in report if start <= line["t"] <= end and line["kind"] == "deliver"
+                 and line.get("event") in kinds]
+        if not lines:
+            fail("no scroll event was delivered")
+        for line in lines:
+            stamp = line.get("timestamp")
+            if stamp is None or abs(stamp - line["t"] / 1e6) > 2:
+                fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
+                     f"{line['t'] / 1e6:.1f} ms")
+                break
     if "scrolled" in expect:
         # A paced scroll (`scroll_paced`): "presented_min", the fewest frames the window showed
         # while it scrolled.
