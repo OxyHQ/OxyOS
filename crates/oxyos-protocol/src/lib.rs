@@ -53,6 +53,8 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 128;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
+/// Media types a clipboard offer may name (ADR 0007).
+pub const MAX_CLIPBOARD_TYPES: usize = 16;
 /// Most entries (menus, commands, submenus and separators) in one window's menus (ADR 0021).
 pub const MAX_MENU_ITEMS: u32 = 256;
 /// How deep a window's menus nest: a menu of the bar is at depth 1, its entries at 2; so at most

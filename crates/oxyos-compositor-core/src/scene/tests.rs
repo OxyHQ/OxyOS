@@ -3549,6 +3549,67 @@ fn two_windows(h: &mut Harness) -> (SurfaceKey, SurfaceKey) {
 }
 
 #[test]
+fn the_session_copies_without_an_input_and_reads_what_an_application_copied() {
+    const SESSION: ClientId = 99;
+    let mut h = Harness::new();
+    let (_, _) = two_windows(&mut h);
+    assert_eq!(
+        h.scene.copy_for_session(SESSION, vec![mime(PLAIN)]),
+        Err(ErrorCode::Unauthorized),
+        "only a client of the scene owns content"
+    );
+    h.scene.connect(SESSION, Grants::default()).unwrap();
+    h.scene
+        .copy_for_session(SESSION, vec![mime("text/html"), mime(PLAIN)])
+        .unwrap();
+    h.pump();
+    // The focused application is told it, as for any copy, under the compositor's name.
+    assert_eq!(
+        clipboard_events(&h, APP),
+        [
+            Event::ClipboardTypes {
+                selection: 1,
+                count: 2
+            },
+            Event::ClipboardType {
+                selection: 1,
+                mime: mime("text/html")
+            },
+            Event::ClipboardType {
+                selection: 1,
+                mime: mime(PLAIN)
+            },
+        ]
+    );
+    let serial = type_key(&mut h);
+    assert_eq!(paste(&mut h, APP, 1, "text/html", serial), Some(SESSION));
+    assert_eq!(
+        clipboard_events(&h, SESSION).last(),
+        Some(&Event::ClipboardSend {
+            offer: 1,
+            mime: mime("text/html")
+        })
+    );
+
+    copy(&mut h, APP, 7);
+    assert_eq!(h.scene.clipboard().map(|(selection, _)| selection), Some(2));
+    assert!(
+        !h.scene.paste_for_session(mime("image/png")),
+        "a type it does not hold"
+    );
+    assert!(h.scene.paste_for_session(mime(PLAIN)));
+    assert_eq!(h.scene.take_transfer(), Some(APP));
+    h.pump();
+    assert_eq!(
+        clipboard_events(&h, APP).last(),
+        Some(&Event::ClipboardSend {
+            offer: 7,
+            mime: mime(PLAIN)
+        })
+    );
+}
+
+#[test]
 fn a_copy_reaches_the_focused_application_which_pastes_it_from_its_owner() {
     let mut h = Harness::new();
     let (_, other) = two_windows(&mut h);

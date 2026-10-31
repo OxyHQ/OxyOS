@@ -16,7 +16,7 @@ use oxyos_compositor_core::{
 use oxyos_ipc::{Connection, Credentials, Listener, SharedBuffer};
 use oxyos_protocol::{
     AuthOutcome, Clock, ErrorCode, Event, GesturePhase, PointerKind, Rect, Request, ScrollSource,
-    ServerConnection, Size,
+    ServerConnection, Size, TextChunk,
 };
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -437,6 +437,8 @@ pub struct Compositor {
     /// in `local_events` for it, not dropped.
     pub local_clients: std::collections::BTreeSet<ClientId>,
     pub local_events: Vec<(ClientId, Event)>,
+    /// Pipes of pastes a local client must answer, in the order of its ClipboardSend events.
+    pub local_pipes: VecDeque<(ClientId, OwnedFd)>,
     /// With `--gpu`: every frame is also composed on this Vulkan device and must match the CPU
     /// reference byte for byte (docs/adr/0004-gpu-composition.mdx).
     pub gpu: Option<Gpu>,
@@ -861,6 +863,7 @@ impl Compositor {
             log_input: false,
             local_clients: Default::default(),
             local_events: Vec::new(),
+            local_pipes: VecDeque::new(),
             gpu: None,
             gpu_only: false,
             direct_frames: 0,
@@ -1110,9 +1113,7 @@ impl Compositor {
                 // An allowed paste's pipe goes to the clipboard's owner with its ClipboardSend; a
                 // refused one is closed here, and the receiver reads its end at once.
                 if let Some(owner) = self.scene.take_transfer() {
-                    if let Some(peer) = self.peers.get_mut(&owner) {
-                        peer.pipes.push_back(pipe);
-                    }
+                    self.pass_pipe(owner, pipe);
                 }
                 return;
             }
@@ -1212,6 +1213,29 @@ impl Compositor {
             );
         }
         self.retire();
+    }
+
+    /// A paste's pipe, to the clipboard's owner that answers it: a peer's goes with its
+    /// ClipboardSend, a local client's is kept for the program playing it.
+    fn pass_pipe(&mut self, owner: ClientId, pipe: OwnedFd) {
+        if let Some(peer) = self.peers.get_mut(&owner) {
+            peer.pipes.push_back(pipe);
+        } else if self.local_clients.contains(&owner) {
+            self.local_pipes.push_back((owner, pipe));
+        }
+    }
+
+    /// The session reads `mime` of what the clipboard holds (Scene::paste_for_session): the read
+    /// end of the pipe its owner writes it into, or None when the clipboard has no such type.
+    pub fn read_clipboard(&mut self, mime: TextChunk) -> std::io::Result<Option<OwnedFd>> {
+        if !self.scene.paste_for_session(mime) {
+            return Ok(None);
+        }
+        let (read, write) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+        if let Some(owner) = self.scene.take_transfer() {
+            self.pass_pipe(owner, write);
+        }
+        Ok(Some(read))
     }
 
     /// Routes scene events into bounded outboxes and sends what each socket accepts now.
