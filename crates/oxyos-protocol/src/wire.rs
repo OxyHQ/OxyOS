@@ -168,10 +168,11 @@ wire_enum! {
     /// A system shortcut the compositor took from the keyboard for the shell to show (ADR 0024):
     /// the application switcher's moves (the next or the previous application; the first opens
     /// it), quitting or hiding the application it has chosen, its end with the person's choice
-    /// (Super released) or without one (Escape, the lock), and the launcher's search.
+    /// (Super released) or without one (Escape, the lock), the launcher's search, and the
+    /// keyboard moved to the top bar's menus (Super+F2, a Mac's Control-F2).
     SystemShortcut: u8 {
         SwitcherNext = 1, SwitcherPrevious = 2, SwitcherQuit = 3, SwitcherHide = 4,
-        SwitcherDone = 5, SwitcherCancel = 6, Search = 7,
+        SwitcherDone = 5, SwitcherCancel = 6, Search = 7, MenuBar = 8,
     }
 }
 wire_enum! {

@@ -3306,6 +3306,7 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_SHORTCUT_SWITCHER_CANCEL,
         ),
         ("OXYOS_SHORTCUT_SEARCH", OXYOS_SHORTCUT_SEARCH),
+        ("OXYOS_SHORTCUT_MENU_BAR", OXYOS_SHORTCUT_MENU_BAR),
         (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
@@ -3332,6 +3333,7 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_SHORTCUT_SWITCHER_CANCEL,
         ),
         (SystemShortcut::Search, OXYOS_SHORTCUT_SEARCH),
+        (SystemShortcut::MenuBar, OXYOS_SHORTCUT_MENU_BAR),
     ] {
         let event = Event::SystemShortcut {
             shortcut,

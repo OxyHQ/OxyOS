@@ -39,6 +39,9 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // (docs/adr/0026-notifications.mdx), any other a bezel.
   std::string edge{"top"};
   bool exclusive{false};
+  // Whether the region asks for the keyboard (the top bar from the keyboard, docs/adr/0024-system-
+  // shortcuts.mdx): the host asks the compositor for its surface's focus, citing the latest input.
+  bool keyboard{false};
 };
 
 using OxyOSShellSurfaceShadowNode = ConcreteViewShadowNode<OxyOSShellSurfaceComponentName, OxyOSShellSurfaceProps>;
@@ -85,6 +88,8 @@ class ShellSurfaceHost {
   std::optional<uint32_t> surfaceOf(facebook::react::Tag view) const;
   // The lock screen's surface, while a "lock" region is open.
   std::optional<uint32_t> lockSurface() const;
+  // The surface of the region asking for the keyboard (its `keyboard` prop), once it is open.
+  std::optional<uint32_t> keyboardRegion() const;
   // What a region's surface shows, for input; nullopt for any other surface.
   std::optional<SurfaceContent> content(uint32_t surface) const;
 

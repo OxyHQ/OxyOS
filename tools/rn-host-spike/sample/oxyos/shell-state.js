@@ -25,7 +25,7 @@
  * The system shortcuts (docs/adr/0024-system-shortcuts.mdx): `shortcuts` are the latest the
  * compositor took from the keyboard for the shell to show, in order, [{ id, action, output }] (a
  * rising `id` for each, as several may come before the shell draws again; action 'switcher-next' | 'switcher-previous' | 'switcher-quit' | 'switcher-hide' |
- * 'switcher-done' | 'switcher-cancel' | 'search'; output the one to show it on).
+ * 'switcher-done' | 'switcher-cancel' | 'search' | 'menu-bar'; output the one to show it on).
  * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window.
  *
  * The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx):

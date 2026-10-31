@@ -97,6 +97,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_SWITCHER_DONE 5
 #define OXYOS_SHORTCUT_SWITCHER_CANCEL 6
 #define OXYOS_SHORTCUT_SEARCH 7
+#define OXYOS_SHORTCUT_MENU_BAR 8
 /* Hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx). */
 #define OXYOS_EVENT_CONTROL_LEVEL 110
 #define OXYOS_EVENT_POWER 111
@@ -272,7 +273,8 @@ typedef struct OxyOSClient OxyOSClient;
  *               a shortcut the compositor took from the keyboard for the shell to show. detail:
  *               OXYOS_SHORTCUT_* (the application switcher's moves, quit and hide of the
  *               application it chose, its end on Super's release or its cancel; the launcher's
- *               search); code: the output to show it on; serial: a user input of the shell's,
+ *               search; the keyboard to the top bar's menus, Super+F2); code: the output to show
+ *               it on; serial: a user input of the shell's,
  *               which oxyos_client_focus_shell_surface may cite.
  *   The hardware keys and the Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx),
  *   to the session's shell when it connects and whenever they change:

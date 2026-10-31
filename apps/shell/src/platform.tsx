@@ -20,6 +20,11 @@ export type ShellSurfaceProps = {
   edge?: "top" | "bottom" | "left" | "right";
   /** Whether a panel keeps its strip of the output out of where windows are placed. */
   exclusive?: boolean;
+  /** Whether the region asks for the keyboard (the top bar driven from the keyboard): the
+      platform gives it, citing the person's latest input. */
+  keyboard?: boolean;
+  /** The keyboard, once the region had it, went elsewhere (a press in a window). */
+  onKeyboardLost?: () => void;
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 };

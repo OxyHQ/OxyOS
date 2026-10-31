@@ -116,8 +116,24 @@ void PopupHost::sync(uint64_t serial) {
   std::set<Tag> mounted;
   for (const auto& [tag, entry] : tree_.views()) {
     const auto& view = entry.view;
-    if (!view.componentName || std::strcmp(view.componentName, kPopupComponent) != 0) continue;
-    mounted.insert(tag);
+    if (view.componentName && std::strcmp(view.componentName, kPopupComponent) == 0) mounted.insert(tag);
+  }
+  // Popups gone close before new ones open: one menu replaced by another in a commit (the top
+  // bar's Right from an open menu, docs/adr/0024-system-shortcuts.mdx) opens the new one with the
+  // old one's grab already ended, as the compositor grants a grab only on top of the chain.
+  for (auto it = popups_.begin(); it != popups_.end();) {
+    if (mounted.count(it->first)) {
+      ++it;
+      continue;
+    }
+    if (!it->second.dismissed) window_.destroy(it->second.surface);
+    Report::get().popup("close", it->second.surface, nullptr);
+    accessibility_.forget(it->second.surface);
+    if (tracing()) std::cerr << "[popup] close " << it->second.surface << "\n";
+    it = popups_.erase(it);
+  }
+  for (Tag tag : mounted) {
+    const auto& view = tree_.views().at(tag).view;
     if (auto open = popups_.find(tag); open != popups_.end()) {
       // An open popup follows its anchor and its content's size: place it again when either
       // changed (an inline submenu expanding, the window laid out anew).
@@ -153,17 +169,6 @@ void PopupHost::sync(uint64_t serial) {
                 << props->anchorTag << " at " << anchor->second.origin.x << "," << anchor->second.origin.y << " "
                 << size.width << "x" << size.height << "\n";
     }
-  }
-  for (auto it = popups_.begin(); it != popups_.end();) {
-    if (mounted.count(it->first)) {
-      ++it;
-      continue;
-    }
-    if (!it->second.dismissed) window_.destroy(it->second.surface);
-    Report::get().popup("close", it->second.surface, nullptr);
-    accessibility_.forget(it->second.surface);
-    if (tracing()) std::cerr << "[popup] close " << it->second.surface << "\n";
-    it = popups_.erase(it);
   }
 }
 

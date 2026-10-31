@@ -228,6 +228,7 @@ pub const OXYOS_SHORTCUT_SWITCHER_HIDE: u32 = 4;
 pub const OXYOS_SHORTCUT_SWITCHER_DONE: u32 = 5;
 pub const OXYOS_SHORTCUT_SWITCHER_CANCEL: u32 = 6;
 pub const OXYOS_SHORTCUT_SEARCH: u32 = 7;
+pub const OXYOS_SHORTCUT_MENU_BAR: u32 = 8;
 
 /// Notifications (docs/adr/0026-notifications.mdx). To the application that posted one: what came
 /// of it (code: the session's number for it, 0 unless posted; detail: OXYOS_NOTIFICATION_POSTED,

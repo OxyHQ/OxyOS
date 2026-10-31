@@ -200,6 +200,13 @@ impl Scene {
             Request::FocusWindow { window: number } => {
                 if let Some(key) = window(self, number) {
                     self.show_window(key);
+                    // With a menu of the shell's open (the top bar's row chosen from the keyboard,
+                    // ADR 0024), the window takes the keyboard as the menu closes, not the bar.
+                    if self.grab.first().is_some_and(|menu| menu.client == client)
+                        && self.focusable(key)
+                    {
+                        self.focus_before_grab = Some(self.focus_target(key));
+                    }
                 }
             }
             Request::CloseWindow { window: number } => {

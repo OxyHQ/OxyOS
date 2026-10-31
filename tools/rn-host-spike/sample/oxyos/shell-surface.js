@@ -8,7 +8,7 @@
  * beneath it, which the compositor fades and never scales (docs/adr/0011-transitions.mdx).
  */
 import * as React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { DeviceEventEmitter, StyleSheet, View } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { oxyosSurfaces } from './platform-surface';
 
@@ -18,13 +18,30 @@ const OxyOSShellSurface = NativeComponentRegistry.get('OxyOSShellSurface', () =>
     kind: true,
     edge: true,
     exclusive: true,
+    keyboard: true,
   },
 }));
 
-function Surface({ kind, edge, exclusive, style, children }) {
+// A region asking for the keyboard (`keyboard`) is given it by the host, citing the latest input;
+// once it had it, `onKeyboardLost` hears that it went elsewhere (OxyOSShellKeyboardLost).
+function Surface({ kind, edge, exclusive, keyboard, onKeyboardLost, style, children }) {
+  const lost = React.useRef(onKeyboardLost);
+  lost.current = onKeyboardLost;
+  React.useEffect(() => {
+    if (!keyboard) return undefined;
+    const subscription = DeviceEventEmitter.addListener('OxyOSShellKeyboardLost', () => lost.current?.());
+    return () => subscription.remove();
+  }, [keyboard]);
   return (
     // Never flattened away: the host finds the region by its view.
-    <OxyOSShellSurface kind={kind} edge={edge ?? 'top'} exclusive={!!exclusive} style={style} collapsable={false}>
+    <OxyOSShellSurface
+      kind={kind}
+      edge={edge ?? 'top'}
+      exclusive={!!exclusive}
+      keyboard={!!keyboard}
+      style={style}
+      collapsable={false}
+    >
       {children}
     </OxyOSShellSurface>
   );

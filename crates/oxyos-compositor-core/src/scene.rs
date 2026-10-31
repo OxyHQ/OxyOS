@@ -2481,6 +2481,7 @@ impl Scene {
         };
         let children = node.children.clone();
         let parent = node.parent;
+        let popup = node.is_popup();
         for child in children {
             if self.nodes.get(&child).is_some_and(|n| !n.dismissed) {
                 self.dismiss(child, DismissReason::ParentGone);
@@ -2534,8 +2535,18 @@ impl Scene {
         if self.focus_before_grab == Some(key) {
             self.focus_before_grab = None;
         }
-        if self.last_press.is_some_and(|press| press.surface == key) {
-            self.last_press = None;
+        // An input in a popup that closes is its parent's input from then on: the surface the menu
+        // belonged to, so what the person opens next with it (the top bar's next menu from an open
+        // one, ADR 0024) may cite it. Any other surface's input goes with it.
+        if let Some(press) = self
+            .last_press
+            .as_mut()
+            .filter(|press| press.surface == key)
+        {
+            match parent.filter(|parent| popup && self.nodes.contains_key(parent)) {
+                Some(parent) => press.surface = parent,
+                None => self.last_press = None,
+            }
         }
     }
 
