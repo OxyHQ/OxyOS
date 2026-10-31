@@ -20,6 +20,9 @@ pub const MAX_PENDING_KEYS: usize = 64;
 #[derive(Debug)]
 struct PendingKey {
     serial: u64,
+    /// When it happened (`Scene::set_input_time`): the time it reaches the surface with, however
+    /// long the input method held it.
+    time_ns: u64,
     key: u32,
     pressed: bool,
     /// What the layout types with it.
@@ -275,9 +278,11 @@ impl Scene {
         if pressed {
             self.last_user_serial = serial;
         }
+        let time_ns = self.input_time_ns;
         let im = self.input_method.as_mut().expect("served");
         im.keys.push_back(PendingKey {
             serial,
+            time_ns,
             key,
             pressed,
             text: text.map(str::to_string),
@@ -295,6 +300,7 @@ impl Scene {
                 key,
                 pressed,
                 text: typed,
+                time_ns,
             },
         );
         if overflow {
@@ -326,9 +332,14 @@ impl Scene {
     fn deliver_key(&mut self, pending: PendingKey) {
         let typed = pending.text.as_deref();
         let left = match self.focus.filter(|f| self.visible(*f)) {
-            Some(target) => {
-                self.emit_key(target, pending.serial, pending.key, pending.pressed, typed)
-            }
+            Some(target) => self.emit_key(
+                target,
+                pending.serial,
+                pending.key,
+                pending.pressed,
+                typed,
+                pending.time_ns,
+            ),
             None => typed,
         };
         if let Some(text) = left.map(str::to_string) {

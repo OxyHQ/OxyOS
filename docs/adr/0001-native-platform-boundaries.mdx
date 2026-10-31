@@ -6,7 +6,7 @@ order: 10
 
 # ADR 0001: Native platform boundaries, surface roles and popup policy
 
-Status: accepted for protocol version 2 (experimental wire format). Issues: [#32](https://github.com/OxyHQ/OxyOS/issues/32) (protocol/compositor), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups), with constraints from [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime) and [#35](https://github.com/OxyHQ/OxyOS/issues/35) (account/session). Parent index: [#30](https://github.com/OxyHQ/OxyOS/issues/30).
+Status: accepted for protocol version 3 (experimental wire format; version 3 gave every input event its device's time). Issues: [#32](https://github.com/OxyHQ/OxyOS/issues/32) (protocol/compositor), [#34](https://github.com/OxyHQ/OxyOS/issues/34) (popups), with constraints from [#33](https://github.com/OxyHQ/OxyOS/issues/33) (runtime) and [#35](https://github.com/OxyHQ/OxyOS/issues/35) (account/session). Parent index: [#30](https://github.com/OxyHQ/OxyOS/issues/30).
 
 This records decisions that the code in `crates/oxyos-protocol` and `crates/oxyos-compositor-core` implements and tests headlessly. It does not claim a hardware path, a native Bloom host or a login: those gates are open (see [Status](#status)).
 
@@ -75,6 +75,7 @@ Scrolling a too-tall resized menu is the client's content concern. A popup never
 - Keyboard focus belongs to one surface. Activating a window focuses its topmost modal dialog if one is mapped, otherwise the window. A press on a window behind its modal dialog is consumed.
 - Focus-stealing prevention: a newly mapped window or dialog takes focus only if no user press, key or touch-down has gone to another client since its client connected or last received user input. Otherwise it maps behind the focused window without focus.
 - Pointer focus follows hit testing over ready content and input regions. A press captures the pointer until all buttons are released.
+- Every input event carries when its device registered it (`time_ns`, CLOCK_MONOTONIC, libinput's time), as Wayland's carry `time`: an application times input (a double press, a long press, a fling's speed) by it, never by when it got round to the event.
 - Every pointer, key and touch event has a compositor serial. `GrabPopup` is authorized only by the serial of the latest press (button, key or touch-down) delivered to the same connection on the popup's parent chain, while no newer press exists. A consumed press (outside a grab, on nothing, or behind a modal dialog) is a newer press for every client, so it invalidates earlier serials. Nested grabs must parent on the current top of the grab chain. Denied grabs receive `PopupDone(GrabDenied)`.
 - During a grab, keyboard focus is the top popup. The button capture moves to the grab, so press-drag-release selection works. Pointer input over the chain is delivered even where it covers another application; other surfaces receive nothing.
 - **Outside press policy:** a press or touch-down outside the chain dismisses the whole chain (`PopupDone(OutsidePress)`) and is consumed, together with the releases of every button still held. It is never delivered to the surface underneath, does not activate it and does not reach the trigger, so it can neither click through nor reopen the menu.

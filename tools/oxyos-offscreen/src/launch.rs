@@ -1178,6 +1178,13 @@ fn monotonic_ns() -> i64 {
     now.tv_sec * 1_000_000_000 + now.tv_nsec
 }
 
+/// A paced input's time: `due` after `origin` (CLOCK_MONOTONIC ns), the time it is scheduled for,
+/// which its events carry as their device's time (`Scene::set_input_time`) whenever the
+/// compositor got to them.
+fn paced_time(origin: i64, due: Duration) -> u64 {
+    u64::try_from(origin).unwrap_or(0) + u64::try_from(due.as_nanos()).unwrap_or(u64::MAX)
+}
+
 /// When a step's answer first appeared, when it settled, and the window then.
 struct Settled {
     window: Rect,
@@ -2050,6 +2057,11 @@ fn drag_paced(
             }
         }
     };
+    let origin = monotonic_ns() - i64::try_from(start.elapsed().as_nanos()).unwrap_or(0);
+    session
+        .compositor
+        .scene
+        .set_input_time(paced_time(origin, start.elapsed()));
     session.compositor.scene.pointer_motion(from.0, from.1);
     session.compositor.scene.pointer_button(BUTTON, true);
     let interval = Duration::from_secs(1) / hz;
@@ -2070,6 +2082,10 @@ fn drag_paced(
         session
             .compositor
             .scene
+            .set_input_time(paced_time(origin, due));
+        session
+            .compositor
+            .scene
             .pointer_motion(at(from.0, to.0), at(from.1, to.1));
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
@@ -2081,6 +2097,10 @@ fn drag_paced(
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
     }
+    session
+        .compositor
+        .scene
+        .set_input_time(paced_time(origin, due));
     session.compositor.scene.pointer_button(BUTTON, false);
     let deadline = start.elapsed() + Duration::from_secs(5);
     loop {
@@ -2197,6 +2217,7 @@ fn scroll_paced(
         .scene
         .pointer_motion(window.x + at.0, window.y + at.1);
     let start = Instant::now();
+    let origin = monotonic_ns();
     let interval = Duration::from_secs(1) / hz;
     let mut last = sequence(&session.compositor);
     let mut shown: Vec<Duration> = Vec::new();
@@ -2220,6 +2241,10 @@ fn scroll_paced(
         }
         let step = total * i / i64::from(events) - total * (i - 1) / i64::from(events);
         scrolled.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
         session.compositor.scene.pointer_scroll(0, step as i32);
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
@@ -2279,6 +2304,7 @@ fn move_paced(
         .scene
         .pointer_motion(window.x + from.0, window.y + from.1);
     let start = Instant::now();
+    let origin = monotonic_ns();
     let interval = Duration::from_secs(1) / hz;
     let mut last = sequence(&session.compositor);
     let mut shown: Vec<Duration> = Vec::new();
@@ -2302,6 +2328,10 @@ fn move_paced(
         let x = i64::from(from.0) + dx * i / i64::from(motions);
         let y = i64::from(from.1) + dy * i / i64::from(motions);
         moved.push(start.elapsed());
+        session
+            .compositor
+            .scene
+            .set_input_time(paced_time(origin, due));
         session
             .compositor
             .scene
@@ -2939,6 +2969,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.reader.absorb(&mut session.compositor);
         session.reader.take_announcements();
         let injected_ns = monotonic_ns();
+        // A step's input happened when it is injected; a paced step's each when it is due.
+        session
+            .compositor
+            .scene
+            .set_input_time(u64::try_from(injected_ns).unwrap_or(0));
         let mut dragged = None;
         let mut scrolled = None;
         let mut moved = None;

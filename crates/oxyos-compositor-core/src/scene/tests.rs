@@ -3732,6 +3732,7 @@ fn keys_go_to_the_input_method_first_and_those_it_gives_back_arrive_in_order() {
             key: KEY_A,
             pressed: true,
             text: PreeditText::new("a").unwrap(),
+            time_ns: 0,
         }]
     );
     h.scene.keyboard(KEY_B, true, Some("b"));
@@ -7248,4 +7249,83 @@ fn a_key_the_input_method_gives_back_carries_its_text_with_key_text() {
         ),
         "the key with its text, and no transaction committing it again: {delivered:?}"
     );
+}
+
+#[test]
+fn input_events_carry_when_their_device_registered_them() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    // Every input event carries its device's time, however late it is read.
+    h.scene.set_input_time(1_000_000_000);
+    let at = h.rect(window);
+    h.scene.pointer_motion(at.x + 10, at.y + 10);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.set_input_time(1_300_000_000);
+    h.scene.pointer_button(BUTTON, false);
+    h.scene.pointer_scroll(0, 256);
+    h.scene.set_input_time(1_400_000_000);
+    h.scene.key(KEY_A, true);
+    let times: Vec<(&str, u64)> = to(&logged(&mut h), APP)
+        .iter()
+        .filter_map(|event| match event {
+            Event::Pointer {
+                kind: PointerKind::Press,
+                time_ns,
+                ..
+            } => Some(("press", *time_ns)),
+            Event::Pointer {
+                kind: PointerKind::Release,
+                time_ns,
+                ..
+            } => Some(("release", *time_ns)),
+            Event::Scroll { time_ns, .. } => Some(("scroll", *time_ns)),
+            Event::Key { time_ns, .. } => Some(("key", *time_ns)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        times,
+        [
+            ("press", 1_000_000_000),
+            ("release", 1_300_000_000),
+            ("scroll", 1_300_000_000),
+            ("key", 1_400_000_000)
+        ]
+    );
+}
+
+#[test]
+fn a_key_the_input_method_gives_back_keeps_its_own_time() {
+    let (mut h, _) = served("");
+    h.scene.set_input_time(2_000_000_000);
+    h.scene.keyboard(KEY_A, true, Some("a"));
+    let events = logged(&mut h);
+    let a = held(&events);
+    assert!(matches!(
+        to(&events, IME).as_slice(),
+        [Event::InputMethodKey {
+            time_ns: 2_000_000_000,
+            ..
+        }]
+    ));
+    // Answered after a later key: it reaches the application with its own time.
+    h.scene.set_input_time(2_500_000_000);
+    h.request(
+        IME,
+        Request::InputMethodKeyHandled {
+            serial: a,
+            used: false,
+        },
+    )
+    .unwrap();
+    let keys: Vec<u64> = to(&logged(&mut h), APP)
+        .iter()
+        .filter_map(|event| match event {
+            Event::Key { time_ns, .. } => Some(*time_ns),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(keys, [2_000_000_000]);
 }

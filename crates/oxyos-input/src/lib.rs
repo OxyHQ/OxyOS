@@ -4,10 +4,10 @@
 //! (docs/native-foundation.mdx).
 
 use input::event::gesture::{
-    GestureEndEvent, GestureEvent, GesturePinchEvent, GesturePinchEventTrait,
+    GestureEndEvent, GestureEvent, GestureEventTrait, GesturePinchEvent, GesturePinchEventTrait,
 };
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
-use input::event::pointer::{Axis, ButtonState, PointerScrollEvent};
+use input::event::pointer::{Axis, ButtonState, PointerEventTrait, PointerScrollEvent};
 use input::event::{KeyboardEvent, PointerEvent};
 use input::{Libinput, LibinputInterface};
 use std::ffi::{OsStr, OsString};
@@ -68,6 +68,14 @@ pub enum Action {
         scale: f64,
         rotation: f64,
     },
+}
+
+/// An action, and when its device registered it: on CLOCK_MONOTONIC, in nanoseconds
+/// (libinput's time, the kernel's evdev timestamp). The actions one event makes share its time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Timed {
+    pub time_ns: u64,
+    pub action: Action,
 }
 
 /// Where a touchpad gesture is.
@@ -570,15 +578,22 @@ impl Input {
             .map_err(|()| io::Error::other("libinput cannot resume"))
     }
 
-    /// What has happened since the last call; never blocks.
-    pub fn dispatch(&mut self) -> io::Result<Vec<Action>> {
+    /// What has happened since the last call, each with when it happened; never blocks.
+    pub fn dispatch(&mut self) -> io::Result<Vec<Timed>> {
         match self.libinput.dispatch() {
             // A signal interrupted libinput's wait for its devices: what it has is still read.
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             result => result?,
         }
-        let mut actions = Vec::new();
+        let mut timed = Vec::new();
         while let Some(event) = self.libinput.next() {
+            let time_usec = match &event {
+                input::Event::Pointer(pointer) => pointer.time_usec(),
+                input::Event::Gesture(gesture) => gesture.time_usec(),
+                input::Event::Keyboard(keyboard) => keyboard.time_usec(),
+                _ => 0,
+            };
+            let mut actions = Vec::new();
             match event {
                 input::Event::Pointer(PointerEvent::Motion(motion)) => {
                     self.move_to(self.pointer.0 + motion.dx(), self.pointer.1 + motion.dy());
@@ -646,8 +661,12 @@ impl Input {
                 }
                 _ => {}
             }
+            timed.extend(actions.into_iter().map(|action| Timed {
+                time_ns: time_usec.saturating_mul(1000),
+                action,
+            }));
         }
-        Ok(actions)
+        Ok(timed)
     }
 
     /// A pinch step: its rotation is the sum of the turns libinput reported since it began.
