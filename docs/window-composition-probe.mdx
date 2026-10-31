@@ -1,0 +1,51 @@
+---
+title: Native window composition checks
+description: Run Bloom's compact navigation and window controls together on the native offscreen host.
+---
+
+# Native window composition checks
+
+`CompactWindowProbe` renders actual Bloom through two public compositions: a
+bounded `AppShell.panelLayout` with a route `Screen`, and the adaptive AppShell
+with its own screen. Both use an `sm` docked sidebar in a 900 × 600 native window.
+The descriptor case sets `contentMaxWidth="none"`; a third scenario repeats it in
+a 400 × 600 window. Both panel scenarios also measure the body before and after
+collapsing navigation, so a panel stuck at its initial width fails.
+
+The scenarios measure the title through Fabric's `measureInWindow` and require
+it to clear the host's 88-point leading window-controls room. They expand the
+sidebar with a pointer press at `(22, 62)`, below the 52-point top band, then
+collapse it and measure again. The pointer step is deliberate: invoking the
+collapse button through accessibility can pass even when it is painted beneath
+the window's Close control.
+
+The `sm` docked sidebar changes from 232 to 45 points, releasing 187 points.
+After measuring the expanded state, the panel must recover at least 160 points
+on collapse (over 85% of that space). This allows small inset/rounding changes
+while detecting the previous zero-point recovery. The scenarios then resize
+the actual window 100 points wider and require at least 80 additional points
+of body width. Each toggle clears the measurements, and callbacks from an
+earlier phase are ignored. These checks establish actual width recovery and
+header clearance; they do not isolate the
+header's residual-inset calculation from its ordinary padding.
+
+Build a runtime and its probe package against the Bloom checkout under test,
+using `tools/rn-host-spike/build.sh RN_PACKAGE WORK_DIR BLOOM_CHECKOUT`. Keep
+`WORK_DIR` outside `/tmp`. Then run each scenario with those same artifacts:
+
+```bash
+python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/compact-panel-window.json --offscreen target/release/oxyos-offscreen --runtimes WORK_DIR/runtimes --packages WORK_DIR/packages --out WORK_DIR/compact-panel-window
+python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/compact-adaptive-window.json --offscreen target/release/oxyos-offscreen --runtimes WORK_DIR/runtimes --packages WORK_DIR/packages --out WORK_DIR/compact-adaptive-window
+python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/compact-panel-window-narrow.json --offscreen target/release/oxyos-offscreen --runtimes WORK_DIR/runtimes --packages WORK_DIR/packages --out WORK_DIR/compact-panel-window-narrow
+```
+
+Also run `scenarios/windows.json` with the same arguments for the existing
+SettingsLayout move, zoom, resize and minimize checks. The compact scenarios
+require Bloom's engine window-corner ownership fix (Bloom PR #556) and its
+native reading-width fix. A build with only the corner fix must fail the
+width-recovery and resize assertions in both panel scenarios.
+
+This is native CPU offscreen evidence: real Hermes, Fabric, Yoga, Bloom and the
+OxyOS display protocol, with scripted input. It does not establish physical
+display timing, DRM/KMS or device behavior. Preserve the Bloom revision and any
+patch hashes beside the captures and `host-report.jsonl` from the tested build.
