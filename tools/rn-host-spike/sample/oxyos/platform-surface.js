@@ -7,7 +7,9 @@
  * `PopupSurface` renders the `OxyOSPopupView` host component. Its subtree stays in this React tree;
  * the native host draws it in a popup surface of its own, placed by the compositor from the
  * anchor's frame and Bloom's placement (side, align, offsets). The compositor's dismissal comes
- * back as `onDismiss`.
+ * back as `onDismiss`. A popup anchored inside another (a submenu beside its row) is that popup's
+ * child. It reports `pointer` everywhere, the shell included: Bloom's controls take a desktop's
+ * geometry and its menus a desktop's presentation (submenus flying out beside their rows).
  *
  * An application's window also has the `menu-bar` capability (docs/adr/0021-menu-bar.mdx): Bloom
  * gives `menuBar.setMenus` its menus whenever they change and the session's shell shows them in its
@@ -316,6 +318,9 @@ export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
     'popup-surface',
+    // OxyOS is a desktop a pointer drives, the shell's bar and dock as much as a window: Bloom's
+    // controls take a desktop's geometry and its menus a desktop's presentation everywhere.
+    'pointer',
     ...(window ? ['window'] : []),
     ...(menuBar ? ['menu-bar'] : []),
     ...(appearance ? ['appearance'] : []),

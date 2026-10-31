@@ -1300,7 +1300,11 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_FOCUS) {
                 if (event.flag) {
                   keyboardSurface = event.surface;
-                } else if (keyboardSurface == event.surface) {
+                } else if (keyboardSurface == event.surface && !popups.closedByApplication(event.surface)) {
+                  // A popup this client closed itself (a menu replaced by the next one, the top
+                  // bar's Right) keeps the keyboard as far as this client knows until the
+                  // compositor gives it to the surface next in line: never, between the two, to
+                  // nothing, which would read as the keyboard gone elsewhere.
                   keyboardSurface = 0;
                 }
               }
