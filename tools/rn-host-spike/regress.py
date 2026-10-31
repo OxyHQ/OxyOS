@@ -152,6 +152,10 @@ through it (it gives the keys back), `compose_keys` steps have it compose them (
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
 before.
 
+A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
+before its steps begin (750 by default): a browser shows its window before its interface draws in
+it, for longer than that on a loaded machine.
+
 A scenario with `client` (a list of arguments) runs a native OxyOS client that is not a Bloom
 application instead of the host: the program `--client` names, with those arguments, `{out}`,
 `{scenarios}`, `{width}` and `{height}` in them replaced by the run's directory, the scenarios'
@@ -1806,6 +1810,10 @@ def main():
         command += ["--uinput"]
     if options.seat:
         command += ["--seat"]
+    if "launch_settle_ms" in scenario:
+        # How long the application's first frames must stay unchanged before the steps begin: a
+        # browser shows its window before its interface draws in it (ADR 0029).
+        command += ["--launch-settle", str(scenario["launch_settle_ms"])]
     if options.uinput or "layout" in scenario:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys. It
         # is also the layout the session tells applications (ADR 0029).

@@ -4,6 +4,7 @@
     1000,
     400
   ],
+  "launch_settle_ms": 3000,
   "outputs": "1280x720,1920x1200@1.5:120",
   "client": [
     "--ozone-platform=oxyos",
