@@ -1651,7 +1651,6 @@ dependencies = [
  "oxyos-paint",
  "oxyos-protocol",
  "oxyos-solar",
- "oxyos-vector",
  "ring",
  "rustix",
  "serde_json",
@@ -1915,8 +1914,9 @@ name = "oxyos-paint"
 version = "0.1.0"
 dependencies = [
  "ash",
- "naga",
  "oxyos-client",
+ "oxyos-dmabuf",
+ "oxyos-ipc",
  "oxyos-protocol",
  "rustix",
 ]
