@@ -1,0 +1,152 @@
+---
+title: "ADR 0035: Drag and drop between applications"
+description: How a file, a link, an image or text is dragged from one application and dropped in another, as on a Mac — the source offers types and actions, the compositor owns the drag (the pointer, the drag's image, the targets it passes over, the action, Escape), and the content moves only after the drop, through a pipe, to the one target that accepted it. Bloom's DropZone and the platform's drag are how Bloom and Expo applications use it; the dock's Trash, Stash and Astro are its first sources and targets.
+order: 44
+---
+
+# ADR 0035: Drag and drop between applications
+
+Status: **accepted**. Builds on [ADR 0001](./0001-native-platform-boundaries) (serials, grabs, isolation between clients), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0007](./0007-clipboard) (offers, types and pipes; a request that cites the user's input), [ADR 0028](./0028-file-access) (files as `file://` URIs, the Trash), [ADR 0029](./0029-chromium-on-oxyos) (Astro; decision 7 left drag and drop between applications to the protocol), [ADR 0033](./0033-protocol-versions) (versions only add) and [ADR 0034](./0034-the-dock) (the dock's Trash).
+
+## Problem
+
+Nothing can be dragged from one OxyOS application to another. A file dragged out of Stash stops at its window's edge; the dock's Trash cannot take a file dropped on it (ADR 0034 left it out for want of a protocol); a link or an image dragged in Astro drops only inside Astro's own window (OxyHQ/Astro#82), fed by the pointer the press keeps, and a release outside it drops nothing. On a Mac every application is a source and a target, and Finder, the Dock's Trash and Safari meet through one drag.
+
+A drag is a protocol matter, not an application's:
+- the source and the target are two processes, and neither may see where the other's windows are (ADR 0001);
+- the pointer, while a drag goes on, is no single application's: it passes over windows of others, which must learn of the drag without learning of the pointer's every move elsewhere;
+- what is dragged may be large (an image, hundreds of files) and must reach only the application the person dropped it on, never an application the pointer merely crossed;
+- a drag is a classic leak and a classic attack, as the clipboard is: an application reading what is dragged over it without a drop, or starting a drag itself to push content into another application without the person.
+
+## What others do
+
+- **Wayland's data device** (`wl_data_device`, `wl_data_source`, `wl_data_offer`, version 3 with actions): the source offers media types and actions (copy, move, ask) and starts the drag with the serial of a press still held, with a surface of its own as the drag's icon. The compositor owns the drag: it sends the surface under the pointer `enter` (with a new offer and its types), `motion` and `leave`, and the target answers with the type it would take (`accept`) and the actions it supports and prefers (`set_actions`). The compositor chooses the action (the target's preferred one, or one the person forces with a modifier) and tells both sides. On release over a target that accepted, the target is sent `drop`, receives the types it wants through pipes (`receive`, the source writing each one) and says it is done (`finish`); the source learns `dnd_drop_performed`, then `dnd_finished`, and deletes its original after a move. Otherwise the source learns `cancelled`.
+- **macOS** (`NSDraggingSession`, `NSDraggingSource`, `NSDraggingDestination`): a view begins a session from a mouse-dragged event, with pasteboard items and an image per item; the source says which operations it allows (copy, link, generic, move, delete) per context (inside the application, outside it). A destination registers the types it takes (`registerForDraggedTypes`) and answers `draggingEntered` and `draggingUpdated` with the operation it would perform; it reads the pasteboard only in `performDragOperation`. Option forces a copy, Command a move, both a link (an alias). Escape cancels, and the image slides back to where it came from. Finder, the target, moves or copies the files itself; the source deletes nothing.
+- **The web** (HTML5 drag and drop): a draggable element's `dragstart` fills `DataTransfer` with types and data; `dragenter`, `dragover`, `dragleave` and `drop` go to the element under the pointer, which calls `preventDefault()` to accept and sets `dropEffect`. During the drag the store is in *protected mode*: a page sees the types (`Files`, `text/uri-list`) and not the data, which it reads only in `drop`. `effectAllowed` and `dropEffect` are copy, move, link.
+
+All three agree on what matters here: types and actions are known during the drag, content only at the drop, and only to the target the person chose.
+
+## Decision
+
+1. **The source offers types and actions; content moves only after a drop, to the target that accepted it, through a pipe.** As the clipboard does (ADR 0007, decisions 1 and 3), a drag carries no content. The source names its offer by a number of its own (`drag`), each media type it can produce, most faithful first (`DragType`, at most 16), and the actions it allows (`DragActions`: copy, move, link, any of them), and starts the drag (`StartDrag`). After a drop, the target asks for the types it wants (`ReceiveDrop`, carrying a pipe's write end); the compositor passes each pipe to the source (`DragSend`), which writes that type and closes it. The content never passes through the compositor.
+
+2. **Only a press the person is holding starts a drag.** `StartDrag` cites `serial`, the serial of a pointer press delivered to the source, as `BeginMove` does (ADR 0001): the latest press, on the window (or a popup of it) whose surface the drag starts from, with a button still held, while no popup grab is open, nothing is moving or resizing and the session is not locked. Anything else is refused: the source is told `DragCancelled { reason: Refused }` and nothing else happens. An application cannot start a drag by itself, nor from a press the person already released, nor while the person is in another application. A touch drag is not in this decision (see the end).
+
+3. **The compositor owns the drag.** From an accepted `StartDrag` until the drag ends:
+   - **The pointer is the drag's.** The press that began it is cancelled for the source (`Pointer Cancel`, then `Leave`), so it never becomes a click; no surface receives pointer events (presses, motion, scrolls, pinches, resting fingers) until the drag ends. Other buttons pressed meanwhile are consumed with their releases.
+   - **The drag's image** is a surface of the source's, of the role `DragIcon` (`CreateDragIcon { surface, size, hotspot }`): the compositor configures it at the scale of the output under the pointer, shows it above every window (beneath the lock, which ends the drag anyway), with its hotspot at the pointer, moving with it, and never gives it input; it is hit by nothing, so the target under it is what is under the pointer. `StartDrag` names it (0 for none); it is shown only while that drag goes on, and the source destroys it once the drag ends. A drag icon not named by a drag is never shown.
+   - **The pointer's shape** is the arrow throughout, a Mac's (the copy and link badges wait for cursor images: the scheme has none).
+   - **The keyboard** goes on reaching the focused surface, except Escape, which cancels the drag (decision 7); the press and its release reach nobody. The modifiers held choose the action (decision 5).
+
+4. **What a target sees: the drag over it, the types, never the content.** The surface under the pointer, of a client of version 10 or newer, is the drag's target, and only it learns of the drag:
+   - `DragEnter { surface, offer, serial, x, y, actions, types, modifiers }`, followed by its `types` media types (`DragOfferType`), when the pointer enters it during a drag (or the drag starts over it). `offer` is the compositor's name for this drag, never the source's number, so a target cannot tell which application or offer it is; `actions` are the source's; `x`, `y` are surface-local, as a `Pointer`'s; `serial` names this entering.
+   - `DragMotion { surface, offer, x, y, time_ns, modifiers }` as the pointer moves over it.
+   - `DragLeave { surface, offer }` when the pointer leaves it, the drag ends without dropping on it, or the source goes.
+   
+   A surface the pointer never enters during the drag learns nothing of it: no other window, no other client, receives a drag event. A client of an older version is never sent one, and its surfaces are no target: a drag over them can drop nothing. The source, when its own surface is under the pointer, is that surface's target like any other: a drag inside one window goes the same way as between two.
+
+5. **The action is negotiated, as Wayland's and a Mac's are.** The target answers each entering and motion with what it would do: `AcceptDrag { offer, serial, mime, actions, preferred }`, citing the entering's `serial` (an answer to an older entering is ignored), the one offered type it would take (empty: none) and the actions it supports and prefers. The compositor chooses the action from the source's actions (S), the target's (T) and the modifiers held, as a Mac does:
+   - **Option and Command (Alt and Super) together force a link, Option alone a copy, Command alone a move.** The forced action, if both allow it; none if either does not (the drop is refused, so the person sees that it is).
+   - **Otherwise the target's preferred action**, if both allow it; else the first both allow of copy, move, link.
+   - **None** while the target has accepted no type.
+   
+   The target is told the action (`DragAction { offer, action }`) and the source too (`DragSourceAction { drag, action }`), each time it changes; none means a release here drops nothing. A target that wants its action to depend on where in it the pointer is answers again on each motion.
+
+6. **A drop, then the transfer, then the end.** When the person releases the last button:
+   - **Over a target whose action is not none**, the target is sent `DragDrop { surface, offer, serial, x, y, action }` and the source `DragDropped { drag, action }`. The drop's `serial` is a user input of the target's (one of its latest 16, as a press is): a request that must cite one (`ReceiveDrop` needs none, but the dock's `TrashFiles` does) can cite it.
+   - **The target receives** each offered type it wants once (`ReceiveDrop { offer, mime }`, with its pipe), and says it is done (`FinishDrop { offer }`); the source is told `DragFinished { drag, action }`. Only the client that was dropped on, for that offer, for a type offered and not yet received, before it finished, is answered; anything else is refused without a protocol error (as a refused paste, ADR 0007 decision 4), its pipe closed so its read ends at once, empty.
+   - **A move of data** (text dragged out of a field, a card out of a board) is deleted by the source once it is told `DragFinished` with move. **A move of files** (`text/uri-list` of `file://` URIs) is the target's to perform, as Finder and every Linux file manager do: the target moves the files; the source deletes nothing and finds them gone.
+   - The compositor keeps a drop open until the target finishes, the target or the source goes, or eight later drops push it out (the source is then told `DragCancelled { reason: Abandoned }`). It is not the drag: another drag may begin meanwhile.
+
+7. **Cancelling.** The drag ends without a drop, nothing transferred, and the source told `DragCancelled { drag, reason }` (its target, if any, `DragLeave`), when:
+   - the person presses **Escape** (`Escape`);
+   - the last button is released over no target, or over one whose action is none (`NotAccepted`);
+   - the source cancels it (`CancelDrag { drag }`, `Cancelled`), or destroys the surface it began from;
+   - the session locks (`Locked`);
+   - it was refused at its start (`Refused`).
+   
+   If the source disconnects, its drag and its drops end and their targets are told `DragLeave` (a drop already made just has its receives refused). Every drag ends in exactly one of `DragFinished` or `DragCancelled`, after at most one `DragDropped`. The image's slide back to where the drag began, a Mac's, is not in this decision.
+
+8. **Protocol version 10** (ADR 0033), added only. A target is sent drag events unasked, so never a client of version 9 or older; the client library refuses the requests to a compositor of version 9 or older, and an application there drags only within itself, as before.
+
+   | Direction | Opcode | Message |
+   | --- | --- | --- |
+   | Request | 240 | `CreateDragIcon { surface, size, hotspot_x, hotspot_y }` |
+   | Request | 241 | `DragType { drag, mime }` |
+   | Request | 242 | `StartDrag { drag, surface, icon, serial, actions }` |
+   | Request | 243 | `CancelDrag { drag }` |
+   | Request | 244 | `AcceptDrag { offer, serial, mime, actions, preferred }` |
+   | Request | 245 | `ReceiveDrop { offer, mime }`, carrying the pipe's write end |
+   | Request | 246 | `FinishDrop { offer }` |
+   | Request | 247 | `TrashFiles { input, index, last, text }` (shell, decision 11) |
+   | Event | 240 | `DragEnter { surface, offer, serial, x, y, actions, types, modifiers }` |
+   | Event | 241 | `DragOfferType { offer, mime }` |
+   | Event | 242 | `DragMotion { surface, offer, x, y, time_ns, modifiers }` |
+   | Event | 243 | `DragLeave { surface, offer }` |
+   | Event | 244 | `DragAction { offer, action }` |
+   | Event | 245 | `DragDrop { surface, offer, serial, x, y, action }` |
+   | Event | 246 | `DragSourceAction { drag, action }` |
+   | Event | 247 | `DragDropped { drag, action }` |
+   | Event | 248 | `DragFinished { drag, action }` |
+   | Event | 249 | `DragCancelled { drag, reason }` |
+   | Event | 250 | `DragSend { drag, mime }`, carrying the pipe |
+
+   `DragActions` is a set of bits (copy 1, move 2, link 4); `DragCancelReason` is `Refused`, `Escape`, `NotAccepted`, `Cancelled`, `Locked`, `Abandoned`. `ReceiveDrop` and `DragSend` carry a descriptor, as `ClipboardReceive` and `ClipboardSend` do, checked the same way by `oxyos-ipc`.
+
+9. **The client library and the C ABI.** `oxyos-client` holds what its client drags (`Client::start_drag`, each type's bytes) and writes each `DragSend` itself from a thread of its own, as it answers pastes (ADR 0007); a pipe for a drag it does not hold stays the program's. The C ABI gains:
+   - `oxyos_client_create_drag_icon`, drawn with `oxyos_client_present` as any surface;
+   - `oxyos_client_start_drag (surface, icon, serial, actions, entries, count)`, returning the drag's number, and `oxyos_client_cancel_drag`;
+   - `oxyos_client_accept_drag`, `oxyos_client_receive_drop` (the pipe's read end, read to its end as a paste's) and `oxyos_client_finish_drop`;
+   - `oxyos_client_trash_files` (the shell);
+   - the events `OXYOS_EVENT_DRAG_ENTER`, `_DRAG_OFFER_TYPE`, `_DRAG_MOTION`, `_DRAG_LEAVE`, `_DRAG_ACTION`, `_DRAG_DROP`, `_DRAG_SOURCE_ACTION`, `_DRAG_DROPPED`, `_DRAG_FINISHED` and `_DRAG_CANCELLED`, and `OXYOS_DRAG_COPY`, `_MOVE`, `_LINK`.
+
+10. **Bloom: one drop target and one drag, through the platform adapter, with HTML5's on the web.** React Native has no desktop drag and drop, and Bloom had only drags inside one component (the sidebar's rows, tabs, boards) and one web-only drop of a file (`FileUpload`). Bloom gains, as it gained popups (ADR 0002):
+    - **`DropZone`** (`@oxy.so/bloom/drop-zone`), a view that takes drops: what it accepts (`accept`: `files`, `text`, `url`, `html`, or media types), the actions it supports and prefers, and `onDragEnter`, `onDragOver`, `onDragLeave` and `onDrop`. Its events carry the point (view-local), the action, the kinds offered, and at the drop the content: the files (`file://` URIs, with their names and types), the text, the URLs, the HTML. On the web it is HTML5's drag and drop on its element: types only until the drop (protected mode), the files as the browser's `File` objects. On a platform whose adapter reports `drag-and-drop`, it is the adapter's `DropTarget` host component. Elsewhere (a phone today) it is a view that takes nothing.
+    - **The platform's drag** (`usePlatformDrag()`, the adapter's `drag`): `start({ data, actions, preview })` begins a drag from the press the application is handling, with what it drags (`files` as `file://` URIs, `text`, `url`, `html`), the actions it allows and the view whose image is dragged, and resolves with the action the drop took, or none. An application that runs its own pointer gestures (Stash's items) calls it once its own drag begins; Bloom's own drags (the sidebar's rows) keep their own way.
+    - Bloom stays free of OxyOS and of the protocol: the adapter's types describe the drag; the OxyOS adapter lives with the runtime (`sample/oxyos/platform-surface.js`).
+
+11. **The Bloom host.** The adapter's `DropTarget` is the host component `OxyOSDropTargetView`, with its accepted kinds and actions as props; the host answers the compositor itself, from its own tree, never waiting for JavaScript:
+    - on each entering and motion it finds the innermost drop target under the point that accepts an offered type, and answers `AcceptDrag` with that type and the target's actions (none if no target takes one), and gives the targets their `onDragEnter`, `onDragOver` and `onDragLeave`;
+    - at the drop it receives the types that target accepts (each once, from the loop, within a bound of time and size, as a paste), gives the target its `onDrop` with the content, then finishes the drop.
+    - `drag.start` is `OxyOSDrag`: the host offers the content with the serial of the press still held, draws the preview view's subtree in a drag icon (as a popup's subtree is drawn in its surface), and resolves the call with the action at `DragFinished`, or none at `DragCancelled`.
+
+12. **The dock's Trash takes files.** The shell wraps the Trash's icon in a `DropZone` accepting `files` with move alone (a Mac's Trash), highlighted while a drag it would take is over it. On the drop the shell asks the session to put the files in the Trash: `TrashFiles { input, index, last, text }` (its `shell` grant), the URIs one a line in chunks, citing the drop's serial. The session moves each `file://` file of the person's that its scope reaches into the freedesktop.org Trash (`oxyos_files::trash::trash`, ADR 0028 decision 5), as Stash's own Move to Trash does, and the dock's Trash follows (`TrashItems`). A request citing no input of the shell's moves nothing; a URI the scope refuses (another user's file, the home, a Trash's insides) is passed over, said in the session's log.
+
+13. **Stash is a source and a target, through Bloom's API alone.** Its own drag of items (a mouse press moved 4 pixels on an item) becomes the platform's drag where there is one (`usePlatformDrag()`), of the selected local items as `file://` URIs, allowing copy, move and link; elsewhere it keeps its drag inside its window. Its items' area is a `DropZone` accepting `files` (copy and move, preferring move): a drop on a folder moves (or with Option copies) the files into that folder, a drop elsewhere into the folder shown, the folder under the pointer highlighted meanwhile. A drop of Stash's own items goes this way too. Nothing of OxyOS is imported.
+
+14. **Astro is a source and a target.** Its `oxyos` Ozone platform (`ui/ozone/platform/oxyos`) speaks version 10 when the compositor does:
+    - **as a source,** Chromium's `StartDrag` offers the drag's `OSExchangeData` as media types (`text/uri-list`, `text/x-moz-url`, `text/html`, `text/plain;charset=utf-8`, Chromium's custom data, a file's contents as its type), with the actions Chromium allows, its drag image drawn by Chromium in a drag icon, and runs its nested loop until `DragFinished` or `DragCancelled`;
+    - **as a target,** it gives its window's drop handler the drag's types at `DragEnter` (an `OSExchangeData` that holds the kinds offered, so a page sees `Files` in `dragenter`, and `<input type="file">` takes the drag), answers `AcceptDrag` with what the page's `dragover` chose, and at `DragDrop` receives the types it uses and gives the drop handler the real content before finishing.
+    - Against a compositor of version 9 or older it keeps its drag inside its window (OxyHQ/Astro#82).
+
+## Tests
+
+- **Protocol:** every new message round-trips; `DragActions` takes only its bits; a drag event is never written for version 9 and refused from it; which version introduced each request and event; `ReceiveDrop` and `DragSend` carry a descriptor and nothing else among the new messages does.
+- **Scene** (`scene/tests/drag.rs`): a drag from a held press reaches the window under the pointer with its types, and no other window receives anything; refused with another client's serial, a released press, a grab open, while locked; the action chosen from both sides' actions, the preferred one and each modifier; an answer citing an old entering ignored; a drop to an accepting target, a receive per type once, refused from another client, for a type not offered, twice, after finishing; Escape, a release over nothing, the source's cancel, the source's origin destroyed, the lock, the source and the target leaving; the icon placed at the pointer, following it, hit by nothing, hidden once the drag ends; a client of version 9 is no target.
+- **Compositor, through real sockets:** one application drags `text/uri-list` to another, which receives exactly the offered bytes once through the pipe; the dock's `TrashFiles` puts a file in the Trash.
+- **C ABI:** a drag between two clients through the library, the library writing the content.
+- **Bloom:** `DropZone` on the web (HTML5 events, types before the drop, the content at it, `dropEffect` from the actions), with the adapter's `DropTarget` when it reports `drag-and-drop`, and inert elsewhere; `usePlatformDrag` null without the adapter.
+- **Scenarios** (`regress.py`, the development compositor), each at scale 1 and 1.25:
+  - `drag-trash`: a file dragged from a fixture application onto the dock's Trash is in the home's Trash afterwards, the Trash's count told, and only the dock and the source were told anything of the drag;
+  - `drag-drop`: text and a file dragged from one application to another: the target receives exactly the offered data once, a third window the pointer never crossed receives no drag event, and Escape midway cancels with nothing transferred;
+  - `stash-drag`: a file dragged from one Stash window onto a folder in another moves into it, and one dropped on the dock's Trash goes to the Trash;
+  - `astro-drag`, extended: a file dragged from a fixture into Astro's `<input type="file">` reaches the page; a link dragged out of Astro drops in a fixture as `text/uri-list`.
+
+## Order of work
+
+1. This ADR.
+2. The protocol, the scene, the compositor, `oxyos-client` and the C ABI, with `TrashFiles` in the session.
+3. Bloom's `DropZone` and the platform's drag (released), and the Bloom host's `OxyOSDropTargetView` and `OxyOSDrag`, with `drag-drop`.
+4. The dock's Trash as a target, with `drag-trash`.
+5. Stash as a source and a target, with `stash-drag`.
+6. Astro's `oxyos` platform as a source and a target, with `astro-drag` extended.
+
+## Not in this decision
+
+- **Touch drags** (a long press then a drag, as iPadOS and Android do): the pointer's drag first; a touch drag needs the touch's own serial rule and is to come.
+- **The image sliding back** to its place when a drag is cancelled, and **spring-loaded folders** (a folder opening under a drag held over it).
+- **Copy and link badges on the pointer:** the cursor scheme has no such images.
+- **Scrolling a target while dragging** with the wheel or two fingers; a target may scroll itself as the pointer nears its edge.
+- **Dragging the dock's icons** to reorder them and out to unkeep them (ADR 0034): a drag within the shell, to come with this protocol.
+- **Dragging a screenshot's thumbnail** (ADR 0024, decision 10) into an application: the shell as a source, to come.
+- **Promised files** (a Mac's file promises: a file the source writes only where it is dropped). A source offers content or existing files.
