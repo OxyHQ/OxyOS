@@ -1,6 +1,6 @@
 {
-  "about": "The sample app (sample/App.tsx) in a 1024x640 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
-  "window": [1024, 640],
+  "about": "The sample app (sample/App.tsx) in a 1024x560 window: Bloom's Button, inbox ScreenScrollView, TextField and DropdownMenu. The window is short enough that the menu, opened at its trigger with a desktop's compact rows (Bloom 15.71.2), reaches past its bottom edge: a compositor popup beyond its window. Points are window-local logical pixels (the menu: relative to the popup). Every step states its expected result; see regress.py.",
+  "window": [1024, 560],
   "layout": "es",
   "steps": [
     {
@@ -29,14 +29,14 @@
     },
     {
       "name": "scroll the inbox to its end",
-      "do": ["scroll", [170, 300, 400]],
+      "do": ["scroll", [170, 300, 480]],
       "expect": {
         "texts": ["Last message", "Scrolled into view by the wheel."],
         "absent": ["Rendered by Fabric and Hermes on Linux."],
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}},
         "latency_ms": 250,
-        "scroll_offset": {"inbox": [0, 326]}
+        "scroll_offset": {"inbox": [0, 406]}
       },
       "expect_devices": {
         "react": {"scroll@inbox": 22},
@@ -109,7 +109,7 @@
     },
     {
       "name": "choose Archive in the menu",
-      "do": ["press-popup", [60, 110]],
+      "do": ["press-popup", [60, 80]],
       "expect": {
         "transitions": {"frames_min": 3, "count": 1, "seen": [{"kind": "popup", "arriving": false, "first": 255, "ended": true}]},
         "popups": 0,
@@ -391,7 +391,7 @@
       "expect": {
         "popups": 1,
         "focus_surface": 7,
-        "popup_size": [266, 338],
+        "popup_size": [266, 222],
         "absent": ["Copy link"],
         "popup_events": {"open@message-actions": 1},
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
@@ -399,19 +399,19 @@
     },
     {
       "name": "More actions expands inline: the popup grows and is placed again",
-      "do": ["press-popup", [60, 307]],
+      "do": ["press-popup", [60, 200]],
       "expect": {
         "popups": 1,
         "texts": ["Copy link", "Print"],
         "popup_events": {"reposition@message-actions": 1},
         "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
-        "popup_size": [266, 430],
+        "popup_size": [266, 282],
         "a11y": {"popup": [{"role": "menuitem", "name": "More actions", "state": {"expanded": true}}, {"role": "menuitem", "name": "Copy link"}, {"role": "menuitem", "name": "Print"}]}
       }
     },
     {
       "name": "choose Print in the expanded submenu",
-      "do": ["press-popup", [60, 399]],
+      "do": ["press-popup", [60, 260]],
       "expect": {
         "popups": 0,
         "focus_surface": 1,
@@ -427,8 +427,8 @@
       "expect": {
         "popups": 1,
         "focus_surface": 8,
-        "popup_size": [266, 338],
-        "frame_px": {"window": [1024, 640], "popup": [266, 338]},
+        "popup_size": [266, 222],
+        "frame_px": {"window": [1024, 560], "popup": [266, 222]},
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
       }
     },
@@ -438,8 +438,8 @@
       "expect": {
         "popups": 1,
         "focus_surface": 8,
-        "popup_size": [266, 338],
-        "frame_px": {"window": [1536, 960], "popup": [399, 507]},
+        "popup_size": [266, 222],
+        "frame_px": {"window": [1536, 840], "popup": [399, 333]},
         "texts": ["Reply", "Move to folder", "Chosen: Print"],
         "popup_events": {},
         "react": {}
@@ -447,7 +447,7 @@
     },
     {
       "name": "the menu still takes presses in logical coordinates",
-      "do": ["press-popup", [60, 110]],
+      "do": ["press-popup", [60, 80]],
       "expect": {
         "popups": 0,
         "focus_surface": 1,
@@ -461,7 +461,7 @@
       "do": ["scale", 120],
       "expect": {
         "popups": 0,
-        "frame_px": {"window": [1024, 640]},
+        "frame_px": {"window": [1024, 560]},
         "texts": ["Chosen: Archive"],
         "react": {}
       }
@@ -470,7 +470,7 @@
       "name": "the wheel scrolls the inbox back by 100",
       "do": ["scroll", [170, 300, -100]],
       "expect": {
-        "scroll_offset": {"inbox": [0, 226]},
+        "scroll_offset": {"inbox": [0, 306]},
         "react": {"scroll@inbox": 1},
         "delivered": {"1": {"scroll": 1}}
       },
@@ -540,9 +540,9 @@
       "expect": {
         "popups": 1,
         "focus_surface": 10,
-        "window_rect": [128, 40, 1024, 640],
+        "window_rect": [128, 80, 1024, 560],
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
-        "popup_rect": [745, 382, 266, 338]
+        "popup_rect": [745, 473, 266, 222]
       }
     },
     {
@@ -551,39 +551,39 @@
       "expect": {
         "popups": 1,
         "focus_surface": 10,
-        "window_rect": [28, 20, 1024, 640],
+        "window_rect": [28, 60, 1024, 560],
         "popup_events": {},
         "react": {},
-        "popup_rect": [645, 382, 266, 338]
+        "popup_rect": [645, 453, 266, 222]
       }
     },
     {
       "name": "the shell resizes the window: the host lays out again and places the menu at its trigger",
-      "do": ["resize-window", [900, 600]],
+      "do": ["resize-window", [900, 520]],
       "expect": {
         "popups": 1,
-        "window_rect": [28, 20, 900, 600],
-        "frame_px": {"window": [900, 600]},
+        "window_rect": [28, 60, 900, 520],
+        "frame_px": {"window": [900, 520]},
         "popup_events": {"reposition@message-actions": 1},
         "react": {},
-        "popup_rect": [899, 382, 266, 338]
+        "popup_rect": [899, 453, 266, 222]
       }
     },
     {
       "name": "the shell grows the window back: its frame is laid out by JavaScript at the new size, and the menu's anchor stays within the frame shown until that one is, then the menu is at its trigger",
-      "do": ["resize-window", [1024, 640]],
+      "do": ["resize-window", [1024, 560]],
       "expect": {
         "popups": 1,
-        "window_rect": [28, 20, 1024, 640],
-        "frame_px": {"window": [1024, 640]},
+        "window_rect": [28, 60, 1024, 560],
+        "frame_px": {"window": [1024, 560]},
         "popup_events": {"reposition@message-actions": 2},
         "react": {},
-        "popup_rect": [645, 382, 266, 338]
+        "popup_rect": [645, 453, 266, 222]
       }
     },
     {
       "name": "the menu still works after the move and resize",
-      "do": ["press-popup", [60, 110]],
+      "do": ["press-popup", [60, 80]],
       "expect": {
         "popups": 0,
         "focus_surface": 1,
