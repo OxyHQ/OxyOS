@@ -16,7 +16,10 @@
 //
 // What it provides is its entry, generated here: each public module below as a getter, as React
 // Native's own index.js exposes its modules, so that every one is in the framework and none runs
-// until an application requires it.
+// until an application requires it. The entry (`generated/framework.js`) is build output, derived
+// at every build from BLOOM_DIR's exports, and is not tracked (`.gitignore`): building against
+// another Bloom never changes the tree. What a framework provides is recorded where it is kept,
+// in its `framework.json`, and what it must keep is checked against PREVIOUS above.
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
