@@ -1,0 +1,249 @@
+{
+  "about": "Atlas (OxyHQ/Atlas), the App Store, as the system application it is (docs/adr/0030-installing-applications.mdx, decisions 9, 13 and 14), built from its own checkout (ATLAS_DIR) and kept in the dock after Stash, on the ThinkPad's display (1600×1000 at 1.25): pressed there, the session starts it from its registry entry with the `store` and `updates` grants the image's policy gives it (here `grants`), and the runtime registers the machine's installer in its own Oxy SDK, so Atlas offers Updates and Get where it would offer View. Zoomed to the work area, it reads the store of the scenario's own, which is down: its storefront waits, then says it could not be loaded, and never crashes; Try again reads it once the store answers, every lockup's action Get (the machine cannot say where each stands: the install service is not running). Get asks the session to install by the listing's slug alone; the session has no install service to ask, so the shell's system sheet says so with one button, and Atlas, told the person was told, says nothing more and offers Get again. Without the installer registered, the lockups say View and the shelf has no Updates, and it fails; with the session silent when the service is absent, no sheet shows, and it fails.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "1600x1000@1.25",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "grants": {
+    "so.oxy.atlas": [
+      "store",
+      "updates"
+    ]
+  },
+  "installd": null,
+  "store": {
+    "categories": [
+      {
+        "slug": "productivity",
+        "label": "Productivity"
+      },
+      {
+        "slug": "social",
+        "label": "Social"
+      }
+    ],
+    "apps": [
+      {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": null,
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        }
+      },
+      {
+        "slug": "mention",
+        "name": "Mention",
+        "tagline": "Say it to everyone who follows you.",
+        "icon": null,
+        "category": {
+          "slug": "social",
+          "label": "Social"
+        },
+        "rating": {
+          "average": null,
+          "count": 0
+        }
+      }
+    ],
+    "listings": {
+      "notes": {
+        "slug": "notes",
+        "name": "Notes",
+        "tagline": "Write it down, find it later.",
+        "icon": null,
+        "category": {
+          "slug": "productivity",
+          "label": "Productivity"
+        },
+        "rating": {
+          "average": 4.6,
+          "count": 128
+        },
+        "description": "Notes keeps what you write, on every device you use.",
+        "websiteUrl": "https://notes.example",
+        "privacyPolicyUrl": null,
+        "termsUrl": null,
+        "supportUrl": null,
+        "supportEmail": null,
+        "publishedAt": "2026-09-01T10:00:00.000Z",
+        "screenshots": [],
+        "ratingBreakdown": {
+          "5": 100,
+          "4": 28
+        }
+      }
+    },
+    "unavailable_first": {
+      "/store/apps": 12
+    }
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.atlas",
+      "origin": "development",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Atlas in the dock, after Stash: the session starts it, with its window",
+      "do": [
+        "press_output",
+        [
+          680,
+          773
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@dock-so.oxy.atlas": 1,
+            "touchEnd@dock-so.oxy.atlas": 1
+          }
+        },
+        "in_launched": {
+          "texts": [
+            "Discover"
+          ]
+        }
+      }
+    },
+    {
+      "name": "zoomed to the work area: its sidebar, Updates among its places (the machine's installer is registered)",
+      "do": [
+        "press_output",
+        [
+          436,
+          256
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Discover",
+            "Apps",
+            "Search",
+            "Categories",
+            "Updates"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the store is down: the storefront waits while it is asked again, then says it could not be loaded, with Try again, and nothing crashed",
+      "do": [
+        "wait",
+        32000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "The store could not be loaded.",
+            "Try again"
+          ],
+          "absent": [
+            "No apps have been published yet."
+          ]
+        }
+      }
+    },
+    {
+      "name": "Try again, once the store answers: its storefront, each lockup's action Get",
+      "do": [
+        "press_output",
+        [
+          778,
+          389
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Spotlight",
+            "New on Atlas",
+            "Notes",
+            "Mention",
+            "Get"
+          ],
+          "absent": [
+            "View",
+            "The store could not be loaded."
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get, on Notes: the session has no install service to ask, and the shell's sheet says so, with one button and nothing to confirm",
+      "do": [
+        "press_output",
+        [
+          723,
+          559
+        ]
+      ],
+      "expect": {
+        "in_launched": {
+          "react": {
+            "touchStart@install-notes": 1,
+            "touchEnd@install-notes": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "No se puede instalar la app",
+            "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
+            "Aceptar"
+          ],
+          "absent": [
+            "Cancelar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Aceptar: the sheet goes, and Atlas, told the person was told, says nothing more and offers Get again",
+      "do": [
+        "press_output",
+        [
+          750,
+          471
+        ]
+      ],
+      "expect": {
+        "in_shell": {
+          "react": {
+            "touchStart@system-sheet-accept": 1,
+            "touchEnd@system-sheet-accept": 1
+          },
+          "absent": [
+            "No se puede instalar la app"
+          ]
+        },
+        "in_launched": {
+          "texts": [
+            "Get"
+          ],
+          "absent": [
+            "Couldn’t install Notes"
+          ]
+        }
+      }
+    }
+  ]
+}

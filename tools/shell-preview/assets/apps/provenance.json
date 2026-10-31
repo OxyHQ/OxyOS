@@ -39,5 +39,11 @@
     "repository": "OxyHQ/Stash",
     "path": "packages/frontend/assets/images/icon-512.png",
     "revision": "65d072d16ea1d19c74e4b397e673f998a63aa490"
+  },
+  "atlas": {
+    "repository": "OxyHQ/Atlas",
+    "path": "packages/frontend/assets/images/atlas-icon.png",
+    "revision": "ecfde88b09cf481c44c12477e6016304cda028ee",
+    "resized": "512x512, Lanczos (ffmpeg)"
   }
 }

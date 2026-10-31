@@ -3258,7 +3258,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 oxyos_apps::directories(),
                 oxyos_apps::languages(),
             )
-            .with_installed(None),
+            .with_installed(None)
+            // What `--grant` gives, told to the applications it starts as the policy's would be.
+            .with_fixture_grants(launch.grants.clone()),
         );
         if let Some(root) = &launch.installed_fixture {
             let user = oxyos_apps::session_user().unwrap_or_default();

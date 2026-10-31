@@ -30,6 +30,19 @@ test("an install sheet names the app, its size and each capability with its purp
   assert.equal(en.lines[1].detail, "Reminders · Asked when the app uses it");
 });
 
+test("without the install service, the sheet says so with one button and nothing to confirm", () => {
+  const es = sheetView({ kind: "unavailable", action: "install" }, "es");
+  assert.equal(es.title, "No se puede instalar la app");
+  assert.match(es.body, /El servicio que instala las apps en este ordenador no está funcionando/);
+  assert.equal(es.accept, "Aceptar");
+  assert.equal(es.refuse, "");
+  assert.equal(es.destructive, false);
+  const en = sheetView({ kind: "unavailable", action: "update" }, "en");
+  assert.equal(en.title, "Can't Update");
+  assert.equal(en.accept, "OK");
+  assert.deepEqual(readSheet('{"kind":"unavailable","action":"uninstall"}'), { kind: "unavailable", action: "uninstall" });
+});
+
 test("removing says the data goes, and its button is destructive", () => {
   const view = sheetView({ kind: "uninstall", id: "so.oxy.notes", name: "Notes", version: "1.12.0" }, "en");
   assert.equal(view.title, "Delete Notes and its data?");

@@ -69,6 +69,8 @@ pub const UNSHOWN_EXITS: u32 = 2;
 pub enum InstallError {
     /// The peer may not do this (another account's, or not an account).
     NotPermitted,
+    /// The request names what cannot be (a listing that is not a store listing's slug, too many).
+    InvalidRequest(String),
     /// No release of the application for this machine (its runtimes and architecture).
     NoRelease,
     /// The account does not have the application.
@@ -95,6 +97,7 @@ impl fmt::Display for InstallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InstallError::NotPermitted => f.write_str("not permitted"),
+            InstallError::InvalidRequest(e) => write!(f, "invalid request: {e}"),
             InstallError::NoRelease => f.write_str("no release for this computer"),
             InstallError::NotInstalled => f.write_str("not installed for this account"),
             InstallError::Downgrade => f.write_str("older than the version installed"),
@@ -208,6 +211,62 @@ struct Release {
     /// What is new, by language: the store's text, signed with the targets by TUF, not by the
     /// developer.
     notes: BTreeMap<String, String>,
+    /// The store listing it belongs to (its slug): the store's text, signed with the targets by
+    /// TUF, not by the developer.
+    listing: Option<String>,
+}
+
+/// The release at `path` in the store's targets if this machine can run it: its path names a
+/// version and an architecture of this machine, its custom data is the store's and reads as it
+/// must, the store's statement names what the path and the target do, and a runtime of the
+/// machine runs it. What the metadata alone verifies; the manifest is verified when fetched.
+fn release_at(
+    path: &str,
+    target: &tuf::Target,
+    store_keys: &[PublicKey],
+    machine: &Machine,
+) -> Option<Release> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let [package, code, arch, "manifest.json"] = parts.as_slice() else {
+        return None;
+    };
+    let (Ok(version_code), Ok(architecture)) = (code.parse::<u64>(), Architecture::parse(arch))
+    else {
+        return None;
+    };
+    if architecture != Architecture::Any && architecture != machine.architecture {
+        return None;
+    }
+    let (statement, signature, developer_key, lineage, notes, listing) =
+        parse_custom(target.custom.as_ref()?, store_keys).ok()?;
+    if statement.package_id != *package
+        || statement.version_code != version_code
+        || statement.architecture != architecture
+        || statement.manifest_length != target.length
+        || statement.manifest_sha256.0 != target.sha256
+        || machine.runtime_for(&statement.runtime).is_none()
+    {
+        return None;
+    }
+    Some(Release {
+        path: path.to_string(),
+        statement,
+        signature,
+        developer_key,
+        lineage,
+        notes,
+        listing,
+    })
+}
+
+/// The keys of the root's targets role: those the store's statements are signed with.
+fn store_keys(client: &tuf::Client) -> Vec<PublicKey> {
+    client
+        .root()
+        .public_keys("targets")
+        .into_iter()
+        .map(PublicKey)
+        .collect()
 }
 
 /// The releases of `id` in `targets` this machine can run, the highest first.
@@ -215,57 +274,33 @@ fn releases(client: &tuf::Client, id: &str, machine: &Machine, bad: &[u64]) -> V
     let Some(targets) = client.targets() else {
         return Vec::new();
     };
-    let store_keys: Vec<PublicKey> = client
-        .root()
-        .public_keys("targets")
-        .into_iter()
-        .map(PublicKey)
+    let store_keys = store_keys(client);
+    let mut found: Vec<Release> = targets
+        .targets
+        .iter()
+        .filter(|(path, _)| path.split('/').next() == Some(id))
+        .filter_map(|(path, target)| release_at(path, target, &store_keys, machine))
+        .filter(|release| !bad.contains(&release.statement.version_code))
         .collect();
-    let mut found = Vec::new();
-    for (path, target) in &targets.targets {
-        let parts: Vec<&str> = path.split('/').collect();
-        let [package, code, arch, "manifest.json"] = parts.as_slice() else {
-            continue;
-        };
-        if *package != id {
-            continue;
-        }
-        let (Ok(version_code), Ok(architecture)) = (code.parse::<u64>(), Architecture::parse(arch))
-        else {
-            continue;
-        };
-        if architecture != Architecture::Any && architecture != machine.architecture {
-            continue;
-        }
-        let Some(release) = target
-            .custom
-            .as_ref()
-            .and_then(|custom| parse_custom(custom, &store_keys).ok())
-        else {
-            continue;
-        };
-        let statement = &release.0;
-        if statement.package_id != id
-            || statement.version_code != version_code
-            || statement.architecture != architecture
-            || statement.manifest_length != target.length
-            || statement.manifest_sha256.0 != target.sha256
-            || machine.runtime_for(&statement.runtime).is_none()
-            || bad.contains(&version_code)
-        {
-            continue;
-        }
-        found.push(Release {
-            path: path.clone(),
-            statement: release.0,
-            signature: release.1,
-            developer_key: release.2,
-            lineage: release.3,
-            notes: release.4,
-        });
-    }
     found.sort_by(|a, b| b.statement.version_code.cmp(&a.statement.version_code));
     found
+}
+
+/// How many listings one request may resolve.
+pub const MAX_LISTINGS: usize = 100;
+
+/// Whether `listing` is a store listing's slug, as the store makes them: 1 to 64 lowercase ASCII
+/// letters, digits and single hyphens, beginning and ending with a letter or a digit.
+pub fn valid_listing(listing: &str) -> bool {
+    let bytes = listing.as_bytes();
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+        && bytes[0] != b'-'
+        && bytes[bytes.len() - 1] != b'-'
+        && !listing.contains("--")
 }
 
 /// Release notes' bounds: languages, and bytes in each.
@@ -279,12 +314,14 @@ type Custom = (
     PublicKey,
     Lineage,
     BTreeMap<String, String>,
+    Option<String>,
 );
 
 /// A target's `custom.oxyos`: the store's signed statement (verified with the targets role's
-/// keys), the developer's signature, the developer's key and its lineage, and the release notes
-/// by language (`releaseNotes`, the store's: TUF signs them with the targets, the developer does
-/// not).
+/// keys), the developer's signature, the developer's key and its lineage, the release notes by
+/// language (`releaseNotes`), and the store listing the release belongs to (`listing`, its slug).
+/// The notes and the listing are the store's: TUF signs them with the targets, the developer does
+/// not.
 fn parse_custom(custom: &Value, store_keys: &[PublicKey]) -> Result<Custom, InstallError> {
     let oxyos = member(custom, "oxyos").ok_or_else(|| InstallError::Release("no oxyos".into()))?;
     let text = |key| match member(oxyos, key) {
@@ -319,7 +356,12 @@ fn parse_custom(custom: &Value, store_keys: &[PublicKey]) -> Result<Custom, Inst
         }
         Some(_) => return Err(InstallError::Release("releaseNotes".into())),
     }
-    Ok((statement, signature, developer_key, lineage, notes))
+    let listing = match member(oxyos, "listing") {
+        None => None,
+        Some(Value::String(listing)) if valid_listing(listing) => Some(listing.clone()),
+        Some(_) => return Err(InstallError::Release("listing".into())),
+    };
+    Ok((statement, signature, developer_key, lineage, notes, listing))
 }
 
 /// A capability as an install sheet shows it.
@@ -738,6 +780,58 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             manifest,
             pinned,
         })
+    }
+
+    /// The application each of `listings` (store listings' slugs) is on this machine: the
+    /// store's metadata refreshed, then the package id of the releases this machine can run that
+    /// belong to the listing, or none. A listing two packages claim resolves to none: which one
+    /// the store meant is not guessed. Nothing changes but the store's metadata.
+    pub fn resolve(
+        &self,
+        uid: u32,
+        listings: &[String],
+    ) -> Result<BTreeMap<String, Option<String>>, InstallError> {
+        self.account(uid)?;
+        if listings.len() > MAX_LISTINGS {
+            return Err(InstallError::InvalidRequest(format!(
+                "more than {MAX_LISTINGS} listings"
+            )));
+        }
+        if let Some(listing) = listings.iter().find(|l| !valid_listing(l)) {
+            return Err(InstallError::InvalidRequest(format!(
+                "{listing:?} is not a store listing"
+            )));
+        }
+        let _metadata = self
+            .metadata
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut client = self.client()?;
+        client.refresh(&self.fetch, (self.now)())?;
+        let wanted: BTreeSet<&str> = listings.iter().map(String::as_str).collect();
+        let mut claimed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        if let Some(targets) = client.targets() {
+            let store_keys = store_keys(&client);
+            for (path, target) in &targets.targets {
+                let Some(release) = release_at(path, target, &store_keys, &self.machine) else {
+                    continue;
+                };
+                if let Some(listing) = release.listing.filter(|l| wanted.contains(l.as_str())) {
+                    claimed
+                        .entry(listing)
+                        .or_default()
+                        .insert(release.statement.package_id);
+                }
+            }
+        }
+        Ok(listings
+            .iter()
+            .map(|listing| {
+                let ids = claimed.get(listing);
+                let id = ids.filter(|ids| ids.len() == 1).and_then(|ids| ids.first());
+                (listing.clone(), id.cloned())
+            })
+            .collect())
     }
 
     /// What installing (or updating) `id` for the account `uid` would do: the store's metadata

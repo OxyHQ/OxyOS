@@ -8,14 +8,15 @@
 //! oxyos-pack entry DIR
 //! oxyos-pack store-keys DIR                 a development store's keys (root ×3, targets, snapshot, timestamp)
 //! oxyos-pack repository DIR STORE_KEYS      a new store repository, root 1 for those keys
-//! oxyos-pack publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY
+//! oxyos-pack publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY [LISTING]
 //! ```
 //!
 //! `publish` publishes a packed package as a release in the repository at DIR, as the store
 //! would once it approved it (docs/adr/0030-installing-applications.mdx, decisions 3 and 4): its
 //! files as objects, its manifest as a target with the store's statement (signed by STORE_KEYS'
-//! targets key), the developer's signature and DEVELOPER_KEY's public key, then the next
-//! targets, snapshot and timestamp (`oxyos_install::repository`, what the install service's tests
+//! targets key), the developer's signature and DEVELOPER_KEY's public key, the store listing it
+//! belongs to (LISTING, a listing's slug, which the machine resolves the application by), then the
+//! next targets, snapshot and timestamp (`oxyos_install::repository`, what the install service's tests
 //! publish with). For development and scenarios: the store's own keys are never on a machine.
 //!
 //! `pack` lists every file under DIR (but `manifest.json`, `manifest.sig` and `index.hbc` at its
@@ -41,7 +42,7 @@ use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC | entry DIR | store-keys DIR | repository DIR STORE_KEYS | publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY";
+const USAGE: &str = "usage: oxyos-pack key KEY | pack DIR DESCRIPTION RUNTIME KEY | compile DIR HERMESC | entry DIR | store-keys DIR | repository DIR STORE_KEYS | publish PACKAGE DIR STORE_KEYS DEVELOPER_KEY [LISTING]";
 
 /// The store's keys in a directory of seeds, as `store-keys` writes them.
 const STORE_KEY_FILES: [&str; 6] = [
@@ -77,6 +78,14 @@ fn main() -> ExitCode {
             Path::new(dir),
             Path::new(keys),
             Path::new(developer),
+            None,
+        ),
+        ["publish", package, dir, keys, developer, listing] => publish(
+            Path::new(package),
+            Path::new(dir),
+            Path::new(keys),
+            Path::new(developer),
+            Some(listing),
         ),
         _ => Err(USAGE.to_string()),
     };
@@ -173,14 +182,21 @@ fn repository(dir: &Path, keys: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Publishes the packed `package` as a release of the repository at `dir`.
-fn publish(package: &Path, dir: &Path, keys: &Path, developer: &Path) -> Result<()> {
+/// Publishes the packed `package` as a release of the repository at `dir`, of the store
+/// `listing` if one is given.
+fn publish(
+    package: &Path,
+    dir: &Path,
+    keys: &Path,
+    developer: &Path,
+    listing: Option<&str>,
+) -> Result<()> {
     let keys = read_store_keys(keys)?;
     let developer = read_key(developer)?.public_key();
     let mut repository = oxyos_install::repository::Repository::open(dir, now(), VALID_DAYS)
         .map_err(|error| format!("{}: {error}", dir.display()))?;
     let (id, version_code) = repository
-        .publish_package(package, &keys, &developer, &[])
+        .publish_package(package, &keys, &developer, &[], listing)
         .map_err(|error| format!("{}: {error}", package.display()))?;
     println!(
         "{id} {version_code} published: targets {}",

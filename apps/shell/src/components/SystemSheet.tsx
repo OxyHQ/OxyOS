@@ -15,7 +15,8 @@ const QUIET = "#5b6472";
 /**
  * A system sheet (docs/adr/0030-installing-applications.mdx, decision 9): the session's question
  * to the person, over everything but the lock screen, in a shell surface no application draws,
- * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button.
+ * covers or presses. Its answer is the shell's alone; Cancel is its first, safest button. A sheet
+ * that only tells (the install service is not running) has its one button, in the answer's place.
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
@@ -69,11 +70,13 @@ export const SystemSheet = memo(function SystemSheet({
         ))}
         </Box>
         <Box style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-          <Box style={{ width: SHEET_BUTTON_WIDTH }}>
-            <Button testID="system-sheet-refuse" appearance="outline" tone="neutral" onPress={() => answer(false)}>
-              {view.refuse}
-            </Button>
-          </Box>
+          {view.refuse ? (
+            <Box style={{ width: SHEET_BUTTON_WIDTH }}>
+              <Button testID="system-sheet-refuse" appearance="outline" tone="neutral" onPress={() => answer(false)}>
+                {view.refuse}
+              </Button>
+            </Box>
+          ) : null}
           <Box style={{ width: SHEET_BUTTON_WIDTH }}>
             <Button
               testID="system-sheet-accept"

@@ -265,6 +265,19 @@ file holds that JSON once the run ended.
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
 password (ADR 0010; never PAM).
 
+A scenario with `store` runs offline but for a store of its own (docs/adr/0030-installing-applications.mdx,
+decision 14): the machine reaches Oxy's API (`api.oxy.so`) only through a proxy of the run's own
+(`HTTPS_PROXY`), which hands it to a server of the run's own holding a certificate for that name from a
+certificate authority of the run's own, the one the run trusts (`SSL_CERT_FILE`); every other host is
+refused, so nothing of the network outside reaches the run. The server answers the store's public reads
+as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
+(summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
+reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
+store that is down. It also answers NetInfo's check that the Internet is reachable
+(`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
+told from a machine that is offline. Applications reach it as they reach the real one, with their own
+builds.
+
 A scenario with `outputs` ("WxH[@SCALE][:HZ],..."; ADR 0018) runs on those outputs, arranged as a
 session arranges its displays (left to right, top-aligned, the first the primary), with a shell
 on each; steps' points are in the global space. An output given a refresh (":120") is paced as a
@@ -1992,8 +2005,11 @@ def install_service(spec, machine, offscreen):
     run(pack, "store-keys", keys)
     run(pack, "repository", repository, keys)
     developer = machine.packages / "development.key"
-    for id in spec.get("publish", []):
-        run(pack, "publish", machine.by_id[id]["dir"], repository, keys, developer)
+    # Each package, or {"id", "listing"}: published as the store listing's (the slug its release
+    # names, which `resolve` answers).
+    for published in spec.get("publish", []):
+        id, listing = (published, None) if isinstance(published, str) else (published["id"], published["listing"])
+        run(pack, "publish", machine.by_id[id]["dir"], repository, keys, developer, *([listing] if listing else []))
     me = pwd.getpwuid(os.getuid())
     (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
     logs = open(base / "installd.log", "w")
@@ -2040,6 +2056,154 @@ def install_service(spec, machine, offscreen):
 
 # The run's install service (`install_service`): its state and log, for the final checks.
 INSTALLD = {}
+
+
+def store_fixture(spec, out):
+    """A store of the scenario's own (`store`, the module's docstring): its certificate authority and
+    the server's certificate for api.oxy.so, made for the run with openssl; the server; the proxy that
+    hands it api.oxy.so alone. The environment that makes the run reach it, and nothing else."""
+    import ssl
+    base = out / "store"
+    shutil.rmtree(base, ignore_errors=True)
+    base.mkdir(parents=True)
+    run = lambda *args: subprocess.run(list(args), check=True, capture_output=True, cwd=base)
+    run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "ca.key", "-out", "ca.pem",
+        "-days", "2", "-subj", "/CN=OxyOS scenario store authority",
+        "-addext", "basicConstraints=critical,CA:TRUE", "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+    run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", "server.key", "-out", "server.csr",
+        "-subj", "/CN=api.oxy.so")
+    (base / "server.ext").write_text("basicConstraints=critical,CA:FALSE\n"
+                                     "subjectAltName=DNS:api.oxy.so,DNS:clients3.google.com\n"
+                                     "extendedKeyUsage=serverAuth\nkeyUsage=critical,digitalSignature,keyEncipherment\n")
+    run("openssl", "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial",
+        "-out", "server.pem", "-days", "2", "-extfile", "server.ext")
+    failing = dict(spec.get("unavailable_first", {}))
+    lock = threading.Lock()
+
+    class Store(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args):
+            pass
+
+        def note(self, status):
+            # Each request and its answer, for the run's record (`store/requests.log`).
+            with lock, open(base / "requests.log", "a") as log:
+                log.write(f"{time.monotonic():.3f} {status} {self.headers.get('Host', '')}{self.path}\n")
+
+        def reply(self, status, body):
+            self.note(status)
+            data = json.dumps(body).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            from urllib.parse import parse_qs, urlsplit
+            url = urlsplit(self.path)
+            with lock:
+                down = failing.get(url.path, 0) > 0
+                if down:
+                    failing[url.path] -= 1
+            if down:
+                return self.reply(503, {"message": "The store is down for the scenario"})
+            if self.headers.get("Host", "").split(":")[0] == "clients3.google.com":
+                if url.path != "/generate_204":
+                    return self.reply(404, {"message": "Not found"})
+                self.note(204)
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            parts = [part for part in url.path.split("/") if part]
+            page = lambda items: {"data": items, "pagination": {"total": len(items), "limit": 100,
+                                                                "offset": 0, "hasMore": False}}
+            if parts == ["store", "categories"]:
+                return self.reply(200, {"data": spec.get("categories", [])})
+            if parts == ["store", "apps"]:
+                category = parse_qs(url.query).get("category", [None])[0]
+                apps = [app for app in spec.get("apps", [])
+                        if category is None or (app.get("category") or {}).get("slug") == category]
+                return self.reply(200, page(apps))
+            if len(parts) == 3 and parts[:2] == ["store", "apps"] and parts[2] in spec.get("listings", {}):
+                return self.reply(200, {"data": spec["listings"][parts[2]]})
+            if len(parts) == 4 and parts[:2] == ["store", "apps"] and parts[3] == "reviews":
+                return self.reply(200, page([]))
+            return self.reply(404, {"message": "Not found"})
+
+        def do_HEAD(self):
+            # NetInfo's check asks with HEAD.
+            if self.headers.get("Host", "").split(":")[0] == "clients3.google.com" and \
+                    self.path.split("?")[0] == "/generate_204":
+                self.note(204)
+                self.send_response(204)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                self.note(404)
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Store)
+    server.daemon_threads = True
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(base / "server.pem", base / "server.key")
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    store_port = server.server_address[1]
+
+    class Proxy(BaseHTTPRequestHandler):
+        """api.oxy.so:443 (and the reachability check's host) tunnelled to the store; every other
+        host refused."""
+
+        def log_message(self, *args):
+            pass
+
+        def do_CONNECT(self):
+            with lock, open(base / "requests.log", "a") as log:
+                log.write(f"{time.monotonic():.3f} CONNECT {self.path}\n")
+            if self.path not in ("api.oxy.so:443", "clients3.google.com:443"):
+                self.send_error(403, "Offline: the scenario has no network but its store")
+                return
+            upstream = socket.create_connection(("127.0.0.1", store_port))
+            self.send_response(200, "Connection established")
+            self.end_headers()
+            peers = [self.connection, upstream]
+
+            def pump(source, sink):
+                try:
+                    while chunk := source.recv(65536):
+                        sink.sendall(chunk)
+                except OSError:
+                    pass
+                finally:
+                    for peer in peers:
+                        try:
+                            peer.shutdown(socket.SHUT_RDWR)
+                        except OSError:
+                            pass
+
+            other = threading.Thread(target=pump, args=(upstream, self.connection), daemon=True)
+            other.start()
+            pump(self.connection, upstream)
+            other.join()
+            upstream.close()
+            self.close_connection = True
+
+        def refuse(self):
+            self.send_error(403, "Offline: the scenario has no network but its store")
+
+        do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = do_PATCH = refuse
+
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+    proxy.daemon_threads = True
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    address = f"http://127.0.0.1:{proxy.server_address[1]}"
+    return {"HTTPS_PROXY": address, "HTTP_PROXY": address, "ALL_PROXY": address,
+            "NO_PROXY": "127.0.0.1,localhost", "SSL_CERT_FILE": str(base / "ca.pem")}
 
 
 def installd_ask(socket_path, requests):
@@ -2096,8 +2260,8 @@ def wait_for(path, seconds=10):
 def install_arguments(scenario, out, machine=None, offscreen=None):
     """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
     install service the session asks (`installd`: null for a socket no service is at, or
-    {"publish": [ID, ...]} for a real one, `install_service`), docs/adr/0030-installing-
-    applications.mdx."""
+    {"publish": [ID or {"id", "listing"}, ...]} for a real one, `install_service`),
+    docs/adr/0030-installing-applications.mdx."""
     arguments = []
     for app, grants in scenario.get("grants", {}).items():
         arguments += ["--grant", f"{app}={','.join(grants)}"]
@@ -2297,6 +2461,11 @@ def main():
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
             env[name] = scenario["app"][key]
+    # Its system grants, as a launch of the image's policy tells them (OXYOS_APP_GRANTS, ADR 0030):
+    # what JavaScript offers with them (the store's installer with `store`). The applications the
+    # shell starts are told theirs by the launcher, from the same `grants`.
+    if scenario.get("app", {}).get("id") in scenario.get("grants", {}):
+        env["OXYOS_APP_GRANTS"] = ",".join(scenario["grants"][scenario["app"]["id"]])
     # An application the session did not start (ADR 0013): its id is only its claim.
     if scenario.get("app", {}).get("recorded") is False:
         env["OXYOS_APP_UNRECORDED"] = "1"
@@ -2328,6 +2497,8 @@ def main():
         env["OXYOS_SOLAR_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    if "store" in scenario:
+        env.update(store_fixture(scenario["store"], out))
     home_root = None
     if "home" in scenario:
         # A home of the run's own (docs/adr/0028-file-access.mdx), never the developer's.

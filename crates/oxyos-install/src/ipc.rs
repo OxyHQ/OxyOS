@@ -11,6 +11,7 @@
 //! - **The conversation:**
 //!
 //!   ```text
+//!   → {"resolve": {"listings", "uid"?}}              ← {"resolved": {listing: id | null}}
 //!   → {"prepare": {"id", "uid"?}}                    ← {"plan": {"planId", …}}
 //!   → {"commit": {"planId"}}                         ← {"progress": …}…, then {"committed": {…}}
 //!   → {"uninstall": {"id", "uid"?}}                  ← {"uninstalled": {"id", "dataDirectories"}}
@@ -41,6 +42,7 @@ use crate::install::{
 };
 use crate::socket::{Connection, Peer};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io;
 use std::time::Duration;
 
@@ -53,6 +55,13 @@ pub const WATCH_SEND: Duration = Duration::from_secs(2);
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Request {
+    /// The application each store listing (its slug) is on this machine, from the store's
+    /// signed metadata: what a store names an application by, never a package's bytes.
+    Resolve {
+        listings: Vec<String>,
+        #[serde(default)]
+        uid: Option<u32>,
+    },
     Prepare {
         id: String,
         #[serde(default)]
@@ -186,6 +195,8 @@ pub struct AutomaticAnswer {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum Answer {
+    /// Each listing asked, and the package id it is on this machine, or null.
+    Resolved(BTreeMap<String, Option<String>>),
     Plan(PlanAnswer),
     Progress(Progress),
     Committed(Committed),
@@ -226,6 +237,7 @@ impl From<&InstallError> for Answer {
     fn from(error: &InstallError) -> Self {
         let reason = match error {
             InstallError::NotPermitted => Reason::NotPermitted,
+            InstallError::InvalidRequest(_) => Reason::InvalidRequest,
             InstallError::NoRelease => Reason::NoRelease,
             InstallError::NotInstalled => Reason::NotInstalled,
             InstallError::Downgrade => Reason::Downgrade,
@@ -312,6 +324,20 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
             };
         }
         match request {
+            Request::Resolve { listings, uid } => {
+                let uid = account!(uid, "resolve", None);
+                match self.installer.resolve(uid, &listings) {
+                    Ok(resolved) => {
+                        let found = resolved.values().filter(|id| id.is_some()).count();
+                        let what = format!("{found} of {}", resolved.len());
+                        (
+                            Answer::Resolved(resolved),
+                            outcome("resolve", None, Ok(what)),
+                        )
+                    }
+                    Err(e) => failed(&e, "resolve", None),
+                }
+            }
             Request::Prepare { id, uid } => {
                 let uid = account!(uid, "prepare", Some(&id));
                 match self.installer.prepare(uid, &id) {

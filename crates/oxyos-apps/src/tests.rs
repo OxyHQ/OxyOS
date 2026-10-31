@@ -250,6 +250,58 @@ fn a_file_opens_in_the_application_declaring_its_type_with_its_url() {
 }
 
 #[test]
+fn a_launch_is_told_its_grants_and_a_development_entry_none() {
+    let out = std::env::temp_dir().join(format!("oxyos-apps-grants-{}", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    let dir = Directory::new(
+        "grants",
+        &[
+            (
+                "so.oxy.atlas.desktop",
+                &format!(
+                    "[Desktop Entry]\nType=Application\nName=Atlas\nExec=/bin/sh -c \"echo atlas=$OXYOS_APP_GRANTS >> {}\"\n",
+                    out.display()
+                ),
+            ),
+            (
+                "so.oxy.writer.desktop",
+                &format!(
+                    "[Desktop Entry]\nType=Application\nName=Writer\nExec=/bin/sh -c \"echo writer=$OXYOS_APP_GRANTS >> {}\"\n",
+                    out.display()
+                ),
+            ),
+        ],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    // The development compositor's grants, as a scenario gives them in the policy's place.
+    let store = Grants::named(&["store".into(), "updates".into()]).unwrap();
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![])
+        .with_fixture_grants(vec![("so.oxy.atlas".into(), store)]);
+    for id in ["so.oxy.atlas", "so.oxy.writer"] {
+        launcher.launch(id).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while launcher.reap().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "it did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        "atlas=store,updates\nwriter=\n"
+    );
+    assert_eq!(store.names(), "store,updates");
+    assert_eq!(Grants::default().names(), "");
+    let _ = std::fs::remove_file(&out);
+}
+
+#[test]
 fn a_launch_runs_what_the_registry_lists_and_nothing_else() {
     let out = std::env::temp_dir().join(format!("oxyos-apps-launched-{}", std::process::id()));
     let _ = std::fs::remove_file(&out);

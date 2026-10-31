@@ -1,0 +1,13 @@
+# Atlas (OxyHQ/Atlas, packages/frontend), the App Store (docs/adr/0030-installing-applications.mdx,
+# decisions 13 and 14): a system application, a package of its own built from its checkout
+# (ATLAS_DIR, sample/packages.mjs), kept in the dock after Stash, as a Mac keeps the App Store. The
+# image's policy gives it `store` and `updates`. Without its package (no checkout given) it is not
+# installed: its entry names where its package will be.
+[Desktop Entry]
+Type=Application
+Name=Atlas
+Icon=../../../../shell-preview/assets/apps/atlas.png
+X-OxyOS-Bloom-Module=Atlas
+X-OxyOS-Bloom-Bundle=/usr/lib/oxyos/apps/so.oxy.atlas/index.hbc
+X-OxyOS-Runtime=1
+X-OxyOS-Pinned=2
