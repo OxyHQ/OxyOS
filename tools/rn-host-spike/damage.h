@@ -56,6 +56,7 @@ class WindowDamage {
   // How the modals animating were presented, those animating out included.
   std::vector<std::pair<facebook::react::Tag, ModalPresentation>> presented_;
   std::vector<ViewTree::Leaving> leaving_;
+  std::map<facebook::react::Tag, facebook::react::Point> stretched_;
 };
 
 }  // namespace oxyos

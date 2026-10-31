@@ -1,0 +1,262 @@
+{
+  "about": "overscroll.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25), the window at 550,313 of a 1600x1000 output: the same drags, lifts, wheel and flick, the same stretch for the same pull (a share of the list's size, whatever the scale), and the stretched rows' edge drawn in the output's pixels.",
+  "module": "OverscrollProbe",
+  "window": [
+    400,
+    300
+  ],
+  "steps": [
+    {
+      "name": "fingers dragging the list down past its top stretch it, and hold it stretched: no scroll event, its offset kept",
+      "do": [
+        "scroll_paced",
+        [
+          60,
+          140,
+          -90,
+          6,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "scroll": 6
+          }
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "list",
+          "pulled": -0.375,
+          "held": -0.02127
+        },
+        "output_pixels": {
+          "625,587": "#d03030",
+          "625,591": "#d03030",
+          "625,594": "#3050d0",
+          "800,589": "#3050d0"
+        }
+      }
+    },
+    {
+      "name": "the fingers lifting let it go: it springs back to none, the drag's end and momentum sent, no fling",
+      "do": [
+        "flick",
+        [
+          60,
+          140,
+          0,
+          1,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "list",
+          "rests": true,
+          "frames_min": 10
+        },
+        "output_pixels": {
+          "625,587": "#d03030",
+          "625,589": "#3050d0",
+          "625,594": "#3050d0"
+        }
+      }
+    },
+    {
+      "name": "fingers coming to rest 100 ms after letting it go catch the stretch where it is, and lifting unmoved 150 ms later let it go again: it springs back to none, no drag begun by the rest",
+      "do": [
+        "flick_hold",
+        [
+          60,
+          140,
+          -90,
+          6,
+          60,
+          100
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {
+          "1": {
+            "scroll": 7,
+            "hold.begin": 1,
+            "hold.end": 1
+          }
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "list",
+          "caught_ms": 120,
+          "rests": true
+        }
+      }
+    },
+    {
+      "name": "overScrollMode never: the same drag and lift drag it, and never stretch it",
+      "do": [
+        "flick",
+        [
+          200,
+          140,
+          -90,
+          6,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "scrollBeginDrag@never": 1,
+          "scrollEndDrag@never": 1,
+          "momentumScrollBegin@never": 1,
+          "momentumScrollEnd@never": 1
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "never",
+          "none": true
+        },
+        "output_pixels": {
+          "800,587": "#d03030",
+          "800,589": "#3050d0"
+        }
+      }
+    },
+    {
+      "name": "a list whose content fits takes no drag and never stretches",
+      "do": [
+        "flick",
+        [
+          340,
+          80,
+          -90,
+          6,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "scroll_offset": {},
+        "stretch": {
+          "view": "short",
+          "none": true
+        }
+      }
+    },
+    {
+      "name": "a wheel's notch at the list's top moves nothing and never stretches it",
+      "do": [
+        "scroll",
+        [
+          60,
+          140,
+          -50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "scroll": 1
+          }
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "list",
+          "none": true
+        }
+      },
+      "expect_devices": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "scroll": 1
+          }
+        },
+        "scroll_offset": {},
+        "stretch": {
+          "view": "list",
+          "none": true
+        }
+      }
+    },
+    {
+      "name": "a fast flick glides to the list's end, stops there exactly and strikes the stretch there, which springs out and back",
+      "do": [
+        "flick",
+        [
+          60,
+          140,
+          200,
+          6,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [
+            8,
+            60
+          ],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "glide": {
+          "view": "list",
+          "velocity": [
+            1500,
+            3000
+          ],
+          "to_end": true,
+          "end_offset": 560,
+          "frames_min": 2
+        },
+        "stretch": {
+          "view": "list",
+          "peak": [
+            0.001,
+            0.04
+          ],
+          "side": 1,
+          "rests": true,
+          "frames_min": 10
+        },
+        "scroll_offset": {
+          "list": [
+            0,
+            560
+          ]
+        },
+        "output_pixels": {
+          "625,625": "#30a050",
+          "625,582": "#d03030"
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

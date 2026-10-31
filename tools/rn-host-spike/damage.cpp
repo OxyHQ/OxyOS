@@ -187,6 +187,38 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   }
   presented_ = std::move(presented);
   leaving_ = tree.leaving();
+  // A scroll view stretched past its end (overscroll) draws its content anew wherever it is, as the
+  // stretch changes.
+  if (same) {
+    const std::map<Tag, Point>* both[] = {&stretched_, &tree.stretches()};
+    for (const auto* stretches : both) {
+      for (const auto& [tag, amount] : *stretches) {
+        auto before = stretched_.find(tag);
+        auto after = tree.stretches().find(tag);
+        Point was = before == stretched_.end() ? Point{} : before->second;
+        Point is = after == tree.stretches().end() ? Point{} : after->second;
+        if (was == is) continue;
+        if (auto it = now.find(tag); it != now.end()) damage.push_back(it->second.at);
+      }
+    }
+  }
+  // A change inside a stretched scroll view is drawn where the stretch puts it: the whole view.
+  if (same) {
+    std::vector<Rect> within;
+    for (const auto& [tag, amount] : tree.stretches()) {
+      auto it = now.find(tag);
+      if (it == now.end()) continue;
+      for (const auto& rect : damage) {
+        Rect common = Rect::intersect(rect, it->second.at);
+        if (common.size.width > 0 && common.size.height > 0) {
+          within.push_back(it->second.at);
+          break;
+        }
+      }
+    }
+    damage.insert(damage.end(), within.begin(), within.end());
+  }
+  stretched_ = tree.stretches();
   if (same) {
     if (!(edit == edit_)) {
       std::vector<Tag> changed{edit_.tag, edit.tag};

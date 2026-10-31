@@ -1560,9 +1560,23 @@ std::array<PixelBox, 4> cornerSquares(const ChildClip& box, const PixelBox& pain
   return squares;
 }
 
-// Whether some child drawn at (ox, oy) draws within the device pixels `square`.
+// A scroll view's child, drawn at (ox, oy), and through `stretch` when the scroll view is stretched
+// past its end (overscroll, input.h): as Android draws a stretched ScrollView's render node.
+void drawChild(const ViewTree& tree, Tag child, float ox, float oy, const Clip& clip, float opacity, Painter& painter,
+               RenderStats& stats, const TextInputEdit& edit, const Affine* stretch) {
+  if (!stretch) return drawView(tree, child, ox, oy, clip, opacity, painter, stats, edit);
+  auto it = tree.views().find(child);
+  if (it == tree.views().end()) return;
+  std::string name = it->second.view.componentName ? it->second.view.componentName : "";
+  if (ownSurface(name) || isModal(name)) return;
+  drawTransformed(tree, child, stretch->after(Affine::translation(ox, oy).after(viewTransform(it->second.view))), clip,
+                  opacity, painter, stats, edit);
+}
+
+// Whether some child drawn at (ox, oy), through `stretch` if any, draws within the device pixels
+// `square`.
 bool childReaches(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy, const PixelBox& square,
-                  float scale) {
+                  float scale, const Affine* stretch) {
   Rect area{{square.x0 / scale, square.y0 / scale},
             {(square.x1 - square.x0) / scale, (square.y1 - square.y0) / scale}};
   for (Tag child : children) {
@@ -1572,6 +1586,7 @@ bool childReaches(const ViewTree& tree, const std::vector<Tag>& children, float 
     if (ownSurface(name) || isModal(name)) continue;
     Rect drawn = viewTransform(found->second.view).bounds(localBounds(tree, child));
     drawn.origin.x += ox, drawn.origin.y += oy;
+    if (stretch) drawn = stretch->bounds(drawn);
     Rect common = Rect::intersect(drawn, area);
     if (common.size.width > 0 && common.size.height > 0) return true;
   }
@@ -1584,7 +1599,8 @@ bool childReaches(const ViewTree& tree, const std::vector<Tag>& children, float 
 // are covered once, by the rounded box's coverage.
 void drawThroughRoundedLayer(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy,
                              const Clip& clip, const ChildClip& box, const PixelBox& whole, const PixelBox& layerBox,
-                             float opacity, Painter& painter, RenderStats& stats, const TextInputEdit& edit) {
+                             float opacity, Painter& painter, RenderStats& stats, const TextInputEdit& edit,
+                             const Affine* stretch) {
   const float scale = painter.scale();
   // The layer is the painter's own kind (on the GPU, a device image), as a blur's or a transformed
   // view's is.
@@ -1598,7 +1614,12 @@ void drawThroughRoundedLayer(const ViewTree& tree, const std::vector<Tag>& child
   inside.toSurface = painter.toSurface.after(Affine::translation(left, top));
   inside.surfaceClip = painter.surfaceClip;
   Clip pixels{whole.x0 / scale - left, whole.y0 / scale - top, whole.x1 / scale - left, whole.y1 / scale - top};
-  for (Tag child : children) drawView(tree, child, ox - left, oy - top, pixels, opacity, inside, stats, edit);
+  // The stretch in the layer's coordinates.
+  Affine moved = stretch ? Affine::translation(-left, -top).after(stretch->after(Affine::translation(left, top)))
+                         : Affine{};
+  for (Tag child : children) {
+    drawChild(tree, child, ox - left, oy - top, pixels, opacity, inside, stats, edit, stretch ? &moved : nullptr);
+  }
   painter.imageOf(content, left, top, content.width / scale, content.height / scale, clip, box.x, box.y, box.w,
                   box.h, box.radii, 1.0f);
 }
@@ -1614,7 +1635,7 @@ void drawThroughRoundedLayer(const ViewTree& tree, const std::vector<Tag>& child
 // reaches needs nothing.
 void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, float ox, float oy, Clip clip,
                         const ChildClip& box, float opacity, Painter& painter, RenderStats& stats,
-                        const TextInputEdit& edit) {
+                        const TextInputEdit& edit, const Affine* stretch) {
   Clip inner = clip.intersect(Clip{box.x, box.y, box.x + box.w, box.y + box.h});
   PixelBox whole = devicePixels(painter, box.x, box.y, box.w, box.h, clip);
   const std::array<int, 4> region = painter.region();
@@ -1622,7 +1643,7 @@ void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, 
                    std::min(whole.y1, region[3])};
   const float scale = painter.scale();
   auto direct = [&](RenderStats& into) {
-    for (Tag child : children) drawView(tree, child, ox, oy, inner, opacity, painter, into, edit);
+    for (Tag child : children) drawChild(tree, child, ox, oy, inner, opacity, painter, into, edit, stretch);
   };
   std::array<PixelBox, 4> squares = painted.empty() ? std::array<PixelBox, 4>{} : cornerSquares(box, painted, scale);
   std::array<bool, 4> cut{};
@@ -1630,7 +1651,7 @@ void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, 
   bool overlapping = false;
   for (int i = 0; i < 4; ++i) {
     if (squares[i].empty()) continue;
-    cut[i] = childReaches(tree, children, ox, oy, squares[i], scale);
+    cut[i] = childReaches(tree, children, ox, oy, squares[i], scale, stretch);
     cornerArea += static_cast<long>(squares[i].x1 - squares[i].x0) * (squares[i].y1 - squares[i].y0);
     for (int j = 0; j < i; ++j) {
       const PixelBox& a = squares[i];
@@ -1644,7 +1665,8 @@ void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, 
   }
   const long area = static_cast<long>(painted.x1 - painted.x0) * (painted.y1 - painted.y0);
   if (overlapping || area < 4 * cornerArea) {
-    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, painted, opacity, painter, stats, edit);
+    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, painted, opacity, painter, stats, edit,
+                            stretch);
     return;
   }
   // The bands: the painted rows cut where a corner's square begins or ends, each row band's
@@ -1680,7 +1702,8 @@ void drawRoundedClipped(const ViewTree& tree, const std::vector<Tag>& children, 
   painter.limit(region[0], region[1], region[2], region[3]);
   for (int i = 0; i < 4; ++i) {
     if (!cut[i]) continue;
-    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, squares[i], opacity, painter, again, edit);
+    drawThroughRoundedLayer(tree, children, ox, oy, clip, box, whole, squares[i], opacity, painter, again, edit,
+                            stretch);
   }
 }
 
@@ -1844,12 +1867,28 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     return;
   }
 
+  // A scroll view stretched past its end (overscroll, input.h), as Android 12's stretch draws its
+  // render node: its content scaled along the axis by one and the stretch, from the edge it is
+  // pulled past, within what it clips to.
+  std::optional<Affine> stretch;
+  if (name == "ScrollView") {
+    Point amount = tree.stretch(tag);
+    if (amount.x != 0 || amount.y != 0) {
+      float bx = clipsTo ? clipsTo->x : x, by = clipsTo ? clipsTo->y : y;
+      float bw = clipsTo ? clipsTo->w : w, bh = clipsTo ? clipsTo->h : h;
+      float edgeX = amount.x < 0 ? bx : bx + bw, edgeY = amount.y < 0 ? by : by + bh;
+      float sx = 1 + std::abs(amount.x), sy = 1 + std::abs(amount.y);
+      stretch = Affine{sx, 0, 0, sy, edgeX * (1 - sx), edgeY * (1 - sy)};
+    }
+  }
+  const Affine* stretched = stretch ? &*stretch : nullptr;
   if (clipsTo && clipsTo->rounded()) {
-    drawRoundedClipped(tree, it->second.children, childOx, childOy, clip, *clipsTo, opacity, painter, stats, edit);
+    drawRoundedClipped(tree, it->second.children, childOx, childOy, clip, *clipsTo, opacity, painter, stats, edit,
+                       stretched);
     return;
   }
   for (Tag child : it->second.children) {
-    drawView(tree, child, childOx, childOy, childClip, opacity, painter, stats, edit);
+    drawChild(tree, child, childOx, childOy, childClip, opacity, painter, stats, edit, stretched);
   }
 }
 

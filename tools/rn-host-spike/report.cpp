@@ -187,6 +187,12 @@ void Report::fling(const ShadowView& view, float vx, float vy, double dx, double
       "friction", friction));
 }
 
+void Report::stretch(const ShadowView& view, float x, float y, float distanceX, float distanceY) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "stretch")("target", name(view))("x", x)("y", y)("pulled_x", distanceX)(
+      "pulled_y", distanceY));
+}
+
 void Report::textScroll(const ShadowView& view, float x, float y) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "text_scroll")("target", name(view))("x", x)("y", y));

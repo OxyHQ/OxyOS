@@ -14,6 +14,7 @@
 #include "key-chords.h"
 #include "images.h"
 #include "input.h"
+#include "overscroll.h"
 #include "intl.h"
 #include "modal.h"
 #include "network.h"
@@ -517,7 +518,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<ParagraphComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RawTextComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<TextComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ScrollViewComponentDescriptor>());
+  // React Native's ScrollView, keeping its Android overScrollMode (overscroll.h).
+  providers->add(concreteComponentDescriptorProvider<oxyos::ScrollViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
@@ -1531,6 +1533,14 @@ int main(int argc, char** argv) {
           // scale change keeps every logical frame); the old one would be discarded.
           dirty = true;
           busy = true;
+        }
+        // A scroll view stretched past its end, or springing back (overscroll, input.h), draws again.
+        if (pointer.takeStretchChanged()) {
+          tree.setStretches(pointer.stretches());
+          dirty = true;
+          busy = true;
+          popups.changed();
+          shellSurfaces.changed();
         }
         bool mounted = mounter.takeChanged();
         if (mounted) {
