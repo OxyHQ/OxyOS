@@ -1,0 +1,101 @@
+{
+  "about": "touchpad-hold.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same flick and glide, each scroll event stamped when it was dispatched, and the same resting fingers stopping the second glide under them.",
+  "module": "GlideProbe",
+  "window": [
+    600,
+    360
+  ],
+  "steps": [
+    {
+      "name": "a flick glides its distance, every scroll event stamped when it was dispatched",
+      "do": [
+        "flick",
+        [
+          150,
+          150,
+          120,
+          6,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [
+            8,
+            60
+          ],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "scroll": 7
+          }
+        },
+        "glide": {
+          "view": "list",
+          "velocity": [
+            900,
+            1500
+          ],
+          "frames_min": 8
+        },
+        "scroll_times": "dispatch",
+        "texts": [
+          "Glide 1: scrolls stamped rising yes, momentum stamped yes"
+        ],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "another flick, and fingers resting on the touchpad 150 ms after the lift: the glide stops under them, its momentum ending once, and lifting unmoved they begin no drag",
+      "do": [
+        "flick_hold",
+        [
+          150,
+          150,
+          120,
+          6,
+          60,
+          150
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [
+            8,
+            40
+          ],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {
+          "1": {
+            "scroll": 7,
+            "hold.begin": 1,
+            "hold.end": 1
+          }
+        },
+        "glide": {
+          "view": "list",
+          "velocity": [
+            900,
+            1500
+          ],
+          "held": true
+        },
+        "scroll_times": "dispatch",
+        "texts": [
+          "Glide 2: scrolls stamped rising yes, momentum stamped yes"
+        ],
+        "focus_surface": 1
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

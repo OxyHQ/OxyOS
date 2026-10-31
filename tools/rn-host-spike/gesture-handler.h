@@ -53,6 +53,10 @@ class GestureHandlerHost {
   // Android's touchpad pinch reports its own.
   void fingers(uint8_t action, size_t index, const SurfaceContent& content,
                const std::vector<facebook::react::Point>& points);
+  // When the device registered the event being handled (PointerInput::eventTimeMs), in
+  // milliseconds of the monotonic clock: what velocities and detectors measure by. Timers run on
+  // when the host handles it, as RNGH's Android handlers post theirs.
+  std::function<uint64_t()> eventTimeMs;
   // Timers due fire. Once per loop; true if anything was delivered.
   bool tick();
   // When a handler's timer next falls due (a long press, a tap's wait), if one is set.

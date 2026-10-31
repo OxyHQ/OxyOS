@@ -24,9 +24,15 @@ const GROWN_IN_3: &[(u8, &[u8])] = &[
 /// Opcodes version 3 added: GPU buffers (ADR 0031), in both directions.
 const ADDED_IN_3: std::ops::RangeInclusive<u8> = 170..=174;
 
+/// Events version 4 added: a touchpad's resting fingers (Hold), sent unasked to the surface under
+/// the pointer, so never to an older client.
+const EVENTS_ADDED_IN_4: &[u8] = &[58];
+
 /// The version that introduced an event.
 pub fn event_since(event: &Event) -> u16 {
-    if ADDED_IN_3.contains(&event.opcode()) {
+    if EVENTS_ADDED_IN_4.contains(&event.opcode()) {
+        4
+    } else if ADDED_IN_3.contains(&event.opcode()) {
         3
     } else {
         2

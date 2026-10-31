@@ -4,7 +4,8 @@
 //! (docs/native-foundation.mdx).
 
 use input::event::gesture::{
-    GestureEndEvent, GestureEvent, GestureEventTrait, GesturePinchEvent, GesturePinchEventTrait,
+    GestureEndEvent, GestureEvent, GestureEventTrait, GestureHoldEvent, GesturePinchEvent,
+    GesturePinchEventTrait,
 };
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
 use input::event::pointer::{Axis, ButtonState, PointerEventTrait, PointerScrollEvent};
@@ -72,6 +73,13 @@ pub enum Action {
         phase: GesturePhase,
         scale: f64,
         rotation: f64,
+    },
+    /// A touchpad's fingers resting on it, still (libinput's hold gesture): Begin when they land
+    /// and stay; End when they lift without moving; Cancel when they move on (a scroll or a pinch
+    /// follows) or a button is pressed. Never Update. `fingers` is how many rest.
+    Hold {
+        phase: GesturePhase,
+        fingers: u32,
     },
 }
 
@@ -651,6 +659,13 @@ impl Input {
                     };
                     actions.push(self.pinch(phase, pinch.scale(), angle));
                 }
+                input::Event::Gesture(GestureEvent::Hold(hold)) => {
+                    let fingers = hold.finger_count() as u32;
+                    actions.push(Action::Hold {
+                        phase: hold_phase(&hold),
+                        fingers,
+                    });
+                }
                 input::Event::Keyboard(KeyboardEvent::Key(key)) => {
                     let pressed = key.key_state() == KeyState::Pressed;
                     let caps = self.keyboard.caps_locked();
@@ -724,6 +739,15 @@ pub fn confine(area: &[(f64, f64, f64, f64)], x: f64, y: f64) -> (f64, f64) {
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map_or((x, y), |(_, at)| at)
+}
+
+/// A hold's phase: libinput's end is cancelled when the fingers moved on or a button was pressed.
+fn hold_phase(hold: &GestureHoldEvent) -> GesturePhase {
+    match hold {
+        GestureHoldEvent::Begin(_) => GesturePhase::Begin,
+        GestureHoldEvent::End(end) if end.cancelled() => GesturePhase::Cancel,
+        _ => GesturePhase::End,
+    }
 }
 
 fn scroll_action(scroll: &impl PointerScrollEvent, source: ScrollSource) -> Action {

@@ -422,7 +422,8 @@ pub unsafe extern "C" fn oxyos_gestures_set_state(
 }
 
 /// One event of the pointer stream: `action` about pointer `index` of the `count` pointers down
-/// (root coordinates), at `time` milliseconds, of `pointer_type` (react-native-gesture-handler's:
+/// (root coordinates), handled at `time` and registered by its device at `event_time`, both in
+/// milliseconds of the monotonic clock (`Touch::time`, `Touch::event_time`), of `pointer_type` (react-native-gesture-handler's:
 /// 0 touch, 1 stylus, 2 mouse). For a pointer going down, `hits` are the views under it, deepest
 /// first, then that view's ancestors to the root. `frame` gives a view's frame, called with
 /// `context`. 0, or OXYOS_ERROR.
@@ -441,6 +442,7 @@ pub unsafe extern "C" fn oxyos_gestures_touch(
     pointers: *const OxyOSGesturePointer,
     count: usize,
     time: u64,
+    event_time: u64,
     pointer_type: u8,
     hits: *const i32,
     hit_count: usize,
@@ -490,6 +492,7 @@ pub unsafe extern "C" fn oxyos_gestures_touch(
             })
             .collect(),
         time,
+        event_time,
         pointer_type,
     };
     let lookup = |view: i32| {

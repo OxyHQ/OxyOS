@@ -96,6 +96,7 @@ fn the_header_matches_the_abi() {
         ("OXYOS_EVENT_FEEDBACK", OXYOS_EVENT_FEEDBACK.into()),
         ("OXYOS_EVENT_RELEASED", OXYOS_EVENT_RELEASED.into()),
         ("OXYOS_EVENT_SCROLL", OXYOS_EVENT_SCROLL.into()),
+        ("OXYOS_EVENT_HOLD", OXYOS_EVENT_HOLD.into()),
         ("OXYOS_EVENT_TEXT", OXYOS_EVENT_TEXT.into()),
         ("OXYOS_EVENT_PREEDIT", OXYOS_EVENT_PREEDIT.into()),
         (
@@ -1804,6 +1805,30 @@ fn a_pinch_converts_field_by_field() {
 }
 
 #[test]
+fn resting_fingers_convert_field_by_field() {
+    let hold = Event::Hold {
+        surface: 3,
+        serial: 9,
+        phase: GesturePhase::Begin,
+        fingers: 2,
+        time_ns: 5_000_000_123,
+    };
+    assert_eq!(u32::from(hold.opcode()), OXYOS_EVENT_HOLD);
+    let event = convert(&hold).unwrap();
+    assert_eq!(
+        (
+            event.kind,
+            event.surface,
+            event.serial,
+            event.detail,
+            event.code,
+            event.time_ns
+        ),
+        (OXYOS_EVENT_HOLD, 3, 9, OXYOS_PINCH_BEGIN, 2, 5_000_000_123)
+    );
+}
+
+#[test]
 fn window_events_convert_field_by_field() {
     let state = convert(&Event::WindowState {
         window: 7,
@@ -2172,6 +2197,7 @@ fn a_tap_is_recognized_through_the_c_abi() {
                 pointer.as_ptr(),
                 1,
                 time,
+                time,
                 2,
                 hits.as_ptr(),
                 hits.len(),
@@ -2245,6 +2271,7 @@ fn a_tap_is_recognized_through_the_c_abi() {
                 3,
                 pointer.as_ptr(),
                 1,
+                1200,
                 1200,
                 2,
                 hits.as_ptr(),

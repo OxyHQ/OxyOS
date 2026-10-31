@@ -1,0 +1,74 @@
+{
+  "about": "A gesture handler's velocity measured by when the hand moved (sample/GlideProbe.tsx; crates/oxyos-gestures, gesture-handler.h): a react-native-gesture-handler pan dragged 200 pixels in 20 motions at 100 Hz, each motion carrying its device's time (the director's paced time), ends at 1000 px/s, as Android's VelocityTracker measures a MotionEvent stream by its eventTime. The second pan's beginning holds JavaScript's thread for 300 ms, so the host handles its motions together once it is free: it still ends at 1000 px/s. Its timers (a long press, a tap's wait) still run on when the host handles the events, as RNGH's Android handlers post theirs. Before, the handlers measured by when the host handled each motion, and the busy pan ended at another velocity.",
+  "module": "GlideProbe",
+  "window": [
+    600,
+    360
+  ],
+  "steps": [
+    {
+      "name": "a pan of 200 pixels in 200 ms ends at 1000 px/s",
+      "do": [
+        "drag_paced",
+        [
+          680,
+          330,
+          880,
+          330,
+          20,
+          100
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pan 1 ended at 1000 px/s"
+        ],
+        "react": {
+          "touchStart@pan": 1,
+          "touchMove@pan": 1,
+          "touchCancel@pan": 1
+        },
+        "gesture_states": [
+          "PanGestureHandler@pan UNDETERMINED>BEGAN",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@pan BEGAN>ACTIVE",
+          "PanGestureHandler@pan ACTIVE>END"
+        ],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "the same pan behind 300 ms of busy JavaScript, its motions handled together: still 1000 px/s",
+      "do": [
+        "drag_paced",
+        [
+          680,
+          330,
+          880,
+          330,
+          20,
+          100
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pan 2 ended at 1000 px/s"
+        ],
+        "react": {
+          "touchStart@pan": 1,
+          "touchMove@pan": 1,
+          "touchCancel@pan": 1
+        },
+        "gesture_states": [
+          "PanGestureHandler@pan UNDETERMINED>BEGAN",
+          "intercept",
+          "PanGestureHandler cancels the responder",
+          "PanGestureHandler@pan BEGAN>ACTIVE",
+          "PanGestureHandler@pan ACTIVE>END"
+        ],
+        "focus_surface": 1
+      }
+    }
+  ]
+}

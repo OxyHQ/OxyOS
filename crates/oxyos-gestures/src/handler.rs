@@ -66,7 +66,10 @@ pub(crate) struct Event {
     pub(crate) action: Action,
     pub(crate) index: usize,
     pub(crate) pointers: Vec<Pointer>,
+    /// When the host handles it (Touch::time): timers' and durations' clock.
     pub(crate) time: u64,
+    /// When its device registered it (Touch::event_time): velocities' and detectors' clock.
+    pub(crate) event_time: u64,
 }
 
 impl Event {
@@ -389,6 +392,7 @@ impl Handler {
             index,
             pointers,
             time: touch.time,
+            event_time: touch.event_time,
         }
     }
 
@@ -733,7 +737,7 @@ fn pan_handle(o: &mut Orchestrator, tag: Tag, event: &Event) {
         }
     } else if let Some(tracker) = &mut p.tracker {
         tracker.add(event);
-        p.velocity = tracker.velocity(now);
+        p.velocity = tracker.velocity(event.event_time);
     }
     let p = pan(o, tag);
     let (min_pointers, max_pointers) = (p.config.min_pointers, p.config.max_pointers);
@@ -1099,7 +1103,7 @@ fn try_end_fling(o: &mut Orchestrator, tag: Tag, event: &Event) -> bool {
         return false;
     };
     tracker.add(event);
-    let (vx, vy) = tracker.velocity(event.time);
+    let (vx, vy) = tracker.velocity(event.event_time);
     let (vx, vy) = (f64::from(vx), f64::from(vy));
     let velocity = unit(vx, vy);
     let aligned = |direction: u32, cone: f64| {
@@ -1235,7 +1239,7 @@ impl ScaleDetector {
     /// `onTouchEvent`. The listener's `onScaleBegin` and `onScale` always return true for a
     /// pinch, as it continues and takes every scale.
     fn on_touch(&mut self, event: &Event, listener: &mut dyn FnMut(ScaleCall, &ScaleDetector)) {
-        self.curr_time = event.time;
+        self.curr_time = event.event_time;
         let action = event.action;
         let stream_complete = matches!(action, Action::Up | Action::Cancel);
         if action == Action::Down || stream_complete {
@@ -1442,7 +1446,7 @@ impl RotationDetector {
 
     fn update_current(&mut self, event: &Event) {
         self.previous_time = self.current_time;
-        self.current_time = event.time;
+        self.current_time = event.event_time;
         let find = |id: Option<u32>| id.and_then(|id| event.pointers.iter().find(|p| p.id == id));
         let (Some(first), Some(second)) = (find(self.pointers[0]), find(self.pointers[1])) else {
             return;
@@ -1497,7 +1501,7 @@ impl RotationDetector {
                     return None;
                 }
                 self.in_progress = true;
-                self.previous_time = event.time;
+                self.previous_time = event.event_time;
                 // The first move after the second pointer down turns nothing, as on Android.
                 self.previous_angle = f64::NAN;
                 Some(RotationCall::Begin)

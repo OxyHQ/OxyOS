@@ -15,6 +15,8 @@ struct World {
     frames: BTreeMap<ViewTag, Frame>,
     down: Vec<Pointer>,
     time: u64,
+    /// How long after its device registered it the host handles an event (a slow frame).
+    lag: u64,
     hits: Vec<ViewTag>,
     /// What the last event sent, for its data.
     last: Vec<Output>,
@@ -38,6 +40,7 @@ impl World {
             frames,
             down: Vec::new(),
             time: 1000,
+            lag: 0,
             hits: vec![VIEW, PARENT, ROOT],
             last: Vec::new(),
         }
@@ -58,7 +61,8 @@ impl World {
             action,
             index,
             pointers: self.down.clone(),
-            time: self.time,
+            time: self.time + self.lag,
+            event_time: self.time,
             pointer_type: PointerType::Mouse,
         };
         let frames = self.frames.clone();
@@ -243,6 +247,25 @@ fn a_pans_velocity_is_its_pointers() {
     w.after(50).lift(0);
     let end = data(&w.last[0]).clone();
     assert_eq!(end.velocity, Some((0.0, 0.0)));
+}
+
+#[test]
+fn a_pans_velocity_is_measured_by_when_its_device_registered_the_motions() {
+    let mut w = World::new();
+    w.handler("PanGestureHandler", 1, VIEW, &[]);
+    w.press(0, 60.0, 60.0);
+    // The host was busy for 300 ms after the press: the motions, made ten pixels every ten
+    // milliseconds, are all handled together once it is free, as Android's VelocityTracker
+    // still measures them by their MotionEvents' eventTime.
+    for step in 1..=6 {
+        w.lag = 300 - 10 * step;
+        w.after(10).drag(0, 60.0 + 10.0 * step as f32, 60.0);
+    }
+    let (vx, vy) = data(w.last.last().expect("update"))
+        .velocity
+        .expect("a pan's");
+    assert!((vx - 1000.0).abs() < 1.0, "{vx}");
+    assert!(vy.abs() < 1.0, "{vy}");
 }
 
 #[test]
@@ -805,6 +828,7 @@ fn velocity_follows_the_first_pointer_down_then_the_first_left() {
             .map(|&(id, x)| Pointer { id, x, y: 0.0 })
             .collect(),
         time,
+        event_time: time,
     };
     let mut tracker = Tracker::default();
     // Pointer 0 moves at 1000 px/s, pointer 1 at -500 px/s.
@@ -903,6 +927,7 @@ fn velocity_forgets_movement_before_a_pause() {
         index: 0,
         pointers: vec![Pointer { id: 0, x, y: 0.0 }],
         time,
+        event_time: time,
     };
     let mut tracker = Tracker::default();
     tracker.add(&event(Action::Down, 0.0, 0));
