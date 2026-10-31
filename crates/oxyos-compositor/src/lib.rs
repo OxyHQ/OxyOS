@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 pub mod arrangement;
 pub mod controls;
 mod gpu_buffers;
+pub mod scanout;
 pub use gpu_buffers::GpuFrame;
 pub mod displays;
 pub mod idle;
@@ -142,6 +143,9 @@ pub struct Screen {
     shown_locked: bool,
     /// The frame just shown was kept on the device for `framebuffer_from_gpu`.
     pub shown_kept: bool,
+    /// A full-screen window's buffer on its display's primary plane, and the surface told it
+    /// could be (docs/adr/0031-gpu-buffers.mdx, decision 8).
+    pub(crate) direct: scanout::Direct,
 }
 
 impl Screen {
@@ -178,6 +182,7 @@ impl Screen {
             composing_locked: false,
             shown_locked: false,
             shown_kept: false,
+            direct: scanout::Direct::default(),
         }
     }
 
@@ -438,6 +443,9 @@ pub struct Compositor {
     /// With `--gpu-only`: frames are composed on the Vulkan device alone, with no CPU reference;
     /// the frame the director checks is the one composed, read back after it is shown.
     pub gpu_only: bool,
+    /// Frames shown by putting a full-screen window's buffer on its display's primary plane
+    /// (docs/adr/0031-gpu-buffers.mdx, decision 8).
+    pub direct_frames: u64,
     /// With `gpu_only`: whether every frame shown is read back into `framebuffer`, as the
     /// development compositor's checks need. A session never reads its frames back.
     pub reads_back: bool,
@@ -855,6 +863,7 @@ impl Compositor {
             local_events: Vec::new(),
             gpu: None,
             gpu_only: false,
+            direct_frames: 0,
             reads_back: true,
             records: true,
             ending: false,
@@ -1439,6 +1448,7 @@ impl Compositor {
     /// without one completes its frame at once. Each screen's frame presents the surfaces on it
     /// (`Scene::begin_frame_on`) and completes at its own flip.
     pub fn frame(&mut self) {
+        self.follow_direct();
         // The pointer is on the cursor plane of the display it is over, placed by every commit,
         // in the shape the surface under it wants; the other displays hide it.
         let shape = self.scene.pointer_shape();
@@ -2325,6 +2335,8 @@ impl Compositor {
                 (0, Clock::Synthetic)
             }
             Ok(Some(flip)) => {
+                // What it shows now holds its client's buffer; what it showed is let go.
+                screen.direct.shown = screen.direct.next.take();
                 if self.records {
                     screen.flips.push((submitted, flip));
                 }
@@ -2346,6 +2358,9 @@ impl Compositor {
             }
         };
         screen.pending_flip = None;
+        // A frame that never flipped leaves the one shown on the display.
+        screen.direct.next = None;
+        let shown_direct = screen.direct.shown_direct;
         let id = screen.id;
         self.scene.end_frame_on(id, timestamp_ns, clock);
         self.retire();
@@ -2355,7 +2370,13 @@ impl Compositor {
             screen.flipped = shown;
             screen.shown_locked = screen.composing_locked;
         }
-        if self.gpu_only && self.reads_back && clock == Clock::Monotonic && vblank.is_none() {
+        // A client's buffer shown directly was copied for the director when it was handed over.
+        if self.gpu_only
+            && self.reads_back
+            && clock == Clock::Monotonic
+            && vblank.is_none()
+            && !shown_direct
+        {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
@@ -2646,6 +2667,17 @@ impl Compositor {
         if self.away {
             return false;
         }
+        let screen = &mut self.screens[index];
+        if screen.display.is_none() {
+            return false;
+        }
+        // A full-screen window's buffer straight to the display, where it can be (ADR 0031,
+        // decision 8); its surface told whether it could be first.
+        self.tell_scanout(index);
+        if let Some(shown) = self.present_direct(index, layers) {
+            return shown;
+        }
+        self.composing_again(index);
         let screen = &mut self.screens[index];
         let Some(display) = screen.display.as_mut() else {
             return false;

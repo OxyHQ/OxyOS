@@ -1660,6 +1660,7 @@ dependencies = [
 name = "oxyos-compositor"
 version = "0.1.0"
 dependencies = [
+ "drm",
  "oxyos-auth",
  "oxyos-client",
  "oxyos-compositor-core",

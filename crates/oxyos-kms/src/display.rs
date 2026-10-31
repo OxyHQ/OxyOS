@@ -38,6 +38,12 @@ pub struct Display {
     shown_pointer: Option<(i32, i32, usize)>,
     /// The framebuffer the last commit showed.
     front: Option<framebuffer::Handle>,
+    /// The formats and modifiers its primary plane scans out (`IN_FORMATS`).
+    formats: Vec<(DrmFourcc, u64)>,
+    /// Clients' buffers made framebuffers of this card to scan out directly
+    /// (docs/adr/0031-gpu-buffers.mdx, decision 8), by the caller's key; `None`: the card refused
+    /// it, and it is not asked again.
+    client_framebuffers: std::collections::HashMap<u64, Option<framebuffer::Handle>>,
 }
 
 struct Cursor {
@@ -209,6 +215,12 @@ impl Display {
             })
             .ok_or_else(|| not_found("no primary plane for the CRTC"))?;
         let (width, height) = mode.size();
+        let formats = card
+            .planes()?
+            .into_iter()
+            .find(|plane| plane.id == u32::from(primary))
+            .map(|plane| plane.formats)
+            .unwrap_or_default();
         let mut display = Self {
             card,
             connector,
@@ -223,6 +235,8 @@ impl Display {
             pointer: None,
             shown_pointer: None,
             front: None,
+            formats,
+            client_framebuffers: std::collections::HashMap::new(),
         };
         display.cursor = display.prepare_cursor(&resources, in_use).ok().flatten();
         for _ in 0..2 {
@@ -334,6 +348,46 @@ impl Display {
     }
 
     /// The card this display drives (to import buffers into it, for one).
+    /// The formats and modifiers the display's primary plane scans out.
+    pub fn primary_formats(&self) -> &[(DrmFourcc, u64)] {
+        &self.formats
+    }
+
+    /// The framebuffer of a client's buffer to scan out, by the caller's `key`: made once with
+    /// `make`, and never asked again once the card refused it.
+    pub fn client_framebuffer(
+        &mut self,
+        key: u64,
+        make: impl FnOnce(&Card) -> io::Result<framebuffer::Handle>,
+    ) -> Option<framebuffer::Handle> {
+        let card = &self.card;
+        *self
+            .client_framebuffers
+            .entry(key)
+            .or_insert_with(|| match make(card) {
+                Ok(framebuffer) => Some(framebuffer),
+                Err(error) => {
+                    eprintln!("[kms] a client's buffer cannot be scanned out: {error}");
+                    None
+                }
+            })
+    }
+
+    /// The card took a client's framebuffer but not a commit showing it: it is removed and not
+    /// made again (the buffer is composed instead).
+    pub fn refuse_client_framebuffer(&mut self, key: u64) {
+        self.forget_client_framebuffer(key);
+        self.client_framebuffers.insert(key, None);
+    }
+
+    /// The client's buffer `key` is gone: its framebuffer goes (never while it is shown: the
+    /// caller holds the buffer until a later flip replaced it).
+    pub fn forget_client_framebuffer(&mut self, key: u64) {
+        if let Some(Some(framebuffer)) = self.client_framebuffers.remove(&key) {
+            self.card.remove_framebuffer(framebuffer);
+        }
+    }
+
     pub fn card(&self) -> &Card {
         &self.card
     }
@@ -694,6 +748,9 @@ impl Display {
 
 impl Drop for Display {
     fn drop(&mut self) {
+        for framebuffer in self.client_framebuffers.drain().filter_map(|(_, fb)| fb) {
+            let _ = self.card.destroy_framebuffer(framebuffer);
+        }
         for (buffer, framebuffer) in self.buffers.drain(..) {
             let _ = self.card.destroy_framebuffer(framebuffer);
             let _ = self.card.destroy_dumb_buffer(buffer);

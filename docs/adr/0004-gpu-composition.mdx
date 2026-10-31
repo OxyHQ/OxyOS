@@ -171,7 +171,7 @@ Still to do:
 - a session process instead of the development fixture;
 - explicit synchronization: today the host waits for the composition's fence before flipping, and implicit sync is not relied on;
 - tiled modifiers, which are faster to scan out (only linear now);
-- client buffers as images and DMA-BUF import from clients;
+- client buffers as images and DMA-BUF import from clients: done ([ADR 0031](./0031-gpu-buffers)), with the scanout of a full-screen window's buffer;
 - filling and uploading only what changed, then importing client buffers as DMA-BUF;
 - composing at a deadline before the refresh (flips no longer block; frames are still composed when they arrive).
 

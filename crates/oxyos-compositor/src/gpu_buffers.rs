@@ -27,8 +27,8 @@ pub const MAX_PLANES: usize = 4;
 /// device it composes on (0: none, the CPU) and each format and modifier with its planes.
 pub struct Offer {
     node: Arc<RenderNode>,
-    device: u64,
-    formats: Vec<(Format, u64, u32)>,
+    pub(crate) device: u64,
+    pub(crate) formats: Vec<(Format, u64, u32)>,
 }
 
 /// One plane as attached: its DMA-BUF, offset and stride.
@@ -48,9 +48,25 @@ pub struct Buffer {
     mapping: Option<Mapping>,
     image: Option<u64>,
     bytes: u64,
+    modifier: u64,
+    /// The compositor's own number for it, unique for the session: what a display knows its
+    /// framebuffer by when it is scanned out directly (decision 8).
+    serial: u64,
     /// Held by every frame read from it ([`GpuFrame`]): while a transition draws a frame of it,
     /// it is not released.
     uses: Rc<()>,
+}
+
+/// A client's GPU buffer as a display scans it out: the session's number for it, its layout
+/// and planes, its import, and what holds its release back while a display shows it.
+pub(crate) struct ScanoutSource<'a> {
+    pub serial: u64,
+    pub format: Format,
+    pub modifier: u64,
+    pub extent: Size,
+    pub image: Option<u64>,
+    pub planes: Vec<(BorrowedFd<'a>, u32, u32)>,
+    pub uses: Rc<()>,
 }
 
 /// A frame's pixels in a client's GPU buffer, as a composition samples them in place.
@@ -85,7 +101,7 @@ struct AfterAcquire {
 
 #[derive(Default)]
 pub struct GpuBuffers {
-    offer: Option<Offer>,
+    pub(crate) offer: Option<Offer>,
     /// Planes attached for buffers not yet made, by connection and buffer.
     planes: HashMap<(ClientId, u64), Vec<Option<Plane>>>,
     buffers: HashMap<(ClientId, u64), Buffer>,
@@ -100,7 +116,10 @@ pub struct GpuBuffers {
     /// Released events held until no composition and no transition reads their buffer.
     released: Vec<(ClientId, Event)>,
     /// Imports of buffers gone that a transition still draws, by their uses.
-    orphans: Vec<(Option<u64>, Rc<()>)>,
+    orphans: Vec<(Option<u64>, Rc<()>, u64)>,
+    /// Buffers gone whose framebuffers on the displays go too (`Compositor::follow_direct`).
+    pub(crate) gone: Vec<u64>,
+    next_serial: u64,
     /// Each connection's frames of GPU buffers given to the scene, and how many of them waited
     /// for their acquire point (the development compositor reports them).
     frames: HashMap<ClientId, (u64, u64)>,
@@ -194,21 +213,46 @@ impl GpuBuffers {
             .collect();
         for key in gone {
             let buffer = self.buffers.remove(&key).expect("listed");
-            self.orphans.push((buffer.image, buffer.uses));
+            self.orphans
+                .push((buffer.image, buffer.uses, buffer.serial));
         }
         self.collect_orphans(gpu);
     }
 
     fn collect_orphans(&mut self, gpu: &mut Option<super::Gpu>) {
-        self.orphans.retain(|(image, uses)| {
+        let gone = &mut self.gone;
+        self.orphans.retain(|(image, uses, serial)| {
             if Rc::strong_count(uses) > 1 {
                 return true;
             }
             if let (Some(image), Some(gpu)) = (image, gpu.as_mut()) {
                 gpu.compositor.forget_dma_buf(*image);
             }
+            gone.push(*serial);
             false
         });
+    }
+
+    /// What a display needs to scan out a frame of `buffer` directly (decision 8).
+    pub(crate) fn scanout_source(
+        &self,
+        client: ClientId,
+        buffer: u64,
+    ) -> Option<ScanoutSource<'_>> {
+        let found = self.buffers.get(&(client, buffer))?;
+        Some(ScanoutSource {
+            serial: found.serial,
+            format: found.format,
+            modifier: found.modifier,
+            extent: found.extent,
+            image: found.image,
+            planes: found
+                .planes
+                .iter()
+                .map(|plane| (plane.buffer.as_fd(), plane.offset, plane.stride))
+                .collect(),
+            uses: found.uses.clone(),
+        })
     }
 
     /// The descriptors that wake a turn when a point the compositor waits for signals.
@@ -669,6 +713,11 @@ impl Compositor {
                 mapping,
                 image,
                 bytes,
+                modifier,
+                serial: {
+                    self.gpu_buffers.next_serial += 1;
+                    self.gpu_buffers.next_serial
+                },
                 uses: Rc::new(()),
             },
         );
@@ -770,7 +819,7 @@ impl Compositor {
     }
 
     /// An event to a client's outbox.
-    fn send_to(&mut self, client: ClientId, event: Event) {
+    pub(crate) fn send_to(&mut self, client: ClientId, event: Event) {
         if let Some(peer) = self.peers.get_mut(&client) {
             peer.outbox.push_back((event, None));
         }
@@ -836,7 +885,9 @@ impl Compositor {
     /// transition draws it.
     pub(crate) fn retire_gpu_buffer(&mut self, client: ClientId, buffer: u64) {
         if let Some(found) = self.gpu_buffers.buffers.remove(&(client, buffer)) {
-            self.gpu_buffers.orphans.push((found.image, found.uses));
+            self.gpu_buffers
+                .orphans
+                .push((found.image, found.uses, found.serial));
             self.gpu_buffers.collect_orphans(&mut self.gpu);
         }
     }
