@@ -535,6 +535,12 @@ messages! {
         // formats when it is no longer.
         173 => GpuScanout { surface: u32, formats: u32 },
         174 => GpuScanoutFormat { surface: u32, index: u32, format: Format, modifier: u64 },
+        // To every client, when it connects and whenever it changes (ADR 0029): the session's
+        // keyboard layout, the XKB keymap its keys are typed with, as `layout\tvariant\toptions`
+        // (variant and options may be empty), in chunks as WindowTitle's: what a client that
+        // works out a key's meaning itself (a browser's shortcuts on a key that types nothing)
+        // compiles with the same default rules and model.
+        180 => KeyboardLayout { index: u8, last: bool, text: PreeditText },
     }
 }
 

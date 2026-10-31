@@ -1829,8 +1829,9 @@ def main():
         command += ["--uinput"]
     if options.seat:
         command += ["--seat"]
-    if options.uinput:
-        # The device expectations are the scenario's layout's: its dead keys, its Shift keys.
+    if options.uinput or "layout" in scenario:
+        # The device expectations are the scenario's layout's: its dead keys, its Shift keys. It
+        # is also the layout the session tells applications (ADR 0029).
         command += ["--layout", scenario.get("layout", "us")]
     if scenario.get("outputs"):
         # Several outputs (ADR 0018), a shell on each.

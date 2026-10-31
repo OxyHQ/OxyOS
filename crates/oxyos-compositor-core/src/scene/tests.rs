@@ -7593,3 +7593,46 @@ fn a_key_the_input_method_gives_back_keeps_its_own_time() {
         .collect();
     assert_eq!(keys, [2_000_000_000]);
 }
+
+#[test]
+fn every_client_is_told_the_keyboard_layout_before_its_first_key() {
+    let mut h = Harness::new();
+    assert_eq!(
+        h.scene.set_keyboard_layout(""),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let long = "x".repeat(oxyos_protocol::MAX_KEYBOARD_LAYOUT_BYTES + 1);
+    assert_eq!(
+        h.scene.set_keyboard_layout(&long),
+        Err(ErrorCode::QuotaExceeded)
+    );
+    let layout = "de\tnodeadkeys\tcompose:ralt,grp:alt_shift_toggle";
+    h.scene.set_keyboard_layout(layout).unwrap();
+    h.pump();
+    let told = |h: &Harness, client| -> String {
+        h.events_for(client)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::KeyboardLayout { text, .. } => Some(text.as_str().to_string()),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(told(&h, APP), layout, "a connected client, in chunks");
+    let chunks: Vec<(u8, bool)> = h
+        .events_for(APP)
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::KeyboardLayout { index, last, .. } => Some((index, last)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chunks, [(0, false), (1, true)]);
+    h.scene.connect(7, Grants::default()).unwrap();
+    h.pump();
+    assert_eq!(told(&h, 7), layout, "one that connects later, at once");
+    h.clear_log();
+    h.scene.set_keyboard_layout(layout).unwrap();
+    h.pump();
+    assert_eq!(told(&h, APP), "", "only a change is told again");
+}

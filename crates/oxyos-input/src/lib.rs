@@ -282,6 +282,14 @@ impl Layout {
     }
 }
 
+impl Layout {
+    /// The layout as the protocol tells applications (ADR 0029): `layout\tvariant\toptions`,
+    /// which a client compiles with the same default rules and model.
+    pub fn names(&self) -> String {
+        format!("{}\t{}\t{}", self.layout, self.variant, self.options)
+    }
+}
+
 impl std::fmt::Display for Layout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.layout)?;

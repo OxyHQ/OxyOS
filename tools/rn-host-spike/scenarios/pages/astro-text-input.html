@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OxyOS text input</title>
+<style>
+html, body { margin: 0; height: 100%; }
+* { caret-color: transparent; caret-animation: manual; }
+body { background: #e9ecef; font: 22px sans-serif; }
+input { position: absolute; left: 20px; width: 400px; height: 40px; font: 22px sans-serif; }
+#line { top: 10px; }
+#secret { top: 60px; }
+.status { position: absolute; left: 440px; width: 120px; height: 40px; background: #868e96; }
+#composition { top: 10px; }
+#shortcut { top: 60px; }
+</style>
+</head>
+<body>
+<input id="line" autocomplete="off">
+<input id="secret" type="password">
+<div class="status" id="composition"></div>
+<div class="status" id="shortcut"></div>
+<script>
+const GOOD = "#2f9e44";
+const BAD = "#e03131";
+const paint = (element, ok) => { element.style.background = ok ? GOOD : BAD; };
+line.addEventListener("compositionupdate", (event) => {
+  if (event.data === "にほん") paint(composition, true);
+  else if (event.data === "日本") composition.style.background = "#1971c2";
+});
+line.addEventListener("keydown", (event) => {
+  if (event.ctrlKey && event.code === "KeyQ") {
+    event.preventDefault();
+    paint(shortcut, event.key === "a");
+  }
+});
+</script>
+</body>
+</html>

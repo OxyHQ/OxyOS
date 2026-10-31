@@ -19,12 +19,12 @@ cargo run --locked -p oxyos-platform-probe
 cargo run --locked -p oxyos-offscreen -- --out target/oxyos-offscreen
 ```
 
-The probe launches two independent client processes that speak protocol version 4 over Unix sockets to one shared compositor `Scene`. Each creates a toplevel and presents three frames; one also opens a popup larger than its window, checks that the compositor placed it beyond all four parent edges, and waits for its buffer to be released after destroying it. The probe then requires that no surface, client or held buffer remains. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. Completion is synthetic and labeled `Clock::Synthetic`. The probe is a finite developer tool, not an installed service or authenticated compositor.
+The probe launches two independent client processes that speak protocol version 5 over Unix sockets to one shared compositor `Scene`. Each creates a toplevel and presents three frames; one also opens a popup larger than its window, checks that the compositor placed it beyond all four parent edges, and waits for its buffer to be released after destroying it. The probe then requires that no surface, client or held buffer remains. It uses a private temporary directory, socket timeouts, connection/exit deadlines and child cleanup. No DISPLAY/WAYLAND_DISPLAY is passed to its children. Completion is synthetic and labeled `Clock::Synthetic`. The probe is a finite developer tool, not an installed service or authenticated compositor.
 
 Expected result:
 
 ```json
-{"mode":"headless-metadata","protocol":4,"clients":2,"frames":7,"popups_beyond_parent":1,"graphics":false,"bloom":false,"status":"passed"}
+{"mode":"headless-metadata","protocol":5,"clients":2,"frames":7,"popups_beyond_parent":1,"graphics":false,"bloom":false,"status":"passed"}
 ```
 
 ## Implemented ownership
@@ -79,7 +79,7 @@ Decisions and policies (roles, coordinates, grabs, outside press, dismissal, loc
 
 Tests cover: every message round trip; every truncation; length mismatches; 200,000 deterministic fuzzed streams (bit flips, truncation, random bytes, trailing garbage) that must never panic and may only decode re-encodable messages; separate request/event decoders; invalid field values; version negotiation; invalid connection order. Scene tests cover popups beyond all four parent edges, ready-content-only mapping, connection-local parenting, forged roles and grants, depth and surface quotas, stale and foreign grab serials, nested submenu chains and focus return, consumed outside presses, trigger re-press, input over another application's region, press-drag-release, parent move without detached jumps and reconstraint, parent resize reconstraint, minimize/destroy/disconnect, shell failure, 500 popup and 200 client lifecycles settling every count, lock covering outputs and surviving a lock UI crash, the lock's password (only from a lock surface while locked, one check at a time, at most 512 bytes, dropped with its surface or the lock), work areas and input regions, overlays above fullscreen and direct-scanout eligibility, shortcuts with a stalled client, stale configures during resize, touch and capture cancellation, modal dialogs, output scale change and removal, and grant revocation.
 
-## Wire contract (version 3, experimental)
+## Wire contract (version 5, experimental)
 
 Each packet is a 4-byte little-endian payload length followed by one opcode byte and fixed-width little-endian fields. Payload length is 1–64 bytes. Requests (client → compositor) and events (compositor → client) have separate opcode spaces and decoders. The table is generated from `crates/oxyos-protocol/src/schema.rs`; a test fails if this table and the schema differ.
 
@@ -300,10 +300,11 @@ Input semantics:
 | Event | 172 | BufferFailed | 9 |
 | Event | 173 | GpuScanout | 9 |
 | Event | 174 | GpuScanoutFormat | 21 |
+| Event | 180 | KeyboardLayout | 36 |
 
-The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; the compositor serves every version from `MIN_VERSION` (2) to `VERSION` (3), each connection's events encoded as its version defines them, and refuses a request newer than the connection's ([ADR 0033](./adr/0033-protocol-versions)); anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Five carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), AttachDmabufPlane (a DMA-BUF), ImportTimeline (a DRM syncobj), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
+The connection starts with Hello (a version range) answered by Welcome (the highest common version) or ProtocolError; the compositor serves every version from `MIN_VERSION` (2) to `VERSION` (5), each connection's events encoded as its version defines them, and refuses a request newer than the connection's ([ADR 0033](./adr/0033-protocol-versions)); anything before Hello, a second Hello or anything after Goodbye is `InvalidOrder` and closes the connection. A protocol error closes the connection and the compositor removes every resource of that client. These messages carry no pixels or privileges. Five carry a file descriptor, and every other carries none: AttachBuffer (a sealed memfd), AttachDmabufPlane (a DMA-BUF), ImportTimeline (a DRM syncobj), ClipboardReceive (the write end of a pipe) and the ClipboardSend event (that pipe, passed to the clipboard's owner).
 
-Not yet in the contract: the compositor's keymap and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method): the field's state and transactions are in the protocol, an input method is not), accessibility bridging, and outputs told to applications (the shell is told them, [ADR 0018](./adr/0018-several-displays)). Versions only add: new opcodes and fields at the end of existing messages, as ADR 0033 says; do not freeze a version as an SDK ABI yet.
+Not yet in the contract: the compositor's keymap itself (applications are told its XKB names, `KeyboardLayout`, ADR 0029) and IME (offscreen sends text and preedit directly; input methods are decided in [ADR 0008](./adr/0008-input-method): the field's state and transactions are in the protocol, an input method is not), accessibility bridging, and outputs told to applications (the shell is told them, [ADR 0018](./adr/0018-several-displays)). Versions only add: new opcodes and fields at the end of existing messages, as ADR 0033 says; do not freeze a version as an SDK ABI yet.
 
 ## Transport and buffers
 

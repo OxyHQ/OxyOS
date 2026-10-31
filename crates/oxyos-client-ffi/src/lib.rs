@@ -295,6 +295,7 @@ pub const OXYOS_EVENT_SYSTEM_TEXT: u32 = 160;
 pub const OXYOS_EVENT_SHEET_TEXT: u32 = 161;
 pub const OXYOS_EVENT_SHEET_DISMISSED: u32 = 162;
 pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
+pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// A DISPLAY's `flag` bits.
 pub const OXYOS_DISPLAY_PRIMARY: u8 = 1;
 pub const OXYOS_DISPLAY_BUILTIN: u8 = 2;
@@ -1321,6 +1322,16 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SHEET_DISMISSED,
                 code: sheet,
+                ..out
+            }
+        }
+        Event::KeyboardLayout { index, last, text } => {
+            let bytes = text.as_str().as_bytes();
+            out.text[..bytes.len()].copy_from_slice(bytes);
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_KEYBOARD_LAYOUT,
+                detail: u32::from(index),
+                flag: u8::from(last),
                 ..out
             }
         }

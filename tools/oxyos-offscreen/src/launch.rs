@@ -2975,6 +2975,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if launch.input_method {
         session.ime = Some(crate::ime::Ime::connect(&mut session.compositor)?);
     }
+    session
+        .compositor
+        .scene
+        .set_keyboard_layout(&oxyos_input::Layout::named(&launch.layout).names())
+        .map_err(|code| format!("layout {}: {code:?}", launch.layout))?;
     session.pasteboard = Some(crate::pasteboard::Pasteboard::connect(
         &mut session.compositor,
     )?);

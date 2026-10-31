@@ -86,6 +86,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
 #define OXYOS_EVENT_GPU_SCANOUT 173
+#define OXYOS_EVENT_KEYBOARD_LAYOUT 180
 /* A DISPLAY's flag bits. */
 #define OXYOS_DISPLAY_PRIMARY 1
 #define OXYOS_DISPLAY_BUILTIN 2
@@ -374,6 +375,11 @@ typedef struct OxyOSClient OxyOSClient;
  *                      the last (then show it); `text` the chunk.
  *   SHEET_DISMISSED    to the shell: sheet `code` is no longer asked for.
  *   CAPABILITY_RESULT  the answer to oxyos_client_request_capability `code`: `flag` 1, granted.
+ *   KEYBOARD_LAYOUT    to every client when it connects and whenever it changes (ADR 0029): a chunk
+ *                      of the session's keyboard layout, `layout\tvariant\toptions` as XKB names
+ *                      them (variant and options may be empty), compiled with the default rules
+ *                      and model; `detail` its index (0 begins it), `flag` 1 on the last, `text`
+ *                      the chunk.
 
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */
