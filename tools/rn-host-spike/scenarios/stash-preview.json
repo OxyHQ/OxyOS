@@ -1,0 +1,212 @@
+{
+ "about": "Finder's preview pane in Stash, composed as Inbox's reading pane is, with Bloom's panels (AppShellPanels beside the items, under the pane's toolbar): View > Show Preview (the toolbar's view island) shows it, it previews the one item selected (its icon or picture, large, and its facts), follows the selection, and leaves when hidden, the items taking its width back.",
+ "module": "Stash",
+ "window": [
+  1024,
+  680
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "archive.zip": {
+    "bytes": 2000
+   },
+   "Documents/": "",
+   "Downloads/": "",
+   "music.mp3": {
+    "bytes": 3000
+   },
+   "notes.txt": "hello",
+   "photo.jpg": "x",
+   "picture.png": {
+    "png": [
+     640,
+     480,
+     "#3a7bd5"
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "name": "Nothing selected, no preview pane: the items have the pane's whole width",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Show Preview",
+       "state": []
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Summary"
+      }
+     ]
+    },
+    "absent": [
+     "No selection"
+    ]
+   }
+  },
+  {
+   "name": "Show Preview, from the toolbar's view island: the pane beside the items says nothing is selected",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Show Preview"
+    ]
+   ],
+   "expect": {
+    "react": {
+     "click@preview-toggle": 1
+    },
+    "texts": [
+     "No selection"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Hide Preview",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press selects notes.txt: the pane previews it, large, with its facts",
+   "do": [
+    "press",
+    [
+     293,
+     219
+    ]
+   ],
+   "expect": {
+    "react": {
+     "touchStart@item-notes.txt": 1,
+     "touchEnd@item-notes.txt": 1
+    },
+    "texts": [
+     "Plain text",
+     "5 bytes",
+     "1 of 7 selected"
+    ],
+    "absent": [
+     "No selection"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Summary",
+       "name": "notes.txt"
+      },
+      {
+       "role": "ListItem",
+       "name": "notes.txt",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press on photo.jpg moves the preview to it: a picture the platform cannot draw, an image's page",
+   "do": [
+    "press",
+    [
+     414,
+     219
+    ]
+   ],
+   "expect": {
+    "react": {
+     "touchStart@item-photo.jpg": 1,
+     "touchEnd@item-photo.jpg": 1,
+     "loadStart@preview-photo.jpg": 1,
+     "error@preview-photo.jpg": 1,
+     "loadEnd@preview-photo.jpg": 1
+    },
+    "texts": [
+     "Image",
+     "1 byte"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Summary",
+       "name": "photo.jpg"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Summary",
+       "name": "notes.txt"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Hide Preview: the pane leaves, the items take its width back, the selection kept",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Hide Preview"
+    ]
+   ],
+   "expect": {
+    "react": {
+     "click@preview-toggle": 1
+    },
+    "texts": [
+     "1 of 7 selected"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Show Preview",
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "photo.jpg",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "Summary"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -32,6 +32,8 @@ import OverscrollProbe from './OverscrollProbe';
 import TimingProbe from './TimingProbe';
 import FrameProbe from './FrameProbe';
 import ClipProbe from './ClipProbe';
+import FidelityGallery, { fidelityPage } from './FidelityGallery';
+import FIDELITY_PAGES from './fidelity-pages.json';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -62,3 +64,6 @@ AppRegistry.registerComponent('OverscrollProbe', () => OverscrollProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
 AppRegistry.registerComponent('FrameProbe', () => FrameProbe);
 AppRegistry.registerComponent('ClipProbe', () => ClipProbe);
+// The fidelity gallery (fidelity.py): page 1 as FidelityGallery, page N as FidelityGalleryN.
+AppRegistry.registerComponent('FidelityGallery', () => FidelityGallery);
+for (const { page } of FIDELITY_PAGES.slice(1)) AppRegistry.registerComponent(`FidelityGallery${page}`, () => fidelityPage(page));

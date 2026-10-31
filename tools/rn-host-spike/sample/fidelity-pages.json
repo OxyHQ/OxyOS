@@ -1,0 +1,11 @@
+[
+  { "page": 1, "title": "Buttons and fields", "width": 1200, "height": 880 },
+  { "page": 2, "title": "Toggles, tabs, small parts and icons", "width": 1200, "height": 880 },
+  { "page": 3, "title": "Surfaces, cards and panels", "width": 1200, "height": 880 },
+  { "page": 4, "title": "Grouped sections, rows and tables", "width": 1200, "height": 880 },
+  { "page": 5, "title": "Typography", "width": 1200, "height": 880 },
+  { "page": 6, "title": "App shell islands", "width": 1200, "height": 880 },
+  { "page": 7, "title": "Dialog", "width": 1200, "height": 880 },
+  { "page": 8, "title": "Popover, tooltip and toast", "width": 1200, "height": 880 },
+  { "page": 9, "title": "App shell", "width": 1200, "height": 880 }
+]

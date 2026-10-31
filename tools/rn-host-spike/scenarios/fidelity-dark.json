@@ -1,0 +1,31 @@
+{
+  "about": "fidelity.json dark: the session's appearance dark (React Native's Appearance, Bloom's system mode), motion reduced, for fidelity.py.",
+  "module": "FidelityGallery",
+  "window": [
+    1200,
+    880
+  ],
+  "outputs": "1920x1200",
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "dark",
+      "reduce_motion": "true"
+    }
+  },
+  "steps": [
+    {
+      "name": "the page is drawn, its fonts loaded and nothing moving",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Bloom fidelity · page 1"
+        ]
+      }
+    }
+  ]
+}
