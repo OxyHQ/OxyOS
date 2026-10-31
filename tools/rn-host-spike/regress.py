@@ -217,6 +217,13 @@ through it (it gives the keys back), `compose_keys` steps have it compose them (
 and `im_change` steps send a change of its own, for the field's latest state or (`stale`) the one
 before.
 
+A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
+`press_secondary_named` and `move_named` (a name) and `hold_named` ([name, ms]) are the output's
+press, secondary press, motion and long press at the middle of the node so named that the
+session's assistive technology holds on the topmost shown surface that has one (its rectangle in
+global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
+(`Abrir Inbox`), so a change of the dock's row moves no scenario's press.
+
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
@@ -354,7 +361,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
-STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
+STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "clipboard", "menu"}
@@ -452,6 +459,13 @@ def director_args(step, out):
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
         return args + ["--scroll-paced", ",".join(map(str, value))]
+    if kind in ("press_named", "press_secondary_named", "move_named"):
+        # The output's step at the middle of the node of this accessible name (a dock's icon by
+        # its label), wherever it is when the step runs.
+        return args + ["--" + kind.replace("_", "-"), value]
+    if kind == "hold_named":
+        # A long press on the node of this name: [name, ms].
+        return args + ["--hold-named", str(value[1]), value[0]]
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
