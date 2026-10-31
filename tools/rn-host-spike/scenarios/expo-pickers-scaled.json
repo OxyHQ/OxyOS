@@ -1,0 +1,287 @@
+{
+  "about": "Expo's pickers (scenarios/expo-pickers.json) on a 1600x900 display at 1.25 (ADR 0018), its points in the window's logical pixels.",
+  "module": "ExpoPickerProbe",
+  "window": [
+    800,
+    600
+  ],
+  "app": {
+    "id": "so.oxy.expopickerprobe",
+    "title": "Expo Picker Probe"
+  },
+  "outputs": "1600x900@1.25",
+  "file_chooser": "FileChooserFixture",
+  "home": {
+    "items": {
+      "Pictures/a.png": "an image",
+      "Pictures/b b.png": "another image",
+      "Documents/": ""
+    }
+  },
+  "steps": [
+    {
+      "name": "File.pickFileAsync for PNG images: the system's file chooser, a sheet of the window",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open",
+            "Types: image/png",
+            "For: Expo Picker Probe"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a.png chosen: the File it resolves with, read",
+      "do": [
+        "press",
+        [
+          144,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: a.png \"an image\""
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "File.pickFileAsync for several files, of any type",
+      "do": [
+        "press",
+        [
+          100,
+          508
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick files: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open multiple",
+            "Types: any"
+          ]
+        }
+      }
+    },
+    {
+      "name": "both chosen: a File each",
+      "do": [
+        "press",
+        [
+          144,
+          136
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick files: a.png, b b.png"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "Directory.pickDirectoryAsync: folders chosen",
+      "do": [
+        "press",
+        [
+          100,
+          458
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick folder: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open folders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pictures chosen: the Directory, listed",
+      "do": [
+        "press",
+        [
+          144,
+          182
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick folder: Pictures (2 items)"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "expo-document-picker's getDocumentAsync for PNG images",
+      "do": [
+        "press",
+        [
+          100,
+          408
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Document: asking"
+        ],
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        },
+        "in_chooser": {
+          "texts": [
+            "Mode: open",
+            "Types: image/png"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a.png chosen: its asset is a copy in the application's cache, as Expo copies it",
+      "do": [
+        "press",
+        [
+          144,
+          90
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Document: a.png 8 bytes, a copy in the cache: an image"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "getDocumentAsync again, cancelled in the sheet",
+      "do": [
+        "press",
+        [
+          100,
+          408
+        ]
+      ],
+      "expect": {
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "cancelled: Expo's cancelled result",
+      "do": [
+        "press",
+        [
+          144,
+          320
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Document: cancelled"
+        ],
+        "chooser": null
+      }
+    },
+    {
+      "name": "File.pickFileAsync again, cancelled in the sheet",
+      "do": [
+        "press",
+        [
+          100,
+          558
+        ]
+      ],
+      "expect": {
+        "chooser": {
+          "sheet": [
+            264,
+            112,
+            752,
+            520
+          ],
+          "focused": true,
+          "window_active": true
+        }
+      }
+    },
+    {
+      "name": "cancelled: the new API's cancelled pick",
+      "do": [
+        "press",
+        [
+          144,
+          320
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Pick file: cancelled"
+        ],
+        "chooser": null
+      }
+    }
+  ]
+}

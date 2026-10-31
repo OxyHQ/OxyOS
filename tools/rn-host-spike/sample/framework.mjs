@@ -46,7 +46,7 @@ const native = [
   'react-native-svg/css', 'react-native-safe-area-context', 'react-native-screens',
   'expo', 'expo-modules-core', 'expo-asset', 'expo-font', 'expo-blur', 'expo-haptics', 'expo-image',
   'expo-constants', 'expo-linking', 'expo-keep-awake', 'expo-glass-effect',
-  'expo-file-system', 'expo-file-system/legacy',
+  'expo-file-system', 'expo-file-system/legacy', 'expo-document-picker',
   // What the host gives Expo applications (docs/react-native-android-adaptation.mdx): AsyncStorage,
   // NetInfo, expo-crypto, expo-secure-store, expo-web-browser, the clipboard, notifications and the
   // application's facts.

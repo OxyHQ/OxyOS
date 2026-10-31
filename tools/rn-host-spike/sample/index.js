@@ -37,6 +37,7 @@ import FIDELITY_PAGES from './fidelity-pages.json';
 import PanelProbe from './PanelProbe';
 import FileChooserProbe from './FileChooserProbe';
 import FileChooserFixture from './FileChooserFixture';
+import ExpoPickerProbe from './ExpoPickerProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
@@ -73,3 +74,4 @@ for (const { page } of FIDELITY_PAGES.slice(1)) AppRegistry.registerComponent(`F
 AppRegistry.registerComponent('PanelProbe', () => PanelProbe);
 AppRegistry.registerComponent('FileChooserProbe', () => FileChooserProbe);
 AppRegistry.registerComponent('FileChooserFixture', () => FileChooserFixture);
+AppRegistry.registerComponent('ExpoPickerProbe', () => ExpoPickerProbe);
