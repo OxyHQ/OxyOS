@@ -271,7 +271,14 @@ void PointerInput::pinch(const SurfaceContent& content, const OxyOSEvent& event)
   }
 }
 
+HighResTimeStamp eventTime(const OxyOSEvent& event) {
+  if (event.time_ns == 0) return HighResTimeStamp::now();
+  return HighResTimeStamp::fromChronoSteadyClockTimePoint(
+      std::chrono::steady_clock::time_point(std::chrono::nanoseconds(event.time_ns)));
+}
+
 void PointerInput::handle(const OxyOSEvent& event) {
+  eventTime_ = eventTime(event);
   if (event.kind == OXYOS_EVENT_KEY) {
     // Linux codes of the modifiers, left and right.
     bool down = event.flag != 0;
@@ -385,6 +392,7 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
     event.height = 1;
     event.button = -1;  // no button changed (W3C)
     event.buttons = buttons_;
+    event.timeStamp = eventTime_;
     event.ctrlKey = ctrl_;
     event.shiftKey = shift_;
     event.altKey = alt_;
@@ -438,6 +446,7 @@ void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, b
   event.pressure = down && button == 0 ? 0.5 : 0;
   event.button = button;
   event.buttons = buttons_;
+  event.timeStamp = eventTime_;
   event.ctrlKey = ctrl_;
   event.shiftKey = shift_;
   event.altKey = alt_;
@@ -509,6 +518,7 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface) {
     event.contentOffset = next;
     event.containerSize = viewport;
     event.zoomScale = 1;
+    event.timestamp = static_cast<Float>(eventTime_.toDOMHighResTimeStamp() / 1000);  // seconds
     emitter->onScroll(event);
   }
   Report::get().deliver("scroll", surface, view, folly::dynamic::object("x", next.x)("y", next.y));
@@ -529,7 +539,6 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
   auto emitter = std::dynamic_pointer_cast<const TouchEventEmitter>(it->second.view.eventEmitter);
   if (!emitter) return;
   Point targetOrigin = windowFrame(tree_, target_).value_or(Rect{}).origin;
-  double timestamp = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch_).count();
   bool lifted = phase == Phase::End || phase == Phase::Cancel;
   TouchEvent event{};
   for (size_t i = 0; i < fingers.size(); ++i) {
@@ -544,7 +553,9 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
     touch.target = target_;
     bool isChanged = !changed || *changed == i;
     touch.force = lifted && isChanged ? 0 : 1;
-    touch.timestamp = timestamp;
+    // JavaScript's `timestamp`, and the event's: when the device registered it.
+    touch.timeStamp = eventTime_;
+    touch.timestamp = static_cast<Float>(eventTime_.toDOMHighResTimeStamp());
     if (isChanged) event.changedTouches.insert(touch);
     if (!(lifted && isChanged)) {
       event.touches.insert(touch);

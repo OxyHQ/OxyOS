@@ -11,6 +11,7 @@
 #include <react/renderer/components/androidtextinput/AndroidTextInputShadowNode.h>
 #include <react/renderer/core/ConcreteComponentDescriptor.h>
 #include <react/renderer/textlayoutmanager/TextLayoutManager.h>
+#include <react/timing/primitives.h>
 
 #include <folly/dynamic.h>
 
@@ -164,6 +165,8 @@ class TextEditing {
   void undo(bool redo);
   // Dispatches onKeyPress for `key`, none if empty.
   void keyPress(const std::string& key);
+  // When the key or text being handled happened (eventTime, input.h): what keyPress carries.
+  facebook::react::HighResTimeStamp eventTime_ = facebook::react::HighResTimeStamp::now();
   // Moves the selection; `extend` keeps the anchor.
   void select(size_t caret, bool extend);
   // Up or Down: the caret to the line above or below; with `page`, a content box's height away

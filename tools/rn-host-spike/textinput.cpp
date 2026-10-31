@@ -2,6 +2,7 @@
 
 #include <folly/json.h>
 
+#include "input.h"
 #include "report.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
@@ -309,6 +310,7 @@ void TextEditing::blur() {
 }
 
 void TextEditing::handle(const OxyOSEvent& event) {
+  eventTime_ = eventTime(event);
   if (event.kind == OXYOS_EVENT_POINTER) return pointer(event);
   if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftShift || event.code == kRightShift)) shift_ = event.flag;
   if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftCtrl || event.code == kRightCtrl)) ctrl_ = event.flag;
@@ -871,7 +873,9 @@ void TextEditing::undo(bool redo) {
 void TextEditing::keyPress(const std::string& key) {
   auto it = tree_.views().find(focused_);
   if (key.empty() || it == tree_.views().end()) return;
-  it->second.view.eventEmitter->dispatchEvent("keyPress", folly::dynamic::object("key", key));
+  // With the key's time, as Android's key press event carries its KeyEvent's: React's `timeStamp`.
+  it->second.view.eventEmitter->dispatchEvent("keyPress", folly::dynamic::object("key", key),
+                                              RawEvent::Category::Unspecified, eventTime_);
   bool named = key == "Backspace" || key == "Enter";
   Report::get().deliver("keyPress", 0, it->second.view, folly::dynamic::object("key", named ? key : logged(key)));
 }

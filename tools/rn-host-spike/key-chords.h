@@ -1,7 +1,8 @@
 // The window's key presses offered to JavaScript before the focused view (Bloom's
 // `PlatformKeyboard`, docs/adr/0021-menu-bar.mdx): a menu's shortcut runs its item wherever focus
 // is, as a Mac's key equivalents do. Each press of a key that is not a modifier becomes a W3C
-// `KeyboardEvent` ({ key, code, altKey, ctrlKey, metaKey, shiftKey, repeat }); a press JavaScript
+// `KeyboardEvent` ({ key, code, altKey, ctrlKey, metaKey, shiftKey, repeat, timeStamp: when the key
+// was pressed, on performance.now()'s clock }); a press JavaScript
 // takes is not delivered to the view, nor is its release.
 //
 // The compositor sends Linux input codes; the key a code names is read on the US layout here (the

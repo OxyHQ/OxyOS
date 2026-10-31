@@ -1,0 +1,31 @@
+{
+  "about": "When input happened, as React receives it (sample/TimingProbe.tsx; input.h's eventTime; docs/native-foundation.mdx, protocol version 3): each input event carries when its device registered it (time_ns, CLOCK_MONOTONIC: libinput's time on a session, the director's paced time here), and React gets it as the W3C pointer event's timeStamp and the touch's timestamp, as Android's events carry a MotionEvent's eventTime. Two presses 300 ms apart by their device's time are a double press though the application's JavaScript held the thread for 600 ms between them (the second arrives behind it); two 600 ms apart are not. Before, every event carried when the host got round to it: the first pair was taken for two single presses.",
+  "module": "TimingProbe",
+  "window": [640, 260],
+  "steps": [
+    {
+      "name": "nothing pressed yet",
+      "do": ["wait", 500],
+      "allow_unchanged": true,
+      "expect": {"texts": ["No pair yet"]}
+    },
+    {
+      "name": "two presses 300 ms apart, JavaScript busy for 600 ms after the first: a double press",
+      "do": ["press_paced", [120, 66, 2, 300]],
+      "expect": {
+        "texts": ["Pair 1: 300 ms apart (touch 300 ms), double press: yes, handled at least 600 ms apart"],
+        "react": {"touchStart@pad": 2, "touchEnd@pad": 2},
+        "react_presses": {"pointerDown@pad": 2, "pointerUp@pad": 2}
+      }
+    },
+    {
+      "name": "two presses 600 ms apart: two single presses",
+      "do": ["press_paced", [120, 66, 2, 600]],
+      "expect": {
+        "texts": ["Pair 2: 600 ms apart (touch 600 ms), double press: no, handled at least 600 ms apart"],
+        "react": {"touchStart@pad": 2, "touchEnd@pad": 2},
+        "react_presses": {"pointerDown@pad": 2, "pointerUp@pad": 2}
+      }
+    }
+  ]
+}
