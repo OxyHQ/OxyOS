@@ -47,7 +47,7 @@ What a clipboard needs is a protocol matter, not a host one:
 
 6. **Secure content.** The Bloom host never offers the text of a secure field (`secureTextEntry`): Ctrl+C and Ctrl+X do nothing there, as on Android. Content an application chooses to offer is its responsibility. A type `x-oxyos-sensitive` in an offer asks clipboard managers not to keep it, as `x-kde-passwordManagerHint` does on Linux desktops today.
 
-7. **Out of scope.** The primary selection (pasting the last selected text with the middle button) is not provided: Android and the applications Bloom targets have none, and it reads selections the user did not mean to copy. Drag and drop moves content the same way (offers, types, pipes), and is decided in its own ADR when it is built.
+7. **Out of scope.** The primary selection (pasting the last selected text with the middle button) is not provided: Android and the applications Bloom targets have none, and it reads selections the user did not mean to copy. Drag and drop moves content the same way (offers, types, pipes), and is decided in [ADR 0035](./0035-drag-and-drop).
 
 ## The Bloom host
 

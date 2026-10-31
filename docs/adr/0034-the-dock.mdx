@@ -76,7 +76,7 @@ OxyOS's dock (`apps/shell/src/components/Dock.tsx`) had no menu at all. The plat
 ## Not in this decision
 
 - **Dragging icons:** reordering the dock and dragging an icon out to unkeep it, as a Mac's. The lists are sent whole for it; the drag is to come.
-- **Dropping files on the Trash** to move them to it: OxyOS has no drag-and-drop protocol yet (ADR 0024, decision 10 says the same of a screenshot's thumbnail).
+- **Dropping files on the Trash** to move them to it: decided with drag and drop between applications in [ADR 0035](./0035-drag-and-drop), decision 12.
 - **Show in Finder (Stash):** an OxyOS application is a package the install service keeps (ADR 0030), not a file in the person's folders, and Stash opens no folder by URL yet; there is nothing to show.
 - **Option pressed while the menu is open:** a Mac turns Quit into Force Quit live; the popup is told key presses, not releases, so Option counts as the menu opens.
 - **A full Trash icon:** one icon was given; the dock shows it in both states.
