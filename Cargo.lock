@@ -1648,6 +1648,7 @@ dependencies = [
  "oxyos-intl",
  "oxyos-ipc",
  "oxyos-net",
+ "oxyos-paint",
  "oxyos-protocol",
  "oxyos-solar",
  "oxyos-vector",
@@ -1903,6 +1904,17 @@ name = "oxyos-package"
 version = "0.1.0"
 dependencies = [
  "ring",
+ "rustix",
+]
+
+[[package]]
+name = "oxyos-paint"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "naga",
+ "oxyos-client",
+ "oxyos-protocol",
  "rustix",
 ]
 

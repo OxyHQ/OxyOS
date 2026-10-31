@@ -590,6 +590,8 @@ int main(int argc, char** argv) {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      // The painter is started now, beside the runtime and the application loading.
+      window->choosePainter();
       window->resized();
       display = oxyos::Display{window->width(), window->height(), window->scale(),
                                window->drawing().dark ? oxyos::Display::kDarkWindowBackground
@@ -703,6 +705,8 @@ int main(int argc, char** argv) {
     // and present whenever the tree changed and the previous frame was answered.
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
+    // The GPU's painter has just taken over: the next frame is drawn whole.
+    bool painterChanged = false;
     int status = 0;
     oxyos::AccessibilityBridge accessibility(tree, *window);
     oxyos::ShellSurfaceHost shellSurfaces(tree, *window, accessibility);
@@ -1455,6 +1459,15 @@ int main(int argc, char** argv) {
           popups.changed();
           shellSurfaces.changed();
         }
+        // The GPU's painter, started on a thread of its own, takes over: everything is drawn whole
+        // on it.
+        if (window->painterStarted()) {
+          painterChanged = true;
+          dirty = true;
+          busy = true;
+          popups.changed();
+          shellSurfaces.redrawWhole();
+        }
         bool resized = window->resized();
         if (resized) {
           display = oxyos::Display{window->width(), window->height(), window->scale(), display.background};
@@ -1553,6 +1566,8 @@ int main(int argc, char** argv) {
         if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
+          if (painterChanged) damage.reset();
+          painterChanged = false;
           if (damage && damage->empty() && window->answered(oxyos::Window::kToplevel)) {
             // Nothing visible changed (focus moved to a popup, say): nothing is drawn or presented.
             // The report still learns the focus, with the texts of the frame shown.
@@ -1568,14 +1583,36 @@ int main(int argc, char** argv) {
             if (checkDamage && damage) {
               oxyos::Canvas whole;
               oxyos::draw(tree, display, whole, drawn);
+              auto wholePixels = oxyos::canvasPixels(whole), drawnPixels = oxyos::canvasPixels(windowCanvas);
               size_t differing = 0;
-              for (size_t i = 0; i < whole.pixels.size() && i < windowCanvas.pixels.size(); ++i) {
-                differing += whole.pixels[i] != windowCanvas.pixels[i];
+              for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+                differing += wholePixels[i] != drawnPixels[i];
               }
               if (differing) {
                 std::cerr << "[host] a frame drawn from its damage differs in " << differing << " pixels\n";
                 oxyos::Report::get().damageMismatch(oxyos::Window::kToplevel, differing);
               }
+            }
+            // Drawn on the GPU: the same frame drawn whole on the CPU must look the same (ADR 0031,
+            // decision 13).
+            static const bool checkRender = std::getenv("OXYOS_HOST_RENDER_CHECK") != nullptr;
+            if (checkRender && windowCanvas.gpu) {
+              oxyos::Canvas cpu;
+              {
+                oxyos::CpuPaintScope onCpu;
+                oxyos::draw(tree, display, cpu, drawn);
+              }
+              auto gpuPixels = oxyos::canvasPixels(windowCanvas);
+              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels);
+              if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
+                static int dumped = 0;
+                oxyos::Canvas gpuFrame{windowCanvas.width, windowCanvas.height, gpuPixels, nullptr};
+                oxyos::writePng(gpuFrame, std::string(dump) + "/gpu-" + std::to_string(dumped) + ".png");
+                oxyos::writePng(cpu, std::string(dump) + "/cpu-" + std::to_string(dumped) + ".png");
+                ++dumped;
+              }
+              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference.largest, difference.beyondThree,
+                                               difference.pixels);
             }
             // The damage in the canvas's pixels, rounded outward.
             std::vector<OxyOSRect> pixels;

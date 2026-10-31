@@ -76,6 +76,8 @@ class ShellSurfaceHost {
   void sync();
   // The tree changed: every region draws again once its previous frame is answered.
   void changed();
+  // Every region draws again whole (another painter took over).
+  void redrawWhole();
   // Draws and presents the regions that changed, and publishes their accessibility.
   void present(const TextInputEdit& edit, const std::string& focus);
 
@@ -102,6 +104,7 @@ class ShellSurfaceHost {
     uint32_t surface = 0;
     Placement placed{};
     bool dirty = true;
+    bool whole = false;
     uint64_t drawnFor = 0;
     // The frame as last drawn and what changed since: the next draws only that (damage.h).
     Canvas canvas;

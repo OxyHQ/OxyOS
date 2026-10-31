@@ -370,6 +370,38 @@ waited behind that turn's frame, and each frame copied every client's buffer (th
     µs. `mounts_tests.rs` counts the reads, and mounts and unmounts a volume in a mount namespace of
     its own (`unshare`) to see each at once.
 
+## The host on the GPU
+
+The Bloom host draws on the GPU where the compositor offers one ([ADR 0031](./adr/0031-gpu-buffers),
+step 3). Measured with `perf.py --renderer cpu` and `--renderer gpu`, two runs each, in
+`tools/gpu-vm` (16 vCPUs of this machine), on lavapipe: its "GPU" is the same CPU, shared with the
+compositor and the host, so these numbers say what the host's own thread saves and what the GPU path
+costs around it, never a GPU's speed. p50 / p95 in ms; "first" is the GPU painter's first version
+(an operation per dispatch, a barrier after each), "now" with operations binned into tiles.
+
+| interaction | host draw, CPU | host draw, GPU now | frame work, CPU | frame work, GPU first | frame work, GPU now |
+|---|---|---|---|---|---|
+| live resize | 2.70 / 5.97 | 0.63 / 0.94 | 10.14 / 14.17 | 36.66 / 401.7 | 16.71 / 23.72 |
+| zoom | 0.18 / 0.36 | 0.12 / 0.25 | 2.02 / 15.15 | 8.36 / 20.6 | 4.62 / 22.84 |
+| overview (the shell) | 0.11 / 6.92 | 0.03 / 0.64 | 2.24 / 13.1 | 6.2 / 45.1 | 1.2 / 10.63 |
+| Settings scroll | 0.66 / 0.96 | 0.20 / 0.33 | 2.94 / 4.85 | 8.35 / 12.8 | 4.03 / 7.15 |
+
+Where a live resize's present goes now (the host's report, `present` lines, median / p95 ms, every
+frame a new size): the image made and exported 0.27 / 0.54, attached 0.05 / 0.13, its timeline
+0.01 / 0.01, the old size's freed 0.17 / 0.51, the frame's operations recorded and submitted
+0.05 / 0.12, and `sync` 6.81 / 10.30: lavapipe drawing the frame before its sync-file export returns.
+
+- **The host's thread draws 3–20 times less.** It records operations, and the device works the
+  pixels out.
+- **A new size costs about 0.5 ms**: making, exporting and attaching an image, a timeline, and
+  freeing the old size's. The protocol's buffer-is-the-configured-size rule is not what was slow.
+- **What was slow was an operation per dispatch**: 138 dispatches behind full barriers for a
+  resize's frame, 20 ms on lavapipe. Binned into tiles they are a few dispatches.
+- **What remains here is lavapipe drawing**, on the CPU cores the host's frame shares, waited for by
+  its sync-file export. A GPU draws on its own and its export returns at once: the ThinkPad says how
+  much of the 16.7 ms that leaves.
+- **Memory.** Each host holds 60–170 MiB more resident: the Vulkan driver and its heap of canvases.
+
 ## What remains
 
 - **Stash's own JavaScript is most of what a person waits for** (`perf-stash.json`: three

@@ -1,6 +1,12 @@
 #include "window.h"
 
+#include "report.h"
+
 #include <algorithm>
+#include <chrono>
+#include <poll.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -182,16 +188,111 @@ bool Window::ready(uint32_t id) const {
   return it != surfaces_.end() && it->second.configure != 0 && it->second.inFlight == 0;
 }
 
+void Window::choosePainter() {
+  if (painterChosen_) return;
+  painterChosen_ = true;
+  const char* asked = std::getenv("OXYOS_HOST_RENDERER");
+  std::string renderer = asked ? asked : "";
+  painterForced_ = renderer == "gpu";
+  if (renderer == "cpu") {
+    std::cerr << "[window] drawing on the CPU (OXYOS_HOST_RENDERER=cpu)\n";
+    return;
+  }
+  uint64_t device = 0;
+  if (oxyos_client_gpu_device(client_, &device) != 1) {
+    usePainter(StartedPaint{nullptr, "the compositor offers no GPU buffers"});
+    return;
+  }
+  // Opening the device and compiling the painter's pipelines takes long (seconds on lavapipe): it
+  // is done on a thread of its own, so this one keeps answering the application, and the frames
+  // until it is ready are drawn on the CPU.
+  painterReady_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+  if (painterReady_ < 0) failed("eventfd");
+  starting_ = std::async(std::launch::async, [device, ready = painterReady_] {
+    auto started = [&](StartedPaint result) {
+      uint64_t one = 1;
+      if (write(ready, &one, sizeof one) < 0) std::cerr << "[window] the painter's start not told\n";
+      return result;
+    };
+    OxyOSPaint* paint = oxyos_paint_new(device);
+    if (!paint) return started(StartedPaint{nullptr, oxyos_last_error()});
+    if (oxyos_paint_exports(paint)) return started(StartedPaint{paint, ""});
+    std::string why = std::string(oxyos_paint_device_name(paint)) + " exports no DMA-BUF";
+    oxyos_paint_free(paint);
+    return started(StartedPaint{nullptr, why});
+  });
+  // Forced (the regression on the GPU's painter), every frame is drawn on it: it is waited for,
+  // here, before the application starts, so its start delays no timer of the application's.
+  if (painterForced_) {
+    starting_.wait();
+    painterStarted();
+  }
+}
+
+bool Window::painterStarted() {
+  if (!starting_.valid() || starting_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
+  close(painterReady_);
+  painterReady_ = -1;
+  usePainter(starting_.get());
+  return gpuPaint() != nullptr;
+}
+
+void Window::usePainter(StartedPaint started) {
+  if (started.paint) {
+    setGpuPaint(started.paint);
+    std::cerr << "[window] drawing on the GPU: " << oxyos_paint_device_name(started.paint) << "\n";
+    return;
+  }
+  if (painterForced_) failed("OXYOS_HOST_RENDERER=gpu, but " + started.why);
+  std::cerr << "[window] drawing on the CPU: " << started.why << "\n";
+}
+
+bool Window::disconnected() const {
+  pollfd fd{oxyos_client_fd(client_), 0, 0};
+  return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
+}
+
 void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
   Surface& target = surfaces_.at(id);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
   // protocol's XRGB8888 / premultiplied ARGB8888 layout.
   uint32_t format = id == kToplevel ? OXYOS_FORMAT_XRGB8888 : OXYOS_FORMAT_ARGB8888;
-  auto sequence = oxyos_client_present_damaged(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
-                                             static_cast<uint32_t>(canvas.height), format,
-                                             reinterpret_cast<const uint8_t*>(canvas.pixels.data()),
-                                             canvas.pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
+  int64_t sequence = -1;
+  auto started = std::chrono::steady_clock::now();
+  if (canvas.gpu) {
+    // Drawn on the GPU: presented in the surface's GPU buffers (docs/adr/0031-gpu-buffers.mdx).
+    sequence = oxyos_paint_present(gpuPaint() ? gpuPaint() : nullptr, client_, id, target.configure,
+                                   gpuCanvasId(canvas), format, damage.data(), damage.size());
+    // The compositor gone (the session ends): nothing more is presented; the next poll says so.
+    if (sequence < 0 && disconnected()) return;
+    if (sequence < 0) {
+      std::cerr << "[window] the GPU path stops (" << oxyos_last_error() << "): drawing on the CPU\n";
+      setGpuPaint(nullptr);
+    }
+  }
+  if (sequence < 0) {
+    std::vector<uint32_t> pixels = canvasPixels(canvas);
+    if (pixels.size() != static_cast<size_t>(canvas.width) * canvas.height) failed("cannot read a frame back");
+    sequence = oxyos_client_present_damaged(client_, id, target.configure, static_cast<uint32_t>(canvas.width),
+                                          static_cast<uint32_t>(canvas.height), format,
+                                          reinterpret_cast<const uint8_t*>(pixels.data()),
+                                          pixels.size() * sizeof(uint32_t), damage.data(), damage.size());
+  }
+  if (sequence < 0 && disconnected()) return;
   if (sequence < 0) failed("cannot present");
+  // Where the frame's present went (the host's report).
+  OxyOSPaintPresentTimes times{};
+  bool onGpu = canvas.gpu && gpuPaint() && oxyos_paint_last_present(gpuPaint(), &times) == 0;
+  folly::dynamic parts = folly::dynamic::object;
+  if (onGpu) {
+    parts = folly::dynamic::object("new_image", times.new_image)("freed_ms", times.freed_ms)("image_ms", times.image_ms)(
+        "attach_ms", times.attach_ms)("timeline_ms", times.timeline_ms)("release_ms", times.release_ms)(
+        "wait_ms", times.wait_ms)("record_ms", times.record_ms)("submit_ms", times.submit_ms)("sync_ms", times.sync_ms)(
+        "send_ms", times.send_ms)("total_ms", times.total_ms)("operations", times.operations);
+  } else {
+    parts["total_ms"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  }
+  Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
               << " for configure " << target.configure << "\n";
@@ -399,6 +500,7 @@ uint32_t Window::textInput(uint32_t surface, const OxyOSTextField* field, bool n
 
 void Window::destroy(uint32_t id) {
   if (surfaces_.erase(id) == 0) return;
+  if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
   if (oxyos_client_destroy_surface(client_, id) != 0) failed("cannot destroy a popup");
 }
 

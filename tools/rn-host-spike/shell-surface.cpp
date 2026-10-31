@@ -219,6 +219,10 @@ void ShellSurfaceHost::changed() {
   for (auto& [tag, region] : regions_) region.dirty = true;
 }
 
+void ShellSurfaceHost::redrawWhole() {
+  for (auto& [tag, region] : regions_) region.dirty = region.whole = true;
+}
+
 void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& focus) {
   // OXYOS_HOST_DAMAGE_CHECK: every frame drawn from its damage is also drawn whole and compared.
   static const bool checkDamage = std::getenv("OXYOS_HOST_DAMAGE_CHECK") != nullptr;
@@ -234,7 +238,8 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     // As the window (ADR 0005): only what changed is drawn again; a new configure, whole.
     auto damage = region.damage.update(tree_, tag, at, display, edit);
     bool configured = surface->configure != region.drawnFor;
-    if (configured) damage.reset();
+    if (configured || region.whole) damage.reset();
+    region.whole = false;
     if (damage && damage->empty()) {
       // Nothing it draws changed; the windows it shows live may have (a card moved with nothing
       // of its own drawn there): walked without painting, and if they did, sent with the frame
@@ -253,10 +258,11 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
       if (checkDamage) {
         Canvas whole;
         drawRegion(tree_, tag, at, display, whole, edit);
-        if (whole.pixels != region.canvas.pixels) {
+        auto wholePixels = canvasPixels(whole), drawnPixels = canvasPixels(region.canvas);
+        if (wholePixels != drawnPixels) {
           size_t differing = 0;
-          for (size_t i = 0; i < whole.pixels.size() && i < region.canvas.pixels.size(); ++i) {
-            differing += whole.pixels[i] != region.canvas.pixels[i];
+          for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+            differing += wholePixels[i] != drawnPixels[i];
           }
           std::cerr << "[host] a shell region left undrawn differs in " << differing << " pixels\n";
           Report::get().damageMismatch(region.surface, std::max<size_t>(differing, 1));
@@ -275,14 +281,35 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     if (checkDamage && damage) {
       Canvas whole;
       drawRegion(tree_, tag, at, display, whole, edit);
+      auto wholePixels = canvasPixels(whole), drawnPixels = canvasPixels(region.canvas);
       size_t differing = 0;
-      for (size_t i = 0; i < whole.pixels.size() && i < region.canvas.pixels.size(); ++i) {
-        differing += whole.pixels[i] != region.canvas.pixels[i];
+      for (size_t i = 0; i < wholePixels.size() && i < drawnPixels.size(); ++i) {
+        differing += wholePixels[i] != drawnPixels[i];
       }
       if (differing) {
         std::cerr << "[host] a shell region's frame drawn from its damage differs in " << differing << " pixels\n";
         Report::get().damageMismatch(region.surface, differing);
       }
+    }
+    // Drawn on the GPU: the same region drawn whole on the CPU must look the same (ADR 0031,
+    // decision 13).
+    static const bool checkRender = std::getenv("OXYOS_HOST_RENDER_CHECK") != nullptr;
+    if (checkRender && region.canvas.gpu) {
+      Canvas cpu;
+      {
+        CpuPaintScope onCpu;
+        drawRegion(tree_, tag, at, display, cpu, edit);
+      }
+      auto gpuPixels = canvasPixels(region.canvas);
+      auto difference = compareFrames(gpuPixels, cpu.pixels);
+      if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
+        static int dumped = 0;
+        Canvas gpuFrame{region.canvas.width, region.canvas.height, gpuPixels, nullptr};
+        writePng(gpuFrame, std::string(dump) + "/region-gpu-" + std::to_string(dumped) + ".png");
+        writePng(cpu, std::string(dump) + "/region-cpu-" + std::to_string(dumped) + ".png");
+        ++dumped;
+      }
+      Report::get().renderCheck(region.surface, difference.largest, difference.beyondThree, difference.pixels);
     }
     // The damage in the canvas's pixels, rounded outward.
     std::vector<OxyOSRect> pixels;

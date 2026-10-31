@@ -26,11 +26,25 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <atomic>
+#include <map>
+#include <memory>
+#include <tuple>
 #include <set>
 
 using namespace facebook::react;
 
 namespace oxyos {
+
+// A canvas oxyos-paint holds, freed with the last Canvas sharing it.
+struct GpuCanvas {
+  OxyOSPaint* paint = nullptr;
+  uint32_t id = 0;
+  ~GpuCanvas() {
+    if (paint && id) oxyos_paint_canvas_free(paint, id);
+  }
+};
+
 
 void ViewTree::apply(const ShadowViewMutationList& mutations) {
   for (const auto& m : mutations) {
@@ -126,9 +140,14 @@ inline float ditherAt(int x, int y) {
   return (bayer[y & 7][x & 7] + 0.5f) / 64.0f - 0.5f;
 }
 
+// What the view tree is drawn with (docs/adr/0031-gpu-buffers.mdx, decision 12): the CPU painter
+// below, or the GPU painter, which records the same operations into oxyos-paint, where each one is
+// worked out per pixel with the CPU painter's arithmetic. The traversal (drawView and its helpers)
+// is one; it asks the painter it is given for canvases of its own kind.
 class Painter {
  public:
-  Painter(Canvas& canvas, float scale) : canvas_(canvas), scale_(scale) {}
+  explicit Painter(float scale) : scale_(scale) {}
+  virtual ~Painter() = default;
 
   // Paints only the device pixels of [x0, x1) × [y0, y1) (a damaged region); what is drawn there
   // is what a whole frame draws, since only the pixels painted are chosen, never the geometry.
@@ -141,6 +160,62 @@ class Painter {
     int y0 = static_cast<int>(std::floor(y * scale_)), y1 = static_cast<int>(std::ceil((y + h) * scale_));
     return x1 > region_[0] && x0 < region_[2] && y1 > region_[1] && y0 < region_[3];
   }
+
+  // The device pixels painted, as limit() set them.
+  const std::array<int, 4>& region() const { return region_; }
+  // Whether a window shown live is placed from what it paints (docs/adr/0022-window-views.mdx):
+  // the surface's canvas, or a layer of a view only moved and scaled (a dragged card); not a mask,
+  // a blur, a modal animating or a view turned or skewed. `toSurface` maps its logical pixels
+  // to the surface's, and `surfaceClip` is what clips the layer there.
+  bool placesWindows = true;
+  Affine toSurface;
+  Clip surfaceClip{-1e9f, -1e9f, 1e9f, 1e9f};
+
+  // The canvas: `width` × `height` pixels, every one `value`.
+  virtual void allocate(int width, int height, uint32_t value) = 0;
+  // The canvas at another size: its pixels kept where both have them (top left), the rest `value`.
+  virtual void resize(int width, int height, uint32_t value) = 0;
+  // [x0, x1) × [y0, y1) of the canvas set to `value`.
+  virtual void clear(int x0, int y0, int x1, int y1, uint32_t value) = 0;
+  // A painter of the same kind on another canvas.
+  virtual std::unique_ptr<Painter> child(Canvas& canvas, float scale) = 0;
+
+  virtual void fill(float x, float y, float w, float h, const BorderRadii& radii, Rgba color, const Clip& clip,
+                    const BorderRadii* holeRadii = nullptr, float hx = 0, float hy = 0, float hw = 0,
+                    float hh = 0) = 0;
+  virtual void image(const Picture& picture, float dx, float dy, float dw, float dh, const Clip& clip, float bx,
+                     float by, float bw, float bh, const BorderRadii& radii, float opacity,
+                     const std::optional<Rgba>& tint) = 0;
+  virtual void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
+                     float opacity = 1) = 0;
+  virtual void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) = 0;
+  // A canvas drawn as a picture is (`image`, untinted).
+  virtual void imageOf(const Canvas& source, float dx, float dy, float dw, float dh, const Clip& clip, float bx,
+                       float by, float bw, float bh, const BorderRadii& radii, float opacity) = 0;
+  // A canvas's levels blurred by `sigma` of its pixels, drawn at full precision, dithered (`smooth`).
+  virtual void smoothOf(const Canvas& source, float sigma, float dx, float dy, float dw, float dh,
+                        const Clip& clip, float bx, float by, float bw, float bh, const BorderRadii& radii,
+                        float opacity) = 0;
+  // The canvas blurred in place by `sigma` of its pixels (gaussianBlur).
+  virtual void blur(float sigma) = 0;
+  // The canvas kept by the alpha of `mask`, a canvas of its size.
+  virtual void keepByAlphaOf(const Canvas& mask) = 0;
+  // The box of the canvas's pixels with any alpha ([x0, y0, x1, y1]), where the painter can tell
+  // it without reading its pixels back; none on the GPU.
+  virtual std::optional<std::array<int, 4>> opaqueBounds() const = 0;
+
+ protected:
+  float scale_;
+  std::array<int, 4> region_{std::numeric_limits<int>::min(), std::numeric_limits<int>::min(),
+                             std::numeric_limits<int>::max(), std::numeric_limits<int>::max()};
+};
+
+std::unique_ptr<Painter> makePainter(Canvas& canvas, float scale);
+
+// The CPU painter: every operation worked out pixel by pixel on the canvas's pixels.
+class CpuPainter final : public Painter {
+ public:
+  CpuPainter(Canvas& canvas, float scale) : Painter(scale), canvas_(canvas) {}
 
   void blend(int x, int y, Rgba color, float coverage) {
     if (x < 0 || y < 0 || x >= canvas_.width || y >= canvas_.height) return;
@@ -439,6 +514,14 @@ class Painter {
   void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
              float opacity = 1) {
     if (layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f || opacity <= 0) return;
+    // A layer drawn on the GPU (a modal's last frame, drawn before the GPU path stopped, or drawn
+    // on the CPU again by the render check): its pixels read back first.
+    if (layer.gpu) {
+      Canvas read{layer.width, layer.height, canvasPixels(layer), nullptr};
+      if (!read.pixels.empty()) this->layer(read, layerScale, area, map, clip, opacity);
+      return;
+    }
+    if (layer.pixels.size() < static_cast<size_t>(layer.width) * layer.height) return;
     Rect drawn = map.bounds(area);
     Clip box = Clip{drawn.origin.x, drawn.origin.y, drawn.getMaxX(), drawn.getMaxY()}.intersect(clip);
     if (box.empty()) return;
@@ -479,16 +562,6 @@ class Painter {
       }
     }
   }
-
-  // The device pixels painted, as limit() set them.
-  const std::array<int, 4>& region() const { return region_; }
-  // Whether a window shown live is placed from what it paints (docs/adr/0022-window-views.mdx):
-  // the surface's canvas, or a layer of a view only moved and scaled (a dragged card); not a mask,
-  // a blur, a modal animating or a view turned or skewed. `toSurface` maps its logical pixels
-  // to the surface's, and `surfaceClip` is what clips the layer there.
-  bool placesWindows = true;
-  Affine toSurface;
-  Clip surfaceClip{-1e9f, -1e9f, 1e9f, 1e9f};
 
   void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
     auto& engine = TextEngine::shared();
@@ -607,11 +680,20 @@ class Painter {
     }
   }
 
+  void allocate(int width, int height, uint32_t value);
+  void resize(int width, int height, uint32_t value);
+  void clear(int x0, int y0, int x1, int y1, uint32_t value);
+  std::unique_ptr<Painter> child(Canvas& canvas, float scale);
+  void imageOf(const Canvas& source, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+               float bw, float bh, const BorderRadii& radii, float opacity);
+  void smoothOf(const Canvas& source, float sigma, float dx, float dy, float dw, float dh, const Clip& clip,
+                float bx, float by, float bw, float bh, const BorderRadii& radii, float opacity);
+  void blur(float sigma);
+  void keepByAlphaOf(const Canvas& mask);
+  std::optional<std::array<int, 4>> opaqueBounds() const;
+
  private:
   Canvas& canvas_;
-  float scale_;
-  std::array<int, 4> region_{std::numeric_limits<int>::min(), std::numeric_limits<int>::min(),
-                             std::numeric_limits<int>::max(), std::numeric_limits<int>::max()};
 };
 
 const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
@@ -842,7 +924,8 @@ void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip
     layerScale = std::max(painter.scale(), layerScale / 2);
   }
   Canvas layer;
-  Painter inside(layer, layerScale);
+  auto insidePainter = painter.child(layer, layerScale);
+  Painter& inside = *insidePainter;
   // Moved and scaled, not turned or skewed: the windows in it are placed where it is drawn.
   inside.placesWindows = painter.placesWindows && map.b == 0 && map.c == 0 && map.a > 0 && map.d > 0;
   if (inside.placesWindows) {
@@ -859,9 +942,8 @@ void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip
                   std::min(region[3], 1 << 24) / painter.scale() - painted.origin.y};
   Rect needed = invertible ? Rect::intersect(map.bounds(area), painted) : Rect{};
   if (needed.size.width > 0 && needed.size.height > 0) {
-    layer.width = static_cast<int>(std::ceil(area.size.width * layerScale));
-    layer.height = static_cast<int>(std::ceil(area.size.height * layerScale));
-    layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+    inside.allocate(static_cast<int>(std::ceil(area.size.width * layerScale)),
+                    static_cast<int>(std::ceil(area.size.height * layerScale)), 0);
     Rect source = map.inverse().bounds(needed);
     inside.limit(static_cast<int>(std::floor((source.origin.x - area.origin.x) * layerScale)) - 2,
                  static_cast<int>(std::floor((source.origin.y - area.origin.y) * layerScale)) - 2,
@@ -874,7 +956,7 @@ void drawTransformed(const ViewTree& tree, Tag tag, const Affine& map, Clip clip
   const auto& frame = view.layoutMetrics.frame;
   drawView(tree, tag, -frame.origin.x - area.origin.x, -frame.origin.y - area.origin.y,
            Clip{0, 0, area.size.width, area.size.height}, opacity, inside, stats, edit, true);
-  if (!layer.pixels.empty()) {
+  if (layer.width > 0 && layer.height > 0) {
     painter.layer(layer, layerScale, area, map, clip);
   }
 }
@@ -978,6 +1060,347 @@ void gaussianBlur(Canvas& canvas, float sigma) {
   }
 }
 
+// ---- the CPU painter's canvases and composite operations ----------------------------------------
+
+void CpuPainter::allocate(int width, int height, uint32_t value) {
+  canvas_.width = width;
+  canvas_.height = height;
+  canvas_.gpu.reset();
+  canvas_.pixels.assign(static_cast<size_t>(std::max(width, 0)) * std::max(height, 0), value);
+}
+
+void CpuPainter::resize(int width, int height, uint32_t value) {
+  std::vector<uint32_t> pixels(static_cast<size_t>(width) * height, value);
+  int rows = std::min(height, canvas_.height), columns = std::min(width, canvas_.width);
+  for (int y = 0; y < rows; ++y) {
+    std::copy_n(canvas_.pixels.begin() + static_cast<long>(y) * canvas_.width, columns,
+                pixels.begin() + static_cast<long>(y) * width);
+  }
+  canvas_.pixels = std::move(pixels);
+  canvas_.width = width;
+  canvas_.height = height;
+}
+
+void CpuPainter::clear(int x0, int y0, int x1, int y1, uint32_t value) {
+  for (int y = y0; y < y1; ++y) {
+    std::fill_n(canvas_.pixels.begin() + static_cast<long>(y) * canvas_.width + x0, x1 - x0, value);
+  }
+}
+
+std::unique_ptr<Painter> CpuPainter::child(Canvas& canvas, float scale) {
+  return std::make_unique<CpuPainter>(canvas, scale);
+}
+
+void CpuPainter::imageOf(const Canvas& source, float dx, float dy, float dw, float dh, const Clip& clip, float bx,
+                         float by, float bw, float bh, const BorderRadii& radii, float opacity) {
+  image(asPicture(source), dx, dy, dw, dh, clip, bx, by, bw, bh, radii, opacity, std::nullopt);
+}
+
+void CpuPainter::smoothOf(const Canvas& source, float sigma, float dx, float dy, float dw, float dh,
+                          const Clip& clip, float bx, float by, float bw, float bh, const BorderRadii& radii,
+                          float opacity) {
+  LevelImage levels = levelsOf(source);
+  blurPlanes(levels.planes, source.width, source.height, sigma);
+  smooth(levels, dx, dy, dw, dh, clip, bx, by, bw, bh, radii, opacity);
+}
+
+void CpuPainter::blur(float sigma) { gaussianBlur(canvas_, sigma); }
+
+void CpuPainter::keepByAlphaOf(const Canvas& mask) {
+  for (size_t i = 0; i < canvas_.pixels.size() && i < mask.pixels.size(); ++i) {
+    uint32_t keep = mask.pixels[i] >> 24, pixel = canvas_.pixels[i];
+    if (keep == 255) continue;
+    uint32_t kept = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+      kept |= ((((pixel >> shift) & 0xff) * keep + 127) / 255) << shift;
+    }
+    canvas_.pixels[i] = kept;
+  }
+}
+
+std::optional<std::array<int, 4>> CpuPainter::opaqueBounds() const {
+  int width = canvas_.width, height = canvas_.height;
+  int bx0 = width, by0 = height, bx1 = 0, by1 = 0;
+  for (int py = 0; py < height; ++py) {
+    const uint32_t* row = canvas_.pixels.data() + static_cast<size_t>(py) * width;
+    for (int px = 0; px < width; ++px) {
+      if (row[px] >> 24) {
+        bx0 = std::min(bx0, px), bx1 = std::max(bx1, px + 1);
+        by0 = std::min(by0, py), by1 = std::max(by1, py + 1);
+      }
+    }
+  }
+  return std::array<int, 4>{bx0, by0, bx1, by1};
+}
+
+// ---- the GPU painter ----------------------------------------------------------------------------
+
+// The device pixels of a logical box within the painter's region and its canvas, as the CPU
+// painter visits them.
+struct DeviceBox {
+  int x0, y0, x1, y1;
+};
+
+// Records the CPU painter's operations into oxyos-paint, each with the device pixels the CPU
+// painter would visit for it; oxyos-paint works each pixel out with the CPU painter's arithmetic.
+class GpuPainter final : public Painter {
+ public:
+  GpuPainter(Canvas& canvas, float scale, OxyOSPaint* paint) : Painter(scale), canvas_(canvas), paint_(paint) {}
+
+  void allocate(int width, int height, uint32_t value);
+  void resize(int width, int height, uint32_t value);
+  void clear(int x0, int y0, int x1, int y1, uint32_t value);
+  std::unique_ptr<Painter> child(Canvas& canvas, float scale) {
+    return std::make_unique<GpuPainter>(canvas, scale, paint_);
+  }
+
+  void fill(float x, float y, float w, float h, const BorderRadii& radii, Rgba color, const Clip& clip,
+            const BorderRadii* holeRadii = nullptr, float hx = 0, float hy = 0, float hw = 0, float hh = 0);
+  void image(const Picture& picture, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+             float bw, float bh, const BorderRadii& radii, float opacity, const std::optional<Rgba>& tint);
+  void layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
+             float opacity = 1);
+  void glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity);
+  void imageOf(const Canvas& source, float dx, float dy, float dw, float dh, const Clip& clip, float bx, float by,
+               float bw, float bh, const BorderRadii& radii, float opacity);
+  void smoothOf(const Canvas& source, float sigma, float dx, float dy, float dw, float dh, const Clip& clip,
+                float bx, float by, float bw, float bh, const BorderRadii& radii, float opacity);
+  void blur(float sigma) {
+    if (uint32_t id = gpuCanvasId(canvas_)) oxyos_paint_blur(paint_, id, sigma);
+  }
+  void keepByAlphaOf(const Canvas& mask) {
+    uint32_t content = gpuCanvasId(canvas_), kept = gpuCanvasId(mask);
+    if (content && kept) oxyos_paint_mask(paint_, content, kept);
+  }
+  std::optional<std::array<int, 4>> opaqueBounds() const { return std::nullopt; }
+
+ private:
+  // The pixels of a logical box (within `clip`) the painter paints, clamped to the canvas.
+  DeviceBox pixelsOf(const Clip& box) const {
+    return DeviceBox{std::max({static_cast<int>(std::floor(box.x0 * scale_)), region_[0], 0}),
+                     std::max({static_cast<int>(std::floor(box.y0 * scale_)), region_[1], 0}),
+                     std::min({static_cast<int>(std::ceil(box.x1 * scale_)), region_[2], canvas_.width}),
+                     std::min({static_cast<int>(std::ceil(box.y1 * scale_)), region_[3], canvas_.height})};
+  }
+  OxyOSPaintCommon common(const DeviceBox& box, const Clip& clip, Rgba color, float opacity) const {
+    OxyOSPaintCommon common{};
+    common.x0 = box.x0, common.y0 = box.y0, common.x1 = box.x1, common.y1 = box.y1;
+    common.scale = scale_;
+    common.clip[0] = clip.x0, common.clip[1] = clip.y0, common.clip[2] = clip.x1, common.clip[3] = clip.y1;
+    common.color[0] = color.r, common.color[1] = color.g, common.color[2] = color.b, common.color[3] = color.a;
+    common.opacity = opacity;
+    return common;
+  }
+  static void radiiInto(const BorderRadii& radii, float out[4]) {
+    out[0] = radii.topLeft.horizontal, out[1] = radii.topRight.horizontal;
+    out[2] = radii.bottomLeft.horizontal, out[3] = radii.bottomRight.horizontal;
+  }
+
+  Canvas& canvas_;
+  OxyOSPaint* paint_;
+};
+
+void GpuPainter::allocate(int width, int height, uint32_t value) {
+  canvas_.width = width;
+  canvas_.height = height;
+  canvas_.pixels.clear();
+  if (canvas_.gpu && canvas_.gpu->paint == paint_ && width > 0 && height > 0 &&
+      oxyos_paint_canvas_resize(paint_, canvas_.gpu->id, width, height, value) == 0) {
+    oxyos_paint_clear(paint_, canvas_.gpu->id, 0, 0, width, height, value);
+    return;
+  }
+  canvas_.gpu.reset();
+  if (width <= 0 || height <= 0) return;
+  auto made = std::make_shared<GpuCanvas>();
+  made->paint = paint_;
+  made->id = oxyos_paint_canvas(paint_, static_cast<uint32_t>(width), static_cast<uint32_t>(height), value);
+  if (made->id) canvas_.gpu = std::move(made);
+}
+
+void GpuPainter::resize(int width, int height, uint32_t value) {
+  if (!canvas_.gpu) return allocate(width, height, value);
+  oxyos_paint_canvas_resize(paint_, canvas_.gpu->id, width, height, value);
+  canvas_.width = width;
+  canvas_.height = height;
+}
+
+void GpuPainter::clear(int x0, int y0, int x1, int y1, uint32_t value) {
+  if (uint32_t id = gpuCanvasId(canvas_)) oxyos_paint_clear(paint_, id, x0, y0, x1, y1, value);
+}
+
+void GpuPainter::fill(float x, float y, float w, float h, const BorderRadii& radii, Rgba color, const Clip& clip,
+                      const BorderRadii* holeRadii, float hx, float hy, float hw, float hh) {
+  uint32_t id = gpuCanvasId(canvas_);
+  if (!id || color.a <= 0 || w <= 0 || h <= 0) return;
+  Clip box = Clip{x, y, x + w, y + h}.intersect(clip);
+  if (box.empty()) return;
+  DeviceBox pixels = pixelsOf(box);
+  if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) return;
+  OxyOSPaintCommon given = common(pixels, clip, color, 1);
+  OxyOSPaintFill fill{};
+  fill.rect[0] = x, fill.rect[1] = y, fill.rect[2] = w, fill.rect[3] = h;
+  radiiInto(radii, fill.radii);
+  if (holeRadii) {
+    fill.hole = true;
+    fill.hole_rect[0] = hx, fill.hole_rect[1] = hy, fill.hole_rect[2] = hw, fill.hole_rect[3] = hh;
+    radiiInto(*holeRadii, fill.hole_radii);
+  }
+  oxyos_paint_fill(paint_, id, &given, &fill);
+}
+
+void GpuPainter::image(const Picture& picture, float dx, float dy, float dw, float dh, const Clip& clip, float bx,
+                       float by, float bw, float bh, const BorderRadii& radii, float opacity,
+                       const std::optional<Rgba>& tint) {
+  uint32_t id = gpuCanvasId(canvas_);
+  if (!id || picture.width <= 0 || picture.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+  Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+  if (box.empty()) return;
+  DeviceBox pixels = pixelsOf(box);
+  if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) return;
+  if (oxyos_paint_picture(paint_, picture.id, static_cast<uint32_t>(picture.width),
+                          static_cast<uint32_t>(picture.height), picture.pixels.data()) < 0) {
+    return;
+  }
+  OxyOSPaintCommon given = common(pixels, clip, tint.value_or(Rgba{0, 0, 0, 0}), opacity);
+  OxyOSPaintImage image{};
+  image.picture = picture.id;
+  image.rect[0] = dx, image.rect[1] = dy, image.rect[2] = dw, image.rect[3] = dh;
+  image.bounds[0] = bx, image.bounds[1] = by, image.bounds[2] = bw, image.bounds[3] = bh;
+  radiiInto(radii, image.radii);
+  image.tinted = tint.has_value();
+  oxyos_paint_image(paint_, id, &given, &image);
+}
+
+void GpuPainter::imageOf(const Canvas& source, float dx, float dy, float dw, float dh, const Clip& clip, float bx,
+                         float by, float bw, float bh, const BorderRadii& radii, float opacity) {
+  uint32_t id = gpuCanvasId(canvas_), from = gpuCanvasId(source);
+  if (!id || !from || source.width <= 0 || source.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+  Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+  if (box.empty()) return;
+  DeviceBox pixels = pixelsOf(box);
+  if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) return;
+  OxyOSPaintCommon given = common(pixels, clip, Rgba{0, 0, 0, 0}, opacity);
+  OxyOSPaintImage image{};
+  image.canvas = from;
+  image.rect[0] = dx, image.rect[1] = dy, image.rect[2] = dw, image.rect[3] = dh;
+  image.bounds[0] = bx, image.bounds[1] = by, image.bounds[2] = bw, image.bounds[3] = bh;
+  radiiInto(radii, image.radii);
+  oxyos_paint_image(paint_, id, &given, &image);
+}
+
+void GpuPainter::smoothOf(const Canvas& source, float sigma, float dx, float dy, float dw, float dh,
+                          const Clip& clip, float bx, float by, float bw, float bh, const BorderRadii& radii,
+                          float opacity) {
+  uint32_t id = gpuCanvasId(canvas_), from = gpuCanvasId(source);
+  if (!id || !from || source.width <= 0 || source.height <= 0 || dw <= 0 || dh <= 0 || opacity <= 0) return;
+  Clip box = Clip{dx, dy, dx + dw, dy + dh}.intersect(clip);
+  if (box.empty()) return;
+  DeviceBox pixels = pixelsOf(box);
+  if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) return;
+  OxyOSPaintCommon given = common(pixels, clip, Rgba{0, 0, 0, 0}, opacity);
+  OxyOSPaintSmooth smooth{};
+  smooth.source = from;
+  smooth.sigma = sigma;
+  smooth.rect[0] = dx, smooth.rect[1] = dy, smooth.rect[2] = dw, smooth.rect[3] = dh;
+  smooth.bounds[0] = bx, smooth.bounds[1] = by, smooth.bounds[2] = bw, smooth.bounds[3] = bh;
+  radiiInto(radii, smooth.radii);
+  oxyos_paint_smooth(paint_, id, &given, &smooth);
+}
+
+void GpuPainter::layer(const Canvas& layer, float layerScale, const Rect& area, const Affine& map, const Clip& clip,
+                       float opacity) {
+  uint32_t id = gpuCanvasId(canvas_), from = gpuCanvasId(layer);
+  if (!id || !from || layer.width <= 0 || layer.height <= 0 || std::abs(map.determinant()) < 1e-6f ||
+      opacity <= 0) {
+    return;
+  }
+  Rect drawn = map.bounds(area);
+  Clip box = Clip{drawn.origin.x, drawn.origin.y, drawn.getMaxX(), drawn.getMaxY()}.intersect(clip);
+  if (box.empty()) return;
+  DeviceBox pixels = pixelsOf(box);
+  if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) return;
+  OxyOSPaintCommon given = common(pixels, clip, Rgba{0, 0, 0, 0}, opacity);
+  Affine back = map.inverse();
+  OxyOSPaintLayer drawnLayer{};
+  drawnLayer.canvas = from;
+  drawnLayer.layer_scale = layerScale;
+  drawnLayer.origin[0] = area.origin.x, drawnLayer.origin[1] = area.origin.y;
+  drawnLayer.inverse[0] = back.a, drawnLayer.inverse[1] = back.b, drawnLayer.inverse[2] = back.c;
+  drawnLayer.inverse[3] = back.d, drawnLayer.inverse[4] = back.tx, drawnLayer.inverse[5] = back.ty;
+  oxyos_paint_layer(paint_, id, &given, &drawnLayer);
+}
+
+void GpuPainter::glyphs(const ParagraphLayout& layout, float ox, float oy, const Clip& clip, float opacity) {
+  uint32_t id = gpuCanvasId(canvas_);
+  if (!id) return;
+  // Each glyph's mask by its face, glyph and scale: uploaded once, under a number of its own.
+  static std::map<std::tuple<void*, uint32_t, float>, uint64_t> keys;
+  auto& engine = TextEngine::shared();
+  std::vector<OxyOSPaintGlyph> run;
+  for (const auto& laid : layout.runs) {
+    Rgba color{((laid.color >> 16) & 0xff) / 255.0f, ((laid.color >> 8) & 0xff) / 255.0f, (laid.color & 0xff) / 255.0f,
+               ((laid.color >> 24) & 0xff) / 255.0f * opacity};
+    run.clear();
+    int bx0 = std::numeric_limits<int>::max(), by0 = bx0, bx1 = std::numeric_limits<int>::min(), by1 = bx1;
+    for (const auto& glyph : laid.glyphs) {
+      const auto& bitmap = engine.rasterize(glyph.face, glyph.id, scale_);
+      if (bitmap.width <= 0 || bitmap.height <= 0) continue;
+      int gx = static_cast<int>(std::lround((ox + glyph.x) * scale_)) + bitmap.left;
+      int gy = static_cast<int>(std::lround((oy + laid.baseline) * scale_)) - bitmap.top;
+      if (gx + bitmap.width <= region_[0] || gx >= region_[2] || gy + bitmap.height <= region_[1] ||
+          gy >= region_[3]) {
+        continue;
+      }
+      auto [found, added] = keys.try_emplace({glyph.face, glyph.id, scale_}, keys.size() + 1);
+      uint64_t key = found->second;
+      if (!oxyos_paint_has_glyph(paint_, key)) {
+        oxyos_paint_glyph(paint_, key, static_cast<uint32_t>(bitmap.width), static_cast<uint32_t>(bitmap.height),
+                          bitmap.pixels.data());
+      }
+      run.push_back(OxyOSPaintGlyph{gx, gy, key});
+      bx0 = std::min(bx0, gx), by0 = std::min(by0, gy);
+      bx1 = std::max(bx1, gx + bitmap.width), by1 = std::max(by1, gy + bitmap.height);
+    }
+    if (run.empty() || color.a <= 0) continue;
+    DeviceBox pixels{std::max({bx0, region_[0], 0}), std::max({by0, region_[1], 0}),
+                     std::min({bx1, region_[2], canvas_.width}), std::min({by1, region_[3], canvas_.height})};
+    if (pixels.x0 >= pixels.x1 || pixels.y0 >= pixels.y1) continue;
+    OxyOSPaintCommon given = common(pixels, clip, color, 1);
+    oxyos_paint_glyphs(paint_, id, &given, run.data(), run.size());
+  }
+}
+
+// ---- which painter ------------------------------------------------------------------------------
+
+OxyOSPaint* gpuPaintSet = nullptr;
+thread_local int cpuOnly = 0;
+
+OxyOSPaint* activePaint() { return cpuOnly ? nullptr : gpuPaintSet; }
+
+// A canvas made ready for the painter about to draw it: one drawn on the GPU and now drawn on the
+// CPU takes its pixels back (or is drawn whole again); one drawn on the CPU and now drawn on the
+// GPU is drawn whole again.
+void adopt(Canvas& canvas) {
+  OxyOSPaint* paint = activePaint();
+  if (paint && !canvas.gpu && canvas.width > 0) {
+    canvas = Canvas{};
+  } else if (!paint && canvas.gpu) {
+    std::vector<uint32_t> pixels = canvasPixels(canvas);
+    canvas.gpu.reset();
+    if (pixels.size() == static_cast<size_t>(canvas.width) * canvas.height) {
+      canvas.pixels = std::move(pixels);
+    } else {
+      canvas = Canvas{};
+    }
+  }
+}
+
+std::unique_ptr<Painter> makePainter(Canvas& canvas, float scale) {
+  adopt(canvas);
+  if (OxyOSPaint* paint = activePaint()) return std::make_unique<GpuPainter>(canvas, scale, paint);
+  return std::make_unique<CpuPainter>(canvas, scale);
+}
+
 // Whether the blur view being drawn is drawing its target: a blur view inside that target draws
 // its tint alone, as Dimezis' does, so a target never blurs into itself.
 thread_local int drawingBlurTarget = 0;
@@ -1011,16 +1434,16 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   // What the blur reads around a pixel: three standard deviations.
   const int margin = static_cast<int>(std::ceil(3 * reducedSigma));
   Canvas layer;
-  layer.width = (painted.x1 - painted.x0 + k - 1) / k + 2 * margin;
-  layer.height = (painted.y1 - painted.y0 + k - 1) / k + 2 * margin;
-  layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
+  auto insidePainter = painter.child(layer, reducedScale);
+  Painter& inside = *insidePainter;
+  inside.allocate((painted.x1 - painted.x0 + k - 1) / k + 2 * margin,
+                  (painted.y1 - painted.y0 + k - 1) / k + 2 * margin, 0);
   const float left = static_cast<float>(painted.x0) / scale - margin / reducedScale;
   const float top = static_cast<float>(painted.y0) / scale - margin / reducedScale;
   // The target where it is relative to this view, in the layer's coordinates.
   Affine map = viewTransform(target->second.view);
   float targetX = x + (targetAt->origin.x - blurAt->origin.x) - map.tx - left;
   float targetY = y + (targetAt->origin.y - blurAt->origin.y) - map.ty - top;
-  Painter inside(layer, reducedScale);
   inside.placesWindows = false;
   RenderStats unseen;
   ++drawingBlurTarget;
@@ -1032,15 +1455,13 @@ void drawBlurred(const ViewTree& tree, Tag blur, const ExpoBlurTarget& blurTarge
   if (k > 1) {
     // Kept in levels and stretched back bilinearly, dithered as it is written: quantized to 8 bits
     // at the reduced size, its bands a level apart would follow the reduced pixels' grid as steps.
-    LevelImage levels = levelsOf(layer);
-    blurPlanes(levels.planes, layer.width, layer.height, reducedSigma);
-    painter.smooth(levels, left, top, layer.width / reducedScale, layer.height / reducedScale,
-                   clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity);
+    painter.smoothOf(layer, reducedSigma, left, top, layer.width / reducedScale, layer.height / reducedScale,
+                     clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity);
     return;
   }
-  gaussianBlur(layer, reducedSigma);
-  painter.image(asPicture(layer), left, top, layer.width / reducedScale, layer.height / reducedScale,
-                clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity, std::nullopt);
+  inside.blur(reducedSigma);
+  painter.imageOf(layer, left, top, layer.width / reducedScale, layer.height / reducedScale,
+                  clip.intersect(Clip{x, y, x + w, y + h}), x, y, w, h, radii, opacity);
 }
 
 // A MaskedView (masked-view.h): its children but the first drawn on their own, kept by the alpha
@@ -1053,15 +1474,13 @@ void drawMasked(const ViewTree& tree, Tag tag, float x, float y, float w, float 
   const float scale = painter.scale();
   Canvas content, mask;
   int width = painted.empty() ? 0 : painted.x1 - painted.x0, height = painted.empty() ? 0 : painted.y1 - painted.y0;
-  for (Canvas* canvas : {&content, &mask}) {
-    canvas->width = width;
-    canvas->height = height;
-    canvas->pixels.assign(static_cast<size_t>(width) * height, 0);
-  }
+  auto maskOwner = painter.child(mask, scale), contentOwner = painter.child(content, scale);
+  Painter &maskPainter = *maskOwner, &contentPainter = *contentOwner;
+  maskPainter.allocate(width, height, 0);
+  contentPainter.allocate(width, height, 0);
   const float left = painted.empty() ? 0 : painted.x0 / scale, top = painted.empty() ? 0 : painted.y0 / scale;
   Clip inside{clip.x0 - left, clip.y0 - top, clip.x1 - left, clip.y1 - top};
   inside = inside.intersect(Clip{x - left, y - top, x - left + w, y - top + h});
-  Painter maskPainter(mask, scale), contentPainter(content, scale);
   maskPainter.placesWindows = contentPainter.placesWindows = false;
   // Nothing of it painted: its subtree is still walked, for the stats.
   if (painted.empty()) {
@@ -1071,34 +1490,16 @@ void drawMasked(const ViewTree& tree, Tag tag, float x, float y, float w, float 
   drawView(tree, children.front(), x - left, y - top, inside, 1.0f, maskPainter, stats, edit);
   // Nothing of the children is kept where the mask is transparent: they are drawn within the
   // mask's opaque box alone (a blur under a clock's digits, not across the screen).
+  // (On the GPU, where the mask's box is not read back, they are drawn whole and kept by it.)
   if (!painted.empty()) {
-    int bx0 = width, by0 = height, bx1 = 0, by1 = 0;
-    for (int py = 0; py < height; ++py) {
-      const uint32_t* row = mask.pixels.data() + static_cast<size_t>(py) * width;
-      for (int px = 0; px < width; ++px) {
-        if (row[px] >> 24) {
-          bx0 = std::min(bx0, px), bx1 = std::max(bx1, px + 1);
-          by0 = std::min(by0, py), by1 = std::max(by1, py + 1);
-        }
-      }
-    }
-    contentPainter.limit(bx0, by0, bx1, by1);
+    if (auto box = maskPainter.opaqueBounds()) contentPainter.limit((*box)[0], (*box)[1], (*box)[2], (*box)[3]);
   }
   for (size_t i = 1; i < children.size(); ++i) {
     drawView(tree, children[i], x - left, y - top, inside, 1.0f, contentPainter, stats, edit);
   }
   if (painted.empty()) return;
-  for (size_t i = 0; i < content.pixels.size(); ++i) {
-    uint32_t keep = mask.pixels[i] >> 24, pixel = content.pixels[i];
-    if (keep == 255) continue;
-    uint32_t kept = 0;
-    for (int shift = 0; shift < 32; shift += 8) {
-      kept |= ((((pixel >> shift) & 0xff) * keep + 127) / 255) << shift;
-    }
-    content.pixels[i] = kept;
-  }
-  painter.image(asPicture(content), left, top, width / scale, height / scale, clip, x, y, w, h, BorderRadii{},
-                opacity, std::nullopt);
+  contentPainter.keepByAlphaOf(mask);
+  painter.imageOf(content, left, top, width / scale, height / scale, clip, x, y, w, h, BorderRadii{}, opacity);
 }
 
 // What a view that clips its children (`overflow` other than visible, and a ScrollView) clips them
@@ -1646,10 +2047,9 @@ void drawModals(const ViewTree& tree, const Display& display, Painter& painter, 
       continue;
     }
     Canvas layer;
-    layer.width = display.pixelWidth();
-    layer.height = display.pixelHeight();
-    layer.pixels.assign(static_cast<size_t>(layer.width) * layer.height, 0);
-    Painter inside(layer, display.scale);
+    auto insidePainter = painter.child(layer, display.scale);
+    Painter& inside = *insidePainter;
+    inside.allocate(display.pixelWidth(), display.pixelHeight(), 0);
     inside.placesWindows = false;
     drawModalOnto(tree, modal, display, inside, stats, edit);
     painter.layer(layer, display.scale, area, Affine::translation(0, presented.offset), window, presented.alpha);
@@ -1671,12 +2071,11 @@ std::vector<Tag> modals(const ViewTree& tree) {
 
 RenderStats drawModal(const ViewTree& tree, Tag modal, const Display& display, Canvas& canvas,
                       const TextInputEdit& edit) {
-  canvas.width = display.pixelWidth();
-  canvas.height = display.pixelHeight();
-  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
+  auto owner = makePainter(canvas, display.scale);
+  Painter& painter = *owner;
+  painter.allocate(display.pixelWidth(), display.pixelHeight(), 0);
   RenderStats stats;
   if (!tree.views().count(modal)) return stats;
-  Painter painter(canvas, display.scale);
   drawModalOnto(tree, modal, display, painter, stats, edit);
   return stats;
 }
@@ -1718,10 +2117,9 @@ Point transformOffset(const ShadowView& view) {
 }
 
 RenderStats draw(const ViewTree& tree, const Display& display, Canvas& canvas, const TextInputEdit& edit) {
-  canvas.width = display.pixelWidth();
-  canvas.height = display.pixelHeight();
-  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, display.background);
-  Painter painter(canvas, display.scale);
+  auto owner = makePainter(canvas, display.scale);
+  Painter& painter = *owner;
+  painter.allocate(display.pixelWidth(), display.pixelHeight(), display.background);
   RenderStats stats;
   drawView(tree, tree.root(), 0, 0, Clip{0, 0, display.width, display.height}, 1.0f, painter, stats, edit);
   drawModals(tree, display, painter, stats, edit);
@@ -1764,19 +2162,12 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
                         const std::vector<Rect>& damage) {
   int width = display.pixelWidth();
   int height = display.pixelHeight();
+  adopt(canvas);
   if (canvas.width != width || canvas.height != height) {
     if (canvas.width <= 0 || canvas.height <= 0) return draw(tree, display, canvas, edit);
     // The window resized: its previous frame stays where the new one overlaps it, anchored at the
     // top left as the window's content is laid out; the rest is new, and in the damage.
-    std::vector<uint32_t> pixels(static_cast<size_t>(width) * height, 0xffffffffu);
-    int rows = std::min(height, canvas.height), columns = std::min(width, canvas.width);
-    for (int y = 0; y < rows; ++y) {
-      std::copy_n(canvas.pixels.begin() + static_cast<long>(y) * canvas.width, columns,
-                  pixels.begin() + static_cast<long>(y) * width);
-    }
-    canvas.pixels = std::move(pixels);
-    canvas.width = width;
-    canvas.height = height;
+    makePainter(canvas, display.scale)->resize(width, height, 0xffffffffu);
   }
   RenderStats stats;
   bool counted = false;
@@ -1788,10 +2179,9 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
     int y1 = std::min(height, static_cast<int>(std::ceil((rect.origin.y + rect.size.height) * display.scale)));
     if (x1 <= x0 || y1 <= y0) continue;
     // The region starts as a new window does, then everything over it is drawn again.
-    for (int y = y0; y < y1; ++y) {
-      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, display.background);
-    }
-    Painter painter(canvas, display.scale);
+    auto owner = makePainter(canvas, display.scale);
+    Painter& painter = *owner;
+    painter.clear(x0, y0, x1, y1, display.background);
     painter.limit(x0, y0, x1, y1);
     RenderStats drawn;
     drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, drawn, edit);
@@ -1803,7 +2193,8 @@ RenderStats drawDamaged(const ViewTree& tree, const Display& display, Canvas& ca
   }
   if (!counted) {
     // Nothing to paint; the stats are still the window's.
-    Painter painter(canvas, display.scale);
+    auto owner = makePainter(canvas, display.scale);
+    Painter& painter = *owner;
     painter.limit(0, 0, 0, 0);
     drawView(tree, tree.root(), 0, 0, window, 1.0f, painter, stats, edit);
     drawModals(tree, display, painter, stats, edit);
@@ -1818,10 +2209,9 @@ RenderStats drawPopup(const ViewTree& tree, Tag popup, const Display& display, C
 
 RenderStats drawRegion(const ViewTree& tree, Tag region, Point at, const Display& display, Canvas& canvas,
                        const TextInputEdit& edit) {
-  canvas.width = display.pixelWidth();
-  canvas.height = display.pixelHeight();
-  canvas.pixels.assign(static_cast<size_t>(canvas.width) * canvas.height, 0);
-  Painter painter(canvas, display.scale);
+  auto owner = makePainter(canvas, display.scale);
+  Painter& painter = *owner;
+  painter.allocate(display.pixelWidth(), display.pixelHeight(), 0);
   RenderStats stats;
   auto it = tree.views().find(region);
   if (it == tree.views().end()) return stats;
@@ -1835,6 +2225,7 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
                               const TextInputEdit& edit, const std::vector<Rect>& damage) {
   int width = display.pixelWidth();
   int height = display.pixelHeight();
+  adopt(canvas);
   if (canvas.width != width || canvas.height != height) return drawRegion(tree, region, at, display, canvas, edit);
   auto it = tree.views().find(region);
   if (it == tree.views().end()) return {};
@@ -1851,10 +2242,9 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
     int y1 = std::min(height, static_cast<int>(std::ceil((rect.origin.y + rect.size.height) * display.scale)));
     if (x1 <= x0 || y1 <= y0) continue;
     // The region starts transparent, as a new region does, then everything over it is drawn again.
-    for (int y = y0; y < y1; ++y) {
-      std::fill_n(canvas.pixels.begin() + static_cast<long>(y) * width + x0, x1 - x0, 0u);
-    }
-    Painter painter(canvas, display.scale);
+    auto owner = makePainter(canvas, display.scale);
+    Painter& painter = *owner;
+    painter.clear(x0, y0, x1, y1, 0u);
     painter.limit(x0, y0, x1, y1);
     RenderStats drawn;
     drawChildren(painter, drawn);
@@ -1865,7 +2255,8 @@ RenderStats drawRegionDamaged(const ViewTree& tree, Tag region, Point at, const 
   }
   if (!counted) {
     // Nothing to paint; the stats are still the region's.
-    Painter painter(canvas, display.scale);
+    auto owner = makePainter(canvas, display.scale);
+    Painter& painter = *owner;
     painter.limit(0, 0, 0, 0);
     drawChildren(painter, stats);
   }
@@ -1896,7 +2287,8 @@ std::optional<Rect> windowFrame(const ViewTree& tree, Tag tag) {
   }
 }
 
-bool writePng(const Canvas& canvas, const std::string& path) {
+bool writePng(const Canvas& drawn, const std::string& path) {
+  Canvas canvas{drawn.width, drawn.height, canvasPixels(drawn), nullptr};
   std::vector<uint8_t> raw;
   raw.reserve(static_cast<size_t>(canvas.width * 3 + 1) * canvas.height);
   for (int y = 0; y < canvas.height; ++y) {
@@ -1943,6 +2335,50 @@ RenderStats render(const ViewTree& tree, const Display& display, const std::stri
   auto stats = draw(tree, display, canvas);
   stats.written = writePng(canvas, pngPath);
   return stats;
+}
+
+uint64_t Picture::next() {
+  static std::atomic<uint64_t> made{0};
+  return ++made;
+}
+
+void setGpuPaint(OxyOSPaint* paint) { gpuPaintSet = paint; }
+
+OxyOSPaint* gpuPaint() { return gpuPaintSet; }
+
+CpuPaintScope::CpuPaintScope() { ++cpuOnly; }
+
+CpuPaintScope::~CpuPaintScope() { --cpuOnly; }
+
+uint32_t gpuCanvasId(const Canvas& canvas) { return canvas.gpu ? canvas.gpu->id : 0; }
+
+std::vector<uint32_t> canvasPixels(const Canvas& canvas) {
+  if (!canvas.gpu) return canvas.pixels;
+  std::vector<uint32_t> pixels(static_cast<size_t>(std::max(canvas.width, 0)) * std::max(canvas.height, 0));
+  int64_t read = oxyos_paint_canvas_read(canvas.gpu->paint, canvas.gpu->id, pixels.data(), pixels.size());
+  if (read != static_cast<int64_t>(pixels.size())) return {};
+  return pixels;
+}
+
+FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b) {
+  FrameDifference difference;
+  difference.pixels = std::min(a.size(), b.size());
+  if (a.size() != b.size()) {
+    difference.largest = 255;
+    difference.beyondThree = std::max(a.size(), b.size());
+    return difference;
+  }
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i] == b[i]) continue;
+    int largest = 0;
+    for (int shift = 0; shift < 32; shift += 8) {
+      largest = std::max(largest, std::abs(static_cast<int>((a[i] >> shift) & 0xff) -
+                                           static_cast<int>((b[i] >> shift) & 0xff)));
+    }
+    difference.largest = std::max(difference.largest, largest);
+    difference.beyondThree += largest > 3;
+  }
+  return difference;
 }
 
 }  // namespace oxyos
