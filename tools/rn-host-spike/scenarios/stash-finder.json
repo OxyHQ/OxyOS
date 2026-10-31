@@ -1,0 +1,807 @@
+{
+ "about": "Stash on OxyOS as Finder is used: a press selects (only an icon or its name; the cell's corner is the background), a double press opens, the arrows move through the grid and a list, type-select, Return renames and Escape cancels, a context menu opens at the press for the item pressed (selecting it) or for the folder on the background, going back selects the folder left so the keys go on from there, and a press among the items takes the keys back from the search field. Every step checks the events React received, what the assistive technology holds, the focus and the disk, not pixels. Window 1280x800: the grid has 9 columns spread across 1042 points (icon centres at x = 289 + 113 column, y = 130 + 112 row).",
+ "module": "Stash",
+ "window": [
+  1280,
+  800
+ ],
+ "app": {
+  "id": "so.oxy.stash",
+  "title": "Stash"
+ },
+ "home": {
+  "items": {
+   "Clarity/": "",
+   "Desktop/": "",
+   "Documents/": "",
+   "Downloads/": "",
+   "installd-try/": "",
+   "Music/": "",
+   "node_modules/": "",
+   "Oxy/": "",
+   "oxyos-validation/": "",
+   "Pictures/": "",
+   "Public/": "",
+   "servers/": "",
+   "Templates/": "",
+   "Videos/": "",
+   "website/": "",
+   "claude-setup-prompt.md": {
+    "bytes": 7000
+   },
+   "minecraft-bot.js": {
+    "bytes": 2000
+   },
+   "package.json": "{}",
+   "package-lock.json": "{}",
+   "probar-oxyos.sh": "#!/bin/sh",
+   "valdoria-house-map.png": {
+    "png": [
+     1024,
+     768,
+     "#4a7a3a"
+    ]
+   },
+   ".bashrc": "x",
+   ".profile": "x",
+   ".face": {
+    "png": [
+     96,
+     96,
+     "#aa5500"
+    ]
+   },
+   "Downloads/127.0.0.1_8080_(Nest Hub Max).png": {
+    "png": [
+     1280,
+     800,
+     "#3060c0"
+    ]
+   },
+   "Downloads/astro-browser_0.1.0_amd64.deb": {
+    "bytes": 300000
+   },
+   "Downloads/bedrock-server-1.26.44.3/": "",
+   "Downloads/bedrock-server-1.26.44.3.zip": {
+    "bytes": 200000
+   },
+   "Downloads/blur-my-shellaunetx.v70.shell-extension/": "",
+   "Downloads/blur-my-shellaunetx.v70.shell-extension.zip": {
+    "bytes": 3000
+   },
+   "Downloads/cgqzbklp_400x400.jpg": {
+    "png": [
+     400,
+     400,
+     "#c03060"
+    ]
+   },
+   "Downloads/code_1.115.0-1775600353_amd64.deb": {
+    "bytes": 100000
+   },
+   "Downloads/faircoin-v3.0.3-linux-x86_64/": "",
+   "Downloads/faircoin-v3.0.3-linux-x86_64.tar.gz": {
+    "bytes": 5000
+   },
+   "Downloads/Gmail - 493145959.pdf": "%PDF",
+   "Downloads/I'm The Problem.mp3": {
+    "bytes": 7000
+   },
+   "Downloads/macOS-Tahoe-v0.6.1.zip": {
+    "bytes": 600
+   },
+   "Downloads/MacTahoe-icon-theme/": "",
+   "Downloads/NPCEnch2.0.mcaddon": "x",
+   "Downloads/OTG Backpack v1.0.8 - Native Display_Bedrock Reimagine.mcaddon": "x",
+   "Downloads/photo_2026-08-16_20-57-49.jpg": {
+    "png": [
+     1600,
+     1200,
+     "#70a0d0"
+    ]
+   },
+   "Downloads/src/": "",
+   "Downloads/src.zip": {
+    "bytes": 900
+   },
+   "Downloads/Telegram Desktop/": "",
+   "Downloads/Tierras de Valdoria (1).png": {
+    "png": [
+     900,
+     900,
+     "#558833"
+    ]
+   },
+   "Downloads/Tierras_de_Valdoria__1_-removebg-preview.png": {
+    "png": [
+     600,
+     600,
+     "#aa8844"
+    ]
+   },
+   "Downloads/Tierras de Valdoria.png": {
+    "png": [
+     900,
+     900,
+     "#336655"
+    ]
+   },
+   "Downloads/track 3.mp3": {
+    "bytes": 7000
+   },
+   "Downloads/tsetup.6.7.2.tar.xz": {
+    "bytes": 6000
+   },
+   "Downloads/ulauncher_5.15.15_all.deb": {
+    "bytes": 1800
+   },
+   "Downloads/ulauncher-liquid-glass-v1.0.2/": "",
+   "Documents/note 1.txt": "n",
+   "Documents/note 2.txt": "n",
+   "Documents/note 3.txt": "n",
+   "Documents/note 4.txt": "n",
+   "Documents/note 5.txt": "n",
+   "Documents/note 6.txt": "n",
+   "Documents/note 7.txt": "n",
+   "Documents/note 8.txt": "n",
+   "Documents/note 9.txt": "n",
+   "Documents/note 10.txt": "n",
+   "Documents/note 11.txt": "n",
+   "Documents/note 12.txt": "n"
+  }
+ },
+ "outputs": "1920x1200",
+ "steps": [
+  {
+   "name": "The home, first: its 21 items in Finder's grid, nothing selected",
+   "do": [
+    "wait",
+    2500
+   ],
+   "expect": {
+    "texts": [
+     "21 items"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "home"
+      },
+      {
+       "role": "ListItem",
+       "name": "Downloads",
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "Clarity",
+       "state": []
+      }
+     ]
+    }
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "A press on the Downloads icon selects it alone",
+   "do": [
+    "press",
+    [
+     741,
+     130
+    ]
+   ],
+   "expect": {
+    "react_presses": {
+     "pointerDown@item-Downloads": 1,
+     "pointerUp@item-Downloads": 1
+    },
+    "texts": [
+     "1 of 21 selected"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Downloads",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Desktop",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press in the empty corner of its cell, beside the icon, is the background: nothing selected",
+   "do": [
+    "press",
+    [
+     689,
+     100
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "21 items"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Downloads",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A double press opens Downloads: its 27 items, the sidebar and the title follow",
+   "do": [
+    "double_press",
+    [
+     741,
+     130
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "27 items"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Downloads"
+      },
+      {
+       "role": "Button",
+       "name": "Downloads",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "src.zip",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Down with nothing selected selects the first item",
+   "do": [
+    "key",
+    108
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "127.0.0.1_8080_(Nest Hub Max).png",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Right selects the next",
+   "do": [
+    "key",
+    106
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "astro-browser_0.1.0_amd64.deb",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "127.0.0.1_8080_(Nest Hub Max).png",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Down goes a row down the grid (9 columns)",
+   "do": [
+    "key",
+    108
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Gmail - 493145959.pdf",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "astro-browser_0.1.0_amd64.deb",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "T: typing a name's first letter selects the first item it begins (type-select)",
+   "do": [
+    "key",
+    20
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Telegram Desktop",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Gmail - 493145959.pdf",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Return renames it in place: the name's field has the keys",
+   "do": [
+    "key",
+    28
+   ],
+   "expect": {
+    "focus_input": "rename",
+    "at": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Name"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape cancels the rename: the keys back on the items, the name unchanged",
+   "do": [
+    "key",
+    1
+   ],
+   "expect": {
+    "focus_input": null,
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Telegram Desktop",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "TextInput",
+       "name": "Name"
+      }
+     ]
+    },
+    "home": {
+     "Downloads/Telegram Desktop": true
+    }
+   }
+  },
+  {
+   "name": "A secondary press on src.zip (not selected) selects it and opens its menu at the press",
+   "do": [
+    "press_secondary",
+    [
+     289,
+     354
+    ]
+   ],
+   "expect": {
+    "popups": 1,
+    "react_presses": {
+     "pointerDown@item-src.zip": 1,
+     "pointerUp@item-src.zip": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "src.zip",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Telegram Desktop",
+       "state": []
+      }
+     ],
+     "popup": [
+      {
+       "role": "Menu",
+       "name": "Context menu"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Open"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Rename"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Move to Trash"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape closes the menu, src.zip still selected",
+   "do": [
+    "key",
+    1
+   ],
+   "expect": {
+    "popups": 0,
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "src.zip",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A secondary press on the background opens the folder's menu and selects nothing",
+   "do": [
+    "press_secondary",
+    [
+     900,
+     650
+    ]
+   ],
+   "expect": {
+    "popups": 1,
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "src.zip",
+       "state": []
+      }
+     ],
+     "popup": [
+      {
+       "role": "MenuItem",
+       "name": "New Folder"
+      },
+      {
+       "role": "MenuItem",
+       "name": "Select All"
+      }
+     ]
+    },
+    "at_absent": {
+     "popup": [
+      {
+       "role": "MenuItem",
+       "name": "Rename"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape closes it",
+   "do": [
+    "key",
+    1
+   ],
+   "expect": {
+    "popups": 0
+   }
+  },
+  {
+   "name": "Back (Ctrl+[): home again, with Downloads, the folder just left, selected",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "1 of 21 selected"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "home"
+      },
+      {
+       "role": "ListItem",
+       "name": "Downloads",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Down goes on from Downloads to the item below it",
+   "do": [
+    "key",
+    108
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Pictures",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Downloads",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "As List, from the toolbar",
+   "do": [
+    "press",
+    [
+     1031,
+     33
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Date Modified",
+     "Kind"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Pictures",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press on a row selects it",
+   "do": [
+    "press",
+    [
+     580,
+     195
+    ]
+   ],
+   "expect": {
+    "react_presses": {
+     "pointerDown@item-Documents": 1,
+     "pointerUp@item-Documents": 1
+    },
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "Pictures",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A double press on the row opens Documents",
+   "do": [
+    "double_press",
+    [
+     580,
+     195
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "12 items"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "Documents"
+      },
+      {
+       "role": "ListItem",
+       "name": "note 1.txt",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Back: the list again, Documents selected",
+   "do": [
+    "key",
+    [
+     29,
+     26
+    ]
+   ],
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "Heading",
+       "name": "home"
+      },
+      {
+       "role": "ListItem",
+       "name": "Documents",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press in the search field gives it the keys",
+   "do": [
+    "press",
+    [
+     1157,
+     42
+    ]
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "Typing searches: the two items whose names have it",
+   "do": [
+    "type",
+    "packa"
+   ],
+   "expect": {
+    "focus_input": "search",
+    "texts": [
+     "2 items"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "package-lock.json",
+       "state": []
+      },
+      {
+       "role": "ListItem",
+       "name": "package.json",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "A press on a row takes the keys back from the field and selects the row",
+   "do": [
+    "press",
+    [
+     580,
+     111
+    ]
+   ],
+   "expect": {
+    "focus_input": null,
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "package-lock.json",
+       "state": [
+        "selected"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Down now moves the selection, not the field's caret",
+   "do": [
+    "key",
+    108
+   ],
+   "expect": {
+    "focus_input": null,
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "package.json",
+       "state": [
+        "selected"
+       ]
+      },
+      {
+       "role": "ListItem",
+       "name": "package-lock.json",
+       "state": []
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
