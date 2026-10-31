@@ -85,6 +85,8 @@ class AccessibilityBridge {
 
   // Moves accessibility focus (AccessibilityInfo.sendAccessibilityEvent(view, 'focus')).
   void focus(facebook::react::Tag tag) { focus_ = tag; }
+  // The view with accessibility focus, or -1.
+  facebook::react::Tag focused() const { return focus_; }
 
   // Publishes `surface`'s snapshot (its content under `root`, the root at `at` in the surface) if
   // it changed, and reports it.

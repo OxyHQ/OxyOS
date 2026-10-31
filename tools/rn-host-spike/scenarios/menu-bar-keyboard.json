@@ -1,5 +1,5 @@
 {
-  "about": "The session's menu bar from the keyboard (docs/adr/0024-system-shortcuts.mdx, decision 9), as a Mac's Control-F2: Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar, ADR 0021) with its note field focused. Super+F2 moves the keyboard to the bar's first menu, the Oxy menu, the window staying the active one and its field focused; Left and Right go across the menus and round the ends, opening the next one when one is open; Down, Return and Space open a menu, whose own keys (Down, End, Home, a letter, Return, Escape) are Bloom's popup navigation; a row chosen runs in the application once and gives the window the keyboard back; Escape closes the menu, then leaves the bar, the keyboard back with the field; a press in the window takes the keyboard from the bar. Every step checks what React receives, what the application is delivered, the focus and what the assistive technology holds.",
+  "about": "The session's menu bar from the keyboard (docs/adr/0024-system-shortcuts.mdx, decision 9), as a Mac's Control-F2: Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar, ADR 0021) with its note field focused. Super+F2 moves the keyboard to the bar's first menu, the Oxy menu, the window staying the active one and its field focused; Left and Right go across the menus and round the ends, opening the next one when one is open; Down, Return and Space open a menu, whose own keys (Down, End, Home, a letter, Return, Escape) are Bloom's popup navigation; a row chosen runs in the application once and gives the window the keyboard back; Escape closes the menu, then leaves the bar, the keyboard back with the field; a press in the window takes the keyboard from the bar. However the bar is left, the assistive technology's focus leaves it too: no title or row of the shell is focused. Every step checks what React receives, what the application is delivered, the focus and what the assistive technology holds.",
   "module": "MenuBarProbe",
   "window": [
     600,
@@ -307,7 +307,7 @@
       }
     },
     {
-      "name": "Return chooses New: it runs in the application once, and the keyboard is back with the window, its field focused",
+      "name": "Return chooses New: it runs in the application once, and the keyboard is back with the window, its field focused; the assistive technology's focus leaves the bar with it",
       "do": [
         "key",
         28
@@ -332,6 +332,38 @@
         "in_shell": {
           "absent": [
             "Open Recent"
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
           ]
         }
       }
@@ -448,7 +480,7 @@
       }
     },
     {
-      "name": "Return chooses it: it turns on in the application, the keyboard back with the field",
+      "name": "Return chooses it: it turns on in the application, the keyboard back with the field; the assistive technology's focus leaves the bar with it",
       "do": [
         "key",
         28
@@ -469,6 +501,38 @@
             "focus.in": 1,
             "menu.activated": 1
           }
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
         }
       }
     },
@@ -606,7 +670,7 @@
       }
     },
     {
-      "name": "Escape again leaves the bar: the keyboard back with the window, its field focused",
+      "name": "Escape again leaves the bar: the keyboard back with the window, its field focused; the assistive technology's focus leaves the bar with it",
       "do": [
         "key",
         1
@@ -619,7 +683,39 @@
           }
         },
         "focus_input": "note",
-        "focus_surface": 1
+        "focus_surface": 1,
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        }
       }
     },
     {
@@ -675,7 +771,7 @@
       }
     },
     {
-      "name": "a press in the window takes the keyboard from the bar, which lets go of it",
+      "name": "a press in the window takes the keyboard from the bar, which lets go of it; the assistive technology's focus leaves the bar with it",
       "do": [
         "press",
         [
@@ -696,11 +792,43 @@
             "press": 1,
             "release": 1
           }
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
         }
       }
     },
     {
-      "name": "Left is the field's now, not the bar's: its caret moves",
+      "name": "Left is the field's now, not the bar's: its caret moves; the assistive technology's focus leaves the bar with it",
       "do": [
         "key",
         105
@@ -723,6 +851,36 @@
               "selection": [
                 5,
                 5
+              ]
+            }
+          ],
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
               ]
             }
           ]

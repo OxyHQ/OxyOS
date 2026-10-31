@@ -837,6 +837,9 @@ int main(int argc, char** argv) {
     // its popups) since.
     uint32_t regionAskedFor = 0;
     bool regionHeldKeyboard = false;
+    // The region that gave the keyboard back (the bar left), until the keyboard is on it again:
+    // JavaScript's accessibility focus moves into it are declined meanwhile (releaseFocus below).
+    uint32_t releasedRegion = 0;
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
@@ -1090,6 +1093,18 @@ int main(int argc, char** argv) {
         if (props && !props->testId.empty()) within = props->testId;
       }
       oxyos::Report::get().accessibilityEvent(type, view, within);
+      // A region whose keyboard went back to a window (the bar left from the keyboard) takes no
+      // accessibility focus from JavaScript while the keyboard is elsewhere: Bloom gives a closed
+      // menu's trigger the focus back (a row chosen closes it after the bar gave the window the
+      // keyboard), and the person is in the window, not on the bar. The assistive technology's own
+      // focus moves (an action) are not these, and go anywhere.
+      if (type == "focus" && releasedRegion != 0 && keyboardSurface != releasedRegion &&
+          shellSurfaces.keyboardRegion() != releasedRegion &&
+          !(keyboardSurface != 0 && popups.content(keyboardSurface)) &&
+          shellSurfaces.surfaceOf(view.tag) == releasedRegion) {
+        oxyos::Report::get().input("a11y.focus.declined", releasedRegion);
+        return;
+      }
       if (type == "focus") {
         accessibility.focus(view.tag);
         dirty = true;
@@ -1462,6 +1477,26 @@ int main(int argc, char** argv) {
         // bar that no longer receives keys.
         if (shellMode) {
           uint32_t wanted = shellSurfaces.keyboardRegion().value_or(0);
+          // The region gives the keyboard back (the bar left by Escape or a row chosen) or loses it
+          // (a press elsewhere): the accessibility focus its keys moved over its titles goes with
+          // it, as VoiceOver's leaves a Mac's menu bar for the window. What is focused is never a
+          // title of a bar the keyboard has left.
+          auto releaseFocus = [&](uint32_t region) {
+            releasedRegion = region;
+            auto focused = accessibility.focused();
+            if (region == 0 || focused < 0) return;
+            auto in = shellSurfaces.surfaceOf(focused);
+            bool inPopup = popups.surfaceOf(focused) != oxyos::Window::kToplevel;
+            if ((in && *in == region) || inPopup) {
+              accessibility.focus(-1);
+              shellSurfaces.changed();
+              popups.changed();
+              oxyos::Report::get().input("a11y.focus.released", region);
+            }
+          };
+          if (wanted != regionAskedFor && wanted == 0 && regionHeldKeyboard) releaseFocus(regionAskedFor);
+          // The keyboard back on the region, or the region asking for it again: it is the bar's.
+          if (releasedRegion != 0 && (keyboardSurface == releasedRegion || wanted != 0)) releasedRegion = 0;
           if (wanted != regionAskedFor) {
             regionAskedFor = wanted;
             regionHeldKeyboard = false;
@@ -1484,6 +1519,7 @@ int main(int argc, char** argv) {
             regionHeldKeyboard = true;
           } else if (regionHeldKeyboard) {
             regionHeldKeyboard = false;
+            releaseFocus(wanted);
             oxyos::Report::get().input("keyboard.lost", wanted);
             instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSShellKeyboardLost", folly::dynamic::object()));
