@@ -4291,3 +4291,63 @@ fn a_painter_draws_and_reads_back_through_the_c_abi() {
         oxyos_paint_free(paint);
     }
 }
+
+#[test]
+fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-v2-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let (hello, _) = server.recv_request().unwrap();
+        assert_eq!(
+            hello,
+            Request::Hello {
+                min_version: 2,
+                max_version: oxyos_protocol::VERSION
+            }
+        );
+        server
+            .send_event_for(&Event::Welcome { version: 2 }, None, 2)
+            .unwrap();
+        server
+            .send_event_for(
+                &Event::Pointer {
+                    surface: 1,
+                    serial: 4,
+                    kind: PointerKind::Press,
+                    x: 256,
+                    y: 512,
+                    button: 272,
+                    time_ns: 99,
+                },
+                None,
+                2,
+            )
+            .unwrap();
+        server
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect, is used by this thread only and
+    // is closed once at the end.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null(), "a version 2 compositor is spoken to");
+        let mut event = OxyOSEvent::default();
+        let pointer = loop {
+            match oxyos_client_poll(client, &mut event) {
+                OXYOS_POLL_EVENT => break event,
+                OXYOS_POLL_EMPTY => std::thread::yield_now(),
+                other => panic!("poll: {other}"),
+            }
+        };
+        assert_eq!(
+            (pointer.kind, pointer.serial, pointer.code, pointer.time_ns),
+            (OXYOS_EVENT_POINTER, 4, 272, 0)
+        );
+        drop(compositor.join().unwrap());
+        oxyos_client_close(client);
+    }
+}

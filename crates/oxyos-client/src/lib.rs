@@ -69,6 +69,8 @@ pub enum Poll {
 
 pub struct Client {
     connection: Connection,
+    /// The protocol version the compositor chose (ADR 0033): its events are read as it writes them.
+    version: u16,
     buffers: Vec<Buffer>,
     /// Buffers the caller owns (`attach_buffer`), with their size.
     attached: Vec<(u64, Size)>,
@@ -94,6 +96,11 @@ type Offer = Vec<(TextChunk, std::sync::Arc<[u8]>)>;
 const OFFERS_KEPT: usize = 4;
 
 impl Client {
+    /// The protocol version the compositor chose for this connection.
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
     /// Connects and completes the version handshake.
     pub fn connect(path: &Path) -> io::Result<Self> {
         Self::handshake(Connection::connect(path)?)
@@ -101,13 +108,25 @@ impl Client {
 
     /// Completes the handshake on a connection the client was handed (a launcher's socket pair).
     pub fn handshake(connection: Connection) -> io::Result<Self> {
-        let (mut state, hello) = ClientConnection::new(MIN_VERSION, VERSION);
+        Self::handshake_versions(connection, MIN_VERSION, VERSION)
+    }
+
+    /// The same, offering only the versions from `min_version` to `max_version` (ADR 0033): a
+    /// client built for an older protocol, as tests and compatibility checks play one.
+    pub fn handshake_versions(
+        connection: Connection,
+        min_version: u16,
+        max_version: u16,
+    ) -> io::Result<Self> {
+        let (mut state, hello) = ClientConnection::new(min_version, max_version);
         connection.send_request(&hello, None)?;
         state
             .receive(&connection.recv_event()?.0)
             .map_err(|code| io::Error::other(format!("handshake: {code:?}")))?;
+        let version = state.version().unwrap_or(VERSION);
         Ok(Self {
             connection,
+            version,
             buffers: Vec::new(),
             attached: Vec::new(),
             next_buffer: 0,
@@ -123,6 +142,12 @@ impl Client {
 
     /// Sends a request that carries no descriptor. Buffers go through [`Client::present`].
     pub fn send(&self, request: &Request) -> io::Result<()> {
+        if oxyos_protocol::request_since(request) > self.version {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the compositor's protocol version has no such request",
+            ));
+        }
         self.connection.send_request(request, None)
     }
 
@@ -824,7 +849,7 @@ impl Client {
 
     /// Blocks for the next event; `None` once the compositor closes the connection.
     pub fn next_event(&mut self) -> io::Result<Option<Event>> {
-        match self.connection.recv_event() {
+        match self.connection.recv_event_for(self.version) {
             Ok((event, fd)) => {
                 self.descriptor = fd;
                 self.observe(event).map(Some)
@@ -836,7 +861,7 @@ impl Client {
 
     /// Returns a queued event without blocking.
     pub fn poll(&mut self) -> io::Result<Poll> {
-        match self.connection.try_recv_event() {
+        match self.connection.try_recv_event_for(self.version) {
             Ok(Some((event, fd))) => {
                 self.descriptor = fd;
                 self.observe(event).map(Poll::Event)

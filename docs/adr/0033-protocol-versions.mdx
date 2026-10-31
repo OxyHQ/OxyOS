@@ -1,0 +1,62 @@
+---
+title: "ADR 0033: Protocol versions and compatibility"
+description: How the display protocol changes without breaking the applications already installed — the compositor and the client library each speak a range of versions, a version only adds, each connection is spoken in the version it chose, and an old version is retired only by a stated policy.
+order: 42
+---
+
+# ADR 0033: Protocol versions and compatibility
+
+Status: **accepted; implemented** (versions 2 and 3). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+
+## Problem
+
+Version 3 of the display protocol ([#186](https://github.com/OxyHQ/OxyOS/pull/186)) put each input event's device time on the wire and made version 2 unsupported: `negotiate` accepted only 3. Astro on the reference ThinkPad, built against version 2, then stopped opening: `handshake: UnsupportedVersion`. Every protocol change would do the same to every installed application that is not rebuilt with the image: Astro, and later any application installed from the store ([ADR 0030](./0030-installing-applications)), which is built once and installed for months.
+
+A platform cannot break installed applications on every change of its protocol. A Mac runs an application built for macOS of several years ago; Wayland compositors serve every version of each interface a client binds; Android runs an application against the API level it targets.
+
+## Decision
+
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 3). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+
+2. **A version only adds.** A new version may:
+   - add a message with a new opcode, in either direction;
+   - add fields at the end of an existing message.
+
+   It never changes, reorders or removes a field, nor what a value means. A change that would need one adds a message instead, and the old one stays as long as an older version is served. This is what makes the next decisions mechanical.
+
+3. **Each connection is spoken in its version.** The compositor keeps each client's negotiated version (`ServerConnection::version`) and encodes the events it sends that client as that version defines them (`write_event_for`):
+   - an event the version lacks is not sent at all, so a version 2 client is never told of GPU buffers;
+   - an event that grew loses the fields the version lacks: version 2's `Pointer` is the 26 bytes it always was.
+
+   A request newer than the connection's version is refused, the connection closed with `InvalidMessage`, as for any message a peer may not send.
+
+4. **The client library speaks the same range.** It offers `MIN_VERSION` to `VERSION` in its Hello and reads events as the compositor's version writes them (`read_event_for`). A field the compositor's version lacks gets the value that means what that version meant:
+   - an input event's `time_ns` is 0, which ADR 0029's clients already read as "not known" and time themselves;
+   - a `Scroll` is pixels from a continuous source, never a stop, which is what version 2's scrolls were.
+
+   The library refuses to send a request the compositor's version lacks (`Client::send`), and offers no feature whose events the compositor never sent: GPU buffers need the device table only version 3 sends. So an application built today runs on a session of the previous version, and one built for the previous version runs on today's session.
+
+5. **What each version is.** The table of what a version added lives beside the encoder (`crates/oxyos-protocol/src/versions.rs`), and each version's messages are in `docs/native-foundation.mdx`.
+
+   | Version | Added |
+   | --- | --- |
+   | 2 | The protocol as it was until #186: every message before it. |
+   | 3 | `time_ns` at the end of `Pointer`, `Key`, `Touch`, `Scroll` (with `source` and `stop`), `InputMethodKey`, `Pinch` and `KeyText`; GPU buffers' requests and events (opcodes 170 to 174, [ADR 0031](./0031-gpu-buffers)). |
+
+   A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
+
+6. **Retiring a version.** A version stays served until all of these hold:
+   - its successor has shipped in an image for at least six months, or two releases of the image, whichever is longer;
+   - no application in the image or in the store's catalogue ([ADR 0030](./0030-installing-applications)) is built for it any more. For that, a package is to declare the protocol range it was built for, and the store to refuse one the session no longer serves (not implemented yet: the package format has no such field);
+   - the release notes of the image before the one that drops it say so.
+
+   Raising `MIN_VERSION` deletes that version's rows from `versions.rs` and its tests, nothing else. A session never refuses a version it still lists.
+
+7. **The C ABI follows the library.** `oxyos_client_connect` negotiates the range and the events it returns are this version's `OxyOSEvent`, the fields the compositor did not send set as decision 4 says. Applications built against one client version keep working against the next session, because the ABI only adds too ([ADR 0029](./0029-chromium-on-oxyos), decision 5).
+
+## Tests
+
+- **Protocol:** version 2 is negotiated from a version 2 peer and version 3 from 2 to 3; a `Pointer` written for version 2 is the 26 bytes it was, the same fields as version 3's without the device time, read back with none; a version 2 `Scroll` reads as a continuous scroll of pixels with no stop; a GPU event is not written for version 2 and refused from it; every event's version 2 form is read back; which version introduced a request or an event.
+- **Compositor, through real sockets** (`tests/versions.rs`): a client offering only version 2 is served, its window shown, and a press with a device time reaches it in version 2's form; a version 3 request from it closes the connection.
+- **C ABI:** the client speaks to a compositor that answers version 2, and reads its press with no device time.
+- **Scenario:** `astro.json` with the engine Astro shipped before version 3 (built at OxyOS 677d33f, protocol 2) on this compositor passes, and with today's engine (protocol 3) too. On a compositor of version 3 alone, as OxyOS main was, the same engine exits at its handshake (`UnsupportedVersion`), which is what the reference ThinkPad showed.

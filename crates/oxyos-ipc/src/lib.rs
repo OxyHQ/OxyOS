@@ -10,8 +10,8 @@
 //!   compositor reads them with `pread`, so a misbehaving client cannot fault the compositor.
 
 use oxyos_protocol::{
-    read_event, read_request, write_event, write_request, BufferLayout, Event, Request,
-    MAX_PACKET_BYTES,
+    read_event_for, read_request, write_event_for, write_request, BufferLayout, Event, Request,
+    MAX_PACKET_BYTES, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::fs::{FileType, MemfdFlags, OFlags, SealFlags};
@@ -201,22 +201,48 @@ impl Connection {
 
     /// Sends one event, with the descriptor it carries (`Event::carries_fd`) and only then.
     pub fn send_event(&self, event: &Event, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
+        self.send_event_for(event, fd, VERSION)
+    }
+
+    /// The same for a peer of protocol `version` (ADR 0033): the event as that version defines
+    /// it, or nothing for an event it does not have.
+    pub fn send_event_for(
+        &self,
+        event: &Event,
+        fd: Option<BorrowedFd<'_>>,
+        version: u16,
+    ) -> io::Result<()> {
         if event.carries_fd() != fd.is_some() {
             return Err(invalid("descriptor does not match the event"));
         }
         let mut packet = Vec::with_capacity(PACKET_CAPACITY);
-        write_event(&mut packet, event)?;
+        if !write_event_for(&mut packet, event, version)? {
+            return Ok(());
+        }
         self.send_packet(&packet, fd)
     }
 
     /// Sends without blocking. Returns `Ok(false)` if the peer's receive queue is full, so the
     /// compositor can keep the event in a bounded outbox instead of waiting on a slow client.
     pub fn try_send_event(&self, event: &Event, fd: Option<BorrowedFd<'_>>) -> io::Result<bool> {
+        self.try_send_event_for(event, fd, VERSION)
+    }
+
+    /// The same for a peer of protocol `version` (ADR 0033); an event that version does not have
+    /// is taken as sent, and nothing is.
+    pub fn try_send_event_for(
+        &self,
+        event: &Event,
+        fd: Option<BorrowedFd<'_>>,
+        version: u16,
+    ) -> io::Result<bool> {
         if event.carries_fd() != fd.is_some() {
             return Err(invalid("descriptor does not match the event"));
         }
         let mut packet = Vec::with_capacity(PACKET_CAPACITY);
-        write_event(&mut packet, event)?;
+        if !write_event_for(&mut packet, event, version)? {
+            return Ok(true);
+        }
         let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
         let mut control = SendAncillaryBuffer::new(&mut space);
         let fds;
@@ -241,13 +267,23 @@ impl Connection {
 
     /// Receives one event, and the descriptor it carries if its kind carries one.
     pub fn recv_event(&self) -> io::Result<(Event, Option<OwnedFd>)> {
-        self.receive_event(RecvFlags::empty())
+        self.receive_event(RecvFlags::empty(), VERSION)
+    }
+
+    /// The same from a compositor of protocol `version` (ADR 0033), as this version's event.
+    pub fn recv_event_for(&self, version: u16) -> io::Result<(Event, Option<OwnedFd>)> {
+        self.receive_event(RecvFlags::empty(), version)
     }
 
     /// Receives an event without blocking: `Ok(None)` if none is queued, so a client can serve
     /// the compositor from its own loop.
     pub fn try_recv_event(&self) -> io::Result<Option<(Event, Option<OwnedFd>)>> {
-        match self.receive_event(RecvFlags::DONTWAIT) {
+        self.try_recv_event_for(VERSION)
+    }
+
+    /// The same from a compositor of protocol `version` (ADR 0033).
+    pub fn try_recv_event_for(&self, version: u16) -> io::Result<Option<(Event, Option<OwnedFd>)>> {
+        match self.receive_event(RecvFlags::DONTWAIT, version) {
             Ok(event) => Ok(Some(event)),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
             Err(error) => Err(error),
@@ -256,11 +292,15 @@ impl Connection {
 
     /// A descriptor comes with an event exactly when its kind carries one; any mismatch closes
     /// the received descriptors and is an error.
-    fn receive_event(&self, flags: RecvFlags) -> io::Result<(Event, Option<OwnedFd>)> {
+    fn receive_event(
+        &self,
+        flags: RecvFlags,
+        version: u16,
+    ) -> io::Result<(Event, Option<OwnedFd>)> {
         let mut storage = [0; PACKET_CAPACITY];
         let (length, mut fds) = self.recv_packet(&mut storage, flags)?;
         let mut cursor = Cursor::new(&storage[..length]);
-        let event = read_event(&mut cursor)?;
+        let event = read_event_for(&mut cursor, version)?;
         if cursor.position() as usize != length {
             return Err(invalid("trailing bytes in packet"));
         }

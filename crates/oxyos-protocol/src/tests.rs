@@ -1282,8 +1282,95 @@ fn version_negotiation_selects_the_highest_common_version() {
         Err(ErrorCode::UnsupportedVersion)
     );
     assert_eq!(negotiate(3, 2), Err(ErrorCode::InvalidMessage));
-    // Version 3 put each input event's time on the wire: a version 2 peer is refused.
-    assert_eq!(negotiate(2, 2), Err(ErrorCode::UnsupportedVersion));
+    // A version 2 peer is still served (ADR 0033): its events are encoded as version 2 has them.
+    assert_eq!(negotiate(2, 2), Ok(2));
+    assert_eq!(negotiate(2, 3), Ok(3));
+}
+
+#[test]
+fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
+    // Version 2's layout, byte for byte: Pointer as it was before device times (26 bytes with
+    // its opcode), read back by a version 3 reader of a version 2 compositor with no time.
+    let pointer = Event::Pointer {
+        surface: 1,
+        serial: 9,
+        kind: PointerKind::Press,
+        x: 512,
+        y: -256,
+        button: 272,
+        time_ns: 1_234_567_890,
+    };
+    let mut v2 = Vec::new();
+    assert!(write_event_for(&mut v2, &pointer, 2).unwrap());
+    assert_eq!(u32::from_le_bytes(v2[..4].try_into().unwrap()), 26);
+    let mut v3 = Vec::new();
+    assert!(write_event_for(&mut v3, &pointer, 3).unwrap());
+    assert_eq!(u32::from_le_bytes(v3[..4].try_into().unwrap()), 34);
+    assert_eq!(
+        &v2[4..],
+        &v3[4..30],
+        "the same fields, the device time left out"
+    );
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v2), 2).unwrap(),
+        Event::Pointer {
+            surface: 1,
+            serial: 9,
+            kind: PointerKind::Press,
+            x: 512,
+            y: -256,
+            button: 272,
+            time_ns: 0,
+        }
+    );
+    assert_eq!(read_event_for(&mut Cursor::new(&v3), 3).unwrap(), pointer);
+    // A scroll from a version 2 compositor is pixels from a continuous source, never a stop.
+    let scroll = Event::Scroll {
+        surface: 1,
+        serial: 3,
+        dx: 0,
+        dy: 2560,
+        time_ns: 77,
+        source: ScrollSource::Finger,
+        stop: true,
+    };
+    let mut v2 = Vec::new();
+    write_event_for(&mut v2, &scroll, 2).unwrap();
+    assert_eq!(u32::from_le_bytes(v2[..4].try_into().unwrap()), 21);
+    assert_eq!(
+        read_event_for(&mut Cursor::new(&v2), 2).unwrap(),
+        Event::Scroll {
+            surface: 1,
+            serial: 3,
+            dx: 0,
+            dy: 2560,
+            time_ns: 0,
+            source: ScrollSource::Continuous,
+            stop: false,
+        }
+    );
+    // An event version 2 does not have is not written for it, and refused from it.
+    let device = Event::GpuDevice {
+        device: 1,
+        formats: 2,
+    };
+    let mut nothing = Vec::new();
+    assert!(!write_event_for(&mut nothing, &device, 2).unwrap());
+    assert!(nothing.is_empty());
+    let mut v3 = Vec::new();
+    write_event_for(&mut v3, &device, 3).unwrap();
+    assert!(read_event_for(&mut Cursor::new(&v3), 2).is_err());
+    // Every event version 2 had keeps its layout in version 3 but the grown ones.
+    for event in events() {
+        let mut old = Vec::new();
+        if write_event_for(&mut old, &event, 2).unwrap() {
+            let back = read_event_for(&mut Cursor::new(&old), 2).unwrap();
+            assert_eq!(back.opcode(), event.opcode());
+        }
+    }
+    assert_eq!(request_since(&Request::ImportTimeline { timeline: 1 }), 3);
+    assert_eq!(request_since(&Request::Destroy { surface: 1 }), 2);
+    assert_eq!(event_since(&device), 3);
 }
 
 #[test]
