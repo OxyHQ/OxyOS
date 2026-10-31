@@ -1,5 +1,5 @@
 {
-  "about": "probe",
+  "about": "screenshots.json on a 1600x1000 output at 1.25 (ADR 0018), the session in English: the same steps, each file at the display's own pixels.",
   "module": "EditingProbe",
   "window": [
     600,
@@ -13,7 +13,7 @@
   "screenshots": true,
   "steps": [
     {
-      "name": "field",
+      "name": "Allo's field takes the keyboard",
       "do": [
         "press",
         [
@@ -21,10 +21,76 @@
           42
         ]
       ],
-      "expect": {}
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
     },
     {
-      "name": "s3",
+      "name": "Super+Shift+3: the whole display, at its own pixels, saved to the Desktop and named as a Mac names it; its thumbnail at the bottom-right corner, said to the screen reader; nothing of it reaches Allo, whose field keeps the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          42,
+          4
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Captura de pantalla"
+            }
+          ]
+        },
+        "output_pixels": {
+          "1085,680": "#ffffff"
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "folder": "Desktop",
+              "output": 1,
+              "width": 1600,
+              "height": 1000,
+              "alpha": false,
+              "pixels": {
+                "800,650": "#ffffff",
+                "125,125": "#487bff"
+              }
+            }
+          ],
+          "opened": []
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+3 again while the thumbnail shows: another file, numbered if in the same second, and the thumbnail is not in it",
       "do": [
         "key",
         [
@@ -35,49 +101,164 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "screenshots": {}
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "output_pixels": {
+          "1085,680": "#ffffff"
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
+              "folder": "Desktop",
+              "width": 1600,
+              "height": 1000,
+              "pixels": {
+                "1356,850": "#83a2ff"
+              }
+            }
+          ],
+          "opened": []
+        }
       }
     },
     {
-      "name": "s4",
+      "name": "Super+Shift+4: the crosshair over the display, the thumbnail hidden; Allo keeps its focus, the pointer no longer over it",
       "do": [
         "key",
         [
           125,
           42,
           5
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "type",
-      "do": [
-        "type",
-        "ab"
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "drag",
-      "do": [
-        "drag_output",
-        [
-          100,
-          100,
-          300,
-          250
         ]
       ],
       "allow_unchanged": true,
       "expect": {
-        "screenshots": {}
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [],
+        "at": {
+          "shell": [
+            {
+              "name": "Seleccionar una parte de la pantalla"
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Captura de pantalla"
+            }
+          ]
+        },
+        "screenshots": {
+          "saved": [],
+          "opened": []
+        }
       }
     },
     {
-      "name": "s4b",
+      "name": "A letter typed while it is open reaches nobody",
+      "do": [
+        "key",
+        [
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": []
+      }
+    },
+    {
+      "name": "Nor does Shift with a letter",
+      "do": [
+        "key",
+        [
+          42,
+          48
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": []
+      }
+    },
+    {
+      "name": "A drag from the desktop over Allo's corner: the rectangle it spans, at the display's pixels, and the crosshair ends",
+      "do": [
+        "drag_output",
+        [
+          240,
+          120,
+          440,
+          270
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Seleccionar una parte de la pantalla"
+            }
+          ]
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "folder": "Desktop",
+              "width": 250,
+              "height": 188,
+              "pixels": {
+                "10,10": "#477afe",
+                "150,138": "#ffffff"
+              }
+            }
+          ],
+          "opened": []
+        }
+      }
+    },
+    {
+      "name": "Super+Shift+4 again",
       "do": [
         "key",
         [
@@ -87,21 +268,76 @@
         ]
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "at": {
+          "shell": [
+            {
+              "name": "Seleccionar una parte de la pantalla"
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "space",
+      "name": "Space: picking a window; the one under the pointer, Allo, tinted",
       "do": [
         "key",
         [
           57
         ]
       ],
-      "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "at": {
+          "shell": [
+            {
+              "name": "Elegir una ventana"
+            }
+          ]
+        },
+        "output_pixels": {
+          "1125,650": "#bbd7ff",
+          "475,275": "#bbd7ff"
+        }
+      }
     },
     {
-      "name": "pick",
+      "name": "The pointer moving over Allo: it stays the window taken, and Allo hears nothing of it",
+      "do": [
+        "move_paced",
+        [
+          100,
+          84,
+          300,
+          184,
+          8,
+          60
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "output_pixels": {
+          "1125,650": "#bbd7ff"
+        }
+      }
+    },
+    {
+      "name": "A press on Allo: its window with its shadow, over nothing, at the display's pixels; Allo keeps the keyboard and is not pressed",
       "do": [
         "press_output",
         [
@@ -109,13 +345,49 @@
           390
         ]
       ],
-      "allow_unchanged": true,
       "expect": {
-        "screenshots": {}
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Elegir una ventana"
+            }
+          ]
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}\\.png",
+              "folder": "Desktop",
+              "width": 930,
+              "height": 630,
+              "alpha": true,
+              "pixels": {
+                "0,0": "#00000000",
+                "815,515": "#ffffffff",
+                "125,125": "#e9dce3ff"
+              }
+            }
+          ],
+          "opened": []
+        }
       }
     },
     {
-      "name": "s5",
+      "name": "Super+Shift+5: the toolbar, its three captures, a selection to begin with",
       "do": [
         "key",
         [
@@ -124,19 +396,176 @@
           6
         ]
       ],
-      "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "output_pixels": {
+          "725,848": "#eef1fa"
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Toolbar",
+              "name": "Captura de pantalla"
+            },
+            {
+              "role": "Button",
+              "name": "Cerrar"
+            },
+            {
+              "role": "Button",
+              "name": "Capturar pantalla completa",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Capturar ventana seleccionada",
+              "state": []
+            },
+            {
+              "role": "Button",
+              "name": "Capturar parte seleccionada",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Opciones"
+            },
+            {
+              "role": "Button",
+              "name": "Capturar"
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "esc",
+      "name": "The entire screen chosen in it",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Capturar pantalla completa"
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "focus_input": "line",
+        "focus_surface": 1,
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Capturar pantalla completa",
+              "state": [
+                "selected"
+              ]
+            },
+            {
+              "role": "Button",
+              "name": "Capturar parte seleccionada",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Return: what the toolbar shows, the whole display, without the toolbar; it ends",
       "do": [
         "key",
         [
-          1
+          28
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        },
+        "focus_input": "line",
+        "focus_surface": 1,
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Captura de pantalla guardada"
+          }
+        ],
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Toolbar",
+              "name": "Captura de pantalla"
+            }
+          ]
+        },
+        "screenshots": {
+          "saved": [
+            {
+              "name": "Screenshot \\d{4}-\\d{2}-\\d{2} at \\d{2}\\.\\d{2}\\.\\d{2}( \\(2\\))?\\.png",
+              "folder": "Desktop",
+              "width": 1600,
+              "height": 1000,
+              "pixels": {
+                "725,848": "#799bfe",
+                "800,650": "#ffffff"
+              }
+            }
+          ],
+          "opened": []
+        }
+      }
+    },
+    {
+      "name": "The interface gone, keys are Allo's again",
+      "do": [
+        "key",
+        [
+          30
         ]
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "react": {},
+        "focus_input": "line",
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "The thumbnail pressed: the screenshot opens in Stash, the file in its launch record",
+      "do": [
+        "press_output",
+        [
+          1170,
+          680
+        ]
+      ],
+      "expect": {
+        "screenshots": {
+          "saved": [],
+          "opened": [
+            {
+              "application": "so.oxy.stash"
+            }
+          ]
+        }
+      }
     }
   ],
   "outputs": "1600x1000@1.25"

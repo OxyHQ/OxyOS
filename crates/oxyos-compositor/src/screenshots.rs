@@ -226,7 +226,9 @@ struct Job {
 
 /// Writes screenshots on a thread of its own (the module's doc).
 pub struct Writer {
-    jobs: mpsc::Sender<Job>,
+    /// Its thread's work; none once it is dropped, which ends the thread.
+    jobs: Option<mpsc::Sender<Job>>,
+    thread: Option<std::thread::JoinHandle<()>>,
     finished: Arc<Mutex<VecDeque<Saved>>>,
     wake: UnixStream,
     folders: Folders,
@@ -246,7 +248,7 @@ impl Writer {
         let (jobs, received) = mpsc::channel::<Job>();
         let finished = Arc::new(Mutex::new(VecDeque::new()));
         let queue = finished.clone();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("oxyos-screenshots".into())
             .spawn(move || {
                 for job in received {
@@ -285,7 +287,8 @@ impl Writer {
                 }
             })?;
         Ok(Self {
-            jobs,
+            jobs: Some(jobs),
+            thread: Some(thread),
             finished,
             wake,
             folders,
@@ -315,8 +318,8 @@ impl Writer {
             })
             .collect();
         let numbers = captures.iter().map(|(screenshot, _)| *screenshot).collect();
-        if !captures.is_empty() {
-            let _ = self.jobs.send(Job {
+        if let (false, Some(jobs)) = (captures.is_empty(), &self.jobs) {
+            let _ = jobs.send(Job {
                 folder,
                 at,
                 language: self.language,
@@ -353,6 +356,16 @@ impl Writer {
     /// Where a screenshot it wrote is.
     pub fn path(&self, screenshot: u32) -> Option<&Path> {
         self.paths.get(&screenshot).map(PathBuf::as_path)
+    }
+}
+
+impl Drop for Writer {
+    /// Writes what it was given, then its thread ends and is waited for: nothing of it outlives it.
+    fn drop(&mut self) {
+        self.jobs = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

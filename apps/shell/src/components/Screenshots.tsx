@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  Animated,
   Image,
   StyleSheet,
   type GestureResponderEvent,
@@ -103,6 +102,7 @@ export function Screenshots({
   // A new interface begins without a drag; the toolbar's begins with a selection to adjust.
   useEffect(() => {
     setDrag(null);
+    dragging.current = null;
     setOptions(false);
     setSelection(toolbar && size.width > 0 ? defaultSelection(size.width, size.height) : null);
     if (serial === null) setCountdown(null);
@@ -155,31 +155,43 @@ export function Screenshots({
     x: event.nativeEvent.pageX,
     y: event.nativeEvent.pageY,
   });
+  // A press, its moves and its release may come in one batch, before React renders again, and so
+  // may the window under the pointer the compositor told just before the press: the handlers read
+  // what is latest, never what the last render saw.
+  const dragging = useRef<{ from: Point; to: Point } | null>(null);
+  const latest = useRef({ picking, selecting, toolbar, mode, target, size });
+  latest.current = { picking, selecting, toolbar, mode, target, size };
   const press = (event: GestureResponderEvent) => {
-    if (selecting) {
+    if (latest.current.selecting) {
       const at = point(event);
-      setDrag({ from: at, to: at });
+      dragging.current = { from: at, to: at };
+      setDrag(dragging.current);
     }
   };
   const move = (event: GestureResponderEvent) => {
-    if (drag) setDrag({ from: drag.from, to: point(event) });
+    if (!dragging.current) return;
+    dragging.current = { from: dragging.current.from, to: point(event) };
+    setDrag(dragging.current);
   };
   const release = (event: GestureResponderEvent) => {
-    if (picking) {
-      if (!target?.window) return;
-      if (toolbar) fromToolbar({ kind: "window", window: target.window });
-      else take({ kind: "window", window: target.window });
+    const now = latest.current;
+    if (now.picking) {
+      if (!now.target?.window) return;
+      if (now.toolbar) fromToolbar({ kind: "window", window: now.target.window });
+      else take({ kind: "window", window: now.target.window });
       return;
     }
-    if (toolbar && mode === "screen") {
+    if (now.toolbar && now.mode === "screen") {
       fromToolbar({ kind: "screens" });
       return;
     }
-    if (!drag) return;
-    const rect = within(spanned(drag.from, point(event)), size.width, size.height);
+    const started = dragging.current;
+    dragging.current = null;
     setDrag(null);
+    if (!started) return;
+    const rect = within(spanned(started.from, point(event)), now.size.width, now.size.height);
     if (!rect) return;
-    if (toolbar) setSelection(rect);
+    if (now.toolbar) setSelection(rect);
     else take({ kind: "area", rect: toGlobal(rect, output) });
   };
 
@@ -471,7 +483,7 @@ function CaptureOptions({
 
 /**
  * The latest screenshot of this display, floating at its bottom-right corner for a few seconds as
- * a Mac's: it slides in, a press opens it, dragging it moves it and dragging it right sends it
+ * a Mac's: it arrives, a press opens it, dragging it moves it and dragging it right sends it
  * away (there is no dragging it into an application: OxyOS has no drag and drop between clients
  * yet). Said to the screen reader as it arrives; never captured.
  */
@@ -505,16 +517,13 @@ function Thumbnail({
     const gone = setTimeout(() => setShown(null), THUMBNAIL_MS);
     return () => clearTimeout(gone);
   }, [shown, held]);
-  // Sliding in from the right edge, and following the pointer while it is dragged.
-  const slide = useRef(new Animated.Value(0)).current;
+  // It arrives as the compositor brings an overlay in (docs/adr/0011-transitions.mdx), and follows
+  // the pointer while it is dragged.
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const from = useRef<Point | null>(null);
   const box = shown ? thumbnailSize(shown.width, shown.height) : { width: 0, height: 0 };
   useEffect(() => {
-    if (!shown) return;
-    setOffset({ x: 0, y: 0 });
-    slide.setValue(box.width + 32);
-    Animated.timing(slide, { toValue: 0, duration: 240, useNativeDriver: true }).start();
+    if (shown) setOffset({ x: 0, y: 0 });
   }, [shown?.id]);
   if (!shown || hidden) return null;
   const at = (event: GestureResponderEvent): Point => ({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY });
@@ -525,7 +534,7 @@ function Thumbnail({
       excludeFromCapture
       style={{ position: "absolute", right: 16, bottom, width: box.width, height: box.height }}
     >
-      <Animated.View
+      <Box
         testID="screenshot-thumbnail"
         accessible
         accessibilityRole="button"
@@ -566,7 +575,7 @@ function Thumbnail({
           borderColor: "#ffffff",
           backgroundColor: "#ffffff",
           boxShadow: "0 8px 28px #0b183a59",
-          transform: [{ translateX: Animated.add(slide, offset.x) }, { translateY: offset.y }],
+          transform: [{ translateX: offset.x }, { translateY: offset.y }],
         }}
       >
         <Image
@@ -574,7 +583,7 @@ function Thumbnail({
           style={{ width: box.width - 4, height: box.height - 4 }}
           resizeMode="cover"
         />
-      </Animated.View>
+      </Box>
     </Surface>
   );
 }

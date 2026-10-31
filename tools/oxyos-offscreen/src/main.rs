@@ -458,6 +458,8 @@ impl Session {
         }
         // The render node the offer of GPU buffers holds goes with the session.
         self.compositor.withdraw_gpu_buffers();
+        // The screenshots' writer, its thread waited for (it has written all it was given).
+        self.compositor.screenshots = None;
         let fds = open_descriptors()?;
         if fds != self.baseline_fds {
             return Err(format!(
