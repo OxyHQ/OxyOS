@@ -184,14 +184,17 @@ struct CpuPaintScope {
 };
 // A canvas's pixels, read back from the GPU when it is drawn there.
 std::vector<uint32_t> canvasPixels(const Canvas& canvas);
-// The largest difference of any channel between two frames of one size, and how many pixels
-// differ by more than 3 levels in a channel (decision 13's parity check).
+// Two frames of one size, `width` pixels wide, compared (decision 13's parity check): the largest
+// difference of any channel, how many pixels differ by more than 3 levels in a channel, and the
+// largest difference of any channel between their 4 × 4 blocks' means (Skia's raster and Vulkan
+// backends anti-alias each their own way, which a block's mean evens out).
 struct FrameDifference {
   int largest = 0;
   size_t beyondThree = 0;
   size_t pixels = 0;
+  int blocks = 0;
 };
-FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b);
+FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b, int width);
 
 // The focused text input's editing state, drawn over its text (textinput.h owns it). Offsets
 // are UTF-8 byte offsets into the input's text.

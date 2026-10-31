@@ -1518,23 +1518,42 @@ std::vector<uint32_t> canvasPixels(const Canvas& canvas) {
   return pixels;
 }
 
-FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b) {
+FrameDifference compareFrames(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b, int width) {
   FrameDifference difference;
   difference.pixels = std::min(a.size(), b.size());
-  if (a.size() != b.size()) {
-    difference.largest = 255;
+  if (a.size() != b.size() || width <= 0) {
+    difference.largest = difference.blocks = 255;
     difference.beyondThree = std::max(a.size(), b.size());
     return difference;
   }
+  auto channel = [](uint32_t pixel, int shift) { return static_cast<int>((pixel >> shift) & 0xff); };
   for (size_t i = 0; i < a.size(); ++i) {
     if (a[i] == b[i]) continue;
     int largest = 0;
-    for (int shift = 0; shift < 32; shift += 8) {
-      largest = std::max(largest, std::abs(static_cast<int>((a[i] >> shift) & 0xff) -
-                                           static_cast<int>((b[i] >> shift) & 0xff)));
-    }
+    for (int shift = 0; shift < 32; shift += 8) largest = std::max(largest, std::abs(channel(a[i], shift) - channel(b[i], shift)));
     difference.largest = std::max(difference.largest, largest);
     difference.beyondThree += largest > 3;
+  }
+  // Each 4 × 4 block's mean, channel by channel: anti-aliasing worked out otherwise averages away,
+  // an edge a pixel off, a glyph missing or a layer misplaced does not.
+  const int height = static_cast<int>(a.size() / static_cast<size_t>(width));
+  for (int by = 0; by < height; by += 4) {
+    for (int bx = 0; bx < width; bx += 4) {
+      int sums[2][4] = {};
+      for (int y = by; y < std::min(by + 4, height); ++y) {
+        for (int x = bx; x < std::min(bx + 4, width); ++x) {
+          size_t at = static_cast<size_t>(y) * width + x;
+          for (int c = 0; c < 4; ++c) {
+            sums[0][c] += channel(a[at], c * 8);
+            sums[1][c] += channel(b[at], c * 8);
+          }
+        }
+      }
+      int count = (std::min(by + 4, height) - by) * (std::min(bx + 4, width) - bx);
+      for (int c = 0; c < 4; ++c) {
+        difference.blocks = std::max(difference.blocks, std::abs(sums[0][c] - sums[1][c]) / count);
+      }
+    }
   }
   return difference;
 }

@@ -1826,7 +1826,7 @@ int main(int argc, char** argv) {
                 oxyos::draw(tree, display, cpu, drawn);
               }
               auto gpuPixels = oxyos::canvasPixels(windowCanvas);
-              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels);
+              auto difference = oxyos::compareFrames(gpuPixels, cpu.pixels, cpu.width);
               if (const char* dump = std::getenv("OXYOS_HOST_RENDER_DUMP"); dump && difference.largest > 32) {
                 static int dumped = 0;
                 oxyos::Canvas gpuFrame{windowCanvas.width, windowCanvas.height, gpuPixels, nullptr};
@@ -1834,8 +1834,7 @@ int main(int argc, char** argv) {
                 oxyos::writePng(cpu, std::string(dump) + "/cpu-" + std::to_string(dumped) + ".png");
                 ++dumped;
               }
-              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference.largest, difference.beyondThree,
-                                               difference.pixels);
+              oxyos::Report::get().renderCheck(oxyos::Window::kToplevel, difference);
             }
             // The damage in the canvas's pixels, rounded outward.
             std::vector<OxyOSRect> pixels;
