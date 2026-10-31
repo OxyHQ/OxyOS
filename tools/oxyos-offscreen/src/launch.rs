@@ -3528,6 +3528,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if session.ime.take().is_some() {
         session.compositor.scene.disconnect(crate::ime::IME);
     }
+    if session.pasteboard.take().is_some() {
+        session
+            .compositor
+            .scene
+            .disconnect(crate::pasteboard::PASTEBOARD);
+        session.compositor.local_pipes.clear();
+    }
     // Its socket closes with the session; the shell, a client like the others, is waited for.
     session.compositor.shell_listener = None;
     session.compositor.reader_listener = None;
