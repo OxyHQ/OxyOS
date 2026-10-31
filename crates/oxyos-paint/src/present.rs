@@ -508,18 +508,9 @@ pub(crate) fn present(
         .filter(|(told, _)| *told == format)
         .map(|(_, modifier)| *modifier)
         .collect();
-    let shareable = |offered: &[u64]| -> Vec<u64> {
-        paint
-            .gpu
-            .exportable
-            .iter()
-            .map(|(modifier, _)| *modifier)
-            .filter(|modifier| offered.contains(modifier))
-            .collect()
-    };
-    let mut modifiers = shareable(&scanout);
+    let mut modifiers = best_shared(&scanout, &paint.gpu.exportable);
     if modifiers.is_empty() {
-        modifiers = shareable(&composed);
+        modifiers = best_shared(&composed, &paint.gpu.exportable);
     }
     if modifiers.is_empty() {
         return Err(Error(
@@ -540,6 +531,32 @@ pub(crate) fn present(
     );
     paint.surfaces.insert(surface, chain);
     result
+}
+
+/// The modifiers offered for a buffer the driver picks from (it knows which of its own tilings
+/// is best): of those the compositor takes (`offered`) and this device exports (`exportable`,
+/// with their plane counts), the best kind both share, as the compositor ranks them (ADR 0031,
+/// decision 2): tiled ones of a single plane, else linear, else those with auxiliary planes.
+/// Offered all at once, a driver may take linear or a compressed one when a tiled one would do.
+pub(crate) fn best_shared(offered: &[u64], exportable: &[(u64, u32)]) -> Vec<u64> {
+    let shared: Vec<(u64, u32)> = exportable
+        .iter()
+        .copied()
+        .filter(|(modifier, _)| offered.contains(modifier))
+        .collect();
+    let kind = |(modifier, planes): (u64, u32)| match (modifier, planes) {
+        (_, planes) if planes > 1 => 2,
+        (super::LINEAR, _) => 1,
+        _ => 0,
+    };
+    let Some(best) = shared.iter().map(|&entry| kind(entry)).min() else {
+        return Vec::new();
+    };
+    shared
+        .into_iter()
+        .filter(|&entry| kind(entry) == best)
+        .map(|(modifier, _)| modifier)
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

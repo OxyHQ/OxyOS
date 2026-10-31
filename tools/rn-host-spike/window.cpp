@@ -1,5 +1,6 @@
 #include "window.h"
 
+#include "frame-diagnostics.h"
 #include "report.h"
 
 #include <algorithm>
@@ -77,6 +78,7 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     if (event.kind == OXYOS_EVENT_CONFIGURE && target) {
       float scale = event.scale_120 / 120.0f;
       if (event.width != target->width || event.height != target->height || scale != target->scale) {
+        if (!target->resized) target->resizedAt = std::chrono::steady_clock::now();
         target->resized = true;
       }
       target->x = static_cast<float>(event.x);
@@ -174,6 +176,7 @@ bool Window::resized() {
   auto& toplevel = surfaces_.at(kToplevel);
   bool resized = toplevel.resized;
   toplevel.resized = false;
+  if (resized) resizedAt_ = toplevel.resizedAt;
   return resized;
 }
 
@@ -254,6 +257,7 @@ bool Window::disconnected() const {
 
 void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
   Surface& target = surfaces_.at(id);
+  FrameDiagnostics::Scope presenting(FrameDiagnostics::Part::Present);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
   // protocol's XRGB8888 / premultiplied ARGB8888 layout.
   uint32_t format = id == kToplevel ? OXYOS_FORMAT_XRGB8888 : OXYOS_FORMAT_ARGB8888;
@@ -292,6 +296,7 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   } else {
     parts["total_ms"] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
   }
+  FrameDiagnostics::get().presented(onGpu, onGpu ? times.sync_ms : 0);
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height

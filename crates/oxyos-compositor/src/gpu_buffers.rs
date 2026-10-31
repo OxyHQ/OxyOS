@@ -835,6 +835,14 @@ impl Compositor {
         if Rc::strong_count(&found.uses) > 1 {
             return false;
         }
+        // Held by the compositor's queue since a frame first showed it: released to the client's
+        // by the next submission, then read until that is done.
+        if let (Some(image), Some(gpu)) = (found.image, self.gpu.as_mut()) {
+            if gpu.compositor.holds_dma_buf(image) {
+                gpu.compositor.release_dma_buf(image);
+                return false;
+            }
+        }
         let reading = match (found.image, &self.gpu) {
             (Some(image), Some(gpu)) => gpu.compositor.reads_dma_buf(image),
             _ => false,
@@ -938,6 +946,13 @@ impl Compositor {
                 self.send_to(client, event);
             } else {
                 self.gpu_buffers.released.push((client, event));
+            }
+        }
+        // Buffers let go and still held, when no composition released them: released now, unless
+        // a submission is in flight (then on a later turn).
+        if let Some(gpu) = &mut self.gpu {
+            if let Err(error) = gpu.compositor.submit_releases() {
+                eprintln!("[gpu] {error}");
             }
         }
         self.gpu_buffers.collect_orphans(&mut self.gpu);

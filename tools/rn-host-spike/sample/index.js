@@ -30,6 +30,7 @@ import HoverProbe from './HoverProbe';
 import GlideProbe from './GlideProbe';
 import OverscrollProbe from './OverscrollProbe';
 import TimingProbe from './TimingProbe';
+import FrameProbe from './FrameProbe';
 import ClipProbe from './ClipProbe';
 
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
@@ -59,4 +60,5 @@ AppRegistry.registerComponent('HoverProbe', () => HoverProbe);
 AppRegistry.registerComponent('GlideProbe', () => GlideProbe);
 AppRegistry.registerComponent('OverscrollProbe', () => OverscrollProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
+AppRegistry.registerComponent('FrameProbe', () => FrameProbe);
 AppRegistry.registerComponent('ClipProbe', () => ClipProbe);

@@ -7,6 +7,7 @@
 #include "damage.h"
 #include "expo-blur.h"
 #include "files.h"
+#include "frame-diagnostics.h"
 #include "keyboard-controller.h"
 #include "masked-view.h"
 #include "gesture-handler.h"
@@ -224,6 +225,17 @@ class Mounter : public SchedulerDelegate {
       // returned even when nothing was committed.
       auto transaction = coordinator->pullTransaction();
       if (transaction && !transaction->getMutations().empty()) {
+        oxyos::FrameDiagnostics::Scope mounting(oxyos::FrameDiagnostics::Part::Mount);
+        // Where its commit's time went (Fabric's telemetry): the commit, its layout (Yoga) and
+        // the text measured in that layout.
+        const auto& telemetry = transaction->getTelemetry();
+        auto since = [](auto from, auto to) {
+          return std::max(0.0, std::chrono::duration<double, std::milli>(to - from).count());
+        };
+        oxyos::FrameDiagnostics::get().committed(
+            since(telemetry.getCommitStartTime(), telemetry.getCommitEndTime()),
+            since(telemetry.getLayoutStartTime(), telemetry.getLayoutEndTime()),
+            std::chrono::duration<double, std::milli>(telemetry.getTextMeasureTime()).count());
         if (beforeApply) beforeApply(transaction->getMutations());
         oxyos::Report::get().committed(transaction->getMutations());
         tree_.apply(transaction->getMutations());
@@ -354,6 +366,13 @@ int main(int argc, char** argv) {
   }
   std::signal(SIGSEGV, crashed);
   std::signal(SIGABRT, crashed);
+  // The application this process runs, as its report and the session's log name it: the id the
+  // session launched it with, else its module (the shell's always: an id in its environment is
+  // whatever started it passing its own on).
+  const char* launchedId = std::getenv("OXYOS_APP_ID");
+  const bool asShell = std::string(argv[3]) == "--shell";
+  const std::string applicationName = launchedId && *launchedId && !asShell ? launchedId : argv[2];
+  oxyos::Report::get().open(applicationName);
   stage("main");
   const std::string bundlePath = argv[1], moduleName = argv[2], outPath = argv[3];
   // The session's shell (docs/adr/0009-session-shell.mdx) is a window of another kind.
@@ -594,6 +613,8 @@ int main(int argc, char** argv) {
       }
       // The painter is started now, beside the runtime and the application loading.
       window->choosePainter();
+      // Where the window's frames spend their time, in the session's log (frame-diagnostics.h).
+      oxyos::FrameDiagnostics::get().start(applicationName);
       window->resized();
       display = oxyos::Display{window->width(), window->height(), window->scale(),
                                window->drawing().dark ? oxyos::Display::kDarkWindowBackground
@@ -877,9 +898,18 @@ int main(int argc, char** argv) {
             return folly::dynamic::object("active", window->active())("maximized", window->maximized())(
                 "fullscreen", window->fullscreen());
           },
-          .close = [&closeAsked] { closeAsked = true; },
-          .minimize = [&window] { window->minimize(); },
-          .zoom = [&window] { window->setMaximized(!window->maximized()); },
+          .close = [&closeAsked] {
+            closeAsked = true;
+            oxyos::FrameDiagnostics::get().closeAsked("the application");
+          },
+          .minimize = [&window] {
+            oxyos::FrameDiagnostics::get().minimizeAsked();
+            window->minimize();
+          },
+          .zoom = [&window] {
+            oxyos::FrameDiagnostics::get().zoomAsked(!window->maximized());
+            window->setMaximized(!window->maximized());
+          },
           // From the press being handled: JavaScript asks while it handles that press, so the
           // latest press is it, and the compositor checks it is still held.
           .startMove = [&window, &lastPress] {
@@ -1150,8 +1180,13 @@ int main(int argc, char** argv) {
     int quietTurns = 0;  // turns in a row in which JavaScript ran nothing and nothing mounted
     int settleTurns = 0;
     try {
-      // What runs JavaScript, timed for the report (Report::javascript).
-      auto javascript = [](auto&& run) {
+      // Where the turn's time goes, for the session's log (frame-diagnostics.h).
+      auto& diagnostics = oxyos::FrameDiagnostics::get();
+      using Part = oxyos::FrameDiagnostics::Part;
+      using Scope = oxyos::FrameDiagnostics::Scope;
+      // What runs JavaScript, timed for the report (Report::javascript) and the diagnostics.
+      auto javascript = [](Part part, auto&& run) {
+        Scope scope(part);
         if (!oxyos::Report::get().enabled()) return run();
         auto started = Clock::now();
         bool ran = run();
@@ -1160,22 +1195,39 @@ int main(int argc, char** argv) {
       };
       while (true) {
         oxyos::Report::get().beginTurn();
-        Beat::tickAll();
-        bool ranJs = javascript([&] { return loop->drain(); });
+        diagnostics.beginTurn();
+        {
+          Scope beat(Part::JavaScript);
+          Beat::tickAll();
+        }
+        bool ranJs = javascript(Part::JavaScript, [&] { return loop->drain(); });
         bool pulled = mounter.pull();
         bool busy = ranJs || pulled;
-        busy |= timers->fire(timerManager);
-        busy |= gestures->tick();
-        // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
-        // as a mount, a UI job or a frame asked for.
-        bool uiFrame = javascript([&] { return worklets.tick(); });
-        busy |= javascript([&] { return reanimated.tick(); });
-        busy |= animated.tick();
-        busy |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
-        busy |= pointer.tick(window->ready(oxyos::Window::kToplevel));
-        busy |= networking.deliver();
-        busy |= files.deliver();
-        busy |= deliverApplication(services);
+        if (busy) diagnostics.trigger("JavaScript", 0);
+        // A timer's callback, a requestAnimationFrame's, runs on the next drain.
+        if (timers->fire(timerManager)) {
+          diagnostics.trigger("a timer");
+          busy = true;
+        }
+        bool uiFrame = false;
+        {
+          Scope animation(Part::Animation);
+          bool animating = gestures->tick();
+          // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
+          // as a mount, a UI job or a frame asked for.
+          uiFrame = javascript(Part::Animation, [&] { return worklets.tick(); });
+          animating |= javascript(Part::Animation, [&] { return reanimated.tick(); });
+          animating |= animated.tick();
+          animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+          animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
+          if (animating) diagnostics.trigger("an animation frame");
+          busy |= animating;
+        }
+        bool arrived = networking.deliver();
+        arrived |= files.deliver();
+        arrived |= deliverApplication(services);
+        if (arrived) diagnostics.trigger("data arriving");
+        busy |= arrived;
         // The wallpaper follows the sun (docs/adr/0012-solar-wallpaper.mdx), and the applications
         // the session's registry (docs/adr/0030-installing-applications.mdx): each looked at.
         bool wallpaperChanged = shellMode && shellState.tick();
@@ -1195,9 +1247,11 @@ int main(int argc, char** argv) {
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults;
         bool responded = false;
-        if (!window->dispatch([&](const OxyOSEvent& event) {
+        Part handling = diagnostics.enter(Part::Events);
+        bool connected = window->dispatch([&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
+              diagnostics.input(event.kind, event.detail, event.time_ns);
               shellChanged |= shellState.observe(event);
               if (event.kind == OXYOS_EVENT_AUTHENTICATION_RESULT) authenticated = event;
               if (event.kind == OXYOS_EVENT_LAUNCH_RESULT) launchResults.push_back(event);
@@ -1257,6 +1311,7 @@ int main(int argc, char** argv) {
               }
               if (event.kind == OXYOS_EVENT_CLOSE_REQUESTED && event.surface == oxyos::Window::kToplevel) {
                 closeRequested = true;
+                diagnostics.closeAsked("the session");
                 oxyos::Report::get().input("close.requested", event.surface);
               }
               // A key press is offered to JavaScript first (Bloom's menu shortcuts, ADR 0021); one
@@ -1327,13 +1382,15 @@ int main(int argc, char** argv) {
               }
               pointer.handle(event);
               editing.handle(event);
-            })) {
-          break;
-        }
+            });
+        diagnostics.leave(handling);
+        if (!connected) break;
+        if (!shellMode) diagnostics.windowState(window->maximized(), window->active());
         // The window's display's refresh, told before its first configure and when it changes.
         if (window->refreshMhz() != toldRefresh) {
           toldRefresh = window->refreshMhz();
           refresh.set(toldRefresh);
+          diagnostics.setRefresh(refresh.periodMs());
           oxyos::Report::get().refresh(toldRefresh);
         }
         if (closeRequested || closeAsked) {
@@ -1611,6 +1668,7 @@ int main(int argc, char** argv) {
         // The GPU's painter, started on a thread of its own, takes over: everything is drawn whole
         // on it.
         if (window->painterStarted()) {
+          diagnostics.trigger("the GPU painter starting");
           painterChanged = true;
           dirty = true;
           busy = true;
@@ -1619,6 +1677,7 @@ int main(int argc, char** argv) {
         }
         bool resized = window->resized();
         if (resized) {
+          diagnostics.resized(window->resizedAt(), window->width(), window->height());
           display = oxyos::Display{window->width(), window->height(), window->scale(), display.background};
           pointer.setScale(display.scale);
           // useWindowDimensions and Dimensions follow the window (a resize, the output's scale or
@@ -1626,9 +1685,13 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("didUpdateDimensions", oxyos::deviceDimensions(display)));
           auto laying = Clock::now();
-          layOut();
-          oxyos::Report::get().layout(display.width, display.height,
-                                      std::chrono::duration<double, std::milli>(Clock::now() - laying).count());
+          {
+            Scope fabric(Part::JavaScript);
+            layOut();
+          }
+          double laidOutMs = std::chrono::duration<double, std::milli>(Clock::now() - laying).count();
+          diagnostics.laidOut(laidOutMs);
+          oxyos::Report::get().layout(display.width, display.height, laidOutMs);
           // A new size or scale needs a new frame even when the layout does not change (a
           // scale change keeps every logical frame); the old one would be discarded.
           dirty = true;
@@ -1662,9 +1725,9 @@ int main(int argc, char** argv) {
           bool timedOut = Clock::now() >= *settleBy;
           if (quietTurns >= 2 || timedOut) {
             settleBy.reset();
-            oxyos::Report::get().settled(
-                std::chrono::duration<double, std::milli>(Clock::now() - settleFrom).count(), settleTurns,
-                timedOut && quietTurns < 2);
+            double settledMs = std::chrono::duration<double, std::milli>(Clock::now() - settleFrom).count();
+            diagnostics.settled(settledMs, timedOut && quietTurns < 2);
+            oxyos::Report::get().settled(settledMs, settleTurns, timedOut && quietTurns < 2);
           }
         }
         bool settling = settleBy.has_value();
@@ -1672,6 +1735,7 @@ int main(int argc, char** argv) {
         // Images load at the size they are drawn; a picture arriving draws its view again.
         if (resized || mounted) images.sync(display.scale);
         if (images.deliver()) {
+          diagnostics.trigger("an image arriving");
           dirty = true;
           busy = true;
           popups.changed();
@@ -1721,6 +1785,7 @@ int main(int argc, char** argv) {
         // Every configure is answered with a frame, even one that changes nothing it shows.
         if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
         if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
+          Scope drawing(Part::Draw);
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
           if (painterChanged) damage.reset();
@@ -1800,8 +1865,11 @@ int main(int argc, char** argv) {
             busy = true;
           }
         }
-        popups.present(drawn, focusName());
-        shellSurfaces.present(drawn, focusName());
+        {
+          Scope drawing(Part::Draw);
+          popups.present(drawn, focusName());
+          shellSurfaces.present(drawn, focusName());
+        }
         // What the turn did may change what worklets' and Reanimated's next frames act on
         // (Reanimated's mappers, the updates it commits): they get one.
         if (busy) worklets.wantFrame();
@@ -1818,13 +1886,15 @@ int main(int argc, char** argv) {
         // It waits only after a second idle turn, since what one turn dispatches (an event for
         // Fabric's beat) is delivered on the next.
         idleTurns = busy ? 0 : idleTurns + 1;
+        // A frame ready to draw whose window's frame before is not answered waits for the compositor.
+        diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
           for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
-                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel))}) {
+                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline()}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;
@@ -1850,6 +1920,7 @@ int main(int argc, char** argv) {
       std::cerr << "[host] " << error.what() << "\n";
       status = 1;
     }
+    oxyos::FrameDiagnostics::get().leaving();
     writeJsProfile();
     gestures->onCancelResponder = nullptr;
     gestures->onIntercept = nullptr;
@@ -1863,6 +1934,7 @@ int main(int argc, char** argv) {
     scheduler->unregisterSurface(surface);
     loop->drain();
     scheduler.reset();
+    oxyos::FrameDiagnostics::get().ended();
     return status == 0 && jsErrors == 0 ? 0 : 1;
   }
 
